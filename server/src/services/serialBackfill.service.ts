@@ -31,6 +31,11 @@ export interface SerialBackfillResult {
   inserted: number;
   /** Rows whose transient status was upgraded this pass. */
   upgraded: number;
+  /**
+   * Candidates not written: the document points at a deleted branch, or the
+   * live lifecycle changed the register row while this pass was reading.
+   */
+  skipped: number;
 }
 
 export async function backfillSerialLog(db: SerialBackfillDb): Promise<SerialBackfillResult> {
@@ -102,17 +107,40 @@ export async function backfillSerialLog(db: SerialBackfillDb): Promise<SerialBac
     }
   }
 
-  // 3. Stock operations → DAMAGED or IN_STOCK
-  const opRes = await db.query('SELECT id, type, branch_id, date_ad, items FROM stock_operations');
+  // 3. Stock operations → the state SER-1 assigns to that operation type.
+  // A maintenance pass must never contradict the live lifecycle: a sold or
+  // consumed unit is not "in stock", and a received pullout belongs to its
+  // destination, not the source branch. Reversed operations are skipped (their
+  // units were restored by the reversal), and MANUAL_ADJUSTMENT/unknown types
+  // move stock only, never a serial.
+  const opRes = await db.query(
+    'SELECT id, type, status, branch_id, destination_warehouse_id, date_ad, items FROM stock_operations'
+  );
   for (const op of opRes.rows) {
-    const damaged = op.type === 'DAMAGE' || op.type === 'DISPOSAL';
+    const opType = String(op.type || '').toUpperCase();
+    const opStatus = String(op.status || '').toUpperCase();
+    if (opStatus === 'CANCELLED') continue;
+    const pulloutReceived = opType === 'PULLOUT' && opStatus === 'RECEIVED';
+    const status =
+      opType === 'DAMAGE' || opType === 'DISPOSAL' ? 'DAMAGED'
+        : opType === 'CONSUMABLE_ISSUE' ? 'CONSUMED'
+          : opType === 'STOCK_OUT' ? 'SOLD'
+            : opType === 'PULLOUT' ? (pulloutReceived ? 'IN_STOCK' : 'IN_TRANSIT')
+              : null;
+    if (!status) continue;
+    const branchId = pulloutReceived
+      ? op.destination_warehouse_id || op.branch_id
+      : op.branch_id;
     for (const item of asArray(op.items)) {
+      // DAMAGED_STOCK lines never leave the damaged pool, so a pullout that
+      // carries them does not put those units in transit.
+      const damagedLine = opType === 'PULLOUT' && String(item.condition || '').toUpperCase() === 'DAMAGED_STOCK';
       for (const s of asArray(item.deviceSerials)) {
         if (!keyOf(s.deviceSerial)) continue;
         put({
           deviceSerial: String(s.deviceSerial).trim(), ponSerial: s.ponSerial, macAddress: s.macAddress,
           productId: item.productId, productName: item.productName,
-          branchId: op.branch_id, status: damaged ? 'DAMAGED' : 'IN_STOCK',
+          branchId, status: damagedLine ? 'DAMAGED' : status,
           sourceType: 'STOCK_OP', sourceId: op.id, dateAD: isoDate(op.date_ad),
         });
       }
@@ -152,41 +180,62 @@ export async function backfillSerialLog(db: SerialBackfillDb): Promise<SerialBac
     }, true);
   }
 
-  if (merged.size === 0) return { converged: 0, inserted: 0, upgraded: 0 };
+  if (merged.size === 0) return { converged: 0, inserted: 0, upgraded: 0, skipped: 0 };
 
   const existingRes = await db.query('SELECT id, device_serial, status, history_json FROM serial_log');
   const existing = new Map<string, any>();
   for (const r of existingRes.rows) existing.set(keyOf(r.device_serial), r);
 
-  let inserted = 0, updated = 0;
+  let inserted = 0, updated = 0, skipped = 0;
   for (const [, c] of merged) {
     const k = keyOf(c.deviceSerial);
     const row = existing.get(k);
     const entry = { status: c.status, sourceType: c.sourceType, sourceId: c.sourceId || null, dateAD: c.dateAD, notes: 'Auto backfill' };
     if (!row) {
       const id = `sl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      await db.query(
-        `INSERT INTO serial_log (id, device_serial, pon_serial, mac_address, product_id, product_name, branch_id, customer_id, customer_name, status, source_type, source_id, history_json, created_at, updated_at, is_demo)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,FALSE) ON CONFLICT DO NOTHING`,
-        [id, c.deviceSerial, c.ponSerial || null, c.macAddress || null, c.productId || null, c.productName || null,
-          c.branchId || null, c.customerId || null, c.customerName || null, c.status, c.sourceType, c.sourceId || null,
-          JSON.stringify([entry]), `${c.dateAD}T00:00:00Z`, new Date().toISOString()]
-      );
-      inserted++;
+      try {
+        await db.query(
+          // Historical documents can name a product or branch that has since
+          // been hard-deleted (the legacy JSON keeps ids that no longer exist).
+          // serial_log has real FKs on both, so a single orphan would abort the
+          // whole reconcile. Resolve the links at insert time instead: a dangling
+          // id becomes NULL, while the serial row and its recorded names (product
+          // and branch) still converge.
+          `INSERT INTO serial_log (id, device_serial, pon_serial, mac_address, product_id, product_name, branch_id, customer_id, customer_name, status, source_type, source_id, history_json, created_at, updated_at, is_demo)
+           VALUES ($1,$2,$3,$4,(SELECT id FROM products WHERE id = $5),$6,(SELECT id FROM branches WHERE id = $7),$8,$9,$10,$11,$12,$13,$14,$15,FALSE) ON CONFLICT DO NOTHING`,
+          [id, c.deviceSerial, c.ponSerial || null, c.macAddress || null, c.productId || null, c.productName || null,
+            c.branchId || null, c.customerId || null, c.customerName || null, c.status, c.sourceType, c.sourceId || null,
+            JSON.stringify([entry]), `${c.dateAD}T00:00:00Z`, new Date().toISOString()]
+        );
+        inserted++;
+      } catch (error: any) {
+        // A branch (or product) can be removed between reading the legacy
+        // document and writing the register row. That candidate is genuinely
+        // orphaned — a branch delete cascades its serial rows anyway — and one
+        // stale reference must not abort the whole reconcile. Report it.
+        if (error?.code !== '23503') throw error;
+        skipped++;
+      }
     } else if ((row.status === 'IN_STOCK' || row.status === 'IN_TRANSIT') && row.status !== c.status) {
       // Upgrade transient states only — never downgrade manual/terminal states.
       let history: any[] = [];
       try { history = JSON.parse(row.history_json || '[]'); } catch { history = []; }
       history.push(entry);
-      await db.query(
+      // Compare-and-set on the status this pass read: if the live lifecycle
+      // moved the unit while the pass was reading documents (a receive, a sale,
+      // a deploy), the row no longer matches and this stale candidate must not
+      // overwrite it. A maintenance action never wins a race against real work.
+      const result = await db.query(
         `UPDATE serial_log SET status = $1, customer_id = COALESCE($2, customer_id), customer_name = COALESCE($3, customer_name),
           pon_serial = COALESCE($4, pon_serial), mac_address = COALESCE($5, mac_address),
-          product_name = COALESCE($6, product_name), branch_id = COALESCE($7, branch_id),
-          source_type = $8, source_id = COALESCE($9, source_id), history_json = $10, updated_at = NOW() WHERE id = $11`,
+          product_name = COALESCE($6, product_name), branch_id = COALESCE((SELECT id FROM branches WHERE id = $7), branch_id),
+          source_type = $8, source_id = COALESCE($9, source_id), history_json = $10, updated_at = NOW()
+         WHERE id = $11 AND status = $12`,
         [c.status, c.customerId || null, c.customerName || null, c.ponSerial || null, c.macAddress || null,
-          c.productName || null, c.branchId || null, c.sourceType, c.sourceId || null, JSON.stringify(history), row.id]
+          c.productName || null, c.branchId || null, c.sourceType, c.sourceId || null, JSON.stringify(history), row.id, row.status]
       );
-      updated++;
+      if (result.rowCount === 1) updated++;
+      else skipped++;
     }
   }
 
@@ -200,5 +249,5 @@ export async function backfillSerialLog(db: SerialBackfillDb): Promise<SerialBac
     const { historyJson, ...rest } = r;
     return { ...rest, history };
   }));
-  return { converged: merged.size, inserted, upgraded: updated };
+  return { converged: merged.size, inserted, upgraded: updated, skipped };
 }

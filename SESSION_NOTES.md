@@ -1,19 +1,107 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-25 · Branch: main · Tests: 1226/1226 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-25 · Branch: main · Tests: 1236/1236 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
-> **Current state (2026-10-25, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2).** All DF-01…DF-17
+> **Current state (2026-10-25, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1).** All DF-01…DF-17
 > work, the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2, CPE-3,
-> SER-1 and SER-2 are done. B2 shipped the combined trigram search projection, so all eight
+> SER-1, SER-2 and TRIM-1 are done. C4 is explicitly parked (one
+> `bootstrap/local` call site already; see worklist §C4). B2 shipped the combined trigram search projection, so all eight
 > item searches share one indexed `search_text` column per table; B3/B4 stay
 > parked. CPE-3 resolved D1 and made the fixed asset, CPE row, serial register and
 > stock move together. SER-1 resolved D2: pullout/consumable/sale now issue their
 > units to `IN_TRANSIT`/`CONSUMED`/`SOLD`, each with a reversal. SER-2 resolved
 > D3: boot no longer backfills the serial register; the pass is an explicit
-> SUPER_ADMIN maintenance action. **A5 is not started** and is deliberately last;
-> A4b waits for it, so A5 is the next item in the temporary `worklist.md`.
+> SUPER_ADMIN maintenance action. **D4 (2026-10-25) defers A5**: measurements do
+> not show user-visible root cost, so A5 is not started and A4b stays blocked
+> behind it. The temporary `worklist.md` therefore has no open performance task;
+> reopen A5 only on the recorded trigger (see D4 below).
 > Older “Remaining …” paragraphs below are chronological notes, not a live
 > backlog; where they conflict with this note, the code and the worklist win.
+
+## ✅ TRIM-1 shipped — quick search is one bounded, scoped server read (2026-10-25)
+
+**Problem.** The global search modal received whole bootstrap slices (products,
+POs, PIs, shipments, fixed assets, customer devices, stock) and filtered them on
+every keystroke. That is bounded only by how much data the install holds — and
+this install is expected to grow well past 12k customers and cover Nepal-wide
+territory, so both the startup payload and the per-keystroke scan scale with the
+business. It was also the last screen filtering a whole deferred slice
+client-side.
+
+**Fix.** `GET /api/global-search?q=&branchId=` returns **at most five rows per
+group**, only the fields the modal renders, in six independent `LIMIT`ed reads.
+Query length is clamped to 2–80 characters and LIKE wildcards are escaped.
+Scope is a server decision: non-global roles are pinned to their own branch (no
+`branchId` cannot widen it; another branch is `403`), global roles may pass
+`ALL`, and `x-fiscal-year-id` scopes the document/asset/device groups.
+Indexes: POs/PIs reuse the B2 `search_text` projection; four new trigram GIN
+expression indexes (products, shipments, assets, customer devices) exactly match
+the query expressions. Demo mode returns the same bounded shape from the
+in-memory arrays. The modal debounces 250 ms, drops superseded responses, and
+renders loading / retryable error / empty as distinct states. Suppliers and
+branches stay local: they are the two small reference tables the shell already
+needs.
+
+**Also hardened (found while running the full suite).** The SER-2 reconcile was
+written before SER-1: it mapped every stock operation to `IN_STOCK`, so a
+maintenance pass could relist a `SOLD`/`CONSUMED` unit or move a received pullout
+back to its source, and one orphan product id in old document JSON aborted the
+whole pass on the `serial_log` FK. It now mirrors `issueStatusForOperation`
+(`SOLD`/`CONSUMED`/`DAMAGED`/`IN_TRANSIT`, received pullout → `IN_STOCK` at its
+destination, `CANCELLED` skipped, `MANUAL_ADJUSTMENT` moves no serial), resolves
+stale product/branch links at write time, counts `skipped` for a reference that
+still loses the race, and compares-and-sets on the status it read so a live
+receive/sale/deploy mid-pass is never overwritten. `skipped` is reported in the
+endpoint response and audit event.
+
+**Files.** [globalSearch.repo.ts](server/src/models/globalSearch.repo.ts),
+[globalSearch.controller.ts](server/src/controllers/globalSearch.controller.ts),
+[search.ts](client/src/services/api/search.ts),
+[GlobalSearchModal.tsx](client/src/components/common/GlobalSearchModal.tsx),
+[AppShell.tsx](client/src/components/layout/AppShell.tsx),
+[schema.sql](scripts/schema.sql), [serialBackfill.service.ts](server/src/services/serialBackfill.service.ts),
+[admin.controller.ts](server/src/controllers/admin.controller.ts).
+
+**Tests (10 new; suite 1236).** [globalSearch.api.test.ts](tests/globalSearch.api.test.ts)
+(5, real HTTP + PostgreSQL) and [globalSearchContract.test.ts](tests/globalSearchContract.test.ts)
+(5 source guards). The SER-2 suite gained lifecycle and orphan-product cases in
+[serialRegisterBackfill.test.ts](tests/serialRegisterBackfill.test.ts); the
+no-inline-SQL seeded fixtures now live in the OS temp dir, so a concurrent guard
+run can no longer scan them.
+
+**Verification.** `npx tsc --noEmit` clean. `npm test`: 1236 tests, 1234 pass, 0
+fail, 2 unconditional Windows signal skips; docs-count gate green at 1236.
+`npm run build` clean; `check:bundle-budget` **312.8 kB** startup / 15.7 kB entry
+(budgets 320 / 16) — the search store is server-side, so no client growth.
+`check:no-inline-sql` and `check:no-raw-dialogs` green.
+
+## ✅ D4 assessed — A5 deferred, with measurements (2026-10-25)
+
+A5 is the operational-data store. Its gate, D4, asked whether root re-renders or
+prop drilling are still user-visible after A1 (screen element memoisation), A3
+(session/scope contexts) and the targeted-SSE slice work.
+
+**Measured.** The root holds 23 operational arrays across 35 `useState`; the
+67-entry route table threads 756 prop passings (144 distinct, 236 handlers) and
+has **zero** derived-per-render props. With the real App mounted through the A6
+harness (4 tabs open, 120 stock rows, Profiler around `<App>`): a targeted STOCK
+SSE update commits ~298 ms total / 129 ms max and a full refresh ~381 ms total —
+the cost sits in the list screens that genuinely consume the changed rows, which
+a store would also re-render. The root's own work — building all 67 elements
+with ~11 props each and comparing the memo cache — is **2.1 ms per render**
+(Node micro-benchmark). A1 reuses the element object for any screen whose props
+are unchanged, so an unrelated mutation does not re-render mounted screens.
+
+**Decision.** Defer A5. The remaining debt (756 prop passings, ~100-value deps
+contract) is maintainability, not measured jank, and A5 is a week of high-risk
+churn. A4b stays blocked, as the backlog already requires. Reopen A5 only if a
+real-browser profile shows root commits above the 16 ms frame budget, or if
+A4b's typed deps contract becomes the priority. Recorded in
+[worklist.md](worklist.md) (D4 row) and
+[docs/architecture-backlog.md](docs/architecture-backlog.md#a5--data-store-for-operational-arrays-last).
+**Confirmed in a real browser (same day).** The production build (`node dist/server.cjs`, port 3123, logged in as the demo SUPER_ADMIN) mounted six tabs, then a reorder-level PATCH on a real stock row drove exactly the four targeted STOCK slice fetches — `stock`, `damageRecords`, `transactionLogs`, `financialSummary` — with no full `/api/bootstrap` call. `PerformanceObserver('longtask')` recorded **zero** long tasks during both the idle baseline and the update window, and the rAF cadence did not change (median 31.2 ms, max 31.6 ms vs a 31.7 ms baseline at the headless 30 Hz cadence). The mutated reorder level was restored to 40; the temporary server and log were removed. The deferral therefore stands on production-build evidence, not only jsdom.
+
+No production code changed for this assessment.
 
 ## ✅ SER-2 shipped — the serial register reconciles on demand, boot only points at it (2026-10-25)
 
@@ -34,7 +122,7 @@ have converged. Settings → Data Recalculation & Maintenance gains the
 **Reconcile Serial Register** card. [dbBoot.ts](server/src/boot/dbBoot.ts) no
 longer imports or calls the pass; it logs where the action lives.
 
-**Tests (6 new; suite 1226).** [tests/serialRegisterBackfill.test.ts](tests/serialRegisterBackfill.test.ts):
+**Tests (6 new; suite 1236).** [tests/serialRegisterBackfill.test.ts](tests/serialRegisterBackfill.test.ts):
 source guard (boot never calls/imports the pass and keeps the pointer log; the
 route carries `requireRole('SUPER_ADMIN')`), real-PostgreSQL convergence (invoice
 → `IN_STOCK`/`PURCHASE`, damage op → `DAMAGED`, customer device →
@@ -79,9 +167,9 @@ reversing the dispatch after that receipt is refused (`400`) with both branches'
 stock and the unit's branch unchanged — otherwise the source would be credited
 again while the unit sits at the destination.
 
-**Verification.** `npx tsc --noEmit` clean. The full run: `npm test` — 1226 tests
+**Verification.** `npx tsc --noEmit` clean. The full run: `npm test` — 1236 tests
 against a real PostgreSQL 16 service container, 1224 pass, 2 Windows-only skips,
-0 fail. Suite now 1226 tests; docs counts green. (The header's `Tests: 1226/1226`
+0 fail. Suite now 1236 tests; docs counts green. (The header's `Tests: 1236/1236`
 is the same run.)
 
 ## ✅ CPE-3 shipped — the fixed asset follows the CPE lifecycle, once per asset (2026-10-25)

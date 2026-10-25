@@ -365,9 +365,26 @@ every start, which hid unregistered legacy units (a restart silently created
 their rows) and rewrote transient states nobody asked it to touch.
 
 - **Where it lives now.** [serialBackfill.service.ts](../server/src/services/serialBackfill.service.ts)
-exports `backfillSerialLog(db)`, unchanged in rule: merge all five legacy sources,
-never downgrade a terminal state, refresh the in-memory register. It returns
-`{ converged, inserted, upgraded }` instead of logging.
+exports `backfillSerialLog(db)`: merge all five legacy sources, never downgrade a
+terminal state, refresh the in-memory register. It returns
+`{ converged, inserted, upgraded, skipped }` instead of logging.
+- **It agrees with the live lifecycle (2026-10-25 hardening).** The pass was
+written before SER-1 gave stock operations terminal states, so it mapped every
+operation to `IN_STOCK`. That would relist a sold or consumed unit and pull a
+received transfer back to its source. It now mirrors
+[issueStatusForOperation](../server/src/services/serialOperationLifecycle.service.ts#L31):
+`STOCK_OUT` → `SOLD`, `CONSUMABLE_ISSUE` → `CONSUMED`, `DAMAGE`/`DISPOSAL` →
+`DAMAGED`, `PULLOUT` → `IN_TRANSIT` (or `IN_STOCK` at
+`destination_warehouse_id` once `RECEIVED`), damaged-stock lines stay `DAMAGED`,
+`CANCELLED` operations are skipped, and `MANUAL_ADJUSTMENT` moves stock but
+never a serial.
+- **Stale references cannot abort it.** Historical document JSON keeps the
+product id it was written with. The insert resolves product and branch with a
+subquery, so a deleted id becomes `NULL` (the serial and its recorded names
+still converge); if a real FK still races a concurrent delete, that one
+candidate is skipped and counted instead of failing the whole pass. An update
+is a compare-and-set on the status the pass read, so a unit the lifecycle moved
+mid-pass (a receive, sale or deploy) is never overwritten — real work wins.
 - **How it runs.** `POST /api/admin/recalculate/serial-register`, SUPER_ADMIN-only
 (the route also sits under the global `/admin/` role rule), on the existing
 Settings → Data Recalculation & Maintenance surface. The response carries the
@@ -380,7 +397,9 @@ it logs where the action lives. Nothing in the boot path inserts register rows.
 Tests: [tests/serialRegisterBackfill.test.ts](../tests/serialRegisterBackfill.test.ts)
 — source guard for the boot retirement and the SUPER_ADMIN route, plus real-DB
 cases for convergence (invoice → `IN_STOCK`/`PURCHASE`, damage op → `DAMAGED`,
-customer device → `CUSTOMER_ASSIGNED`), idempotency (no duplicate rows), terminal
+customer device → `CUSTOMER_ASSIGNED`), the lifecycle mapping (`STOCK_OUT` →
+`SOLD`, received `PULLOUT` → `IN_STOCK` at the destination), an orphan product
+id that must not abort the pass, idempotency (no duplicate rows), terminal
 preservation (`RETURNED` survives), and HTTP gating (401 / 403 / 200).
 
 ## 7. Migration and reconciliation

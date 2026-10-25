@@ -48,10 +48,14 @@ try {
 const skipNoDb = !dbReachable && 'needs a reachable PostgreSQL (requirePostgres gate)';
 
 const BRANCH = 'sbr-branch';
+const BRANCH2 = 'sbr-branch-2';
 const PRODUCT = 'sbr-prod';
 const PI_SERIAL = 'SBR-PI-1';
 const DMG_SERIAL = 'SBR-DMG-1';
 const CDR_SERIAL = 'SBR-CDR-1';
+const ORPHAN_SERIAL = 'SBR-ORPHAN-1';
+const PULL_SERIAL = 'SBR-PULL-1';
+const SOLD_SERIAL = 'SBR-SOLD-1';
 
 describe('SER-2 boot retirement (source guard)', () => {
   const root = process.cwd();
@@ -89,8 +93,8 @@ describe('SER-2 on-demand serial-register reconcile', () => {
     if (!dbReachable) return;
     await cleanup();
     await pool!.query(
-      "INSERT INTO branches (id, code, name, location) VALUES ($1, 'SBRB', 'SBR Branch', 'T')",
-      [BRANCH]
+      "INSERT INTO branches (id, code, name, location) VALUES ($1, 'SBRB', 'SBR Branch', 'T'), ($2, 'SBRB2', 'SBR Branch 2', 'T')",
+      [BRANCH, BRANCH2]
     );
     await pool!.query(
       "INSERT INTO products (id, sku, name, category, product_group) VALUES ($1, 'SBRSKU', 'SBR ONU', 'Test', 'Product Item')",
@@ -102,12 +106,27 @@ describe('SER-2 on-demand serial-register reconcile', () => {
        VALUES ('sbr-pi', 'SBR-INV-1', 'SBR Supplier', $1, '2026-09-01', '2083-05-16 BS', $2::jsonb)`,
       [BRANCH, JSON.stringify([
         { productId: PRODUCT, productName: 'SBR ONU', quantity: 2, deviceSerials: [{ deviceSerial: PI_SERIAL, ponSerial: 'SBR-PON-1' }, { deviceSerial: DMG_SERIAL }] },
+        // A product that was deleted after the invoice was written: the legacy
+        // JSON still names it, and serial_log has a real FK on product_id.
+        { productId: 'sbr-prod-gone', productName: 'SBR Retired ONU', quantity: 1, deviceSerials: [{ deviceSerial: ORPHAN_SERIAL }] },
       ])]
     );
     await pool!.query(
       `INSERT INTO stock_operations (id, reference_number, type, branch_id, branch_name, product_id, quantity_changed, reason, date_ad, date_bs, status, items)
        VALUES ('sbr-op', 'SBR-OP-1', 'DAMAGE', $1, 'SBR Branch', $2, 1, 'sbr fixture', '2026-09-02', '2083-05-17 BS', 'LOGGED', $3::jsonb)`,
       [BRANCH, PRODUCT, JSON.stringify([{ productId: PRODUCT, productName: 'SBR ONU', quantity: 1, deviceSerials: [{ deviceSerial: DMG_SERIAL }] }])]
+    );
+    // Lifecycle states SER-1 introduced: a received pullout belongs to the
+    // destination, and a product sale is SOLD — never IN_STOCK again.
+    await pool!.query(
+      `INSERT INTO stock_operations (id, reference_number, type, branch_id, branch_name, destination_warehouse_id, destination_warehouse_name, product_id, quantity_changed, reason, date_ad, date_bs, status, items)
+       VALUES ('sbr-pull', 'SBR-PULL-1', 'PULLOUT', $1, 'SBR Branch', $2, 'SBR Branch 2', $3, 1, 'sbr fixture', '2026-09-04', '2083-05-19 BS', 'RECEIVED', $4::jsonb)`,
+      [BRANCH, BRANCH2, PRODUCT, JSON.stringify([{ productId: PRODUCT, productName: 'SBR ONU', quantity: 1, deviceSerials: [{ deviceSerial: PULL_SERIAL }] }])]
+    );
+    await pool!.query(
+      `INSERT INTO stock_operations (id, reference_number, type, branch_id, branch_name, product_id, quantity_changed, reason, date_ad, date_bs, status, items)
+       VALUES ('sbr-sale', 'SBR-SALE-1', 'STOCK_OUT', $1, 'SBR Branch', $2, 1, 'sbr fixture', '2026-09-05', '2083-05-20 BS', 'LOGGED', $3::jsonb)`,
+      [BRANCH, PRODUCT, JSON.stringify([{ productId: PRODUCT, productName: 'SBR ONU', quantity: 1, deviceSerials: [{ deviceSerial: SOLD_SERIAL }] }])]
     );
     // A customer assignment — the highest-priority source.
     await pool!.query(
@@ -139,10 +158,10 @@ describe('SER-2 on-demand serial-register reconcile', () => {
     if (!pool) return;
     await pool.query("DELETE FROM serial_log WHERE device_serial LIKE 'SBR-%'");
     await pool.query("DELETE FROM customer_device_records WHERE id = 'sbr-cdr'");
-    await pool.query("DELETE FROM stock_operations WHERE id = 'sbr-op'");
+    await pool.query("DELETE FROM stock_operations WHERE id LIKE 'sbr-%'");
     await pool.query("DELETE FROM purchase_invoices WHERE id = 'sbr-pi'");
     await pool.query("DELETE FROM products WHERE id = 'sbr-prod'");
-    await pool.query("DELETE FROM branches WHERE id = 'sbr-branch'");
+    await pool.query("DELETE FROM branches WHERE id LIKE 'sbr-%'");
   }
 
   async function serialRow(deviceSerial: string) {
@@ -188,6 +207,25 @@ describe('SER-2 on-demand serial-register reconcile', () => {
     assert.equal(assigned?.status, 'CUSTOMER_ASSIGNED');
     assert.equal(assigned?.sourceType, 'CUSTOMER_ASSIGN');
     assert.equal(assigned?.customerName, 'SBR Customer');
+
+    // A serial from a document whose product was hard-deleted must still
+    // converge: one orphan id cannot abort the whole register reconcile.
+    const orphan = await pool!.query(
+      'SELECT product_id, product_name, status FROM serial_log WHERE device_serial = $1',
+      [ORPHAN_SERIAL]
+    );
+    assert.equal(orphan.rowCount, 1, 'the orphan-product serial is still registered');
+    assert.equal(orphan.rows[0].product_id, null, 'a dangling product link is dropped, not fatal');
+    assert.equal(orphan.rows[0].product_name, 'SBR Retired ONU', 'the recorded name survives');
+    assert.equal(orphan.rows[0].status, 'IN_STOCK');
+
+    // A maintenance pass must agree with the live SER-1 lifecycle, not reset
+    // every stock operation to IN_STOCK.
+    const sold = await serialRow(SOLD_SERIAL);
+    assert.equal(sold?.status, 'SOLD', 'a sold unit is never relisted by the reconcile');
+    const received = await serialRow(PULL_SERIAL);
+    assert.equal(received?.status, 'IN_STOCK');
+    assert.equal(received?.branchId, BRANCH2, 'a received pullout belongs to its destination');
   });
 
   test('re-running inserts nothing and duplicates no serial', { skip: skipNoDb }, async () => {
@@ -226,6 +264,7 @@ describe('SER-2 on-demand serial-register reconcile', () => {
     assert.equal(allowed.status, 200, JSON.stringify(allowed.json));
     assert.equal(typeof allowed.json?.inserted, 'number');
     assert.equal(typeof allowed.json?.upgraded, 'number');
+    assert.equal(typeof allowed.json?.skipped, 'number', 'stale references are reported, not fatal');
     assert.match(String(allowed.json?.message || ''), /serial/);
   });
 });

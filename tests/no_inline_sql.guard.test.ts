@@ -9,8 +9,26 @@ import { findInlineSql, looksLikeSql, findConnectionViolations } from '../script
 import { runAsScript } from '../scripts/check_no_inline_sql';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 
 const CONTROLLERS_DIR = path.resolve(process.cwd(), 'server', 'src', 'controllers');
+
+/**
+ * Synthetic fixtures live outside the repo. When they were written to the
+ * project root, a concurrently running `check:no-inline-sql` (or a second copy
+ * of this file) could scan the seeded violation before the test deleted it and
+ * fail the whole run. The guard only needs a path, so a private temp dir is
+ * both race-free and leaves the tree clean.
+ */
+function seededFixture(source: string): { file: string; cleanup: () => void } {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'inline-sql-guard-'));
+  const file = path.join(dir, 'seeded.controller.ts');
+  fs.writeFileSync(file, source);
+  return {
+    file,
+    cleanup: () => fs.rmSync(dir, { recursive: true, force: true }),
+  };
+}
 
 describe('no-inline-sql guard', () => {
   describe('looksLikeSql', () => {
@@ -175,28 +193,24 @@ describe('no-inline-sql guard', () => {
     });
 
     test('runAsScript exits 1 when a seeded SQL violation is present', () => {
-      const tmp = path.join(process.cwd(), '.tmp-guard-violation.controller.ts');
-      fs.writeFileSync(
-        tmp,
+      const seeded = seededFixture(
         'export async function bad() {\n  await pgPool.query(`SELECT 1 FROM doomed`);\n}\n'
       );
       try {
-        assert.equal(runAsScript([tmp]), 1);
+        assert.equal(runAsScript([seeded.file]), 1);
       } finally {
-        fs.rmSync(tmp, { force: true });
+        seeded.cleanup();
       }
     });
 
     test('runAsScript exits 1 when a seeded connection violation is present', () => {
-      const tmp = path.join(process.cwd(), '.tmp-guard-connect.controller.ts');
-      fs.writeFileSync(
-        tmp,
+      const seeded = seededFixture(
         "export async function bad() {\n  const c = await pgPool.connect();\n}\n"
       );
       try {
-        assert.equal(runAsScript([tmp]), 1);
+        assert.equal(runAsScript([seeded.file]), 1);
       } finally {
-        fs.rmSync(tmp, { force: true });
+        seeded.cleanup();
       }
     });
   });

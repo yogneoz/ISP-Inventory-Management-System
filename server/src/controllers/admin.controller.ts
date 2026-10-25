@@ -530,14 +530,16 @@ export async function post_serialRegisterBackfill(req: any, res: Response): Prom
       req,
       'BACKFILL_SERIAL_REGISTER',
       'INVENTORY_AUDIT',
-      `Serial register reconcile: ${result.converged} unique serial(s) resolved, ${result.inserted} inserted, ${result.upgraded} upgraded.`
+      `Serial register reconcile: ${result.converged} unique serial(s) resolved, ${result.inserted} inserted, ${result.upgraded} upgraded, ${result.skipped} skipped (stale reference or changed during the pass).`
     );
     res.json({
       ...result,
       message:
         result.converged === 0
           ? 'No legacy serial sources were found; the register is unchanged.'
-          : `Reconciled ${result.converged} unique serial(s): ${result.inserted} inserted, ${result.upgraded} upgraded. Idempotent — safe to re-run.`,
+          : `Reconciled ${result.converged} unique serial(s): ${result.inserted} inserted, ${result.upgraded} upgraded` +
+            (result.skipped > 0 ? `, ${result.skipped} skipped (stale reference or changed during the pass).` : '.') +
+            ' Idempotent — safe to re-run.',
     });
   } catch (error: any) {
     console.error('Error reconciling the serial register:', error);

@@ -1,6 +1,6 @@
 # Architecture backlog — D (secrets), C (hydration), A (root component), B (JSONB items)
 
-_2026-10-21 · baseline commit `0c44704` · **D1–D3, C1–C3, A1, A2, A6, A3, A4a, B1 and B2 are implemented (2026-10-22 … 2026-10-25)**; C4, A4b (the route element factory) and A5 are not started. B1 measured the item-search cost; B2 shipped the combined trigram projection, and B3/B4 stay parked. A5 is the last slice._
+_2026-10-21 · baseline commit `0c44704` · **D1–D4, C1–C3, A1, A2, A6, A3, A4a, B1 and B2 are decided/implemented (2026-10-22 … 2026-10-25)**; C4 was parked on 2026-10-25 (its acceptance already holds — one `bootstrap/local` call site); A4b (the route element factory) and A5 are not started. B1 measured the item-search cost; B2 shipped the combined trigram projection, and B3/B4 stay parked. **D4 (2026-10-25) deferred A5**: measured root cost is not user-visible (see the A5 table), so A4b stays blocked until a real-browser profile or a maintainability decision reopens it._
 
 This file is the single place for the four architecture notes, split into numbered slices so work can
 be taken one item at a time without losing the rest. The two most recent commits
@@ -38,13 +38,13 @@ data-model bet that should be measured before it is made.
 [x] C1  per-slice status (idle / loading / ready / error) (2026-10-22)
 [x] C2  scope-guard and version-check deferred slices      (2026-10-22)
 [x] C3  hydration tests                                     (2026-10-22)
-[ ] C4  one hydration entry point                    (optional)
+[—] C4  one hydration entry point       (parked 2026-10-25 — one call site)
 [x] A1  memoize kept-mounted screens                     (2026-10-23)
 [x] A2  move shell-only UI state out of the data tree    (2026-10-23)
 [x] A6  client test harness                          (2026-10-25)
 [x] A3  session + scope contexts                     (2026-10-25)
 [~] A4  AppRoutes + route registry   (A4a landed 2026-10-25; A4b element factory not started, waits for A5)
-[ ] A5  data store for operational arrays            (not started; last)
+[ ] A5  data store for operational arrays            (deferred by D4, 2026-10-25 — not started)
 [x] B1  measure item-search cost                            (2026-10-25)
 [x] B2  combined trigram search projection                  (2026-10-25)
 [ ] B3  read-only item projection tables             (parked — see B1)
@@ -145,7 +145,7 @@ contained fix, not a rewrite.
 | **Rough effort / risk** | 4 h · low |
 | **Done 2026-10-22** | [hydrationFlow.test.ts](../tests/hydrationFlow.test.ts) (8 scenarios) drives the C1 reducer and the C2 gate together, in App's order, with responses resolved out of order: a bootstrap followed by a slower older slice payload; a branch switch where the old response arrives both before and after the new view's request; two bursts for one key (superseded); failure → one notice → dismissal → same failure quiet → success clears; a failure from an abandoned view never becoming a notice; per-key version monotonicity including equal versions; a deferred ledger error surviving a full bootstrap that does not carry it; and the discarded-request status settlement (idle / ready / error). The harness mirrors `fetchBootstrapSlice` rather than calling it, so App's ordering stays pinned by the wiring assertions in [bootstrapSlices.test.ts](../tests/bootstrapSlices.test.ts); the module needs no DOM, timers or server. Existing source guards (`bootstrapTrim.test.ts`, `registerRefreshDomains.test.ts`) still pass. |
 
-### C4 — One hydration entry point (optional)
+### C4 — One hydration entry point (optional) — PARKED 2026-10-25
 
 | | |
 |---|---|
@@ -153,6 +153,7 @@ contained fix, not a rewrite.
 | **Change** | Both go through the C1 module; App only calls `hydrate(scope)` and `refresh(domains)`. |
 | **Done when** | No call site fetches `/api/bootstrap/local` by hand; the source guard is updated to the new shape. |
 | **Rough effort / risk** | 2 days · medium · **only after C1–C3 are green** |
+| **Parked 2026-10-25** | Assessed against the code: the URL is built in exactly one place ([bootstrap.ts](../client/src/services/api/bootstrap.ts#L28)), App has one full-bootstrap path plus one slice path through it, and the C1 reducer/gate (`bootstrapSlices.ts`) already owns status. The “two paths that can drift” no longer exist; the remaining proposal is a literal `hydrate()`/`refresh()` rename in a 3,100-line root — no behaviour, real regression risk. Reopen only if a second caller appears or a screen bypasses the slice gate; both are currently caught by `registerRefreshDomains.test.ts` and `bootstrapTrim.test.ts`. |
 
 ---
 
@@ -219,10 +220,11 @@ fetch paths, multi-screen wiring) is still pinned at source where a pure functio
 
 | | |
 |---|---|
-| **Why** | The 20+ data arrays are what is left of the root's bulk; a store is only worth it once the shell and routes are out. |
+| **Why** | The 23 operational arrays are what is left of the root's bulk (35 `useState`, 67 routes); a store is only worth it once the shell and routes are out. |
 | **Change** | Zustand/Jotai (or a `useBootstrapData` hook) owns the arrays; screens subscribe to the slices they use. |
 | **Done when** | The root holds no operational arrays; selective subscription is demonstrated by a re-render test. |
 | **Rough effort / risk** | 1 week · high · **do not start before A3/A4/A6** |
+| **D4 — 2026-10-25** | **Deferred (no-go for now).** A1 memoisation already reuses the element object for unchanged screens and the SSE path replaces only the affected slices, so unrelated mounted screens do not re-render. Measured with the A6 harness and a Profiler (4 tabs mounted, 120 stock rows): targeted STOCK update ~298 ms total / 129 ms max, full refresh ~381 ms total in jsdom — dominated by the list screens that genuinely consume the data, which any store would also re-render. The root’s own per-render work (67 elements, 11 props each, memo compare) is **2.1 ms** in a Node micro-benchmark, and the route table has **zero** derived-per-render props. The route table does thread 756 prop passings (144 distinct, 236 handlers) — real maintainability debt, but not measured jank. **Revisit when** a real-browser profile shows root commits above the 16 ms frame budget, or A4b’s typed deps contract becomes the priority. A4b stays blocked meanwhile. **Browser confirmation (2026-10-25):** on the production build, with 6 tabs mounted, a real stock-row update drove only the four targeted STOCK slice fetches (no full bootstrap), produced zero long tasks and left the frame cadence unchanged. |
 
 ---
 
