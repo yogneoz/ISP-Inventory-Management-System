@@ -94,7 +94,13 @@ export interface LedgerViewProps {
   subtitle: string;
   /** Filter/column vocabulary, e.g. 'Customer' | 'Supplier'. */
   partyLabel: string;
-  parties: Array<{ id: string; label: string }>;
+  /** Rows for the built-in native select. Omit when `partySelector` is supplied. */
+  parties?: Array<{ id: string; label: string }>;
+  /**
+   * Optional searchable party control (e.g. CustomerPicker). Replaces the
+   * native select for directories too large to render as <option>s.
+   */
+  partySelector?: React.ReactNode;
   selectedPartyId: string;
   onSelectParty: (partyId: string) => void;
   branches: Branch[];
@@ -162,7 +168,8 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
   title,
   subtitle,
   partyLabel,
-  parties,
+  parties = [],
+  partySelector,
   selectedPartyId,
   onSelectParty,
   branches,
@@ -235,19 +242,21 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60">
         <div className="lg:col-span-2">
           <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">{partyLabel}</label>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-            <select
-              value={selectedPartyId}
-              onChange={(e) => onSelectParty(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 dark:text-white"
-            >
-              <option value="">Select {partyLabel.toLowerCase()}...</option>
-              {parties.map((p) => (
-                <option key={p.id} value={p.id}>{p.label}</option>
-              ))}
-            </select>
-          </div>
+          {partySelector ?? (
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <select
+                value={selectedPartyId}
+                onChange={(e) => onSelectParty(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 dark:text-white"
+              >
+                <option value="">Select {partyLabel.toLowerCase()}...</option>
+                {parties.map((p) => (
+                  <option key={p.id} value={p.id}>{p.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
         <div>
           <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">From (AD)</label>

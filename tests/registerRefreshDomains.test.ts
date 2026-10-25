@@ -864,7 +864,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       'seedBsCalendarYearsBulk',
       'updateBsCalendarYear',
     ],
-    'finance/CustomerLedger.tsx': ['getCustomerLedger'],
+    'finance/CustomerLedger.tsx': ['getCustomerLedger', 'searchCustomers'],
     'finance/DocumentNumbering.tsx': ['getDocumentNumberConfigs', 'updateDocumentNumberConfigs'],
     'finance/FinancialStatements.tsx': ['getFinancialSummaries'],
     'finance/NepaliFiscalManagement.tsx': [
@@ -910,7 +910,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     // lookupExchangeSerial: the exchange modal resolves a serial the cached
     // IN_STOCK register does not know, so its refusal can name the unit's real
     // state (assigned / damaged / other branch) instead of guessing.
-    'sales/CustomersManagement.tsx': ['cancelApprovalRequest', 'createApprovalRequest', 'exchangeCustomerDevice', 'getCustomerDevices', 'lookupExchangeSerial', 'reportExchangeRefusal'],
+    'sales/CustomersManagement.tsx': ['cancelApprovalRequest', 'createApprovalRequest', 'exchangeCustomerDevice', 'getCustomerDevices', 'lookupExchangeSerial', 'reportExchangeRefusal', 'searchCustomers'],
     'settings/DataRecalculationMaintenance.tsx': [
       'initializeFiscalYearOpeningStock',
       'rebuildBsDayRecords',
@@ -967,7 +967,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     // No getSerialLogs: the panel validates against the HOST's register cache
     // (serial-register audit, Slice 1) instead of fetching its own copy.
     'inventory/stockops/AssignAssetPanel.tsx': ['createAsset', 'createCustomerDevice', 'searchCustomers'],
-    'inventory/stockops/ConsumableIssuePanel.tsx': [],
+    'inventory/stockops/ConsumableIssuePanel.tsx': ['searchCustomers'],
     'inventory/stockops/ConsumablesRegisterPanel.tsx': ['getStockOperations', 'reverseConsumableIssue'],
     'inventory/stockops/CreatePulloutPanel.tsx': [],
     'inventory/stockops/CreateTransferPanel.tsx': [],

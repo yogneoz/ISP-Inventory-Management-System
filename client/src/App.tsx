@@ -2134,7 +2134,6 @@ export default function App() {
               <CustomersManagement
                 currentUser={currentUser}
                 customerDevices={customerDevices}
-                customers={customers}
                 branches={branches}
                 products={products}
                 selectedBranchId={selectedBranchId}
@@ -3022,7 +3021,6 @@ export default function App() {
             <KeepMounted visible={visible['customer-ledger'] === true}>
               <React.Suspense fallback={<TabLoadingFallback />}>
                 <CustomerLedger
-                  customers={customers}
                   branches={branches}
                   dateMode={dateMode}
                   sseRefreshKey={registerRefresh.salesInvoices}

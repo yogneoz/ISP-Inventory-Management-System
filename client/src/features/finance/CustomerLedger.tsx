@@ -18,13 +18,13 @@ import {
   SubLedgerData,
   LedgerFilters,
 } from '../../components/common/LedgerView';
-import { CustomerRecord, Branch } from '../../types';
+import { Branch } from '../../types';
 import { api } from '../../services/api';
+import { CustomerPicker } from '../../components/common/CustomerPicker';
 import { createLatestOnly } from '../../utils/latestOnly';
 import { ArrowDownRight, ArrowUpRight, Undo2, Users, Wallet } from 'lucide-react';
 
 interface CustomerLedgerProps {
-  customers: CustomerRecord[];
   branches: Branch[];
   dateMode: 'BS' | 'AD';
   /**
@@ -44,13 +44,13 @@ interface CustomerLedgerProps {
 }
 
 export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
-  customers,
   branches,
   dateMode,
   sseRefreshKey,
   returnsRefreshKey,
 }) => {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
+  const [selectedCustomerLabel, setSelectedCustomerLabel] = useState<string>('');
   const [filters, setFilters] = useState<LedgerFilters>({ fromAd: '', toAd: '', branchId: 'ALL' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -109,7 +109,25 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
       title="Customer Ledger & Receivables"
       subtitle="Sub-ledger of customer sales invoices (debits), recorded payments and credit notes from sales returns (credits) with running balance."
       partyLabel="Customer"
-      parties={customers.map((c) => ({ id: c.id, label: `${c.customerName} (${c.customerId})` }))}
+      partySelector={
+        <CustomerPicker
+          value={
+            selectedCustomerId
+              ? { id: selectedCustomerId, label: selectedCustomerLabel }
+              : null
+          }
+          onSelect={(customer) => {
+            setSelectedCustomerId(customer?.id || '');
+            setSelectedCustomerLabel(
+              customer ? `${customer.customerName} (${customer.customerId})` : ''
+            );
+          }}
+          search={api.searchCustomers}
+          placeholder="Search customer name, code, phone, or address…"
+          inputClassName="text-sm"
+          ariaLabel="Customer"
+        />
+      }
       selectedPartyId={selectedCustomerId}
       onSelectParty={setSelectedCustomerId}
       branches={branches}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { CustomerDeviceRecord, CustomerRecord, Branch, Product, SerialLog, User, ApprovalRequest } from '../../types';
+import { CustomerDeviceRecord, Branch, Product, SerialLog, User, ApprovalRequest } from '../../types';
 import { formatDualDate, convertADToBS, formatBSDate } from '../../utils/nepaliCalendar';
 import { getWarrantyInfo } from '../../utils/warranty';
 import { isOperationAllowed, getAllowedBranches } from '../../utils/permissions';
@@ -34,6 +34,7 @@ import { useClientPagination, TablePagination } from '../../components/common/Ta
 import { useDialog } from '../../components/common/DialogProvider';
 import { api } from '../../services/api';
 import { DeviceSerialInput, findRegisterRow } from '../../components/common/DeviceSerialInput';
+import { CustomerPicker } from '../../components/common/CustomerPicker';
 import {
   describeReplacementRefusal,
   isSerialLookupNotFound,
@@ -43,7 +44,6 @@ import { normalizeMacAddress } from '../../../../shared/macAddress';
 
 interface CustomersManagementProps {
   customerDevices: CustomerDeviceRecord[];
-  customers?: CustomerRecord[];
   branches: Branch[];
   products: Product[];
   selectedBranchId: string;
@@ -69,7 +69,6 @@ interface CustomersManagementProps {
 
 export const CustomersManagement: React.FC<CustomersManagementProps> = ({
   customerDevices = [],
-  customers = [],
   branches = [],
   products = [],
   selectedBranchId,
@@ -395,6 +394,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
   const [customerCode, setCustomerCode] = useState(`CUST-${Math.floor(1000 + Math.random() * 9000)}`);
   const [contactPhone, setContactPhone] = useState('+977-98');
   const [installationAddress, setInstallationAddress] = useState('');
+  const [pickedCustomer, setPickedCustomer] = useState<{ id: string; label: string } | null>(null);
   const [branchId, setBranchId] = useState(
     selectedBranchId !== 'ALL' ? selectedBranchId : branches[0]?.id || ''
   );
@@ -581,6 +581,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                 onClick={() => {
                   setAssignType('RENTAL');
                   setCustomerCode(`CUST-${Math.floor(1000 + Math.random() * 9000)}`);
+                  setPickedCustomer(null);
                   // Start empty: the assigned unit must be picked from the
                   // branch's IN_STOCK register, never generated.
                   setDeviceSerial('');
@@ -1165,47 +1166,45 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
               </div>
 
               {/* Optional Auto-fill from Customer Master Directory */}
-              {customers.length > 0 && (
-                <div className={`p-3 rounded-xl border bg-indigo-50/80 border-indigo-200 dark:bg-indigo-950/50 dark:border-indigo-800`}>
-                  <label className={`block text-[11px] font-bold uppercase tracking-wider mb-1 flex items-center justify-between text-indigo-900 dark:text-indigo-300`}>
-                    <span className="flex items-center gap-1">
-                      <UserCheck className={`h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400`} />
-                      Auto-fill from Customer Master Directory
-                    </span>
-                    {onNavigateToMaster && (
-                      <button
-                        type="button"
-                        onClick={onNavigateToMaster}
-                        className={`text-[10px] text-indigo-500 dark:text-indigo-400 hover:underline flex items-center gap-0.5 cursor-pointer font-semibold`}
-                      >
-                        Master Directory <ExternalLink className="h-2.5 w-2.5" />
-                      </button>
-                    )}
-                  </label>
-                  <select
-                    onChange={(e) => {
-                      const selectedId = e.target.value;
-                      if (!selectedId) return;
-                      const cust = customers.find((c) => c.id === selectedId || c.customerId === selectedId);
-                      if (cust) {
-                        setCustomerName(cust.customerName);
-                        setCustomerCode(cust.customerId || cust.id);
-                        setContactPhone(cust.contactNumber || '');
-                        if (cust.branchId) setBranchId(cust.branchId);
-                        if (cust.address) setInstallationAddress(cust.address);
-                      }
-                    }}
-                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-semibold focus:ring-2 focus:ring-indigo-500 bg-white border-indigo-300 text-indigo-900 dark:bg-slate-800 dark:border-slate-700 dark:text-indigo-200`}
-                  >
-                    <option value="">-- Choose Existing Customer Profile --</option>
-                    {customers.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.customerName} ({c.customerId || c.id}) - {c.contactNumber}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
+              <div className={`p-3 rounded-xl border bg-indigo-50/80 border-indigo-200 dark:bg-indigo-950/50 dark:border-indigo-800`}>
+                <label className={`block text-[11px] font-bold uppercase tracking-wider mb-1 flex items-center justify-between text-indigo-900 dark:text-indigo-300`}>
+                  <span className="flex items-center gap-1">
+                    <UserCheck className={`h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400`} />
+                    Auto-fill from Customer Master Directory
+                  </span>
+                  {onNavigateToMaster && (
+                    <button
+                      type="button"
+                      onClick={onNavigateToMaster}
+                      className={`text-[10px] text-indigo-500 dark:text-indigo-400 hover:underline flex items-center gap-0.5 cursor-pointer font-semibold`}
+                    >
+                      Master Directory <ExternalLink className="h-2.5 w-2.5" />
+                    </button>
+                  )}
+                </label>
+                <CustomerPicker
+                  value={pickedCustomer}
+                  onSelect={(customer) => {
+                    if (!customer) {
+                      setPickedCustomer(null);
+                      return;
+                    }
+                    setPickedCustomer({
+                      id: customer.id,
+                      label: `${customer.customerName} (${customer.customerId || customer.id})`,
+                    });
+                    setCustomerName(customer.customerName);
+                    setCustomerCode(customer.customerId || customer.id);
+                    setContactPhone(customer.contactNumber || '');
+                    if (customer.branchId) setBranchId(customer.branchId);
+                    if (customer.address) setInstallationAddress(customer.address);
+                  }}
+                  search={api.searchCustomers}
+                  placeholder="Search name, code, phone, or address…"
+                  inputClassName="h-8 text-xs font-semibold"
+                  ariaLabel="Auto-fill from the customer directory"
+                />
+              </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>

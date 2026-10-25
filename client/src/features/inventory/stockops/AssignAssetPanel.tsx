@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useStockOperationsCtx } from './StockOperationsContext';
 import { DeviceSerialInput } from '../../../components/common/DeviceSerialInput';
 import { CustomerPicker } from '../../../components/common/CustomerPicker';
+import { LocationPicker } from '../../../components/common/LocationPicker';
 import {
   Asset,
   Product,
@@ -570,21 +571,23 @@ export const AssignAssetPanel: React.FC = () => {
                           {item.usedAtType === 'POP' && (
                             <div className="lg:col-span-4">
                               <label className="block font-bold text-[10px] text-slate-500 mb-1">POP / Network Location *</label>
-                              <select
-                                value={item.usedAtLocationId || ''}
-                                onChange={(e) => {
-                                  const loc = locations.find((l) => l.id === e.target.value);
-                                  handleUpdateAssignItem(item.id, { usedAtLocationId: loc?.id, usedAtLocationName: loc?.name });
-                                }}
-                                className="w-full rounded-xl border px-2.5 py-1.5 h-9 text-[11px] bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                              >
-                                <option value="">Select POP location...</option>
-                                {locations
-                                  .filter((l) => l.type === 'POP_SERVER_ROOM' || l.type === 'FIBER_NETWORK_NODE' || !l.type)
-                                  .map((l) => (
-                                    <option key={l.id} value={l.id}>{l.name} ({l.type.replace(/_/g, ' ')})</option>
-                                  ))}
-                              </select>
+                              <LocationPicker
+                                value={
+                                  item.usedAtLocationId
+                                    ? { id: item.usedAtLocationId, label: item.usedAtLocationName || '' }
+                                    : null
+                                }
+                                onSelect={(location) =>
+                                  handleUpdateAssignItem(item.id, {
+                                    usedAtLocationId: location?.id,
+                                    usedAtLocationName: location?.name,
+                                  })
+                                }
+                                locations={locations}
+                                placeholder="Search POP or network node…"
+                                inputClassName="h-9 text-[11px]"
+                                ariaLabel={`POP or network location for ${item.productName}`}
+                              />
                             </div>
                           )}
 

@@ -4,7 +4,10 @@ import {
   ConsumableIssueItem,
 } from '../../../types';
 import { FormCard } from '../../../components/common/FormCard';
+import { CustomerPicker } from '../../../components/common/CustomerPicker';
+import { LocationPicker } from '../../../components/common/LocationPicker';
 import { ProductSearchBar } from '../ProductSearchBar';
+import { api } from '../../../services/api';
 import { formatNPR } from '../../../utils/nprFormat';
 import {
   Plus,
@@ -22,7 +25,7 @@ import {
  * everything it does not own comes from the StockOperations context.
  */
 export const ConsumableIssuePanel: React.FC = () => {
-  const { activeTab, allowedBranches, alertDialog, branches, currentUser, customers, ensureBsDateAvailable, locations, onCreateOperation, products, stock, userBranchId, validateSourceBranchStockAndSerials } = useStockOperationsCtx();
+  const { activeTab, allowedBranches, alertDialog, branches, currentUser, ensureBsDateAvailable, locations, onCreateOperation, products, stock, userBranchId, validateSourceBranchStockAndSerials } = useStockOperationsCtx();
 
   const consumableProducts = useMemo(
     () => products.filter((p) => (p.productGroup || 'Product Item') === 'Consumable Item'),
@@ -351,46 +354,46 @@ export const ConsumableIssuePanel: React.FC = () => {
                                   <option value="CUSTOMER">Customer</option>
                                 </select>
                                 {item.usedAtType === 'POP' && (
-                                  <select
-                                    value={item.usedAtLocationId || ''}
-                                    onChange={(e) => {
-                                      const loc = locations.find((l) => l.id === e.target.value);
+                                  <LocationPicker
+                                    value={
+                                      item.usedAtLocationId
+                                        ? { id: item.usedAtLocationId, label: item.usedAtLocationName || '' }
+                                        : null
+                                    }
+                                    onSelect={(location) =>
                                       handleUpdateConsumableItem(item.id, {
-                                        usedAtLocationId: loc?.id,
-                                        usedAtLocationName: loc?.name,
-                                      });
-                                    }}
-                                    className={`w-full rounded-lg border p-1 text-[10px] bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
-                                  >
-                                    <option value="">Select POP location...</option>
-                                    {locations
-                                      .filter((l) => l.type === 'POP_SERVER_ROOM' || l.type === 'FIBER_NETWORK_NODE' || !l.type)
-                                      .map((l) => (
-                                        <option key={l.id} value={l.id}>
-                                          {l.name}{l.address ? ` — ${l.address}` : ''}
-                                        </option>
-                                      ))}
-                                  </select>
+                                        usedAtLocationId: location?.id,
+                                        usedAtLocationName: location?.name,
+                                      })
+                                    }
+                                    locations={locations}
+                                    placeholder="Search POP or network node…"
+                                    inputClassName="h-8 text-[10px]"
+                                    ariaLabel={`POP or network location for ${item.productName}`}
+                                    portal
+                                  />
                                 )}
                                 {item.usedAtType === 'CUSTOMER' && (
-                                  <select
-                                    value={item.usedAtCustomerId || ''}
-                                    onChange={(e) => {
-                                      const cust = customers.find((c) => c.id === e.target.value);
+                                  <CustomerPicker
+                                    value={
+                                      item.usedAtCustomerId
+                                        ? { id: item.usedAtCustomerId, label: item.usedAtCustomerName || '' }
+                                        : null
+                                    }
+                                    onSelect={(customer) =>
                                       handleUpdateConsumableItem(item.id, {
-                                        usedAtCustomerId: cust?.id,
-                                        usedAtCustomerName: cust ? `${cust.customerName} (${cust.customerId})` : undefined,
-                                      });
-                                    }}
-                                    className={`w-full rounded-lg border p-1 text-[10px] bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
-                                  >
-                                    <option value="">Select customer...</option>
-                                    {customers.map((c) => (
-                                      <option key={c.id} value={c.id}>
-                                        {c.customerName} ({c.customerId})
-                                      </option>
-                                    ))}
-                                  </select>
+                                        usedAtCustomerId: customer?.id,
+                                        usedAtCustomerName: customer
+                                          ? `${customer.customerName} (${customer.customerId})`
+                                          : undefined,
+                                      })
+                                    }
+                                    search={api.searchCustomers}
+                                    placeholder="Search customer name, code, phone…"
+                                    inputClassName="h-8 text-[10px]"
+                                    ariaLabel={`Customer for ${item.productName}`}
+                                    portal
+                                  />
                                 )}
                               </div>
                             </td>
