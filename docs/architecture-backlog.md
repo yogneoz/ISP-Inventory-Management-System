@@ -1,6 +1,6 @@
 # Architecture backlog — D (secrets), C (hydration), A (root component), B (JSONB items)
 
-_2026-10-21 · baseline commit `0c44704` · **D1–D3, C1–C3, A1, A2 and A6 are implemented (2026-10-22 … 2026-10-25)**; C4, A3–A5 and B are not started._
+_2026-10-21 · baseline commit `0c44704` · **D1–D3, C1–C3, A1, A2, A6 and A3 are implemented (2026-10-22 … 2026-10-25)**; C4, A4–A5 and B are not started._
 
 This file is the single place for the four architecture notes, split into numbered slices so work can
 be taken one item at a time without losing the rest. The two most recent commits
@@ -26,7 +26,7 @@ data-model bet that should be measured before it is made.
 |---|---|---|---|
 | **D** | Defect + deployment constraint | Silent session invalidation on every restart; a second process could never verify tokens | **Now** |
 | **C** | Accrued debt, half-fixed already | Slice failures are swallowed and slices are not scope-guarded | After D |
-| **A** | Structural refactor | Root is 3,194 lines / 49 `useState`; every visited tab re-rendered on any root state change (closed by A1); A6 now renders the real route tree, so refactors have a behavioural gate | Incremental, A3/A4 unblocked |
+| **A** | Structural refactor | Root is 3,194 lines / 49 `useState`; every visited tab re-rendered on any root state change (closed by A1); A6 renders the real route tree and A3 moved session/scope state into contexts | Incremental, A4 next |
 | **B** | Data-model change | Seven `items JSONB` columns; today only two queries reach inside, but eight `items::text LIKE` scans will degrade linearly | Measure first; normalize only on demand |
 
 ## Status
@@ -42,6 +42,7 @@ data-model bet that should be measured before it is made.
 [x] A1  memoize kept-mounted screens                     (2026-10-23)
 [x] A2  move shell-only UI state out of the data tree    (2026-10-23)
 [x] A6  client test harness                          (2026-10-25)
+[x] A3  session + scope contexts                     (2026-10-25)
 [ ] A3  session + scope contexts
 [ ] A4  AppRoutes + route registry
 [ ] A5  data store for operational arrays            (last)
@@ -204,6 +205,7 @@ fetch paths, multi-screen wiring) is still pinned at source where a pure functio
 | **Change** | `SessionContext` (user, root user, permission matrix, app settings, date mode) and `ScopeContext` (branch, fiscal year, fiscal-year list). Screens keep their props for now; the root stops threading these through callbacks. |
 | **Done when** | Both contexts exist and are the only source for those values; no screen reads them from props *and* context; A6 smoke test green. |
 | **Rough effort / risk** | 3 days · medium |
+| **Done 2026-10-25** | [SessionContext.tsx](../client/src/contexts/SessionContext.tsx) owns the user, root user, RBAC matrix, app settings and date mode; [ScopeContext.tsx](../client/src/contexts/ScopeContext.tsx) owns the branch, fiscal year and fiscal-year list. [App.tsx](../client/src/App.tsx) reads them through `useSession()`/`useScope()` and keeps no state for any of the nine values. [AppProviders.tsx](../client/src/contexts/AppProviders.tsx) is the single provider composition, shared by [main.tsx](../client/src/main.tsx) and the A6 harness so the test cannot miss a provider the browser has. Screens keep their props; [sessionScopeContexts.test.ts](../tests/sessionScopeContexts.test.ts) (5 tests) pins ownership, the shared composition, the no-context-in-features rule and a mounted read/update round trip. A6's route-tree test still passes. |
 
 ### A4 — `AppRoutes.tsx` + route registry
 

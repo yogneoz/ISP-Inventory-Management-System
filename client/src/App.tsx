@@ -32,7 +32,6 @@ import { seedBSYearCalendar, getBsCalendarCoverage, type BsCalendarCoverageStatu
 import { NAVIGATE_TAB_EVENT } from './services/api/http';
 import {
   saveUserSession,
-  loadUserSession,
   clearUserSession,
   saveRecentBootstrapCache,
   loadRecentBootstrapCache,
@@ -196,6 +195,8 @@ import { BootstrapBlockedBanner } from './components/common/BootstrapBlockedBann
 import { setCurrencyConfig } from './utils/nprFormat';
 import { setDefaultTaxRate } from './utils/taxConfig';
 import { useDarkMode } from './contexts/DarkModeContext';
+import { useSession } from './contexts/SessionContext';
+import { useScope } from './contexts/ScopeContext';
 import { useDialog } from './components/common/DialogProvider';
 import { KeepMounted, KeepMountedRoot } from './components/common/KeepMounted';
 import { broadcastBsCalendarUpdated } from './utils/bsCalendarRefresh';
@@ -249,36 +250,35 @@ function resolveDefaultFiscalYear(fiscalYears: FiscalYear[]): FiscalYear | undef
 
 export default function App() {
   const { alert: alertDialog } = useDialog();
-  const [currentUser, setCurrentUser] = useState<User | null>(() => {
-    return loadUserSession().currentUser;
-  });
-
-  const [rootUser, setRootUser] = useState<User | null>(() => {
-    return loadUserSession().rootUser;
-  });
+  // A3: session and scope values are owned by their providers (contexts/
+  // SessionContext.tsx and ScopeContext.tsx), so the root reads them instead
+  // of holding the state that every route refactor had to thread through.
+  const {
+    currentUser,
+    setCurrentUser,
+    rootUser,
+    setRootUser,
+    permissionsMatrix,
+    setPermissionsMatrix,
+    appSettings,
+    setAppSettings,
+    dateMode,
+    setDateMode,
+  } = useSession();
+  const {
+    selectedBranchId,
+    setSelectedBranchId,
+    selectedFiscalYearId,
+    setSelectedFiscalYearId,
+    fiscalYears,
+    setFiscalYears,
+  } = useScope();
 
   const [activeTab, setActiveTab] = useState<NavTab>(() => {
     const savedTab = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
     // Only restore the saved tab if it is still a valid menu id (guards against removed/renamed tabs)
     return savedTab && (NAV_TABS as string[]).includes(savedTab) ? (savedTab as NavTab) : 'dashboard';
   });
-  const [selectedBranchId, setSelectedBranchId] = useState<string>('ALL');
-  const [selectedFiscalYearId, setSelectedFiscalYearId] = useState<string>('');
-  const [permissionsMatrix, setPermissionsMatrix] = useState<Record<string, Record<string, boolean>> | null>(null);
-  const [dateMode, setDateMode] = useState<'BS' | 'AD'>(() => {
-    // PAINT-TIME MIRROR ONLY. The saved value lives in the server-side
-    // user_preferences table (see hydrateUserPreferences); this read just
-    // avoids a wrong first frame while bootstrap loads, and is overwritten by
-    // the server value as soon as it arrives.
-    const saved = localStorage.getItem('inventory_date_mode');
-    return saved === 'AD' ? 'AD' : 'BS';
-  });
-
-  // Company-wide application settings (server-side app_settings table), e.g.
-  // the company-wide blind stock-audit toggle. Replaced wholesale on every
-  // bootstrap, never read from browser storage.
-  const [appSettings, setAppSettings] = useState<Record<string, string>>({});
-
   // Server-backed user preferences. `prefsHydratedRef` gates every write so a
   // default rendered during start-up can never overwrite the real saved
   // preference, and `persistedPrefsRef` de-duplicates writes against the last
@@ -590,7 +590,6 @@ export default function App() {
   const [salesReturns, setSalesReturns] = useState<SalesReturn[]>([]);
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [stockOperations, setStockOperations] = useState<StockOperation[]>([]);
-  const [fiscalYears, setFiscalYears] = useState<FiscalYear[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [transactionLogs, setTransactionLogs] = useState<TransactionLog[]>([]);
   const [damageRecords, setDamageRecords] = useState<DamageRecord[]>([]);

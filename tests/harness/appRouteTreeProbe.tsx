@@ -17,8 +17,7 @@ import './dom';
 import React from 'react';
 import { act } from 'react';
 import App from '../../client/src/App';
-import { DarkModeProvider } from '../../client/src/contexts/DarkModeContext';
-import { DialogProvider } from '../../client/src/components/common/DialogProvider';
+import { AppProviders } from '../../client/src/contexts/AppProviders';
 import { api } from '../../client/src/services/api';
 import { NAVIGATE_TAB_EVENT } from '../../client/src/services/api/http';
 import { saveUserSession } from '../../client/src/utils/sessionCache';
@@ -178,14 +177,15 @@ export interface AppRouteTree {
   unmount: () => void;
 }
 
-/** Renders the real App inside the providers main.tsx uses (no StrictMode). */
+/**
+ * Renders the real App inside the exact provider composition main.tsx uses
+ * (no StrictMode, so effects run once and the render is deterministic).
+ */
 export function mountAppRouteTree(): MountedTree {
   return mountTree(
-    <DarkModeProvider>
-      <DialogProvider>
-        <App />
-      </DialogProvider>
-    </DarkModeProvider>
+    <AppProviders>
+      <App />
+    </AppProviders>
   );
 }
 
