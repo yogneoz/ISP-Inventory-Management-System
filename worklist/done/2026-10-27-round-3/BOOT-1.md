@@ -1,6 +1,6 @@
 # BOOT-1 — the bootstrap stops paying for what it does not ship
 
-Status: `[~]` implemented, gates green, commit pending · Created 2026-10-26 ·
+Status: `[x]` done (`ad59a38`) · Created 2026-10-26 ·
 Estimate 1–2 days · Server only
 Round: [Round 3](README.md) · Order: 1
 
@@ -9,12 +9,12 @@ Round: [Round 3](README.md) · Order: 1
 Round 2 removed `transactionLogs` and `salesInvoices` from what the client
 receives. The full bootstrap still loads several ledgers it never sends:
 
-- [fetchOperationalData](../../server/src/models/bootstrap.repo.ts#L171) selects
+- [fetchOperationalData](../../../server/src/models/bootstrap.repo.ts#L171) selects
   every `purchase_orders`, `purchase_invoices`, `stock_operations` and
   `vendor_payments` row for the fiscal year / branch, with no cap.
-- [get_bootstrap](../../server/src/controllers/bootstrap.controller.ts#L76)
+- [get_bootstrap](../../../server/src/controllers/bootstrap.controller.ts#L76)
   uses `purchase_invoices` and `stock_operations` only to feed
-  `computeFinancialSummary`; [the response](../../server/src/controllers/bootstrap.controller.ts#L130)
+  `computeFinancialSummary`; [the response](../../../server/src/controllers/bootstrap.controller.ts#L130)
   omits those three arrays. `pgPurchaseOrders` is declared and never read at
   all.
 - `vendorPayments` is still serialized in the response, but no client state,
@@ -97,7 +97,7 @@ for 1.6 MB / 16.2 MB of row text at 1×/10×; no client state or screen read it.
       still answers through the table mappings; a mapping-read failure now
       answers 503 for those keys instead of an empty payload.
 - [x] 1×/10× measurements recorded above and in SESSION_NOTES.
-- [ ] Commit hash recorded when committed.
+- [x] Commit hash recorded when committed.
 
 ## Gates (2026-10-26)
 
@@ -118,3 +118,11 @@ for 1.6 MB / 16.2 MB of row text at 1×/10×; no client state or screen read it.
 | Removing `purchaseOrders` breaks the `bootstrap/local` fallback | It has a `BOOTSTRAP_TABLES` mapping, so the live slice read answers first; the fallback only covered unknown keys |
 | Opening-stock years value differently | Pass `useOpeningStock: !isCurrent`, exactly as the slice does, and keep the existing past-year fixture |
 | The existing summary-agreement test becomes tautological | Replace its source pin with the pure-vs-SQL fixture comparison above, and assert the controller uses the SQL producer |
+
+## Close-out
+
+Committed as `ad59a38` ("Stop loading ledgers the bootstrap never ships") and
+pushed to `main`; the same commit removed the unreferenced `FRONTEND-AUDIT.md`.
+CI run
+[40280256078](https://github.com/yogneoz/ISP-Inventory-Management-System/actions/runs/40280256078)
+(`typecheck-and-test`) passed in 330 s.

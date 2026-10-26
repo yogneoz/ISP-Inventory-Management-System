@@ -12,7 +12,7 @@ the login payload grow without bound for a register that never needed the whole
 history at once:
 
 - The register filtered the entire fiscal year in the browser
-  ([Shipments.tsx](../../client/src/features/procurement/Shipments.tsx)), then
+  ([Shipments.tsx](../../../client/src/features/procurement/Shipments.tsx)), then
   paginated the filtered copy client-side.
 - The shell badges, header count, dashboard KPI, notification center and both
   receive lanes derived their numbers from that same array.
@@ -120,4 +120,5 @@ start of Round 2), and the two new reads run only on the screens that need them.
 
 Committed as `acafd52` ("Page the transfer register off the bootstrap") and
 pushed to `main`. [CI run 40288667413](https://github.com/yogneoz/ISP-Inventory-Management-System/actions/runs/40288667413)
-(`typecheck-and-test`) passed in 327 s.
+(`typecheck-and-test`) passed in 327 s; the note and run record landed in
+`d085efe` ([run 40289472496](https://github.com/yogneoz/ISP-Inventory-Management-System/actions/runs/40289472496), 328 s).

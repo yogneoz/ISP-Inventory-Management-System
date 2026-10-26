@@ -1,7 +1,8 @@
 # Round 3 — finish the login path
 
-Created 2026-10-26 · Status: `[~]` in progress · Previous round:
-[done/2026-10-26-round-2.md](../done/2026-10-26-round-2.md)
+Created 2026-10-26 · Closed 2026-10-27 · Status: `[x]` all five items shipped ·
+Previous round: [done/2026-10-26-round-2.md](../2026-10-26-round-2.md) ·
+Close summary: [2026-10-27-round-3.md](../2026-10-27-round-3.md)
 
 ## Why this round
 
@@ -10,7 +11,7 @@ for ledgers it never sends. At national volume (12k customers at 1×, 120k at
 10×, Nepal-wide) the remaining cost is linear in the customer base and the
 fiscal year's operations:
 
-- [fetchOperationalData](../../server/src/models/bootstrap.repo.ts#L171) still
+- [fetchOperationalData](../../../server/src/models/bootstrap.repo.ts#L171) still
   selects every `purchase_orders`, `purchase_invoices`, `stock_operations` and
   `vendor_payments` row for the scope, with no cap.
 - The bootstrap response omits the purchase orders, purchase invoices and stock
@@ -23,7 +24,7 @@ fiscal year's operations:
 The parked structural items are not the limit. A5 would move arrays between
 owners; A4b is A5's consequence; B3/B4 need an item-level report. This round
 finishes the read path instead, in ascending consumer risk. See
-[parked.md](../parked.md) for the decisions we are deliberately not taking.
+[parked.md](../../parked.md) for the decisions we are deliberately not taking.
 
 ## Schedule
 
@@ -32,8 +33,8 @@ finishes the read path instead, in ascending consumer risk. See
 | 1 | [BOOT-1](BOOT-1.md) | Full-bootstrap summary via SQL; drop the unshipped ledger queries | `[x]` done (`ad59a38`) | 1–2 days | — |
 | 2 | [VOL-3](VOL-3.md) | Take `shipments` off the bootstrap (paged endpoint + KPI reads) | `[x]` done (`acafd52`) | 2–4 days | BOOT-1 (same fan-out) |
 | 3 | [VOL-4a](VOL-4a.md) | Take `customers` off the bootstrap (server search in pickers) | `[x]` done (`d2c017f`) | 2–3 days | VOL-3 (App prop plumbing) |
-| 4 | [VOL-4b](VOL-4b.md) | Take `customerDevices` off the bootstrap (paged register reads) | `[x]` done | 3–5 days | VOL-4a (shared paging pattern) |
-| 5 | SN-1 | Split `SESSION_NOTES.md` by year under `docs/session-notes/` | `[ ]` | 0.5 day | Round close (file passes ~5,000 lines) |
+| 4 | [VOL-4b](VOL-4b.md) | Take `customerDevices` off the bootstrap (paged register reads) | `[x]` done (`47f522a`) | 3–5 days | VOL-4a (shared paging pattern) |
+| 5 | SN-1 | Split `SESSION_NOTES.md` by year under `docs/session-notes/` | `[x]` done 2026-10-27 ([index](../../../docs/session-notes/README.md)) | 0.5 day | Round close (file passes ~5,000 lines) |
 
 **Total:** about 1.5–2 weeks. BOOT-1 is server-only and pays back the most per
 line changed: it removes the largest per-login row read and one array no client
@@ -71,7 +72,7 @@ doing them together makes a payload regression hard to attribute.
 
 ## Out of scope
 
-[A5, A4b, B3, B4 and C4](../parked.md) stay parked. The PhysicalStockAudit and
+[A5, A4b, B3, B4 and C4](../../parked.md) stay parked. The PhysicalStockAudit and
 Shipments decompositions, the `--noUnusedParameters` sweep and an operations
 runbook are all real work, but none is a user-visible or scale limit right now;
 do not fold them into this round.

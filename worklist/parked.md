@@ -1,8 +1,8 @@
 # Parked decisions
 
-Reviewed 2026-10-26 against the code, after Round 1 closed. These are deliberate
-“not now”, not forgotten work. Do not reopen one without its trigger; add the
-new evidence here first.
+Reviewed 2026-10-26 against the code, when Round 3 was planned. These are
+deliberate “not now”, not forgotten work. Do not reopen one without its trigger;
+add the new evidence here first.
 
 Permanent detail: [architecture-backlog.md](../docs/architecture-backlog.md),
 [SESSION_NOTES.md](../SESSION_NOTES.md), [serial-register-audit.md](../docs/serial-register-audit.md).
@@ -14,7 +14,7 @@ Permanent detail: [architecture-backlog.md](../docs/architecture-backlog.md),
 | **B3** | Read-only item projection tables | **Parked** | An item-level report or join actually needs it. If a future aggregate misses its 10× target, a **single-table** `stock_operation_items` projection is the narrow fallback first. |
 | **B4** | Full JSONB normalization | **Parked** | A product decision that item-level joins/writes are required. B1/B2/B3 have not demanded it. |
 | **C4** | One hydration entry point (`hydrate()`/`refresh()`) | **Parked** | A second `bootstrap/local` caller appears, or a screen bypasses the slice gate. |
-| **SN-1** | Split `SESSION_NOTES.md` by year under `docs/session-notes/` | **Not started** | The root file passes ~5,000 lines or finding the current state takes more than a minute. Round 2 keeps new detail in this folder so it does not keep growing. |
+| **SN-1** | Split `SESSION_NOTES.md` by year under `docs/session-notes/` | **Done** (2026-10-27, Round 3 close) — see [docs/session-notes/](../docs/session-notes/README.md) | — executed; the root keeps only the current state and index |
 
 ## Why A5 stays deferred
 

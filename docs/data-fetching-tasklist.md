@@ -20,10 +20,11 @@ ships a task.
 5. **Never bypass the C1/C2 hydration gate** or replace a server-authoritative
    read with a client-side filter of a bootstrap slice.
 6. **Tests must create their own fixtures.** CI runs against a schema-only
-   database — never rely on seeded rows (see SESSION_NOTES 2026-10-24).
+   database — never rely on seeded rows (see the 2026 session notes,
+   `docs/session-notes/2026.md`).
 7. **Stop point after every task:** `npx tsc --noEmit`, the targeted tests, the
    full `npm test` (which includes the docs-count gate), then update
-   `SESSION_NOTES.md` with the next ID if you stop for the day.
+   `docs/session-notes/2026.md` with the next ID if you stop for the day.
 
 ## Status board
 
@@ -87,7 +88,7 @@ URL is built in one place and App has a single hydrate path through it (see
 **Status: `done` (2026-10-24).** The server contract, screen, export path and tests
 landed: paged/filtered `GET /api/customers` envelope, server-driven pagination and
 KPIs, load-error banner with Retry, all-rows CSV export. Evidence and suite/tsc
-numbers are in `SESSION_NOTES.md` under "DF-01 shipped".
+numbers are in `docs/session-notes/2026.md` under "DF-01 shipped".
 
 **Problem.** The screen expects `{ data, page, pageSize, totalItems }` and sends
 `page`/`pageSize`/`status`, but `GET /api/customers` returns a bare array and
@@ -149,7 +150,7 @@ screen.
 **Status: `done` (2026-10-24).** The catalog now re-reads after its own saves and on
 tab re-activation, keeps the last rows on failure with a visible Retry banner, and
 both mounts are pinned by the keep-mounted guard. Live evidence is in
-`SESSION_NOTES.md` under "DF-02 shipped".
+`docs/session-notes/2026.md` under "DF-02 shipped".
 
 **Problem.** `ProductManagement` owns a local `catalog` fetched once per branch.
 Saves go out through `onCreateProduct`/`onUpdateProduct`/`onDeleteProduct`
@@ -193,7 +194,7 @@ plus a manual pass in the two tabs.
 **Status: `done` (2026-10-24).** The app-wide cache lives in
 `services/serialRegisterCache.ts` (React hook + singleton) with its pure,
 unit-tested core in `services/serialRegisterStore.ts`; App invalidates it from
-the SSE burst and every full refresh. Live evidence is in `SESSION_NOTES.md`
+the SSE burst and every full refresh. Live evidence is in `docs/session-notes/2026.md`
 under "DF-03 shipped".
 
 **Problem.** Every mounted `StockOperations` instance (App mounts **11**) and
@@ -248,7 +249,7 @@ shared `RegisterLoadError` notice above their tables with the real error and a
 Retry that re-runs that register's own page fetch. The fallback stays but is
 labelled as cached, and the three export paths abort (disabled button +
 visible message) instead of silently writing the visible page. Live evidence
-is in `SESSION_NOTES.md` under "DF-04 shipped".
+is in `docs/session-notes/2026.md` under "DF-04 shipped".
 
 **Problem.** PO, PI, SI, Returns and Consumables catch a failed page fetch and
 render a client-filtered fallback with no notice. The error states exist but are
@@ -300,7 +301,7 @@ the slice applies the same branch/FY scope (date-range rows, FY opening
 balances, opening stock for past years) without re-running the 24-query
 operational fan-out. App re-fetches it for `SALES`, `PROCUREMENT`, `STOCK`,
 `STOCK_OPERATIONS`, `SHIPMENTS`, `FISCAL` and `RECALC`. Live evidence and the
-cost measurement are in `SESSION_NOTES.md` under "DF-05 shipped".
+cost measurement are in `docs/session-notes/2026.md` under "DF-05 shipped".
 
 **Problem.** `financialSummary` is computed only in the full bootstrap and has
 no `/api/bootstrap/local` key and no domain entry. Another user's sale/payment/
@@ -351,7 +352,7 @@ shipping.
 rows) and bumped the `serialLog` register alongside `purchaseOrders`; `RECALC`
 refreshed `transactionLogs` and re-read the BS calendar mirror, covering
 live-stock and fixed-asset recalculation, the ledger-balance backfill and
-*Rebuild BS Calendar Days*. Evidence and suite numbers are in `SESSION_NOTES.md`
+*Rebuild BS Calendar Days*. Evidence and suite numbers are in `docs/session-notes/2026.md`
 under "DF-06 shipped". VOL-1 removed the slice: the three ledger screens read
 `/api/transaction-logs` themselves, and the same domains now bump the
 `transactionLog` register counter.
@@ -396,7 +397,7 @@ watch one burst in DevTools.
 **Status: `done` (2026-10-24).** `cacheKey` now ends with the active fiscal
 year, so a GET issued after a fiscal-year switch can no longer join the
 still-in-flight pre-switch request; identical same-scope GETs still coalesce.
-Evidence and suite numbers are in `SESSION_NOTES.md` under "DF-07 shipped".
+Evidence and suite numbers are in `docs/session-notes/2026.md` under "DF-07 shipped".
 
 **Problem.** `cacheKey` is user + branch + URL. A GET issued after a fiscal-year
 switch can join the still-in-flight pre-switch request and receive its body.
@@ -427,7 +428,7 @@ npx tsc --noEmit && node --import tsx --test tests/apiDedup.test.ts && npm test
 **Status: `done` (2026-10-24).** A shared `utils/latestOnly.ts` ticket guard is
 held in a ref by `VendorLedger`, `CustomerLedger`, `OpeningStockManager` and
 `VendorOpeningBalances`; only the newest request may paint data, raise its
-error or settle loading. Evidence and suite numbers are in `SESSION_NOTES.md`
+error or settle loading. Evidence and suite numbers are in `docs/session-notes/2026.md`
 under "DF-08 shipped".
 
 **Problem.** Four screens have no request sequencing: switching party (ledgers)
@@ -469,7 +470,7 @@ npm test
 `useServerPageClamp` hook, wired into the six server-paged registers; a
 shrinking total snaps the state to the new last page, a zero total stays on
 page 1, and page-size changes still reset to page 1. Evidence and suite numbers
-are in `SESSION_NOTES.md` under "DF-09 shipped".
+are in `docs/session-notes/2026.md` under "DF-09 shipped".
 
 **Problem.** PO/PI/SI/Returns/Serial Log/Consumables keep `page` after a delete
 shrinks the total. The next fetch asks for a page that no longer exists, the
@@ -511,7 +512,7 @@ as well as on activation. The stock gate moved into `utils/bsCalendarGate.ts`
 checks the local day (`utils/localDate.ts`, extracted from SalesInvoices), shows
 a checking state, re-runs on activation and on the calendar event, and still
 falls back to the strict compiled calendar when the server is unreachable.
-Evidence and suite numbers are in `SESSION_NOTES.md` under "DF-10 shipped".
+Evidence and suite numbers are in `docs/session-notes/2026.md` under "DF-10 shipped".
 
 **Problem.** Both BS screens silently fall back to the compiled client calendar
 on any fetch failure and only refetch on tab activation. The stock-operation
@@ -564,7 +565,7 @@ Document Numbering now keep a read loading flag and a `loadError`, retry their o
 loader, and their empty slot/header says the list could not be loaded instead of
 implying zero rows. Product Management's catalog error was already rendered; its
 write-only category error state is removed. Evidence and suite numbers are in
-`SESSION_NOTES.md` under "DF-11 shipped".
+`docs/session-notes/2026.md` under "DF-11 shipped".
 
 **Problem.** Category, UoM, Locations and Document Numbering log load failures
 to the console and render an empty table. Product Management keeps its error
@@ -612,7 +613,7 @@ one batch request (`GET /api/reports/financial-summaries`) instead of
 term. New `utils/useFilterPageReset.ts` snaps a paged register during render,
 so a filter change costs one request. `useActivationKey` is typed as `NavTab`.
 Dead `devicesPage`/`devicesPageSize` and write-only device state removed.
-Evidence and suite numbers are in `SESSION_NOTES.md` under "DF-12 shipped".
+Evidence and suite numbers are in `docs/session-notes/2026.md` under "DF-12 shipped".
 
 Independent small items; split into `a/b` if any grows.
 

@@ -1,6 +1,6 @@
 # VOL-4b — customer devices leave the bootstrap; the register pages
 
-Status: `[x]` done · Created 2026-10-26 · Estimate 3–5 days
+Status: `[x]` done (`47f522a`) · Created 2026-10-26 · Estimate 3–5 days
 Round: [Round 3](README.md) · Order: 4 · Depends on VOL-4a
 
 ## Problem
@@ -11,7 +11,7 @@ grows with the customer base: 12k rows at the modelled 1×, 120k+ nationally.
 
 - `fetchOperationalData` selects every device row for the scope with no cap,
   and `GET /api/bootstrap` serialises the whole array.
-- The register ([CustomersManagement](../../client/src/features/sales/CustomersManagement.tsx))
+- The register ([CustomersManagement](../../../client/src/features/sales/CustomersManagement.tsx))
   already self-fetches `GET /api/customer-devices`, but that endpoint returns a
   bare array and the screen paginates the filtered copy in the browser — so the
   server still transfers every match on each search keystroke.
@@ -158,3 +158,10 @@ for the old path, so the comparison is the finding, not a micro-benchmark.
 | Export silently truncates | `all=1` returns a `truncated` flag and the row cap; the screen warns |
 | Demo mode drifts from SQL | The mirror applies the same scope, search, status and paging rules |
 | The Device Exchange picker still reads the bounded legacy array (2,000 newest rows) | It is no longer the whole table and the screen has its own text filter, but a branch above 2,000 deployed units needs a server-search picker — recorded as a follow-up, not silently widened (which would restore the national payload) |
+
+## Close-out
+
+Committed as `47f522a` ("Take customer devices off the bootstrap and page the
+register") and pushed to `main`; CI run
+[40348005201](https://github.com/yogneoz/ISP-Inventory-Management-System/actions/runs/40348005201)
+(`typecheck-and-test`) passed in 376 s.

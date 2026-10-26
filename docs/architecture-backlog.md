@@ -15,7 +15,8 @@ data-model bet that should be measured before it is made.
 
 1. **One slice per commit**, and put the ID in the subject: `D1: fail production boot without AUTH_TOKEN_SECRET`.
 2. Tick the slice's checkbox **and** its row in [Status](#status) in the same commit, so this file never lies.
-3. Stop at every [stop point](#execution-order-and-stop-points) and update `SESSION_NOTES.md` +
+3. Stop at every [stop point](#execution-order-and-stop-points) and update the session notes
+   ([session-notes/](session-notes/README.md) + the root `SESSION_NOTES.md` state block) and
    `handoff.md`; leave the next slice's ID written down there.
 4. If a slice turns out bigger than its "Done when", split it into `X1a`, `X1b` — do not silently widen it.
 5. Do not start a slice whose gate is unticked (`A4b` after `A5`, `B4` after `B1`+`B3`).
@@ -460,7 +461,8 @@ A5 → A4b, then B4                   only on a deliberate, recorded decision
 ```
 
 At each stop point: `npx tsc --noEmit`, `npm test`, docs-count gate green, tick the boxes here, and
-write the next slice ID into `SESSION_NOTES.md` so the next session does not have to rediscover it.
+write the next slice ID into the session notes (`docs/session-notes/<year>.md`) so the next session
+does not have to rediscover it.
 
 ## Open decisions
 

@@ -19,7 +19,7 @@ is the plan, not a second source of truth.
 - [parked.md](parked.md) — decisions we are not acting on, with the trigger to
   reopen each one.
 - [done/](done/README.md) — completed rounds, kept for reference. Never delete.
-  Nothing is active right now; Round 2 closed 2026-10-26.
+  Nothing is active right now; Round 3 closed 2026-10-27.
 
 ## Status vocabulary
 
@@ -49,18 +49,18 @@ have passed, and the commit hash is recorded in the note.
 6. Keep SESSION_NOTES to a short outcome plus a link. If the detail matters,
    it belongs here.
 
-## Session-notes growth
+## Session notes (SN-1, done 2026-10-27)
 
-The root notes file is allowed to stay chronological, but not to keep growing
-at the current rate. Round 2 kept its per-item checklists here; a completed
-item added one short SESSION_NOTES section. When the root file passes about
-5,000 lines, split it by year under `docs/session-notes/` and leave a short
-index at the root. That task is **SN-1**, recorded in [parked.md](parked.md)
-with its trigger (the file is 4,655 lines at the Round 2 close).
+Round 3 executed the split: entries live by year under
+[docs/session-notes/](../docs/session-notes/README.md) (2026 for now), newest
+first, and the root [SESSION_NOTES.md](../SESSION_NOTES.md) keeps only the
+current state plus the index, so it stays short. New entries prepend to the
+current year's file; a completed item adds one short entry there, not a
+checklist here.
 
 ## Active work
 
-None. Round 2 closed on 2026-10-26 — see
-[done/2026-10-26-round-2.md](done/2026-10-26-round-2.md). Do not open a parked
+None. Round 3 closed on 2026-10-27 — see
+[done/2026-10-27-round-3.md](done/2026-10-27-round-3.md). Do not open a parked
 item without its recorded trigger; add the new evidence to
 [parked.md](parked.md) first.
