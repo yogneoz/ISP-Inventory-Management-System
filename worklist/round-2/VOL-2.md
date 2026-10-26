@@ -1,6 +1,6 @@
 # VOL-2 — take `salesInvoices` off the bootstrap
 
-Status: `[~]` implemented, all gates green, awaiting commit · Created 2026-10-26 ·
+Status: `[x]` shipped (`0808470`) · Created 2026-10-26 ·
 Finished 2026-10-26 · Client + server
 Round: [Round 2](README.md) · Order: 3 · Depends on [VOL-1](VOL-1.md)
 
@@ -93,7 +93,7 @@ Full suite: **1254 tests, 1252 pass, 0 fail, 2 Windows-only skips**.
 - [x] `npm run build` clean; `check:bundle-budget` **313.2 kB** startup /
       **15.6 kB** entry (320 / 16).
 - [x] `check:no-inline-sql` and `check:no-raw-dialogs` green.
-- [ ] Commit hash — pending; the commit is a separate request.
+- [x] Commit `0808470`; the hash is recorded in the round tracker.
 
 ## Acceptance
 
@@ -103,7 +103,7 @@ Full suite: **1254 tests, 1252 pass, 0 fail, 2 Windows-only skips**.
 - [x] The Sales register still pages, filters and recovers from a failed fetch.
 - [x] A sales SSE event refreshes the register and re-runs an open picker.
 - [x] Payload before/after recorded; bundle budget checked.
-- [x] Docs updated; commit hash pending.
+- [x] Docs updated; commit `0808470`.
 
 ## Risks
 

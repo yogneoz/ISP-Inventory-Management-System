@@ -2,7 +2,7 @@
 
 Status: `[x]` decided 2026-10-26 — trim the eager registers, raise the entry
 guard by 1 kB · Created 2026-10-26 · Client only
-Round: [Round 2](README.md) · Order: 4 · Commit pending (separate request)
+Round: [Round 2](README.md) · Order: 4 · Commit `6060532`
 
 ## Trigger
 
@@ -85,7 +85,7 @@ Startup chunk set: 69 chunks (was 75)
 - [x] `npm run build` clean.
 - [x] `npm run check:bundle-budget`: 279.0 kB / 15.7 kB (320 / 17).
 - [x] `check:no-inline-sql` and `check:no-raw-dialogs` green.
-- [ ] Commit hash — pending; the commit is a separate request.
+- [x] Commit `6060532`; the hash is recorded in the round tracker.
 
 ## Acceptance
 
