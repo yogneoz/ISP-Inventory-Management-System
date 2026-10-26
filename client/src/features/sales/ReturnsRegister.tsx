@@ -25,6 +25,7 @@ import { formCardClass } from '../../components/common/FormCard';
 import { FilterCard } from '../../components/common/FilterCard';
 import { TablePagination, useServerPageClamp } from '../../components/common/TablePagination';
 import { RegisterLoadError } from '../../components/common/RegisterLoadError';
+import { SearchPicker } from '../../components/common/SearchPicker';
 import { useDialog } from '../../components/common/DialogProvider';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 import { formatMoney } from '../../utils/nprFormat';
@@ -41,9 +42,9 @@ interface ReturnsRegisterProps {
   kind: ReturnKind;
   companyProfile?: CompanyProfile | null;
   currentUser?: User | null;
-  /** Purchase invoices (kind=PURCHASE) or sales invoices (kind=SALES) to return against. */
+  /** Purchase invoices (kind=PURCHASE) to return against. The sales kind
+   * searches its invoices through GET /api/sales-invoices instead. */
   purchaseInvoices: PurchaseInvoice[];
-  salesInvoices: SalesInvoice[];
   returns: (PurchaseReturn | SalesReturn)[];
   products: Product[];
   branches: Branch[];
@@ -80,7 +81,6 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
   kind,
   currentUser,
   purchaseInvoices,
-  salesInvoices,
   returns,
   products,
   branches,
@@ -100,6 +100,10 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
   // Create-form state
   const [branchId, setBranchId] = useState(selectedBranchId || branches[0]?.id || '');
   const [invoiceRef, setInvoiceRef] = useState('');
+  // The sales kind picks a full invoice row from the server search; the
+  // purchase kind keeps its already-scoped bootstrap slice. One state so the
+  // prefill/submit path stays identical for both.
+  const [selectedSalesInvoice, setSelectedSalesInvoice] = useState<SalesInvoice | null>(null);
   const [retDateAD, setRetDateAD] = useState(() => new Date().toISOString().split('T')[0]);
   const [reason, setReason] = useState<(typeof REASONS)[number]>('DEFECTIVE');
   const [restockable, setRestockable] = useState(true);
@@ -112,7 +116,6 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
   const [query, setQuery] = useState('');
 
   const isPurchase = kind === 'PURCHASE';
-  const invoices = isPurchase ? purchaseInvoices : salesInvoices;
   const docNumberLabel = isPurchase ? 'Debit Note (DN-…)' : 'Credit Note (CN-…)';
 
   // Server-side paged fetch state: the register asks /api/purchase-returns
@@ -167,9 +170,10 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
   );
 
   const selectedInvoice = useMemo(() => {
+    if (!isPurchase) return selectedSalesInvoice;
     if (!invoiceRef) return null;
-    return invoices.find((i) => i.id === invoiceRef || i.invoiceNumber === invoiceRef) || null;
-  }, [invoiceRef, invoices]);
+    return purchaseInvoices.find((i) => i.id === invoiceRef || i.invoiceNumber === invoiceRef) || null;
+  }, [isPurchase, invoiceRef, purchaseInvoices, selectedSalesInvoice]);
 
   /** Already-returned qty per product for the selected invoice (from posted returns). */
   const returnedQtyFor = (invoiceId: string | undefined, productId: string): number => {
@@ -181,12 +185,26 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
       .reduce((s: number, it: any) => s + (Math.abs(Number(it.quantity)) || 0), 0);
   };
 
-  const pickInvoice = (ref: string) => {
-    setInvoiceRef(ref);
+  /**
+   * Sales-invoice search for the returns picker. Server-side (invoice number
+   * or customer name) over the paged endpoint, so a return can target an
+   * invoice far outside the first page; `refreshToken` re-runs it when a
+   * sales event lands while the field is open.
+   */
+  const searchSalesInvoices = useCallback(async (q: string): Promise<SalesInvoice[]> => {
+    const envelope = await api.getSalesInvoices({
+      branchId: branchId !== 'ALL' ? branchId : undefined,
+      query: q,
+      page: 1,
+      pageSize: 20,
+    });
+    return Array.isArray(envelope) ? envelope : envelope.data;
+  }, [branchId]);
+
+  const applyInvoice = (inv: PurchaseInvoice | SalesInvoice) => {
+    setInvoiceRef(inv.id);
     setLines([]);
     setFormError('');
-    const inv = invoices.find((i) => i.id === ref || i.invoiceNumber === ref);
-    if (!inv) return;
     setBranchId(inv.branchId);
     setLines(
       (inv.items || []).map((it: any) => {
@@ -232,7 +250,7 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
     text.split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean);
 
   const resetForm = () => {
-    setInvoiceRef(''); setLines([]); setNotes(''); setReason('DEFECTIVE'); setRestockable(true);
+    setInvoiceRef(''); setSelectedSalesInvoice(null); setLines([]); setNotes(''); setReason('DEFECTIVE'); setRestockable(true);
     setFormError('');
   };
 
@@ -444,14 +462,68 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div>
               <label className={labelClass}>Original Invoice *</label>
-              <select className={inputClass} value={invoiceRef} onChange={(e) => pickInvoice(e.target.value)}>
-                <option value="">— Select invoice —</option>
-                {invoices.map((inv) => (
-                  <option key={inv.id} value={inv.id}>
-                    {inv.invoiceNumber} · {isPurchase ? (inv as PurchaseInvoice).supplierName : (inv as SalesInvoice).customerName} · {formatMoney(inv.grandTotal)}
-                  </option>
-                ))}
-              </select>
+              {isPurchase ? (
+                <select
+                  className={inputClass}
+                  value={invoiceRef}
+                  onChange={(e) => {
+                    const ref = e.target.value;
+                    setInvoiceRef(ref);
+                    setLines([]);
+                    setFormError('');
+                    const inv = purchaseInvoices.find((i) => i.id === ref || i.invoiceNumber === ref);
+                    if (inv) applyInvoice(inv);
+                  }}
+                >
+                  <option value="">— Select invoice —</option>
+                  {purchaseInvoices.map((inv) => (
+                    <option key={inv.id} value={inv.id}>
+                      {inv.invoiceNumber} · {inv.supplierName} · {formatMoney(inv.grandTotal)}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <SearchPicker<SalesInvoice>
+                  value={
+                    selectedSalesInvoice
+                      ? { id: selectedSalesInvoice.id, label: `${selectedSalesInvoice.invoiceNumber} · ${selectedSalesInvoice.customerName}` }
+                      : null
+                  }
+                  onSelect={(inv) => {
+                    if (inv) {
+                      setSelectedSalesInvoice(inv);
+                      applyInvoice(inv);
+                    } else {
+                      setSelectedSalesInvoice(null);
+                      setInvoiceRef('');
+                      setLines([]);
+                      setFormError('');
+                    }
+                  }}
+                  search={searchSalesInvoices}
+                  itemKey={(inv) => inv.id}
+                  itemLabel={(inv) => `${inv.invoiceNumber} · ${inv.customerName}`}
+                  renderOption={(inv) => (
+                    <div className="min-w-0 pr-2">
+                      <div className="truncate text-xs font-semibold text-slate-900 dark:text-white">
+                        {inv.invoiceNumber} · {inv.customerName}
+                      </div>
+                      <div className="truncate text-[11px] text-slate-500 dark:text-slate-400">
+                        {inv.invoiceDateAD} · {formatMoney(inv.grandTotal)} · {branchName(inv.branchId)}
+                      </div>
+                    </div>
+                  )}
+                  placeholder="Search invoice number or customer…"
+                  ariaLabel="Search sales invoices"
+                  inputClassName="h-9 text-xs font-semibold"
+                  labels={{
+                    hint: 'Type at least 2 characters to search invoices.',
+                    empty: 'No matching invoice.',
+                    error: 'Could not search invoices.',
+                  }}
+                  refreshToken={sseRefreshKey}
+                />
+              )}
             </div>
             <div>
               <label className={labelClass}>Branch *</label>

@@ -899,7 +899,6 @@ export interface BootstrapState {
    * client hydrates it via deferred GET /api/bootstrap/local slices.
    */
   purchaseInvoices?: PurchaseInvoice[];
-  salesInvoices?: SalesInvoice[];
   purchaseReturns?: PurchaseReturn[];
   salesReturns?: SalesReturn[];
   customerPayments?: CustomerPayment[];

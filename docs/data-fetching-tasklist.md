@@ -996,4 +996,8 @@ benefits from DF-06's calendar handling but does not block on it.
   tests; the rest need manual passes. Do not grow the source-text pins instead.
 - **Server-side paging** remains the rule for registers; do not reintroduce
   client filtering of whole bootstrap arrays.
+- **Sales invoices (VOL-2, 2026-10-26):** the Returns create form searches
+  `GET /api/sales-invoices` by invoice number/customer and the Sales register
+  has no full-array fallback, so the table left the bootstrap. The search
+  resends `refreshToken` from the sales counter while the picker is open.
 - **No new dependencies** are needed for any task in this list.

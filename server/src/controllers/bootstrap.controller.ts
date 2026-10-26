@@ -134,7 +134,6 @@ const { branchId, fiscalYearId } = req.query;
         assets: pgAssets,
         customerDevices: pgCustomerDevices,
         customers: data.customers,
-        salesInvoices: data.salesInvoices,
         purchaseReturns: data.purchaseReturns,
         salesReturns: data.salesReturns,
         shipments: pgShipments,
@@ -157,6 +156,7 @@ const { branchId, fiscalYearId } = req.query;
         //   - stockOperations   → GET /api/stock-operations   (paged envelope; register self-fetches)
         //   - purchaseOrders    → GET /api/purchase-orders    (paged envelope; register self-fetches)
         //   - purchaseInvoices  → GET /api/purchase-invoices  (paged envelope; register self-fetches)
+        //   - salesInvoices     → GET /api/sales-invoices     (paged/searchable; register + returns picker)
         // Their remaining wholesale consumers (dashboard/notification KPIs,
         // the FY closing wizard, the PI PO dropdown, the movement ledger,
         // StockOperations' panels, global search) are served by the client's

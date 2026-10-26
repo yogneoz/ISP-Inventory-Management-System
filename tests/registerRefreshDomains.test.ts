@@ -668,14 +668,29 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
     const source = readFeatureSource('sales/ReturnsRegister.tsx');
     // The LIST tab loads exactly one page of returns — purchase returns on
     // the DN host, sales returns on the CN host — switched by kind in
-    // loadRetPage. Create/cancel/approve mutations are all App callbacks,
-    // so no other api.* method may appear here.
-    assert.deepEqual(serverCallsIn(source), ['getPurchaseReturns', 'getSalesReturns']);
+    // loadRetPage. The sales create form no longer reads a bootstrap array:
+    // it searches invoices through the paged endpoint. Create/cancel/approve
+    // mutations are all App callbacks, so no other api.* method may appear.
+    assert.deepEqual(serverCallsIn(source), [
+      'getPurchaseReturns',
+      'getSalesInvoices',
+      'getSalesReturns',
+    ]);
     assert.match(source, /sseRefreshKey\?: number;/);
     assert.match(
       source,
       /useEffect\(\(\) => \{\s*loadRetPage\(\);\s*\}, \[loadRetPage, retRefreshKey, sseRefreshKey\]\);/,
       'the returns paged fetch effect must depend on sseRefreshKey'
+    );
+    assert.match(
+      source,
+      /refreshToken=\{sseRefreshKey\}/,
+      'the sales-invoice picker must re-search when a sales event bumps the counter'
+    );
+    assert.doesNotMatch(
+      source,
+      /salesInvoices: SalesInvoice\[\]/,
+      'the sales invoice array must not return as a ReturnsRegister prop'
     );
     assertNoRawFetch(source, 'ReturnsRegister.tsx');
 

@@ -534,7 +534,6 @@ export default function App() {
   const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [purchaseInvoices, setPurchaseInvoices] = useState<PurchaseInvoice[]>([]);
-  const [salesInvoices, setSalesInvoices] = useState<SalesInvoice[]>([]);
   const [purchaseReturns, setPurchaseReturns] = useState<PurchaseReturn[]>([]);
   const [salesReturns, setSalesReturns] = useState<SalesReturn[]>([]);
   const [shipments, setShipments] = useState<Shipment[]>([]);
@@ -666,7 +665,6 @@ export default function App() {
     if (data.customers) setCustomers(data.customers);
     if (data.purchaseOrders) setPurchaseOrders(data.purchaseOrders);
     if (data.purchaseInvoices) setPurchaseInvoices(data.purchaseInvoices);
-    if (data.salesInvoices) setSalesInvoices(data.salesInvoices);
     if (data.purchaseReturns) setPurchaseReturns(data.purchaseReturns);
     if (data.salesReturns) setSalesReturns(data.salesReturns);
     if (data.shipments) setShipments(data.shipments);
@@ -1026,7 +1024,7 @@ export default function App() {
     // Sales mutations deduct/restock stock, write transaction-log rows,
     // route non-restockable returns into the damage register and flip
     // serial_log rows (paged — covered by the register mapping below).
-    SALES: ['salesInvoices', 'salesReturns', 'stock', 'damageRecords', 'financialSummary'],
+    SALES: ['salesReturns', 'stock', 'damageRecords', 'financialSummary'],
     // A receipt credits the destination's stock, flips serial_log rows (paged
     // register mapping below) and writes TRANSFER_IN transaction_log rows, so
     // the Stock Movement Ledger must re-read along with the transfer register.
@@ -2176,7 +2174,6 @@ export default function App() {
         <SalesInvoices
           companyProfile={companyProfile}
           currentUser={currentUser}
-          invoices={salesInvoices}
           products={products}
           branches={branches}
           stock={stock}
@@ -2200,7 +2197,6 @@ export default function App() {
         <SalesInvoices
           companyProfile={companyProfile}
           currentUser={currentUser}
-          invoices={salesInvoices}
           products={products}
           branches={branches}
           stock={stock}
@@ -2226,7 +2222,6 @@ export default function App() {
           companyProfile={companyProfile}
           currentUser={currentUser}
           purchaseInvoices={purchaseInvoices}
-          salesInvoices={salesInvoices}
           returns={purchaseReturns}
           products={products}
           branches={branches}
@@ -2246,7 +2241,6 @@ export default function App() {
           companyProfile={companyProfile}
           currentUser={currentUser}
           purchaseInvoices={purchaseInvoices}
-          salesInvoices={salesInvoices}
           returns={purchaseReturns}
           products={products}
           branches={branches}
@@ -2267,7 +2261,6 @@ export default function App() {
           companyProfile={companyProfile}
           currentUser={currentUser}
           purchaseInvoices={purchaseInvoices}
-          salesInvoices={salesInvoices}
           returns={salesReturns}
           products={products}
           branches={branches}
@@ -2287,7 +2280,6 @@ export default function App() {
           companyProfile={companyProfile}
           currentUser={currentUser}
           purchaseInvoices={purchaseInvoices}
-          salesInvoices={salesInvoices}
           returns={salesReturns}
           products={products}
           branches={branches}

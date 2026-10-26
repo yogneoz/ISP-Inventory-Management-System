@@ -180,7 +180,6 @@ export async function fetchOperationalData(
   customers: any[];
   purchaseOrders: any[];
   purchaseInvoices: any[];
-  salesInvoices: any[];
   purchaseReturns: any[];
   salesReturns: any[];
   shipments: any[];
@@ -205,7 +204,6 @@ export async function fetchOperationalData(
     customers,
     purchaseOrders,
     purchaseInvoices,
-    salesInvoices,
     purchaseReturns,
     salesReturns,
     shipments,
@@ -230,7 +228,6 @@ export async function fetchOperationalData(
     fetchTable(pool, BOOTSTRAP_TABLES.customers, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.purchaseOrders, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.purchaseInvoices, scopeParams),
-    fetchTable(pool, BOOTSTRAP_TABLES.salesInvoices, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.purchaseReturns, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.salesReturns, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.shipments, scopeParams),
@@ -252,6 +249,10 @@ export async function fetchOperationalData(
     // NOTE: the serial_log fetch was removed — the register is served by the
     // paged GET /api/serial-log endpoint instead (see SerialLogQueryOptions),
     // so bootstrapping no longer loads the whole ledger.
+    // NOTE: sales_invoices is no longer fetched here either — the Returns
+    // register searches GET /api/sales-invoices and the Sales register pages
+    // it directly, so the fiscal year's invoices never enter first paint. The
+    // column mapping stays in columnMappings.ts for the operational cache.
   ]);
 
   return {
@@ -263,7 +264,6 @@ export async function fetchOperationalData(
     customers,
     purchaseOrders,
     purchaseInvoices,
-    salesInvoices,
     purchaseReturns,
     salesReturns,
     shipments,

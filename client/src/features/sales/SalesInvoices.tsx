@@ -44,7 +44,6 @@ import { localTodayAD } from '../../utils/localDate';
 interface SalesInvoicesProps {
   companyProfile?: CompanyProfile | null;
   currentUser?: User | null;
-  invoices: SalesInvoice[];
   products: Product[];
   branches: Branch[];
   stock: InventoryStock[];
@@ -92,7 +91,6 @@ interface FormLine {
 export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
   companyProfile,
   currentUser,
-  invoices,
   products,
   branches,
   stock,
@@ -569,27 +567,15 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
     }
   };
 
-  // The server page, or — on fetch failure — the client-side filtered prop
-  // array, so the register degrades instead of breaking.
-  const filtered = useMemo(() => {
-    if (!siLoadError) return siRows;
-    let list = invoices;
-    if (branchFilter !== 'ALL') list = list.filter((i) => i.branchId === branchFilter);
-    if (query.trim()) {
-      const q = query.trim().toLowerCase();
-      list = list.filter((i) =>
-        i.invoiceNumber.toLowerCase().includes(q) ||
-        (i.customerName || '').toLowerCase().includes(q)
-      );
-    }
-    return list;
-  }, [siLoadError, siRows, invoices, branchFilter, query]);
-
-  const totalItems = siLoadError ? filtered.length : siTotalItems;
+  // The register has no full-array fallback: a failed page leaves the rows
+  // already on screen (if any) and shows the error + Retry. The bootstrap no
+  // longer carries the fiscal year's invoices, and silently filtering a stale
+  // copy was the last reason it did.
+  const totalItems = siTotalItems;
   // A delete can shrink the filtered set under the current page; snap back to
   // the new last page instead of asking the server for one that is gone (DF-09).
   const safePage = useServerPageClamp(siPage, siPageSize, totalItems, setSiPage);
-  const pageRows = filtered;
+  const pageRows = siRows;
   const pageCount = Math.max(1, Math.ceil(totalItems / siPageSize));
   const rangeStart = totalItems === 0 ? 0 : (safePage - 1) * siPageSize + 1;
   const rangeEnd = Math.min(totalItems, safePage * siPageSize);
@@ -974,7 +960,7 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
             <RegisterLoadError
               subject="this page of sales invoices"
               message={siLoadError}
-              hasCachedRows={filtered.length > 0}
+              hasCachedRows={siRows.length > 0}
               loading={siLoading}
               onRetry={() => { void loadSiPage(); }}
             />

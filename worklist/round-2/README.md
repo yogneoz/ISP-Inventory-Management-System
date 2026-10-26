@@ -27,7 +27,7 @@ we are deliberately not taking.
 |---|---|---|---|---|---|
 | 1 | [SUM-1](SUM-1.md) | Aggregate trading revenue/COGS in SQL | `[x]` shipped (`4a2946b`) | 1–2 days | — |
 | 2 | [VOL-1](VOL-1.md) | Take `transactionLogs` off the bootstrap | `[x]` shipped (`daacb80`) | 3–5 days | SUM-1 (shares the summary slice's refresh path) |
-| 3 | [VOL-2](VOL-2.md) | Take `salesInvoices` off the bootstrap | `[ ]` | 1–2 days | VOL-1 (same bootstrap plumbing) |
+| 3 | [VOL-2](VOL-2.md) | Take `salesInvoices` off the bootstrap | `[~]` implemented, commit pending | 1–2 days | VOL-1 (same bootstrap plumbing) |
 | 4 | [BUDGET-1](BUDGET-1.md) | Startup bundle headroom decision | `[—]` hold | 0.5 day | First client change that hits the budget |
 
 **Total:** about 1–1.5 weeks. SUM-1 is server-only and independent, so it can

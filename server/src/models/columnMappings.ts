@@ -232,6 +232,11 @@ export const BOOTSTRAP_TABLES = {
       ['items', 'items'],
     ],
   },
+  // Sales invoices are served by GET /api/sales-invoices (paged, searchable,
+  // scoped) — the Returns register searches it and the Sales register pages
+  // it. This entry stays only so the operational cache keeps the in-memory
+  // demo mirror hydrated; the bootstrap fetch and response no longer include
+  // the fiscal year's whole invoice ledger.
   salesInvoices: {
     table: 'sales_invoices',
     scope: { branchCol: 'branch_id', dateCol: 'invoice_date_ad' },

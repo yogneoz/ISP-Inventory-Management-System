@@ -349,7 +349,7 @@ bootstrap; **paged** = path 4; **self** = path 5; **form** = no read of its own.
 
 | Tab / screen | Data path | Verdict |
 |---|---|---|
-| Executive Dashboard | props (stock, products, POs, shipments, logs, assets) | Live via targeted slices. `financialSummary` prop is unused here. |
+| Executive Dashboard | props (stock, products, POs, shipments, assets) + self recent activity | Live via targeted slices; the eight latest movements are read from `GET /api/transaction-logs` (VOL-1). `financialSummary` prop is unused here. |
 | Global search, notifications, help | props / static | Hydration only; no defect found. |
 | All Available Stock, Branch Stock | props stock/products | Fine. |
 | Stock Movement Ledger | self transaction-log window + ops/damage | Fixed by DF-06, then superseded by VOL-1 (2026-10-26): the screen reads a bounded `/api/transaction-logs` window; the bootstrap slice is gone. |
@@ -364,8 +364,8 @@ bootstrap; **paged** = path 4; **self** = path 5; **form** = no read of its own.
 | Locations | self list | Load failure surfaced by DF-11; a new location's branch now follows the signed-in user once the branch list loads (close-out fix). |
 | Device Exchange | StockOperations host | Mount-once serial snapshot (P1-2); full page reload (P2-10). |
 | Purchase Orders, Purchase Invoices | paged | Guards fine; fetch failures render the retryable notice and exports refuse a partial file (DF-04); page clamp fixed by DF-09. |
-| Purchase / Sales Returns Register | paged | Same as above. |
-| Sales Invoices | paged | Same as above. |
+| Purchase / Sales Returns Register | paged | Same as above. VOL-2 (2026-10-26) replaced the sales form's invoice `<select>` over the bootstrap array with a server-side `SearchPicker` over `GET /api/sales-invoices` (number or customer); the purchase kind keeps its slice. |
+| Sales Invoices | paged | Same as above. VOL-2 (2026-10-26) removed the failed-fetch fallback over the bootstrap array; a failed page keeps the rows on screen plus the retryable notice. |
 | Consumables Register | paged | Same; also depends on the shared serial cache for its form host. |
 | Create PO / Purchase Invoice / Sales Invoice / Returns | form | Derived from props; no defect found beyond the stale supplier/branch sync notes. |
 | Create Shipment / Create Transfer / Pullout / Damage Label / Product Sale / Assign Asset | form + `serialRegister` | Validation uses the session-old snapshot (P1-2). |

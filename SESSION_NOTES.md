@@ -1,10 +1,10 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-26 · Branch: main · Tests: 1247/1247 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-26 · Branch: main · Tests: 1254/1254 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
-> **Current state (2026-10-26, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1).** All DF-01…DF-17
+> **Current state (2026-10-26, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1/VOL-2).** All DF-01…DF-17
 > work, the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2, CPE-3,
-> SER-1, SER-2, TRIM-1, SUM-1 and VOL-1 are implemented. Round 2 continues with VOL-2. C4 is explicitly parked (one
+> SER-1, SER-2, TRIM-1, SUM-1, VOL-1 and VOL-2 are implemented. Round 2 is ready for its close pass. C4 is explicitly parked (one
 > `bootstrap/local` call site already; see the architecture backlog §C4). B2 shipped the combined trigram search projection, so all eight
 > item searches share one indexed `search_text` column per table; B3/B4 stay
 > parked. CPE-3 resolved D1 and made the fixed asset, CPE row, serial register and
@@ -17,6 +17,39 @@ _Date: 2026-10-26 · Branch: main · Tests: 1247/1247 green with a DB (all run i
 > trigger (see D4 below).
 > Older “Remaining …” paragraphs below are chronological notes, not a live
 > backlog; where they conflict with this note, the code wins.
+
+## ✅ VOL-2 implemented — sales invoices leave the bootstrap (2026-10-26)
+
+**Problem.** `salesInvoices` still entered `GET /api/bootstrap` for the fiscal
+year/branch. Only two consumers touched it: the Returns create form's
+`<select>` and the Sales register's failed-fetch fallback. At the intended
+national volume (12k customers at 1×, 120k at 10×, Nepal-wide) that is the
+whole invoice ledger — with every `items` line — on every login and full
+refresh.
+
+**Fix.** The Returns form now uses the shared `SearchPicker` against
+`GET /api/sales-invoices?query=…&page=1&pageSize=20`: search by invoice number
+or customer name, full row (including `items`) back, same `applyInvoice` /
+maximum-quantity / already-returned prefill path. The Sales register lost its
+`invoices` prop and client-side fallback; a failed page keeps the rows already
+on screen plus the existing error + Retry. `salesInvoices` left
+`fetchOperationalData`, the `/api/bootstrap` response, `BootstrapState`, App
+state and all six prop sites. The column mapping stays in
+`columnMappings.ts` only so the operational cache (demo mirror, duplicate
+check) still hydrates, exactly like `transactionLogs`. The four purchase-return
+render sites keep their `purchaseInvoices` slice untouched.
+
+**Measured.** A generated 12k/120k-invoice array in the real bootstrap
+projection (two-to-four-line `items`) costs **929 B raw / 29.9 B gzip per
+row**. Removed from the login payload: **11.14 MB raw / 0.36 MB gzip at 1×
+(12k invoices/year)** and **111.57 MB raw / 3.57 MB gzip at 10× (120k/year)**,
+using the B1 benchmark's documented invoice volumes. Details in
+[worklist/round-2/VOL-2.md](worklist/round-2/VOL-2.md).
+
+**Gates.** `npx tsc --noEmit` clean; full `npm test` **1254 tests, 1252 pass,
+0 fail, 2 Windows-only skips**; `npm run build` clean; `check:bundle-budget`
+**313.2 kB / 15.6 kB** (320 / 16); `check:no-inline-sql` and
+`check:no-raw-dialogs` green. The commit is a separate step.
 
 ## ✅ VOL-1 implemented — the movement log is one scoped, paged read (2026-10-26)
 

@@ -52,7 +52,6 @@ const SLICE_LABELS: Record<string, string> = {
   stockOperations: 'stock operations',
   purchaseOrders: 'purchase orders',
   purchaseInvoices: 'purchase invoices',
-  salesInvoices: 'sales invoices',
   purchaseReturns: 'purchase returns',
   salesReturns: 'sales returns',
   shipments: 'shipments',

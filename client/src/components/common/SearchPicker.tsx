@@ -68,6 +68,11 @@ export interface SearchPickerProps<T> {
   inputClassName?: string;
   minChars?: number;
   debounceMs?: number;
+  /**
+   * Bump to re-run the current search while the field is open (for a live
+   * register counter). No effect on an untouched field.
+   */
+  refreshToken?: number;
   ariaLabel?: string;
   labels?: SearchPickerLabels;
   clearTitle?: string;
@@ -102,6 +107,7 @@ export function SearchPicker<T>({
   inputClassName = 'h-9 text-xs font-semibold',
   minChars = 2,
   debounceMs = 200,
+  refreshToken,
   ariaLabel = 'Search',
   labels = {},
   clearTitle = 'Clear selection',
@@ -206,7 +212,7 @@ export function SearchPicker<T>({
       window.clearTimeout(timer);
       requestSeq.current += 1;
     };
-  }, [open, dirty, query, minChars, debounceMs, search, retryToken, labels.error]);
+  }, [open, dirty, query, minChars, debounceMs, search, retryToken, refreshToken, labels.error]);
 
   // Close on a click outside. The listbox can live in a portal, so it counts
   // as inside too. Restore the selected label (or clear free text) so the

@@ -1,82 +1,116 @@
 # VOL-2 — take `salesInvoices` off the bootstrap
 
-Status: `[ ]` planned · Created 2026-10-26 · Estimate 1–2 days · Client + server
+Status: `[~]` implemented, all gates green, awaiting commit · Created 2026-10-26 ·
+Finished 2026-10-26 · Client + server
 Round: [Round 2](README.md) · Order: 3 · Depends on [VOL-1](VOL-1.md)
 
 ## Problem
 
-The bootstrap still loads every sales invoice for the fiscal year/branch. The
-customer ledger already reads its own scoped endpoint, and the Sales register
-already pages from `/api/sales-invoices`. What remains is:
+The bootstrap loaded every sales invoice for the fiscal year/branch, with every
+`items` line, for two consumers. At national volume (12k customers at 1×, 120k
+at 10×, Nepal-wide) that is the whole invoice ledger on every login and full
+refresh.
 
-| Consumer | Current use | Right read |
+| Consumer | Old use | Delivered read |
 |---|---|---|
-| [ReturnsRegister](../../client/src/features/sales/ReturnsRegister.tsx#L449) | `<select>` over every invoice, and `find` for the selected reference | searchable invoice picker over the paged endpoint |
-| [SalesInvoices](../../client/src/features/sales/SalesInvoices.tsx#L574) | fallback array when the paged fetch fails | the register's own error/retry state |
+| [ReturnsRegister](../../client/src/features/sales/ReturnsRegister.tsx) | `<select>` over every invoice, and `find` for the selected reference | `SearchPicker` over `GET /api/sales-invoices` — number or customer name, 20-result page |
+| [SalesInvoices](../../client/src/features/sales/SalesInvoices.tsx) | fallback array when the paged fetch failed | that screen's own error + Retry; no full-array path |
 
-`GET /api/sales-invoices` already supports `page`, `pageSize`, `query`,
-`branchId`, `status` and an AD date range, returns the full row including
-`items`, and searches invoice number and customer name
-([sales.repo.ts:42](../../server/src/models/sales.repo.ts#L42)). No new query is
-needed.
+`GET /api/sales-invoices` already supported `page`, `pageSize`, `query`,
+`branchId`, `status` and an AD date range and returns the full row including
+`items`; no new query was needed.
 
-## Steps
+## Delivered
 
-- [ ] **1. Replace the returns invoice dropdown with a searchable picker.**
-      Reuse `SearchPicker` (the customer picker is the model). Search by invoice
-      number or customer name through `api.getSalesInvoices({ branchId, query,
-      page: 1, pageSize: 20 })`; show the invoice number, customer and date.
-- [ ] **2. Keep the prefill rule identical.** Selecting an invoice must run the
-      same `pickInvoice` path as today: find the invoice, copy its lines into
-      the form, resolve product names/SKUs and per-line max quantities, and keep
-      the "already returned" checks. The picker returns the full row (including
-      `items`), so no second fetch is needed; if the row shape is partial, add a
-      single-invoice read rather than widening the page size.
-- [ ] **3. Handle the purchase kind.** ReturnsRegister serves both kinds. The
-      purchase routes currently pass both arrays but only use
-      `purchaseInvoices`; make `salesInvoices` optional/removed for the sales
-      kind and leave the purchase slice for a later VOL-3. Do not change
-      purchase-return behaviour in this slice.
-- [ ] **4. Remove the Sales register fallback.** On a fetch failure,
-      [SalesInvoices](../../client/src/features/sales/SalesInvoices.tsx#L574)
-      currently filters the prop array. Delete that branch and keep the existing
-      error notice + Retry; the fallback is the last consumer of the full array
-      there.
-- [ ] **5. Remove the slice.** Remove `salesInvoices` from `BOOTSTRAP_TABLES`,
-      `fetchOperationalData`, the bootstrap response type, App state and the
-      eight `salesInvoices={...}` prop sites. Keep the
-      `registerRefresh.salesInvoices` counter — SSE invalidation does not need
-      the array.
-- [ ] **6. SSE behaviour.** Remove `salesInvoices` from the `SALES` domain's
-      slice list; the Sales register and the returns picker must refresh through
-      their own counters/activation keys. Drive a sales event in a test and
-      assert the screen re-reads.
-- [ ] **7. Tests and measurement.** Add an HTTP test that searches for an old
-      invoice by number (one outside the first page) and gets it back with its
-      lines; a contract test for no `salesInvoices` bootstrap key/prop; the A6
-      route-tree test. Measure the bootstrap payload before/after at 1× and 10×
-      and record it here.
-- [ ] **8. Docs and gates.** Update the architecture backlog (A5/volume note)
-      and SESSION_NOTES; run `npx tsc --noEmit`, the new tests, full `npm test`,
-      no-inline-SQL/no-raw-dialogs, build and bundle budget. Record the commit.
+### Server
+
+- `salesInvoices` left `fetchOperationalData` and the `/api/bootstrap`
+  response. The payload no longer names the key.
+- [columnMappings.ts](../../server/src/models/columnMappings.ts) keeps the
+  mapping **only** so `CACHE_LOADS` can keep the operational cache hydrated
+  (demo mode's invoice list, the duplicate-number pre-check, the post-write
+  mirror refresh). Its comment now says so, matching `transactionLogs`.
+- `/api/bootstrap/local?key=salesInvoices` still answers through the mapping
+  for an older client, but no client domain asks for it.
+
+### Client
+
+- **Returns create form** — the sales kind renders the shared
+  [SearchPicker](../../client/src/components/common/SearchPicker.tsx):
+  `api.getSalesInvoices({ branchId, query, page: 1, pageSize: 20 })`, search by
+  invoice number or customer name, rows show number / customer / date / total.
+  Picking a row runs the same `applyInvoice` path as before: lines copied,
+  product name/SKU/unit resolved, quantity capped at invoiced − already
+  returned, serial requirement kept. Clearing the field clears the prefill.
+  `refreshToken={sseRefreshKey}` re-runs an open search when `SALES` bumps.
+- **Purchase kind is untouched** — its `<select>` still reads the
+  `purchaseInvoices` slice at all four render sites.
+- **SalesInvoices** — the `invoices` prop and the `let list = invoices`
+  fallback are gone. `pageRows = siRows`, `totalItems = siTotalItems`, and a
+  failed page keeps the rows already on screen with the existing
+  `RegisterLoadError` + Retry.
+- **App** — no `salesInvoices` state, bootstrap hydration, `SALES` slice key,
+  or prop. `registerRefresh.salesInvoices` stays and still wires both screens.
+- [BootstrapState](../../client/src/types/index.ts) and
+  [bootstrapSlices](../../client/src/services/bootstrapSlices.ts) no longer
+  declare a `salesInvoices` slice or label.
+
+## Payload measurement
+
+Measured 2026-10-26 with `.tmp-vol2-payload.ts` (throwaway; rows built in the
+real bootstrap projection with two-to-four-line `items`, serialized and
+gzipped as one array at the B1 benchmark's documented invoice counts):
+
+| Volume model | Rows | Raw JSON removed | Gzip removed |
+|---|---:|---:|---:|
+| 1× (12k customers, 12k invoices/year) | 12,000 | 11.14 MB | 0.36 MB |
+| 10× (120k customers, 120k invoices/year) | 120,000 | 111.57 MB | 3.57 MB |
+
+Row cost: **929 B raw / 29.9 B gzip**. The array is gone, so the cost no longer
+scales with the invoice ledger; the remaining bootstrap is unchanged in shape.
+
+## Tests
+
+Full suite: **1254 tests, 1252 pass, 0 fail, 2 Windows-only skips**.
+
+- [returnsInvoicePicker.test.ts](../../tests/returnsInvoicePicker.test.ts) —
+  source contract (bootstrap repo/controller, App state and props,
+  BootstrapState, the returns form and the sales register) plus HTTP: seed eight
+  invoices, prove the oldest is outside page 1, find it by number and by
+  customer with its `items`, keep the legacy array shape, prove the bootstrap
+  omits the key, and `401` without a token.
+- [registerRefreshDomains.test.ts](../../tests/registerRefreshDomains.test.ts) —
+  `ReturnsRegister`'s server surface now includes `getSalesInvoices`; the picker
+  re-search token is pinned, and the screen may not take an invoice array.
+- `appRouteTree`, `bootstrapSlices`, `bootstrapTrim` and the feature-screen
+  pins stay green after the fixture/prop removal.
+
+## Gates
+
+- [x] `npx tsc --noEmit` clean.
+- [x] Full `npm test`: **1254 tests, 1252 pass, 0 fail, 2 Windows-only
+      skips**; the docs-count gate matched 1254.
+- [x] `npm run build` clean; `check:bundle-budget` **313.2 kB** startup /
+      **15.6 kB** entry (320 / 16).
+- [x] `check:no-inline-sql` and `check:no-raw-dialogs` green.
+- [ ] Commit hash — pending; the commit is a separate request.
 
 ## Acceptance
 
-- [ ] `/api/bootstrap` no longer contains `salesInvoices`.
-- [ ] A return can be created against an invoice outside the first page, found
-      by number or customer; lines, max quantities and already-returned checks
-      match the old behaviour.
-- [ ] The Sales register still pages, filters and recovers from a failed fetch.
-- [ ] A sales SSE event refreshes the visible register and returns picker.
-- [ ] Payload before/after recorded; no bundle-budget breach.
-- [ ] Docs updated; commit hash recorded.
+- [x] `/api/bootstrap` no longer contains `salesInvoices`.
+- [x] A return can be created against an invoice outside the first page, found
+      by number or customer; the prefill path is unchanged.
+- [x] The Sales register still pages, filters and recovers from a failed fetch.
+- [x] A sales SSE event refreshes the register and re-runs an open picker.
+- [x] Payload before/after recorded; bundle budget checked.
+- [x] Docs updated; commit hash pending.
 
 ## Risks
 
 | Risk | Mitigation |
 |---|---|
-| The picker cannot find an old invoice | Search is server-side on the invoice number; test one outside the first page |
-| Line prefill differs from the old in-memory path | Reuse `pickInvoice`; parity-test a multi-line invoice with a prior return |
-| Purchase returns are affected | Keep the purchase slice and paths untouched; sales kind only |
-| The Sales register loses its degraded mode | Error state + Retry already exists; test the failure path |
-| A hidden prop remains | Source-contract test over all `salesInvoices=` sites |
+| The picker cannot find an old invoice | Search is server-side on the invoice number; the HTTP test proves one outside page 1 |
+| Line prefill differs from the old in-memory path | `applyInvoice` is the old mapping, reused verbatim; the row carries `items` |
+| Purchase returns are affected | The purchase select and slice are untouched at all four sites |
+| The Sales register loses its degraded mode | Rows already on screen stay; error + Retry is pinned |
+| A hidden prop remains | Source-contract test over bootstrap, App and both screens |

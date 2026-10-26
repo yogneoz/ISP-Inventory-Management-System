@@ -69,7 +69,6 @@ export const bootstrapFixture = {
   approvalRequests: [],
   purchaseOrders: [],
   purchaseInvoices: [],
-  salesInvoices: [],
   purchaseReturns: [],
   salesReturns: [],
   shipments: [],

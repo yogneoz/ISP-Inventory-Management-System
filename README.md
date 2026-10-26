@@ -528,7 +528,7 @@ and pagination, so the client loads exactly one page of rows at a time.
 | Purchase Invoices Register | `GET /api/purchase-invoices` | **Trimmed from bootstrap** — register self-fetches its page; the KPI unpaid-bill count is a one-row page's aggregate and the FY closing wizard reads its year's rows from this endpoint. Registers' links, financial statements and VAT/audit reports still take the deferred `GET /api/bootstrap/local?key=purchaseInvoices` slice |
 | Purchase Returns Register | `GET /api/purchase-returns` | Paged endpoint available; the table still ships in bootstrap for other consumers |
 | Sales Returns Register | `GET /api/sales-returns` | Paged endpoint available; the table still ships in bootstrap for other consumers |
-| Sales Invoices Register | `GET /api/sales-invoices` | Paged endpoint available; the table still ships in bootstrap for other consumers |
+| Sales Invoices Register | `GET /api/sales-invoices` | **Trimmed from bootstrap** — the register self-fetches its page, and the Returns create form searches the same endpoint by invoice number or customer (full row incl. `items`); the Sales register no longer has a full-array fallback |
 | Customer Master Directory | `GET /api/customers` | Always a `{ data, page, pageSize, totalItems, activeItems, totalCreditLimit }` envelope; `branchId`, `query`, `status`, `page`, `pageSize` filter server-side, `all=1` returns the full filtered set for CSV export |
 
 > **Guarded:** these eight are the only server-paged lists in the app. Adding a
@@ -585,11 +585,12 @@ fiscal-year states over real HTTP against a database built from `schema.sql` alo
 - `statusCounts` powers the register's KPI cards; `pendingValue`/`receivedValue`
   (purchase orders) and `sums` (purchase invoices) are SQL aggregates over the
   **full filtered set**, so metrics stay exact even when one page is displayed.
-- Omitting `page` returns the legacy plain array — older consumers (dashboard,
-  movement ledger, FY closing wizard) keep working unchanged; they receive it
-  through the deferred `GET /api/bootstrap/local?key=<slice>` hydration that
-  runs right after each full bootstrap (the same endpoint the targeted SSE
-  refresh uses), not through the bootstrap payload itself.
+- Omitting `page` returns the legacy plain array, so an older caller keeps
+  working unchanged. Slices still carried as deferred hydration (for example
+  the FY closing wizard's documents) arrive through
+  `GET /api/bootstrap/local?key=<slice>`, the same endpoint the targeted SSE
+  refresh uses — never through the bootstrap payload itself. The movement
+  ledger and Dashboard read their own `/api/transaction-logs` window.
 - New SQL for these endpoints lives in the repo layer (`server/src/models/*.repo.ts`);
   controllers only assemble the envelope. Filters are validated (date format,
   page clamping) before they reach SQL.
@@ -705,7 +706,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 1247-test suite against a PostgreSQL 16 service container (zero DB skips;
+  full 1254-test suite against a PostgreSQL 16 service container (zero DB skips;
   the two unconditional skips are Windows-only real-signal checks, which CI runs,
   and the live-drain check runs under `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1` so its
   preconditions cannot silently skip it) →
