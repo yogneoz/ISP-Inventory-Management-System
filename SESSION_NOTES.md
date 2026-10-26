@@ -1,11 +1,12 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-26 · Branch: main · Tests: 1254/1254 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-26 · Branch: main · Tests: 1255/1255 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
-> **Current state (2026-10-26, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1/VOL-2/BUDGET-1).** All DF-01…DF-17
+> **Current state (2026-10-26, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1/VOL-2/BUDGET-1/BOOT-1).** All DF-01…DF-17
 > work, the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2, CPE-3,
-> SER-1, SER-2, TRIM-1, SUM-1, VOL-1, VOL-2 and BUDGET-1 are implemented. **Round 2 closed on 2026-10-26** (see the close entry below; archive at
-> [worklist/done/2026-10-26-round-2.md](worklist/done/2026-10-26-round-2.md)). C4 is explicitly parked (one
+> SER-1, SER-2, TRIM-1, SUM-1, VOL-1, VOL-2, BUDGET-1 and BOOT-1 are implemented. **Round 2 closed on 2026-10-26** (archive at
+> [worklist/done/2026-10-26-round-2.md](worklist/done/2026-10-26-round-2.md)); **Round 3 is in progress**
+> ([worklist/round-3/README.md](worklist/round-3/README.md)) with BOOT-1 landed and VOL-3 next. C4 is explicitly parked (one
 > `bootstrap/local` call site already; see the architecture backlog §C4). B2 shipped the combined trigram search projection, so all eight
 > item searches share one indexed `search_text` column per table; B3/B4 stay
 > parked. CPE-3 resolved D1 and made the fixed asset, CPE row, serial register and
@@ -18,6 +19,52 @@ _Date: 2026-10-26 · Branch: main · Tests: 1254/1254 green with a DB (all run i
 > trigger (see D4 below).
 > Older “Remaining …” paragraphs below are chronological notes, not a live
 > backlog; where they conflict with this note, the code wins.
+
+## ✅ BOOT-1 implemented — the bootstrap stops reading ledgers it never ships (2026-10-26)
+
+**Problem.** Round 2 removed what the client receives, but the full bootstrap
+still read the whole fiscal year's purchase orders, purchase invoices and stock
+operations on every login. The first three fed only `computeFinancialSummary`
+and were then dropped from the payload; `purchaseOrders` was fetched and never
+referenced at all. It also serialized `vendorPayments`, which no client state,
+type or screen reads.
+
+**Fix.** The full bootstrap now calls `fetchFinancialSummaryFromDb` — the same
+eight indexed aggregates the targeted slice and the batch report already use —
+so no item JSON leaves PostgreSQL. `fetchOperationalData` dropped those four
+reads and the now-unused opening-balance query: 18 fan-out queries instead of
+23 (plus the eight cheap summary aggregates). `vendorPayments` left the payload
+and App's PROCUREMENT refresh-domain list. Every removed key keeps its
+`BOOTSTRAP_TABLES` mapping, so `GET /api/bootstrap/local?key=<key>` still serves
+an older client.
+
+**Parity.** `computeFinancialSummary` stays as the pure oracle. A new live test
+rebuilds its source from the same seeded rows through the real column mappings
+and compares all eight fields with the bootstrap response, so the SQL producer
+is checked against the rule rather than against itself.
+
+**Cleanup.** Deleted the stale `FRONTEND-AUDIT.md` (its P1 product-sale finding
+is fixed and its G.6 split is executed); the stockops code comments that cited
+it now name the decomposition directly.
+
+**Measured** with a scratch-schema benchmark at modelled 1×/10× (four-line
+operation items, real column shape):
+
+| Volume | Rows | Row text removed | Old four-ledger read | New SQL summary |
+|---|---:|---:|---:|---:|
+| 1× | 154,000 | 63.1 MB | 1,803 ms median (1,525 best) | 187 ms median (154 best) |
+| 10× | 1,540,000 | 632.4 MB | not materializable — connection dropped under the load | 1,402 ms median (1,247 best), 70 MB RSS |
+
+The 10× old-path failure is the finding: the previous login path pulled 632 MB
+of row text into Node. The scratch aggregates are unindexed, so the new times
+are an upper bound. Details in
+[worklist/round-3/BOOT-1.md](worklist/round-3/BOOT-1.md).
+
+**Gates.** `npx tsc --noEmit` clean; the financial-summary, bootstrap
+trim/slices/FY, cache parity, returns-picker and transaction-log suites
+**61/61 pass**; full suite **1255 tests, 1253 pass, 0 fail, 2 Windows-only
+skips**, docs-count gate at 1255; build clean and bundle budget
+**279.0 kB / 15.7 kB** (320 / 17); both convention guards green.
 
 ## ✅ Round 2 closed — the read path no longer scales with history (2026-10-26)
 

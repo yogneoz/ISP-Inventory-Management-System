@@ -26,6 +26,8 @@ import dotenv from 'dotenv';
 import { createApp, registerAllRoutes } from '../server/src/app';
 import { issueAuthToken } from '../server/src/middleware/auth';
 import { computeFinancialSummary } from '../server/src/services/financialSummary.service';
+import { fetchTable } from '../server/src/models/bootstrap.repo';
+import { BOOTSTRAP_TABLES } from '../server/src/models/columnMappings';
 import { ensureReferenceData } from './fixtures/referenceData';
 
 dotenv.config();
@@ -93,16 +95,16 @@ describe('financialSummary — slice wiring', () => {
   test('the bootstrap and the slice share one rule', () => {
     const controller = read('server/src/controllers/bootstrap.controller.ts');
     assert.ok(
-      controller.includes('computeFinancialSummary({'),
-      'full bootstrap must use the shared rule'
+      controller.includes('fetchFinancialSummaryFromDb(pgPool, {'),
+      'both the full bootstrap and the slice must use the aggregate SQL producer'
+    );
+    assert.ok(
+      !controller.includes('computeFinancialSummary('),
+      'the full bootstrap must not load ledger rows to feed the pure rule'
     );
     assert.ok(
       controller.includes("if (key === 'financialSummary')"),
       'bootstrap/local must serve the summary key'
-    );
-    assert.ok(
-      controller.includes('fetchFinancialSummaryFromDb(pgPool, {'),
-      'the slice must use the aggregate SQL producer, not the 24-query fan-out'
     );
     assert.ok(
       !controller.includes('vendorOpeningBalTotal + currentPeriodInvoiceTotal'),
@@ -351,6 +353,57 @@ describe('financialSummary — live slice against real PostgreSQL', () => {
       full.json.financialSummary,
       expected,
       'the bootstrap and the targeted slice must agree, not just both be plausible'
+    );
+  });
+
+  test('full bootstrap summary equals the pure rule rebuilt from the same rows', { skip: skipNoDb }, async () => {
+    const scope = {
+      branchId: BRANCH,
+      fiscalYearId: fiscalYear.id,
+      fiscalYearStartAD: fiscalYear.startDateAD,
+      fiscalYearEndAD: fiscalYear.endDateAD,
+    };
+    const [
+      stock,
+      products,
+      assets,
+      purchaseInvoices,
+      vendorPayments,
+      purchaseReturns,
+      stockOperations,
+    ] = await Promise.all([
+      fetchTable(pool!, BOOTSTRAP_TABLES.stock, scope),
+      fetchTable(pool!, BOOTSTRAP_TABLES.products, scope),
+      fetchTable(pool!, BOOTSTRAP_TABLES.assets, scope),
+      fetchTable(pool!, BOOTSTRAP_TABLES.purchaseInvoices, scope),
+      fetchTable(pool!, BOOTSTRAP_TABLES.vendorPayments, scope),
+      fetchTable(pool!, BOOTSTRAP_TABLES.purchaseReturns, scope),
+      fetchTable(pool!, BOOTSTRAP_TABLES.stockOperations, scope),
+    ]);
+    const openingRes = await pool!.query(
+      `SELECT COALESCE(SUM(opening_balance), 0)::float AS total
+         FROM vendor_opening_balances
+        WHERE fiscal_year_id = $1 AND branch_id = $2`,
+      [fiscalYear.id, BRANCH]
+    );
+    const expected = computeFinancialSummary({
+      stock,
+      products,
+      assets,
+      purchaseInvoices,
+      vendorPayments,
+      purchaseReturns,
+      stockOperations,
+      vendorOpeningBalanceTotal: Number(openingRes.rows[0]?.total || 0),
+      currentFiscalYear: currentCode,
+    });
+
+    const full = await get('/api/bootstrap?' + scopeQuery(BRANCH));
+    assert.equal(full.status, 200, JSON.stringify(full.json));
+    assert.deepEqual(
+      full.json.financialSummary,
+      expected,
+      'the SQL producer must match the pure rule on the same rows, not only on hand-written fixtures'
     );
   });
 

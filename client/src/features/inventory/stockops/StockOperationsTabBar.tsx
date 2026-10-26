@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 
 /**
- * StockOperationsTabBar - host chrome (FRONTEND-AUDIT.md §G commit 2): the
+ * StockOperationsTabBar - host chrome (decomposition commit 2): the
  * sub-tab strip, cut VERBATIM out of StockOperations.tsx. Counts, activeTab,
  * the permission check and the dialog helper come from the StockOperations
  * context; `initialType` stays a prop because it is the App-level entry

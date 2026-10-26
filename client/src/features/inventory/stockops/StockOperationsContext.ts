@@ -1,5 +1,5 @@
 /**
- * StockOperations panel context - decomposition (FRONTEND-AUDIT.md Section G).
+ * StockOperations panel context - decomposition.
  *
  * Commit 1 ("pure move") extracted the 12 tab panels' JSX; commit 2
  * relocated each panel's state, effects and handlers into the panel itself.

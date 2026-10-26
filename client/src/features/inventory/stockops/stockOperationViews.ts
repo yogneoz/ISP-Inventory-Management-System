@@ -1,5 +1,5 @@
 /**
- * Shared StockOperations view derivations (FRONTEND-AUDIT.md §G commit 2).
+ * Shared StockOperations view derivations (decomposition commit 2).
  *
  * Cut VERBATIM out of the StockOperations host when its state relocated
  * into the tab panels: the synthesized damage log, the per-type tab-bar

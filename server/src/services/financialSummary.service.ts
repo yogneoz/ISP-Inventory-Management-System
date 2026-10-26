@@ -9,18 +9,22 @@
  *
  * The summary now has TWO producers that agree:
  *
- *  - `computeFinancialSummary` is the pure rule, used by the full bootstrap
- *    from rows it already fetched.
- *  - `fetchFinancialSummaryFromDb` reads only the aggregate inputs in SQL for
- *    GET /api/bootstrap/local?key=financialSummary. Re-running the 24-query
- *    operational fan-out for one summary would be the heavy option the task
- *    list warns about; this path issues eight indexed aggregates instead.
+ *  - `fetchFinancialSummaryFromDb` is the live producer for BOTH the full
+ *    bootstrap and GET /api/bootstrap/local?key=financialSummary (BOOT-1,
+ *    2026-10-26). It issues eight indexed aggregates; no item JSON leaves
+ *    PostgreSQL. Before BOOT-1 the full bootstrap loaded every purchase
+ *    invoice and stock operation just to feed the pure rule, then dropped
+ *    those arrays from the payload — the dominant cost of a login at national
+ *    volume.
+ *  - `computeFinancialSummary` is the pure rule, kept as the parity oracle:
+ *    tests/financialSummary.test.ts rebuilds its source from the same SQL rows
+ *    and proves the aggregate producer matches it field for field.
  *
  * Both take the same branch/fiscal-year scope and apply the same formulas —
- * AP includes the posted purchase-return term. The bootstrap computes trading
- * revenue/COGS with `computeTradingFromOps`; the slice aggregates the same rule
- * in SQL (`buildTradingTotalsQuery`), and tests/tradingTotals.test.ts pins the
- * two producers together.
+ * AP includes the posted purchase-return term. The pure rule computes trading
+ * revenue/COGS with `computeTradingFromOps`; the SQL producer aggregates the
+ * same rule (`buildTradingTotalsQuery`), and tests/tradingTotals.test.ts pins
+ * the two together.
  */
 import type { QueryExecutor } from '../models/bootstrap.repo';
 import {
@@ -130,8 +134,9 @@ export function computeFinancialSummary(source: FinancialSummarySource): Financi
 }
 
 /**
- * Aggregate-only summary for the targeted-refresh slice. Eight indexed reads;
- * no item JSON leaves PostgreSQL — the trading totals are summed in SQL.
+ * Aggregate-only summary for the full bootstrap and the targeted-refresh
+ * slice. Eight indexed reads; no item JSON leaves PostgreSQL — the trading
+ * totals are summed in SQL.
  */
 export async function fetchFinancialSummaryFromDb(
   pool: QueryExecutor,

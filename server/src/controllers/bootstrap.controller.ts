@@ -15,10 +15,7 @@ import {
 } from '../models/settings.repo';
 import { PERMISSION_MATRIX_SELECT_SQL, rowsToPermissionMatrix } from '../models/permissions.repo';
 import { fetchBootstrapSlice } from '../models/bootstrap.repo';
-import {
-  computeFinancialSummary,
-  fetchFinancialSummaryFromDb,
-} from '../services/financialSummary.service';
+import { fetchFinancialSummaryFromDb } from '../services/financialSummary.service';
 import { getPgConnected, fetchFiscalYears, pgPool, pickCurrentFiscalYear, selectBootstrapFiscalYear, toCalendarDate, fetchOperationalData, fetchOpeningStock, products, approvalRequests, branches, fiscalYears, suppliers, users, categories, companyProfile, getDataVersion, setPgConnected, setIsPgConnected, assetRegister, auditTrail, locationRecords, getUserFromReq } from '../app';
 /** Forwarded from bootstrap.routes.ts (get_bootstrap). */
 export async function get_bootstrap(req: any, res: Response): Promise<any> {
@@ -89,29 +86,26 @@ const { branchId, fiscalYearId } = req.query;
       const pgProducts = data.products;
       const pgAssets = data.assets;
       const pgCustomerDevices = data.customerDevices;
-      const pgPurchaseOrders = data.purchaseOrders;
-      const pgInvoices = data.purchaseInvoices;
       const pgShipments = data.shipments;
-      const pgOps = data.stockOperations;
       const pgAuditLogs = data.auditLogs;
       const pgApprovalRequests = data.approvalRequests;
 
-      // One summary rule for both the full bootstrap and the targeted slice
-      // (services/financialSummary.service.ts) — this path already holds the
-      // rows, so it feeds them straight to the pure computation.
-      const financialSummary = computeFinancialSummary({
-        stock: pgStock,
-        products: pgProducts,
-        assets: pgAssets,
-        purchaseInvoices: pgInvoices,
-        vendorPayments: data.vendorPayments,
-        purchaseReturns: data.purchaseReturns || [],
-        stockOperations: pgOps,
-        vendorOpeningBalanceTotal: data.vendorOpeningBalanceTotal,
+      // BOOT-1: the full bootstrap now uses the same aggregate producer as
+      // GET /api/bootstrap/local?key=financialSummary. It used to load the
+      // whole fiscal year's purchase invoices and stock operations just to
+      // compute this object, then drop those arrays from the response — at
+      // national volume the dominant cost of a login. The SQL aggregates read
+      // only the columns they need; no item JSON leaves PostgreSQL.
+      const financialSummary = await fetchFinancialSummaryFromDb(pgPool, {
+        branchId: bId,
+        fiscalYearId: selectedFiscalYear.id,
+        fiscalYearStartAD: fyStartAD,
+        fiscalYearEndAD: fyEndAD,
         // The current year's CODE is reported separately from the view scope:
         // an explicit past-year request still reports which year is current,
         // and '' when none is flagged (never a stale hard-coded default).
         currentFiscalYear: pickCurrentFiscalYear(pgFiscalYears)?.code || '',
+        useOpeningStock: !selectedFiscalYear.isCurrent,
       });
 
       // Server-side settings + the calling user's preferences. These replace
@@ -148,7 +142,6 @@ const { branchId, fiscalYearId } = req.query;
         locations: data.locations,
         companyProfile: data.companyProfile[0] || companyProfile,
         damageRecords: data.damageRecords,
-        vendorPayments: data.vendorPayments,
         // Tables trimmed from the bootstrap payload (each is served by its
         // own paged/filterable list endpoint instead, so large ledgers are
         // never loaded wholesale into the first-paint payload):
@@ -157,16 +150,17 @@ const { branchId, fiscalYearId } = req.query;
         //   - purchaseOrders    → GET /api/purchase-orders    (paged envelope; register self-fetches)
         //   - purchaseInvoices  → GET /api/purchase-invoices  (paged envelope; register self-fetches)
         //   - salesInvoices     → GET /api/sales-invoices     (paged/searchable; register + returns picker)
+        //   - vendorPayments    → GET /api/vendor-payments    (BOOT-1: the client never read this array)
         // Their remaining wholesale consumers (dashboard/notification KPIs,
         // the FY closing wizard, the PI PO dropdown, the movement ledger,
         // StockOperations' panels, global search) are served by the client's
         // deferred slice hydration right after bootstrap —
         // GET /api/bootstrap/local?key=<slice>, the same endpoint the SSE
         // targeted refresh uses — so freshness is identical while first
-        // paint gets a lighter payload. financialSummary above is still
-        // computed server-side — since SUM-1 (2026-10-26) the trading totals
-        // aggregate in SQL over stock_operations + products, so no item JSON
-        // leaves PostgreSQL. See README "Paged Register Endpoints".
+        // paint gets a lighter payload. financialSummary above is computed
+        // server-side from aggregate SQL over the same tables (SUM-1 for
+        // trading, BOOT-1 for the whole object), so no item JSON leaves
+        // PostgreSQL. See README "Paged Register Endpoints".
         postgresDatabaseStatus: {
           isConnected: true,
           host: process.env.POSTGRES_HOST || 'localhost',
@@ -314,6 +308,14 @@ export async function get_bootstrapLocal(req: any, res: Response): Promise<any> 
       // to the operational-data query, then the operational cache — the
       // pre-#7 behavior — so an unknown key can never 500 a refresh.
       console.warn(`bootstrap/local live read failed for ${key}:`, sliceErr?.message || sliceErr);
+      // BOOT-1 removed these four from the operational fan-out, so there is
+      // no fallback data for them. Answer honestly instead of a payload with
+      // only dataVersion, which the client would treat as an empty ledger.
+      if (['purchaseOrders', 'purchaseInvoices', 'stockOperations', 'vendorPayments'].includes(key)) {
+        return res.status(503).json({
+          message: `Could not read ${key} from PostgreSQL. Retry shortly; the rows on screen are unchanged.`,
+        });
+      }
     }
 
     const data = await fetchOperationalData(pgPool, scope as any);

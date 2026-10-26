@@ -29,7 +29,7 @@ import {
 
 /**
  * ReceiveTransferPanel - tab panel extracted VERBATIM from StockOperations.tsx
- * (FRONTEND-AUDIT.md Section G: commit 1 moved the JSX verbatim; commit 2
+ * (StockOperations decomposition: commit 1 moved the JSX verbatim; commit 2
  * relocated this panel's state, effects and handlers here as well). The
  * panel renders the exact conditional block the host used to render inline;
  * everything it does not own comes from the StockOperations context.

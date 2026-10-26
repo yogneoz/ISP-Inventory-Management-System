@@ -130,24 +130,6 @@ export async function fetchOpeningStock(
   return result.rows;
 }
 
-/**
- * Vendor Opening Balances total (for correct Accounts Payable =
- * opening + invoices − payments).
- */
-export async function fetchVendorOpeningBalanceTotal(
-  pool: QueryExecutor,
-  fiscalYearId: string,
-  branchId?: string
-): Promise<number> {
-  const result = await pool.query(
-    `SELECT COALESCE(SUM(opening_balance), 0)::float AS "totalOpeningBalance"
-     FROM vendor_opening_balances
-     WHERE fiscal_year_id = $1${branchId ? ' AND branch_id = $2' : ''}`,
-    branchId ? [fiscalYearId, branchId] : [fiscalYearId]
-  );
-  return Number(result.rows[0]?.totalOpeningBalance || 0);
-}
-
 /** Parses a serial_log row's historyJson (TEXT or JSONB) into a history array. */
 export function parseSerialHistory(rows: any[]): any[] {
   return (rows || []).map((r: any) => {
@@ -163,10 +145,17 @@ export function parseSerialHistory(rows: any[]): any[] {
 }
 
 /**
- * All 23 operational queries of the bootstrap load, run as one parallel
- * fan-out (single round-trip batch). Field names match the payload keys the
- * server.ts handler assembles. Throws on the first failing query so the
- * handler's existing catch/503 handling stays in charge.
+ * The operational queries of the bootstrap load, run as one parallel fan-out
+ * (single round-trip batch). Field names match the payload keys the handler
+ * assembles. Throws on the first failing query so the handler's existing
+ * catch/503 handling stays in charge.
+ *
+ * BOOT-1 (2026-10-26): purchase orders, purchase invoices, stock operations
+ * and vendor payments are NOT read here. The first three were only inputs to
+ * the financial summary, which now uses the aggregate SQL producer; none of
+ * the three was serialized. Vendor payments was serialized but no client
+ * read it. Each still has a BOOTSTRAP_TABLES mapping for the on-demand
+ * `/api/bootstrap/local?key=` slices.
  */
 export async function fetchOperationalData(
   pool: QueryExecutor,
@@ -178,22 +167,16 @@ export async function fetchOperationalData(
   assets: any[];
   customerDevices: any[];
   customers: any[];
-  purchaseOrders: any[];
-  purchaseInvoices: any[];
   purchaseReturns: any[];
   salesReturns: any[];
   shipments: any[];
-  stockOperations: any[];
   auditLogs: any[];
   suppliers: any[];
   users: any[];
   approvalRequests: any[];
   categories: any[];
-  uom: any[];
-  locations: any[];    companyProfile: any[];
+  uom: any[];    locations: any[];    companyProfile: any[];
     damageRecords: any[];
-    vendorPayments: any[];
-    vendorOpeningBalanceTotal: number;
 }> {
   const [
     branches,
@@ -202,12 +185,9 @@ export async function fetchOperationalData(
     assets,
     customerDevices,
     customers,
-    purchaseOrders,
-    purchaseInvoices,
     purchaseReturns,
     salesReturns,
     shipments,
-    stockOperations,
     auditLogs,
     suppliers,
     users,
@@ -217,8 +197,6 @@ export async function fetchOperationalData(
     locations,
     companyProfile,
     damageRecords,
-    vendorPayments,
-    vendorOpeningBalanceTotal,
   ] = await Promise.all([
     fetchTable(pool, BOOTSTRAP_TABLES.branches, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.products, scopeParams),
@@ -226,12 +204,9 @@ export async function fetchOperationalData(
     fetchTable(pool, BOOTSTRAP_TABLES.assets, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.customerDevices, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.customers, scopeParams),
-    fetchTable(pool, BOOTSTRAP_TABLES.purchaseOrders, scopeParams),
-    fetchTable(pool, BOOTSTRAP_TABLES.purchaseInvoices, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.purchaseReturns, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.salesReturns, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.shipments, scopeParams),
-    fetchTable(pool, BOOTSTRAP_TABLES.stockOperations, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.auditLogs, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.suppliers, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.users, scopeParams),
@@ -241,11 +216,6 @@ export async function fetchOperationalData(
     fetchTable(pool, BOOTSTRAP_TABLES.locations, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.companyProfile, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.damageRecords, scopeParams),
-    fetchTable(pool, BOOTSTRAP_TABLES.vendorPayments, scopeParams),
-    // Vendor opening balance needs the selected fiscal year id; the original
-    // handler dereferenced selectedFiscalYear.id the same way (a missing year
-    // fails the query and surfaces through the handler's catch → 503).
-    fetchVendorOpeningBalanceTotal(pool, scopeParams.fiscalYearId as string, scopeParams.branchId),
     // NOTE: the serial_log fetch was removed — the register is served by the
     // paged GET /api/serial-log endpoint instead (see SerialLogQueryOptions),
     // so bootstrapping no longer loads the whole ledger.
@@ -262,12 +232,9 @@ export async function fetchOperationalData(
     assets,
     customerDevices,
     customers,
-    purchaseOrders,
-    purchaseInvoices,
     purchaseReturns,
     salesReturns,
     shipments,
-    stockOperations,
     auditLogs,
     suppliers,
     users,
@@ -277,7 +244,5 @@ export async function fetchOperationalData(
     locations,
     companyProfile,
     damageRecords,
-    vendorPayments,
-    vendorOpeningBalanceTotal,
   };
 }

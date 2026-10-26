@@ -1013,7 +1013,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'settings/BranchesManagement.tsx': [],
     'settings/CompanySetupManagement.tsx': [],
 
-    // — StockOperations tab panels (FRONTEND-AUDIT.md §G): §G commit 1
+    // — StockOperations tab panels (StockOperations decomposition): commit 1
     //   moved the JSX verbatim; commit 2 relocated each panel's state and
     //   handlers with it, so the api surface below is each panel's own.
     //   The one non-obvious split: the register panel's export-all button

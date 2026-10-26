@@ -11,10 +11,10 @@
  *     KPIs, FY closing wizard, PI PO dropdown, movement ledger, StockOperations
  *     panels, global search — fed through GET /api/bootstrap/local.
  *  2. HTTP (real app + real PostgreSQL, skips without DATABASE_URL): the
- *     bootstrap response omits exactly those three keys while financialSummary
- *     (which still COMPUTES from them server-side) remains, and each key is
- *     served by the bootstrap/local slice endpoint the deferred hydration and
- *     the SSE targeted refresh both use.
+ *     bootstrap response omits exactly those three keys and the unread
+ *     vendorPayments array, while financialSummary (aggregated in SQL since
+ *     BOOT-1) remains, and each key is served by the bootstrap/local slice
+ *     endpoint the deferred hydration and the SSE targeted refresh both use.
  */
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -46,6 +46,7 @@ try {
 const skipNoDb = !dbReachable && 'needs a reachable PostgreSQL (requirePostgres gate)';
 
 const TRIMMED_KEYS = ['stockOperations', 'purchaseOrders', 'purchaseInvoices'] as const;
+const UNSHIPPED_PAYMENTS = 'vendorPayments';
 
 const SUPER_USER = {
   id: 'bt-super', email: 'bt-super@example.com', name: 'BT Test',
@@ -59,10 +60,9 @@ describe('bootstrap trim: three ledgers out of the payload, deferred slices keep
       path.join(ROOT, 'server/src/controllers/bootstrap.controller.ts'),
       'utf8'
     );
-    // Scope the check to the response payload. The same rows are still the
-    // INPUT to computeFinancialSummary(...) (the summary has no table), and a
-    // whole-file regex would confuse those named arguments with a serialized
-    // ledger key.
+    // Scope the check to the response payload. BOOT-1 removed those ledger
+    // queries from the fan-out entirely, so this guard now also pins that no
+    // serialized ledger key comes back through a differently named binding.
     const payload = controller.slice(
       controller.lastIndexOf('return res.json({'),
       controller.lastIndexOf('} catch')
@@ -77,11 +77,17 @@ describe('bootstrap trim: three ledgers out of the payload, deferred slices keep
         `bootstrap response serializes a trimmed ledger again (${pattern}) — remove it from the payload and keep consumers on deferred slices`
       );
     }
-    // The server-side financialSummary still COMPUTES from these tables, so
-    // the underlying operational fetch must stay in place.
+    // BOOT-1 moved the summary to aggregate SQL, so the ledger fetches no
+    // longer exist; the summary itself must still be present.
     assert.ok(
-      /financialSummary/.test(controller),
-      'financialSummary computation must remain in the bootstrap controller'
+      /fetchFinancialSummaryFromDb\(pgPool, \{/.test(controller),
+      'financialSummary must be served by the aggregate SQL producer'
+    );
+    assert.ok(
+      !/fetchTable\(pool, BOOTSTRAP_TABLES\.(purchaseOrders|purchaseInvoices|stockOperations|vendorPayments)/.test(
+        fs.readFileSync(path.join(ROOT, 'server/src/models/bootstrap.repo.ts'), 'utf8')
+      ),
+      'the bootstrap fan-out must not read an unshipped ledger again'
     );
   });
 
@@ -145,13 +151,14 @@ describe('bootstrap trim: three ledgers out of the payload, deferred slices keep
       return { status: res.status, json };
     }
 
-    test('GET /api/bootstrap omits the three ledgers but keeps financialSummary', { skip: skipNoDb }, async () => {
+    test('GET /api/bootstrap omits the three ledgers and vendorPayments but keeps financialSummary', { skip: skipNoDb }, async () => {
       const { status, json } = await get('/api/bootstrap');
       assert.equal(status, 200);
       assert.ok(json && typeof json === 'object', 'bootstrap must return a JSON object');
       for (const key of TRIMMED_KEYS) {
         assert.ok(!(key in json), `bootstrap payload still ships '${key}' — trim it and rely on deferred slices`);
       }
+      assert.ok(!(UNSHIPPED_PAYMENTS in json), 'the client never read vendorPayments; it must not ship');
       assert.ok('financialSummary' in json, 'financialSummary must stay in the payload (computed server-side)');
       assert.ok(Array.isArray(json.stock), 'the rest of the payload must be intact');
       assert.ok(Array.isArray(json.shipments), 'the rest of the payload must be intact');

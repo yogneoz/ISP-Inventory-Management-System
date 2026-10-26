@@ -1032,7 +1032,7 @@ export default function App() {
     SERIALS: ['customerDevices'],
     // PROCUREMENT also covers purchase returns: posting one deducts
     // stock, writes transaction-log rows and flips serial_log rows.
-    PROCUREMENT: ['purchaseOrders', 'purchaseInvoices', 'vendorPayments', 'suppliers', 'purchaseReturns', 'stock', 'financialSummary'],
+    PROCUREMENT: ['purchaseOrders', 'purchaseInvoices', 'suppliers', 'purchaseReturns', 'stock', 'financialSummary'],
     // Sales mutations deduct/restock stock, write transaction-log rows,
     // route non-restockable returns into the damage register and flip
     // serial_log rows (paged — covered by the register mapping below).
