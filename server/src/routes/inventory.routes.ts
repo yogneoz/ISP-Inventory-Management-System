@@ -5,7 +5,7 @@
  * position of this domain's first route.
  */
 import type { Express } from 'express';
-import { get_stock, patch_Id, patch_reorderLevel, post_bulkReorderLevels, post_reconcileAudit, post_assets, patch_status, get_stockOperations, post_stockOperations, post_reverse, post_reverseConsumable, post_reversePullout, post_reverseStockOut, post_receive, get_customerDevices, post_customerDevices, patch_status2, get_lookup, get_exchangeLookup, post_exchangeRefusal, post_dual, post_exchange, get_serialLog } from '../controllers/inventory.controller';
+import { get_stock, patch_Id, patch_reorderLevel, post_bulkReorderLevels, post_reconcileAudit, post_assets, patch_status, get_stockOperations, post_stockOperations, post_reverse, post_reverseConsumable, post_reversePullout, post_reverseStockOut, post_receive, get_customerDevices, get_customerDevicesPage, get_customerDevicesOverview, get_customerDevicesWarranty, post_customerDevices, patch_status2, get_lookup, get_exchangeLookup, post_exchangeRefusal, post_dual, post_exchange, get_serialLog } from '../controllers/inventory.controller';
 import {
   handleUpdateSerials,
   requirePermission,
@@ -64,6 +64,15 @@ app.post('/api/stock-operations/:id/reverse-stock-out', requirePermission('stock
 app.post('/api/stock-operations/:id/receive', requirePermission('wh-receive-pullouts'), async (req, res, next) => { post_receive(req as any, res as any).catch(next); });
 
 app.get('/api/customer-devices', async (req, res, next) => { get_customerDevices(req as any, res as any).catch(next); });
+
+// VOL-4b: the device register pages, the KPI counts are exact per-status, and
+// the warranty directory unions CPE + fixed assets with a computed state. All
+// three apply the session's branch scope in SQL, not only in the route guard.
+app.get('/api/customer-devices/page', async (req, res, next) => { get_customerDevicesPage(req as any, res as any).catch(next); });
+
+app.get('/api/customer-devices/overview', async (req, res, next) => { get_customerDevicesOverview(req as any, res as any).catch(next); });
+
+app.get('/api/customer-devices/warranty', async (req, res, next) => { get_customerDevicesWarranty(req as any, res as any).catch(next); });
 
 app.post('/api/customer-devices', requirePermission('customers-manage'), async (req, res, next) => { post_customerDevices(req as any, res as any).catch(next); });
 

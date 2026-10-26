@@ -6,7 +6,6 @@ import {
   Branch,
   InventoryStock,
   User,
-  CustomerDeviceRecord,
 } from '../../types';
 import { ensureBSDayForAD, BS_SEEDING_MENU_PATH } from '../../utils/nepaliCalendar';
 import { getAllowedBranches } from '../../utils/permissions';
@@ -41,7 +40,6 @@ interface CreateShipmentFormProps {
   branches: Branch[];
   products: Product[];
   stock: InventoryStock[];
-  customerDevices?: CustomerDeviceRecord[];
   /** Draft transfer bin — host-owned so the tab badge can count it. */
   lines: ShipmentFormLine[];
   setLines: React.Dispatch<React.SetStateAction<ShipmentFormLine[]>>;
@@ -57,7 +55,6 @@ export const CreateShipmentForm: React.FC<CreateShipmentFormProps> = ({
   branches,
   products,
   stock,
-  customerDevices = [],
   lines,
   setLines,
   onCreateShipment,
@@ -71,8 +68,8 @@ export const CreateShipmentForm: React.FC<CreateShipmentFormProps> = ({
   // unit transactionally, so the register — not the customer-device table — is
   // where a dispatched serial's branch/status is answered (serial-register
   // audit, Slice 1). DF-03: this form shares the app-wide cache with the
-  // stock gates, so a receipt or sale elsewhere reaches it without a reload;
-  // customerDevices stays as a legacy fallback below.
+  // stock gates, so a receipt or sale elsewhere reaches it without a reload.
+  // VOL-4b: serial_log is the only source; the customer-device fallback is gone.
   const {
     rows: serialRegister,
     error: serialRegisterError,
@@ -237,22 +234,17 @@ export const CreateShipmentForm: React.FC<CreateShipmentFormProps> = ({
           }
           seenSerials.add(cleanSerial);
 
-          // The register first, legacy customer-device rows second — a serial
-          // must be a real IN_STOCK unit of the source branch to be dispatched.
-          const knownSerials = [
-            ...serialRegister.map((entry) => ({
-              deviceSerial: entry.deviceSerial,
-              ponSerial: entry.ponSerial || '',
-              branchId: entry.branchId,
-              status: entry.status,
-            })),
-            ...customerDevices.map((cd) => ({
-              deviceSerial: cd.deviceSerial,
-              ponSerial: cd.ponSerial || '',
-              branchId: cd.branchId,
-              status: cd.status,
-            })),
-          ];
+          // A serial must be a real IN_STOCK unit of the source branch to be
+          // dispatched. The register is the only client source (VOL-4b removed
+          // the legacy customer-device fallback); when the register has rows
+          // for this branch, an unknown serial is refused here, and the
+          // server repeats the gate for a branch whose register is empty.
+          const knownSerials = serialRegister.map((entry) => ({
+            deviceSerial: entry.deviceSerial,
+            ponSerial: entry.ponSerial || '',
+            branchId: entry.branchId,
+            status: entry.status,
+          }));
           if (knownSerials.length > 0) {
             const match = knownSerials.find(
               (cd) =>

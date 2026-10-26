@@ -155,17 +155,21 @@ describe('DF-12 wiring', () => {
     );
   });
 
-  test('the dead customer device page state is gone from both screens', () => {
-    for (const file of [
-      'client/src/features/sales/CustomerMasterDirectory.tsx',
-      'client/src/features/sales/CustomersManagement.tsx',
-    ]) {
-      const source = read(file);
-      assert.ok(!source.includes('devicesPage'), `${file} must not keep the constant page state`);
-      assert.ok(
-        !source.includes('setDevicesLoadError'),
-        `${file} must not keep a write-only error flag`
-      );
-    }
+  test('the dead customer-device pagination is gone; the register pages on the server', () => {
+    // DF-12 removed a constant page state nothing wrote. VOL-4b brought a REAL
+    // page state back — so this pins the shape that makes it live: the page is
+    // sent to the server and the footer is driven by the server total, never
+    // by slicing a locally filtered array.
+    const register = read('client/src/features/sales/CustomersManagement.tsx');
+    assert.ok(register.includes('getCustomerDevicePage'), 'the register must page on the server');
+    assert.ok(!register.includes('useClientPagination(customerDevicesRows'), 'the device rows must not be paged in the browser');
+    assert.ok(register.includes('devicesTotalItems'), 'the footer total must come from the server');
+    assert.ok(!register.includes('setDevicesLoadError'), 'the write-only error flag must stay gone');
+
+    // The directory no longer owns a device page at all: it renders the
+    // server-computed count and fetches only an expanded customer's serials.
+    const directory = read('client/src/features/sales/CustomerMasterDirectory.tsx');
+    assert.ok(!directory.includes('devicesPage'), 'the directory must not page devices in the browser');
+    assert.ok(!directory.includes('customerDevicesRows'), 'the directory must not hold the device table');
   });
 });

@@ -30,7 +30,7 @@ import {
  * everything it does not own comes from the StockOperations context.
  */
 export const AssignAssetPanel: React.FC = () => {
-  const { activeTab, allowedBranches, alertDialog, assets, availableStockAssets, customerDevices, ensureBsDateAvailable, locations, onRefreshData, onUpdateAssetStatus, products, serialRegister, stock, userBranchId } = useStockOperationsCtx();
+  const { activeTab, allowedBranches, alertDialog, assets, availableStockAssets, ensureBsDateAvailable, locations, onRefreshData, onUpdateAssetStatus, products, serialRegister, stock, userBranchId } = useStockOperationsCtx();
 
   const [, setIsBarcodeScannerOpen] = useState(false);
 
@@ -211,8 +211,9 @@ export const AssignAssetPanel: React.FC = () => {
         }
         // IN_STOCK identity lives in the serial_log register (branch stock
         // intake). The DEVICE SERIAL alone identifies the unit; PON/MAC are
-        // resolved from the register row. customer_device_records stays a
-        // legacy fallback for databases that seeded it directly.
+        // resolved from the register row. VOL-4b removed the customer-device
+        // fallback: a serial the register does not know is not a unit this
+        // branch holds, and the server gate enforces the same rule.
         const key = (item.deviceSerial || '').trim().toUpperCase();
         const inStockInSerialLog = key
           ? serialRegister.some(
@@ -223,15 +224,7 @@ export const AssignAssetPanel: React.FC = () => {
                 (!log.productId || log.productId === item.productId)
             )
           : false;
-        const matchingAssetDevice = inStockInSerialLog
-          ? true
-          : customerDevices.find(
-              (device) =>
-                (device.deviceSerial || '').trim().toUpperCase() === key &&
-                device.branchId === assignBranchId &&
-                device.status === 'IN_STOCK'
-            );
-        if (!matchingAssetDevice) {
+        if (!inStockInSerialLog) {
           alertDialog(
             `Line "${item.productName}": Device Serial ${item.deviceSerial || '(blank)'} must be an IN_STOCK unit of this branch in the serial register.`
           );

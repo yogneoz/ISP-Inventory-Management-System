@@ -4,7 +4,6 @@ import { CustomerRecord, CustomerDeviceRecord, Branch, User } from '../../types'
 import { formatNPR } from '../../utils/nprFormat';
 import { exportToCSV } from '../../utils/exportUtils';
 import { api } from '../../services/api';
-import { LoadStateNotice } from '../../components/common/LoadStateNotice';
 import {
   Users,
   Plus,
@@ -297,52 +296,71 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
   const customersRangeStart = customersTotalItems === 0 ? 0 : (customersSafePage - 1) * customersPageSize + 1;
   const customersRangeEnd = Math.min(customersSafePage * customersPageSize, customersTotalItems);
 
-  // Device reads for the Assigned Hardware column. GET /api/customer-devices
-  // returns an unpaged array, so the old constant page state was never written
-  // and only kept this effect's dep list noisy (DF-12).
-  const [customerDevicesRows, setCustomerDevicesRows] = useState<CustomerDeviceRecord[]>([]);
-  // A failed read left every "assigned hardware" count at zero with no hint
-  // that the read failed — the column read as a real answer.
-  const [devicesFetchError, setDevicesFetchError] = useState('');
-  const [devicesFetchLoading, setDevicesFetchLoading] = useState(false);
-  const [devicesRetryKey, setDevicesRetryKey] = useState(0);
+  // VOL-4b: the Assigned Hardware column comes from the customer row's
+  // server-computed count (one indexed subquery per page row), and the expanded
+  // panel fetches only THAT customer's bounded device page. The directory no
+  // longer reads (or filters) the national device table.
+  const [trackedDeviceTotal, setTrackedDeviceTotal] = useState<number | null>(null);
+  const [expandedDevices, setExpandedDevices] = useState<CustomerDeviceRecord[]>([]);
+  const [expandedDevicesTotal, setExpandedDevicesTotal] = useState(0);
+  const [expandedDevicesError, setExpandedDevicesError] = useState('');
+  const [expandedDevicesLoading, setExpandedDevicesLoading] = useState(false);
+  const expandedDevicesSeq = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
-
-    const load = async () => {
-      setDevicesFetchLoading(true);
-      try {
-        const rows = await api.getCustomerDevices(
-          selectedBranchFilter !== 'ALL' ? selectedBranchFilter : undefined,
-          searchQuery.trim() || undefined
-        );
-
-        if (!cancelled) {
-          // Bare array response (see CustomersManagement): the old envelope
-          // cast silently rendered [] here too.
-          setCustomerDevicesRows(Array.isArray(rows) ? rows : []);
-          setDevicesFetchError('');
-        }
-      } catch (err: any) {
-        if (!cancelled) {
-          setDevicesFetchError(err?.message || 'The assigned device counts could not be read.');
-        }
-      } finally {
-        if (!cancelled) setDevicesFetchLoading(false);
-      }
-    };
-
-    load();
+    api.getCustomerDeviceOverview({
+        branchId: selectedBranchFilter !== 'ALL' ? selectedBranchFilter : undefined,
+      })
+      .then((overview) => {
+        if (!cancelled) setTrackedDeviceTotal(Number(overview?.total) || 0);
+      })
+      .catch(() => {
+        if (!cancelled) setTrackedDeviceTotal(null);
+      });
     return () => {
       cancelled = true;
     };
-  }, [selectedBranchFilter, searchQuery, sseRefreshKey, devicesRetryKey]);
+  }, [selectedBranchFilter, sseRefreshKey]);
 
   const getAssignedDeviceCount = (customer: CustomerRecord): number => {
-    return customerDevicesRows.filter(
-      (d) => d.customerCode === customer.customerId || d.customerId === customer.id || (d?.customerName || '').toLowerCase() === (customer?.customerName || '').toLowerCase()
-    ).length;
+    return Number(customer.assignedDevicesCount) || 0;
+  };
+
+  const loadExpandedDevices = async (customer: CustomerRecord) => {
+    const seq = ++expandedDevicesSeq.current;
+    setExpandedDevices([]);
+    setExpandedDevicesTotal(0);
+    setExpandedDevicesError('');
+    setExpandedDevicesLoading(true);
+    try {
+      const result = await api.getCustomerDevicePage(
+        {
+          branchId: customer.branchId,
+          customerId: customer.customerId || customer.id,
+        },
+        1,
+        200
+      );
+      if (seq !== expandedDevicesSeq.current) return;
+      setExpandedDevices(Array.isArray(result?.data) ? result.data : []);
+      setExpandedDevicesTotal(Number(result?.totalItems) || 0);
+    } catch (err: any) {
+      if (seq !== expandedDevicesSeq.current) return;
+      setExpandedDevicesError(err?.message || 'The customer\'s device serials could not be read.');
+    } finally {
+      if (seq === expandedDevicesSeq.current) setExpandedDevicesLoading(false);
+    }
+  };
+
+  const handleToggleExpanded = (customer: CustomerRecord) => {
+    if (expandedCustomerId === customer.id) {
+      expandedDevicesSeq.current += 1;
+      setExpandedCustomerId(null);
+      return;
+    }
+    setExpandedCustomerId(customer.id);
+    void loadExpandedDevices(customer);
   };
 
   // Export CSV: ask for every row matching the current filters (`all=1`), not
@@ -464,21 +482,6 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
           </div>
         </div>
 
-        {/* The assigned-hardware count is a second read; failing it silently
-            left it at 0, which reads as a real answer. */}
-        {devicesFetchError && (
-          <div className="mt-3">
-            <LoadStateNotice
-              subject="the assigned hardware counts"
-              loading={devicesFetchLoading}
-              error={devicesFetchError}
-              hasCachedRows={customerDevicesRows.length > 0}
-              cachedNote=" Assigned device counts may be out of date."
-              emptyNote=" Assigned device counts may show 0 until this loads."
-              onRetry={() => setDevicesRetryKey((k) => k + 1)}
-            />
-          </div>
-        )}
 
         {/* Quick Summary Cards — shared compact StatCard component */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/80">
@@ -496,7 +499,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
 
           <StatCard
             label="Tracked Device Serials"
-            value={`${customerDevicesRows.length} Hardware Devices`}
+            value={trackedDeviceTotal === null ? '—' : `${trackedDeviceTotal} Hardware Devices`}
             tone="indigo"
           />
 
@@ -630,12 +633,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
               ) : (
                 customersRows.map((customer) => {
                   const branchObj = branches.find((b) => b.id === customer.branchId);
-                  const matchingDevices = customerDevicesRows.filter(
-                    (d) =>
-                      d.customerCode === customer.customerId ||
-                      d.customerId === customer.id ||
-                      (d?.customerName || '').toLowerCase() === (customer?.customerName || '').toLowerCase()
-                  );
+                  const assignedDevices = getAssignedDeviceCount(customer);
                   const isExpanded = expandedCustomerId === customer.id;
 
                   return (
@@ -685,11 +683,11 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
 
                         <td className="p-2.5 text-center whitespace-nowrap">
                           <button
-                            onClick={() => setExpandedCustomerId(isExpanded ? null : customer.id)}
-                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${matchingDevices.length > 0 ? 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:border-indigo-700 dark:text-indigo-300 dark:hover:bg-indigo-900' : 'bg-slate-100 border-slate-200 text-slate-500 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400'}`}
+                            onClick={() => handleToggleExpanded(customer)}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${assignedDevices > 0 ? 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:border-indigo-700 dark:text-indigo-300 dark:hover:bg-indigo-900' : 'bg-slate-100 border-slate-200 text-slate-500 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400'}`}
                           >
                             <Smartphone className="h-3.5 w-3.5 text-indigo-500" />
-                            <span>{matchingDevices.length} Serials</span>
+                            <span>{assignedDevices} Serials</span>
                             {isExpanded ? (
                               <ChevronUp className="h-3.5 w-3.5 ml-1 text-indigo-500" />
                             ) : (
@@ -762,7 +760,20 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                                 )}
                               </div>
 
-                              {matchingDevices.length === 0 ? (
+                              {expandedDevicesLoading ? (
+                                <div className="p-4 text-center text-slate-500 text-xs">Loading device serials…</div>
+                              ) : expandedDevicesError ? (
+                                <div className="p-4 text-center text-xs text-rose-600 dark:text-rose-400">
+                                  {expandedDevicesError}
+                                  <button
+                                    onClick={() => void loadExpandedDevices(customer)}
+                                    className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 text-xs font-semibold hover:bg-slate-300 dark:hover:bg-slate-700 transition-all cursor-pointer"
+                                  >
+                                    <RefreshCw className="h-3.5 w-3.5" />
+                                    <span>Retry</span>
+                                  </button>
+                                </div>
+                              ) : expandedDevices.length === 0 ? (
                                 <div className="p-4 text-center text-slate-500 text-xs">
                                   <p className="font-semibold">No Hardware Serials Assigned</p>
                                   <p className="text-[11px] text-slate-400 mt-0.5">
@@ -792,7 +803,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                                       </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                      {matchingDevices.map((dev) => (
+                                      {expandedDevices.map((dev) => (
                                         <tr key={dev.id} className="hover:bg-slate-200 dark:hover:bg-slate-800/40">
                                           <td className="p-2.5 font-semibold text-slate-900 dark:text-white">
                                             {dev.productName}
@@ -848,6 +859,11 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                                       ))}
                                     </tbody>
                                   </table>
+                                  {expandedDevicesTotal > expandedDevices.length && (
+                                    <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+                                      Showing the first {expandedDevices.length} of {expandedDevicesTotal} serials — use the Customer Device Serials view for the full list.
+                                    </p>
+                                  )}
                                 </div>
                               )}
                             </div>

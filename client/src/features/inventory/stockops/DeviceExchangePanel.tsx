@@ -33,7 +33,6 @@ export const DeviceExchangePanel: React.FC = () => {
     activeTab,
     alertDialog,
     branches,
-    customerDevices,
     ensureBsDateAvailable,
     exchangeCustomerDevices,
     exchangeDevicesError,
@@ -80,14 +79,8 @@ export const DeviceExchangePanel: React.FC = () => {
     // IN_STOCK unit" into "CUSTOMER ASSIGNED to Walk Customer".
     const exchangeSerial = exchangeNewSerial.trim();
     let registerRow: any = findRegisterRow(serialRegister, exchangeSerial) || null;
-    if (!registerRow) {
-      const legacyRow = customerDevices.find(
-        (device) => device.deviceSerial?.trim().toUpperCase() === exchangeSerial.toUpperCase()
-      );
-      if (legacyRow) {
-        registerRow = { ...legacyRow, status: legacyRow.status };
-      }
-    }
+    // VOL-4b: no customer-device fallback — serial_log is the register, and a
+    // serial it does not know is resolved by the server lookup below.
     if (!registerRow) {
       try {
         registerRow = await api.lookupExchangeSerial(exchangeSerial, exchangeBranchId);

@@ -226,7 +226,16 @@ export const CATEGORY_DELETE_SQL = 'DELETE FROM categories WHERE id = $1;';
 // ---------------------------------------------------------------------------
 
 export const CUSTOMER_SELECT_COLUMNS =
-  'id, customer_id AS "customerId", customer_name AS "customerName", username, contact_number AS "contactNumber", branch_id AS "branchId", address, email, status, credit_limit AS "creditLimit", assigned_devices_count AS "assignedDevicesCount"';
+  'id, customer_id AS "customerId", customer_name AS "customerName", username, contact_number AS "contactNumber", branch_id AS "branchId", address, email, status, credit_limit AS "creditLimit"';
+
+/**
+ * VOL-4b: the directory's assigned-hardware count, computed from the CPE table
+ * instead of the stored counter (which only device creation maintains). The
+ * correlated subquery is one indexed lookup per page row, so the national
+ * device table never enters the customer read.
+ */
+export const CUSTOMER_DEVICE_COUNT_SQL =
+  '(SELECT COUNT(*)::int FROM customer_device_records d WHERE d.customer_code = customer_records.customer_id OR d.customer_id = customer_records.id)';
 
 export const CUSTOMER_PAGE_SIZE_DEFAULT = 15;
 export const CUSTOMER_PAGE_SIZE_MAX = 100;
@@ -322,7 +331,7 @@ export function normalizeCustomerPaging(page?: unknown, pageSize?: unknown): { p
 export function buildCustomerListQuery(opts: CustomerListQueryOptions = {}): { sql: string; params: unknown[]; page: number; pageSize: number } {
   const { whereSql, params } = buildCustomerListWhere(opts);
   const paging = normalizeCustomerPaging(opts.page, opts.pageSize);
-  let sql = `SELECT ${CUSTOMER_SELECT_COLUMNS} FROM customer_records${whereSql} ORDER BY customer_name ASC, customer_id ASC`;
+  let sql = `SELECT ${CUSTOMER_SELECT_COLUMNS}, ${CUSTOMER_DEVICE_COUNT_SQL} AS "assignedDevicesCount" FROM customer_records${whereSql} ORDER BY customer_name ASC, customer_id ASC`;
   if (!opts.all) {
     sql += ` LIMIT ${paging.pageSize} OFFSET ${(paging.page - 1) * paging.pageSize}`;
   }

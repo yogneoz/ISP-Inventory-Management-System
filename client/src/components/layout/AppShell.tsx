@@ -5,7 +5,6 @@ import type {
   Asset,
   Branch,
   CompanyProfile,
-  CustomerDeviceRecord,
   FiscalYear,
   InventoryStock,
   Product,
@@ -93,7 +92,6 @@ export interface AppShellProps {
   stockOperations: StockOperation[];
   approvalRequests: ApprovalRequest[];
   assets: Asset[];
-  customerDevices: CustomerDeviceRecord[];
   suppliers: Supplier[];
   bsCalendarCoverage: BsCalendarCoverageStatus | null;
   bsCalendarSeedTab: NavTab;
@@ -273,7 +271,6 @@ export function AppShell(props: AppShellProps) {
     stockOperations,
     approvalRequests,
     assets,
-    customerDevices,
     suppliers,
     bsCalendarCoverage,
     bsCalendarSeedTab,

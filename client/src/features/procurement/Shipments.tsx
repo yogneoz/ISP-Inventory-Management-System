@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shipment, Product, Branch, InventoryStock, User, CustomerDeviceRecord, ApprovalRequest } from '../../types';
+import { Shipment, Product, Branch, InventoryStock, User, ApprovalRequest } from '../../types';
 import { Truck, Search, PackageCheck, History, Send, Eye, X, Barcode, ArrowRight, Info } from 'lucide-react';
 import { PageHeader } from '../../components/common/PageHeader';
 import { KeepMounted } from '../../components/common/KeepMounted';
@@ -14,7 +14,6 @@ interface ShipmentsProps {
   products: Product[];
   branches: Branch[];
   stock: InventoryStock[];
-  customerDevices?: CustomerDeviceRecord[];
   approvalRequests?: ApprovalRequest[];
   selectedBranchId: string;
   dateMode: 'BS' | 'AD';
@@ -49,7 +48,6 @@ export const Shipments: React.FC<ShipmentsProps> = ({
   products,
   branches,
   stock,
-  customerDevices = [],
   approvalRequests = [],
   selectedBranchId,
   dateMode,
@@ -267,7 +265,6 @@ export const Shipments: React.FC<ShipmentsProps> = ({
           branches={branches}
           products={products}
           stock={stock}
-          customerDevices={customerDevices}
           lines={lines}
           setLines={setLines}
           onCreateShipment={onCreateShipment}

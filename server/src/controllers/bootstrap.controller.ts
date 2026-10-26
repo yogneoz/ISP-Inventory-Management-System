@@ -85,7 +85,6 @@ const { branchId, fiscalYearId } = req.query;
       // (see buildScopedWhere), so no JavaScript date filtering is needed here.
       const pgProducts = data.products;
       const pgAssets = data.assets;
-      const pgCustomerDevices = data.customerDevices;
       const pgAuditLogs = data.auditLogs;
       const pgApprovalRequests = data.approvalRequests;
 
@@ -125,7 +124,6 @@ const { branchId, fiscalYearId } = req.query;
         products: pgProducts,
         stock: pgStock,
         assets: pgAssets,
-        customerDevices: pgCustomerDevices,
         purchaseReturns: data.purchaseReturns,
         salesReturns: data.salesReturns,
         fiscalYears: pgFiscalYears,
@@ -154,6 +152,9 @@ const { branchId, fiscalYearId } = req.query;
         //   - customers         → GET /api/customers          (VOL-4a: paged, searchable,
         //                          branch-scoped; the pickers read ≤20 matches and the
         //                          directory pages; no screen holds the national table)
+        //   - customerDevices   → GET /api/customer-devices/page (VOL-4b: the register
+        //                          pages, /overview feeds its KPIs, /warranty unions CPE
+        //                          and fixed assets with a computed warranty state)
         // Their remaining wholesale consumers (dashboard/notification KPIs,
         // the FY closing wizard, the PI PO dropdown, the movement ledger,
         // StockOperations' panels, global search) are served by the client's
@@ -314,7 +315,7 @@ export async function get_bootstrapLocal(req: any, res: Response): Promise<any> 
       // BOOT-1 removed these four from the operational fan-out, so there is
       // no fallback data for them. Answer honestly instead of a payload with
       // only dataVersion, which the client would treat as an empty ledger.
-      if (['purchaseOrders', 'purchaseInvoices', 'stockOperations', 'vendorPayments', 'customers'].includes(key)) {
+      if (['purchaseOrders', 'purchaseInvoices', 'stockOperations', 'vendorPayments', 'customers', 'customerDevices'].includes(key)) {
         return res.status(503).json({
           message: `Could not read ${key} from PostgreSQL. Retry shortly; the rows on screen are unchanged.`,
         });

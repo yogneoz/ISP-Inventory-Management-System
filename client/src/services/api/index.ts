@@ -165,6 +165,10 @@ export const api = {
 
   // Customer Devices & Serial Numbers
   getCustomerDevices: inventory.getCustomerDevices,
+  getCustomerDevicePage: inventory.getCustomerDevicePage,
+  getCustomerDeviceExport: inventory.getCustomerDeviceExport,
+  getCustomerDeviceOverview: inventory.getCustomerDeviceOverview,
+  getCustomerDeviceWarranty: inventory.getCustomerDeviceWarranty,
   createCustomerDevice: inventory.createCustomerDevice,
   updateCustomerDeviceStatus: inventory.updateCustomerDeviceStatus,
   exchangeCustomerDevice: inventory.exchangeCustomerDevice,

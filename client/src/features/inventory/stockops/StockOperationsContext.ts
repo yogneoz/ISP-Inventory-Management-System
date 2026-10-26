@@ -85,7 +85,6 @@ export interface StockOperationsCtx {
   consumableOperations: StockOperation[];
   damageOperations: StockOperation[];
   currentUser: User | null;
-  customerDevices: CustomerDeviceRecord[];
   dateMode: 'BS' | 'AD';
   ensureBsDateAvailable: any;
   /** Deployed customer devices for the header's branch (shared per-branch cache, DF-16). */

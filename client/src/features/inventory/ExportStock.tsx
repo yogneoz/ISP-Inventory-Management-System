@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { Branch, InventoryStock, Product, CustomerDeviceRecord, User } from '../../types';
 import { exportToCSV } from '../../utils/exportUtils';
 import { formatBSDate } from '../../utils/nepaliCalendar';
@@ -18,7 +18,10 @@ import {
   Check,
   AlertCircle,
 } from 'lucide-react';
-import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { useClientPagination, useServerPageClamp, TablePagination } from '../../components/common/TablePagination';
+import { useFilterPageReset } from '../../utils/useFilterPageReset';
+import { api } from '../../services/api';
+import { useDialog } from '../../components/common/DialogProvider';
 import { PageHeader } from '../../components/common/PageHeader';
 
 interface ExportStockProps {
@@ -26,7 +29,6 @@ interface ExportStockProps {
   products: Product[];
   branches: Branch[];
   stock: InventoryStock[];
-  customerDevices?: CustomerDeviceRecord[];
   selectedBranchId?: string;
   dateMode?: 'BS' | 'AD';
 }
@@ -38,10 +40,10 @@ export const ExportStock: React.FC<ExportStockProps> = ({
   products,
   branches,
   stock,
-  customerDevices = [],
   selectedBranchId = 'ALL',
   dateMode = 'BS',
 }) => {
+  const { alert: alertDialog } = useDialog();
   const [viewMode, setViewMode] = useState<ExportViewMode>('SERIALIZED_DEVICES');
   const [filterBranch, setFilterBranch] = useState<string>(selectedBranchId);
   const [filterCategory, setFilterCategory] = useState<string>('ALL');
@@ -51,6 +53,68 @@ export const ExportStock: React.FC<ExportStockProps> = ({
   const [filterReorderStatus, setFilterReorderStatus] = useState<'LOW_ONLY' | 'OUT_OF_STOCK' | 'ALL'>('LOW_ONLY');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [copiedSerial, setCopiedSerial] = useState<string | null>(null);
+
+  // VOL-4b: the serialized-device preview is SERVER-paged, and the export asks
+  // the server for the filtered set on click — this screen no longer receives
+  // (or filters) the national device table.
+  const [deviceRows, setDeviceRows] = useState<CustomerDeviceRecord[]>([]);
+  const [deviceTotal, setDeviceTotal] = useState(0);
+  const [deviceError, setDeviceError] = useState('');
+  const [isExportingDevices, setIsExportingDevices] = useState(false);
+  const [devicesPage, setDevicesPage] = useState(1);
+  const [devicesPageSize, setDevicesPageSize] = useState(20);
+  const [appliedSearch, setAppliedSearch] = useState('');
+
+  useEffect(() => {
+    const timer = setTimeout(() => setAppliedSearch(searchQuery.trim()), 250);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const DEVICE_STATUS_FILTERS: Record<string, string[] | undefined> = {
+    ALL: undefined,
+    IN_STOCK: ['IN_STOCK'],
+    RENTAL: ['RENTAL'],
+    COLLECTED: ['ROUTER_COLLECTED'],
+    // "Assigned" is every status except stock-held or collected.
+    ASSIGNED: ['ACTIVE', 'SUSPENDED', 'DISCONNECTED', 'RETURNED', 'REFUND', 'EXCHANGED', 'RENTAL'],
+  };
+
+  const deviceQuery = useMemo(
+    () => ({
+      branchId: filterBranch,
+      query: appliedSearch || undefined,
+      status: DEVICE_STATUS_FILTERS[filterDeviceStatus],
+      productName: filterProductModel !== 'ALL' ? filterProductModel : undefined,
+    }),
+    [filterBranch, appliedSearch, filterDeviceStatus, filterProductModel]
+  );
+
+  useFilterPageReset(
+    `${filterBranch}|${appliedSearch}|${filterDeviceStatus}|${filterProductModel}`,
+    devicesPage,
+    setDevicesPage
+  );
+  const safeDevicesPage = useServerPageClamp(devicesPage, devicesPageSize, deviceTotal, setDevicesPage);
+  const devicesPageCount = Math.max(1, Math.ceil(deviceTotal / devicesPageSize));
+  const devicesRangeStart = deviceTotal === 0 ? 0 : (safeDevicesPage - 1) * devicesPageSize + 1;
+  const devicesRangeEnd = Math.min(safeDevicesPage * devicesPageSize, deviceTotal);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getCustomerDevicePage(deviceQuery, devicesPage, devicesPageSize)
+      .then((result) => {
+        if (cancelled) return;
+        setDeviceRows(Array.isArray(result?.data) ? result.data : []);
+        setDeviceTotal(Number(result?.totalItems) || 0);
+        setDeviceError('');
+      })
+      .catch((err: any) => {
+        if (!cancelled) setDeviceError(err?.message || 'The serialized-device preview could not be read.');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [deviceQuery, devicesPage, devicesPageSize]);
 
   const categories = useMemo(() => Array.from(new Set(products.map((p) => p.category))), [products]);
   const serializedProducts = useMemo(() => products.filter((p) => p.requiresSerialTracking), [products]);
@@ -99,47 +163,6 @@ export const ExportStock: React.FC<ExportStockProps> = ({
     setTimeout(() => setCopiedSerial(null), 2000);
   };
 
-  // -------------------------------------------------------------
-  // 1. SERIALIZED DEVICES FILTERING
-  // -------------------------------------------------------------
-  const filteredSerializedDevices = useMemo(() => {
-    return customerDevices.filter((dev) => {
-      // Branch filter
-      if (filterBranch !== 'ALL' && dev.branchId !== filterBranch) return false;
-
-      // Status filter
-      if (filterDeviceStatus !== 'ALL') {
-        if (filterDeviceStatus === 'IN_STOCK' && dev.status !== 'IN_STOCK') return false;
-        if (filterDeviceStatus === 'ASSIGNED' && (dev.status === 'IN_STOCK' || dev.status === 'ROUTER_COLLECTED')) return false;
-        if (filterDeviceStatus === 'RENTAL' && dev.status !== 'RENTAL') return false;
-        if (filterDeviceStatus === 'COLLECTED' && dev.status !== 'ROUTER_COLLECTED') return false;
-      }
-
-      // Product / Model filter
-      if (filterProductModel !== 'ALL' && dev.productName !== filterProductModel) return false;
-
-      // Search Query
-      if (searchQuery.trim()) {
-        const q = (searchQuery || '').toLowerCase().trim();
-        const branchObj = branches.find((b) => b.id === dev.branchId);
-        const branchName = branchObj?.name.toLowerCase() || '';
-        const branchCode = branchObj?.code.toLowerCase() || '';
-
-        const matchSN = dev.deviceSerial?.toLowerCase().includes(q);
-        const matchPON = dev.ponSerial?.toLowerCase().includes(q);
-        const matchMAC = dev.macAddress?.toLowerCase().includes(q);
-        const matchProd = dev.productName?.toLowerCase().includes(q);
-        const matchCust = dev.customerName?.toLowerCase().includes(q) || dev.customerCode?.toLowerCase().includes(q);
-        const matchBr = branchName.includes(q) || branchCode.includes(q);
-
-        if (!matchSN && !matchPON && !matchMAC && !matchProd && !matchCust && !matchBr) {
-          return false;
-        }
-      }
-
-      return true;
-    });
-  }, [customerDevices, filterBranch, filterDeviceStatus, filterProductModel, searchQuery, branches]);
 
   // -------------------------------------------------------------
   // 2. CONSOLIDATED & PER-BRANCH REORDER LEVEL COMPUTATION
@@ -278,12 +301,6 @@ export const ExportStock: React.FC<ExportStockProps> = ({
     });
   }, [products, filterCategory, filterGroup, searchQuery]);
 
-  const devicesPagination = useClientPagination(filteredSerializedDevices, 20, [
-    filterBranch,
-    filterDeviceStatus,
-    filterProductModel,
-    searchQuery,
-  ]);
   const reorderListPagination = useClientPagination(filteredReorderItems, 20, [
     filterBranch,
     filterCategory,
@@ -301,8 +318,20 @@ export const ExportStock: React.FC<ExportStockProps> = ({
   // EXPORT ACTION HANDLERS
   // -------------------------------------------------------------
 
-  // 1. Export Serialized Devices
-  const handleExportSerializedDevices = () => {
+  // 1. Export Serialized Devices — the filtered set comes from the server.
+  const handleExportSerializedDevices = async () => {
+    setIsExportingDevices(true);
+    try {
+      const exported = await api.getCustomerDeviceExport(deviceQuery);
+      const exportRows = Array.isArray(exported?.data) ? exported.data : [];
+      if (exportRows.length === 0) {
+        alertDialog('No serialized devices match the current filters.');
+        return;
+      }
+      if (exported.truncated) {
+        alertDialog('The export was capped at 20,000 rows. Narrow the branch, status or search filters before exporting the rest.');
+      }
+
     const columns = [
       {
         key: 'branchCode',
@@ -364,9 +393,14 @@ export const ExportStock: React.FC<ExportStockProps> = ({
       reportTitle: `Available Serialized Devices & Hardware Inventory Report (${filterDeviceStatus})`,
       branchName: currentBranchName,
       generatedBy: currentUserName,
-      data: filteredSerializedDevices,
+      data: exportRows,
       columns,
     });
+    } catch (err: any) {
+      alertDialog(err?.message || 'The serialized-device export could not be read from the server.');
+    } finally {
+      setIsExportingDevices(false);
+    }
   };
 
   // 2. Export Reorder Level & Deficit List (Consolidated & Branch Aware)
@@ -582,7 +616,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
             <Cpu className="h-4 w-4" />
             <span>Serialized Devices (SN / PON / MAC)</span>
             <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold ${viewMode === 'SERIALIZED_DEVICES' ? 'bg-white/20 text-white' : 'bg-indigo-500/15 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-400'}`}>
-              {filteredSerializedDevices.length + serializedProductsWithStock.length}
+              {deviceTotal + serializedProductsWithStock.length}
             </span>
           </button>
 
@@ -763,7 +797,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
               className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-2 shadow-md transition-all cursor-pointer"
             >
               <FileSpreadsheet className="h-4 w-4 text-emerald-300" />
-              <span>Export Serialized Stock CSV ({filteredSerializedDevices.length} Pcs)</span>
+              <span>{isExportingDevices ? 'Exporting…' : `Export Serialized Stock CSV (${deviceTotal} Pcs)`}</span>
             </button>
           )}
 
@@ -807,7 +841,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
             <span className={`h-2 w-2 rounded-full ${viewMode === 'REORDER_LIST' ? 'bg-rose-500' : 'bg-emerald-500'} animate-pulse`}></span>
             <span>
               {viewMode === 'SERIALIZED_DEVICES'
-                ? `Serialized Devices Registry: Showing ${filteredSerializedDevices.length > 0 ? filteredSerializedDevices.length + ' Hardware Units' : serializedProductsWithStock.length + ' Serialized Products with Stock'} in ${currentBranchName}`
+                ? `Serialized Devices Registry: Showing ${deviceTotal > 0 ? deviceTotal + ' Hardware Units' : serializedProductsWithStock.length + ' Serialized Products with Stock'} in ${currentBranchName}`
                 : viewMode === 'REORDER_LIST'
                 ? `Reorder Level Priority: Showing ${filteredReorderItems.length} Products in ${currentBranchName} (${
                     filterBranch === 'ALL' ? 'Calculated across All Branches' : 'Single Branch Threshold'
@@ -822,6 +856,12 @@ export const ExportStock: React.FC<ExportStockProps> = ({
             Export Format: Standard CSV (Bikram Sambat BS & Gregorian AD Dual Date)
           </span>
         </div>
+
+        {viewMode === 'SERIALIZED_DEVICES' && deviceError && (
+          <div className="px-4 py-2 text-xs font-semibold text-rose-700 bg-rose-50 border-b border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-900">
+            The serialized-device preview could not be read ({deviceError}). Change a filter or retry the export.
+          </div>
+        )}
 
         {/* Scrollable Table Viewport */}
         <div className="flex-1 min-h-0 overflow-auto relative">
@@ -842,13 +882,13 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                 </tr>
               </thead>
               <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
-                {filteredSerializedDevices.length === 0 && serializedProductsWithStock.length === 0 ? (
+                {deviceTotal === 0 && serializedProductsWithStock.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="p-12 text-center text-slate-400">
                       No serialized devices or serialized products with stock found.
                     </td>
                   </tr>
-                ) : filteredSerializedDevices.length === 0 ? (
+                ) : deviceTotal === 0 ? (
                   // Show serialized products with stock when no device records exist
                   serializedProductsWithStock.map((item) => {
                     const product = item.product;
@@ -889,7 +929,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                     );
                   })
                 ) : (
-                  devicesPagination.pagedItems.map((dev) => {
+                  deviceRows.map((dev) => {
                     const br = branches.find((b) => b.id === dev.branchId);
                     const isAvailable = dev.status === 'IN_STOCK';
                     const isRental = dev.status === 'RENTAL';
@@ -965,14 +1005,14 @@ export const ExportStock: React.FC<ExportStockProps> = ({
               </tbody>
             </table>
             <TablePagination
-              page={devicesPagination.page}
-              pageCount={devicesPagination.pageCount}
-              totalItems={devicesPagination.totalItems}
-              rangeStart={devicesPagination.rangeStart}
-              rangeEnd={devicesPagination.rangeEnd}
-              pageSize={devicesPagination.pageSize}
-              onPageChange={devicesPagination.setPage}
-              onPageSizeChange={devicesPagination.setPageSize}
+              page={safeDevicesPage}
+              pageCount={devicesPageCount}
+              totalItems={deviceTotal}
+              rangeStart={devicesRangeStart}
+              rangeEnd={devicesRangeEnd}
+              pageSize={devicesPageSize}
+              onPageChange={setDevicesPage}
+              onPageSizeChange={setDevicesPageSize}
               className="mt-1"
             />
             </>

@@ -377,6 +377,54 @@ export interface CustomerDeviceRecord {
   notes?: string;
 }
 
+/** VOL-4b: exact device counts behind the register's KPI cards. */
+export interface CustomerDeviceOverview {
+  total: number;
+  counts: Record<string, number>;
+}
+
+/** VOL-4b: one server-paged slice of the device register. */
+export interface CustomerDevicePage {
+  data: CustomerDeviceRecord[];
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  /** Only on an `all=1` export: the row cap was hit and the file is a prefix. */
+  truncated?: boolean;
+}
+
+/**
+ * VOL-4b: one warranty-directory row. The server unions rented CPE and fixed
+ * assets and computes the warranty end date, so the screen never reconstructs
+ * the whole device table to filter it.
+ */
+export interface WarrantyDirectoryRow {
+  type: 'CPE' | 'FIXED_ASSET';
+  id: string;
+  name: string;
+  serialOrTag: string;
+  secondarySerial: string;
+  macAddress?: string;
+  assignedTo: string;
+  assignedAddress: string;
+  branchId: string;
+  branchName: string;
+  issuedDateAD: string | null;
+  status: string;
+  purchaseBillRef?: string | null;
+  warrantyEndDateAD: string;
+  /** Computed by the same rule that filtered the page — never re-derived here. */
+  warrantyState: 'VALID' | 'EXPIRING_SOON' | 'EXPIRED';
+}
+
+export interface WarrantyDirectoryPage {
+  data: WarrantyDirectoryRow[];
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  counts: { total: number; valid: number; expiring: number; expired: number };
+}
+
 export interface PurchaseInvoice {
   id: string;
   invoiceNumber: string;
@@ -885,7 +933,12 @@ export interface BootstrapState {
    * self-fetch.
    */
   serialLogs?: SerialLog[];
-  customerDevices: CustomerDeviceRecord[];
+  /**
+   * Dropped from the bootstrap payload (VOL-4b: GET /api/customer-devices/page
+   * serves the register and GET /api/customer-devices/overview its KPI
+   * counts), so this slice is optional — no screen holds the national table.
+   */
+  customerDevices?: CustomerDeviceRecord[];
   /**
    * Dropped from the bootstrap payload (VOL-4a: the directory pages and the
    * pickers search the paged, branch-scoped GET /api/customers), so this

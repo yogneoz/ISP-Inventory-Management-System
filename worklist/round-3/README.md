@@ -32,7 +32,7 @@ finishes the read path instead, in ascending consumer risk. See
 | 1 | [BOOT-1](BOOT-1.md) | Full-bootstrap summary via SQL; drop the unshipped ledger queries | `[x]` done (`ad59a38`) | 1–2 days | — |
 | 2 | [VOL-3](VOL-3.md) | Take `shipments` off the bootstrap (paged endpoint + KPI reads) | `[x]` done (`acafd52`) | 2–4 days | BOOT-1 (same fan-out) |
 | 3 | [VOL-4a](VOL-4a.md) | Take `customers` off the bootstrap (server search in pickers) | `[x]` done (`d2c017f`) | 2–3 days | VOL-3 (App prop plumbing) |
-| 4 | VOL-4b | Take `customerDevices` off the bootstrap (paged register reads) | `[ ]` | 3–5 days | VOL-4a (shared paging pattern) |
+| 4 | [VOL-4b](VOL-4b.md) | Take `customerDevices` off the bootstrap (paged register reads) | `[x]` done | 3–5 days | VOL-4a (shared paging pattern) |
 | 5 | SN-1 | Split `SESSION_NOTES.md` by year under `docs/session-notes/` | `[ ]` | 0.5 day | Round close (file passes ~5,000 lines) |
 
 **Total:** about 1.5–2 weeks. BOOT-1 is server-only and pays back the most per
@@ -53,7 +53,7 @@ measurement before and after.
 3. **VOL-4a → VOL-4b** — customers first (pickers move to the existing paged
    search), then customer devices (paged register). Stop: neither key in
    `/api/bootstrap`; a customer outside page 1 is selectable, and the device
-   register pages/filters server-side.
+   register pages/filters server-side. **Both landed 2026-10-26.**
 4. **Round close** — full gates, archive this folder under `done/`, update the
    indexes and SESSION_NOTES, and finish SN-1 in the same close.
 

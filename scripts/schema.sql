@@ -1386,6 +1386,10 @@ CREATE INDEX IF NOT EXISTS idx_customer_devices_serials ON customer_device_recor
 CREATE INDEX IF NOT EXISTS idx_customer_devices_customer ON customer_device_records(customer_id, customer_code);
 CREATE INDEX IF NOT EXISTS idx_customer_devices_branch_status ON customer_device_records(branch_id, status);
 CREATE INDEX IF NOT EXISTS idx_devices_issued_date ON customer_device_records(issued_date_ad);
+-- VOL-4b: the device register pages newest-first inside a branch scope. The
+-- composite keeps the stable ORDER BY created_at DESC, id DESC page from
+-- sorting the branch's whole table for every keystroke/page turn.
+CREATE INDEX IF NOT EXISTS idx_customer_devices_page ON customer_device_records(branch_id, created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_customer_device_records_fiscal_year_id ON customer_device_records(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_customer_device_records_demo ON customer_device_records(id) WHERE is_demo = TRUE;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_customer_device_device_serial ON customer_device_records ((lower(trim(device_serial)))) WHERE trim(device_serial) <> '';

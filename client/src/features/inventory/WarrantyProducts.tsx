@@ -1,6 +1,5 @@
-import React, { useState } from 'react';
-import { CustomerDeviceRecord, Asset, Branch, Product } from '../../types';
-import { getWarrantyInfo } from '../../utils/warranty';
+import React, { useEffect, useState } from 'react';
+import { WarrantyDirectoryRow } from '../../types';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { DateField } from '../../components/DateField';
 import {
@@ -10,131 +9,145 @@ import {
   Barcode,
   MapPin,
 } from 'lucide-react';
-import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { useServerPageClamp, TablePagination } from '../../components/common/TablePagination';
+import { useFilterPageReset } from '../../utils/useFilterPageReset';
 import { FilterCard } from '../../components/common/FilterCard';
+import { LoadStateNotice } from '../../components/common/LoadStateNotice';
 import { PageHeader } from '../../components/common/PageHeader';
+import { api } from '../../services/api';
 
 interface WarrantyProductsProps {
-  customerDevices: CustomerDeviceRecord[];
-  assets: Asset[];
-  branches: Branch[];
-  products: Product[];
   selectedBranchId: string;
-  dateMode: 'BS' | 'AD';}
+  dateMode: 'BS' | 'AD';
+  /**
+   * Register-refresh counter for the paged warranty read. CPE and fixed-asset
+   * mutations both move this directory, and neither is a bootstrap slice any
+   * more (VOL-4b), so the screen re-reads on this key.
+   */
+  refreshKey?: number;
+}
+
+const EMPTY_COUNTS = { total: 0, valid: 0, expiring: 0, expired: 0 };
+
+/**
+ * The badge text, measured from the SERVER's computed end date and state. It
+ * deliberately does not call getWarrantyInfo (which redoes the month
+ * arithmetic in local time): the filter and the badge must tell one story.
+ */
+function warrantyLabel(row: WarrantyDirectoryRow): string {
+  if (!row.issuedDateAD) return 'No Issue Date';
+  const end = Date.parse(`${row.warrantyEndDateAD}T00:00:00Z`);
+  if (!Number.isFinite(end)) return row.warrantyState;
+  const now = new Date();
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const days = Math.round((end - today) / 86400000);
+  if (row.warrantyState === 'EXPIRED') {
+    const late = Math.abs(Math.min(0, days));
+    return `Expired (${late} ${late === 1 ? 'day' : 'days'} ago)`;
+  }
+  return row.warrantyState === 'EXPIRING_SOON'
+    ? `Expiring (${Math.max(0, days)} ${days === 1 ? 'day' : 'days'} left)`
+    : `Valid (${Math.max(0, days)} days left)`;
+}
 
 export const WarrantyProducts: React.FC<WarrantyProductsProps> = ({
-  customerDevices = [],
-  assets = [],
-  branches = [],
-  products = [],
   selectedBranchId,
-  dateMode,}) => {
+  dateMode,
+  refreshKey = 0,
+}) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [warrantyFilter, setWarrantyFilter] = useState<'ALL' | 'VALID' | 'EXPIRING_SOON' | 'EXPIRED'>('VALID');
   const [categoryType, setCategoryType] = useState<'ALL' | 'CPE' | 'FIXED_ASSET'>('ALL');
   // Commissioned date range (canonical AD values; DateField converts BS picks).
-  // Narrows items by issuedDateAD; an empty bound is open-ended.
   const [issuedFromAD, setIssuedFromAD] = useState('');
   const [issuedToAD, setIssuedToAD] = useState('');
 
-  // Build combined list of warranty-tracked items (CPE customer devices + fixed assets)
-  const cpeItems = customerDevices.map((c) => {
-    const wInfo = getWarrantyInfo(c.issuedDateAD, c.warrantyMonths || 12);
-    const branch = branches.find((b) => b.id === c.branchId);
-    return {
-      id: c.id,
-      type: 'CPE' as const,
-      name: c.productName,
-      serialOrTag: c.deviceSerial,
-      secondarySerial: c.ponSerial,
-      macAddress: c.macAddress,
-      assignedTo: `${c.customerName} (${c.customerCode})`,
-      assignedAddress: c.installationAddress,
-      branchId: c.branchId,
-      branchName: branch?.name || c.branchId,
-      issuedDateAD: c.issuedDateAD,
-      status: c.status,
-      warrantyInfo: wInfo,
-      purchaseBillRef: c.purchaseBillRef,
+  const [rows, setRows] = useState<WarrantyDirectoryRow[]>([]);
+  const [totalItems, setTotalItems] = useState(0);
+  const [counts, setCounts] = useState(EMPTY_COUNTS);
+  const [loadError, setLoadError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
+  // The visible search is debounced; every keystroke used to scan the whole
+  // device table in the browser.
+  const [appliedQuery, setAppliedQuery] = useState('');
+
+  useEffect(() => {
+    const timer = setTimeout(() => setAppliedQuery(searchQuery.trim()), 250);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  useFilterPageReset(
+    `${selectedBranchId}|${appliedQuery}|${warrantyFilter}|${categoryType}|${issuedFromAD}|${issuedToAD}`,
+    page,
+    setPage
+  );
+
+  const safePage = useServerPageClamp(page, pageSize, totalItems, setPage);
+  const pageCount = Math.max(1, Math.ceil(totalItems / pageSize));
+  const rangeStart = totalItems === 0 ? 0 : (safePage - 1) * pageSize + 1;
+  const rangeEnd = Math.min(safePage * pageSize, totalItems);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    api.getCustomerDeviceWarranty(
+        {
+          branchId: selectedBranchId,
+          query: appliedQuery || undefined,
+          warranty: warrantyFilter !== 'ALL' ? warrantyFilter : undefined,
+          category: categoryType !== 'ALL' ? categoryType : undefined,
+          issuedFrom: issuedFromAD || undefined,
+          issuedTo: issuedToAD || undefined,
+        },
+        page,
+        pageSize
+      )
+      .then((result) => {
+        if (cancelled) return;
+        setRows(Array.isArray(result?.data) ? result.data : []);
+        setTotalItems(Number(result?.totalItems) || 0);
+        setCounts(result?.counts || EMPTY_COUNTS);
+        setLoadError('');
+      })
+      .catch((err: any) => {
+        if (!cancelled) setLoadError(err?.message || 'The warranty directory could not be read.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
     };
-  });
-
-  const assetItems = assets.map((a) => {
-    const wInfo = getWarrantyInfo(a.acquisitionDateAD, 12);
-    const branch = branches.find((b) => b.id === a.branchId);
-    let assigned = a.assignedCustomerName ? `Customer: ${a.assignedCustomerName}` : a.assignedLocationName ? `Location: ${a.assignedLocationName}` : 'Internal Branch Office / Node';
-    return {
-      id: a.id,
-      type: 'FIXED_ASSET' as const,
-      name: a.name,
-      serialOrTag: a.tagNumber,
-      secondarySerial: '-',
-      macAddress: undefined,
-      assignedTo: assigned,
-      assignedAddress: branch?.location || '-',
-      branchId: a.branchId,
-      branchName: branch?.name || a.branchId,
-      issuedDateAD: a.acquisitionDateAD,
-      status: a.status,
-      warrantyInfo: wInfo,
-      purchaseBillRef: a.invoiceNo,
-    };
-  });
-
-  const allWarrantyItems = [...cpeItems, ...assetItems];
-
-  const filteredItems = allWarrantyItems.filter((item) => {
-    const matchesBranch = selectedBranchId === 'ALL' || item.branchId === selectedBranchId;
-    const matchesWarranty =
-      warrantyFilter === 'ALL' || item.warrantyInfo.status === warrantyFilter;
-    const matchesCat = categoryType === 'ALL' || item.type === categoryType;
-    const day = (item.issuedDateAD || '').split('T')[0];
-    const matchesDate =
-      (!issuedFromAD || (day && day >= issuedFromAD)) &&
-      (!issuedToAD || (day && day <= issuedToAD));
-
-    if (!searchQuery.trim()) return matchesBranch && matchesWarranty && matchesCat && matchesDate;
-
-    const q = (searchQuery || '').toLowerCase().trim();
-    const matchesQuery =
-      (item?.name || '').toLowerCase().includes(q) ||
-      (item?.serialOrTag || '').toLowerCase().includes(q) ||
-      (item.secondarySerial && (item?.secondarySerial || '').toLowerCase().includes(q)) ||
-      (item?.assignedTo || '').toLowerCase().includes(q) ||
-      (item?.branchName || '').toLowerCase().includes(q);
-
-    return matchesBranch && matchesWarranty && matchesCat && matchesDate && matchesQuery;
-  });
-
-  // Metrics
-  const validCount = allWarrantyItems.filter((i) => i.warrantyInfo.status === 'VALID').length;
-  const expiringSoonCount = allWarrantyItems.filter((i) => i.warrantyInfo.status === 'EXPIRING_SOON').length;
-  const expiredCount = allWarrantyItems.filter((i) => i.warrantyInfo.status === 'EXPIRED').length;
-
-  const warrantyPagination = useClientPagination(filteredItems, 15, [
-    searchQuery,
-    warrantyFilter,
-    categoryType,
-    selectedBranchId,
-    issuedFromAD,
-    issuedToAD,
-  ]);
+  }, [selectedBranchId, appliedQuery, warrantyFilter, categoryType, issuedFromAD, issuedToAD, page, pageSize, refreshKey, retryKey]);
 
   return (
     <div className="space-y-3">
-      {/* Page Title & Sub-Heading — shared PageHeader (single h2 per screen rule) */}
       <PageHeader
         title="Warranty Valid Products Directory"
         description="Centralized registry of active CPE routers, ONU devices, set-top boxes, and fixed assets with active manufacturer or ISP warranty status."
         icon={<ShieldCheck className="h-5 w-5 text-emerald-600 dark:text-emerald-400 shrink-0" />}
       />
 
-      {/* Summary Metrics */}
+      {loadError && (
+        <LoadStateNotice
+          subject="the warranty directory"
+          loading={loading}
+          error={loadError}
+          hasCachedRows={rows.length > 0}
+          cachedNote=" The rows on screen may be out of date."
+          onRetry={() => setRetryKey((k) => k + 1)}
+        />
+      )}
+
+      {/* Summary Metrics — exact server counts under the branch/search/date filters */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <div className={`rounded-2xl p-4 border shadow-xs transition-colors bg-white border-slate-200 text-slate-900 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-100`}>
           <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 break-words">Total Registered Hardware</div>
           <div className="text-xl font-mono font-bold text-slate-900 dark:text-white mt-1">
-            {allWarrantyItems.length} Items
+            {counts.total} Items
           </div>
         </div>
 
@@ -144,7 +157,7 @@ export const WarrantyProducts: React.FC<WarrantyProductsProps> = ({
             <span>Valid Active Warranty</span>
           </div>
           <div className="text-xl font-mono font-extrabold text-emerald-700 dark:text-emerald-400 mt-1">
-            {validCount} Items
+            {counts.valid} Items
           </div>
         </div>
 
@@ -154,7 +167,7 @@ export const WarrantyProducts: React.FC<WarrantyProductsProps> = ({
             <span>Expiring Within 30 Days</span>
           </div>
           <div className="text-xl font-mono font-extrabold text-amber-700 dark:text-amber-400 mt-1">
-            {expiringSoonCount} Items
+            {counts.expiring} Items
           </div>
         </div>
 
@@ -164,7 +177,7 @@ export const WarrantyProducts: React.FC<WarrantyProductsProps> = ({
             <span>Expired Warranties</span>
           </div>
           <div className="text-xl font-mono font-extrabold text-rose-700 dark:text-rose-400 mt-1">
-            {expiredCount} Items
+            {counts.expired} Items
           </div>
         </div>
       </div>
@@ -241,7 +254,7 @@ export const WarrantyProducts: React.FC<WarrantyProductsProps> = ({
         }
         rightChildren={
           <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
-            Showing <strong className="text-slate-900 dark:text-white font-mono">{filteredItems.length}</strong> items
+            Showing <strong className="text-slate-900 dark:text-white font-mono">{totalItems}</strong> items
           </span>
         }
       />
@@ -262,15 +275,14 @@ export const WarrantyProducts: React.FC<WarrantyProductsProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-              {filteredItems.length === 0 ? (
+              {totalItems === 0 ? (
                 <tr>
                   <td colSpan={7} className="p-8 text-center text-slate-500 dark:text-slate-400 text-xs">
                     No warranty products found matching your current filter criteria.
                   </td>
                 </tr>
               ) : (
-                warrantyPagination.pagedItems.map((item) => {
-                  const w = item.warrantyInfo;
+                rows.map((item) => {
                   return (
                     <tr key={`${item.type}-${item.id}`} className="hover:bg-slate-100/80 dark:hover:bg-slate-800/50 transition-colors">
                       <td className="p-2.5">
@@ -311,27 +323,27 @@ export const WarrantyProducts: React.FC<WarrantyProductsProps> = ({
                       </td>
 
                       <td className="p-2.5 font-mono text-[11px] text-slate-600 dark:text-slate-400">
-                        {formatDualDate(item.issuedDateAD, dateMode)}
+                        {formatDualDate(item.issuedDateAD || '', dateMode)}
                       </td>
 
                       <td className="p-2.5 font-mono text-[11px] font-bold text-slate-900 dark:text-slate-100">
-                        {formatDualDate(w.warrantyEndDateAD, dateMode)}
+                        {formatDualDate(item.warrantyEndDateAD, dateMode)}
                       </td>
 
                       <td className="p-2.5 text-center">
                         <div
                           className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold uppercase border whitespace-normal break-words max-w-[160px] text-center justify-center ${
-                            w.status === 'VALID'
+                            item.warrantyState === 'VALID'
                               ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
-                              : w.status === 'EXPIRING_SOON'
+                              : item.warrantyState === 'EXPIRING_SOON'
                               ? 'bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800'
                               : 'bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-800'
                           }`}
                         >
-                          {w.status === 'VALID' && <ShieldCheck className={`h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0`} />}
-                          {w.status === 'EXPIRING_SOON' && <Clock className={`h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0`} />}
-                          {w.status === 'EXPIRED' && <ShieldAlert className={`h-3.5 w-3.5 text-rose-600 dark:text-rose-400 shrink-0`} />}
-                          <span>{w.label}</span>
+                          {item.warrantyState === 'VALID' && <ShieldCheck className={`h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0`} />}
+                          {item.warrantyState === 'EXPIRING_SOON' && <Clock className={`h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0`} />}
+                          {item.warrantyState === 'EXPIRED' && <ShieldAlert className={`h-3.5 w-3.5 text-rose-600 dark:text-rose-400 shrink-0`} />}
+                          <span>{warrantyLabel(item)}</span>
                         </div>
                       </td>
                     </tr>
@@ -342,14 +354,14 @@ export const WarrantyProducts: React.FC<WarrantyProductsProps> = ({
           </table>
         </div>
         <TablePagination
-          page={warrantyPagination.page}
-          pageCount={warrantyPagination.pageCount}
-          totalItems={warrantyPagination.totalItems}
-          rangeStart={warrantyPagination.rangeStart}
-          rangeEnd={warrantyPagination.rangeEnd}
-          pageSize={warrantyPagination.pageSize}
-          onPageChange={warrantyPagination.setPage}
-          onPageSizeChange={warrantyPagination.setPageSize}
+          page={safePage}
+          pageCount={pageCount}
+          totalItems={totalItems}
+          rangeStart={rangeStart}
+          rangeEnd={rangeEnd}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
           className="mt-1"
         />
       </div>

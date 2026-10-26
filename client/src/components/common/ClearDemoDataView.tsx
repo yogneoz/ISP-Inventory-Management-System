@@ -23,7 +23,6 @@ interface ClearDemoDataViewProps {
   productCount: number;
   stockCount: number;
   assetCount: number;
-  deviceCount: number;
   poCount: number;
   invoiceCount: number;
   /**
@@ -46,7 +45,6 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
   productCount,
   stockCount,
   assetCount,
-  deviceCount,
   poCount,
   invoiceCount,
   needsFiscalYear = false,
@@ -69,6 +67,23 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
       })
       .catch(() => {
         if (!cancelled) setCustomerCount(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // VOL-4b: customer devices left the bootstrap too, so this card reads the
+  // same exact count the register shows rather than receiving the array.
+  const [deviceCount, setDeviceCount] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    api.getCustomerDeviceOverview({})
+      .then((overview) => {
+        if (!cancelled) setDeviceCount(Number(overview?.total) || 0);
+      })
+      .catch(() => {
+        if (!cancelled) setDeviceCount(null);
       });
     return () => {
       cancelled = true;
@@ -117,7 +132,7 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
   // A pending customer count makes the total a lower bound until it arrives;
   // the figure is a coarse "how much is on file" preview, not an audit number.
   const totalOperationalRecords =
-    productCount + stockCount + assetCount + deviceCount + (customerCount ?? 0) + poCount + invoiceCount;
+    productCount + stockCount + assetCount + (deviceCount ?? 0) + (customerCount ?? 0) + poCount + invoiceCount;
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-12">
@@ -257,7 +272,9 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
                   <Smartphone className={`h-4 w-4 text-purple-500 dark:text-purple-400`} />
                   <span>Customer Devices</span>
                 </div>
-                <div className="text-xl font-bold text-slate-900 dark:text-slate-100">{deviceCount}</div>
+                <div className="text-xl font-bold text-slate-900 dark:text-slate-100">
+                  {deviceCount === null ? '—' : deviceCount}
+                </div>
               </div>
 
               <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-100 dark:border-slate-800">

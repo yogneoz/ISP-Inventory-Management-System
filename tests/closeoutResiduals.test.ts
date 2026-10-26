@@ -65,40 +65,39 @@ describe('load notice — custom copy for a column read', () => {
 });
 
 describe('customer device reads — failures are visible and retryable', () => {
-  const screens = [
-    {
-      file: 'client/src/features/sales/CustomersManagement.tsx',
-      subject: 'the device register',
-    },
-    {
-      file: 'client/src/features/sales/CustomerMasterDirectory.tsx',
-      subject: 'the assigned hardware counts',
-    },
-  ];
+  test('CustomersManagement keeps an error, retries it and renders the notice', () => {
+    const source = read('client/src/features/sales/CustomersManagement.tsx');
+    assert.ok(source.includes('LoadStateNotice'), 'the failure must be rendered');
+    assert.ok(
+      source.includes('setDevicesFetchError(err?.message'),
+      'a failed read must keep its message'
+    );
+    assert.ok(source.includes('setDevicesRetryKey((k) => k + 1)'), 'Retry must re-run the read');
+    assert.ok(
+      source.includes('devicesRetryKey])'),
+      'the retry key must be an effect dependency, or Retry does nothing'
+    );
+    assert.ok(
+      source.includes('subject="the device register"'),
+      'the notice must name what could not be read'
+    );
+    assert.ok(
+      source.includes('setDevicesFetchError(\'\')'),
+      'a successful read must clear the failure'
+    );
+  });
 
-  for (const screen of screens) {
-    test(`${screen.file} keeps an error, retries it and renders the notice`, () => {
-      const source = read(screen.file);
-      assert.ok(source.includes('LoadStateNotice'), 'the failure must be rendered');
-      assert.ok(
-        source.includes('setDevicesFetchError(err?.message'),
-        'a failed read must keep its message'
-      );
-      assert.ok(source.includes('setDevicesRetryKey((k) => k + 1)'), 'Retry must re-run the read');
-      assert.ok(
-        source.includes('devicesRetryKey])'),
-        'the retry key must be an effect dependency, or Retry does nothing'
-      );
-      assert.ok(
-        source.includes(`subject="${screen.subject}"`),
-        'the notice must name what could not be read'
-      );
-      assert.ok(
-        source.includes('setDevicesFetchError(\'\')'),
-        'a successful read must clear the failure'
-      );
-    });
-  }
+  test('CustomerMasterDirectory surfaces a failed per-customer serial read and retries it', () => {
+    // The directory no longer reads the national device table for its counts
+    // (VOL-4b: the count rides the customer row). The only device read left is
+    // the expanded customer's bounded page, and its failure must not render as
+    // "No Hardware Serials Assigned".
+    const source = read('client/src/features/sales/CustomerMasterDirectory.tsx');
+    assert.ok(source.includes('expandedDevicesError'), 'the failure must be rendered');
+    assert.ok(source.includes('setExpandedDevicesError(err?.message'), 'the message must be kept');
+    assert.ok(source.includes('loadExpandedDevices(customer)'), 'Retry must re-run the read');
+    assert.match(source, /expandedDevicesError \?/);
+  });
 });
 
 describe('BS calendar health — latest read wins', () => {

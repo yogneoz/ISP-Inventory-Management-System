@@ -752,29 +752,332 @@ export const CDR_SELECT_COLUMNS =
   'id, customer_id AS "customerId", customer_name AS "customerName", customer_code AS "customerCode", contact_phone AS "contactPhone", installation_address AS "installationAddress", branch_id AS "branchId", product_name AS "productName", device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress", status, issued_date_ad AS "issuedDateAD", issued_date_bs AS "issuedDateBS", purchase_bill_ref AS "purchaseBillRef", notes';
 
 /**
- * Builds the customer-device list query with an optional branch filter and a
- * case-insensitive search across the six searchable columns. Mirrors the
- * inline SQL assembled in the controller verbatim.
+ * The exact expression `idx_customer_devices_global_trgm` indexes
+ * (schema.sql). Keep the two in lock-step: if this text changes, the index must
+ * be rebuilt, or every debounced register search falls back to a sequential
+ * scan of the device table (VOL-4b).
  */
-export function buildCustomerDeviceListQuery(branchId?: unknown, query?: unknown): { sql: string; params: unknown[] } {
-  let sql = `SELECT ${CDR_SELECT_COLUMNS} FROM customer_device_records`;
+export const CDR_SEARCH_TEXT_SQL =
+  "lower(COALESCE(customer_code, '') || ' ' || COALESCE(customer_name, '') || ' ' || " +
+  "COALESCE(product_name, '') || ' ' || COALESCE(device_serial, '') || ' ' || " +
+  "COALESCE(pon_serial, '') || ' ' || COALESCE(mac_address, '') || ' ' || " +
+  "COALESCE(contact_phone, ''))";
+
+export const CUSTOMER_DEVICE_PAGE_SIZE_DEFAULT = 15;
+export const CUSTOMER_DEVICE_PAGE_SIZE_MAX = 200;
+/** Hard cap for the register's CSV export; beyond this the caller reports truncation. */
+export const CUSTOMER_DEVICE_EXPORT_MAX = 20000;
+
+/** The statuses the register and its status filter can name (schema CHECK). */
+export const CUSTOMER_DEVICE_STATUSES = [
+  'ACTIVE', 'SUSPENDED', 'DISCONNECTED', 'RETURNED', 'REFUND', 'EXCHANGED', 'RENTAL', 'ROUTER_COLLECTED', 'IN_STOCK',
+] as const;
+export type CustomerDeviceStatus = (typeof CUSTOMER_DEVICE_STATUSES)[number];
+
+/** Only whitelisted statuses reach SQL; unknown values mean "no status filter". */
+export function normalizeCustomerDeviceStatuses(status: unknown): CustomerDeviceStatus[] {
+  const raw = Array.isArray(status)
+    ? status
+    : typeof status === 'string'
+      ? status.split(',')
+      : [];
+  const allowed = new Set<string>(CUSTOMER_DEVICE_STATUSES);
+  const result: CustomerDeviceStatus[] = [];
+  for (const value of raw) {
+    const normalized = String(value || '').trim().toUpperCase();
+    if (allowed.has(normalized) && !result.includes(normalized as CustomerDeviceStatus)) {
+      result.push(normalized as CustomerDeviceStatus);
+    }
+  }
+  return result;
+}
+
+export interface CustomerDeviceQueryOptions {
+  /** A single branch id, or 'ALL'. Ignored when `branchScope` is present. */
+  branchId?: unknown;
+  /** Explicit allowed-branch list resolved from the authenticated user. */
+  branchScope?: string[];
+  query?: unknown;
+  /** Exact customer attribution (the directory's expanded-row read). */
+  customerId?: unknown;
+  /** One status, a comma-separated list, or an array. */
+  status?: unknown;
+  productName?: unknown;
+  issuedFrom?: unknown;
+  issuedTo?: unknown;
+}
+
+/** Strict YYYY-MM-DD, so a bad bound is dropped rather than reaching a DATE cast. */
+function dateBound(value: unknown): string | undefined {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.trim()) ? value.trim() : undefined;
+}
+
+/**
+ * WHERE fragment shared by the paged register, the overview counts and the
+ * legacy bare-array read: branch scope, indexed text search, status, product
+ * and commissioned-date window.
+ */
+export function buildCustomerDeviceWhere(opts: CustomerDeviceQueryOptions = {}): { whereSql: string; params: unknown[] } {
   const params: unknown[] = [];
   const conditions: string[] = [];
 
-  if (branchId && branchId !== 'ALL') {
-    params.push(branchId);
+  if (Array.isArray(opts.branchScope)) {
+    if (opts.branchScope.length === 0) {
+      conditions.push('FALSE');
+    } else {
+      params.push(opts.branchScope);
+      conditions.push(`branch_id = ANY($${params.length})`);
+    }
+  } else if (typeof opts.branchId === 'string' && opts.branchId && opts.branchId !== 'ALL') {
+    params.push(opts.branchId);
     conditions.push(`branch_id = $${params.length}`);
   }
 
-  if (query && typeof query === 'string' && query.trim()) {
-    params.push(`%${query.trim().toLowerCase()}%`);
-    conditions.push(`(LOWER(device_serial) LIKE $${params.length} OR LOWER(pon_serial) LIKE $${params.length} OR LOWER(mac_address) LIKE $${params.length} OR LOWER(customer_name) LIKE $${params.length} OR LOWER(customer_code) LIKE $${params.length} OR LOWER(contact_phone) LIKE $${params.length})`);
+  if (typeof opts.customerId === 'string' && opts.customerId.trim()) {
+    const customerId = opts.customerId.trim();
+    params.push(customerId, customerId);
+    conditions.push(`(customer_code = $${params.length - 1} OR customer_id = $${params.length})`);
   }
 
-  if (conditions.length > 0) {
-    sql += ' WHERE ' + conditions.join(' AND ');
+  if (opts.query && typeof opts.query === 'string' && opts.query.trim()) {
+    params.push(`%${opts.query.trim().toLowerCase()}%`);
+    conditions.push(`${CDR_SEARCH_TEXT_SQL} LIKE $${params.length}`);
   }
-  sql += ' ORDER BY created_at DESC';
+
+  const statuses = normalizeCustomerDeviceStatuses(opts.status);
+  if (statuses.length > 0) {
+    params.push(statuses);
+    conditions.push(`status = ANY($${params.length})`);
+  }
+
+  if (opts.productName && typeof opts.productName === 'string' && opts.productName.trim()) {
+    params.push(opts.productName.trim());
+    conditions.push(`product_name = $${params.length}`);
+  }
+
+  const from = dateBound(opts.issuedFrom);
+  if (from) {
+    params.push(from);
+    conditions.push(`issued_date_ad >= $${params.length}`);
+  }
+  const to = dateBound(opts.issuedTo);
+  if (to) {
+    params.push(to);
+    conditions.push(`issued_date_ad <= $${params.length}`);
+  }
+
+  return { whereSql: conditions.length ? ' WHERE ' + conditions.join(' AND ') : '', params };
+}
+
+/** Clamped paging values, echoed back to the client so its footer can trust them. */
+export function normalizeCustomerDevicePaging(page?: unknown, pageSize?: unknown): { page: number; pageSize: number } {
+  const requestedSize = Math.floor(Number(pageSize));
+  const size = Number.isFinite(requestedSize) && requestedSize > 0
+    ? Math.min(CUSTOMER_DEVICE_PAGE_SIZE_MAX, requestedSize)
+    : CUSTOMER_DEVICE_PAGE_SIZE_DEFAULT;
+  const requestedPage = Math.floor(Number(page));
+  return { page: Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1, pageSize: size };
+}
+
+/** The register page, ordered by the composite `(branch_id, created_at, id)` index. */
+export function buildCustomerDevicePageQuery(opts: CustomerDeviceQueryOptions = {}, page = 1, pageSize = CUSTOMER_DEVICE_PAGE_SIZE_DEFAULT) {
+  const { whereSql, params } = buildCustomerDeviceWhere(opts);
+  const sql = `SELECT ${CDR_SELECT_COLUMNS} FROM customer_device_records${whereSql} ORDER BY created_at DESC, id DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
+  return { sql, params };
+}
+
+/** Filtered total for the page footer and the export envelope. */
+export function buildCustomerDeviceCountQuery(opts: CustomerDeviceQueryOptions = {}) {
+  const { whereSql, params } = buildCustomerDeviceWhere(opts);
+  return { sql: `SELECT COUNT(*)::int AS count FROM customer_device_records${whereSql}`, params };
+}
+
+/**
+ * CSV export: every row matching the filters, capped at one more than the
+ * export limit so the caller can honestly report truncation instead of
+ * silently exporting a prefix.
+ */
+export function buildCustomerDeviceExportQuery(opts: CustomerDeviceQueryOptions = {}) {
+  const { whereSql, params } = buildCustomerDeviceWhere(opts);
+  const sql = `SELECT ${CDR_SELECT_COLUMNS} FROM customer_device_records${whereSql} ORDER BY created_at DESC, id DESC LIMIT ${CUSTOMER_DEVICE_EXPORT_MAX + 1}`;
+  return { sql, params };
+}
+
+/** One row per status under the same WHERE (search/date filters apply, status does not). */
+export function buildCustomerDeviceOverviewQuery(opts: CustomerDeviceQueryOptions = {}) {
+  const { branchScope, branchId, query, productName, issuedFrom, issuedTo } = opts;
+  const { whereSql, params } = buildCustomerDeviceWhere({ branchScope, branchId, query, productName, issuedFrom, issuedTo });
+  return {
+    sql: `SELECT status, COUNT(*)::int AS count FROM customer_device_records${whereSql} GROUP BY status ORDER BY status ASC`,
+    params,
+  };
+}
+
+/**
+ * Legacy bare-array read, kept for an older bundle and `/api/bootstrap/local`
+ * consumers. Bounded like the bare shipments read; the register never uses it.
+ */
+export function buildCustomerDeviceLegacyListQuery(opts: CustomerDeviceQueryOptions = {}): { sql: string; params: unknown[] } {
+  const { whereSql, params } = buildCustomerDeviceWhere(opts);
+  return {
+    sql: `SELECT ${CDR_SELECT_COLUMNS} FROM customer_device_records${whereSql} ORDER BY created_at DESC, id DESC LIMIT 2000`,
+    params,
+  };
+}
+
+/** Positional form kept for existing callers/tests. */
+export function buildCustomerDeviceListQuery(branchId?: unknown, query?: unknown): { sql: string; params: unknown[] } {
+  return buildCustomerDeviceLegacyListQuery({ branchId, query });
+}
+
+// ---------------------------------------------------------------------------
+// Warranty directory (CPE + fixed assets, computed warranty state)
+// ---------------------------------------------------------------------------
+
+export const WARRANTY_MONTHS = 12;
+
+/**
+ * The computed state travels WITH the row: filtering and rendering then use
+ * one rule, so a month-end issued date can never show "Valid" under the
+ * "Expired" filter because the browser and PostgreSQL disagreed by a day.
+ */
+export const WARRANTY_STATE_CASE_SQL = `CASE
+    WHEN warranty_end_ad < CURRENT_DATE THEN 'EXPIRED'
+    WHEN warranty_end_ad <= CURRENT_DATE + 30 THEN 'EXPIRING_SOON'
+    ELSE 'VALID' END`;
+
+/** Columns rendered by the warranty table, selected identically from both branches of the union. */
+export const WARRANTY_ITEM_COLUMNS = `item_type AS "type", id, name, serial_number AS "serialOrTag",
+  secondary_serial AS "secondarySerial", mac_address AS "macAddress", assigned_to AS "assignedTo",
+  assigned_address AS "assignedAddress", branch_id AS "branchId", branch_name AS "branchName",
+  issued_date_ad AS "issuedDateAD", status, purchase_bill_ref AS "purchaseBillRef",
+  warranty_end_ad AS "warrantyEndDateAD", ${WARRANTY_STATE_CASE_SQL} AS "warrantyState"`;
+
+/**
+ * One relation for both hardware families. CPE warranty is 12 months from the
+ * issued date; a fixed asset's is 12 months from acquisition. A missing issued
+ * date sorts as expired, exactly like the client's getWarrantyInfo('').
+ */
+export const WARRANTY_ITEMS_CTE = `WITH warranty_items AS (
+  SELECT 'CPE'::text AS item_type, c.id, c.product_name AS name, c.device_serial AS serial_number,
+    COALESCE(c.pon_serial, '') AS secondary_serial, c.mac_address,
+    (c.customer_name || ' (' || COALESCE(c.customer_code, '') || ')') AS assigned_to,
+    COALESCE(c.installation_address, '') AS assigned_address,
+    c.branch_id, COALESCE(b.name, c.branch_id) AS branch_name,
+    c.issued_date_ad, c.status, c.purchase_bill_ref,
+    (COALESCE(c.issued_date_ad, DATE '1970-01-01') + INTERVAL '${WARRANTY_MONTHS} months')::date AS warranty_end_ad
+  FROM customer_device_records c
+  LEFT JOIN branches b ON b.id = c.branch_id
+  UNION ALL
+  SELECT 'FIXED_ASSET'::text, a.id, a.name, a.tag_number, '-', NULL,
+    CASE WHEN a.assigned_customer_name IS NOT NULL THEN 'Customer: ' || a.assigned_customer_name
+         WHEN a.assigned_location_name IS NOT NULL THEN 'Location: ' || a.assigned_location_name
+         ELSE 'Internal Branch Office / Node' END,
+    COALESCE(b.location, '-'),
+    a.branch_id, COALESCE(b.name, a.branch_id),
+    a.acquisition_date_ad, a.status, a.invoice_no,
+    (a.acquisition_date_ad + INTERVAL '${WARRANTY_MONTHS} months')::date
+  FROM fixed_assets a
+  LEFT JOIN branches b ON b.id = a.branch_id
+)`;
+
+export type WarrantyState = 'VALID' | 'EXPIRING_SOON' | 'EXPIRED';
+
+export interface WarrantyQueryOptions extends CustomerDeviceQueryOptions {
+  /** VALID | EXPIRING_SOON | EXPIRED; anything else means no warranty filter. */
+  warranty?: unknown;
+  /** CPE | FIXED_ASSET; anything else means both. */
+  category?: unknown;
+}
+
+function warrantyState(value: unknown): WarrantyState | undefined {
+  const normalized = typeof value === 'string' ? value.trim().toUpperCase() : '';
+  return normalized === 'VALID' || normalized === 'EXPIRING_SOON' || normalized === 'EXPIRED'
+    ? normalized as WarrantyState
+    : undefined;
+}
+
+function warrantyCategory(value: unknown): 'CPE' | 'FIXED_ASSET' | undefined {
+  const normalized = typeof value === 'string' ? value.trim().toUpperCase() : '';
+  return normalized === 'CPE' || normalized === 'FIXED_ASSET' ? normalized : undefined;
+}
+
+/** The SQL twin of client getWarrantyInfo: valid >30 days, expiring 0–30, expired <0. */
+export const WARRANTY_STATE_SQL = {
+  VALID: 'warranty_end_ad > CURRENT_DATE + 30',
+  EXPIRING_SOON: 'warranty_end_ad >= CURRENT_DATE AND warranty_end_ad <= CURRENT_DATE + 30',
+  EXPIRED: 'warranty_end_ad < CURRENT_DATE',
+} as const;
+
+function buildWarrantyWhere(opts: WarrantyQueryOptions = {}): { whereSql: string; params: unknown[] } {
+  const params: unknown[] = [];
+  const conditions: string[] = [];
+
+  if (Array.isArray(opts.branchScope)) {
+    if (opts.branchScope.length === 0) {
+      conditions.push('FALSE');
+    } else {
+      params.push(opts.branchScope);
+      conditions.push(`branch_id = ANY($${params.length})`);
+    }
+  } else if (typeof opts.branchId === 'string' && opts.branchId && opts.branchId !== 'ALL') {
+    params.push(opts.branchId);
+    conditions.push(`branch_id = $${params.length}`);
+  }
+
+  if (opts.query && typeof opts.query === 'string' && opts.query.trim()) {
+    params.push(`%${opts.query.trim().toLowerCase()}%`);
+    conditions.push(
+      `lower(COALESCE(name, '') || ' ' || COALESCE(serial_number, '') || ' ' || COALESCE(secondary_serial, '') || ' ' || COALESCE(assigned_to, '') || ' ' || COALESCE(branch_name, '')) LIKE $${params.length}`
+    );
+  }
+
+  const category = warrantyCategory(opts.category);
+  if (category) {
+    params.push(category);
+    conditions.push(`item_type = $${params.length}`);
+  }
+
+  const from = dateBound(opts.issuedFrom);
+  if (from) {
+    params.push(from);
+    conditions.push(`issued_date_ad >= $${params.length}`);
+  }
+  const to = dateBound(opts.issuedTo);
+  if (to) {
+    params.push(to);
+    conditions.push(`issued_date_ad <= $${params.length}`);
+  }
+
+  return { whereSql: conditions.length ? ' WHERE ' + conditions.join(' AND ') : '', params };
+}
+
+export function buildWarrantyDirectoryQuery(opts: WarrantyQueryOptions = {}, page = 1, pageSize = CUSTOMER_DEVICE_PAGE_SIZE_DEFAULT) {
+  const { whereSql, params } = buildWarrantyWhere(opts);
+  const state = warrantyState(opts.warranty);
+  const warrantyClause = state ? `${whereSql ? ' AND ' : ' WHERE '}${WARRANTY_STATE_SQL[state]}` : '';
+  const sql = `${WARRANTY_ITEMS_CTE} SELECT ${WARRANTY_ITEM_COLUMNS} FROM warranty_items${whereSql}${warrantyClause}
+    ORDER BY issued_date_ad DESC NULLS LAST, item_type ASC, id ASC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
+  return { sql, params };
+}
+
+/** Filtered total for the warranty page footer (warranty state included). */
+export function buildWarrantyCountQuery(opts: WarrantyQueryOptions = {}) {
+  const { whereSql, params } = buildWarrantyWhere(opts);
+  const state = warrantyState(opts.warranty);
+  const warrantyClause = state ? `${whereSql ? ' AND ' : ' WHERE '}${WARRANTY_STATE_SQL[state]}` : '';
+  return { sql: `${WARRANTY_ITEMS_CTE} SELECT COUNT(*)::int AS count FROM warranty_items${whereSql}${warrantyClause}`, params };
+}
+
+/** Counts for the whole filtered population (branch/query/date/category, not the warranty-state filter). */
+export function buildWarrantySummaryQuery(opts: WarrantyQueryOptions = {}) {
+  const { whereSql, params } = buildWarrantyWhere(opts);
+  const sql = `${WARRANTY_ITEMS_CTE} SELECT
+    COUNT(*)::int AS total,
+    COUNT(*) FILTER (WHERE ${WARRANTY_STATE_SQL.VALID})::int AS valid,
+    COUNT(*) FILTER (WHERE ${WARRANTY_STATE_SQL.EXPIRING_SOON})::int AS expiring,
+    COUNT(*) FILTER (WHERE ${WARRANTY_STATE_SQL.EXPIRED})::int AS expired
+    FROM warranty_items${whereSql}`;
   return { sql, params };
 }
 

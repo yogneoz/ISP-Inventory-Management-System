@@ -168,6 +168,12 @@ export function parseSerialHistory(rows: any[]): any[] {
  * GET /api/customers (paged, index-backed, branch-scoped from the session),
  * and the pickers hold the one row they picked. The BOOTSTRAP_TABLES mapping
  * stays for `/api/bootstrap/local?key=customers` and the demo cache mirror.
+ *
+ * VOL-4b (2026-10-26): customerDevices is NOT read here either. The device
+ * register pages through GET /api/customer-devices/page and its KPIs read
+ * GET /api/customer-devices/overview; the warranty directory has its own paged
+ * union because warranty state is derived from the commissioned date. One row
+ * per deployed/rented CPE, so this array grew with the customer base too.
  */
 export async function fetchOperationalData(
   pool: QueryExecutor,
@@ -177,7 +183,6 @@ export async function fetchOperationalData(
   products: any[];
   stock: any[];
   assets: any[];
-  customerDevices: any[];
   purchaseReturns: any[];
   salesReturns: any[];
   auditLogs: any[];
@@ -193,7 +198,6 @@ export async function fetchOperationalData(
     products,
     stock,
     assets,
-    customerDevices,
     purchaseReturns,
     salesReturns,
     auditLogs,
@@ -210,7 +214,6 @@ export async function fetchOperationalData(
     fetchTable(pool, BOOTSTRAP_TABLES.products, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.stock, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.assets, scopeParams),
-    fetchTable(pool, BOOTSTRAP_TABLES.customerDevices, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.purchaseReturns, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.salesReturns, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.auditLogs, scopeParams),
@@ -235,6 +238,9 @@ export async function fetchOperationalData(
     // NOTE: customers is served by GET /api/customers (paged, searchable,
     // branch-scoped) — the pickers fetch at most 20 matching rows, so the
     // national directory never enters first paint.
+    // NOTE: customer devices are served by GET /api/customer-devices/page
+    // (register) and /overview (counts); the warranty directory reads its own
+    // paged union, so the device table never enters first paint either.
   ]);
 
   return {
@@ -242,7 +248,6 @@ export async function fetchOperationalData(
     products,
     stock,
     assets,
-    customerDevices,
     purchaseReturns,
     salesReturns,
     auditLogs,

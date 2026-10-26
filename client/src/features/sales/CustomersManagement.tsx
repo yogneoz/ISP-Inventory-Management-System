@@ -30,7 +30,8 @@ import {
   UserCheck,
   Download,
 } from 'lucide-react';
-import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { useServerPageClamp, TablePagination } from '../../components/common/TablePagination';
+import { useFilterPageReset } from '../../utils/useFilterPageReset';
 import { useDialog } from '../../components/common/DialogProvider';
 import { api } from '../../services/api';
 import { DeviceSerialInput, findRegisterRow } from '../../components/common/DeviceSerialInput';
@@ -43,7 +44,6 @@ import {
 import { normalizeMacAddress } from '../../../../shared/macAddress';
 
 interface CustomersManagementProps {
-  customerDevices: CustomerDeviceRecord[];
   branches: Branch[];
   products: Product[];
   selectedBranchId: string;
@@ -68,7 +68,6 @@ interface CustomersManagementProps {
 }
 
 export const CustomersManagement: React.FC<CustomersManagementProps> = ({
-  customerDevices = [],
   branches = [],
   products = [],
   selectedBranchId,
@@ -109,38 +108,59 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
     record: CustomerDeviceRecord;
   } | null>(null);
 
-  // Device reads. GET /api/customer-devices is unpaged (bare array) and does
-  // its own branch + text filtering, so the register pages on the client. The
-  // old constant page state was never set by anything and only kept the fetch
-  // effect's dep list noisy (DF-12).
+  // VOL-4b: the register is SERVER-paged. The old read fetched every match and
+  // paged the filtered copy in the browser, so the server still transferred a
+  // national table on each keystroke — the exact cost this item removes.
   const [customerDevicesRows, setCustomerDevicesRows] = useState<CustomerDeviceRecord[]>([]);
-  // A failed read used to keep the old rows in silence, so the register — and
-  // the stat cards built from it — looked authoritative while stale or empty.
   const [devicesFetchError, setDevicesFetchError] = useState('');
   const [devicesFetchLoading, setDevicesFetchLoading] = useState(false);
   const [devicesRetryKey, setDevicesRetryKey] = useState(0);
+  const [devicesPage, setDevicesPage] = useState(1);
+  const [devicesPageSize, setDevicesPageSize] = useState(15);
+  const [devicesTotalItems, setDevicesTotalItems] = useState(0);
+  const [isExporting, setIsExporting] = useState(false);
+  // `null` until the overview read lands; the cards render "—" rather than a
+  // confident zero while it is unknown (or failed).
+  const [deviceTotal, setDeviceTotal] = useState<number | null>(null);
+  const [deviceCounts, setDeviceCounts] = useState<Record<string, number> | null>(null);
 
-  const customerDevicesPagination = useClientPagination(customerDevicesRows, 15);
+  // The visible search is debounced; every keystroke used to issue a full read.
+  const [appliedQuery, setAppliedQuery] = useState('');
+  useEffect(() => {
+    const timer = setTimeout(() => setAppliedQuery(searchQuery.trim()), 250);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
-  // Server-side read (branch + search forwarded to GET /api/customer-devices),
-  // so the register never renders a bootstrap slice.
+  useFilterPageReset(
+    `${selectedBranchId}|${appliedQuery}|${selectedStatus}`,
+    devicesPage,
+    setDevicesPage
+  );
+
+  const safeDevicesPage = useServerPageClamp(devicesPage, devicesPageSize, devicesTotalItems, setDevicesPage);
+  const devicesPageCount = Math.max(1, Math.ceil(devicesTotalItems / devicesPageSize));
+  const devicesRangeStart = devicesTotalItems === 0 ? 0 : (safeDevicesPage - 1) * devicesPageSize + 1;
+  const devicesRangeEnd = Math.min(safeDevicesPage * devicesPageSize, devicesTotalItems);
+
   useEffect(() => {
     let cancelled = false;
 
     const load = async () => {
       setDevicesFetchLoading(true);
       try {
-        const rows = await api.getCustomerDevices(
-          selectedBranchId !== 'ALL' ? selectedBranchId : undefined,
-          searchQuery.trim() || undefined
+        const result = await api.getCustomerDevicePage(
+          {
+            branchId: selectedBranchId,
+            query: appliedQuery || undefined,
+            status: selectedStatus !== 'ALL' ? selectedStatus : undefined,
+          },
+          devicesPage,
+          devicesPageSize
         );
 
         if (!cancelled) {
-          // The endpoint returns a bare array (res.json(r.rows)). An earlier
-          // { data, totalItems } envelope cast made every response read as
-          // [] and emptied the register while the stat cards — reading the
-          // App-level customerDevices prop — kept showing the real count.
-          setCustomerDevicesRows(Array.isArray(rows) ? rows : []);
+          setCustomerDevicesRows(Array.isArray(result?.data) ? result.data : []);
+          setDevicesTotalItems(Number(result?.totalItems) || 0);
           setDevicesFetchError('');
         }
       } catch (err: any) {
@@ -157,7 +177,28 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [selectedBranchId, searchQuery, sseRefreshKey, devicesRetryKey]);
+  }, [selectedBranchId, appliedQuery, selectedStatus, devicesPage, devicesPageSize, sseRefreshKey, devicesRetryKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getCustomerDeviceOverview({
+        branchId: selectedBranchId,
+        query: appliedQuery || undefined,
+      })
+      .then((overview) => {
+        if (cancelled) return;
+        setDeviceTotal(Number(overview?.total) || 0);
+        setDeviceCounts(overview?.counts || {});
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setDeviceTotal(null);
+        setDeviceCounts(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedBranchId, appliedQuery, sseRefreshKey, devicesRetryKey]);
 
   // Device Exchange Modal State
   const [isExchangeModalOpen, setIsExchangeModalOpen] = useState(false);
@@ -446,10 +487,12 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
   const [purchaseBillRef, setPurchaseBillRef] = useState('BILL-9021');
   const [notes] = useState('');
 
-  // Metrics from server rows
-  const rentalCount = customerDevicesRows.filter((c) => c.status === 'RENTAL' || c.status === 'ACTIVE').length;
-  const soldCount = customerDevicesRows.filter((c) => c.status === 'SOLD').length;
-  const routerCollectedCount = customerDevicesRows.filter((c) => c.status === 'ROUTER_COLLECTED').length;
+  // VOL-4b: KPIs come from the exact server counts, not from the page on screen.
+  // The old cards counted the fetched rows (and the total came from the removed
+  // bootstrap array), so paging or searching silently changed the "total".
+  const rentalCount = (deviceCounts?.RENTAL || 0) + (deviceCounts?.ACTIVE || 0);
+  const soldCount = deviceCounts?.SOLD || 0;
+  const routerCollectedCount = deviceCounts?.ROUTER_COLLECTED || 0;
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -460,11 +503,29 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
   // Refresh the register from the database after any device mutation (create,
   // status patch, approval-flow status) so a stale browser slice never survive.
 
-  const handleExportCSV = () => {
-    if (customerDevicesRows.length === 0) {
+  const handleExportCSV = async () => {
+    if (devicesTotalItems === 0) {
       alertDialog('No customer devices available to export.');
       return;
     }
+    setIsExporting(true);
+    try {
+      // VOL-4b: export the FILTERED set from the server, not the page on screen.
+      const exported = await api.getCustomerDeviceExport({
+        branchId: selectedBranchId,
+        query: appliedQuery || undefined,
+        status: selectedStatus !== 'ALL' ? selectedStatus : undefined,
+      });
+      const exportRows = Array.isArray(exported?.data) ? exported.data : [];
+      if (exportRows.length === 0) {
+        alertDialog('No customer devices matched the current filters.');
+        return;
+      }
+      if (exported.truncated) {
+        alertDialog(
+          'The export was capped at 20,000 rows. Narrow the branch, status or search filters before exporting the rest.'
+        );
+      }
 
     const branchName =
       selectedBranchId === 'ALL'
@@ -506,9 +567,14 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
       reportTitle: `Customer Hardware Devices & Serial Numbers Lookup Report (${selectedStatus})`,
       branchName,
       generatedBy: currentUser?.name ? `${currentUser.name} (${currentUser.role})` : currentUser?.email || 'System User',
-      data: customerDevicesRows,
+      data: exportRows,
       columns,
     });
+    } catch (err: any) {
+      alertDialog(err?.message || 'The device export could not be read from the server.');
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -573,7 +639,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
               className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold border transition-all cursor-pointer shadow-xs bg-white border-slate-300 text-slate-700 hover:bg-slate-200 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-700 dark:hover:text-white"
             >
               <Download className="h-4 w-4 text-blue-500 dark:text-blue-400" />
-              <span>Export CSV ({customerDevicesRows.length})</span>
+              <span>{isExporting ? 'Exporting…' : `Export CSV (${devicesTotalItems})`}</span>
             </button>
 
             {canManageCustomers && (
@@ -615,22 +681,22 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <StatCard
           label="Total Tracked Serials"
-          value={`${customerDevices.length} Devices`}
+          value={deviceTotal === null ? '—' : `${deviceTotal} Devices`}
           tone="slate"
         />
         <StatCard
           label="Rental Products (CPE)"
-          value={`${rentalCount} Rental`}
+          value={deviceCounts === null ? '—' : `${rentalCount} Rental`}
           tone="sky"
         />
         <StatCard
           label="Sold Products (Customer)"
-          value={`${soldCount} Sold`}
+          value={deviceCounts === null ? '—' : `${soldCount} Sold`}
           tone="violet"
         />
         <StatCard
           label="Router Collected (Restocked)"
-          value={`${routerCollectedCount} Collected`}
+          value={deviceCounts === null ? '—' : `${routerCollectedCount} Collected`}
           tone="rose"
         />
       </div>
@@ -684,7 +750,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
               </tr>
             </thead>
             <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
-              {customerDevicesRows.length === 0 ? (
+              {devicesTotalItems === 0 ? (
                 <tr>
                   <td colSpan={9} className="p-8 text-center text-slate-500 dark:text-slate-400 text-xs break-words">
                     {devicesFetchError
@@ -693,7 +759,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                   </td>
                 </tr>
               ) : (
-                customerDevicesPagination.pagedItems.map((rec) => {
+                customerDevicesRows.map((rec) => {
                   const branch = branches.find((b) => b.id === rec.branchId);
                   const wInfo = getWarrantyInfo(rec.issuedDateAD, rec.warrantyMonths || 12);
                   const pendingDisconnect = getPendingDisconnectRequest(rec);
@@ -904,14 +970,14 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
           </table>
         </div>
         <TablePagination
-          page={customerDevicesPagination.page}
-          pageCount={customerDevicesPagination.pageCount}
-          totalItems={customerDevicesPagination.totalItems}
-          rangeStart={customerDevicesPagination.rangeStart}
-          rangeEnd={customerDevicesPagination.rangeEnd}
-          pageSize={customerDevicesPagination.pageSize}
-          onPageChange={customerDevicesPagination.setPage}
-          onPageSizeChange={customerDevicesPagination.setPageSize}
+          page={safeDevicesPage}
+          pageCount={devicesPageCount}
+          totalItems={devicesTotalItems}
+          rangeStart={devicesRangeStart}
+          rangeEnd={devicesRangeEnd}
+          pageSize={devicesPageSize}
+          onPageChange={setDevicesPage}
+          onPageSizeChange={setDevicesPageSize}
           className="mt-1"
         />
       </div>

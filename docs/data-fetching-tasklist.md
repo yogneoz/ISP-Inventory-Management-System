@@ -1007,4 +1007,14 @@ benefits from DF-06's calendar handling but does not block on it.
   `CustomerRecord`, so an id is never resolved by scanning a local list. A
   branch role's picker sends the shell's active branch (omitting it was a
   403 before this item).
+- **Customer devices (VOL-4b, 2026-10-26):** the device table left the
+  bootstrap. The register pages and filters on `GET /api/customer-devices/page`,
+  its KPI cards read exact `/overview` counts, the warranty directory reads its
+  own paged CPE + fixed-asset union, and the export preview pages (the CSV asks
+  for `all=1` and reports truncation at 20k). The search uses the existing
+  `idx_customer_devices_global_trgm` expression and a new
+  `(branch_id, created_at DESC, id DESC)` page index. The customer directory's
+  assigned-hardware count now comes from the SQL subquery on its customer page,
+  so it never receives the device table; the stock panels and shipment form use
+  the serial register, not a device-array fallback.
 - **No new dependencies** are needed for any task in this list.

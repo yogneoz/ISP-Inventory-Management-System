@@ -531,8 +531,9 @@ and pagination, so the client loads exactly one page of rows at a time.
 | Sales Invoices Register | `GET /api/sales-invoices` | **Trimmed from bootstrap** — the register self-fetches its page, and the Returns create form searches the same endpoint by invoice number or customer (full row incl. `items`); the Sales register no longer has a full-array fallback |
 | Shipment & Transfer Register | `GET /api/shipments/page` (+ `GET /api/shipments/overview`) | **Trimmed from bootstrap** — the register pages; the shell badges, header count, dashboard KPI, notification center and receive lanes read exact per-status counts and the in-flight rows from `/overview`; the FY closing wizard keeps the bounded bare-array `GET /api/shipments` read |
 | Customer Master Directory | `GET /api/customers` | **Trimmed from bootstrap** (VOL-4a) — always a `{ data, page, pageSize, totalItems, activeItems, totalCreditLimit }` envelope; `branchId`, `query`, `status`, `page`, `pageSize` filter server-side, `all=1` returns the full filtered set for CSV export. The `query` contains-search is backed by `idx_customer_records_search_trgm` (120k rows: 406 ms → 32 ms), and every picker in the app reads at most 20 matching rows from here instead of holding the national directory. Branch scope is enforced by the route guard **and** re-applied in SQL from the session; the picker sends the shell's active branch |
+| Customer Device Register & Warranty | `GET /api/customer-devices/page` (+ `/overview`, `/warranty`) | **Trimmed from bootstrap** (VOL-4b) — the register pages and filters server-side (`pageSize` capped at 200, stable `created_at DESC, id DESC`); `/overview` returns exact per-status counts for the KPI cards; `/warranty` pages a SQL union of rented CPE and fixed assets with the warranty state computed and filtered in SQL. `all=1` returns the filtered export set, capped at 20,000 rows with a `truncated` flag. The search uses `idx_customer_devices_global_trgm` and a new `(branch_id, created_at DESC, id DESC)` page index; branch scope is re-applied in SQL from the session. The legacy bare-array `GET /api/customer-devices` stays for an older bundle, bounded to 2,000 rows |
 
-> **Guarded:** these nine are the only server-paged lists in the app. Adding a
+> **Guarded:** these are the only server-paged lists in the app. Adding a
 > `pageSize:` request key to any other feature screen fails
 > `tests/registerRefreshDomains.test.ts` until it is wired to a register
 > refresh key (see **Targeted Real-Time Refresh** below).
@@ -707,7 +708,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 1299-test suite against a PostgreSQL 16 service container (zero DB skips;
+  full 1322-test suite against a PostgreSQL 16 service container (zero DB skips;
   the two unconditional skips are Windows-only real-signal checks, which CI runs,
   and the live-drain check runs under `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1` so its
   preconditions cannot silently skip it) →

@@ -315,12 +315,12 @@ trusting a bootstrap-only prop.
    A typo in the tab-key literal silently disables every refetch for that screen
    (there are 11 call sites); the render-phase ref writes are fragile under
    concurrent rendering even though they behave today.
-5. **Dead pagination/error state for customer devices.**
-   `devicesPage`/`devicesPageSize` are never set, and the total/error setters are
-   write-only
+5. **Dead pagination/error state for customer devices.** **Fixed by VOL-4b
+   (2026-10-26):** the register's page/pageSize/total and both error states are
+   live, server-backed values; the directory stopped holding a device array at
+   all and renders the SQL count that travels with each customer row.
    ([CustomersManagement.tsx:110-114](../client/src/features/sales/CustomersManagement.tsx#L110-L114),
    [CustomerMasterDirectory.tsx:300-330](../client/src/features/sales/CustomerMasterDirectory.tsx#L300-L330)).
-   Either wire them or remove them.
 
 ---
 
@@ -354,13 +354,14 @@ bootstrap; **paged** = path 4; **self** = path 5; **form** = no read of its own.
 | All Available Stock, Branch Stock | props stock/products | Fine. |
 | Stock Movement Ledger | self transaction-log window + ops/damage | Fixed by DF-06, then superseded by VOL-1 (2026-10-26): the screen reads a bounded `/api/transaction-logs` window; the bootstrap slice is gone. |
 | Physical Stock Audit | props stock + appSettings | Fine. |
-| Reorder Stock, Stock Valuation, Warranty, Asset Deployments | props | Fine. |
-| Import / Export Stock | props | Fine. |
+| Reorder Stock, Stock Valuation, Asset Deployments | props | Fine. (Warranty moved to its own paged read — see below.) |
+| Import / Export Stock | props stock/products; devices paged (VOL-4b) | The serialized-device preview pages and the CSV export asks for the filtered set (`all=1`, capped at 20k with a reported `truncated`). |
 | Serial Log Register | paged | Seq + error correct; page clamp fixed by DF-09. Shipment-receipt refresh fixed by DF-06. |
 | Product Master Catalog | self catalog | Stale after every save (P1-1); error state dead (P2-9). |
 | Category / UoM Management | self list | Silent failure, no loading UI (P2-9). |
 | Customer Master Directory | self paged | DF-01 restored the paged envelope; VOL-4a (2026-10-26) made the search trigram-indexed and branch-scoped from the session, and this is now the app's only customer read. |
-| Customer Device Serials | self devices (VOL-4a removed the `customers` prop) | No paging defect (endpoint is unpaged) but dead page/error state (P3-5). A customer is chosen through `CustomerPicker`, never resolved from an array. |
+| Customer Device Serials | self paged (VOL-4b) | `GET /api/customer-devices/page` + `/overview`: filters, stable `(created_at, id)` order, exact KPI counts, and a truncation flag on the capped CSV export. A customer is chosen through `CustomerPicker`, never resolved from an array. |
+| Warranty Valid Products | self paged (VOL-4b) | The screen reads `GET /api/customer-devices/warranty`, a SQL union of rented CPE and fixed assets with the warranty state computed and filtered in SQL; no whole-table scan remains. |
 | Locations | self list | Load failure surfaced by DF-11; a new location's branch now follows the signed-in user once the branch list loads (close-out fix). |
 | Device Exchange | StockOperations host | Mount-once serial snapshot (P1-2); full page reload (P2-10). |
 | Purchase Orders, Purchase Invoices | paged | Guards fine; fetch failures render the retryable notice and exports refuse a partial file (DF-04); page clamp fixed by DF-09. |
@@ -410,6 +411,48 @@ forged branch refused; a page-2 customer is selectable; no client screen holds
 the directory) and [masterdata.repo.test.ts](../tests/masterdata.repo.test.ts)
 (the indexed expression, `branchScope` pinning, and the aggregate sharing the
 same WHERE).
+
+---
+
+## 7b. Post-audit — VOL-4b customer devices leave the bootstrap (2026-10-26)
+
+`customer_device_records` is one row per deployed/rented unit, so it grows with
+the customer base. The bootstrap fan-out no longer reads it and the payload has
+no `customerDevices` key; the `BOOTSTRAP_TABLES` mapping stays so an older
+bundle's `/api/bootstrap/local?key=customerDevices` still answers. On a TEMP
+table of the same shape, the removed national array was **4.68 MB JSON / 435 kB
+gzip at 1× (12k rows)** and **46.95 MB / 4.05 MB gzip at 10× (120k)**, on every
+login. A branch-scoped read was still 335 kB / 3.36 MB.
+
+The register now reads `GET /api/customer-devices/page` (branch, status, text,
+product, issued-date filters; `pageSize` capped at 200; stable `created_at DESC,
+id DESC` order) and its KPI cards read exact per-status counts from
+`/overview`. The search uses the same concatenated expression as
+`idx_customer_devices_global_trgm` (a `(branch_id, created_at DESC, id DESC)`
+btree backs the page), and `EXPLAIN` on a 120k TEMP table shows the trigram
+bitmap scan at 86 ms for a broad serial prefix, while a 10%-matching name
+search resolves in 2 ms through the page index. The warranty directory got its
+own paged union (`/warranty`) because its state is derived from the commissioned
+date: 36 ms at 12k / 128 ms at 120k for the page plus the four exact state
+counts. The CSV export requests `all=1`, caps at 20,000 rows and returns
+`truncated` instead of silently exporting the first page.
+
+Branch scope is a server decision on every read (the route guard plus
+`branch_id = ANY(...)` from the session), so a branch role can neither omit the
+parameter nor forge another branch. The seven former consumers are gone: the
+customer directory takes the per-customer count that rides its paged customer
+row and fetches only an expanded customer's bounded serials; the export screen
+pages its preview; the stock-operation assign/exchange panels and the shipment
+form read the shared serial register (with the server lookup as the fallback);
+the shell prop, the clear-demo array and the App state are removed.
+
+Evidence: [customerDevicesOffBootstrap.test.ts](../tests/customerDevicesOffBootstrap.test.ts)
+(bootstrap has no key while the local slice answers; page 2 reachable; cap
+enforced; branch omission/forgery refused; overview counts; the warranty union
+at all four boundary days against `getWarrantyInfo`; a real 20,001-row export
+reports truncation) and [inventory.repo.test.ts](../tests/inventory.repo.test.ts)
+(the indexed expression, paging/export caps, overview/status semantics and the
+warranty SQL shape).
 
 ---
 

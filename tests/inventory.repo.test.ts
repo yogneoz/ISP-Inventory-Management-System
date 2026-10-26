@@ -52,6 +52,15 @@ import {
   PULLOUT_RECEIVE_STOCK_SQL,
   pulloutReceiveStockParams,
   buildCustomerDeviceListQuery,
+  buildCustomerDevicePageQuery,
+  buildCustomerDeviceExportQuery,
+  buildCustomerDeviceCountQuery,
+  buildCustomerDeviceOverviewQuery,
+  buildWarrantyDirectoryQuery,
+  buildWarrantySummaryQuery,
+  buildWarrantyCountQuery,
+  CDR_SEARCH_TEXT_SQL,
+  CUSTOMER_DEVICE_EXPORT_MAX,
   CDR_DUPLICATE_CHECK_SQL,
   CDR_SERIAL_ROW_SQL,
   CDR_REDEPLOY_BY_SERIAL_SQL,
@@ -323,12 +332,94 @@ describe('stock operations', () => {
 });
 
 describe('customer devices (CPE)', () => {
-  test('list query searches six columns case-insensitively', () => {
+  test('list query searches the indexed concatenation case-insensitively', () => {
     const { sql, params } = buildCustomerDeviceListQuery('BR01', 'FIBER');
-    assert.match(sql, / WHERE branch_id = \$1 AND \(LOWER\(device_serial\) LIKE \$2/);
-    assert.match(sql, / ORDER BY created_at DESC$/);
+    assert.ok(sql.includes(` WHERE branch_id = $1 AND ${CDR_SEARCH_TEXT_SQL} LIKE $2`));
+    assert.match(sql, / ORDER BY created_at DESC, id DESC LIMIT 2000$/);
     assert.deepEqual(params, ['BR01', '%fiber%']);
     assert.ok(!buildCustomerDeviceListQuery().sql.includes(' WHERE '));
+  });
+
+  test('the search expression is the one the global trigram index covers', () => {
+    for (const col of ['customer_code', 'customer_name', 'product_name', 'device_serial', 'pon_serial', 'mac_address', 'contact_phone']) {
+      assert.ok(CDR_SEARCH_TEXT_SQL.includes(`COALESCE(${col}, '')`), `missing ${col}`);
+    }
+  });
+
+  test('the register page is filtered, ordered and clamped', () => {
+    const { sql, params } = buildCustomerDevicePageQuery(
+      { branchScope: ['BR1', 'BR2'], query: 'onu', status: ['RENTAL', 'ACTIVE'], productName: 'ONU 2.4G' },
+      2,
+      25
+    );
+    assert.match(sql, / WHERE branch_id = ANY\(\$1\)/);
+    assert.ok(sql.includes(`${CDR_SEARCH_TEXT_SQL} LIKE $2`));
+    assert.match(sql, /AND status = ANY\(\$3\)/);
+    assert.match(sql, /AND product_name = \$4/);
+    assert.match(sql, / LIMIT 25 OFFSET 25$/);
+    assert.deepEqual(params, [['BR1', 'BR2'], '%onu%', ['RENTAL', 'ACTIVE'], 'ONU 2.4G']);
+  });
+
+  test('unknown statuses and bad dates are dropped rather than injected', () => {
+    const { sql, params } = buildCustomerDevicePageQuery({ status: "ACTIVE' OR 1=1 --", issuedFrom: 'not-a-date' }, 1, 15);
+    // Inspect the WHERE, not the SELECT list (issued_date_ad is a column).
+    const where = sql.slice(sql.indexOf(' WHERE '), sql.indexOf(' ORDER BY '));
+    assert.ok(!where.includes('status ='));
+    assert.ok(!where.includes('issued_date_ad'));
+    assert.deepEqual(params, []);
+  });
+
+  test('an empty branchScope yields no rows instead of the national register', () => {
+    const { sql } = buildCustomerDevicePageQuery({ branchScope: [] }, 1, 15);
+    assert.match(sql, / WHERE FALSE/);
+  });
+
+  test('the expanded-customer read is an exact attribution, not a substring search', () => {
+    const { sql, params } = buildCustomerDevicePageQuery({ branchId: 'BR1', customerId: 'CUS-1' }, 1, 15);
+    assert.match(sql, /AND \(customer_code = \$2 OR customer_id = \$3\)/);
+    assert.deepEqual(params, ['BR1', 'CUS-1', 'CUS-1']);
+
+    const ignored = buildCustomerDevicePageQuery({ customerId: { evil: true } }, 1, 15);
+    assert.ok(!ignored.sql.includes(' WHERE '), 'a non-string customerId must not reach the WHERE');
+    assert.deepEqual(ignored.params, []);
+  });
+
+  test('the overview groups counts by status under the search filters, not the status filter', () => {
+    const { sql, params } = buildCustomerDeviceOverviewQuery({ branchId: 'BR1', query: 'x', status: 'RENTAL' });
+    assert.match(sql, /GROUP BY status/);
+    assert.ok(!sql.includes('status ='));
+    assert.deepEqual(params, ['BR1', '%x%']);
+  });
+
+  test('the export is capped so truncation can be reported', () => {
+    const { sql } = buildCustomerDeviceExportQuery({ branchId: 'BR1' });
+    assert.ok(sql.includes(`LIMIT ${CUSTOMER_DEVICE_EXPORT_MAX + 1}`));
+    assert.match(sql, / ORDER BY created_at DESC, id DESC/);
+  });
+
+  test('the page footer count uses the same WHERE as the rows', () => {
+    const opts = { branchId: 'BR1', query: 'sh', status: 'RENTAL' };
+    const page = buildCustomerDevicePageQuery(opts, 1, 15);
+    const count = buildCustomerDeviceCountQuery(opts);
+    assert.deepEqual(count.params, page.params);
+    assert.match(count.sql, /SELECT COUNT\(\*\)::int AS count FROM customer_device_records/);
+  });
+
+  test('the warranty read unions both hardware families and computes the state in SQL', () => {
+    const page = buildWarrantyDirectoryQuery({ branchId: 'BR1', warranty: 'VALID', category: 'CPE' }, 2, 10);
+    assert.match(page.sql, /WITH warranty_items AS \(/);
+    assert.match(page.sql, /FROM customer_device_records c/);
+    assert.match(page.sql, /UNION ALL/);
+    assert.match(page.sql, /FROM fixed_assets a/);
+    assert.match(page.sql, /warranty_end_ad > CURRENT_DATE \+ 30/);
+    assert.match(page.sql, /AND item_type = \$2/);
+    assert.match(page.sql, / LIMIT 10 OFFSET 10$/);
+
+    const summary = buildWarrantySummaryQuery({ branchId: 'BR1' });
+    assert.match(summary.sql, /COUNT\(\*\) FILTER \(WHERE warranty_end_ad < CURRENT_DATE\)::int AS expired/);
+
+    const count = buildWarrantyCountQuery({ branchId: 'BR1', warranty: 'EXPIRED' });
+    assert.match(count.sql, /warranty_end_ad < CURRENT_DATE/);
   });
 
   test('duplicate probe is case/trim-insensitive, covers normalized MAC, and excludes the record itself', () => {

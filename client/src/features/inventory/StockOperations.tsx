@@ -9,7 +9,6 @@ import {
   Shipment,
   Asset,
   LocationRecord,
-  CustomerDeviceRecord,
   ApprovalRequest,
 } from '../../types';
 import { BS_SEEDING_MENU_PATH } from '../../utils/nepaliCalendar';
@@ -57,7 +56,6 @@ interface StockOperationsProps {
   shipments?: Shipment[];
   assets?: Asset[];
   locations?: LocationRecord[];
-  customerDevices?: CustomerDeviceRecord[];
   approvalRequests?: ApprovalRequest[];
   onCreateOperation: (op: Partial<StockOperation>) => Promise<void>;
   onReceiveOperation?: (id: string) => Promise<void>;
@@ -125,7 +123,6 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   shipments = [],
   assets = [],
   locations = [],
-  customerDevices = [],
   approvalRequests = [],
   onCreateOperation,
   onReceiveOperation,
@@ -412,7 +409,6 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     confirmDialog,
     consumableOperations,
     currentUser,
-    customerDevices,
     serialRegister,
     serialRegisterError,
     serialRegisterLoading,

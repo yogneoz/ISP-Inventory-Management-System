@@ -1,12 +1,12 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-26 · Branch: main · Tests: 1299/1299 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-26 · Branch: main · Tests: 1322/1322 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
-> **Current state (2026-10-26, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1/VOL-2/BUDGET-1/BOOT-1/VOL-3/VOL-4a).** All DF-01…DF-17
+> **Current state (2026-10-26, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1/VOL-2/BUDGET-1/BOOT-1/VOL-3/VOL-4a/VOL-4b).** All DF-01…DF-17
 > work, the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2, CPE-3,
-> SER-1, SER-2, TRIM-1, SUM-1, VOL-1, VOL-2, BUDGET-1, BOOT-1, VOL-3 and VOL-4a are implemented. **Round 2 closed on 2026-10-26** (archive at
+> SER-1, SER-2, TRIM-1, SUM-1, VOL-1, VOL-2, BUDGET-1, BOOT-1, VOL-3, VOL-4a and VOL-4b are implemented. **Round 2 closed on 2026-10-26** (archive at
 > [worklist/done/2026-10-26-round-2.md](worklist/done/2026-10-26-round-2.md)); **Round 3 is in progress**
-> ([worklist/round-3/README.md](worklist/round-3/README.md)) with BOOT-1, VOL-3 and VOL-4a landed and VOL-4b next. C4 is explicitly parked (one
+> ([worklist/round-3/README.md](worklist/round-3/README.md)) with BOOT-1, VOL-3, VOL-4a and VOL-4b landed; SN-1 is the remaining item. C4 is explicitly parked (one
 > `bootstrap/local` call site already; see the architecture backlog §C4). B2 shipped the combined trigram search projection, so all eight
 > item searches share one indexed `search_text` column per table; B3/B4 stay
 > parked. CPE-3 resolved D1 and made the fixed asset, CPE row, serial register and
@@ -168,6 +168,49 @@ convention guards green.
 **Landed** as `d2c017f` and pushed to `main`; CI run
 [40331014556](https://github.com/yogneoz/ISP-Inventory-Management-System/actions/runs/40331014556)
 (`typecheck-and-test`) green in 363 s.
+
+## ✅ VOL-4b shipped — customer devices leave the bootstrap; the register pages (2026-10-26)
+
+**Problem.** `customer_device_records` is one row per deployed or rented unit,
+so the last customer-scale array on `/api/bootstrap` still grew with the
+customer base. The register's `GET /api/customer-devices` returned a bare array
+and paged it in the browser, so every debounced keystroke transferred every
+match; the warranty screen built a CPE + fixed-asset list client-side; the
+directory, export screen, stock panels, shipment form, shell prop and
+demo-clear card each held the same array for one count or fallback.
+
+**Fix.** The fan-out no longer reads the table and the payload has no
+`customerDevices` key; `/api/bootstrap/local?key=customerDevices` still answers
+an older bundle. The register reads `GET /api/customer-devices/page`
+(branch/status/text/product/date filters, `pageSize` capped at 200, stable
+`created_at DESC, id DESC`) and exact per-status `/overview` counts; the
+warranty directory reads `/warranty`, a SQL union of CPE and fixed assets with
+the state computed and filtered in SQL (and returned with each row, so the
+badge cannot disagree with the filter). The export preview pages and its CSV
+asks for `all=1`: 20,000-row cap with a `truncated` flag. The directory's
+assigned-hardware count is a correlated SQL subquery on its paged customer row
+and the expanded row asks for that customer's bounded devices by exact
+`customerId`; the stock assign/exchange panels and shipment form use the serial
+register; the shell prop, App state and clear-demo array are gone. Branch scope
+is re-applied in SQL from the session on every read, so omission and forgery
+are both 403.
+
+**Measured** on a TEMP table of the same shape (14 branches, Nepali names,
+ward-level addresses, SN/PON/MAC, five statuses; fixed assets at 1:10):
+
+| Volume | Rows | Old national payload | Page read | Overview | Warranty page + counts |
+|---|---:|---:|---:|---:|---:|
+| 1× | 12,000 | **4.68 MB / 435 kB gzip** | **13.7 ms** | 2.5 ms | 35 ms |
+| 10× | 120,000 | **46.95 MB / 4.05 MB gzip** | **74.6 ms** | 38.7 ms | 128 ms |
+
+`EXPLAIN` shows the trigram bitmap scan for the serial-fragment search; the
+10%-matching name search resolves through the new page btree in 1.5 / 2.1 ms.
+Details in [worklist/round-3/VOL-4b.md](worklist/round-3/VOL-4b.md).
+
+**Gates.** `npx tsc --noEmit` clean; 76 targeted device/repo tests plus the
+register-wiring suites pass; full suite **1322 tests, 1320 pass, 0 fail, 2
+Windows-only skips**, docs-count gate green; build clean and bundle budget
+**280.0 kB / 15.7 kB** (320 / 17); both convention guards green.
 
 ## ✅ Round 2 closed — the read path no longer scales with history (2026-10-26)
 

@@ -13,6 +13,9 @@ import type {
   AuditLog,
   TransactionLog,
   User,
+  CustomerDeviceOverview,
+  CustomerDevicePage,
+  WarrantyDirectoryPage,
 } from '../../types';
 import { fetchJson, getActiveBranchId } from './http';
 
@@ -266,12 +269,83 @@ export async function getTransactionLogs(params: {
 }
 
 // Customer Devices & Serial Numbers
+/**
+ * VOL-4b: the device reads are paged and branch-scoped from the session. The
+ * shell's active branch is the default so a branch role always names a branch
+ * the route guard accepts; a global 'ALL' scope sends nothing.
+ */
+function deviceBranchParam(branchId?: string): string | undefined {
+  return (branchId && branchId !== 'ALL' ? branchId : getActiveBranchId()) || undefined;
+}
+
+export interface CustomerDeviceQueryParams {
+  branchId?: string;
+  query?: string;
+  /** Exact customer attribution (the directory's expanded-row read). */
+  customerId?: string;
+  /** One status or a list; the server whitelists them. */
+  status?: string | string[];
+  productName?: string;
+  issuedFrom?: string;
+  issuedTo?: string;
+}
+
+function customerDeviceQueryString(params: CustomerDeviceQueryParams, extra: Record<string, string | number | undefined> = {}): string {
+  const search = new URLSearchParams();
+  const branchId = deviceBranchParam(params.branchId);
+  if (branchId) search.append('branchId', branchId);
+  if (params.query) search.append('query', params.query);
+  if (params.customerId) search.append('customerId', params.customerId);
+  const statuses = Array.isArray(params.status) ? params.status.join(',') : params.status;
+  if (statuses) search.append('status', statuses);
+  if (params.productName) search.append('productName', params.productName);
+  if (params.issuedFrom) search.append('issuedFrom', params.issuedFrom);
+  if (params.issuedTo) search.append('issuedTo', params.issuedTo);
+  for (const [key, value] of Object.entries(extra)) {
+    if (value !== undefined && value !== null && value !== '') search.append(key, String(value));
+  }
+  const queryString = search.toString();
+  return queryString ? `?${queryString}` : '';
+}
+
+/** Legacy bare-array read (older bundle / local slice); bounded server-side. */
 export async function getCustomerDevices(branchId?: string, query?: string): Promise<CustomerDeviceRecord[]> {
-  const params = new URLSearchParams();
-  if (branchId && branchId !== 'ALL') params.append('branchId', branchId);
-  if (query) params.append('query', query);
-  const queryString = params.toString() ? `?${params.toString()}` : '';
-  return fetchJson(`/api/customer-devices${queryString}`);
+  return fetchJson(`/api/customer-devices${customerDeviceQueryString({ branchId, query })}`);
+}
+
+/** One server-paged slice of the device register. */
+export async function getCustomerDevicePage(
+  params: CustomerDeviceQueryParams = {},
+  page = 1,
+  pageSize = 15
+): Promise<CustomerDevicePage> {
+  return fetchJson(`/api/customer-devices/page${customerDeviceQueryString(params, { page, pageSize })}`);
+}
+
+/** CSV export: every matching row, capped server-side with a `truncated` flag. */
+export async function getCustomerDeviceExport(params: CustomerDeviceQueryParams = {}): Promise<CustomerDevicePage> {
+  return fetchJson(`/api/customer-devices/page${customerDeviceQueryString(params, { all: 1 })}`);
+}
+
+/** Exact per-status counts for the register KPIs. */
+export async function getCustomerDeviceOverview(params: CustomerDeviceQueryParams = {}): Promise<CustomerDeviceOverview> {
+  return fetchJson(`/api/customer-devices/overview${customerDeviceQueryString(params)}`);
+}
+
+/** The warranty directory: CPE + fixed assets, paged, with computed states. */
+export async function getCustomerDeviceWarranty(
+  params: CustomerDeviceQueryParams & { warranty?: string; category?: string } = {},
+  page = 1,
+  pageSize = 15
+): Promise<WarrantyDirectoryPage> {
+  return fetchJson(
+    `/api/customer-devices/warranty${customerDeviceQueryString(params, {
+      page,
+      pageSize,
+      warranty: params.warranty,
+      category: params.category,
+    })}`
+  );
 }
 
 export async function createCustomerDevice(record: Omit<CustomerDeviceRecord, 'id'>): Promise<CustomerDeviceRecord> {

@@ -166,7 +166,9 @@ describe('SSE domain → register refresh mapping', () => {
     // asset moves).
     assert.deepEqual(DOMAIN_REGISTER_KEYS.STOCK, ['serialLog', 'transactionLog']);
     assert.deepEqual(DOMAIN_REGISTER_KEYS.STOCK_OPERATIONS, ['serialLog', 'consumableRegister', 'transactionLog']);
-    assert.deepEqual(DOMAIN_REGISTER_KEYS.SERIALS, ['serialLog']);
+    // A serial edit mirrors into customer_device_records.device_serial, so the
+    // paged device register must re-read too (VOL-4b).
+    assert.deepEqual(DOMAIN_REGISTER_KEYS.SERIALS, ['serialLog', 'customerDevices']);
     assert.deepEqual(DOMAIN_REGISTER_KEYS.PROCUREMENT, ['serialLog', 'purchaseOrders', 'purchaseInvoices', 'returnsRegister', 'transactionLog']);
     assert.deepEqual(DOMAIN_REGISTER_KEYS.SALES, ['serialLog', 'salesInvoices', 'returnsRegister', 'transactionLog']);
     // VOL-3: the transfer register pages its own reads, so a shipment event
@@ -747,25 +749,31 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
     assertEveryRenderSiteWired('SerialLogRegister', /refreshKey=\{registerRefresh\.serialLog\}/);
   });
 
-  test('customer-device registers: the CDR refresh key reaches both consumers of the device list', () => {
-    // Two screens read GET /api/customer-devices: the device register
-    // (CustomersManagement) owns the rows, and the customer master directory
-    // derives its per-customer counts from the same endpoint. Both are wired
-    // to registerRefresh.customerDevices — the counter DOMAIN_REGISTER_KEYS
-    // bumps on the CUSTOMER_DEVICES domain and bumpAllRegisterRefresh bumps on
-    // every full refresh. Before this wiring, approving a Disconnect Request
-    // in the Approval Center executed the status change server-side while the
-    // register row kept rendering its pre-approval RENTAL badge (and the
-    // "N Rental / N Collected" cards kept their old counts) until a full page
-    // reload — the drift the CDR↔serial_log audit exists to prevent.
+  test('VOL-4b device registers: every paged device read carries the CDR refresh key', () => {
+    // Four screens read customer devices now, and none of them holds the
+    // table: the register pages + counts, the customer directory pages one
+    // customer's serials and reads the overview KPI, the warranty directory
+    // pages its CPE+asset union, and the export screen pages its preview.
+    // All four are wired to registerRefresh.customerDevices — the counter
+    // DOMAIN_REGISTER_KEYS bumps on CUSTOMER_DEVICES, ASSETS and SERIALS, and
+    // bumpAllRegisterRefresh bumps on every full refresh. Before this wiring,
+    // approving a Disconnect Request in the Approval Center executed the
+    // status change server-side while the register row kept rendering its
+    // pre-approval RENTAL badge (and the KPI cards kept their old counts)
+    // until a full page reload — the drift the CDR↔serial_log audit exists to
+    // prevent.
     const register = readFeatureSource('sales/CustomersManagement.tsx');
     assert.match(register, /sseRefreshKey\?: number;/);
-    // The device fetch effect re-runs when the counter bumps.
     assert.match(
       register,
-      /\}, \[selectedBranchId, searchQuery, sseRefreshKey, devicesRetryKey\]\);/,
-      'the customer-device fetch effect must depend on sseRefreshKey'
+      /api\s*\n?\s*\.getCustomerDevicePage\(|api\.getCustomerDevicePage\(/,
+      'the register must page GET /api/customer-devices/page'
     );
+    assert.match(register, /api\.getCustomerDeviceOverview\(/, 'the KPI counts must come from /overview');
+    assert.match(register, /api\.getCustomerDeviceExport\(/, 'the CSV export must ask the server for the filtered set');
+    // Both device effects re-run when the counter bumps.
+    assert.match(register, /devicesPage, devicesPageSize, sseRefreshKey, devicesRetryKey\]\);/);
+    assert.match(register, /\[selectedBranchId, appliedQuery, sseRefreshKey, devicesRetryKey\]\);/);
     assertNoRawFetch(register, 'CustomersManagement.tsx');
     assertEveryRenderSiteWired(
       'CustomersManagement',
@@ -773,19 +781,30 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
     );
 
     const directory = readFeatureSource('sales/CustomerMasterDirectory.tsx');
-    // This one names its prop refreshKey (the historical App.tsx prop) and
-    // falls back to sseRefreshKey, so either prop name stays wired.
-    assert.match(directory, /refreshKey\?: number;/);
-    assert.match(directory, /sseRefreshKey\?: number;/);
+    assert.match(directory, /api\.getCustomerDeviceOverview\(/);
+    assert.match(directory, /api\.getCustomerDevicePage\(/);
     assert.match(
       directory,
-      /\}, \[selectedBranchFilter, searchQuery, sseRefreshKey, devicesRetryKey\]\);/,
-      'the directory device fetch effect must depend on its refresh key'
+      /\}, \[selectedBranchFilter, sseRefreshKey\]\);/,
+      'the directory KPI effect must re-read when the device counter bumps'
     );
     assertEveryRenderSiteWired(
       'CustomerMasterDirectory',
       /refreshKey=\{registerRefresh\.customerDevices\}/
     );
+
+    const warranty = readFeatureSource('inventory/WarrantyProducts.tsx');
+    assert.match(warranty, /refreshKey\?: number;/);
+    assert.match(warranty, /api\.getCustomerDeviceWarranty\(/);
+    assert.match(warranty, /refreshKey, retryKey\]\);/);
+    assertEveryRenderSiteWired(
+      'WarrantyProducts',
+      /refreshKey=\{registerRefresh\.customerDevices\}/
+    );
+
+    const exportScreen = readFeatureSource('inventory/ExportStock.tsx');
+    assert.match(exportScreen, /api\.getCustomerDevicePage\(/);
+    assert.match(exportScreen, /api\.getCustomerDeviceExport\(/);
   });
 
   test('StockOperations: host makes no server call; it reads the shared caches', () => {
@@ -976,7 +995,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     // lookupExchangeSerial: the exchange modal resolves a serial the cached
     // IN_STOCK register does not know, so its refusal can name the unit's real
     // state (assigned / damaged / other branch) instead of guessing.
-    'sales/CustomersManagement.tsx': ['cancelApprovalRequest', 'createApprovalRequest', 'exchangeCustomerDevice', 'getCustomerDevices', 'lookupExchangeSerial', 'reportExchangeRefusal', 'searchCustomers'],
+    'sales/CustomersManagement.tsx': ['cancelApprovalRequest', 'createApprovalRequest', 'exchangeCustomerDevice', 'getCustomerDeviceExport', 'getCustomerDeviceOverview', 'getCustomerDevicePage', 'lookupExchangeSerial', 'reportExchangeRefusal', 'searchCustomers'],
     'settings/DataRecalculationMaintenance.tsx': [
       'initializeFiscalYearOpeningStock',
       'rebuildBsDayRecords',
@@ -1010,17 +1029,17 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'finance/FixedAssetRegister.tsx': [],
     'finance/VatRegister.tsx': [],
     'inventory/BranchStockTracking.tsx': [],
-    'inventory/ExportStock.tsx': [],
+    'inventory/ExportStock.tsx': ['getCustomerDeviceExport', 'getCustomerDevicePage'],
     'inventory/ImportStock.tsx': [],
     'inventory/PhysicalStockAudit.tsx': [],
     'inventory/ProductManagement.tsx': ['getCategories', 'getProducts'],
     'inventory/ProductSearchBar.tsx': [],
     'inventory/ReorderStockTracking.tsx': [],
     'inventory/StockValuation.tsx': [],
-    'inventory/WarrantyProducts.tsx': [],
+    'inventory/WarrantyProducts.tsx': ['getCustomerDeviceWarranty'],
     'procurement/ReceiveInboundWarehouse.tsx': [],
     'procurement/SuppliersManagement.tsx': [],
-    'sales/CustomerMasterDirectory.tsx': ['createCustomer', 'deleteCustomer', 'getCustomerDevices', 'getCustomers', 'updateCustomer'],
+    'sales/CustomerMasterDirectory.tsx': ['createCustomer', 'deleteCustomer', 'getCustomerDeviceOverview', 'getCustomerDevicePage', 'getCustomers', 'updateCustomer'],
     'sales/ImportCustomers.tsx': [],
     'settings/ApprovalWorkflowCenter.tsx': [],
     'settings/BranchesManagement.tsx': [],
@@ -1184,6 +1203,8 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
         'dashboard/Dashboard.tsx',
         'finance/AuditTrailReports.tsx',
         'inventory/SerialLogRegister.tsx',
+        // VOL-4b: the warranty directory pages its CPE + fixed-asset union.
+        'inventory/WarrantyProducts.tsx',
         'inventory/stockops/ConsumablesRegisterPanel.tsx',
         'procurement/PurchaseInvoices.tsx',
         'procurement/PurchaseOrders.tsx',

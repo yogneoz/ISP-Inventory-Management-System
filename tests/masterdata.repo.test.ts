@@ -17,6 +17,7 @@ import {
   customerUpsertParams,
   CUSTOMER_SELECT_COLUMNS,
   CUSTOMER_SEARCH_TEXT_SQL,
+  CUSTOMER_DEVICE_COUNT_SQL,
 } from '../server/src/models/masterdata.repo';
 
 describe('uom params', () => {
@@ -111,8 +112,11 @@ describe('categoryUpdateParams', () => {
 describe('buildCustomerListQuery', () => {
   test('base query has no WHERE, orders deterministically and pages by default', () => {
     const { sql, params, page, pageSize } = buildCustomerListQuery();
-    assert.ok(sql.startsWith(`SELECT ${CUSTOMER_SELECT_COLUMNS} FROM customer_records`));
-    assert.ok(!sql.includes(' WHERE '));
+    assert.ok(sql.startsWith(`SELECT ${CUSTOMER_SELECT_COLUMNS}, ${CUSTOMER_DEVICE_COUNT_SQL}`));
+    assert.ok(sql.includes(' FROM customer_records'));
+    // The correlated device-count subquery contains its own WHERE; the
+    // customer query itself must still have no outer filter.
+    assert.ok(!/ FROM customer_records WHERE /.test(sql));
     assert.match(sql, / ORDER BY customer_name ASC, customer_id ASC LIMIT 15 OFFSET 0$/);
     assert.deepEqual(params, []);
     assert.equal(page, 1);
@@ -121,7 +125,7 @@ describe('buildCustomerListQuery', () => {
 
   test('ALL behaves like no branch filter', () => {
     const { sql, params } = buildCustomerListQuery({ branchId: 'ALL' });
-    assert.ok(!sql.includes(' WHERE '));
+    assert.ok(!/ FROM customer_records WHERE /.test(sql));
     assert.deepEqual(params, []);
   });
 
@@ -129,6 +133,13 @@ describe('buildCustomerListQuery', () => {
     const { sql, params } = buildCustomerListQuery({ branchId: 'BR1' });
     assert.match(sql, / WHERE branch_id = \$1 ORDER BY/);
     assert.deepEqual(params, ['BR1']);
+  });
+
+  test('the assigned-hardware count is computed from the device table (VOL-4b)', () => {
+    const { sql } = buildCustomerListQuery({ branchId: 'BR1' });
+    assert.match(sql, /AS "assignedDevicesCount"/);
+    assert.ok(sql.includes(CUSTOMER_DEVICE_COUNT_SQL));
+    assert.ok(!CUSTOMER_SELECT_COLUMNS.includes('assigned_devices_count'), 'the stale stored counter must not be selected');
   });
 
   test('search wraps the term in lowercase wildcards', () => {

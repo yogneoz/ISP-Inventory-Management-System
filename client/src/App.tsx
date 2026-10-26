@@ -19,7 +19,6 @@ import {
   FiscalYear,
   AuditLog,
   FinancialSummary,
-  CustomerDeviceRecord,
   ApprovalRequest,
   Category,
   DamageRecord,
@@ -552,7 +551,6 @@ export default function App() {
   const [sellableSerialsLoading, setSellableSerialsLoading] = useState(false);
   const [settingsBackfillError, setSettingsBackfillError] = useState('');
   const [settingsBackfillLoading, setSettingsBackfillLoading] = useState(false);
-  const [customerDevices, setCustomerDevices] = useState<CustomerDeviceRecord[]>([]);
   const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [purchaseInvoices, setPurchaseInvoices] = useState<PurchaseInvoice[]>([]);
@@ -691,7 +689,6 @@ export default function App() {
     if (data.products) setProducts(data.products);
     if (data.stock) setStock(data.stock);
     if (data.assets) setAssets(data.assets);
-    if (data.customerDevices) setCustomerDevices(data.customerDevices);
     if (data.purchaseOrders) setPurchaseOrders(data.purchaseOrders);
     if (data.purchaseInvoices) setPurchaseInvoices(data.purchaseInvoices);
     if (data.purchaseReturns) setPurchaseReturns(data.purchaseReturns);
@@ -1048,7 +1045,10 @@ export default function App() {
     // for the next full bootstrap.
     STOCK: ['stock', 'damageRecords', 'financialSummary'],
     STOCK_OPERATIONS: ['stockOperations', 'stock', 'damageRecords', 'financialSummary'],
-    SERIALS: ['customerDevices'],
+    // Serial edits can rewrite customer_device_records.device_serial (the edit
+    // capture mirrors into the CPE table), so that paged register re-reads via
+    // its counter rather than a bootstrap slice (VOL-4b).
+    SERIALS: [],
     // PROCUREMENT also covers purchase returns: posting one deducts
     // stock, writes transaction-log rows and flips serial_log rows.
     PROCUREMENT: ['purchaseOrders', 'purchaseInvoices', 'suppliers', 'purchaseReturns', 'stock', 'financialSummary'],
@@ -1065,12 +1065,17 @@ export default function App() {
     // VOL-4a: customers is no longer a bootstrap slice — the directory pages and
     // the pickers search GET /api/customers directly, so a MASTER_DATA burst has
     // no customer array to refresh.
-    MASTER_DATA: ['customerDevices', 'branches', 'suppliers', 'locations', 'companyProfile'],
+    // VOL-4b: customer devices are no longer a bootstrap slice either — the
+    // register pages and the warranty directory reads its own union, so the
+    // MASTER_DATA burst has no device array to refresh.
+    MASTER_DATA: ['branches', 'suppliers', 'locations', 'companyProfile'],
     CATEGORIES: ['categories'],
     PRODUCTS: ['products', 'stock'],
     FISCAL: ['fiscalYears', 'financialSummary'],
     USERS: ['users'],
-    CUSTOMER_DEVICES: ['customerDevices', 'stock'],
+    // The device register re-reads through registerRefresh.customerDevices
+    // (DOMAIN_REGISTER_KEYS); stock still moves on an assignment/exchange.
+    CUSTOMER_DEVICES: ['stock'],
     ASSETS: ['assets'],
     APPROVALS: ['approvalRequests'],
     // The admin recalculation jobs rebuild live stock and fixed assets, and the
@@ -1929,7 +1934,6 @@ export default function App() {
           products={products}
           branches={branches}
           stock={stock}
-          customerDevices={customerDevices}
           selectedBranchId={selectedBranchId}
           dateMode={dateMode}
         />
@@ -2076,7 +2080,6 @@ export default function App() {
       <React.Suspense fallback={<TabLoadingFallback />}>
         <CustomersManagement
           currentUser={currentUser}
-          customerDevices={customerDevices}
           branches={branches}
           products={products}
           selectedBranchId={selectedBranchId}
@@ -2351,7 +2354,6 @@ export default function App() {
           products={products}
           branches={branches}
           stock={stock}
-          customerDevices={customerDevices}
           approvalRequests={approvalRequests}
           selectedBranchId={selectedBranchId}
           dateMode={dateMode}
@@ -2375,7 +2377,6 @@ export default function App() {
         branches={branches}
         stock={stock}
         locations={locations}
-        customerDevices={customerDevices}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="CREATE_TRANSFER"
@@ -2422,7 +2423,6 @@ export default function App() {
         branches={branches}
         stock={stock}
         locations={locations}
-        customerDevices={customerDevices}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="RECEIVE_TRANSFER"
@@ -2454,7 +2454,6 @@ export default function App() {
           products={products}
           branches={branches}
           stock={stock}
-          customerDevices={customerDevices}
           approvalRequests={approvalRequests}
           selectedBranchId={selectedBranchId}
           dateMode={dateMode}
@@ -2478,7 +2477,6 @@ export default function App() {
         branches={branches}
         stock={stock}
         locations={locations}
-        customerDevices={customerDevices}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="PULLOUT"
@@ -2510,7 +2508,6 @@ export default function App() {
         branches={branches}
         stock={stock}
         locations={locations}
-        customerDevices={customerDevices}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="DAMAGE"
@@ -2542,7 +2539,6 @@ export default function App() {
         branches={branches}
         stock={stock}
         locations={locations}
-        customerDevices={customerDevices}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="PULLOUT_REPORT"
@@ -2565,7 +2561,6 @@ export default function App() {
         branches={branches}
         stock={stock}
         locations={locations}
-        customerDevices={customerDevices}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="DAMAGE_REPORT"
@@ -2587,7 +2582,6 @@ export default function App() {
         branches={branches}
         stock={stock}
         locations={locations}
-        customerDevices={customerDevices}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="STOCK_OUT"
@@ -2619,7 +2613,6 @@ export default function App() {
         branches={branches}
         stock={stock}
         locations={locations}
-        customerDevices={customerDevices}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="ASSIGN_ASSET"
@@ -2663,7 +2656,6 @@ export default function App() {
         branches={branches}
         stock={stock}
         locations={locations}
-        customerDevices={customerDevices}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="CONSUMABLE_ISSUE"
@@ -2695,7 +2687,6 @@ export default function App() {
         branches={branches}
         stock={stock}
         locations={locations}
-        customerDevices={customerDevices}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="CONSUMABLES_REGISTER"
@@ -2731,7 +2722,6 @@ export default function App() {
         branches={branches}
         stock={stock}
         locations={locations}
-        customerDevices={customerDevices}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="DEVICE_EXCHANGE"
@@ -2758,12 +2748,9 @@ export default function App() {
     screenRoute('warranty-products', (
       <React.Suspense fallback={<TabLoadingFallback />}>
         <WarrantyProducts
-          customerDevices={customerDevices}
-          assets={assets}
-          branches={branches}
-          products={products}
           selectedBranchId={selectedBranchId}
           dateMode={dateMode}
+          refreshKey={registerRefresh.customerDevices}
         />
       </React.Suspense>
     )),
@@ -2851,7 +2838,6 @@ export default function App() {
           productCount={products.length}
           stockCount={stock.length}
           assetCount={assets.length}
-          deviceCount={customerDevices.length}
           poCount={purchaseOrders.length}
           invoiceCount={purchaseInvoices.length}
           onClearDemoData={async () => {
@@ -3070,7 +3056,6 @@ export default function App() {
       stockOperations={stockOperations}
       approvalRequests={approvalRequests}
       assets={assets}
-      customerDevices={customerDevices}
       suppliers={suppliers}
       bsCalendarCoverage={bsCalendarCoverage}
       bsCalendarSeedTab={bsCalendarSeedTab}
