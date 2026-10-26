@@ -1,6 +1,6 @@
 # VOL-1 — take `transactionLogs` off the bootstrap
 
-Status: `[~]` implemented, all gates green, awaiting commit · Created 2026-10-26 ·
+Status: `[x]` shipped (`daacb80`) · Created 2026-10-26 ·
 Finished 2026-10-26 · Client + server
 Round: [Round 2](README.md) · Order: 2
 
@@ -116,7 +116,7 @@ regardless of volume, so the cost no longer scales with movement history.
 - [x] `npm run build` clean; `check:bundle-budget` **313.2 kB** startup /
       **15.7 kB** entry (320 / 16).
 - [x] `check:no-inline-sql` and `check:no-raw-dialogs` green.
-- [ ] Commit hash — pending; the commit is a separate request.
+- [x] Commit `daacb80`; the hash is recorded in the round tracker.
 
 ## Acceptance
 
@@ -130,7 +130,7 @@ regardless of volume, so the cost no longer scales with movement history.
 - [x] SSE stock/serial/sale events still refresh the visible ledger without a
       full bootstrap.
 - [x] Payload before/after recorded at 1× and 10×; no client regression.
-- [x] Docs updated; commit hash pending.
+- [x] Docs updated; commit `daacb80`.
 
 ## Risks
 
