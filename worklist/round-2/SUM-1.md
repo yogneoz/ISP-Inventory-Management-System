@@ -1,6 +1,6 @@
 # SUM-1 — aggregate the financial summary's trading totals in SQL
 
-Status: `[~]` implemented, measured and full-suite green; commit pending · Created 2026-10-26 · Estimate 1–2 days · Server only
+Status: `[x]` shipped in `4a2946b` · Created 2026-10-26 · Estimate 1–2 days · Server only
 Round: [Round 2](README.md) · Order: 1
 
 ## Problem
@@ -75,7 +75,7 @@ Server only: repository query, service, tests, benchmark. No client change.
       single-table projection / write-time total fallback.
 - [x] **8. Gates.** `npx tsc --noEmit`, the financial-summary/repo/parity
       tests, full `npm test`, no-inline-SQL and no-raw-dialogs guards all pass.
-      The commit hash is recorded when the change is committed.
+      Recorded as `4a2946b`.
 
 ## Acceptance
 
@@ -86,7 +86,7 @@ Server only: repository query, service, tests, benchmark. No client change.
       scope (existing test).
 - [x] 1× and 10× p50/p95 recorded; 1× p95 not regressed.
 - [x] Docs updated; note moves with the round at close.
-- [ ] Commit hash recorded (commit/push is requested separately).
+- [x] Commit hash recorded: `4a2946b`.
 
 ## Risks
 
@@ -103,5 +103,5 @@ Server only: repository query, service, tests, benchmark. No client change.
 Implemented in `reports.repo`/`financialSummary.service` and the new parity
 suite. `npx tsc --noEmit`, the targeted financial-summary/repo/parity tests,
 full `npm test` (two Windows-only skips), `check:no-inline-sql` and
-`check:no-raw-dialogs` are green; docs are updated. No commit has been made yet —
-that is the only open acceptance line.
+`check:no-raw-dialogs` are green; docs are updated. Committed as `4a2946b`;
+all acceptance lines are closed.
