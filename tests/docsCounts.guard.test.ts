@@ -86,10 +86,19 @@ describe('docs-count gate — current-state claim detection', () => {
       text: fs.readFileSync(path.resolve(process.cwd(), file), 'utf8'),
     }));
     const claims = collectClaims(docs);
+    // Sanity check that every doc still carries at least one current-state
+    // claim; the count itself is not pinned (historical entries are reworded
+    // as they age, and a doc may legitimately carry one or several).
     assert.ok(
-      claims.length >= 9,
-      `expected the known current-state claims across the three docs, found ${claims.length}`
+      claims.length >= DOCS_FILES.length,
+      `expected at least one current-state claim per doc, found ${claims.length}`
     );
+    for (const file of DOCS_FILES) {
+      assert.ok(
+        claims.some((c) => c.file === file),
+        `${file} no longer carries a current-state suite-size claim`
+      );
+    }
     const disagreements = claims.filter((c) => c.count !== claims[0].count);
     assert.deepEqual(
       disagreements.map((c) => `${c.file}:${c.line}=${c.count}`),

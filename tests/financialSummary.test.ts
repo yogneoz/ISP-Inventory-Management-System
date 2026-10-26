@@ -113,6 +113,14 @@ describe('financialSummary — slice wiring', () => {
       service.includes('buildPurchaseReturnsTotalQuery'),
       'AP must subtract posted purchase returns on both paths'
     );
+    assert.ok(
+      service.includes('buildTradingTotalsQuery'),
+      'the slice must aggregate trading totals in SQL, not parse item JSON in Node'
+    );
+    assert.ok(
+      !service.includes('buildStockOutOpsQuery'),
+      'the slice must not select the year of STOCK_OUT item documents'
+    );
   });
 
   test('App re-fetches the summary for every domain that changes it', () => {

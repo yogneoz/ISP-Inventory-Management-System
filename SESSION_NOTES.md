@@ -1,10 +1,10 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-25 · Branch: main · Tests: 1236/1236 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-26 · Branch: main · Tests: 1237/1237 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
-> **Current state (2026-10-25, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1).** All DF-01…DF-17
+> **Current state (2026-10-26, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1).** All DF-01…DF-17
 > work, the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2, CPE-3,
-> SER-1, SER-2 and TRIM-1 are done. C4 is explicitly parked (one
+> SER-1, SER-2, TRIM-1 and SUM-1 are done. Round 2 continues with VOL-1. C4 is explicitly parked (one
 > `bootstrap/local` call site already; see the architecture backlog §C4). B2 shipped the combined trigram search projection, so all eight
 > item searches share one indexed `search_text` column per table; B3/B4 stay
 > parked. CPE-3 resolved D1 and made the fixed asset, CPE row, serial register and
@@ -17,6 +17,56 @@ _Date: 2026-10-25 · Branch: main · Tests: 1236/1236 green with a DB (all run i
 > trigger (see D4 below).
 > Older “Remaining …” paragraphs below are chronological notes, not a live
 > backlog; where they conflict with this note, the code wins.
+
+## 🗂 Round 2 planned — national-volume read path (2026-10-26)
+
+Round 1 is closed and archived. The next round is tracked in
+[worklist/round-2/README.md](worklist/round-2/README.md): **SUM-1** (aggregate
+the financial summary's trading totals in SQL), **VOL-1** (take
+`transactionLogs` off the bootstrap; the Dashboard uses eight rows), and
+**VOL-2** (take `salesInvoices` off the bootstrap; the returns picker is the
+consumer). A5/A4b/B3/B4/C4 stay parked with their triggers recorded in
+[worklist/parked.md](worklist/parked.md); A4b is recommended to be recorded as
+complete at A4a rather than kept as “blocked”. No code changed for this plan.
+
+## ✅ SUM-1 shipped — financial-summary trading totals aggregate in SQL (2026-10-26)
+
+**Problem.** `GET /api/bootstrap/local?key=financialSummary` refreshes on seven
+SSE domains. Each refresh selected every `STOCK_OUT` operation's `items` JSON
+for the fiscal year/branch, parsed every line in Node, and resolved each line's
+product cost with a `products.find`. At the modelled 10× volume that was
+hundreds of thousands of line objects shipped and re-parsed to produce two
+numbers.
+
+**Fix.** [buildTradingTotalsQuery](server/src/models/reports.repo.ts) aggregates
+revenue and COGS inside PostgreSQL with `jsonb_to_recordset`, joining
+`products` on `p.id::text` so a malformed line can never fail a uuid cast. The
+rule matches `computeTradingFromOps`: `totalValue` when non-zero, otherwise
+`max(0, qty × sellingPrice − discount)`; COGS is `qty × (unitCost || product
+costPrice || 0)` for positive quantities; lines with neither price field are
+skipped. `NULLIF(..., 0)` preserves the JS fallback. The slice now issues eight
+indexed reads and returns two numbers; the pure rule stays for the full
+bootstrap and [tradingTotals.test.ts](tests/tradingTotals.test.ts) pins the two
+producers to the same parity matrix, including another branch and an
+out-of-range row.
+
+**Measured** on an isolated 12k/120k-row scratch schema with four-line sales,
+seven runs each:
+
+| Volume | Old payload | Old wall + Node parse | New wall | New p95 |
+|---|---|---|---|---|
+| 12k (1×) | 2.7 MiB | 86 ms + 17 ms ≈ 103 ms | 108 ms | 113 ms |
+| 120k (10×) | 27.4 MiB | 750 ms + 74 ms ≈ 824 ms | 357 ms | 406 ms |
+
+The first SQL attempt (`jsonb_array_elements` with a cast per field) was slower
+than the old path; the recordset replaced it. At 1× p95 is slightly better than
+the old total; at 10× it is ~2.3× faster and returns one row instead of 27.4
+MiB. DB CPU is the new cost, so a write-time total is the recorded fallback if
+that becomes the constraint — B3 stays parked.
+
+**Gates.** `npx tsc --noEmit` clean; targeted summary/repo/parity tests green;
+full `npm test` green (two Windows-only skips); `check:no-inline-sql` and
+`check:no-raw-dialogs` clean. No production client change.
 
 ## ✅ CLOSE — every worklist acceptance re-checked, tracker removed (2026-10-25)
 
@@ -43,7 +93,7 @@ remains open” superseded note (all five slices are delivered), and the C4/A5
 status lines; every permanent doc now has one status per item. No production
 code changed in this pass.
 
-**Gates.** `npx tsc --noEmit` clean; `npm test` **1236 tests, 1234 pass, 0 fail,
+**Gates.** `npx tsc --noEmit` clean; `npm test` **1238 tests, 1236 pass, 0 fail,
 2 Windows-only skips**, docs-count gate green; `npm run build` clean;
 `check:bundle-budget` **312.8 kB** startup / 15.7 kB entry (320 / 16);
 `check:no-inline-sql` and `check:no-raw-dialogs` green. `worklist.md` deleted.
@@ -197,10 +247,9 @@ reversing the dispatch after that receipt is refused (`400`) with both branches'
 stock and the unit's branch unchanged — otherwise the source would be credited
 again while the unit sits at the destination.
 
-**Verification.** `npx tsc --noEmit` clean. The full run: `npm test` — 1236 tests
-against a real PostgreSQL 16 service container, 1224 pass, 2 Windows-only skips,
-0 fail. Suite now 1236 tests; docs counts green. (The header's `Tests: 1236/1236`
-is the same run.)
+**Verification.** `npx tsc --noEmit` clean. The full run at the time was 1236
+tests against a real PostgreSQL 16 service container, 2 Windows-only skips,
+0 fail; the docs counts gate was green for that run.
 
 ## ✅ CPE-3 shipped — the fixed asset follows the CPE lifecycle, once per asset (2026-10-25)
 
@@ -1401,7 +1450,7 @@ still collected there).
 - **Screens ask the shell, they don't receive setters.** Help Documentation used to be handed
 `onOpenBarcodeModal`/`onOpenSearchModal` from App — passing them through the shell would have
 put shell state back into App's render. It now calls `useShellOverlays().openBarcodeScanner()`
-([ShellOverlayContext.tsx](../client/src/contexts/ShellOverlayContext.tsx)); the context value
+([ShellOverlayContext.tsx](client/src/contexts/ShellOverlayContext.tsx)); the context value
 is memoised on the never-changing setters, so a shell state change cannot re-render a consumer,
 and the default is a no-op for screens rendered outside the shell. `onNavigateTab` keeps its
 one job (tab changes are App's); its old `barcode-scanner` branch is gone with the setter.
@@ -1410,7 +1459,7 @@ one job (tab changes are App's); its old `barcode-scanner` branch is gone with t
 still closes on `NAVIGATE_TAB_EVENT` — but from the shell's own listener now, since the panel is
 its state.
 
-Measured, not inferred ([tests/appShellRenderCount.test.ts](../tests/appShellRenderCount.test.ts),
+Measured, not inferred ([tests/appShellRenderCount.test.ts](tests/appShellRenderCount.test.ts),
 5 tests, real `AppShell` around a counting workspace): sidebar toggle, opening the search
 overlay, opening the notification panel, Alt+B, Alt+H and Ctrl+K all leave the workspace at
 **1 render** — the mount — while the DOM visibly reacts (backdrop, overlay input, panel title,

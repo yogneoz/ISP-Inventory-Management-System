@@ -16,8 +16,7 @@ import {
   buildVendorOpeningBalanceQuery,
   buildVendorPaymentsQuery,
   buildDamageLossQuery,
-  buildStockOutOpsQuery,
-  PRODUCT_COST_PRICE_SQL,
+  buildTradingTotalsQuery,
 } from '../server/src/models/reports.repo';
 
 describe('reports.repo', () => {
@@ -128,33 +127,37 @@ describe('reports.repo', () => {
     });
   });
 
-  describe('damage loss and sales', () => {
+  describe('damage loss and trading totals', () => {
     test('damage loss sums total_value over stock_operations in scope', () => {
       const { sql, params } = buildDamageLossQuery({ fiscalYearId: 'FY-2', branchId: 'BR-2' });
       assert.match(sql, /SELECT SUM\(total_value\) AS total FROM stock_operations/);
       assert.deepEqual(params, ['FY-2', 'BR-2']);
     });
 
-    test('stock-out ops always constrain type and range date_ad', () => {
-      const { sql, params } = buildStockOutOpsQuery({
+    test('trading totals aggregate sale lines in SQL with the same scope', () => {
+      const { sql, params } = buildTradingTotalsQuery({
         startDateAD: '2081-01-01',
         endDateAD: '2081-12-30',
+        branchId: 'BR-1',
       });
-      assert.equal(
-        sql,
-        "SELECT items FROM stock_operations WHERE type = 'STOCK_OUT' AND date_ad >= $1 AND date_ad <= $2"
-      );
-      assert.deepEqual(params, ['2081-01-01', '2081-12-30']);
+      assert.match(sql, /FROM stock_operations op/);
+      assert.match(sql, /type = 'STOCK_OUT'/);
+      assert.match(sql, /op\.date_ad >= \$1/);
+      assert.match(sql, /op\.date_ad <= \$2/);
+      assert.match(sql, /branch_id = \$3/);
+      assert.match(sql, /jsonb_to_recordset/);
+      assert.match(sql, /LEFT JOIN products p ON p\.id::text = item\."productId"/);
+      assert.match(sql, /total_revenue/);
+      assert.match(sql, /total_cogs/);
+      assert.doesNotMatch(sql, /SELECT items/);
+      assert.deepEqual(params, ['2081-01-01', '2081-12-30', 'BR-1']);
     });
 
-    test('stock-out ops keep the type constraint even fully unscoped', () => {
-      const { sql, params } = buildStockOutOpsQuery({});
+    test('trading totals keep the type and line filters fully unscoped', () => {
+      const { sql, params } = buildTradingTotalsQuery({});
       assert.match(sql, /type = 'STOCK_OUT'/);
+      assert.match(sql, /item\."totalValue" IS NOT NULL OR item\."sellingPrice" IS NOT NULL/);
       assert.deepEqual(params, []);
     });
-  });
-
-  test('PRODUCT_COST_PRICE_SQL aliases cost_price to costPrice', () => {
-    assert.equal(PRODUCT_COST_PRICE_SQL, 'SELECT id, cost_price AS "costPrice" FROM products');
   });
 });

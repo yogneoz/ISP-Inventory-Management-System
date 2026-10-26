@@ -1,0 +1,24 @@
+# Completed rounds
+
+Finished rounds are moved here and kept for reference. They are not active
+work: do not reopen an item here, and do not edit the note except to fix a
+broken link or add a later outcome link.
+
+## Naming
+
+`YYYY-MM-DD-round-N.md` — the close date and the round number. The matching
+round folder is archived beside it when one exists (for example
+`2026-10-25-round-1/` if the round had per-item notes).
+
+## What a completed note contains
+
+- The round's goal and dates.
+- Each item: outcome, commit hash, and any gate that was skipped or failed.
+- Links to the permanent docs and the SESSION_NOTES section for detail.
+- A final line saying whether CI was checked and the result.
+
+## Index
+
+| Round | Closed | Goal | Note |
+|---|---|---|---|
+| 1 | 2026-10-25 | CPE and serial trust, search scale, bootstrap trim, CLOSE | [2026-10-25-round-1.md](2026-10-25-round-1.md) |

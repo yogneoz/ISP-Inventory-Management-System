@@ -424,7 +424,8 @@ once, so the first boot after this upgrade is a one-time maintenance cost that g
 |---|---|
 | **Why** | Item-level reporting and auditing without rewriting the document model. |
 | **Change** | Add e.g. `purchase_invoice_items` / `sales_invoice_items`, populated in the same transaction as the document write, backfilled by a script; JSONB stays the document of record and export format. |
-| **B1 decision 2026-10-25** | **PARK.** No current report or join needs item rows; search is the measured cost and B2 covers it. Revisit when an item-level report is actually required. |
+| **B1 decision 2026-10-25** | **PARK.** No current report or join needs item rows; search is the measured cost and B2 covers it. Revisit when an item-level report is actually required, or when the SUM-1 trading aggregate's DB CPU becomes the constraint (a single-table `stock_operation_items` projection or write-time totals is the narrow fallback). |
+| **SUM-1 2026-10-26** | The financial-summary slice was the last place moving raw item JSON: it selected every `STOCK_OUT` line for the year/branch and parsed them in Node on seven refresh domains. It now aggregates revenue/COGS in SQL with `jsonb_to_recordset` and returns two numbers. At 120k operations: **357 ms** vs the old 824 ms (wall + Node parse), and 27.4 MiB of line JSON removed. B3 stays parked; a **single-table** `stock_operation_items` projection (or write-time totals) is the narrow fallback only if the aggregate's DB CPU becomes the constraint. |
 | **Done when** | Reconciliation (counts and sums per document) proves projection == JSONB for every row; at least one report reads the projection; backfill is idempotent. |
 | **Rough effort / risk** | 1 week · medium |
 

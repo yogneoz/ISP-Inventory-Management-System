@@ -14,11 +14,13 @@
  *  - `fetchFinancialSummaryFromDb` reads only the aggregate inputs in SQL for
  *    GET /api/bootstrap/local?key=financialSummary. Re-running the 24-query
  *    operational fan-out for one summary would be the heavy option the task
- *    list warns about; this path issues nine indexed aggregates instead.
+ *    list warns about; this path issues eight indexed aggregates instead.
  *
  * Both take the same branch/fiscal-year scope and apply the same formulas —
- * AP includes the posted purchase-return term, and trading revenue/COGS come
- * from `computeTradingFromOps` on the same priced STOCK_OUT lines.
+ * AP includes the posted purchase-return term. The bootstrap computes trading
+ * revenue/COGS with `computeTradingFromOps`; the slice aggregates the same rule
+ * in SQL (`buildTradingTotalsQuery`), and tests/tradingTotals.test.ts pins the
+ * two producers together.
  */
 import type { QueryExecutor } from '../models/bootstrap.repo';
 import {
@@ -29,8 +31,7 @@ import {
   buildVendorPaymentsQuery,
   buildPurchaseReturnsTotalQuery,
   buildDamageLossQuery,
-  buildStockOutOpsQuery,
-  PRODUCT_COST_PRICE_SQL,
+  buildTradingTotalsQuery,
 } from '../models/reports.repo';
 import { computeTradingFromOps } from '../utils/trading';
 
@@ -129,8 +130,8 @@ export function computeFinancialSummary(source: FinancialSummarySource): Financi
 }
 
 /**
- * Aggregate-only summary for the targeted-refresh slice. Nine small indexed
- * reads, no row payloads except the STOCK_OUT line JSON needed for COGS.
+ * Aggregate-only summary for the targeted-refresh slice. Eight indexed reads;
+ * no item JSON leaves PostgreSQL — the trading totals are summed in SQL.
  */
 export async function fetchFinancialSummaryFromDb(
   pool: QueryExecutor,
@@ -167,7 +168,7 @@ export async function fetchFinancialSummaryFromDb(
     startDateAD: scope.fiscalYearStartAD,
     endDateAD: scope.fiscalYearEndAD,
   });
-  const saleQuery = buildStockOutOpsQuery(dateScope);
+  const tradingQuery = buildTradingTotalsQuery(dateScope);
 
   const [
     invRes,
@@ -177,8 +178,7 @@ export async function fetchFinancialSummaryFromDb(
     paymentRes,
     returnRes,
     damageRes,
-    saleRes,
-    productRes,
+    tradingRes,
   ] = await Promise.all([
     pool.query(invQuery.sql, invQuery.params),
     pool.query(assetQuery.sql, assetQuery.params),
@@ -187,16 +187,10 @@ export async function fetchFinancialSummaryFromDb(
     pool.query(paymentQuery.sql, paymentQuery.params),
     pool.query(returnQuery.sql, returnQuery.params),
     pool.query(damageQuery.sql, damageQuery.params),
-    pool.query(saleQuery.sql, saleQuery.params),
-    pool.query(PRODUCT_COST_PRICE_SQL),
+    pool.query(tradingQuery.sql, tradingQuery.params),
   ]);
 
-  const saleRows = (saleRes.rows || []) as any[];
-  const products = (productRes.rows || []) as any[];
-  // The SQL only selects `items`; label the rows as the sale ops they are so
-  // the shared trading rule (which skips non-STOCK_OUT ops) runs unchanged.
-  const saleOps = saleRows.map((row: any) => ({ type: 'STOCK_OUT', items: row.items }));
-  const trading = computeTradingFromOps(saleOps, products);
+  const trading = (tradingRes.rows || [])[0] || {};
 
   const vendorOpeningBal = Number(openingRes.rows[0]?.total_ob || 0);
   const currentPeriodInvoiced = Number(invoiceRes.rows[0]?.total_invoiced || 0);
@@ -208,8 +202,8 @@ export async function fetchFinancialSummaryFromDb(
     totalFixedAssetValue: Number(assetRes.rows[0]?.total || 0),
     totalAccountsPayable:
       vendorOpeningBal + currentPeriodInvoiced - postedPayments - postedReturns,
-    totalSalesRevenue: trading.totalSalesRevenue,
-    totalCostOfGoodsSold: trading.totalCostOfGoodsSold,
+    totalSalesRevenue: Number(trading.total_revenue || 0),
+    totalCostOfGoodsSold: Number(trading.total_cogs || 0),
     totalDamageLossValue: Number(damageRes.rows[0]?.total || 0),
     totalVatInputTax: Number(invoiceRes.rows[0]?.total_vat || 0),
     currentFiscalYear: scope.currentFiscalYear,
