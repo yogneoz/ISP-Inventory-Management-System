@@ -165,6 +165,10 @@ Details in [worklist/round-3/VOL-4a.md](worklist/round-3/VOL-4a.md).
 build clean and bundle budget **279.9 kB / 15.8 kB** (320 / 17); both
 convention guards green.
 
+**Landed** as `d2c017f` and pushed to `main`; CI run
+[40331014556](https://github.com/yogneoz/ISP-Inventory-Management-System/actions/runs/40331014556)
+(`typecheck-and-test`) green in 363 s.
+
 ## ✅ Round 2 closed — the read path no longer scales with history (2026-10-26)
 
 **Outcome.** All four items shipped: **SUM-1** (`4a2946b`) aggregates trading

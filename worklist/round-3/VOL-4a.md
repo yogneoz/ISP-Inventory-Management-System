@@ -139,6 +139,10 @@ reads each branch it names.
 - `npm run check:no-inline-sql` and `npm run check:no-raw-dialogs` green.
 - `npm run build` clean; bundle budget **279.9 kB / 15.8 kB** (320 / 17).
 
+**Landed** as `d2c017f` and pushed to `main`; CI run
+[40331014556](https://github.com/yogneoz/ISP-Inventory-Management-System/actions/runs/40331014556)
+(`typecheck-and-test`) green in 363 s.
+
 ## Risks
 
 | Risk | Mitigation |
