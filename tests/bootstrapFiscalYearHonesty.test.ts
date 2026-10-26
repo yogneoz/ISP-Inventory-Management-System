@@ -302,7 +302,9 @@ describe('GET /api/bootstrap: an unusable fiscal-year master is reported honestl
       assert.equal(json?.financialSummary?.currentFiscalYear, seeded.code);
       assert.equal(json?.fiscalYears?.length, INITIAL_MASTER_FISCAL_YEARS.length);
       assert.ok(Array.isArray(json?.stock), 'the operational slices must be present');
-      assert.ok(Array.isArray(json?.shipments));
+      // VOL-3: shipments left the bootstrap payload; the register pages and
+      // the overview aggregate serve every consumer instead.
+      assert.ok(!('shipments' in (json || {})), 'the payload must not carry the transfer history');
       assert.ok(Array.isArray(json?.users));
       assert.equal(json?.postgresDatabaseStatus?.isConnected, true);
       // Unscoped-by-branch payloads must still be safe to cache privately.

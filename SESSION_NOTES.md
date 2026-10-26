@@ -1,12 +1,12 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-26 · Branch: main · Tests: 1255/1255 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-26 · Branch: main · Tests: 1286/1286 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
 > **Current state (2026-10-26, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1/VOL-2/BUDGET-1/BOOT-1).** All DF-01…DF-17
 > work, the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2, CPE-3,
 > SER-1, SER-2, TRIM-1, SUM-1, VOL-1, VOL-2, BUDGET-1 and BOOT-1 are implemented. **Round 2 closed on 2026-10-26** (archive at
 > [worklist/done/2026-10-26-round-2.md](worklist/done/2026-10-26-round-2.md)); **Round 3 is in progress**
-> ([worklist/round-3/README.md](worklist/round-3/README.md)) with BOOT-1 landed and VOL-3 next. C4 is explicitly parked (one
+> ([worklist/round-3/README.md](worklist/round-3/README.md)) with BOOT-1 and VOL-3 landed and VOL-4a next. C4 is explicitly parked (one
 > `bootstrap/local` call site already; see the architecture backlog §C4). B2 shipped the combined trigram search projection, so all eight
 > item searches share one indexed `search_text` column per table; B3/B4 stay
 > parked. CPE-3 resolved D1 and made the fixed asset, CPE row, serial register and
@@ -65,6 +65,58 @@ trim/slices/FY, cache parity, returns-picker and transaction-log suites
 **61/61 pass**; full suite **1255 tests, 1253 pass, 0 fail, 2 Windows-only
 skips**, docs-count gate at 1255; build clean and bundle budget
 **279.0 kB / 15.7 kB** (320 / 17); both convention guards green.
+
+## ✅ VOL-3 implemented — shipments leave the bootstrap, the register pages (2026-10-26)
+
+**Problem.** `shipments` was the last whole-ledger array in the login payload
+besides customers and customer devices. The register filtered the fiscal year in
+the browser and paginated the filtered copy; the shell badges, header count,
+dashboard KPI, notification center and both receive lanes derived their numbers
+from that same array. The old `GET /api/shipments` read every matching row and
+then applied branch scope in JavaScript, so a branch account never saw foreign
+rows but the server still transferred them.
+
+**Fix.** Three reads replace the array:
+- `GET /api/shipments/page` — `{ data, page, pageSize, totalItems }`, pageSize
+  capped at 200, stable `(created_at, id)` order, filters for branch (either
+  end), direction, status list, free text (tracking code, branch names, item
+  lines), dispatch dates and warehouse destinations.
+- `GET /api/shipments/overview` — exact per-status counts, every in-flight row
+  (bounded at 1,000 with `pendingCapped`) and the latest 200 rows; the shell,
+dashboard, notifications and receive lanes share one snapshot through
+`shipmentOverviewStore.ts` / `shipmentOverviewCache.ts`.
+- `GET /api/shipments` — the bare-array contract stays for the FY closing
+  wizard, now bounded at 2,000 with the same filters.
+
+Branch scope is resolved from the session and applied in SQL, so the paged and
+overview reads cannot be widened either; naming a foreign branch is a 403. The
+bootstrap fan-out no longer reads shipments (17 queries instead of 18) and the
+payload has no `shipments` key. The `BOOTSTRAP_TABLES` mapping remains, so an
+older client's local slice still answers.
+
+**Register.** `ShipmentRegister` owns its page, uses the shared exact counts for
+the KPI cards, exports a bounded snapshot of the current filters and re-runs on
+a new `shipments` register-refresh key (SSE `SHIPMENTS`/`APPROVALS` and every
+full refresh). `App` still holds a bounded window — every in-flight row plus the
+latest 200 — so the badge/notification/receive code keeps its shape without
+receiving history.
+
+**Measured** on a TEMP table shaped like `shipments` (four-line item document,
+old read vs new reads):
+
+| Volume | Rows | Old payload | Old read | Page (25) | Overview |
+|---|---:|---:|---:|---:|---:|
+| 1× | 20,000 | 17.2 MB / 781 ms | 0.31 MB gzip | 129 ms | 127 ms |
+| 10× | 200,000 | 173.0 MB / 5,035 ms | 3.12 MB gzip | 439 ms | 1,159 ms |
+
+The table is unindexed, so the new times are an upper bound. Details in
+[worklist/round-3/VOL-3.md](worklist/round-3/VOL-3.md).
+
+**Gates.** `npx tsc --noEmit` clean; 109 targeted tests pass (page/overview over
+real HTTP, repo filters, mirror twin, store scope/dedupe, bootstrap and
+register-refresh guards); full suite **1286 tests, 1284 pass, 0 fail, 2
+Windows-only skips**, docs-count gate at 1286; build clean and bundle budget
+**279.9 kB / 15.8 kB** (320 / 17); both convention guards green.
 
 ## ✅ Round 2 closed — the read path no longer scales with history (2026-10-26)
 

@@ -10,7 +10,9 @@ import { getPgConnected, pgPool, shipments, branches, detectDateTypeMismatch, fi
 import { planSerialGateEntries, resolveSerialGateInDb, SerialGateError, serialGateKey } from '../services/serialGate.service';
 import { OperationError, errorResponse } from '../utils/operationError';
 import {
-  buildShipmentListSql, SHIPMENT_UPSERT_SQL, SHIPMENT_FIND_FOR_OVERWRITE_SQL, shipmentUpsertParams,
+  buildShipmentListSql, buildShipmentCountSql, buildShipmentSummarySql, filterShipmentsMirror,
+  type ShipmentListOptions,
+  SHIPMENT_UPSERT_SQL, SHIPMENT_FIND_FOR_OVERWRITE_SQL, shipmentUpsertParams,
   SHIPMENT_FIND_ONE_SQL,
   shipmentQtySent, SHIPMENT_DEDUCT_SOURCE_SQL, SHIPMENT_INCOMING_DEST_SQL, shipmentIncomingDestParams,
   SHIPMENT_RECEIVE_UPDATE_SQL, SHIPMENT_RECEIVE_STOCK_SQL, shipmentReceiveStockParams,
@@ -126,50 +128,195 @@ function appendLedgerMirror(rows: TransactionLog[]): void {
   if (fresh.length > 0) setTransactionLogs([...fresh, ...transactionLogs]);
 }
 
-/** Forwarded from shipments.routes.ts (get_shipments). */
-/** Forwarded from shipments.routes.ts (get_shipments). */
-export async function get_shipments(req: any, res: Response): Promise<any> {
-// Audience scoping: branch-bound accounts only ever see shipments that
-  // touch one of their own branches (mirrors the bootstrap scope for these
-  // roles); SUPER_ADMIN and HQ-wide accounts see everything. The route is
-  // authenticated via requireAuth, so req.user is present.
+/**
+ * Legacy-array safety cap. The paged register, the receive lanes and the
+ * overview all bound their own reads; this only protects an older caller that
+ * asks for the bare array (the FY closing wizard does, with a year scope) from
+ * pulling an unbounded national ledger into Node.
+ */
+const SHIPMENT_LEGACY_LIMIT = 2000;
+const SHIPMENT_PAGE_DEFAULT = 25;
+const SHIPMENT_PAGE_MAX = 200;
+// In-flight rows are the actionable ones (badges, receive lanes, alerts). The
+// window is generous enough for a national network's outstanding transfers and
+// still bounded; `pendingCapped` tells the client when even that was not enough.
+const SHIPMENT_OVERVIEW_PENDING = 1000;
+const SHIPMENT_OVERVIEW_RECENT = 200;
+
+interface ShipmentReadScope {
+  branchScope?: string[];
+  branchId?: unknown;
+}
+
+/**
+ * Branch scope is a server decision, exactly as for the movement ledger and
+ * the audit trail: a branch-bound account may name one of its own branches and
+ * omitting the parameter means "all branches I may read", never "every
+ * branch". The scope is applied in SQL, so no post-read JS filter can widen it.
+ */
+function resolveShipmentReadScope(req: any, res: Response): ShipmentReadScope | null {
   const user = req.user || getUserFromReq(req);
-  const scoped = (rows: readonly any[]): readonly any[] => {
-    if (
-      !user ||
-      user.role === 'SUPER_ADMIN' ||
-      user.role === 'HEAD_OFFICE_ADMIN' ||
-      !user.branchId ||
-      user.branchId === 'ALL'
-    ) {
-      return rows;
-    }
-    const mine = new Set<string>([user.branchId, ...(user.allowedBranchIds || [])]);
-    return rows.filter((row) => {
-      const src = row.sourceBranchId ?? row.source_branch_id;
-      const dst = row.destinationBranchId ?? row.destination_branch_id;
-      return mine.has(src) || mine.has(dst);
-    });
+  const globalAccount =
+    !user ||
+    user.role === 'SUPER_ADMIN' ||
+    user.role === 'HEAD_OFFICE_ADMIN' ||
+    !user.branchId ||
+    user.branchId === 'ALL';
+  const requested =
+    typeof req.query?.branchId === 'string' && req.query.branchId !== 'ALL' && req.query.branchId.trim() !== ''
+      ? req.query.branchId
+      : undefined;
+  if (globalAccount) return { branchId: requested };
+  const allowed = new Set<string>([user.branchId || '', ...(user.allowedBranchIds || [])].filter(Boolean));
+  if (requested && !allowed.has(requested)) {
+    res.status(403).json({ message: 'Forbidden: this account is not authorized for the requested branch.' });
+    return null;
+  }
+  if (allowed.size === 0) return { branchScope: [] };
+  return { branchScope: requested ? [requested] : [...allowed] };
+}
+
+function parseBranchIdList(raw: unknown): string[] | undefined {
+  const parts = Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split(',') : [];
+  const ids = parts.map((value) => String(value || '').trim()).filter((value) => value && value !== 'ALL');
+  return ids.length > 0 ? [...new Set(ids)] : undefined;
+}
+
+function shipmentQueryOptions(
+  req: any,
+  scope: ShipmentReadScope,
+  extra: Partial<ShipmentListOptions> = {}
+): ShipmentListOptions {
+  return {
+    ...scope,
+    dateFromAD: req.query?.dateFromAD,
+    dateToAD: req.query?.dateToAD,
+    status: req.query?.status,
+    direction: req.query?.direction,
+    search: req.query?.search,
+    destinationBranchIds: parseBranchIdList(req.query?.destinationBranchIds),
+    ...extra,
   };
+}
+
+/** Forwarded from shipments.routes.ts (get_shipments). */
+/**
+ * Bare-array read (legacy contract, bounded). The FY closing wizard uses the
+ * year scope; everything else reads `/page` or `/overview`.
+ */
+export async function get_shipments(req: any, res: Response): Promise<any> {
+  const scope = resolveShipmentReadScope(req, res);
+  if (!scope) return;
+  const opts = shipmentQueryOptions(req, scope, { limit: SHIPMENT_LEGACY_LIMIT });
   if (getPgConnected()) {
     try {
-      // Optional scope (FY closing wizard): branch either end + dispatch-date
-      // range. Without params this is the original all-rows list query.
-      const list = buildShipmentListSql({
-        branchId: req.query?.branchId,
-        dateFromAD: req.query?.dateFromAD,
-        dateToAD: req.query?.dateToAD,
-      });
+      const list = buildShipmentListSql(opts);
       const r = await pgPool.query(list.sql, list.params as any[]);
-      res.json(scoped(r.rows));
+      res.json(r.rows);
       return;
     } catch (err) {
       console.error('Error fetching shipments from DB:', err);
       return res.status(500).json({ message: 'Could not load shipments from the database. Reload to retry.' });
     }
   }
-  res.json(scoped(shipments));
+  res.json(filterShipmentsMirror(shipments, opts).slice(0, SHIPMENT_LEGACY_LIMIT));
+}
 
+/**
+ * One server-paged slice of the transfer register: `{ data, page, pageSize,
+ * totalItems }`. Filters: branch (either end), direction (CREATED = the branch
+ * is the source), status list, search, dispatch-date range and destination
+ * branch list (warehouse receiving lane).
+ */
+export async function get_shipmentsPage(req: any, res: Response): Promise<any> {
+  const scope = resolveShipmentReadScope(req, res);
+  if (!scope) return;
+  const page = Math.max(1, Number(req.query?.page) || 1);
+  const pageSize = Math.min(SHIPMENT_PAGE_MAX, Math.max(1, Number(req.query?.pageSize) || SHIPMENT_PAGE_DEFAULT));
+  const opts = shipmentQueryOptions(req, scope, { pageSize, offset: (page - 1) * pageSize });
+  if (getPgConnected()) {
+    try {
+      const countQ = buildShipmentCountSql(opts);
+      const listQ = buildShipmentListSql(opts);
+      const [countR, listR] = await Promise.all([
+        pgPool.query(countQ.sql, countQ.params as any[]),
+        pgPool.query(listQ.sql, listQ.params as any[]),
+      ]);
+      return res.json({
+        data: listR.rows,
+        page,
+        pageSize,
+        totalItems: Number(countR.rows[0]?.count) || 0,
+      });
+    } catch (err) {
+      console.error('Error paging shipments from DB:', err);
+      return res.status(500).json({ message: 'Could not load shipments from the database. Reload to retry.' });
+    }
+  }
+  const all = filterShipmentsMirror(shipments, opts);
+  const offset = (page - 1) * pageSize;
+  res.json({ data: all.slice(offset, offset + pageSize), page, pageSize, totalItems: all.length });
+}
+
+/**
+ * Small scoped snapshot behind the shell badges, the dashboard KPI and the
+ * notification center: exact counts per status plus the actionable (still in
+ * flight) rows and a bounded recent window. One request, no ledger transfer.
+ */
+export async function get_shipmentOverview(req: any, res: Response): Promise<any> {
+  const scope = resolveShipmentReadScope(req, res);
+  if (!scope) return;
+  const base = shipmentQueryOptions(req, scope);
+  if (getPgConnected()) {
+    try {
+      const summaryQ = buildShipmentSummarySql(base);
+      const pendingQ = buildShipmentListSql({
+        ...base,
+        pendingOnly: true,
+        limit: SHIPMENT_OVERVIEW_PENDING + 1,
+      });
+      const recentQ = buildShipmentListSql({ ...base, limit: SHIPMENT_OVERVIEW_RECENT });
+      const [summaryR, pendingR, recentR] = await Promise.all([
+        pgPool.query(summaryQ.sql, summaryQ.params as any[]),
+        pgPool.query(pendingQ.sql, pendingQ.params as any[]),
+        pgPool.query(recentQ.sql, recentQ.params as any[]),
+      ]);
+      const counts: Record<string, number> = {};
+      let total = 0;
+      for (const row of summaryR.rows) {
+        const status = String(row.status || '').toUpperCase();
+        if (!status) continue;
+        const count = Number(row.count) || 0;
+        counts[status] = (counts[status] || 0) + count;
+        total += count;
+      }
+      return res.json({
+        counts,
+        total,
+        pending: pendingR.rows.slice(0, SHIPMENT_OVERVIEW_PENDING),
+        recent: recentR.rows,
+        pendingCapped: pendingR.rows.length > SHIPMENT_OVERVIEW_PENDING,
+      });
+    } catch (err) {
+      console.error('Error reading the shipment overview from DB:', err);
+      return res.status(500).json({ message: 'Could not load shipments from the database. Reload to retry.' });
+    }
+  }
+  const all = filterShipmentsMirror(shipments, base);
+  const counts: Record<string, number> = {};
+  for (const row of all) {
+    const status = String(row.status || '').toUpperCase();
+    if (!status) continue;
+    counts[status] = (counts[status] || 0) + 1;
+  }
+  const pending = all.filter((row) => !['RECEIVED', 'DELIVERED', 'CANCELLED'].includes(String(row.status || '').toUpperCase()));
+  res.json({
+    counts,
+    total: all.length,
+    pending: pending.slice(0, SHIPMENT_OVERVIEW_PENDING),
+    recent: all.slice(0, SHIPMENT_OVERVIEW_RECENT),
+    pendingCapped: pending.length > SHIPMENT_OVERVIEW_PENDING,
+  });
 }
 
 /** Forwarded from shipments.routes.ts (post_shipments). */

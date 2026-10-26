@@ -21,6 +21,7 @@ export type RegisterRefreshKey =
   | 'consumableRegister'
   | 'returnsRegister'
   | 'salesInvoices'
+  | 'shipments'
   | 'customerDevices'
   | 'transactionLog';
 
@@ -63,7 +64,10 @@ export const DOMAIN_REGISTER_KEYS: Record<string, RegisterRefreshKey[]> = {
   SERIALS: ['serialLog'],
   PROCUREMENT: ['serialLog', 'purchaseOrders', 'purchaseInvoices', 'returnsRegister', 'transactionLog'],
   SALES: ['serialLog', 'salesInvoices', 'returnsRegister', 'transactionLog'],
-  SHIPMENTS: ['purchaseOrders', 'serialLog', 'transactionLog'],
+  SHIPMENTS: ['shipments', 'purchaseOrders', 'serialLog', 'transactionLog'],
+  // Approval processing can cancel a transfer or undo its receipt, so the
+  // paged transfer register re-reads when the approval queue changes.
+  APPROVALS: ['shipments'],
   CUSTOMER_DEVICES: ['serialLog', 'customerDevices', 'transactionLog'],
   ASSETS: ['serialLog', 'customerDevices', 'transactionLog'],
   RECALC: ['transactionLog'],
@@ -115,6 +119,7 @@ export function bumpAllRegisterRefresh(
     consumableRegister: prev.consumableRegister + 1,
     returnsRegister: prev.returnsRegister + 1,
     salesInvoices: prev.salesInvoices + 1,
+    shipments: prev.shipments + 1,
     customerDevices: prev.customerDevices + 1,
     transactionLog: prev.transactionLog + 1,
   };

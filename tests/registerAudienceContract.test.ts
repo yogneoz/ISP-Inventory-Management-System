@@ -83,16 +83,26 @@ describe('register audience contract', () => {
     );
   });
 
-  test('get_shipments scopes branch-bound accounts', () => {
+  test('get_shipments scopes branch-bound accounts in SQL, not a post-read filter', () => {
+    // VOL-3: the scope moved from a JS filter over every row into the query
+    // itself, so the paged/overview reads cannot read outside it either.
     const controller = read('server/src/controllers/shipments.controller.ts');
     assert.ok(
-      controller.includes('mine.has(src) || mine.has(dst)'),
-      'branch-bound accounts must only see shipments touching their branches'
+      controller.includes('branchScope: requested ? [requested] : [...allowed]'),
+      'a branch-bound account must be pinned to its allowed branches'
     );
     assert.ok(
-      controller.includes("user.branchId === 'HEAD_OFFICE_ADMIN' ||") ||
-        controller.includes("user.role === 'HEAD_OFFICE_ADMIN'"),
+      controller.includes("user.role === 'HEAD_OFFICE_ADMIN'"),
       'HQ accounts must keep the full list'
+    );
+    assert.ok(
+      controller.includes('Forbidden: this account is not authorized for the requested branch.'),
+      'naming a branch outside the account must be refused, not silently filtered'
+    );
+    const repo = read('server/src/models/shipments.repo.ts');
+    assert.ok(
+      repo.includes('(source_branch_id = ANY($${params.length}) OR destination_branch_id = ANY($${params.length}))'),
+      'the allowed-branch list must be applied to both ends of the transfer in SQL'
     );
   });
 

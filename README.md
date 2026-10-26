@@ -529,9 +529,10 @@ and pagination, so the client loads exactly one page of rows at a time.
 | Purchase Returns Register | `GET /api/purchase-returns` | Paged endpoint available; the table still ships in bootstrap for other consumers |
 | Sales Returns Register | `GET /api/sales-returns` | Paged endpoint available; the table still ships in bootstrap for other consumers |
 | Sales Invoices Register | `GET /api/sales-invoices` | **Trimmed from bootstrap** — the register self-fetches its page, and the Returns create form searches the same endpoint by invoice number or customer (full row incl. `items`); the Sales register no longer has a full-array fallback |
+| Shipment & Transfer Register | `GET /api/shipments/page` (+ `GET /api/shipments/overview`) | **Trimmed from bootstrap** — the register pages; the shell badges, header count, dashboard KPI, notification center and receive lanes read exact per-status counts and the in-flight rows from `/overview`; the FY closing wizard keeps the bounded bare-array `GET /api/shipments` read |
 | Customer Master Directory | `GET /api/customers` | Always a `{ data, page, pageSize, totalItems, activeItems, totalCreditLimit }` envelope; `branchId`, `query`, `status`, `page`, `pageSize` filter server-side, `all=1` returns the full filtered set for CSV export |
 
-> **Guarded:** these eight are the only server-paged lists in the app. Adding a
+> **Guarded:** these nine are the only server-paged lists in the app. Adding a
 > `pageSize:` request key to any other feature screen fails
 > `tests/registerRefreshDomains.test.ts` until it is wired to a register
 > refresh key (see **Targeted Real-Time Refresh** below).
@@ -706,7 +707,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 1255-test suite against a PostgreSQL 16 service container (zero DB skips;
+  full 1286-test suite against a PostgreSQL 16 service container (zero DB skips;
   the two unconditional skips are Windows-only real-signal checks, which CI runs,
   and the live-drain check runs under `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1` so its
   preconditions cannot silently skip it) →

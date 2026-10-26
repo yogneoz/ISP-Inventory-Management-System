@@ -36,7 +36,7 @@ import { DOMAIN_BY_MODULE, resolveDomain } from '../server/src/syncDomains';
 import { DOCS_FILES, checkScreenClaims } from '../scripts/docsTestCounts';
 
 // The complete register vocabulary kept in App.tsx's registerRefresh state.
-const REGISTER_KEYS = ['serialLog', 'purchaseOrders', 'purchaseInvoices', 'consumableRegister', 'returnsRegister', 'salesInvoices', 'customerDevices', 'transactionLog'];
+const REGISTER_KEYS = ['serialLog', 'purchaseOrders', 'purchaseInvoices', 'consumableRegister', 'returnsRegister', 'salesInvoices', 'shipments', 'customerDevices', 'transactionLog'];
 
 // Server domains whose mutations never touch any of the paged
 // registers: they refresh bootstrap slices only. Kept in sync by the
@@ -44,7 +44,7 @@ const REGISTER_KEYS = ['serialLog', 'purchaseOrders', 'purchaseInvoices', 'consu
 // gain a DOMAIN_REGISTER_KEYS entry or be listed here.
 const NO_REGISTER_DOMAINS = [
   'MASTER_DATA', 'CATEGORIES', 'PRODUCTS', 'FISCAL', 'USERS',
-  'APPROVALS', 'COMPANY_PROFILE',
+  'COMPANY_PROFILE',
   'PERMISSIONS', 'SETTINGS', 'AUDIT',
   // BS_CALENDAR mutates no paged register: a seed/repair changes the
   // AD<->BS mapping every screen converts with, so App.tsx re-reads the
@@ -169,7 +169,11 @@ describe('SSE domain → register refresh mapping', () => {
     assert.deepEqual(DOMAIN_REGISTER_KEYS.SERIALS, ['serialLog']);
     assert.deepEqual(DOMAIN_REGISTER_KEYS.PROCUREMENT, ['serialLog', 'purchaseOrders', 'purchaseInvoices', 'returnsRegister', 'transactionLog']);
     assert.deepEqual(DOMAIN_REGISTER_KEYS.SALES, ['serialLog', 'salesInvoices', 'returnsRegister', 'transactionLog']);
-    assert.deepEqual(DOMAIN_REGISTER_KEYS.SHIPMENTS, ['purchaseOrders', 'serialLog', 'transactionLog']);
+    // VOL-3: the transfer register pages its own reads, so a shipment event
+    // re-runs that page too. Approval processing can cancel a transfer or undo
+    // its receipt, so APPROVALS is the second writer of the same register.
+    assert.deepEqual(DOMAIN_REGISTER_KEYS.SHIPMENTS, ['shipments', 'purchaseOrders', 'serialLog', 'transactionLog']);
+    assert.deepEqual(DOMAIN_REGISTER_KEYS.APPROVALS, ['shipments']);
     assert.deepEqual(DOMAIN_REGISTER_KEYS.CUSTOMER_DEVICES, ['serialLog', 'customerDevices', 'transactionLog']);
     // ASSETS also moves the customer-device register: the deploy-from-stock
     // endpoint writes the rental-CPE row in the same transaction as the asset,
@@ -252,29 +256,29 @@ describe('SSE domain → register refresh mapping', () => {
 });
 
 describe('bumpAllRegisterRefresh (manual full refresh)', () => {
-  test('increments all eight register counters', () => {
+  test('increments all nine register counters', () => {
     assert.deepEqual(
-      bumpAllRegisterRefresh({ serialLog: 0, purchaseOrders: 0, purchaseInvoices: 0, consumableRegister: 0, returnsRegister: 0, salesInvoices: 0, customerDevices: 0, transactionLog: 0 }),
-      { serialLog: 1, purchaseOrders: 1, purchaseInvoices: 1, consumableRegister: 1, returnsRegister: 1, salesInvoices: 1, customerDevices: 1, transactionLog: 1 }
+      bumpAllRegisterRefresh({ serialLog: 0, purchaseOrders: 0, purchaseInvoices: 0, consumableRegister: 0, returnsRegister: 0, salesInvoices: 0, shipments: 0, customerDevices: 0, transactionLog: 0 }),
+      { serialLog: 1, purchaseOrders: 1, purchaseInvoices: 1, consumableRegister: 1, returnsRegister: 1, salesInvoices: 1, shipments: 1, customerDevices: 1, transactionLog: 1 }
     );
   });
 
   test('increments from any counter values', () => {
     assert.deepEqual(
-      bumpAllRegisterRefresh({ serialLog: 7, purchaseOrders: 3, purchaseInvoices: 11, consumableRegister: 42, returnsRegister: 5, salesInvoices: 9, customerDevices: 42, transactionLog: 4 }),
-      { serialLog: 8, purchaseOrders: 4, purchaseInvoices: 12, consumableRegister: 43, returnsRegister: 6, salesInvoices: 10, customerDevices: 43, transactionLog: 5 }
+      bumpAllRegisterRefresh({ serialLog: 7, purchaseOrders: 3, purchaseInvoices: 11, consumableRegister: 42, returnsRegister: 5, salesInvoices: 9, shipments: 2, customerDevices: 42, transactionLog: 4 }),
+      { serialLog: 8, purchaseOrders: 4, purchaseInvoices: 12, consumableRegister: 43, returnsRegister: 6, salesInvoices: 10, shipments: 3, customerDevices: 43, transactionLog: 5 }
     );
   });
 
   test('is pure: returns a new record and never mutates its input', () => {
-    const prev = { serialLog: 1, purchaseOrders: 2, purchaseInvoices: 3, consumableRegister: 4, returnsRegister: 5, salesInvoices: 6, customerDevices: 6, transactionLog: 0 };
+    const prev = { serialLog: 1, purchaseOrders: 2, purchaseInvoices: 3, consumableRegister: 4, returnsRegister: 5, salesInvoices: 6, shipments: 0, customerDevices: 6, transactionLog: 0 };
     const next = bumpAllRegisterRefresh(prev);
     assert.notEqual(next, prev);
-    assert.deepEqual(prev, { serialLog: 1, purchaseOrders: 2, purchaseInvoices: 3, consumableRegister: 4, returnsRegister: 5, salesInvoices: 6, customerDevices: 6, transactionLog: 0 });
+    assert.deepEqual(prev, { serialLog: 1, purchaseOrders: 2, purchaseInvoices: 3, consumableRegister: 4, returnsRegister: 5, salesInvoices: 6, shipments: 0, customerDevices: 6, transactionLog: 0 });
   });
 
-  test('covers exactly the eight register keys', () => {
-    const next = bumpAllRegisterRefresh({ serialLog: 0, purchaseOrders: 0, purchaseInvoices: 0, consumableRegister: 0, returnsRegister: 0, salesInvoices: 0, customerDevices: 0, transactionLog: 0 });
+  test('covers exactly the register keys', () => {
+    const next = bumpAllRegisterRefresh({ serialLog: 0, purchaseOrders: 0, purchaseInvoices: 0, consumableRegister: 0, returnsRegister: 0, salesInvoices: 0, shipments: 0, customerDevices: 0, transactionLog: 0 });
     assert.deepEqual(Object.keys(next).sort(), [...REGISTER_KEYS].sort());
   });
 });
@@ -311,8 +315,8 @@ describe('SSE burst → full-bootstrap fallback (App.tsx SSE handler path)', () 
     // The fallback runs refreshAllData(), whose first line bumps
     // every paged-register counter — from any starting values.
     assert.deepEqual(
-      runFullRefresh({ serialLog: 2, purchaseOrders: 5, purchaseInvoices: 1, consumableRegister: 0, returnsRegister: 7, salesInvoices: 4, customerDevices: 9, transactionLog: 3 }),
-      { serialLog: 3, purchaseOrders: 6, purchaseInvoices: 2, consumableRegister: 1, returnsRegister: 8, salesInvoices: 5, customerDevices: 10, transactionLog: 4 }
+      runFullRefresh({ serialLog: 2, purchaseOrders: 5, purchaseInvoices: 1, consumableRegister: 0, returnsRegister: 7, salesInvoices: 4, shipments: 3, customerDevices: 9, transactionLog: 3 }),
+      { serialLog: 3, purchaseOrders: 6, purchaseInvoices: 2, consumableRegister: 1, returnsRegister: 8, salesInvoices: 5, shipments: 4, customerDevices: 10, transactionLog: 4 }
     );
   });
 
@@ -353,7 +357,7 @@ describe('SSE burst → full-bootstrap fallback (App.tsx SSE handler path)', () 
     assert.deepEqual(plan, { mode: 'targeted', domains: ['SALES', 'SHIPMENTS'] });
     // The targeted branch bumps DOMAIN_REGISTER_KEYS[domain] only —
     // the bump-everything increment is exclusive to the fallback path.
-    const prev = { serialLog: 1, purchaseOrders: 2, purchaseInvoices: 3, consumableRegister: 4, returnsRegister: 5, salesInvoices: 6, customerDevices: 6, transactionLog: 0 };
+    const prev = { serialLog: 1, purchaseOrders: 2, purchaseInvoices: 3, consumableRegister: 4, returnsRegister: 5, salesInvoices: 6, shipments: 0, customerDevices: 6, transactionLog: 0 };
     const next = { ...prev };
     for (const d of plan.mode === 'targeted' ? plan.domains : []) {
       for (const reg of DOMAIN_REGISTER_KEYS[d]) next[reg] = prev[reg] + 1;
@@ -361,7 +365,7 @@ describe('SSE burst → full-bootstrap fallback (App.tsx SSE handler path)', () 
     // SALES and SHIPMENTS both write serial_log and transaction_log rows. The
     // counter is a refresh trigger, not a tally: a register mapped by two
     // domains in one burst is bumped once, which is enough to re-run its fetch.
-    assert.deepEqual(next, { serialLog: 2, purchaseOrders: 3, purchaseInvoices: 3, consumableRegister: 4, returnsRegister: 6, salesInvoices: 7, customerDevices: 6, transactionLog: 1 });
+    assert.deepEqual(next, { serialLog: 2, purchaseOrders: 3, purchaseInvoices: 3, consumableRegister: 4, returnsRegister: 6, salesInvoices: 7, shipments: 1, customerDevices: 6, transactionLog: 1 });
   });
 
   test('a repeated same-domain burst coalesces to a targeted plan', () => {
@@ -390,10 +394,10 @@ describe('SSE burst → full-bootstrap fallback (App.tsx SSE handler path)', () 
     assert.deepEqual(plan, { mode: 'targeted', domains: ['SALES'] });
     // The targeted branch bumps DOMAIN_REGISTER_KEYS[domain] only —
     // the bump-everything increment is exclusive to the fallback path.
-    const prev = { serialLog: 1, purchaseOrders: 2, purchaseInvoices: 3, consumableRegister: 4, returnsRegister: 5, salesInvoices: 6, customerDevices: 6, transactionLog: 0 };
+    const prev = { serialLog: 1, purchaseOrders: 2, purchaseInvoices: 3, consumableRegister: 4, returnsRegister: 5, salesInvoices: 6, shipments: 0, customerDevices: 6, transactionLog: 0 };
     const next = { ...prev };
     for (const reg of DOMAIN_REGISTER_KEYS.SALES) next[reg] = prev[reg] + 1;
-    assert.deepEqual(next, { serialLog: 2, purchaseOrders: 2, purchaseInvoices: 3, consumableRegister: 4, returnsRegister: 6, salesInvoices: 7, customerDevices: 6, transactionLog: 1 });
+    assert.deepEqual(next, { serialLog: 2, purchaseOrders: 2, purchaseInvoices: 3, consumableRegister: 4, returnsRegister: 6, salesInvoices: 7, shipments: 0, customerDevices: 6, transactionLog: 1 });
   });
 
   test('App.tsx wiring: the SSE effect uses the burst accumulator and its fallback runs refreshAllData', () => {
@@ -959,7 +963,16 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     //   scoped pending-procurement cache; PurchaseOrderForm stays fetch-free).
     'procurement/CreateShipmentForm.tsx': [],
     'procurement/Shipments.tsx': [],
-    'procurement/ShipmentRegister.tsx': ['cancelApprovalRequest', 'cancelReceiveShipment', 'createApprovalRequest'],
+    // VOL-3: the register pages its own reads (getShipmentPage) and exports a
+    // bounded slice of the current filters (getShipments); the cancel/receive
+    // fallbacks moved with their flows.
+    'procurement/ShipmentRegister.tsx': [
+      'cancelApprovalRequest',
+      'cancelReceiveShipment',
+      'createApprovalRequest',
+      'getShipmentPage',
+      'getShipments',
+    ],
     // lookupExchangeSerial: the exchange modal resolves a serial the cached
     // IN_STOCK register does not know, so its refusal can name the unit's real
     // state (assigned / damaged / other branch) instead of guessing.
@@ -1143,9 +1156,10 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     );
     // The tab badges render in the host: the CREATE badge counts the draft
     // bin (so `lines` is hoisted out of the form) and the REGISTER badge
-    // counts the host-filtered rows (so the filter primitives are too).
+    // reads the shared bounded overview (VOL-3 — the register pages its own
+    // rows, so there is no host-filtered array to count any more).
     assert.match(host, /const \[lines, setLines\] = useState<ShipmentFormLine\[\]>\(\[\]\);/);
-    assert.match(host, /\{filteredShipments\.length\}/);
+    assert.match(host, /shipmentsOverview\.total/);
     assert.deepEqual(serverCallsIn(host), [], 'the host is chrome — header, tab bar, manifest viewer, toast');
   });
 
@@ -1161,7 +1175,9 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     // a register refresh key — the existing document registers plus the three
     // VOL-1 movement screens (transactionLog key) — so a new one cannot page
     // without wiring its SSE re-read.
-    const paged = listFeatureScreens().filter((screen) => /pageSize:/.test(readFeatureSource(screen)));
+    // `pageSize:` or the shorthand `pageSize,` both count: VOL-3's register
+    // passes the pager's values straight through.
+    const paged = listFeatureScreens().filter((screen) => /pageSize(?::|,)/.test(readFeatureSource(screen)));
     assert.deepEqual(
       paged,
       [
@@ -1171,6 +1187,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
         'inventory/stockops/ConsumablesRegisterPanel.tsx',
         'procurement/PurchaseInvoices.tsx',
         'procurement/PurchaseOrders.tsx',
+        'procurement/ShipmentRegister.tsx',
         'sales/CustomerMasterDirectory.tsx',
         'sales/ReturnsRegister.tsx',
         'sales/SalesInvoices.tsx',

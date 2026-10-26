@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Shipment, Branch, User, ApprovalRequest } from '../../types';
 import { formatDualDate, formatBSDate } from '../../utils/nepaliCalendar';
 import { DateField } from '../../components/DateField';
@@ -19,7 +19,7 @@ import {
   Info,
   FileSpreadsheet,
 } from 'lucide-react';
-import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { useServerPageClamp, TablePagination } from '../../components/common/TablePagination';
 import { useReceiveVerification, ReceiveVerificationModal } from '../../components/common/ReceiveVerificationModal';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 
@@ -31,8 +31,16 @@ interface ShipmentRegisterProps {
   selectedBranchId: string;
   dateMode: 'BS' | 'AD';
   approvalRequests?: ApprovalRequest[];
-  /** Rows already filtered by the host (it owns the filter primitives so the header search and the tab badge can share them). */
-  filteredShipments: Shipment[];
+  /**
+   * Paged register (VOL-3): the rows come from GET /api/shipments/page with
+   * these filters, not from the bootstrap payload — the host used to hand over
+   * the whole fiscal year's transfer history, filtered in the browser.
+   */
+  refreshToken?: number;
+  /** Exact scope-wide status counts from the shared overview (KPI cards). */
+  statusCounts?: Record<string, number>;
+  /** Every in-flight transfer from the same snapshot (in-transit unit count). */
+  pendingRows?: Shipment[];
   searchQuery: string;
   setSearchQuery: React.Dispatch<React.SetStateAction<string>>;
   startDateAD: string;
@@ -81,7 +89,9 @@ export const ShipmentRegister: React.FC<ShipmentRegisterProps> = ({
   selectedBranchId,
   dateMode,
   approvalRequests = [],
-  filteredShipments,
+  refreshToken = 0,
+  statusCounts = {},
+  pendingRows = [],
   searchQuery,
   setSearchQuery,
   startDateAD,
@@ -239,16 +249,98 @@ export const ShipmentRegister: React.FC<ShipmentRegisterProps> = ({
     }
   };
 
-  const shipmentPagination = useClientPagination(filteredShipments, 15, [
+  // -------------------------------------------------------------------
+  // Paged read (VOL-3). The fiscal year's full transfer history no longer
+  // enters the bootstrap payload; this register asks for one page at a time
+  // with the filters below, and the server pins the branch scope from the
+  // session (a branch account cannot widen it by changing branchId).
+  // -------------------------------------------------------------------
+  // The header's branch context. A branch-bound account has selectedBranchId
+  // pinned to its own branch by App, and the server refuses any other id, so
+  // rows and the KPI counts below answer the same scope.
+  const scopeBranchId = selectedBranchId;
+  const [rows, setRows] = useState<Shipment[]>([]);
+  const [totalItems, setTotalItems] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [retryToken, setRetryToken] = useState(0);
+  const requestSeq = useRef(0);
+
+  // A filter change snaps back to page 1 in the same commit (the React
+  // "adjust state during render" pattern the client paginator used), so a
+  // filter edit never requests a page number from the previous filter.
+  const filterKey = [
+    scopeBranchId,
     searchQuery,
-    selectedBranchId,
-    shipmentMode,
     shipmentStatusFilter,
+    shipmentMode,
     startDateAD,
     endDateAD,
+  ].join('|');
+  const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
+  if (filterKey !== prevFilterKey) {
+    setPrevFilterKey(filterKey);
+    if (page !== 1) setPage(1);
+  }
+
+  useEffect(() => {
+    const seq = ++requestSeq.current;
+    setLoading(true);
+    setLoadError('');
+    api.getShipmentPage({
+        branchId: scopeBranchId,
+        search: searchQuery || undefined,
+        status: shipmentStatusFilter,
+        direction: shipmentMode === 'ALL' ? undefined : shipmentMode,
+        dateFromAD: startDateAD || undefined,
+        dateToAD: endDateAD || undefined,
+        page,
+        pageSize,
+      })
+      .then((result) => {
+        if (seq !== requestSeq.current) return;
+        setRows(Array.isArray(result?.data) ? result.data : []);
+        setTotalItems(Number(result?.totalItems) || 0);
+        setLoading(false);
+      })
+      .catch((err) => {
+        if (seq !== requestSeq.current) return;
+        setLoadError(err?.message || 'Could not load the transfer register.');
+        setLoading(false);
+      });
+  }, [
+    scopeBranchId,
+    searchQuery,
+    shipmentStatusFilter,
+    shipmentMode,
+    startDateAD,
+    endDateAD,
+    page,
+    pageSize,
+    refreshToken,
+    retryToken,
   ]);
 
-  const exportShipmentsCSV = () => {
+  const safePage = useServerPageClamp(page, pageSize, totalItems, setPage);
+  const pageCount = Math.max(1, Math.ceil(totalItems / pageSize));
+  const rangeStart = totalItems === 0 ? 0 : (safePage - 1) * pageSize + 1;
+  const rangeEnd = Math.min(safePage * pageSize, totalItems);
+
+  // Exact scope counts for the KPI cards come from the shared bounded
+  // overview the host already subscribes to, not from the page currently on
+  // screen (a page can only ever show 15-200 rows of a national register).
+  const activeCount = (statusCounts.IN_TRANSIT || 0) + (statusCounts.DISPATCHED || 0);
+  const receivedCount = statusCounts.RECEIVED || 0;
+  const inTransitUnits = pendingRows.reduce(
+    (acc, sh) =>
+      acc +
+      (sh.items || []).reduce((itemAcc, item) => itemAcc + (Number(item.quantitySent) || 0), 0),
+    0
+  );
+
+  const exportShipmentsCSV = async () => {
     const columns = [
       { key: 'trackingCode', label: 'Tracking Code' },
       { key: 'dispatchDateAD', label: 'Dispatch Date (AD)' },
@@ -275,14 +367,33 @@ export const ShipmentRegister: React.FC<ShipmentRegisterProps> = ({
         ? 'All Branches (Consolidated)'
         : branches.find((b) => b.id === effectiveBranchId)?.name || `Branch ${effectiveBranchId}`;
 
-    exportToCSV({
-      filename: 'Shipments_Transfer_History',
-      reportTitle: 'Multi-Branch Transfer & Logistics Shipment Report',
-      branchName,
-      generatedBy: currentUser?.name ? `${currentUser.name} (${currentUser.role})` : currentUser?.email || 'System User',
-      data: filteredShipments,
-      columns,
-    });
+    try {
+      // Bounded export of the CURRENT filters. The server caps the legacy
+      // array, so this is a report of the latest matching rows — the register
+      // pages through everything on screen instead.
+      const data = await api.getShipments({
+        branchId: scopeBranchId,
+        search: searchQuery || undefined,
+        status: shipmentStatusFilter,
+        direction: shipmentMode === 'ALL' ? undefined : shipmentMode,
+        dateFromAD: startDateAD || undefined,
+        dateToAD: endDateAD || undefined,
+      });
+      if (data.length === 0) {
+        showToast('No shipments match the current filters.');
+        return;
+      }
+      exportToCSV({
+        filename: 'Shipments_Transfer_History',
+        reportTitle: 'Multi-Branch Transfer & Logistics Shipment Report',
+        branchName,
+        generatedBy: currentUser?.name ? `${currentUser.name} (${currentUser.role})` : currentUser?.email || 'System User',
+        data,
+        columns,
+      });
+    } catch (err: any) {
+      showToast(`Export failed: ${err?.message || err}`);
+    }
   };
 
   return (
@@ -294,27 +405,25 @@ export const ShipmentRegister: React.FC<ShipmentRegisterProps> = ({
         }`}>
           <span className={`text-xs font-semibold ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Total Transfers Recorded</span>
           <div className={`text-xl font-mono font-bold mt-1 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-            {filteredShipments.length} Shipments
+            {totalItems.toLocaleString('en-IN')} Shipments
           </div>
         </div>
         <div className="rounded-2xl p-4 border border-amber-500/30 bg-amber-500/5 shadow-sm">
           <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">Stock In-Transit</span>
           <div className="text-xl font-mono font-extrabold text-amber-600 dark:text-amber-400 mt-1">
-            {filteredShipments.filter((s) => s.status === 'IN_TRANSIT' || s.status === 'DISPATCHED').length} Active
+            {activeCount.toLocaleString('en-IN')} Active
           </div>
         </div>
         <div className="rounded-2xl p-4 border border-emerald-500/30 bg-emerald-500/5 shadow-sm">
           <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">Received Stock Transfers</span>
           <div className="text-xl font-mono font-extrabold text-emerald-600 dark:text-emerald-400 mt-1">
-            {filteredShipments.filter((s) => s.status === 'RECEIVED').length} Received
+            {receivedCount.toLocaleString('en-IN')} Received
           </div>
         </div>
         <div className="rounded-2xl p-4 border border-indigo-500/30 bg-indigo-500/5 shadow-sm">
           <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">Total In-Transit Quantity</span>
           <div className="text-xl font-mono font-extrabold text-indigo-600 dark:text-indigo-400 mt-1">
-            {filteredShipments
-              .filter((s) => s.status !== 'RECEIVED')
-              .reduce((acc, s) => acc + s.items.reduce((iAcc, item) => iAcc + item.quantitySent, 0), 0)}{' '}
+            {inTransitUnits.toLocaleString('en-IN')}{' '}
             Units
           </div>
         </div>
@@ -398,7 +507,7 @@ export const ShipmentRegister: React.FC<ShipmentRegisterProps> = ({
             className="flex items-center gap-2 rounded-xl bg-amber-600 px-4 py-2 text-xs font-bold text-white hover:bg-amber-500 shadow-md shadow-amber-900/20 transition-all cursor-pointer"
           >
             <FileSpreadsheet className="h-4 w-4" />
-            <span>Export History CSV ({filteredShipments.length})</span>
+            <span>Export History CSV ({totalItems})</span>
           </button>
         }
       />
@@ -424,14 +533,34 @@ export const ShipmentRegister: React.FC<ShipmentRegisterProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-              {filteredShipments.length === 0 ? (
+              {loading && rows.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="p-8 text-center text-slate-500 text-xs">
+                    Loading the transfer register…
+                  </td>
+                </tr>
+              ) : loadError && rows.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="p-6 text-center text-xs">
+                    <div className="font-bold text-rose-600 dark:text-rose-400">Could not load the transfer register.</div>
+                    <div className="mt-1 text-slate-500 dark:text-slate-400">{loadError}</div>
+                    <button
+                      type="button"
+                      onClick={() => setRetryToken((n) => n + 1)}
+                      className="mt-2 rounded-lg border border-slate-300 px-3 py-1 font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                    >
+                      Retry
+                    </button>
+                  </td>
+                </tr>
+              ) : rows.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="p-8 text-center text-slate-500 text-xs">
                     No shipments or stock transfers recorded.
                   </td>
                 </tr>
               ) : (
-                shipmentPagination.pagedItems.map((sh) => {
+                rows.map((sh) => {
                   const pendingCancelReq = approvalRequests?.find(
                     (r) =>
                       (r.type === 'CANCEL_RECEIVE_TRANSFER' ||
@@ -576,14 +705,17 @@ export const ShipmentRegister: React.FC<ShipmentRegisterProps> = ({
           </table>
         </div>
         <TablePagination
-          page={shipmentPagination.page}
-          pageCount={shipmentPagination.pageCount}
-          totalItems={shipmentPagination.totalItems}
-          rangeStart={shipmentPagination.rangeStart}
-          rangeEnd={shipmentPagination.rangeEnd}
-          pageSize={shipmentPagination.pageSize}
-          onPageChange={shipmentPagination.setPage}
-          onPageSizeChange={shipmentPagination.setPageSize}
+          page={safePage}
+          pageCount={pageCount}
+          totalItems={totalItems}
+          rangeStart={rangeStart}
+          rangeEnd={rangeEnd}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(1);
+          }}
           className="mt-1"
         />
       </div>

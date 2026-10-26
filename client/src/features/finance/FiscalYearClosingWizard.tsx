@@ -231,7 +231,10 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
         const [poResponse, piResponse, shipmentRows] = await Promise.all([
           api.getPurchaseOrders({ ...scope, all: true }),
           api.getPurchaseInvoices({ ...scope, all: true }),
-          api.getShipments(scope),
+          // Only in-flight transfers can block a close, so the read is
+          // status-filtered and therefore bounded — the year's whole dispatch
+          // history no longer has to fit in one response (VOL-3).
+          api.getShipments({ ...scope, status: 'DISPATCHED,IN_TRANSIT,DISCREPANCY' }),
         ]);
         if (cancelled) return;
         setCloseDocuments({
@@ -381,7 +384,7 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
         ? `${openRefs.length} inbound document(s) still open in ${fyCode}: ${openRefs
             .slice(0, 4)
             .join(', ')}${openRefs.length > 4 ? '…' : ''}. Fully receive or cancel before closing.`
-        : `${fyPos.length} purchase order(s) and ${fyShipments.length} shipment(s) in ${fyCode} are fully received, billed or cancelled.`,
+        : `${fyPos.length} purchase order(s); every transfer in ${fyCode} is received or cancelled.`,
     };
 
     // 2) Physical stock count reconciliation (audit batches).

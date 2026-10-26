@@ -29,8 +29,8 @@ finishes the read path instead, in ascending consumer risk. See
 
 | Order | ID | Task | Status | Effort | Depends on |
 |---|---|---|---|---|---|
-| 1 | [BOOT-1](BOOT-1.md) | Full-bootstrap summary via SQL; drop the unshipped ledger queries | `[~]` in progress | 1–2 days | — |
-| 2 | VOL-3 | Take `shipments` off the bootstrap (paged endpoint + KPI reads) | `[ ]` | 2–4 days | BOOT-1 (same fan-out) |
+| 1 | [BOOT-1](BOOT-1.md) | Full-bootstrap summary via SQL; drop the unshipped ledger queries | `[x]` done (`ad59a38`) | 1–2 days | — |
+| 2 | [VOL-3](VOL-3.md) | Take `shipments` off the bootstrap (paged endpoint + KPI reads) | `[~]` implemented, gates green | 2–4 days | BOOT-1 (same fan-out) |
 | 3 | VOL-4a | Take `customers` off the bootstrap (server search in pickers) | `[ ]` | 2–3 days | VOL-3 (App prop plumbing) |
 | 4 | VOL-4b | Take `customerDevices` off the bootstrap (paged register reads) | `[ ]` | 3–5 days | VOL-4a (shared paging pattern) |
 | 5 | SN-1 | Split `SESSION_NOTES.md` by year under `docs/session-notes/` | `[ ]` | 0.5 day | Round close (file passes ~5,000 lines) |
@@ -46,9 +46,10 @@ measurement before and after.
    drop the four unshipped queries, keep the pure rule under a real parity
    matrix, and record rows/time at 1× and 10×. Stop: response contract
    unchanged except the unread `vendorPayments` key, summary equals the slice.
-2. **VOL-3** — shipments only. Stop: no `shipments` in `/api/bootstrap`; the
-   register pages, dashboards read scoped aggregates, the ledger keeps its
-   bounded window.
+2. **VOL-3** — shipments only. Done when no `shipments` is in `/api/bootstrap`,
+   the register pages through `/api/shipments/page`, and the shell/dashboard
+   read `/api/shipments/overview`. In-flight rows are always included; older
+   history is the register's paged record.
 3. **VOL-4a → VOL-4b** — customers first (pickers move to the existing paged
    search), then customer devices (paged register). Stop: neither key in
    `/api/bootstrap`; a customer outside page 1 is selectable, and the device

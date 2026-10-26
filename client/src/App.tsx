@@ -48,6 +48,11 @@ import {
   type RegisterRefreshKey,
 } from './utils/registerRefreshDomains';
 import { invalidateSerialRegister } from './services/serialRegisterCache';
+import {
+  invalidateShipmentOverview,
+  useShipmentOverview,
+} from './services/shipmentOverviewCache';
+import { mergeShipmentWindow } from './services/shipmentOverviewStore';
 import { invalidateBranchStock, resetBranchStock } from './services/branchStockCache';
 import { invalidateExchangeDevices, resetExchangeDevices } from './services/exchangeDeviceCache';
 import { LoginModal } from './components/common/LoginModal';
@@ -548,7 +553,15 @@ export default function App() {
   const [purchaseInvoices, setPurchaseInvoices] = useState<PurchaseInvoice[]>([]);
   const [purchaseReturns, setPurchaseReturns] = useState<PurchaseReturn[]>([]);
   const [salesReturns, setSalesReturns] = useState<SalesReturn[]>([]);
-  const [shipments, setShipments] = useState<Shipment[]>([]);
+  // VOL-3: shipments left the bootstrap payload. The shell, dashboard KPI,
+  // notification center and receive lanes share one bounded scoped snapshot
+  // (exact counts + every in-flight row + a recent window); the transfer
+  // register pages its own reads through GET /api/shipments/page.
+  const shipmentOverview = useShipmentOverview(selectedBranchId);
+  const shipments = React.useMemo(
+    () => mergeShipmentWindow(shipmentOverview.pending, shipmentOverview.recent),
+    [shipmentOverview.pending, shipmentOverview.recent]
+  );
   const [stockOperations, setStockOperations] = useState<StockOperation[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [damageRecords, setDamageRecords] = useState<DamageRecord[]>([]);
@@ -679,7 +692,6 @@ export default function App() {
     if (data.purchaseInvoices) setPurchaseInvoices(data.purchaseInvoices);
     if (data.purchaseReturns) setPurchaseReturns(data.purchaseReturns);
     if (data.salesReturns) setSalesReturns(data.salesReturns);
-    if (data.shipments) setShipments(data.shipments);
     if (data.stockOperations) setStockOperations(data.stockOperations);
     if (data.fiscalYears) setFiscalYears(data.fiscalYears);
     if (data.auditLogs) setAuditLogs(data.auditLogs);
@@ -864,6 +876,9 @@ export default function App() {
     // The KPI surfaces read the scoped pending-procurement cache rather than
     // the purchase slices, so a manual refresh re-reads it too.
     invalidateProcurementPending();
+    // Shipments are a separate bounded read now (VOL-3); a full refresh must
+    // re-read the overview alongside the bootstrap slices.
+    invalidateShipmentOverview();
     try {
       const data = await api.getBootstrapState(requestBranchId, requestFiscalYearId || undefined);
       // Discard stale results if the user switched branch/fiscal year in the meantime
@@ -1040,7 +1055,9 @@ export default function App() {
     // A receipt credits the destination's stock, flips serial_log rows (paged
     // register mapping below) and writes TRANSFER_IN transaction_log rows, so
     // the Stock Movement Ledger must re-read along with the transfer register.
-    SHIPMENTS: ['shipments', 'stock', 'financialSummary'],
+    // Shipments themselves are no longer a bootstrap slice (VOL-3): the SSE
+    // handler refreshes the bounded shipment overview explicitly below.
+    SHIPMENTS: ['stock', 'financialSummary'],
     MASTER_DATA: ['customers', 'customerDevices', 'branches', 'suppliers', 'locations', 'companyProfile'],
     CATEGORIES: ['categories'],
     PRODUCTS: ['products', 'stock'],
@@ -1076,6 +1093,7 @@ export default function App() {
     consumableRegister: 0,
     returnsRegister: 0,
     salesInvoices: 0,
+    shipments: 0,
     customerDevices: 0,
     transactionLog: 0,
   });
@@ -1161,6 +1179,12 @@ export default function App() {
           // unpaid-bill total the shell/dashboard/vendor-bill picker read.
           if (domains.includes('PROCUREMENT') || domains.includes('SHIPMENTS')) {
             invalidateProcurementPending();
+          }
+          // Shipments are served by their own bounded overview/register reads,
+          // not a bootstrap slice (VOL-3). Approval processing also moves a
+          // transfer's status (cancel requests), so it counts as a writer.
+          if (domains.includes('SHIPMENTS') || domains.includes('APPROVALS')) {
+            invalidateShipmentOverview();
           }
           // Bump any paged registers these domains mutate so they re-fetch
           // their own current page (bootstrap slices alone don't cover them).
@@ -1793,7 +1817,6 @@ export default function App() {
         branches={branches}
         assets={assets}
         pendingPurchaseOrders={procurementPending.pendingPurchaseOrders}
-        shipments={shipments}
         financialSummary={financialSummary}
         categories={categories}
         selectedBranchId={selectedBranchId}
@@ -2320,7 +2343,6 @@ export default function App() {
         <Shipments
           currentUser={currentUser}
           activeTab="create-shipment"
-          shipments={shipments}
           products={products}
           branches={branches}
           stock={stock}
@@ -2336,6 +2358,7 @@ export default function App() {
           onCancelReceiveShipment={handleCancelReceiveShipment}
           onRequestApproval={handleCreateApprovalRequest}
           onCancelApproval={handleCancelApprovalRequest}
+          shipmentsRefresh={registerRefresh.shipments}
         />
       </React.Suspense>
     )),
@@ -2425,7 +2448,6 @@ export default function App() {
         <Shipments
           currentUser={currentUser}
           activeTab={activeTab}
-          shipments={shipments}
           products={products}
           branches={branches}
           stock={stock}
@@ -2441,6 +2463,7 @@ export default function App() {
           onCancelReceiveShipment={handleCancelReceiveShipment}
           onRequestApproval={handleCreateApprovalRequest}
           onCancelApproval={handleCancelApprovalRequest}
+          shipmentsRefresh={registerRefresh.shipments}
         />
       </React.Suspense>
     )),

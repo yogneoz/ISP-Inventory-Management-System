@@ -4,13 +4,13 @@ import { Truck, Search, PackageCheck, History, Send, Eye, X, Barcode, ArrowRight
 import { PageHeader } from '../../components/common/PageHeader';
 import { KeepMounted } from '../../components/common/KeepMounted';
 import { useDarkMode } from '../../contexts/DarkModeContext';
+import { useShipmentOverview } from '../../services/shipmentOverviewCache';
 import { ShipmentRegister } from './ShipmentRegister';
 import { CreateShipmentForm, type ShipmentFormLine } from './CreateShipmentForm';
 
 interface ShipmentsProps {
   currentUser?: User | null;
   activeTab?: string;
-  shipments: Shipment[];
   products: Product[];
   branches: Branch[];
   stock: InventoryStock[];
@@ -38,13 +38,14 @@ interface ShipmentsProps {
     requestData: Omit<ApprovalRequest, 'id' | 'requestNumber' | 'status' | 'requestedAtAD' | 'requestedAtBS'>
   ) => Promise<void>;
   onCancelApproval?: (requestId: string) => Promise<void>;
+  /** Bumped by App on every shipment/approval/full refresh; re-runs the paged read. */
+  shipmentsRefresh?: number;
   isDarkMode?: boolean;
 }
 
 export const Shipments: React.FC<ShipmentsProps> = ({
   currentUser,
   activeTab = 'shipment-list',
-  shipments,
   products,
   branches,
   stock,
@@ -57,6 +58,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
   onCancelReceiveShipment,
   onRequestApproval,
   onCancelApproval,
+  shipmentsRefresh = 0,
 }) => {
   const { isDarkMode } = useDarkMode();
   const [internalTab, setInternalTab] = useState<'REGISTER' | 'CREATE_SHIPMENT' | 'VIEW'>(
@@ -94,38 +96,10 @@ export const Shipments: React.FC<ShipmentsProps> = ({
   // Multi-Item Transfer Lines with Serial tracking
   const [lines, setLines] = useState<ShipmentFormLine[]>([]);
 
-  const filteredShipments = shipments.filter((sh) => {
-    // If branch user, show shipments involving their branch
-    const effectiveBranchId = userBranchId || selectedBranchId;
-    const matchesBranch =
-      effectiveBranchId === 'ALL' ||
-      sh.destinationBranchId === effectiveBranchId ||
-      sh.sourceBranchId === effectiveBranchId;
-    const matchesSearch =
-      (sh?.trackingCode || '').toLowerCase().includes((searchQuery || '').toLowerCase()) ||
-      (sh.sourceBranchName && (sh?.sourceBranchName || '').toLowerCase().includes((searchQuery || '').toLowerCase())) ||
-      (sh?.destinationBranchName || '').toLowerCase().includes((searchQuery || '').toLowerCase());
-    if (!matchesBranch || !matchesSearch) return false;
-
-    // Dispatch date range filter (AD)
-    if (startDateAD && sh.dispatchDateAD < startDateAD) return false;
-    if (endDateAD && sh.dispatchDateAD > endDateAD) return false;
-
-    // Transfer direction relative to the user's / selected branch
-    const referenceBranchId = userBranchId || (selectedBranchId !== 'ALL' ? selectedBranchId : null);
-    if (shipmentMode === 'CREATED') {
-      if (!sh.sourceBranchId) return false;
-      if (referenceBranchId && sh.sourceBranchId !== referenceBranchId) return false;
-    } else if (shipmentMode === 'RECEIVED') {
-      if (!sh.destinationBranchId) return false;
-      if (referenceBranchId && sh.destinationBranchId !== referenceBranchId) return false;
-    }
-
-    // Status filter
-    if (shipmentStatusFilter !== 'ALL' && sh.status !== shipmentStatusFilter) return false;
-
-    return true;
-  });
+  // The register pages its own rows now (VOL-3). The tab badge reads the same
+  // bounded, server-scoped overview the shell uses — not a fiscal year filtered
+  // in the browser.
+  const shipmentsOverview = useShipmentOverview(selectedBranchId);
 
   const handleResetShipmentFilters = () => {
     setStartDateAD('');
@@ -201,7 +175,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                 : 'bg-slate-200 text-slate-700'
             }`}
           >
-            {filteredShipments.length}
+            {shipmentsOverview.total.toLocaleString('en-IN')}
           </span>
         </button>
 
@@ -262,7 +236,9 @@ export const Shipments: React.FC<ShipmentsProps> = ({
           selectedBranchId={selectedBranchId}
           dateMode={dateMode}
           approvalRequests={approvalRequests}
-          filteredShipments={filteredShipments}
+          refreshToken={shipmentsRefresh}
+          statusCounts={shipmentsOverview.counts}
+          pendingRows={shipmentsOverview.pending}
           searchQuery={searchQuery}
           setSearchQuery={setSearchQuery}
           startDateAD={startDateAD}

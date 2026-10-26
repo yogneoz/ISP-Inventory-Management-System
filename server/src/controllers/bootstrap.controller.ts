@@ -86,7 +86,6 @@ const { branchId, fiscalYearId } = req.query;
       const pgProducts = data.products;
       const pgAssets = data.assets;
       const pgCustomerDevices = data.customerDevices;
-      const pgShipments = data.shipments;
       const pgAuditLogs = data.auditLogs;
       const pgApprovalRequests = data.approvalRequests;
 
@@ -130,7 +129,6 @@ const { branchId, fiscalYearId } = req.query;
         customers: data.customers,
         purchaseReturns: data.purchaseReturns,
         salesReturns: data.salesReturns,
-        shipments: pgShipments,
         fiscalYears: pgFiscalYears,
         auditLogs: pgAuditLogs,
         financialSummary,
@@ -151,6 +149,9 @@ const { branchId, fiscalYearId } = req.query;
         //   - purchaseInvoices  → GET /api/purchase-invoices  (paged envelope; register self-fetches)
         //   - salesInvoices     → GET /api/sales-invoices     (paged/searchable; register + returns picker)
         //   - vendorPayments    → GET /api/vendor-payments    (BOOT-1: the client never read this array)
+        //   - shipments         → GET /api/shipments/page     (VOL-3: register pages;
+        //                          GET /api/shipments/overview feeds the shell,
+        //                          dashboard and notification counts)
         // Their remaining wholesale consumers (dashboard/notification KPIs,
         // the FY closing wizard, the PI PO dropdown, the movement ledger,
         // StockOperations' panels, global search) are served by the client's

@@ -156,6 +156,11 @@ export function parseSerialHistory(rows: any[]): any[] {
  * the three was serialized. Vendor payments was serialized but no client
  * read it. Each still has a BOOTSTRAP_TABLES mapping for the on-demand
  * `/api/bootstrap/local?key=` slices.
+ *
+ * VOL-3 (2026-10-26): shipments is NOT read here either. The transfer
+ * register pages through GET /api/shipments/page and the shell/dashboard read
+ * GET /api/shipments/overview (exact counts + the actionable rows), so the
+ * fiscal year's entire dispatch history no longer enters the login payload.
  */
 export async function fetchOperationalData(
   pool: QueryExecutor,
@@ -169,7 +174,6 @@ export async function fetchOperationalData(
   customers: any[];
   purchaseReturns: any[];
   salesReturns: any[];
-  shipments: any[];
   auditLogs: any[];
   suppliers: any[];
   users: any[];
@@ -187,7 +191,6 @@ export async function fetchOperationalData(
     customers,
     purchaseReturns,
     salesReturns,
-    shipments,
     auditLogs,
     suppliers,
     users,
@@ -206,7 +209,6 @@ export async function fetchOperationalData(
     fetchTable(pool, BOOTSTRAP_TABLES.customers, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.purchaseReturns, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.salesReturns, scopeParams),
-    fetchTable(pool, BOOTSTRAP_TABLES.shipments, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.auditLogs, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.suppliers, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.users, scopeParams),
@@ -223,6 +225,9 @@ export async function fetchOperationalData(
     // register searches GET /api/sales-invoices and the Sales register pages
     // it directly, so the fiscal year's invoices never enter first paint. The
     // column mapping stays in columnMappings.ts for the operational cache.
+    // NOTE: shipments is served by GET /api/shipments/page (register) and
+    // GET /api/shipments/overview (shell/dashboard), so the dispatch history
+    // is read in bounded slices instead of on every login.
   ]);
 
   return {
@@ -234,7 +239,6 @@ export async function fetchOperationalData(
     customers,
     purchaseReturns,
     salesReturns,
-    shipments,
     auditLogs,
     suppliers,
     users,

@@ -186,6 +186,12 @@ export const ReceiveTransferPanel: React.FC = () => {
                 <Inbox className={`h-4 w-4 text-amber-500 dark:text-amber-400`} />
                 <span>Inter-Branch Transfer Dispatches & Incoming Stock</span>
               </h3>
+              {/* VOL-3: shipments left the bootstrap payload. This lane keeps
+                  every in-flight transfer plus the latest history window; the
+                  Shipment Register pages the full record. */}
+              <p className="mt-0.5 text-[10px] text-slate-400 dark:text-slate-500">
+                Every in-flight transfer, plus the latest history window — open the Shipment Register for older records.
+              </p>
             </div>
 
             {/* Status Filter Tabs & Header Actions */}

@@ -123,6 +123,8 @@ export const api = {
 
   // Shipments
   getShipments: procurement.getShipments,
+  getShipmentPage: procurement.getShipmentPage,
+  getShipmentOverview: procurement.getShipmentOverview,
   createShipment: procurement.createShipment,
   receiveShipment: procurement.receiveShipment,
   cancelShipment: procurement.cancelShipment,

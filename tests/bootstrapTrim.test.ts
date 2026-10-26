@@ -84,7 +84,7 @@ describe('bootstrap trim: three ledgers out of the payload, deferred slices keep
       'financialSummary must be served by the aggregate SQL producer'
     );
     assert.ok(
-      !/fetchTable\(pool, BOOTSTRAP_TABLES\.(purchaseOrders|purchaseInvoices|stockOperations|vendorPayments)/.test(
+      !/fetchTable\(pool, BOOTSTRAP_TABLES\.(purchaseOrders|purchaseInvoices|stockOperations|vendorPayments|shipments)/.test(
         fs.readFileSync(path.join(ROOT, 'server/src/models/bootstrap.repo.ts'), 'utf8')
       ),
       'the bootstrap fan-out must not read an unshipped ledger again'
@@ -161,7 +161,10 @@ describe('bootstrap trim: three ledgers out of the payload, deferred slices keep
       assert.ok(!(UNSHIPPED_PAYMENTS in json), 'the client never read vendorPayments; it must not ship');
       assert.ok('financialSummary' in json, 'financialSummary must stay in the payload (computed server-side)');
       assert.ok(Array.isArray(json.stock), 'the rest of the payload must be intact');
-      assert.ok(Array.isArray(json.shipments), 'the rest of the payload must be intact');
+      // VOL-3: the transfer register pages its own reads and the shell/KPI
+      // surfaces read the scoped overview, so the fiscal year's dispatch
+      // history no longer enters the login payload.
+      assert.ok(!('shipments' in json), 'shipments must be served by /api/shipments/page + /overview, not bootstrap');
     });
 
     for (const key of TRIMMED_KEYS) {

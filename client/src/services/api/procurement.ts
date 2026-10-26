@@ -290,21 +290,76 @@ export async function getVendorLedger(
 
 // Shipments
 /**
- * Shipment rows, optionally scoped to one branch (either end of the
- * transfer) and an AD dispatch-date range. The FY closing wizard uses the
- * scope; the shipment register keeps reading the bootstrap slice.
+ * Filters shared by every shipment read. Branch scope is a server decision:
+ * a branch-bound account is pinned to its own branches whatever it sends.
  */
-export async function getShipments(params?: {
+export interface ShipmentQuery {
   branchId?: string;
   dateFromAD?: string;
   dateToAD?: string;
-}): Promise<Shipment[]> {
+  /** One status or a comma list (e.g. 'IN_TRANSIT,DISCREPANCY'). */
+  status?: string;
+  /** Register direction relative to the branch (CREATED = source end). */
+  direction?: 'CREATED' | 'RECEIVED';
+  search?: string;
+  /** Warehouse receiving lane: only shipments destined for these branches. */
+  destinationBranchIds?: string[];
+}
+
+function shipmentQueryString(params: ShipmentQuery & { page?: number; pageSize?: number } = {}): string {
   const search = new URLSearchParams();
-  if (params?.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
-  if (params?.dateFromAD) search.append('dateFromAD', params.dateFromAD);
-  if (params?.dateToAD) search.append('dateToAD', params.dateToAD);
-  const query = search.toString() ? `?${search.toString()}` : '';
-  return fetchJson(`/api/shipments${query}`);
+  if (params.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
+  if (params.dateFromAD) search.append('dateFromAD', params.dateFromAD);
+  if (params.dateToAD) search.append('dateToAD', params.dateToAD);
+  if (params.status && params.status !== 'ALL') search.append('status', params.status);
+  if (params.direction) search.append('direction', params.direction);
+  if (params.search) search.append('search', params.search);
+  if (params.destinationBranchIds && params.destinationBranchIds.length > 0) {
+    search.append('destinationBranchIds', params.destinationBranchIds.join(','));
+  }
+  if (params.page !== undefined) search.append('page', String(params.page));
+  if (params.pageSize !== undefined) search.append('pageSize', String(params.pageSize));
+  return search.toString() ? `?${search.toString()}` : '';
+}
+
+/**
+ * Bare-array shipment read (legacy contract, server-bounded). The FY closing
+ * wizard uses the year scope; every register/receive screen uses the paged or
+ * overview reads below — the array never enters the bootstrap payload.
+ */
+export async function getShipments(params?: ShipmentQuery): Promise<Shipment[]> {
+  return fetchJson(`/api/shipments${shipmentQueryString(params)}`);
+}
+
+/** One server-paged slice of the transfer register. */
+export interface ShipmentPage {
+  data: Shipment[];
+  page: number;
+  pageSize: number;
+  totalItems: number;
+}
+
+export async function getShipmentPage(
+  params: ShipmentQuery & { page?: number; pageSize?: number } = {}
+): Promise<ShipmentPage> {
+  return fetchJson(`/api/shipments/page${shipmentQueryString(params)}`);
+}
+
+/**
+ * Small scoped snapshot behind the shell badges, dashboard KPI and
+ * notification center: exact status counts plus the actionable (still in
+ * flight) rows and a bounded recent window.
+ */
+export interface ShipmentOverview {
+  counts: Record<string, number>;
+  total: number;
+  pending: Shipment[];
+  recent: Shipment[];
+  pendingCapped: boolean;
+}
+
+export async function getShipmentOverview(branchId?: string): Promise<ShipmentOverview> {
+  return fetchJson(`/api/shipments/overview${shipmentQueryString({ branchId })}`);
 }
 
 export async function createShipment(shipment: Partial<Shipment>): Promise<Shipment> {

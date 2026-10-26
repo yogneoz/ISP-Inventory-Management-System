@@ -902,7 +902,12 @@ export interface BootstrapState {
   purchaseReturns?: PurchaseReturn[];
   salesReturns?: SalesReturn[];
   customerPayments?: CustomerPayment[];
-  shipments: Shipment[];
+  /**
+   * Dropped from the bootstrap payload (VOL-3: GET /api/shipments/page serves
+   * the register and GET /api/shipments/overview the shell/KPI counts), so
+   * this slice is optional.
+   */
+  shipments?: Shipment[];
   /**
    * Dropped from the bootstrap payload (served by the paged
    * GET /api/stock-operations endpoint), so this slice is optional — the

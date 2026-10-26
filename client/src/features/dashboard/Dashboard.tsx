@@ -5,7 +5,6 @@ import {
   InventoryStock,
   Asset,
   PurchaseOrder,
-  Shipment,
   TransactionLog,
   FinancialSummary,
   User,
@@ -18,6 +17,7 @@ import { calculateFixedAssetValues } from '../../utils/depreciation';
 import { formatNPR } from '../../utils/nprFormat';
 import StatCard from '../../components/common/StatCard';
 import { api } from '../../services/api';
+import { useShipmentOverview } from '../../services/shipmentOverviewCache';
 import {
   TrendingUp,
   AlertTriangle,
@@ -50,7 +50,6 @@ interface DashboardProps {
   assets: Asset[];
   /** Scoped open POs from the shared KPI read (statuses DRAFT→PURCHASED). */
   pendingPurchaseOrders: PurchaseOrder[];
-  shipments: Shipment[];
   financialSummary: FinancialSummary;
   categories: Category[];
   selectedBranchId: string;
@@ -84,7 +83,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
   branches,
   assets,
   pendingPurchaseOrders,
-  shipments,
   financialSummary,
   categories,
   selectedBranchId,
@@ -266,19 +264,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
       po.status === 'SENT' || po.status === 'APPROVED' || po.status === 'DRAFT'
   );
 
-  // Active Shipments filtered by branch context
-  const filteredShipments =
-    selectedBranchId === 'ALL'
-      ? shipments.filter((sh) => canSeeAll || allowedBranchIds.includes(sh.destinationBranchId) || (sh.sourceBranchId ? allowedBranchIds.includes(sh.sourceBranchId) : false))
-      : shipments.filter(
-          (sh) =>
-            sh.destinationBranchId === selectedBranchId ||
-            sh.sourceBranchId === selectedBranchId
-        );
-
-  const activeShipments = filteredShipments.filter(
-    (sh) => sh.status === 'DISPATCHED' || sh.status === 'IN_TRANSIT'
-  );
+  // Active shipments come from the scoped aggregate (VOL-3), not from a full
+  // transfer array in the payload: the server counts the branch's in-flight
+  // rows and the KPI reads that number.
+  const shipmentOverview = useShipmentOverview(selectedBranchId);
+  const activeShipmentCount =
+    (shipmentOverview.counts.IN_TRANSIT || 0) + (shipmentOverview.counts.DISPATCHED || 0);
 
   // Total Fixed Assets Net Book Value filtered by branch context
   const filteredAssets =
@@ -462,7 +453,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           tone="sky"
           onClick={() => onNavigateTab('po-list')}
           title="View purchase orders"
-          hint={`${activeShipments.length} Active Shipments`}
+          hint={`${activeShipmentCount} Active Shipments`}
         />
       </div>
 
