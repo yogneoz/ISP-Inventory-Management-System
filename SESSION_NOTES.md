@@ -66,7 +66,7 @@ trim/slices/FY, cache parity, returns-picker and transaction-log suites
 skips**, docs-count gate at 1255; build clean and bundle budget
 **279.0 kB / 15.7 kB** (320 / 17); both convention guards green.
 
-## ✅ VOL-3 implemented — shipments leave the bootstrap, the register pages (2026-10-26)
+## ✅ VOL-3 shipped — shipments leave the bootstrap, the register pages (2026-10-26)
 
 **Problem.** `shipments` was the last whole-ledger array in the login payload
 besides customers and customer devices. The register filtered the fiscal year in
@@ -117,6 +117,10 @@ real HTTP, repo filters, mirror twin, store scope/dedupe, bootstrap and
 register-refresh guards); full suite **1286 tests, 1284 pass, 0 fail, 2
 Windows-only skips**, docs-count gate at 1286; build clean and bundle budget
 **279.9 kB / 15.8 kB** (320 / 17); both convention guards green.
+
+**Landed** as `acafd52` and pushed to `main`; CI run
+[40288667413](https://github.com/yogneoz/ISP-Inventory-Management-System/actions/runs/40288667413)
+(`typecheck-and-test`) green in 327 s.
 
 ## ✅ Round 2 closed — the read path no longer scales with history (2026-10-26)
 

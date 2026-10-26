@@ -1,6 +1,6 @@
 # VOL-3 — shipments leave the bootstrap; the register pages
 
-Status: `[~]` implemented, gates green · Created 2026-10-26 · Estimate 2–4 days
+Status: `[x]` done (`acafd52`) · Created 2026-10-26 · Estimate 2–4 days
 Round: [Round 3](README.md) · Order: 2 · Depends on BOOT-1
 
 ## Problem
@@ -115,3 +115,9 @@ start of Round 2), and the two new reads run only on the screens that need them.
 | Receive lanes show a bounded history window | Both lanes include every in-flight row; the panel says so and points at the paged register |
 | A page boundary duplicates/skips rows | Stable `(created_at, id)` order whenever a page/limit is requested |
 | Search on item JSON is slow at 10× | Bounded by status/date/branch first; `idx_shipments_global_trgm` already backs the global search on the same column |
+
+## Close-out
+
+Committed as `acafd52` ("Page the transfer register off the bootstrap") and
+pushed to `main`. [CI run 40288667413](https://github.com/yogneoz/ISP-Inventory-Management-System/actions/runs/40288667413)
+(`typecheck-and-test`) passed in 327 s.
