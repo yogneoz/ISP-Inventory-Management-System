@@ -12,9 +12,9 @@ import { useClientPagination, TablePagination } from '../../components/common/Ta
 import StatCard from '../../components/common/StatCard';
 import { FilterCard } from '../../components/common/FilterCard';
 import { PageHeader } from '../../components/common/PageHeader';
+import { api } from '../../services/api';
 
 interface StockMovementLedgerProps {
-  transactionLogs: TransactionLog[];
   products: Product[];
   branches: Branch[];
   stock: InventoryStock[];
@@ -23,11 +23,14 @@ interface StockMovementLedgerProps {
   shipments?: Shipment[];
   purchaseOrders?: PurchaseOrder[];
   selectedBranchId: string;
+  fiscalYearStartAD?: string;
+  fiscalYearEndAD?: string;
+  /** Bumped by App on every domain that writes transaction_logs. */
+  sseRefreshKey?: number;
   dateMode: 'BS' | 'AD';
 }
 
 export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
-  transactionLogs,
   products,
   branches,
   stock,
@@ -36,9 +39,45 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
   shipments = [],
   purchaseOrders = [],
   selectedBranchId,
+  fiscalYearStartAD,
+  fiscalYearEndAD,
+  sseRefreshKey = 0,
   dateMode,
 }) => {
   const [activeBranchId, setActiveBranchId] = useState<string>(selectedBranchId);
+
+  // The year's transaction log is no longer in the bootstrap. This screen
+  // reads its own bounded window for the selected fiscal year/branch and
+  // merges it with the stock-operation and damage-record arrays it still
+  // receives; the window is capped by the server and the notice below says so.
+  const [transactionLogs, setTransactionLogs] = useState<TransactionLog[]>([]);
+  const [logsLoading, setLogsLoading] = useState(true);
+  const [logsError, setLogsError] = useState('');
+  const [logsCapped, setLogsCapped] = useState(false);
+  const [logsRetryKey, setLogsRetryKey] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    setLogsLoading(true);
+    setLogsError('');
+    api.getTransactionLogs({
+      branchId: activeBranchId,
+      dateFromAD: fiscalYearStartAD,
+      dateToAD: fiscalYearEndAD,
+      all: true,
+    })
+      .then((envelope) => {
+        if (!alive) return;
+        setTransactionLogs(Array.isArray(envelope.data) ? envelope.data : []);
+        setLogsCapped(Boolean(envelope.capped));
+      })
+      .catch((err: any) => {
+        if (alive) setLogsError(err?.message || 'Failed to load the transaction log.');
+      })
+      .finally(() => {
+        if (alive) setLogsLoading(false);
+      });
+    return () => { alive = false; };
+  }, [activeBranchId, fiscalYearStartAD, fiscalYearEndAD, sseRefreshKey, logsRetryKey]);
   const [startDateAD, setStartDateAD] = useState<string>('');
   const [endDateAD, setEndDateAD] = useState<string>('');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
@@ -146,7 +185,11 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
     }];
   });
 
-  const effectiveTransactionLogs = [...transactionLogs, ...operationLedgerLogs, ...damageRecordLedgerLogs];
+  const effectiveTransactionLogs = [...transactionLogs, ...operationLedgerLogs, ...damageRecordLedgerLogs]
+    .sort((a, b) => {
+      const byTime = String(b.timestampAD || '').localeCompare(String(a.timestampAD || ''));
+      return byTime !== 0 ? byTime : String(b.id || '').localeCompare(String(a.id || ''));
+    });
 
   // Date Presets
   const applyPreset = (preset: 'THIS_MONTH' | 'LAST_30_DAYS' | 'THIS_YEAR' | 'ALL_TIME') => {
@@ -606,6 +649,36 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
           </>
         }
       />
+
+      {(logsLoading || logsError || logsCapped) && (
+        <div
+          className={`rounded-xl border px-3 py-2 text-[11px] ${
+            logsError
+              ? 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/30 dark:bg-rose-950/30 dark:text-rose-300'
+              : 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/30 dark:bg-amber-950/30 dark:text-amber-300'
+          }`}
+          role="status"
+        >
+          {logsError ? (
+            <span className="flex flex-wrap items-center gap-2">
+              <span>{logsError} Showing only the operation and damage rows already loaded.</span>
+              <button
+                type="button"
+                onClick={() => setLogsRetryKey((v) => v + 1)}
+                className="rounded-lg border border-rose-300 px-2 py-0.5 font-bold text-rose-700 hover:bg-rose-100 dark:border-rose-500/40 dark:text-rose-300 dark:hover:bg-rose-950/40 cursor-pointer"
+              >
+                Retry
+              </button>
+            </span>
+          ) : logsLoading ? (
+            <span>Loading stock transaction logs…</span>
+          ) : (
+            <span>
+              Showing the most recent 5,000 movements for this fiscal year. Narrow the branch or date range to see older rows.
+            </span>
+          )}
+        </div>
+      )}
 
       {/* VIEW 1: Summary Matrix Table - Maximize height */}
       {viewTab === 'SUMMARY_MATRIX' && (

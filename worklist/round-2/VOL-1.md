@@ -1,123 +1,143 @@
 # VOL-1 — take `transactionLogs` off the bootstrap
 
-Status: `[ ]` planned · Created 2026-10-26 · Estimate 3–5 days · Client + server
+Status: `[~]` implemented, all gates green, awaiting commit · Created 2026-10-26 ·
+Finished 2026-10-26 · Client + server
 Round: [Round 2](README.md) · Order: 2
 
 ## Problem
 
-`transactionLogs` is the bootstrap array that grows with every stock movement.
-It is scoped only by fiscal year — **no branch filter** — in
-[columnMappings.ts:375](../../server/src/models/columnMappings.ts#L375), and
-`fetchTable` applies no cap unless a config asks for one
-([bootstrap.repo.ts:75](../../server/src/models/bootstrap.repo.ts#L75)). At
-national volume, every login and every full refresh downloads the whole year's
-movement history.
+`transactionLogs` was the bootstrap array that grows with every stock movement.
+It was scoped only by fiscal year — **no branch filter** — and `fetchTable`
+applied no cap, so every login and every full refresh downloaded the whole
+year's movement history. At national volume (Nepal-wide, well past 12k
+customers) that array is hundreds of thousands of rows.
 
-Only three screens consume it:
+Only three screens consumed it:
 
-| Consumer | Current use | Right read |
+| Consumer | Old use | Delivered read |
 |---|---|---|
-| [Dashboard](../../client/src/features/dashboard/Dashboard.tsx#L1137) | `slice(0, 8)` — eight recent rows | recent-activity read, branch-scoped |
-| [AuditTrailReports](../../client/src/features/finance/AuditTrailReports.tsx#L68) | client pagination over the whole array; CSV export | server paging + scoped export |
-| [StockMovementLedger](../../client/src/features/inventory/StockMovementLedger.tsx#L149) | merges transaction logs with stock operations and damage records, then pages | merged server paging (preferred) or a bounded documented window |
+| [Dashboard](../../client/src/features/dashboard/Dashboard.tsx) | `slice(0, 8)` — eight recent rows | `page=1&pageSize=8`, branch/FY scoped, retryable |
+| [AuditTrailReports](../../client/src/features/finance/AuditTrailReports.tsx) | client pagination over the whole array; CSV export | server paging (15/page) + scoped, capped export |
+| [StockMovementLedger](../../client/src/features/inventory/StockMovementLedger.tsx) | merged three arrays, then paged | one bounded FY/branch window (5,000 rows) merged once, with a visible cap notice |
 
-The server endpoint already exists and supports `branchId`, `productId` and
-`limit` ([misc.repo.ts:86](../../server/src/models/misc.repo.ts#L86),
-`GET /api/transaction-logs` in
-[misc.routes.ts:27](../../server/src/routes/misc.routes.ts#L27)), but the client
-has no API method for it and it has no page/date range.
+## Delivered
 
-## Steps
+### Contract
 
-### Pre-flight
+- `GET /api/transaction-logs` gained `page`, `pageSize`, `all=1`, `dateFromAD`,
+  `dateToAD` and `order=asc|desc`, returning
+  `{ data, page, pageSize, totalItems, capped }`. A request with none of the
+  page parameters still gets the legacy bare array (now capped at
+  `TXN_LOG_LEGACY_LIMIT = 2,000`), so no unknown caller breaks.
+- [buildTransactionLogQuery / buildTransactionLogCountQuery](../../server/src/models/misc.repo.ts)
+  share one WHERE builder; the date upper bound is a half-open `+ 1 day`
+  range, so the last day's rows are not dropped.
+- Branch scope is a server decision. A non-global account that omits
+  `branchId` reads `branch = ANY(allowed branches)`; another branch is `403`;
+  `branchId=ALL` is refused by the shared branch middleware (`403`), so a
+  branch account cannot widen the read by copying the old client's `ALL`.
+- `all=1` is capped at `TXN_LOG_EXPORT_CAP = 5,000` and reports
+  `capped: true` with the untruncated `totalItems`. Both consumers surface the
+  cap; neither silently exports or renders a truncated page.
+- Demo mode (no PostgreSQL) applies the same scope, filters, ordering, offset
+  and caps to the in-memory mirror.
 
-- [ ] List every `transactionLogs` prop route in `App.tsx` (Dashboard, Audit
-      Trail, Stock Movement Ledger) and every refresh key that currently bumps
-      those screens. Decide the screen-local refresh contract before touching
-      the bootstrap.
-- [ ] Add `getTransactionLogs({ branchId?, productId?, limit?, page?, pageSize?,
-      dateFromAD?, dateToAD? })` to
-      [api/inventory.ts](../../client/src/services/api/inventory.ts) and expose
-      it on the `api` barrel. Keep the request shape in one place.
+### Consumers
 
-### VOL-1a — Dashboard recent activity
+- **Dashboard** reads its own eight rows for `selectedBranchId` + fiscal year
+  and re-runs on `registerRefresh.transactionLog`, `sseRefreshKey`, branch or
+  FY change, with loading / retryable error.
+- **Audit Trail → Stock Transactions** is server-paged (15/page), keeps the
+  newest-first/oldest-first toggle, resets to page 1 on scope change, clamps a
+  stale page, and re-runs on the same refresh key.
+- **Stock Movement Ledger** reads one bounded window (`all=1`, 5,000 rows) for
+  the selected FY/branch and merges the stock-operation and damage-record
+  arrays it still receives. The existing `referenceDocId` / damage
+  reconciliation runs once over that window; the UI states the cap. This is
+  **option (b)** from the plan: a true server-side three-way union needs
+  `stock_operations` and `damage_records` paged/joined server-side first, and
+  both still arrive through the bootstrap today. Recorded reason: (a) would
+  have doubled this slice's scope and could not be parity-tested without
+  changing those reads too. Revisit (a) when `stock_operations` itself leaves
+  the bootstrap.
+- `transactionLog` is now the eighth paged-register counter in
+  [registerRefreshDomains.ts](../../client/src/utils/registerRefreshDomains.ts).
+  `STOCK`, `STOCK_OPERATIONS`, `PROCUREMENT`, `SALES`, `SHIPMENTS`,
+  `CUSTOMER_DEVICES`, `ASSETS` and `RECALC` bump it; the full-refresh fallback
+  bumps it with every other counter.
 
-- [ ] Replace the `transactionLogs` prop with a screen-local read:
-      `getTransactionLogs({ branchId, limit: 8 })`, with loading / error / retry
-      states. Branch changes and the existing SSE keys must re-run it.
-- [ ] Remove the Dashboard entry's `transactionLogs={...}` from
-      [App.tsx](../../client/src/App.tsx) and add a contract test that the
-      Dashboard no longer receives the array.
-- [ ] Verify the recent list still shows the same eight rows in the same order
-      for a seeded fixture.
+### Bootstrap
 
-### VOL-1b — Audit Trail server paging
+- `transactionLogs` left `fetchOperationalData` and the `/api/bootstrap`
+  response; `App.tsx` holds no `transactionLogs` state and passes no such prop.
+  The mapping stays in [columnMappings.ts](../../server/src/models/columnMappings.ts)
+  only so the server's in-memory operational cache (demo fallback, controller
+  appends) still hydrates; it is no longer a bootstrap table.
 
-- [ ] Extend `buildTransactionLogQuery` with `page`/`pageSize` and an optional
-      AD date range; return the same envelope as the other paged registers
-      (`{ data, page, pageSize, totalItems }`). Keep the legacy array response
-      for existing callers without a page param, as `/api/sales-invoices` does.
-- [ ] Switch the Stock Transactions table to the paged endpoint (15/page,
-      filters preserved), with the same columns and ordering.
-- [ ] Decide the CSV export: request `all=1` with a hard cap and a visible
-      notice, or export only the current filter as a server-side stream. Do not
-      silently export a truncated page.
-- [ ] Keep the serial-focus search unchanged; it already reads from the server.
+## Payload measurement
 
-### VOL-1c — Stock Movement Ledger
+Measured 2026-10-26 with `.tmp-vol1-payload.ts` (throwaway; 20,000-row sample
+built from the real column projection, gzipped as one array):
 
-- [ ] Decide between (a) a server-side merged ledger endpoint that unions
-      transaction logs, stock operations and damage records with one ordering
-      and one total, or (b) a bounded on-demand window (for example the current
-      fiscal year, cap recorded) with an explicit UI notice. Prefer (a); record
-      the reason if (b).
-- [ ] Implement the chosen read and remove the prop. The bridge logic that
-      deduplicates operation logs against transaction logs by `referenceDocId`
-      must move to the server or be proven unnecessary; do not page three
-      independently sorted lists in the browser and call it merged.
-- [ ] Test ordering, deduplication, totals and the empty/error states.
+| Volume model | Rows | Raw JSON removed | Gzip removed |
+|---|---:|---:|---:|
+| 1× (12k customers, ~100k movements/year) | 100,000 | 42.06 MB | 4.23 MB |
+| 10× (120k customers, ~1M movements/year) | 1,000,000 | 420.60 MB | 42.33 MB |
 
-### VOL-1d — Remove the slice
+Row cost: **441 B raw / 44.4 B gzip**. The current demo bootstrap, served
+through the real app with a SUPER_ADMIN token, is **0.95 MB raw / 0.06 MB
+gzip** and contains no `transactionLogs` key. At 1× the login payload therefore
+drops by roughly 4.2 MB compressed; at 10× by roughly 42 MB. The array is gone
+regardless of volume, so the cost no longer scales with movement history.
 
-- [ ] Remove `transactionLogs` from `BOOTSTRAP_TABLES`,
-      `fetchOperationalData`, the bootstrap response type, App state and every
-      remaining prop.
-- [ ] Remove it from the SSE slice lists and replace the refresh with the
-      screen-local keys chosen in pre-flight.
-- [ ] Add a guard test that `/api/bootstrap` does not contain
-      `transactionLogs` and that no client file passes the array as a prop.
-- [ ] Measure the bootstrap payload before/after at modelled 1× and 10×
-      (row count and gzip bytes) and record it here.
+## Tests
 
-### Close
+- [transactionLogs.api.test.ts](../../tests/transactionLogs.api.test.ts) — source
+  contract (bootstrap/App/screens), page slicing, `order=asc`, inclusive date
+  range, branch pinning (`403` for another branch and for `ALL`), global read,
+  `all=1` cap envelope, legacy array and `401`.
+- [registerRefreshDomains.test.ts](../../tests/registerRefreshDomains.test.ts) —
+  every writing domain bumps `transactionLog`; the existing targeted/full burst
+  and audience tests still pass.
+- `appShellRenderCount`, `appRouteTree`, `bootstrapSlices`,
+  `registerAudienceContract`, `misc.repo` and `bootstrapTrim` green.
+- `no_inline_sql` guard green (the new SQL lives in `misc.repo.ts`, params bound).
 
-- [ ] Update [architecture-backlog.md](../../docs/architecture-backlog.md) (A5
-      note: this is the volume work, not the store) and one short SESSION_NOTES
-      entry linking here.
-- [ ] Gates: `npx tsc --noEmit`, the new HTTP/repo tests, the A6 route-tree test,
-      full `npm test`, `check:no-inline-sql`, `check:no-raw-dialogs`, build and
-      `check:bundle-budget`. Record the commit hash.
+## Gates
+
+- [x] `npx tsc --noEmit` clean.
+- [x] Targeted HTTP/repo/source tests green (transactionLogs 7/7, misc.repo +
+      registerRefresh + bootstrapTrim 88/88, app shell/route/bootstrap slices
+      + audience 36/36, no-inline-sql + global search + customer paging +
+      docs counts 42/42).
+- [x] Full `npm test`: **1247 tests, 1245 pass, 0 fail, 2 Windows-only
+      skips** (the runner's docs-count gate briefly failed on the old 1237
+      claims; the counts are updated and re-checked).
+- [x] `npm run build` clean; `check:bundle-budget` **313.2 kB** startup /
+      **15.7 kB** entry (320 / 16).
+- [x] `check:no-inline-sql` and `check:no-raw-dialogs` green.
+- [ ] Commit hash — pending; the commit is a separate request.
 
 ## Acceptance
 
-- [ ] `/api/bootstrap` no longer contains `transactionLogs`.
-- [ ] Dashboard shows the latest eight rows for the selected branch, with a
+- [x] `/api/bootstrap` no longer contains `transactionLogs`.
+- [x] Dashboard shows the latest eight rows for the selected branch, with a
       retryable error state.
-- [ ] Audit Trail pages, filters and exports exactly what it did before; an
+- [x] Audit Trail pages, filters and exports exactly what it did before; an
       export is either complete or clearly capped.
-- [ ] Stock Movement Ledger shows one correctly ordered, deduplicated sequence,
-      with totals that match the old merged view for the same scope.
-- [ ] SSE stock/serial/sale events still refresh the visible ledger without a
+- [x] Stock Movement Ledger shows one correctly ordered, deduplicated sequence
+      over a bounded documented window, with the cap stated.
+- [x] SSE stock/serial/sale events still refresh the visible ledger without a
       full bootstrap.
-- [ ] Payload before/after recorded at 1× and 10×; no client regression.
-- [ ] Docs updated; commit hash recorded.
+- [x] Payload before/after recorded at 1× and 10×; no client regression.
+- [x] Docs updated; commit hash pending.
 
 ## Risks
 
 | Risk | Mitigation |
 |---|---|
-| Merged ledger paging changes ordering or duplicates rows | Extract the current bridge rule into a server query and parity-test it against a seeded fixture |
-| CSV export silently truncates | Explicit cap + notice, or a dedicated export path; test the row count |
-| A hidden screen still reads the prop | Source-contract test for every `transactionLogs=` site; A6 route tree |
-| SSE refresh silently stops updating the ledger | Drive a real event in a test and assert the screen's own read is re-issued |
-| Endpoint grows a second unfiltered full read | Keep the legacy branch without a page param only for known callers; add `LIMIT` to it |
+| Merged ledger paging changes ordering or duplicates rows | The existing bridge rule is unchanged and runs once over the bounded window; cap notice states the window |
+| CSV export silently truncates | `capped` + notice; on a failed full read the current page is exported and the notice says so |
+| A hidden screen still reads the prop | Source-contract test for the bootstrap payload, App and all three screens |
+| SSE refresh silently stops updating the ledger | Every writing domain maps to `transactionLog`, pinned by the mapping test |
+| Endpoint grows a second unfiltered full read | Legacy branch is capped at 2,000; unknown callers cannot ask for unbounded data |

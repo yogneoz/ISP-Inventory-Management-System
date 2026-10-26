@@ -94,7 +94,6 @@ const { branchId, fiscalYearId } = req.query;
       const pgShipments = data.shipments;
       const pgOps = data.stockOperations;
       const pgAuditLogs = data.auditLogs;
-      const pgTransactionLogs = data.transactionLogs;
       const pgApprovalRequests = data.approvalRequests;
 
       // One summary rule for both the full bootstrap and the targeted slice
@@ -141,7 +140,6 @@ const { branchId, fiscalYearId } = req.query;
         shipments: pgShipments,
         fiscalYears: pgFiscalYears,
         auditLogs: pgAuditLogs,
-        transactionLogs: pgTransactionLogs,
         financialSummary,
         suppliers: data.suppliers,
         users: data.users,

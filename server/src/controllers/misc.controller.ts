@@ -7,7 +7,7 @@
  */
 import type { Request, Response } from 'express';
 import { ensurePostgresConnection, setPgConnected, setIsPgConnected, getPgConnected, pgPool, transactionLogs, approvalRequests, setApprovalRequests, withPrepended, logAuditEvent, getUserFromReq, withTransaction, withConnection, products, inventoryStock, setInventoryStock, withAppended, setTransactionLogs, shipments, branches, customerDeviceRecords, serialLogs, setSerialLogs, auditTrail } from '../app';
-import { ApprovalRequest, AuditLog, CustomerDeviceRecord } from '../../../client/src/types';
+import { ApprovalRequest, AuditLog, CustomerDeviceRecord, TransactionLog } from '../../../client/src/types';
 import { todayBs } from '../utils/bsDate';
 import {
   DB_STATUS_PROBE_SQL,
@@ -15,6 +15,9 @@ import {
   AUDIT_TRAIL_DEFAULT_LIMIT,
   AUDIT_TRAIL_MAX_LIMIT,
   buildTransactionLogQuery,
+  buildTransactionLogCountQuery,
+  TXN_LOG_LEGACY_LIMIT,
+  TXN_LOG_EXPORT_CAP,
   buildApprovalRequestQuery,
   AR_INSERT_SQL,
   arInsertParams,
@@ -112,12 +115,79 @@ const { branchId, serial, limit } = req.query;
 
 }
 
-/** Forwarded from misc.routes.ts (get_transactionLogs). */
+/**
+ * Transaction-log read for the self-fetching screens (Dashboard recent
+ * activity, Audit Trail, Stock Movement Ledger).
+ *
+ * Modes:
+ *   ?page=N&pageSize=M  → `{ data, page, pageSize, totalItems, capped }`
+ *   ?all=1              → one bounded envelope for CSV/ledger (TXN_LOG_EXPORT_CAP)
+ *   neither             → legacy bare array, capped at TXN_LOG_LEGACY_LIMIT
+ *
+ * Branch scope is a server decision, matching the audit-trail and serial-log
+ * reads: a non-global account may name one of its own branches, and omitting
+ * the parameter means "all branches I may read", never "every branch".
+ */
 export async function get_transactionLogs(req: any, res: Response): Promise<any> {
-const { branchId, productId, limit } = req.query;
+  const { branchId, productId, dateFromAD, dateToAD, page, pageSize, all, order } = req.query;
+  const user = (req as any).user;
+  const wantsPaged = page !== undefined || pageSize !== undefined || all === '1';
+  const emptyEnvelope = { data: [] as TransactionLog[], page: 1, pageSize: 0, totalItems: 0, capped: false };
+
+  let branchScope: string[] | undefined;
+  let globalBranchId: unknown;
+  if (user && user.role !== 'SUPER_ADMIN' && user.role !== 'HEAD_OFFICE_ADMIN') {
+    const allowed = new Set<string>([user.branchId || '', ...(user.allowedBranchIds || [])].filter(Boolean));
+    const requestedBranchId =
+      typeof branchId === 'string' && branchId !== 'ALL' && branchId.trim() !== '' ? branchId : undefined;
+    if (requestedBranchId && !allowed.has(requestedBranchId)) {
+      res.status(403).json({ message: 'Forbidden: this account is not authorized for the requested branch.' });
+      return;
+    }
+    if (allowed.size === 0) {
+      res.json(wantsPaged ? emptyEnvelope : []);
+      return;
+    }
+    branchScope = requestedBranchId ? [requestedBranchId] : [...allowed];
+  } else {
+    globalBranchId = branchId;
+  }
+
+  const orderDir: 'asc' | 'desc' = order === 'asc' ? 'asc' : 'desc';
+  const opts = {
+    branchScope,
+    branchId: branchScope ? undefined : globalBranchId,
+    productId,
+    dateFromAD,
+    dateToAD,
+    order: orderDir,
+  };
+
   if (getPgConnected()) {
     try {
-      const { sql, params } = buildTransactionLogQuery(branchId, productId, limit);
+      if (wantsPaged) {
+        const n = Math.max(1, Number(page) || 1);
+        const size = Math.max(1, Math.min(500, Number(pageSize) || 50));
+        const countQ = buildTransactionLogCountQuery(opts);
+        const countR = await pgPool.query(countQ.sql, countQ.params);
+        const totalItems = Number(countR.rows[0]?.count || 0);
+        const exportAll = all === '1';
+        const take = exportAll ? Math.min(TXN_LOG_EXPORT_CAP, totalItems) : size;
+        const listQ = buildTransactionLogQuery({
+          ...opts,
+          pageSize: take,
+          offset: exportAll ? 0 : (n - 1) * size,
+        });
+        const r = await pgPool.query(listQ.sql, listQ.params);
+        return res.json({
+          data: r.rows,
+          page: exportAll ? 1 : n,
+          pageSize: exportAll ? r.rows.length : size,
+          totalItems,
+          capped: exportAll && totalItems > r.rows.length,
+        });
+      }
+      const { sql, params } = buildTransactionLogQuery({ ...opts, limit: TXN_LOG_LEGACY_LIMIT });
       const r = await pgPool.query(sql, params);
       res.json(r.rows);
       return;
@@ -125,15 +195,45 @@ const { branchId, productId, limit } = req.query;
       console.error('Error fetching transaction logs from DB:', err);
     }
   }
-  let list = transactionLogs;
-  if (branchId && branchId !== 'ALL') {
-    list = list.filter((t) => t.branchId === branchId);
+
+  // Demo/fallback mode: apply the same scope, ordering, count and paging to
+  // the in-memory mirror.
+  let list = [...transactionLogs];
+  const scope = branchScope ? new Set(branchScope) : null;
+  if (scope) {
+    list = list.filter((t) => scope.has(String(t.branchId || '')));
+  } else if (globalBranchId && globalBranchId !== 'ALL') {
+    list = list.filter((t) => t.branchId === globalBranchId);
   }
   if (productId && productId !== 'ALL') {
     list = list.filter((t) => t.productId === productId);
   }
-  res.json(list);
+  const from = typeof dateFromAD === 'string' ? dateFromAD.trim() : '';
+  const to = typeof dateToAD === 'string' ? dateToAD.trim() : '';
+  if (from) list = list.filter((t) => String(t.timestampAD || '').slice(0, 10) >= from);
+  if (to) list = list.filter((t) => String(t.timestampAD || '').slice(0, 10) <= to);
+  list.sort((a, b) => {
+    const cmp = String(a.timestampAD || '').localeCompare(String(b.timestampAD || '')) ||
+      String(a.id || '').localeCompare(String(b.id || ''));
+    return orderDir === 'asc' ? cmp : -cmp;
+  });
 
+  if (wantsPaged) {
+    const n = Math.max(1, Number(page) || 1);
+    const size = Math.max(1, Math.min(500, Number(pageSize) || 50));
+    const exportAll = all === '1';
+    const take = exportAll ? Math.min(TXN_LOG_EXPORT_CAP, list.length) : size;
+    const offset = exportAll ? 0 : (n - 1) * size;
+    const data = list.slice(offset, offset + take);
+    return res.json({
+      data,
+      page: exportAll ? 1 : n,
+      pageSize: exportAll ? data.length : size,
+      totalItems: list.length,
+      capped: exportAll && list.length > data.length,
+    });
+  }
+  res.json(list.slice(0, TXN_LOG_LEGACY_LIMIT));
 }
 
 /** Forwarded from misc.routes.ts (get_approvalRequests). */

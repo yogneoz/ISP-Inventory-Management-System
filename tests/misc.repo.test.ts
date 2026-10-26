@@ -9,6 +9,7 @@ import {
   buildAuditTrailQuery,
   escapeLikeTerm,
   buildTransactionLogQuery,
+  buildTransactionLogCountQuery,
   buildApprovalRequestQuery,
   AR_INSERT_SQL,
   arInsertParams,
@@ -111,17 +112,54 @@ describe('buildAuditTrailQuery', () => {
 });
 
 describe('buildTransactionLogQuery', () => {
-  test('combines branch and product filters in order', () => {
-    const { sql, params } = buildTransactionLogQuery('BR01', 'p1', 10);
-    assert.match(sql, / WHERE branch_id = \$1 AND product_id = \$2 ORDER BY timestamp_ad DESC LIMIT \$3$/);
-    assert.deepEqual(params, ['BR01', 'p1', 10]);
+  test('combines branch, product, date and limit in parameter order', () => {
+    const { sql, params } = buildTransactionLogQuery({
+      branchId: 'BR01',
+      productId: 'p1',
+      dateFromAD: '2081-01-01',
+      dateToAD: '2081-12-30',
+      limit: 10,
+    });
+    assert.match(
+      sql,
+      / WHERE branch_id = \$1 AND product_id = \$2 AND timestamp_ad >= \$3::date AND timestamp_ad < \(\$4::date \+ INTERVAL '1 day'\) ORDER BY timestamp_ad DESC, id DESC LIMIT \$5$/
+    );
+    assert.deepEqual(params, ['BR01', 'p1', '2081-01-01', '2081-12-30', 10]);
   });
 
-  test('ALL filters are ignored; limit still lands last', () => {
-    const { sql, params } = buildTransactionLogQuery('ALL', 'ALL', 5);
+  test('ALL filters are ignored; the legacy limit still lands last', () => {
+    const { sql, params } = buildTransactionLogQuery({ branchId: 'ALL', productId: 'ALL', limit: 5 });
     assert.ok(!sql.includes(' WHERE '));
-    assert.match(sql, / ORDER BY timestamp_ad DESC LIMIT \$1$/);
+    assert.match(sql, / ORDER BY timestamp_ad DESC, id DESC LIMIT \$1$/);
     assert.deepEqual(params, [5]);
+  });
+
+  test('paged mode emits LIMIT then OFFSET and can order oldest first', () => {
+    const { sql, params } = buildTransactionLogQuery({ pageSize: 15, offset: 30, order: 'asc' });
+    assert.match(sql, / ORDER BY timestamp_ad ASC, id ASC LIMIT \$1 OFFSET \$2$/);
+    assert.deepEqual(params, [15, 30]);
+  });
+
+  test('an allowed-branch array uses one ANY parameter and an empty scope reads nothing', () => {
+    const scoped = buildTransactionLogQuery({ branchScope: ['BR01', 'BR02'], limit: 10 });
+    assert.match(scoped.sql, / WHERE branch_id = ANY\(\$1\) ORDER BY timestamp_ad DESC, id DESC LIMIT \$2$/);
+    assert.deepEqual(scoped.params, [['BR01', 'BR02'], 10]);
+
+    const empty = buildTransactionLogQuery({ branchScope: [], limit: 10 });
+    assert.match(empty.sql, / WHERE FALSE ORDER BY timestamp_ad DESC, id DESC LIMIT \$1$/);
+  });
+
+  test('the count query reuses the same filters', () => {
+    const { sql, params } = buildTransactionLogCountQuery({
+      branchScope: ['BR01'],
+      dateFromAD: '2081-01-01',
+      dateToAD: '2081-12-30',
+    });
+    assert.equal(
+      sql,
+      "SELECT COUNT(*)::int AS count FROM transaction_logs WHERE branch_id = ANY($1) AND timestamp_ad >= $2::date AND timestamp_ad < ($3::date + INTERVAL '1 day')"
+    );
+    assert.deepEqual(params, [['BR01'], '2081-01-01', '2081-12-30']);
   });
 
   test('selects the aliased log columns', () => {

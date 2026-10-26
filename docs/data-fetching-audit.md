@@ -352,7 +352,7 @@ bootstrap; **paged** = path 4; **self** = path 5; **form** = no read of its own.
 | Executive Dashboard | props (stock, products, POs, shipments, logs, assets) | Live via targeted slices. `financialSummary` prop is unused here. |
 | Global search, notifications, help | props / static | Hydration only; no defect found. |
 | All Available Stock, Branch Stock | props stock/products | Fine. |
-| Stock Movement Ledger | props transactionLogs + ops/damage | Fixed by DF-06: `SHIPMENTS` and `RECALC` refresh `transactionLogs`. |
+| Stock Movement Ledger | self transaction-log window + ops/damage | Fixed by DF-06, then superseded by VOL-1 (2026-10-26): the screen reads a bounded `/api/transaction-logs` window; the bootstrap slice is gone. |
 | Physical Stock Audit | props stock + appSettings | Fine. |
 | Reorder Stock, Stock Valuation, Warranty, Asset Deployments | props | Fine. |
 | Import / Export Stock | props | Fine. |
@@ -418,7 +418,9 @@ green. No batch needs a dependency.
    covered. **Landed as DF-06 (2026-10-24):** `SHIPMENTS` refreshes
    `transactionLogs` plus the `serialLog`/`purchaseOrders` registers, and
    `RECALC` refreshes `transactionLogs` and re-reads the BS mirror. Live
-   calendar events for the BS screens themselves landed as DF-10.
+   calendar events for the BS screens themselves landed as DF-10. **Superseded
+   by VOL-1 (2026-10-26):** `transactionLogs` left the bootstrap; the same
+   domains now bump the `transactionLog` paged-register counter.
 7. **P2-3** — fiscal year in `cacheKey` (one line) plus a unit test for the
    dedup key. **Landed as DF-07 (2026-10-24):** `tests/apiDedup.test.ts` pins
    same-year coalescing, cross-year separation and the existing branch/user

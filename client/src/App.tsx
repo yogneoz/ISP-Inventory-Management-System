@@ -18,7 +18,6 @@ import {
   StockOperation,
   FiscalYear,
   AuditLog,
-  TransactionLog,
   FinancialSummary,
   CustomerDeviceRecord,
   CustomerRecord,
@@ -541,7 +540,6 @@ export default function App() {
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [stockOperations, setStockOperations] = useState<StockOperation[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
-  const [transactionLogs, setTransactionLogs] = useState<TransactionLog[]>([]);
   const [damageRecords, setDamageRecords] = useState<DamageRecord[]>([]);
   const [locations, setLocations] = useState<LocationRecord[]>([]);
   const [financialSummary, setFinancialSummary] = useState<FinancialSummary>({
@@ -675,7 +673,6 @@ export default function App() {
     if (data.stockOperations) setStockOperations(data.stockOperations);
     if (data.fiscalYears) setFiscalYears(data.fiscalYears);
     if (data.auditLogs) setAuditLogs(data.auditLogs);
-    if (data.transactionLogs) setTransactionLogs(data.transactionLogs);
     if (data.damageRecords) setDamageRecords(data.damageRecords);
     if (data.locations) setLocations(data.locations);
     if (data.financialSummary) setFinancialSummary(data.financialSummary);
@@ -1020,20 +1017,20 @@ export default function App() {
     // each mutation that moves inventory value, AP, VAT, damage or trading
     // totals re-fetches the one aggregate slice (DF-05) instead of waiting
     // for the next full bootstrap.
-    STOCK: ['stock', 'damageRecords', 'transactionLogs', 'financialSummary'],
-    STOCK_OPERATIONS: ['stockOperations', 'stock', 'transactionLogs', 'damageRecords', 'financialSummary'],
+    STOCK: ['stock', 'damageRecords', 'financialSummary'],
+    STOCK_OPERATIONS: ['stockOperations', 'stock', 'damageRecords', 'financialSummary'],
     SERIALS: ['customerDevices'],
     // PROCUREMENT also covers purchase returns: posting one deducts
     // stock, writes transaction-log rows and flips serial_log rows.
-    PROCUREMENT: ['purchaseOrders', 'purchaseInvoices', 'vendorPayments', 'suppliers', 'purchaseReturns', 'stock', 'transactionLogs', 'financialSummary'],
+    PROCUREMENT: ['purchaseOrders', 'purchaseInvoices', 'vendorPayments', 'suppliers', 'purchaseReturns', 'stock', 'financialSummary'],
     // Sales mutations deduct/restock stock, write transaction-log rows,
     // route non-restockable returns into the damage register and flip
     // serial_log rows (paged — covered by the register mapping below).
-    SALES: ['salesInvoices', 'salesReturns', 'stock', 'transactionLogs', 'damageRecords', 'financialSummary'],
+    SALES: ['salesInvoices', 'salesReturns', 'stock', 'damageRecords', 'financialSummary'],
     // A receipt credits the destination's stock, flips serial_log rows (paged
     // register mapping below) and writes TRANSFER_IN transaction_log rows, so
     // the Stock Movement Ledger must re-read along with the transfer register.
-    SHIPMENTS: ['shipments', 'stock', 'transactionLogs', 'financialSummary'],
+    SHIPMENTS: ['shipments', 'stock', 'financialSummary'],
     MASTER_DATA: ['customers', 'customerDevices', 'branches', 'suppliers', 'locations', 'companyProfile'],
     CATEGORIES: ['categories'],
     PRODUCTS: ['products', 'stock'],
@@ -1045,7 +1042,7 @@ export default function App() {
     // The admin recalculation jobs rebuild live stock and fixed assets, and the
     // ledger backfill rewrites transaction_logs' before/after balances — the
     // movement ledger must re-read or it keeps the placeholders it had at mount.
-    RECALC: ['stock', 'assets', 'transactionLogs', 'financialSummary'],
+    RECALC: ['stock', 'assets', 'financialSummary'],
     COMPANY_PROFILE: ['companyProfile'],
     AUDIT: ['auditLogs'],
     // Sync-audit improvements #2/#3: first-class slice domains so the
@@ -1070,6 +1067,7 @@ export default function App() {
     returnsRegister: 0,
     salesInvoices: 0,
     customerDevices: 0,
+    transactionLog: 0,
   });
 
   // Always-fresh scope for the SSE listener below (it must not re-subscribe
@@ -1786,10 +1784,12 @@ export default function App() {
         assets={assets}
         pendingPurchaseOrders={procurementPending.pendingPurchaseOrders}
         shipments={shipments}
-        transactionLogs={transactionLogs}
         financialSummary={financialSummary}
         categories={categories}
         selectedBranchId={selectedBranchId}
+        fiscalYearStartAD={selectedFiscalYear?.startDateAD}
+        fiscalYearEndAD={selectedFiscalYear?.endDateAD}
+        sseRefreshKey={registerRefresh.transactionLog}
         dateMode={dateMode}
         asOfDateAD={assetReportAsOfDateAD}
         approvalRequests={approvalRequests}
@@ -1952,7 +1952,6 @@ export default function App() {
     screenRoute('stock-ledger', (
       <React.Suspense fallback={<TabLoadingFallback />}>
         <StockMovementLedger
-          transactionLogs={transactionLogs}
           products={products}
           branches={branches}
           stock={stock}
@@ -1961,6 +1960,9 @@ export default function App() {
           shipments={shipments}
           purchaseOrders={purchaseOrders}
           selectedBranchId={selectedBranchId}
+          fiscalYearStartAD={selectedFiscalYear?.startDateAD}
+          fiscalYearEndAD={selectedFiscalYear?.endDateAD}
+          sseRefreshKey={registerRefresh.transactionLog}
           dateMode={dateMode}
         />
       </React.Suspense>
@@ -2920,12 +2922,15 @@ export default function App() {
       <React.Suspense fallback={<TabLoadingFallback />}>
         <AuditTrailReports
           auditLogs={auditLogs}
-          transactionLogs={transactionLogs}
           financialSummary={financialSummary}
           products={products}
           branches={branches}
           assets={assets}
           invoices={purchaseInvoices}
+          selectedBranchId={selectedBranchId}
+          fiscalYearStartAD={selectedFiscalYear?.startDateAD}
+          fiscalYearEndAD={selectedFiscalYear?.endDateAD}
+          sseRefreshKey={registerRefresh.transactionLog}
           dateMode={dateMode}
           companyProfile={companyProfile}
         />

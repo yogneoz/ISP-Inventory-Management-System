@@ -346,13 +346,15 @@ shipping.
 
 ## DF-06 — Complete the SSE domain coverage (P2-1, P2-2)
 
-**Status: `done` (2026-10-24).** `SHIPMENTS` now refreshes the
-`transactionLogs` slice (a receipt writes `TRANSFER_IN` rows) and bumps the
-`serialLog` register alongside `purchaseOrders`; `RECALC` refreshes
-`transactionLogs` and re-reads the BS calendar mirror, covering live-stock and
-fixed-asset recalculation, the ledger-balance backfill and *Rebuild BS Calendar
-Days*. Evidence and suite numbers are in `SESSION_NOTES.md` under "DF-06
-shipped".
+**Status: `done` (2026-10-24); slice superseded by VOL-1 (2026-10-26).**
+`SHIPMENTS` refreshed the `transactionLogs` slice (a receipt writes `TRANSFER_IN`
+rows) and bumped the `serialLog` register alongside `purchaseOrders`; `RECALC`
+refreshed `transactionLogs` and re-read the BS calendar mirror, covering
+live-stock and fixed-asset recalculation, the ledger-balance backfill and
+*Rebuild BS Calendar Days*. Evidence and suite numbers are in `SESSION_NOTES.md`
+under "DF-06 shipped". VOL-1 removed the slice: the three ledger screens read
+`/api/transaction-logs` themselves, and the same domains now bump the
+`transactionLog` register counter.
 
 **Problem.** `SHIPMENTS` refreshes only `shipments`+`stock` (and only the
 `purchaseOrders` register), but receiving writes `transaction_log` rows and
@@ -361,10 +363,9 @@ endpoints rebuild BS day records and backfill movement-ledger balances.
 
 **Files**
 
-- `client/src/App.tsx` — `SHIPMENTS: ['shipments','stock','transactionLogs']`;
-  `RECALC: ['stock','assets','transactionLogs']`; trigger the BS mirror sync when
-  a `RECALC` burst arrives (the `BS_CALENDAR` special-case already exists for
-  that domain).
+- `client/src/App.tsx` (DF-06 state; VOL-1 removed the slice) —
+  `SHIPMENTS` included `transactionLogs`; `RECALC` included `transactionLogs`;
+  the BS mirror sync runs when a `RECALC` burst arrives.
 - `client/src/utils/registerRefreshDomains.ts` — `SHIPMENTS: ['purchaseOrders',
   'serialLog']`.
 - `tests/registerRefreshDomains.test.ts` — pin both additions.

@@ -11,6 +11,7 @@ import type {
   SerialLookupResult,
   SerialEditPayload,
   AuditLog,
+  TransactionLog,
   User,
 } from '../../types';
 import { fetchJson } from './http';
@@ -222,6 +223,46 @@ export async function getAuditTrail(params: { serial?: string; branchId?: string
   if (params.limit) search.append('limit', String(params.limit));
   const queryString = search.toString() ? `?${search.toString()}` : '';
   return fetchJson(`/api/audit-trail${queryString}`);
+}
+
+/**
+ * One page of the movement ledger. The server pins branch scope from the
+ * session for non-global roles; the client cannot widen it by omitting
+ * `branchId` or passing `ALL`.
+ */
+export interface TransactionLogPage {
+  data: TransactionLog[];
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  /** True when `all: true` hit the server's export/window cap. */
+  capped: boolean;
+}
+
+export async function getTransactionLogs(params: {
+  branchId?: string;
+  productId?: string;
+  dateFromAD?: string;
+  dateToAD?: string;
+  page?: number;
+  pageSize?: number;
+  all?: boolean;
+  order?: 'asc' | 'desc';
+} = {}): Promise<TransactionLogPage> {
+  const search = new URLSearchParams();
+  if (params.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
+  if (params.productId && params.productId !== 'ALL') search.append('productId', params.productId);
+  if (params.dateFromAD) search.append('dateFromAD', params.dateFromAD);
+  if (params.dateToAD) search.append('dateToAD', params.dateToAD);
+  if (params.order === 'asc') search.append('order', 'asc');
+  if (params.all) {
+    search.append('all', '1');
+  } else {
+    search.append('page', String(params.page ?? 1));
+    if (params.pageSize) search.append('pageSize', String(params.pageSize));
+  }
+  const queryString = search.toString() ? `?${search.toString()}` : '';
+  return fetchJson<TransactionLogPage>(`/api/transaction-logs${queryString}`);
 }
 
 // Customer Devices & Serial Numbers

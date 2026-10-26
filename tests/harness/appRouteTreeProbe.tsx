@@ -76,7 +76,6 @@ export const bootstrapFixture = {
   stockOperations: [],
   fiscalYears,
   auditLogs: [],
-  transactionLogs: [],
   damageRecords: [],
   locations: [],
   financialSummary: {

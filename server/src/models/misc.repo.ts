@@ -83,27 +83,88 @@ export function buildAuditTrailQuery(branchId?: unknown, limit?: unknown, serial
 export const TXN_LOG_SELECT_PREFIX =
   'SELECT id, transaction_number AS "transactionNumber", product_id AS "productId", product_sku AS "productSku", product_name AS "productName", branch_id AS "branchId", change_type AS "changeType", quantity_before AS "quantityBefore", quantity_changed AS "quantityChanged", quantity_after AS "quantityAfter", unit_cost AS "unitCost", reference_doc_id AS "referenceDocId", timestamp_ad AS "timestampAD", timestamp_bs AS "timestampBS" FROM transaction_logs';
 
-export function buildTransactionLogQuery(branchId?: unknown, productId?: unknown, limit?: unknown): { sql: string; params: unknown[] } {
-  let sql = TXN_LOG_SELECT_PREFIX;
+/**
+ * Legacy-array safety cap. The dashboard, Audit Trail and movement ledger all
+ * use the paged/envelope mode; this bound only protects an older caller that
+ * still asks for the bare array without a page. It is deliberately much larger
+ * than one screen's page and far smaller than a national fiscal year.
+ */
+export const TXN_LOG_LEGACY_LIMIT = 2000;
+
+/** Hard cap for `all=1` (CSV export / bounded ledger window). */
+export const TXN_LOG_EXPORT_CAP = 5000;
+
+export interface TransactionLogQueryOptions {
+  /** A single branch id, or 'ALL'. Ignored when `branchScope` is present. */
+  branchId?: unknown;
+  /** Explicit allowed-branch list resolved from the authenticated user. */
+  branchScope?: string[];
+  productId?: unknown;
+  dateFromAD?: unknown;
+  dateToAD?: unknown;
+  order?: 'asc' | 'desc';
+  /** Legacy mode row cap. Paged mode uses pageSize/offset instead. */
+  limit?: unknown;
+  pageSize?: number;
+  offset?: number;
+}
+
+function buildTransactionLogWhere(opts: TransactionLogQueryOptions): { where: string; params: unknown[] } {
   const params: unknown[] = [];
   const conds: string[] = [];
-  if (branchId && branchId !== 'ALL') {
-    params.push(branchId);
+  if (Array.isArray(opts.branchScope)) {
+    if (opts.branchScope.length === 0) {
+      // An account with no branch scope sees nothing; keep the SQL valid so the
+      // caller gets an empty result instead of an unfiltered read.
+      conds.push('FALSE');
+    } else {
+      params.push(opts.branchScope);
+      conds.push(`branch_id = ANY($${params.length})`);
+    }
+  } else if (opts.branchId && opts.branchId !== 'ALL') {
+    params.push(opts.branchId);
     conds.push(`branch_id = $${params.length}`);
   }
-  if (productId && productId !== 'ALL') {
-    params.push(productId);
+  if (opts.productId && opts.productId !== 'ALL') {
+    params.push(opts.productId);
     conds.push(`product_id = $${params.length}`);
   }
-  if (conds.length > 0) {
-    sql += ' WHERE ' + conds.join(' AND ');
+  const from = typeof opts.dateFromAD === 'string' ? opts.dateFromAD.trim() : '';
+  if (from) {
+    params.push(from);
+    // Compare the timestamp column to a half-open day range: the plain
+    // `<= endDate` form drops every row after midnight on the last day.
+    conds.push(`timestamp_ad >= $${params.length}::date`);
   }
-  sql += ' ORDER BY timestamp_ad DESC';
-  if (limit) {
-    params.push(Number(limit));
+  const to = typeof opts.dateToAD === 'string' ? opts.dateToAD.trim() : '';
+  if (to) {
+    params.push(to);
+    conds.push(`timestamp_ad < ($${params.length}::date + INTERVAL '1 day')`);
+  }
+  return { where: conds.length ? ` WHERE ${conds.join(' AND ')}` : '', params };
+}
+
+/** Page of transaction logs, newest first unless `order: 'asc'` is requested. */
+export function buildTransactionLogQuery(opts: TransactionLogQueryOptions = {}): { sql: string; params: unknown[] } {
+  const { where, params } = buildTransactionLogWhere(opts);
+  const direction = opts.order === 'asc' ? 'ASC' : 'DESC';
+  let sql = `${TXN_LOG_SELECT_PREFIX}${where} ORDER BY timestamp_ad ${direction}, id ${direction}`;
+  if (opts.pageSize !== undefined) {
+    params.push(Math.max(1, Math.floor(opts.pageSize)));
+    sql += ` LIMIT $${params.length}`;
+    params.push(Math.max(0, Math.floor(opts.offset || 0)));
+    sql += ` OFFSET $${params.length}`;
+  } else if (opts.limit) {
+    params.push(Math.max(1, Math.floor(Number(opts.limit))));
     sql += ` LIMIT $${params.length}`;
   }
   return { sql, params };
+}
+
+/** Total rows matching the same filters, for the paged envelope. */
+export function buildTransactionLogCountQuery(opts: TransactionLogQueryOptions = {}): { sql: string; params: unknown[] } {
+  const { where, params } = buildTransactionLogWhere(opts);
+  return { sql: `SELECT COUNT(*)::int AS count FROM transaction_logs${where}`, params };
 }
 
 // ---------------------------------------------------------------------------

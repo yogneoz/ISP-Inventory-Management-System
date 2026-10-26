@@ -23,29 +23,36 @@ import {
   ArrowDownUp,
   AlertTriangle,
 } from 'lucide-react';
-import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { useClientPagination, useServerPageClamp, TablePagination } from '../../components/common/TablePagination';
 import { api } from '../../services/api';
 
 interface AuditTrailReportsProps {
   auditLogs: AuditLog[];
-  transactionLogs: TransactionLog[];
   financialSummary: FinancialSummary;
   products: Product[];
   branches: Branch[];
   assets: Asset[];
   invoices: PurchaseInvoice[];
+  selectedBranchId: string;
+  fiscalYearStartAD?: string;
+  fiscalYearEndAD?: string;
+  /** Bumped by App on every domain that writes transaction_logs. */
+  sseRefreshKey?: number;
   dateMode: 'BS' | 'AD';
   companyProfile?: CompanyProfile | null;
 }
 
 export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
   auditLogs,
-  transactionLogs,
   financialSummary,
   products,
   branches,
   assets,
   invoices,
+  selectedBranchId,
+  fiscalYearStartAD,
+  fiscalYearEndAD,
+  sseRefreshKey = 0,
   dateMode,
   companyProfile,
 }) => {
@@ -65,7 +72,102 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
   const [oldestFirst, setOldestFirst] = useState(false);
   const serialSeq = useRef(0);
 
-  const txnPagination = useClientPagination(transactionLogs || [], 15);
+  // Stock Audit Events are server-paged, in the same fiscal-year/branch scope
+  // the bootstrap slice used to carry. The old client pagination received the
+  // whole year's movement history on login; this reads 15 rows at a time.
+  const [txnRows, setTxnRows] = useState<TransactionLog[]>([]);
+  const [txnTotalItems, setTxnTotalItems] = useState(0);
+  const [txnPage, setTxnPage] = useState(1);
+  const [txnPageSize, setTxnPageSize] = useState(15);
+  const [txnLoading, setTxnLoading] = useState(false);
+  const [txnError, setTxnError] = useState('');
+  const [txnNotice, setTxnNotice] = useState('');
+  const [txnRetryKey, setTxnRetryKey] = useState(0);
+
+  useEffect(() => {
+    if (subTab !== 'STOCK_TRANSACTIONS') return;
+    let alive = true;
+    setTxnLoading(true);
+    setTxnError('');
+    api.getTransactionLogs({
+      branchId: selectedBranchId,
+      dateFromAD: fiscalYearStartAD,
+      dateToAD: fiscalYearEndAD,
+      page: txnPage,
+      pageSize: txnPageSize,
+      order: oldestFirst ? 'asc' : 'desc',
+    })
+      .then((envelope) => {
+        if (!alive) return;
+        setTxnRows(Array.isArray(envelope.data) ? envelope.data : []);
+        setTxnTotalItems(envelope.totalItems || 0);
+      })
+      .catch((err: any) => {
+        if (alive) setTxnError(err?.message || 'Failed to load stock transactions.');
+      })
+      .finally(() => {
+        if (alive) setTxnLoading(false);
+      });
+    return () => { alive = false; };
+  }, [subTab, selectedBranchId, fiscalYearStartAD, fiscalYearEndAD, oldestFirst, txnPage, txnPageSize, sseRefreshKey, txnRetryKey]);
+
+  useEffect(() => {
+    setTxnPage(1);
+  }, [selectedBranchId, fiscalYearStartAD, fiscalYearEndAD, oldestFirst]);
+
+  const safeTxnPage = useServerPageClamp(txnPage, txnPageSize, txnTotalItems, setTxnPage);
+  const txnPagination = {
+    page: safeTxnPage,
+    pageCount: Math.max(1, Math.ceil(txnTotalItems / txnPageSize)),
+    pageSize: txnPageSize,
+    totalItems: txnTotalItems,
+    rangeStart: txnTotalItems === 0 ? 0 : (safeTxnPage - 1) * txnPageSize + 1,
+    rangeEnd: Math.min(safeTxnPage * txnPageSize, txnTotalItems),
+    pagedItems: txnRows,
+    setPage: (p: number) => setTxnPage(Math.max(1, p)),
+    setPageSize: (s: number) => {
+      setTxnPageSize(s);
+      setTxnPage(1);
+    },
+  };
+
+  const exportStockLedger = async () => {
+    const columns = [
+      { key: 'transactionNumber', label: 'Txn #' },
+      { key: 'productName', label: 'Product' },
+      { key: 'productSku', label: 'SKU' },
+      { key: 'changeType', label: 'Type' },
+      { key: 'quantityBefore', label: 'Qty Before' },
+      { key: 'quantityChanged', label: 'Change' },
+      { key: 'quantityAfter', label: 'Qty After' },
+      { key: 'timestampAD', label: 'Timestamp (AD)' },
+      { key: 'timestampBS', label: 'Timestamp (BS)' },
+    ];
+    setTxnNotice('');
+    try {
+      const envelope = await api.getTransactionLogs({
+        branchId: selectedBranchId,
+        dateFromAD: fiscalYearStartAD,
+        dateToAD: fiscalYearEndAD,
+        all: true,
+        order: oldestFirst ? 'asc' : 'desc',
+      });
+      const rows = Array.isArray(envelope.data) ? envelope.data : [];
+      exportToCSV('Inventory_Stock_Transaction_Ledger', rows, columns);
+      if (envelope.capped) {
+        setTxnNotice(
+          `Export capped at ${rows.length.toLocaleString()} of ${envelope.totalItems.toLocaleString()} movements for this fiscal year. Narrow the date range to export a smaller set.`
+        );
+      }
+    } catch (err: any) {
+      // Never silently truncate: say the full read failed and export the page
+      // actually on screen.
+      setTxnNotice(
+        `Could not export the full ledger (${err?.message || 'request failed'}). The current page was exported instead.`
+      );
+      exportToCSV('Inventory_Stock_Transaction_Ledger', txnRows, columns);
+    }
+  };
 
   useEffect(() => {
     const timer = setTimeout(() => setSerialFilter(serialDraft.trim()), 300);
@@ -170,25 +272,35 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
               Realtime Stock Movement Transaction Logs
             </h3>
             <button
-              onClick={() =>
-                exportToCSV('Inventory_Stock_Transaction_Ledger', transactionLogs, [
-                  { key: 'transactionNumber', label: 'Txn #' },
-                  { key: 'productName', label: 'Product' },
-                  { key: 'productSku', label: 'SKU' },
-                  { key: 'changeType', label: 'Type' },
-                  { key: 'quantityBefore', label: 'Qty Before' },
-                  { key: 'quantityChanged', label: 'Change' },
-                  { key: 'quantityAfter', label: 'Qty After' },
-                  { key: 'timestampAD', label: 'Timestamp (AD)' },
-                  { key: 'timestampBS', label: 'Timestamp (BS)' },
-                ])
-              }
+              onClick={exportStockLedger}
               className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800`}
             >
               <Download className="h-3.5 w-3.5 text-indigo-500" />
               <span>Export Stock Ledger CSV</span>
             </button>
           </div>
+          {txnLoading && (
+            <div className="mb-2 text-[11px] text-slate-500 dark:text-slate-400" role="status">
+              Loading stock transactions…
+            </div>
+          )}
+          {txnError && (
+            <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-rose-600 dark:text-rose-400" role="alert">
+              <span>{txnError}</span>
+              <button
+                type="button"
+                onClick={() => setTxnRetryKey((v) => v + 1)}
+                className="rounded-lg border border-rose-300 px-2 py-0.5 font-bold text-rose-700 hover:bg-rose-50 dark:border-rose-500/40 dark:text-rose-300 dark:hover:bg-rose-950/40 cursor-pointer"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+          {txnNotice && (
+            <div className="mb-2 text-[11px] text-amber-700 dark:text-amber-300" role="status">
+              {txnNotice}
+            </div>
+          )}
           <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
             <table className="w-full text-left text-xs border-collapse">
               <thead
@@ -233,6 +345,13 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
                     </td>
                   </tr>
                 ))}
+                {!txnLoading && !txnError && txnPagination.pagedItems.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="p-4 text-center text-[11px] text-slate-500 dark:text-slate-400">
+                      No stock transactions to show for this fiscal year and branch.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

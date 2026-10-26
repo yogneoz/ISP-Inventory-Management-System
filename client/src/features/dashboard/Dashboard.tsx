@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Branch,
   Product,
@@ -17,6 +17,7 @@ import { getAllowedBranches, getAllowedBranchIds, canUserSeeAllBranches } from '
 import { calculateFixedAssetValues } from '../../utils/depreciation';
 import { formatNPR } from '../../utils/nprFormat';
 import StatCard from '../../components/common/StatCard';
+import { api } from '../../services/api';
 import {
   TrendingUp,
   AlertTriangle,
@@ -50,10 +51,13 @@ interface DashboardProps {
   /** Scoped open POs from the shared KPI read (statuses DRAFT→PURCHASED). */
   pendingPurchaseOrders: PurchaseOrder[];
   shipments: Shipment[];
-  transactionLogs: TransactionLog[];
   financialSummary: FinancialSummary;
   categories: Category[];
   selectedBranchId: string;
+  fiscalYearStartAD?: string;
+  fiscalYearEndAD?: string;
+  /** Bumped by App on every domain that writes transaction_logs. */
+  sseRefreshKey?: number;
   dateMode: 'BS' | 'AD';
   asOfDateAD?: string;
   approvalRequests?: ApprovalRequest[];
@@ -81,10 +85,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
   assets,
   pendingPurchaseOrders,
   shipments,
-  transactionLogs,
   financialSummary,
   categories,
   selectedBranchId,
+  fiscalYearStartAD,
+  fiscalYearEndAD,
+  sseRefreshKey = 0,
   dateMode,
   asOfDateAD,
   approvalRequests = [],
@@ -113,6 +119,38 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const coverageDetail = !bsCalendarCoverage
     ? ''
     : `Covers BS ${bsCalendarCoverage.minBS} to ${bsCalendarCoverage.maxBS} (AD ${bsCalendarCoverage.minAD} to ${bsCalendarCoverage.maxAD}, ${bsCalendarCoverage.mappedYearsCount} years). Once the last mapped day passes, every dated operation refuses until the next BS year is seeded — seed it from ${BS_SEEDING_MENU_PATH}.`;
+  // Recent stock movements are a screen-local read: this screen used to
+  // receive the fiscal year's whole transaction log from the bootstrap and
+  // render eight of them. It now asks for exactly eight, scoped to the
+  // selected branch and fiscal year, and re-reads on every relevant SSE
+  // domain rather than waiting for a bootstrap refresh.
+  const [recentTransactionLogs, setRecentTransactionLogs] = useState<TransactionLog[]>([]);
+  const [recentLogsLoading, setRecentLogsLoading] = useState(true);
+  const [recentLogsError, setRecentLogsError] = useState('');
+  const [recentLogsRetryKey, setRecentLogsRetryKey] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    setRecentLogsLoading(true);
+    setRecentLogsError('');
+    api.getTransactionLogs({
+      branchId: selectedBranchId,
+      dateFromAD: fiscalYearStartAD,
+      dateToAD: fiscalYearEndAD,
+      page: 1,
+      pageSize: 8,
+    })
+      .then((envelope) => {
+        if (alive) setRecentTransactionLogs(Array.isArray(envelope.data) ? envelope.data : []);
+      })
+      .catch((err: any) => {
+        if (alive) setRecentLogsError(err?.message || 'Failed to load recent stock transactions.');
+      })
+      .finally(() => {
+        if (alive) setRecentLogsLoading(false);
+      });
+    return () => { alive = false; };
+  }, [selectedBranchId, fiscalYearStartAD, fiscalYearEndAD, sseRefreshKey, recentLogsRetryKey]);
+
   // Quick Stock Adjustment Modal State
   const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false);
   const [selectedStockId, setSelectedStockId] = useState('');
@@ -1129,12 +1167,27 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-          {transactionLogs.length === 0 ? (
+          {recentLogsLoading ? (
+            <div className="col-span-full text-center text-slate-500 text-xs py-6">
+              Loading recent stock transactions…
+            </div>
+          ) : recentLogsError ? (
+            <div className="col-span-full flex flex-wrap items-center justify-center gap-2 text-center text-rose-600 dark:text-rose-400 text-xs py-6">
+              <span>{recentLogsError}</span>
+              <button
+                type="button"
+                onClick={() => setRecentLogsRetryKey((v) => v + 1)}
+                className="rounded-lg border border-rose-300 px-2.5 py-1 font-bold text-rose-700 hover:bg-rose-50 dark:border-rose-500/40 dark:text-rose-300 dark:hover:bg-rose-950/40 cursor-pointer"
+              >
+                Retry
+              </button>
+            </div>
+          ) : recentTransactionLogs.length === 0 ? (
             <div className="col-span-full text-center text-slate-500 text-xs py-6">
               No stock transactions recorded yet.
             </div>
           ) : (
-            transactionLogs.slice(0, 8).map((log) => {
+            recentTransactionLogs.map((log) => {
               const isPositive = log.quantityChanged > 0;
               return (
                 <div

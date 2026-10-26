@@ -21,7 +21,8 @@ export type RegisterRefreshKey =
   | 'consumableRegister'
   | 'returnsRegister'
   | 'salesInvoices'
-  | 'customerDevices';
+  | 'customerDevices'
+  | 'transactionLog';
 
 /**
  * Domain → registers to re-fetch. Deliberately a superset: an extra
@@ -50,16 +51,22 @@ export type RegisterRefreshKey =
  *   transaction as the asset, and reversing a deployment closes that row. The
  *   register reads its own paged GET, so neither the asset nor the CPE event
  *   alone can leave it current.
+ * - transactionLog: the three movement-ledger screens (Dashboard recent
+ *   activity, Audit Trail's stock tab and the Stock Movement Ledger) now read
+ *   `/api/transaction-logs` themselves instead of the bootstrap slice. Every
+ *   domain that writes `transaction_logs` bumps this counter; the extra reads
+ *   are harmless, and a missed one leaves the ledger stale.
  */
 export const DOMAIN_REGISTER_KEYS: Record<string, RegisterRefreshKey[]> = {
-  STOCK: ['serialLog'],
-  STOCK_OPERATIONS: ['serialLog', 'consumableRegister'],
+  STOCK: ['serialLog', 'transactionLog'],
+  STOCK_OPERATIONS: ['serialLog', 'consumableRegister', 'transactionLog'],
   SERIALS: ['serialLog'],
-  PROCUREMENT: ['serialLog', 'purchaseOrders', 'purchaseInvoices', 'returnsRegister'],
-  SALES: ['serialLog', 'salesInvoices', 'returnsRegister'],
-  SHIPMENTS: ['purchaseOrders', 'serialLog'],
-  CUSTOMER_DEVICES: ['serialLog', 'customerDevices'],
-  ASSETS: ['serialLog', 'customerDevices'],
+  PROCUREMENT: ['serialLog', 'purchaseOrders', 'purchaseInvoices', 'returnsRegister', 'transactionLog'],
+  SALES: ['serialLog', 'salesInvoices', 'returnsRegister', 'transactionLog'],
+  SHIPMENTS: ['purchaseOrders', 'serialLog', 'transactionLog'],
+  CUSTOMER_DEVICES: ['serialLog', 'customerDevices', 'transactionLog'],
+  ASSETS: ['serialLog', 'customerDevices', 'transactionLog'],
+  RECALC: ['transactionLog'],
 };
 
 /**
@@ -109,6 +116,7 @@ export function bumpAllRegisterRefresh(
     returnsRegister: prev.returnsRegister + 1,
     salesInvoices: prev.salesInvoices + 1,
     customerDevices: prev.customerDevices + 1,
+    transactionLog: prev.transactionLog + 1,
   };
 }
 

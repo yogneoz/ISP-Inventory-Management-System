@@ -186,7 +186,6 @@ export async function fetchOperationalData(
   shipments: any[];
   stockOperations: any[];
   auditLogs: any[];
-  transactionLogs: any[];
   suppliers: any[];
   users: any[];
   approvalRequests: any[];
@@ -212,7 +211,6 @@ export async function fetchOperationalData(
     shipments,
     stockOperations,
     auditLogs,
-    transactionLogs,
     suppliers,
     users,
     approvalRequests,
@@ -238,7 +236,6 @@ export async function fetchOperationalData(
     fetchTable(pool, BOOTSTRAP_TABLES.shipments, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.stockOperations, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.auditLogs, scopeParams),
-    fetchTable(pool, BOOTSTRAP_TABLES.transactionLogs, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.suppliers, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.users, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.approvalRequests, scopeParams),
@@ -272,7 +269,6 @@ export async function fetchOperationalData(
     shipments,
     stockOperations,
     auditLogs,
-    transactionLogs,
     suppliers,
     users,
     approvalRequests,

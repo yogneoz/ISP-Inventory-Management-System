@@ -912,7 +912,6 @@ export interface BootstrapState {
   stockOperations?: StockOperation[];
   fiscalYears: FiscalYear[];
   auditLogs: AuditLog[];
-  transactionLogs: TransactionLog[];
   financialSummary: FinancialSummary;
   suppliers: Supplier[];
   users: Omit<User, 'password'>[];

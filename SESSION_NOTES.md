@@ -1,10 +1,10 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-26 · Branch: main · Tests: 1237/1237 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-26 · Branch: main · Tests: 1247/1247 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
-> **Current state (2026-10-26, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1).** All DF-01…DF-17
+> **Current state (2026-10-26, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1).** All DF-01…DF-17
 > work, the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2, CPE-3,
-> SER-1, SER-2, TRIM-1 and SUM-1 are done. Round 2 continues with VOL-1. C4 is explicitly parked (one
+> SER-1, SER-2, TRIM-1, SUM-1 and VOL-1 are implemented. Round 2 continues with VOL-2. C4 is explicitly parked (one
 > `bootstrap/local` call site already; see the architecture backlog §C4). B2 shipped the combined trigram search projection, so all eight
 > item searches share one indexed `search_text` column per table; B3/B4 stay
 > parked. CPE-3 resolved D1 and made the fixed asset, CPE row, serial register and
@@ -17,6 +17,39 @@ _Date: 2026-10-26 · Branch: main · Tests: 1237/1237 green with a DB (all run i
 > trigger (see D4 below).
 > Older “Remaining …” paragraphs below are chronological notes, not a live
 > backlog; where they conflict with this note, the code wins.
+
+## ✅ VOL-1 implemented — the movement log is one scoped, paged read (2026-10-26)
+
+**Problem.** `transactionLogs` rode the bootstrap company-wide for the fiscal
+year with no row cap. The Dashboard rendered eight rows; the Audit Trail paged
+the whole array in the browser; the movement ledger merged it client-side. At
+the intended national volume (well past 12k customers, Nepal-wide) that is
+hundreds of thousands of rows on every login and every full refresh.
+
+**Fix.** `GET /api/transaction-logs` now has a paged envelope
+(`{ data, page, pageSize, totalItems, capped }`), an inclusive AD date range,
+`order=asc|desc` and `all=1` capped at 5,000 for export/ledger reads. The legacy
+bare array still answers a request with no page params, capped at 2,000. Branch
+scope is resolved on the server: omitting `branchId` means "my allowed
+branches", another branch is `403`, and `branchId=ALL` from a branch account is
+`403`. Dashboard reads eight rows; Audit Trail reads 15/page with a capped
+export notice; the movement ledger reads one bounded FY/branch window (5,000)
+and merges the operation/damage arrays once, stating the cap. A true three-way
+server union is recorded as the follow-up when `stock_operations` leaves the
+bootstrap. `transactionLog` is now the eighth paged-register counter, bumped by
+`STOCK`, `STOCK_OPERATIONS`, `PROCUREMENT`, `SALES`, `SHIPMENTS`,
+`CUSTOMER_DEVICES`, `ASSETS` and `RECALC`.
+
+**Measured.** A 20,000-row sample in the real projection costs **441 B raw /
+44.4 B gzip per row**. Removed from the login payload: **42.06 MB raw / 4.23 MB
+gzip at 1× (100k movements/year)** and **420.60 MB raw / 42.33 MB gzip at 10×
+(1M/year)**. The live demo bootstrap is 0.95 MB raw / 0.06 MB gzip and no longer
+has the key. Details in [worklist/round-2/VOL-1.md](worklist/round-2/VOL-1.md).
+
+**Gates.** `npx tsc --noEmit` clean; full `npm test` **1247 tests, 1245 pass,
+0 fail, 2 Windows-only skips**; `npm run build` clean; `check:bundle-budget`
+**313.2 kB** startup / 15.7 kB entry (320 / 16); `check:no-inline-sql` and
+`check:no-raw-dialogs` green. The commit is a separate step.
 
 ## 🗂 Round 2 planned — national-volume read path (2026-10-26)
 

@@ -159,6 +159,7 @@ export const api = {
 
   // Audit Trail (serial-scoped history)
   getAuditTrail: inventory.getAuditTrail,
+  getTransactionLogs: inventory.getTransactionLogs,
 
   // Customer Devices & Serial Numbers
   getCustomerDevices: inventory.getCustomerDevices,
