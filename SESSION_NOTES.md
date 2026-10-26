@@ -4,7 +4,8 @@ _Date: 2026-10-26 · Branch: main · Tests: 1254/1254 green with a DB (all run i
 
 > **Current state (2026-10-26, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1/VOL-2/BUDGET-1).** All DF-01…DF-17
 > work, the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2, CPE-3,
-> SER-1, SER-2, TRIM-1, SUM-1, VOL-1, VOL-2 and BUDGET-1 are implemented. Round 2 is ready for its close pass. C4 is explicitly parked (one
+> SER-1, SER-2, TRIM-1, SUM-1, VOL-1, VOL-2 and BUDGET-1 are implemented. **Round 2 closed on 2026-10-26** (see the close entry below; archive at
+> [worklist/done/2026-10-26-round-2.md](worklist/done/2026-10-26-round-2.md)). C4 is explicitly parked (one
 > `bootstrap/local` call site already; see the architecture backlog §C4). B2 shipped the combined trigram search projection, so all eight
 > item searches share one indexed `search_text` column per table; B3/B4 stay
 > parked. CPE-3 resolved D1 and made the fixed asset, CPE row, serial register and
@@ -17,6 +18,46 @@ _Date: 2026-10-26 · Branch: main · Tests: 1254/1254 green with a DB (all run i
 > trigger (see D4 below).
 > Older “Remaining …” paragraphs below are chronological notes, not a live
 > backlog; where they conflict with this note, the code wins.
+
+## ✅ Round 2 closed — the read path no longer scales with history (2026-10-26)
+
+**Outcome.** All four items shipped: **SUM-1** (`4a2946b`) aggregates trading
+revenue/COGS in SQL and returns two numbers; **VOL-1** (`daacb80`) takes
+`transactionLogs` off the bootstrap and serves a scoped, paged endpoint to the
+Dashboard, Audit Trail and movement ledger; **VOL-2** (`0808470`) takes
+`salesInvoices` off the bootstrap and gives the Returns form a server-side
+invoice search; **BUDGET-1** (`6060532`) trims five accidentally eager
+registers (33.8 kB gzip) and raises the entry guard 16 → 17 kB with the 320 kB
+total unchanged. The compact reference is
+[worklist/done/2026-10-26-round-2.md](worklist/done/2026-10-26-round-2.md);
+the per-item notes were moved beside it into
+[worklist/done/2026-10-26-round-2/](worklist/done/2026-10-26-round-2/README.md)
+and their relative links now resolve from that depth. The temporary
+`worklist/round-2/` folder is gone; `worklist/README.md`, `parked.md` and the
+Round 1 note point at the archive.
+
+**Payload outcome.** Removed from the login payload at 1× / 10×: **4.23 MB /
+42.33 MB gzip** of movement log and **0.36 MB / 3.57 MB gzip** of sales
+invoices. The financial-summary slice's p95 went from ≈124 ms to 113 ms at 1×
+and ≈824 ms to 406 ms at 10×, with no item JSON leaving PostgreSQL. Both keys
+are absent from `/api/bootstrap`.
+
+**Gates at close.** `npx tsc --noEmit` clean; full `npm test` **1254 tests,
+1252 pass, 0 fail, 2 Windows-only skips** (304 suites, 304.7 s); docs-count gate
+matched 1254; `npm run build` clean; `check:bundle-budget` **279.0 kB startup /
+15.7 kB entry** (320 / 17), 69 startup / 39 on-demand chunks;
+`check:no-inline-sql` and `check:no-raw-dialogs` green.
+
+**CI.** Every pushed state was green: SUM-1
+[run 40250834960](https://github.com/yogneoz/ISP-Inventory-Management-System/actions/runs/40250834960),
+VOL-1 [run 40259055880](https://github.com/yogneoz/ISP-Inventory-Management-System/actions/runs/40259055880),
+VOL-2 + BUDGET-1
+[run 40262828480](https://github.com/yogneoz/ISP-Inventory-Management-System/actions/runs/40262828480).
+
+**State.** There is no active round. A5/A4b/B3/B4/C4 stay parked with their
+triggers in [worklist/parked.md](worklist/parked.md); SN-1 (split this file by
+year) is recorded there and is due when the root passes ~5,000 lines — it is
+4,655 at this close.
 
 ## ✅ BUDGET-1 decided — trim the eager registers, raise the entry guard 1 kB (2026-10-26)
 
@@ -38,7 +79,7 @@ now fetches a chunk behind the existing fallback) and raise the entry budget
 total**, **1.3 kB entry headroom and 41.0 kB total headroom**, 69 startup
 chunks / 39 on-demand. The undated “entry 11.7 / total ~262” comment in the
 budget script is replaced with the dated measurement and rationale. Details in
-[worklist/round-2/BUDGET-1.md](worklist/round-2/BUDGET-1.md).
+[worklist/done/2026-10-26-round-2/BUDGET-1.md](worklist/done/2026-10-26-round-2/BUDGET-1.md).
 
 **Gates.** `npx tsc --noEmit` clean; full `npm test` **1254 tests, 1252 pass,
 0 fail, 2 Windows-only skips**; build clean; `check:bundle-budget` green;
@@ -70,7 +111,7 @@ projection (two-to-four-line `items`) costs **929 B raw / 29.9 B gzip per
 row**. Removed from the login payload: **11.14 MB raw / 0.36 MB gzip at 1×
 (12k invoices/year)** and **111.57 MB raw / 3.57 MB gzip at 10× (120k/year)**,
 using the B1 benchmark's documented invoice volumes. Details in
-[worklist/round-2/VOL-2.md](worklist/round-2/VOL-2.md).
+[worklist/done/2026-10-26-round-2/VOL-2.md](worklist/done/2026-10-26-round-2/VOL-2.md).
 
 **Gates.** `npx tsc --noEmit` clean; full `npm test` **1254 tests, 1252 pass,
 0 fail, 2 Windows-only skips**; `npm run build` clean; `check:bundle-budget`
@@ -104,7 +145,7 @@ bootstrap. `transactionLog` is now the eighth paged-register counter, bumped by
 44.4 B gzip per row**. Removed from the login payload: **42.06 MB raw / 4.23 MB
 gzip at 1× (100k movements/year)** and **420.60 MB raw / 42.33 MB gzip at 10×
 (1M/year)**. The live demo bootstrap is 0.95 MB raw / 0.06 MB gzip and no longer
-has the key. Details in [worklist/round-2/VOL-1.md](worklist/round-2/VOL-1.md).
+has the key. Details in [worklist/done/2026-10-26-round-2/VOL-1.md](worklist/done/2026-10-26-round-2/VOL-1.md).
 
 **Gates.** `npx tsc --noEmit` clean; full `npm test` **1247 tests, 1245 pass,
 0 fail, 2 Windows-only skips**; `npm run build` clean; `check:bundle-budget`
@@ -113,12 +154,14 @@ has the key. Details in [worklist/round-2/VOL-1.md](worklist/round-2/VOL-1.md).
 
 ## 🗂 Round 2 planned — national-volume read path (2026-10-26)
 
-Round 1 is closed and archived. The next round is tracked in
-[worklist/round-2/README.md](worklist/round-2/README.md): **SUM-1** (aggregate
+Round 1 is closed and archived. This round (now closed; see the close entry
+above) was planned in
+[worklist/done/2026-10-26-round-2/README.md](worklist/done/2026-10-26-round-2/README.md): **SUM-1** (aggregate
 the financial summary's trading totals in SQL), **VOL-1** (take
 `transactionLogs` off the bootstrap; the Dashboard uses eight rows), and
 **VOL-2** (take `salesInvoices` off the bootstrap; the returns picker is the
-consumer). A5/A4b/B3/B4/C4 stay parked with their triggers recorded in
+consumer), with **BUDGET-1** added when VOL-2 hit the bundle headroom floor.
+A5/A4b/B3/B4/C4 stay parked with their triggers recorded in
 [worklist/parked.md](worklist/parked.md); A4b is recommended to be recorded as
 complete at A4a rather than kept as “blocked”. No code changed for this plan.
 

@@ -1,7 +1,8 @@
 # Round 2 — national-volume read path
 
-Created 2026-10-26 · Status: `[~]` in progress · Previous round:
-[done/2026-10-25-round-1.md](../done/2026-10-25-round-1.md)
+Created 2026-10-26 · Closed 2026-10-26 · Status: `[x]` all four items shipped ·
+Previous round: [2026-10-25-round-1.md](../2026-10-25-round-1.md) · Close summary:
+[2026-10-26-round-2.md](../2026-10-26-round-2.md)
 
 ## Why this round
 
@@ -18,7 +19,7 @@ more years is **how much the read path loads and re-parses**:
   seven refresh domains, and parses it to two numbers.
 
 This round takes those three paths off the login payload or out of the hot
-refresh, in that order of risk. See [parked.md](../parked.md) for the decisions
+refresh, in that order of risk. See [parked.md](../../parked.md) for the decisions
 we are deliberately not taking.
 
 ## Schedule
@@ -63,5 +64,5 @@ attribute.
 
 ## Out of scope
 
-[A5, A4b, B3, B4 and C4](../parked.md) stay parked. Do not fold structural work
+[A5, A4b, B3, B4 and C4](../../parked.md) stay parked. Do not fold structural work
 into this round; a payload change is already broad enough to test.

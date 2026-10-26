@@ -163,9 +163,10 @@ const { branchId, fiscalYearId } = req.query;
         // deferred slice hydration right after bootstrap —
         // GET /api/bootstrap/local?key=<slice>, the same endpoint the SSE
         // targeted refresh uses — so freshness is identical while first
-        // paint gets a lighter payload. financialSummary above still
-        // COMPUTES from these three tables server-side; only the rows are
-        // not shipped. See README "Paged Register Endpoints".
+        // paint gets a lighter payload. financialSummary above is still
+        // computed server-side — since SUM-1 (2026-10-26) the trading totals
+        // aggregate in SQL over stock_operations + products, so no item JSON
+        // leaves PostgreSQL. See README "Paged Register Endpoints".
         postgresDatabaseStatus: {
           isConnected: true,
           host: process.env.POSTGRES_HOST || 'localhost',

@@ -678,7 +678,7 @@ App.tsx (root)
 ├── Auth state: currentUser, rootUser, token
 ├── Navigation: activeTab, selectedBranchId, selectedFiscalYearId
 ├── UI state: isDarkMode, dateMode (BS/AD), searchQuery, modals
-├── Data state (all from bootstrap):
+├── Data state (bootstrap payload; trimmed ledgers arrive as deferred slices):
 │   ├── branches, products, stock, assets
 │   ├── purchaseOrders, purchaseInvoices, shipments
 │   ├── stockOperations, damageRecords, serialLog

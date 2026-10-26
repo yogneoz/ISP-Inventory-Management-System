@@ -7,12 +7,12 @@ Round: [Round 2](README.md) · Order: 1
 
 `GET /api/bootstrap/local?key=financialSummary` is refreshed on seven SSE
 domains: `STOCK`, `STOCK_OPERATIONS`, `PROCUREMENT`, `SALES`, `SHIPMENTS`,
-`FISCAL` and `RECALC` ([App.tsx:1023](../../client/src/App.tsx#L1023)). Each
+`FISCAL` and `RECALC` ([App.tsx:1023](../../../client/src/App.tsx#L1023)). Each
 refresh called `fetchFinancialSummaryFromDb`:
 
-- [buildStockOutOpsQuery](../../server/src/models/reports.repo.ts#L232) selected
+- [buildStockOutOpsQuery](../../../server/src/models/reports.repo.ts#L232) selected
   every `STOCK_OUT` row's `items` JSON for the fiscal year / branch — no row cap.
-- [financialSummary.service.ts:199](../../server/src/services/financialSummary.service.ts#L199)
+- [financialSummary.service.ts:199](../../../server/src/services/financialSummary.service.ts#L199)
   parsed every line in Node.
 - `computeTradingFromOps` also ran `products.find` for every line, so the work
   was linear in sale lines times products.
@@ -27,7 +27,7 @@ Server only: repository query, service, tests, benchmark. No client change.
 ## Steps
 
 - [x] **1. Pin the rule with a parity matrix first.** Added
-      [tradingTotals.test.ts](../../tests/tradingTotals.test.ts): priced
+      [tradingTotals.test.ts](../../../tests/tradingTotals.test.ts): priced
       `totalValue`; missing or `0` `totalValue` falling back to
       `sellingPrice − discount`; a discount producing a negative total; a line
       with quantity but neither price field (skipped entirely, including COGS);
@@ -37,7 +37,7 @@ Server only: repository query, service, tests, benchmark. No client change.
       null `totalValue`; a non-array `items` value; another branch and an
       out-of-range date.
 - [x] **2. Add the aggregate query** as `buildTradingTotalsQuery(scope)` in
-      [reports.repo.ts](../../server/src/models/reports.repo.ts), returning only
+      [reports.repo.ts](../../../server/src/models/reports.repo.ts), returning only
       `total_revenue` and `total_cogs`.
 - [x] **3. Mirror the JS rule exactly.** `jsonb_to_recordset` reads each line
       once, `LEFT JOIN products p ON p.id::text = item."productId"` resolves
@@ -70,7 +70,7 @@ Server only: repository query, service, tests, benchmark. No client change.
       A write-time total is the next step only if DB CPU, not latency, becomes
       the constraint.
 - [x] **7. Update docs.** Added the outcome to
-      [architecture-backlog.md](../../docs/architecture-backlog.md) (the B3
+      [architecture-backlog.md](../../../docs/architecture-backlog.md) (the B3
       note) and a SESSION_NOTES entry; the B3 reopen condition now names the
       single-table projection / write-time total fallback.
 - [x] **8. Gates.** `npx tsc --noEmit`, the financial-summary/repo/parity

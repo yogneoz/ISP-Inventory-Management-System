@@ -16,9 +16,9 @@ Only three screens consumed it:
 
 | Consumer | Old use | Delivered read |
 |---|---|---|
-| [Dashboard](../../client/src/features/dashboard/Dashboard.tsx) | `slice(0, 8)` — eight recent rows | `page=1&pageSize=8`, branch/FY scoped, retryable |
-| [AuditTrailReports](../../client/src/features/finance/AuditTrailReports.tsx) | client pagination over the whole array; CSV export | server paging (15/page) + scoped, capped export |
-| [StockMovementLedger](../../client/src/features/inventory/StockMovementLedger.tsx) | merged three arrays, then paged | one bounded FY/branch window (5,000 rows) merged once, with a visible cap notice |
+| [Dashboard](../../../client/src/features/dashboard/Dashboard.tsx) | `slice(0, 8)` — eight recent rows | `page=1&pageSize=8`, branch/FY scoped, retryable |
+| [AuditTrailReports](../../../client/src/features/finance/AuditTrailReports.tsx) | client pagination over the whole array; CSV export | server paging (15/page) + scoped, capped export |
+| [StockMovementLedger](../../../client/src/features/inventory/StockMovementLedger.tsx) | merged three arrays, then paged | one bounded FY/branch window (5,000 rows) merged once, with a visible cap notice |
 
 ## Delivered
 
@@ -29,7 +29,7 @@ Only three screens consumed it:
   `{ data, page, pageSize, totalItems, capped }`. A request with none of the
   page parameters still gets the legacy bare array (now capped at
   `TXN_LOG_LEGACY_LIMIT = 2,000`), so no unknown caller breaks.
-- [buildTransactionLogQuery / buildTransactionLogCountQuery](../../server/src/models/misc.repo.ts)
+- [buildTransactionLogQuery / buildTransactionLogCountQuery](../../../server/src/models/misc.repo.ts)
   share one WHERE builder; the date upper bound is a half-open `+ 1 day`
   range, so the last day's rows are not dropped.
 - Branch scope is a server decision. A non-global account that omits
@@ -61,7 +61,7 @@ Only three screens consumed it:
   changing those reads too. Revisit (a) when `stock_operations` itself leaves
   the bootstrap.
 - `transactionLog` is now the eighth paged-register counter in
-  [registerRefreshDomains.ts](../../client/src/utils/registerRefreshDomains.ts).
+  [registerRefreshDomains.ts](../../../client/src/utils/registerRefreshDomains.ts).
   `STOCK`, `STOCK_OPERATIONS`, `PROCUREMENT`, `SALES`, `SHIPMENTS`,
   `CUSTOMER_DEVICES`, `ASSETS` and `RECALC` bump it; the full-refresh fallback
   bumps it with every other counter.
@@ -70,7 +70,7 @@ Only three screens consumed it:
 
 - `transactionLogs` left `fetchOperationalData` and the `/api/bootstrap`
   response; `App.tsx` holds no `transactionLogs` state and passes no such prop.
-  The mapping stays in [columnMappings.ts](../../server/src/models/columnMappings.ts)
+  The mapping stays in [columnMappings.ts](../../../server/src/models/columnMappings.ts)
   only so the server's in-memory operational cache (demo fallback, controller
   appends) still hydrates; it is no longer a bootstrap table.
 
@@ -92,11 +92,11 @@ regardless of volume, so the cost no longer scales with movement history.
 
 ## Tests
 
-- [transactionLogs.api.test.ts](../../tests/transactionLogs.api.test.ts) — source
+- [transactionLogs.api.test.ts](../../../tests/transactionLogs.api.test.ts) — source
   contract (bootstrap/App/screens), page slicing, `order=asc`, inclusive date
   range, branch pinning (`403` for another branch and for `ALL`), global read,
   `all=1` cap envelope, legacy array and `401`.
-- [registerRefreshDomains.test.ts](../../tests/registerRefreshDomains.test.ts) —
+- [registerRefreshDomains.test.ts](../../../tests/registerRefreshDomains.test.ts) —
   every writing domain bumps `transactionLog`; the existing targeted/full burst
   and audience tests still pass.
 - `appShellRenderCount`, `appRouteTree`, `bootstrapSlices`,

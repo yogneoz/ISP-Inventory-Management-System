@@ -22,3 +22,4 @@ round folder is archived beside it when one exists (for example
 | Round | Closed | Goal | Note |
 |---|---|---|---|
 | 1 | 2026-10-25 | CPE and serial trust, search scale, bootstrap trim, CLOSE | [2026-10-25-round-1.md](2026-10-25-round-1.md) |
+| 2 | 2026-10-26 | National-volume read path: SQL trading totals, bootstrap payload trim, bundle headroom | [2026-10-26-round-2.md](2026-10-26-round-2.md) |

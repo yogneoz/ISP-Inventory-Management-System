@@ -16,10 +16,10 @@ is the plan, not a second source of truth.
 
 ## Layout
 
-- [round-2/](round-2/README.md) — active round: national-volume read path.
 - [parked.md](parked.md) — decisions we are not acting on, with the trigger to
   reopen each one.
 - [done/](done/README.md) — completed rounds, kept for reference. Never delete.
+  Nothing is active right now; Round 2 closed 2026-10-26.
 
 ## Status vocabulary
 
@@ -52,13 +52,15 @@ have passed, and the commit hash is recorded in the note.
 ## Session-notes growth
 
 The root notes file is allowed to stay chronological, but not to keep growing
-at the current rate. From this round on, the per-item checklists live here; a
-completed item adds one short SESSION_NOTES section. When the root file passes
-about 5,000 lines, split it by year under `docs/session-notes/` and leave a
-short index at the root; that doc task is not started yet (add it as `SN-1`
-when Round 2 closes).
+at the current rate. Round 2 kept its per-item checklists here; a completed
+item added one short SESSION_NOTES section. When the root file passes about
+5,000 lines, split it by year under `docs/session-notes/` and leave a short
+index at the root. That task is **SN-1**, recorded in [parked.md](parked.md)
+with its trigger (the file is 4,655 lines at the Round 2 close).
 
 ## Active work
 
-Start with [round-2/README.md](round-2/README.md) §Order. Do not start a second
-item before the current one's note is ticked and committed.
+None. Round 2 closed on 2026-10-26 — see
+[done/2026-10-26-round-2.md](done/2026-10-26-round-2.md). Do not open a parked
+item without its recorded trigger; add the new evidence to
+[parked.md](parked.md) first.

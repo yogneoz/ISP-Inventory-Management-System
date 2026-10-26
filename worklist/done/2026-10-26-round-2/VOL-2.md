@@ -13,8 +13,8 @@ refresh.
 
 | Consumer | Old use | Delivered read |
 |---|---|---|
-| [ReturnsRegister](../../client/src/features/sales/ReturnsRegister.tsx) | `<select>` over every invoice, and `find` for the selected reference | `SearchPicker` over `GET /api/sales-invoices` — number or customer name, 20-result page |
-| [SalesInvoices](../../client/src/features/sales/SalesInvoices.tsx) | fallback array when the paged fetch failed | that screen's own error + Retry; no full-array path |
+| [ReturnsRegister](../../../client/src/features/sales/ReturnsRegister.tsx) | `<select>` over every invoice, and `find` for the selected reference | `SearchPicker` over `GET /api/sales-invoices` — number or customer name, 20-result page |
+| [SalesInvoices](../../../client/src/features/sales/SalesInvoices.tsx) | fallback array when the paged fetch failed | that screen's own error + Retry; no full-array path |
 
 `GET /api/sales-invoices` already supported `page`, `pageSize`, `query`,
 `branchId`, `status` and an AD date range and returns the full row including
@@ -26,7 +26,7 @@ refresh.
 
 - `salesInvoices` left `fetchOperationalData` and the `/api/bootstrap`
   response. The payload no longer names the key.
-- [columnMappings.ts](../../server/src/models/columnMappings.ts) keeps the
+- [columnMappings.ts](../../../server/src/models/columnMappings.ts) keeps the
   mapping **only** so `CACHE_LOADS` can keep the operational cache hydrated
   (demo mode's invoice list, the duplicate-number pre-check, the post-write
   mirror refresh). Its comment now says so, matching `transactionLogs`.
@@ -36,7 +36,7 @@ refresh.
 ### Client
 
 - **Returns create form** — the sales kind renders the shared
-  [SearchPicker](../../client/src/components/common/SearchPicker.tsx):
+  [SearchPicker](../../../client/src/components/common/SearchPicker.tsx):
   `api.getSalesInvoices({ branchId, query, page: 1, pageSize: 20 })`, search by
   invoice number or customer name, rows show number / customer / date / total.
   Picking a row runs the same `applyInvoice` path as before: lines copied,
@@ -51,8 +51,8 @@ refresh.
   `RegisterLoadError` + Retry.
 - **App** — no `salesInvoices` state, bootstrap hydration, `SALES` slice key,
   or prop. `registerRefresh.salesInvoices` stays and still wires both screens.
-- [BootstrapState](../../client/src/types/index.ts) and
-  [bootstrapSlices](../../client/src/services/bootstrapSlices.ts) no longer
+- [BootstrapState](../../../client/src/types/index.ts) and
+  [bootstrapSlices](../../../client/src/services/bootstrapSlices.ts) no longer
   declare a `salesInvoices` slice or label.
 
 ## Payload measurement
@@ -73,13 +73,13 @@ scales with the invoice ledger; the remaining bootstrap is unchanged in shape.
 
 Full suite: **1254 tests, 1252 pass, 0 fail, 2 Windows-only skips**.
 
-- [returnsInvoicePicker.test.ts](../../tests/returnsInvoicePicker.test.ts) —
+- [returnsInvoicePicker.test.ts](../../../tests/returnsInvoicePicker.test.ts) —
   source contract (bootstrap repo/controller, App state and props,
   BootstrapState, the returns form and the sales register) plus HTTP: seed eight
   invoices, prove the oldest is outside page 1, find it by number and by
   customer with its `items`, keep the legacy array shape, prove the bootstrap
   omits the key, and `401` without a token.
-- [registerRefreshDomains.test.ts](../../tests/registerRefreshDomains.test.ts) —
+- [registerRefreshDomains.test.ts](../../../tests/registerRefreshDomains.test.ts) —
   `ReturnsRegister`'s server surface now includes `getSalesInvoices`; the picker
   re-search token is pinned, and the screen may not take an invoice array.
 - `appRouteTree`, `bootstrapSlices`, `bootstrapTrim` and the feature-screen
