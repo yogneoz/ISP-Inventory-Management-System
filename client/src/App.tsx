@@ -53,16 +53,28 @@ import { invalidateExchangeDevices, resetExchangeDevices } from './services/exch
 import { LoginModal } from './components/common/LoginModal';
 import { Dashboard } from './features/dashboard/Dashboard';
 import { ProductManagement } from './features/inventory/ProductManagement';
-import { BranchStockTracking } from './features/inventory/BranchStockTracking';
-import { FixedAssetRegister } from './features/finance/FixedAssetRegister';
-import { CustomersManagement } from './features/sales/CustomersManagement';
-import { CustomerMasterDirectory } from './features/sales/CustomerMasterDirectory';
-
-import { SerialLogRegister } from './features/inventory/SerialLogRegister';
 import { PurchaseOrders, OrderFormLine } from './features/procurement/PurchaseOrders';
 // Rarely-used / heavy screens are lazy: their chunks download on first visit.
 // Kept eager: Dashboard, ProductManagement, StockOperations (11 render sites),
 // PurchaseOrders, modals, and anything referenced in the synchronous render path.
+// BUDGET-1 (2026-10-26): Branch Stock, Fixed Assets, the Customer Master
+// Directory, the Customer Devices register and the Serial Log moved here from
+// the eager graph — 33.8 kB gzip of registers that no first paint renders.
+const BranchStockTracking = React.lazy(() =>
+  import('./features/inventory/BranchStockTracking').then((m) => ({ default: m.BranchStockTracking }))
+);
+const FixedAssetRegister = React.lazy(() =>
+  import('./features/finance/FixedAssetRegister').then((m) => ({ default: m.FixedAssetRegister }))
+);
+const CustomersManagement = React.lazy(() =>
+  import('./features/sales/CustomersManagement').then((m) => ({ default: m.CustomersManagement }))
+);
+const CustomerMasterDirectory = React.lazy(() =>
+  import('./features/sales/CustomerMasterDirectory').then((m) => ({ default: m.CustomerMasterDirectory }))
+);
+const SerialLogRegister = React.lazy(() =>
+  import('./features/inventory/SerialLogRegister').then((m) => ({ default: m.SerialLogRegister }))
+);
 const PurchaseInvoices = React.lazy(() =>
   import('./features/procurement/PurchaseInvoices').then((m) => ({ default: m.PurchaseInvoices }))
 );
@@ -1894,14 +1906,16 @@ export default function App() {
       </React.Suspense>
     )),
     screenRoute('branch-stock', (
-      <BranchStockTracking
-        currentUser={currentUser}
-        products={products}
-        branches={branches}
-        stock={stock}
-        selectedBranchId={selectedBranchId}
-        onUpdateStockLevel={handleUpdateStockLevel}
-      />
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <BranchStockTracking
+          currentUser={currentUser}
+          products={products}
+          branches={branches}
+          stock={stock}
+          selectedBranchId={selectedBranchId}
+          onUpdateStockLevel={handleUpdateStockLevel}
+        />
+      </React.Suspense>
     )),
     screenRoute('reorder-stock', (
       <React.Suspense fallback={<TabLoadingFallback />}>
@@ -1995,16 +2009,18 @@ export default function App() {
       </React.Suspense>
     )),
     screenRoute('fixed-assets', (
-      <FixedAssetRegister
-        currentUser={currentUser}
-        assets={assets}
-        branches={branches}
-        selectedBranchId={selectedBranchId}
-        asOfDateAD={assetReportAsOfDateAD}
-        dateMode={dateMode}
-        onCreateAsset={handleCreateAsset}
-        onUpdateAssetStatus={handleUpdateAssetStatus}
-      />
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <FixedAssetRegister
+          currentUser={currentUser}
+          assets={assets}
+          branches={branches}
+          selectedBranchId={selectedBranchId}
+          asOfDateAD={assetReportAsOfDateAD}
+          dateMode={dateMode}
+          onCreateAsset={handleCreateAsset}
+          onUpdateAssetStatus={handleUpdateAssetStatus}
+        />
+      </React.Suspense>
     )),
     screenRoute('dev-statcard', (
       <React.Suspense fallback={<TabLoadingFallback />}>
@@ -2012,51 +2028,57 @@ export default function App() {
       </React.Suspense>
     ), { enabled: Boolean(import.meta.env?.DEV) }),
     screenRoute('customers', (
-      <CustomerMasterDirectory
-        branches={branches}
-        currentUser={currentUser}
-        refreshKey={registerRefresh.customerDevices}
-        onCustomersChanged={refreshAllData}
-        onNavigateToImport={() => setActiveTab('import-customers')}
-        onSelectTab={(tab, filter) => {
-          setActiveTab(tab as any);
-          if (filter) setSearchQuery(filter);
-        }}
-      />
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <CustomerMasterDirectory
+          branches={branches}
+          currentUser={currentUser}
+          refreshKey={registerRefresh.customerDevices}
+          onCustomersChanged={refreshAllData}
+          onNavigateToImport={() => setActiveTab('import-customers')}
+          onSelectTab={(tab, filter) => {
+            setActiveTab(tab as any);
+            if (filter) setSearchQuery(filter);
+          }}
+        />
+      </React.Suspense>
     )),
     screenRoute('customer-devices', (
-      <CustomersManagement
-        currentUser={currentUser}
-        customerDevices={customerDevices}
-        branches={branches}
-        products={products}
-        selectedBranchId={selectedBranchId}
-        dateMode={dateMode}
-        approvalRequests={approvalRequests}
-        onCreateCustomerDevice={async (newRecord) => {
-          await api.createCustomerDevice(newRecord);
-          await refreshAllData();
-        }}
-        onUpdateStatus={async (id, status) => {
-          await api.updateCustomerDeviceStatus(id, status);
-          await refreshAllData();
-        }}
-        onExchangeSuccess={refreshAllData}
-        onRequestApproval={handleCreateApprovalRequest}
-        onCancelApproval={handleCancelApprovalRequest}
-        onNavigateToMaster={() => setActiveTab('customers')}
-        sseRefreshKey={registerRefresh.customerDevices}
-      />
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <CustomersManagement
+          currentUser={currentUser}
+          customerDevices={customerDevices}
+          branches={branches}
+          products={products}
+          selectedBranchId={selectedBranchId}
+          dateMode={dateMode}
+          approvalRequests={approvalRequests}
+          onCreateCustomerDevice={async (newRecord) => {
+            await api.createCustomerDevice(newRecord);
+            await refreshAllData();
+          }}
+          onUpdateStatus={async (id, status) => {
+            await api.updateCustomerDeviceStatus(id, status);
+            await refreshAllData();
+          }}
+          onExchangeSuccess={refreshAllData}
+          onRequestApproval={handleCreateApprovalRequest}
+          onCancelApproval={handleCancelApprovalRequest}
+          onNavigateToMaster={() => setActiveTab('customers')}
+          sseRefreshKey={registerRefresh.customerDevices}
+        />
+      </React.Suspense>
     )),
     screenRoute('complete-serial-inventory', (
-      <SerialLogRegister
-        branches={branches}
-        selectedBranchId={selectedBranchId}
-        currentUser={currentUser}
-        dateMode={dateMode}
-        onRefreshData={refreshAllData}
-        refreshKey={registerRefresh.serialLog}
-      />
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <SerialLogRegister
+          branches={branches}
+          selectedBranchId={selectedBranchId}
+          currentUser={currentUser}
+          dateMode={dateMode}
+          onRefreshData={refreshAllData}
+          refreshKey={registerRefresh.serialLog}
+        />
+      </React.Suspense>
     )),
     screenRoute('locations', (
       <React.Suspense fallback={<TabLoadingFallback />}>

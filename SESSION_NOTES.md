@@ -2,9 +2,9 @@
 
 _Date: 2026-10-26 · Branch: main · Tests: 1254/1254 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
-> **Current state (2026-10-26, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1/VOL-2).** All DF-01…DF-17
+> **Current state (2026-10-26, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1/VOL-2/BUDGET-1).** All DF-01…DF-17
 > work, the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2, CPE-3,
-> SER-1, SER-2, TRIM-1, SUM-1, VOL-1 and VOL-2 are implemented. Round 2 is ready for its close pass. C4 is explicitly parked (one
+> SER-1, SER-2, TRIM-1, SUM-1, VOL-1, VOL-2 and BUDGET-1 are implemented. Round 2 is ready for its close pass. C4 is explicitly parked (one
 > `bootstrap/local` call site already; see the architecture backlog §C4). B2 shipped the combined trigram search projection, so all eight
 > item searches share one indexed `search_text` column per table; B3/B4 stay
 > parked. CPE-3 resolved D1 and made the fixed asset, CPE row, serial register and
@@ -17,6 +17,32 @@ _Date: 2026-10-26 · Branch: main · Tests: 1254/1254 green with a DB (all run i
 > trigger (see D4 below).
 > Older “Remaining …” paragraphs below are chronological notes, not a live
 > backlog; where they conflict with this note, the code wins.
+
+## ✅ BUDGET-1 decided — trim the eager registers, raise the entry guard 1 kB (2026-10-26)
+
+**Trigger.** After VOL-2 the entry chunk was 15.6 kB of its 16 kB budget and
+the startup total was 313.2 kB of 320 kB — 6.8 kB total headroom, below the
+note's ~8 kB floor, and 0.4 kB from failing the entry guard.
+
+**Finding.** Five registers were in the static graph with no reason to be:
+`BranchStockTracking` (3.4 kB gzip), `FixedAssetRegister` (4.5),
+`CustomersManagement` (12.1), `CustomerMasterDirectory` (6.9) and
+`SerialLogRegister` (6.9) — **33.8 kB gzip** of screens no first paint renders.
+Dashboard, ProductManagement, StockOperations and PurchaseOrders stayed eager
+as designed; every comparable register is already lazy.
+
+**Decision.** Move those five behind `React.lazy` (named, because first visit
+now fetches a chunk behind the existing fallback) and raise the entry budget
+16 → 17 kB for the shell/routing, which legitimately grew from 11.7 kB in
+2026-09. The 320 kB total is unchanged. Result: **15.7 kB entry / 279.0 kB
+total**, **1.3 kB entry headroom and 41.0 kB total headroom**, 69 startup
+chunks / 39 on-demand. The undated “entry 11.7 / total ~262” comment in the
+budget script is replaced with the dated measurement and rationale. Details in
+[worklist/round-2/BUDGET-1.md](worklist/round-2/BUDGET-1.md).
+
+**Gates.** `npx tsc --noEmit` clean; full `npm test` **1254 tests, 1252 pass,
+0 fail, 2 Windows-only skips**; build clean; `check:bundle-budget` green;
+both convention guards green. The commit is a separate step.
 
 ## ✅ VOL-2 implemented — sales invoices leave the bootstrap (2026-10-26)
 
@@ -48,8 +74,9 @@ using the B1 benchmark's documented invoice volumes. Details in
 
 **Gates.** `npx tsc --noEmit` clean; full `npm test` **1254 tests, 1252 pass,
 0 fail, 2 Windows-only skips**; `npm run build` clean; `check:bundle-budget`
-**313.2 kB / 15.6 kB** (320 / 16); `check:no-inline-sql` and
-`check:no-raw-dialogs` green. The commit is a separate step.
+**313.2 kB / 15.6 kB** at the time (320 / 16; BUDGET-1 later trimmed it to
+279.0 / 15.7); `check:no-inline-sql` and `check:no-raw-dialogs` green. The
+commit is a separate step.
 
 ## ✅ VOL-1 implemented — the movement log is one scoped, paged read (2026-10-26)
 

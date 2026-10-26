@@ -26,11 +26,17 @@ import { gzipSync } from 'node:zlib';
 const DIST = path.resolve(process.cwd(), 'dist');
 const ASSETS = path.join(DIST, 'assets');
 
-// gzip-byte budgets. Current measured values (2026-09): entry 11.7 kB,
-// startup total ~262 kB. Headroom exists for legitimate growth; a breach
-// means the startup graph got meaningfully bigger and needs a look.
+// gzip-byte budgets. Current measured values (2026-10-26, BUDGET-1): entry
+// 15.7 kB, startup total 279.0 kB. BUDGET-1 moved five registers (Branch
+// Stock, Fixed Assets, Customer Master Directory, Customer Devices, Serial
+// Log; 33.8 kB gzip) out of the eager graph, which restored ~40 kB of total
+// headroom without raising the 320 kB total. The entry budget moved 16 -> 17
+// kB because the app shell/routing legitimately grew from 11.7 kB in 2026-09
+// to 15.6 kB; 1.4 kB is about five shell-sized changes, and screen weight
+// belongs in lazy chunks, not in this file. A breach still means the startup
+// graph got meaningfully bigger and needs a look.
 const BUDGETS = {
-  entryGz: 16 * 1024, // entry chunk alone
+  entryGz: 17 * 1024, // entry chunk alone
   startupTotalGz: 320 * 1024, // entry + all statically-imported chunks
 };
 

@@ -28,12 +28,14 @@ we are deliberately not taking.
 | 1 | [SUM-1](SUM-1.md) | Aggregate trading revenue/COGS in SQL | `[x]` shipped (`4a2946b`) | 1–2 days | — |
 | 2 | [VOL-1](VOL-1.md) | Take `transactionLogs` off the bootstrap | `[x]` shipped (`daacb80`) | 3–5 days | SUM-1 (shares the summary slice's refresh path) |
 | 3 | [VOL-2](VOL-2.md) | Take `salesInvoices` off the bootstrap | `[~]` implemented, commit pending | 1–2 days | VOL-1 (same bootstrap plumbing) |
-| 4 | [BUDGET-1](BUDGET-1.md) | Startup bundle headroom decision | `[—]` hold | 0.5 day | First client change that hits the budget |
+| 4 | [BUDGET-1](BUDGET-1.md) | Startup bundle headroom decision | `[x]` decided 2026-10-26 — eager trim + entry 17 kB | 0.5 day | First client change that hits the budget |
 
 **Total:** about 1–1.5 weeks. SUM-1 is server-only and independent, so it can
 land first and is the best warm-up. VOL-1 is the largest payload win; VOL-2 is
-small and follows the same pattern. BUDGET-1 stays on hold until a client-side
-change actually needs the headroom; do not raise the budget speculatively.
+small and follows the same pattern. BUDGET-1 was triggered by VOL-2 (total
+headroom 6.8 kB) and decided on 2026-10-26: five eager registers moved behind
+`React.lazy` (33.8 kB gzip) and the entry guard raised 16 → 17 kB, with the
+320 kB total unchanged.
 
 ## Order and stop points
 
