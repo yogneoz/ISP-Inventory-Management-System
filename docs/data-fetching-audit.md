@@ -359,8 +359,8 @@ bootstrap; **paged** = path 4; **self** = path 5; **form** = no read of its own.
 | Serial Log Register | paged | Seq + error correct; page clamp fixed by DF-09. Shipment-receipt refresh fixed by DF-06. |
 | Product Master Catalog | self catalog | Stale after every save (P1-1); error state dead (P2-9). |
 | Category / UoM Management | self list | Silent failure, no loading UI (P2-9). |
-| Customer Master Directory | self paged | **P0: always empty**; status filter ignored. |
-| Customer Device Serials | self devices + props customers | No paging defect (endpoint is unpaged) but dead page/error state (P3-5). |
+| Customer Master Directory | self paged | DF-01 restored the paged envelope; VOL-4a (2026-10-26) made the search trigram-indexed and branch-scoped from the session, and this is now the app's only customer read. |
+| Customer Device Serials | self devices (VOL-4a removed the `customers` prop) | No paging defect (endpoint is unpaged) but dead page/error state (P3-5). A customer is chosen through `CustomerPicker`, never resolved from an array. |
 | Locations | self list | Load failure surfaced by DF-11; a new location's branch now follows the signed-in user once the branch list loads (close-out fix). |
 | Device Exchange | StockOperations host | Mount-once serial snapshot (P1-2); full page reload (P2-10). |
 | Purchase Orders, Purchase Invoices | paged | Guards fine; fetch failures render the retryable notice and exports refuse a partial file (DF-04); page clamp fixed by DF-09. |
@@ -368,7 +368,7 @@ bootstrap; **paged** = path 4; **self** = path 5; **form** = no read of its own.
 | Sales Invoices | paged | Same as above. VOL-2 (2026-10-26) removed the failed-fetch fallback over the bootstrap array; a failed page keeps the rows on screen plus the retryable notice. |
 | Consumables Register | paged | Same; also depends on the shared serial cache for its form host. |
 | Create PO / Purchase Invoice / Sales Invoice / Returns | form | Derived from props; no defect found beyond the stale supplier/branch sync notes. |
-| Create Shipment / Create Transfer / Pullout / Damage Label / Product Sale / Assign Asset | form + `serialRegister` | Validation uses the session-old snapshot (P1-2). |
+| Create Shipment / Create Transfer / Pullout / Damage Label / Product Sale / Assign Asset | form + `serialRegister` | Validation uses the session-old snapshot (P1-2). VOL-4a: Product Sale and Assign Asset keep the `CustomerRecord` their picker returned; Product Sale starts with no customer selected. |
 | Shipment Register, Receive Inbound, Asset Deployments, Suppliers | props | Fine (host refreshes via `refreshAllData`). |
 | Financial Statements | self (direct `getFinancialSummary`) | Cancel flag + error are correct; N+1 requests (P3-1); summary prop stale cross-client (P1-4). |
 | Vendor / Customer Ledger | self | Party-switch sequence guard added by DF-08; filters apply on Load by design. |
@@ -380,6 +380,36 @@ bootstrap; **paged** = path 4; **self** = path 5; **form** = no read of its own.
 | Audit Activities Log | props + debounced serial fetch | Seq guard + error correct. |
 | Company Setup, Users, Permissions, Branches, Approvals, Clear Demo Data | props / mutation handlers | Fine; permission save re-reads the server matrix on failure. |
 | Data Recalculation & Repair | mutations + `onRefreshData` | Local refresh correct; other clients' movement ledger and BS mirror now follow `RECALC` (DF-06). |
+
+---
+
+## 7a. Post-audit — VOL-4a customers leave the bootstrap (2026-10-26)
+
+`customer_records` was the last unbounded master array on `GET /api/bootstrap`.
+The fan-out no longer reads it and the payload has no `customers` key; the
+`BOOTSTRAP_TABLES` mapping stays so an older bundle's
+`/api/bootstrap/local?key=customers` still answers. At the modelled 1× (12k
+rows) the national payload was 3.34 MB JSON / 284 kB gzip; at 10× (120k rows)
+it was 33.72 MB / 2.84 MB gzip, materialised before first render on every
+login. It is now zero until someone types in a picker, and then at most 20 rows.
+
+The directory search moved from six ORed `LOWER(col) LIKE '%term%'`
+predicates (a sequential scan per debounced keystroke) to one concatenated,
+lower-cased expression behind `idx_customer_records_search_trgm`, with a
+`(branch_id, customer_name, customer_id)` btree for the stable page order. On a
+TEMP table of the same shape: 406 ms → 32 ms at 120k rows (13×), and `EXPLAIN`
+shows the bitmap index scan at both volumes. Branch scope is applied in SQL from
+the session (`branch_id = ANY(...)`) on top of the route guard, so a branch
+role can neither omit it nor forge another branch, and `searchCustomers` now
+sends the shell's active branch — before VOL-4a the shared picker 403'd for
+every branch user.
+
+Evidence: [customersOffBootstrap.test.ts](../tests/customersOffBootstrap.test.ts)
+(bootstrap has no key while the local slice still answers; branch omission /
+forged branch refused; a page-2 customer is selectable; no client screen holds
+the directory) and [masterdata.repo.test.ts](../tests/masterdata.repo.test.ts)
+(the indexed expression, `branchScope` pinning, and the aggregate sharing the
+same WHERE).
 
 ---
 

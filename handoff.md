@@ -124,7 +124,7 @@
   `boot/dbBoot.ts` (schema sync/seeding), `realtime/sse.ts`, `db/transactions.ts`,
   `services/` (audit, serial edit, doc-number claim, super-admin re-auth) and
   `utils/` (doc numbering, fiscal year, rate limiter).
-- **Single bootstrap endpoint** (`GET /api/bootstrap`) returns ALL data in one roundtrip, filtered by `branchId` and `fiscalYearId` query params. Exception (bootstrap trim, 2026-10-08): the three big ledgers — `stockOperations`, `purchaseOrders`, `purchaseInvoices` — are **trimmed from the payload** and hydrated by the client through deferred `GET /api/bootstrap/local?key=<slice>` calls right after bootstrap (the same endpoint the SSE targeted refresh uses), so wholesale consumers keep identical freshness while first paint gets a lighter payload. Follow-up (2026-10-25): the KPI surfaces, vendor-bill open-PO picker and FY closing wizard no longer take those arrays — they read scoped pages (`purchase-orders?status=…&dateFrom…`, `purchase-invoices?page=1&pageSize=1`, `shipments?branchId&dateFrom…`); the movement ledger still takes the deferred slice; global search now issues one bounded, branch/FY-scoped `GET /api/global-search` request per debounced keystroke (5 rows per group, index-backed), so it no longer receives any bootstrap slice. Both the full bootstrap and the targeted `GET /api/bootstrap/local` slices read **live from PostgreSQL** (mirror-drift fix, 2026-10-05): the full payload runs the operational-data fan-out in bootstrap.repo.ts (BOOT-1, 2026-10-26, removed purchase orders, purchase invoices, stock operations and vendor payments from it — the first three fed only the financial summary, which now aggregates in SQL, and no client read the fourth; VOL-3, 2026-10-26, also removed shipments: the register pages through `GET /api/shipments/page` and the shell badges/dashboard/notifications read `GET /api/shipments/overview`, while the FY closing wizard keeps the bounded bare-array `GET /api/shipments` read); targeted slices resolve through the same `BOOTSTRAP_TABLES` column mappings (`fetchBootstrapSlice`), the permission matrix via its own SELECT, appSettings via the settings-repo SELECT. The in-memory mirrors are only the operational cache that controllers write/mutate through — never the serving layer for bootstrap reads — so a manual DB edit, a second server instance or a missed cache refresh can never be served stale (live-read failure falls back to the operational-data query, then the cache).
+- **Single bootstrap endpoint** (`GET /api/bootstrap`) returns ALL data in one roundtrip, filtered by `branchId` and `fiscalYearId` query params. Exception (bootstrap trim, 2026-10-08): the three big ledgers — `stockOperations`, `purchaseOrders`, `purchaseInvoices` — are **trimmed from the payload** and hydrated by the client through deferred `GET /api/bootstrap/local?key=<slice>` calls right after bootstrap (the same endpoint the SSE targeted refresh uses), so wholesale consumers keep identical freshness while first paint gets a lighter payload. Follow-up (2026-10-25): the KPI surfaces, vendor-bill open-PO picker and FY closing wizard no longer take those arrays — they read scoped pages (`purchase-orders?status=…&dateFrom…`, `purchase-invoices?page=1&pageSize=1`, `shipments?branchId&dateFrom…`); the movement ledger still takes the deferred slice; global search now issues one bounded, branch/FY-scoped `GET /api/global-search` request per debounced keystroke (5 rows per group, index-backed), so it no longer receives any bootstrap slice. Both the full bootstrap and the targeted `GET /api/bootstrap/local` slices read **live from PostgreSQL** (mirror-drift fix, 2026-10-05): the full payload runs the operational-data fan-out in bootstrap.repo.ts (BOOT-1, 2026-10-26, removed purchase orders, purchase invoices, stock operations and vendor payments from it — the first three fed only the financial summary, which now aggregates in SQL, and no client read the fourth; VOL-3, 2026-10-26, also removed shipments: the register pages through `GET /api/shipments/page` and the shell badges/dashboard/notifications read `GET /api/shipments/overview`, while the FY closing wizard keeps the bounded bare-array `GET /api/shipments` read; VOL-4a, 2026-10-26, removed customers — the national directory (12k modelled, 120k+ target) is served only by the paged, trigram-searchable, branch-scoped `GET /api/customers`, and the pickers fetch ≤20 matches); targeted slices resolve through the same `BOOTSTRAP_TABLES` column mappings (`fetchBootstrapSlice`), the permission matrix via its own SELECT, appSettings via the settings-repo SELECT. The in-memory mirrors are only the operational cache that controllers write/mutate through — never the serving layer for bootstrap reads — so a manual DB edit, a second server instance or a missed cache refresh can never be served stale (live-read failure falls back to the operational-data query, then the cache).
 - **In-memory runtime caches** are hydrated from PostgreSQL on startup (via the single `CACHE_LOADS` list in `server/src/app.ts`) and fully re-read from PostgreSQL after every successful mutating API call (an automatic hook re-reads all cache tables before the write response is sent). The arrays are declared `readonly` so the typechecker rejects any hand-maintained mirror mutation — PostgreSQL is the only place writes land, and caches are always re-derived from it.
 - **SSE (Server-Sent Events)** for real-time sync: all connected clients get a `broadcastChange()` notification on any mutation, triggering a re-fetch. Every mutation broadcast is tagged with a client `domain` (`server/src/syncDomains.ts`); a recognized domain re-fetches ONLY its bootstrap slice, any unrecognized event falls back to a full bootstrap. Reliability (2026-10-05 sync improvements): reconnects back off exponentially (1s→30s ±20% jitter) with immediate retry on tab-visibility/network recovery; on reconnect and during stream outages (30s `/api/sync/version` polling) the client reconciles the server `dataVersion` against the last applied version and refreshes if mutations were missed; a `BroadcastChannel` relays events + logout across tabs of the same browser; permission-matrix, app-settings, document-number and audit-trail mutations broadcast their own domains so those slices never lag.
 - **Server-side permission matrix**: the authoritative matrix lives in the `permission_matrix` table (seeded from the same defaults as the client at startup); clients cache it via the bootstrap payload.
@@ -226,7 +226,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 1286 tests; CI runs
+                                        #   drift/concurrency guards — 1299 tests; CI runs
                                         #   tsc + npm test + the no-inline-SQL guard + the
                                         #   production build + npm audit on every push/PR
                                         #   (.github/workflows/ci.yml). The PostgreSQL 16
@@ -541,7 +541,7 @@ The server registers ~130 routes. The most important ones:
 | `/api/shipments/:id/cancel-receive` | POST | Cancel received shipment |
 | `/api/stock-operations` | GET, POST | Stock out, pullout, damage, consumable issue |
 | `/api/customer-devices` | GET, POST, PUT `:id` | CPE device tracking |
-| `/api/customers` | GET, POST, PUT/DELETE `:id` | Customer directory. GET is paged: `branchId`, `query`, `status`, `page`, `pageSize` → `{ data, page, pageSize, totalItems, activeItems, totalCreditLimit }`; `all=1` returns the full filtered set for CSV export |
+| `/api/customers` | GET, POST, PUT/DELETE `:id` | Customer directory — the app's only customer read since VOL-4a. GET is paged: `branchId`, `query`, `status`, `page`, `pageSize` → `{ data, page, pageSize, totalItems, activeItems, totalCreditLimit }`; `all=1` returns the full filtered set for CSV export. The `query` search is trigram-indexed (`idx_customer_records_search_trgm`) and branch scope is enforced by the route guard, then re-applied in SQL from the session |
 | `/api/damage-records` | GET, POST, PUT `:id` | Damage lifecycle |
 | `/api/approval-requests` | GET, POST, `:id/process`, `:id/cancel` | Approval workflow |
 | `/api/serial-log` | GET, POST | Serial register read (role-guarded, branch-scoped) & manual entry |
@@ -682,7 +682,7 @@ App.tsx (root)
 │   ├── branches, products, stock, assets
 │   ├── purchaseOrders, purchaseInvoices, shipments
 │   ├── stockOperations, damageRecords, serialLog
-│   ├── customerDevices, customers, approvalRequests
+│   ├── customerDevices, approvalRequests
 │   ├── fiscalYears, auditLogs
 │   ├── suppliers, users, categories, locations
 │   └── companyProfile, financialSummary, postgresStatus
@@ -699,6 +699,14 @@ form searches `GET /api/sales-invoices` through the shared `SearchPicker` (by
 invoice number or customer, full row incl. `items`), and the Sales register
 pages that endpoint with no full-array fallback. `App.tsx` holds no such array
 or prop; the `registerRefresh.salesInvoices` counter remains for both screens.
+
+`customers` left the bootstrap in VOL-4a (2026-10-26). There is no directory
+array anywhere in the client: `CustomerPicker` searches `GET /api/customers`
+(≤20 rows, trigram-indexed, branch-scoped) and the host screen keeps the
+`CustomerRecord` it picked for the label and the submit payload. The stock-out
+panel no longer pre-selects a default customer. The demo-clear card reads its
+count from the paged aggregate (`page=1&pageSize=1`), and
+`GET /api/bootstrap/local?key=customers` still answers an older bundle.
 
 ### 9.2 Data Flow Pattern
 
@@ -1242,7 +1250,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 1286 tests against a real PostgreSQL 16 service container
+2. `npm test` — 1299 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM

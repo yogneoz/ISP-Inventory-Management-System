@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { MapPin, UserCheck, Building, Download, Undo2 } from 'lucide-react';
-import { Asset, Branch, LocationRecord, CustomerRecord, User } from '../../types';
+import { Asset, Branch, LocationRecord, User } from '../../types';
 import { FilterCard } from '../../components/common/FilterCard';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { formatNPR } from '../../utils/nprFormat';
@@ -12,7 +12,6 @@ interface AssetDeploymentsProps {
   assets: Asset[];
   branches: Branch[];
   locations: LocationRecord[];
-  customers: CustomerRecord[];
   currentUser?: User | null;
   dateMode: 'BS' | 'AD';
   /** Marks the asset unassigned (back to ACTIVE stock) — same payload as StockOperations' unassign flow. */

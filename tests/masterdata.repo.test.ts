@@ -16,6 +16,7 @@ import {
   buildCustomerListAggregateQuery,
   customerUpsertParams,
   CUSTOMER_SELECT_COLUMNS,
+  CUSTOMER_SEARCH_TEXT_SQL,
 } from '../server/src/models/masterdata.repo';
 
 describe('uom params', () => {
@@ -137,16 +138,29 @@ describe('buildCustomerListQuery', () => {
 
   test('combines branch + search + status in placeholder order', () => {
     const { sql, params } = buildCustomerListQuery({ branchId: 'BR2', query: 'cus', status: 'active' });
-    assert.match(sql, /WHERE branch_id = \$1 AND \(LOWER\(customer_id\) LIKE \$2/);
+    // VOL-4a: search must run against the single expression the trigram index
+    // covers, not per-column LIKEs that force a sequential scan.
+    assert.ok(sql.includes(`WHERE branch_id = $1 AND ${CUSTOMER_SEARCH_TEXT_SQL} LIKE $2`));
     assert.match(sql, /AND status = \$3/);
     assert.deepEqual(params, ['BR2', '%cus%', 'ACTIVE']);
   });
 
   test('search clause covers all six searchable columns', () => {
-    const { sql } = buildCustomerListQuery({ query: 'x' });
     for (const col of ['customer_id', 'customer_name', 'username', 'contact_number', 'email', 'address']) {
-      assert.ok(sql.includes(`LOWER(${col}) LIKE`), `missing ${col}`);
+      assert.ok(CUSTOMER_SEARCH_TEXT_SQL.includes(`COALESCE(${col}, '')`), `missing ${col}`);
     }
+  });
+
+  test('branchScope pins the read to the server-resolved branch list', () => {
+    const { sql, params } = buildCustomerListQuery({ branchScope: ['BR1', 'BR2'], branchId: 'ALL' });
+    assert.match(sql, /WHERE branch_id = ANY\(\$1\)/);
+    assert.deepEqual(params, [['BR1', 'BR2']]);
+  });
+
+  test('an empty branchScope yields no rows instead of an unfiltered read', () => {
+    const { sql, params } = buildCustomerListQuery({ branchScope: [] });
+    assert.match(sql, /WHERE FALSE/);
+    assert.deepEqual(params, []);
   });
 
   test('clamps page and pageSize before they reach SQL', () => {
@@ -186,7 +200,7 @@ describe('buildCustomerListAggregateQuery', () => {
     assert.match(sql, /SELECT COUNT\(\*\)::int AS count/);
     assert.match(sql, /COUNT\(\*\) FILTER \(WHERE status = 'ACTIVE'\)::int AS active/);
     assert.match(sql, /COALESCE\(SUM\(credit_limit\), 0\)::float AS credit/);
-    assert.match(sql, /WHERE branch_id = \$1 AND \(LOWER\(customer_id\) LIKE \$2/);
+    assert.ok(sql.includes(`WHERE branch_id = $1 AND ${CUSTOMER_SEARCH_TEXT_SQL} LIKE $2`));
     assert.match(sql, /AND status = \$3/);
     assert.deepEqual(params, ['BR1', '%sh%', 'INACTIVE']);
   });

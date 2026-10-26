@@ -35,7 +35,7 @@ import * as admin from './admin';
 import * as search from './search';
 import * as settings from './settings';
 
-export { API_BASE, fetchJson, setAuthToken, setUserContext, setFiscalYearContext } from './http';
+export { API_BASE, fetchJson, setAuthToken, setUserContext, setFiscalYearContext, setActiveBranchContext, getActiveBranchId } from './http';
 export { subscribeToSyncStream, getSyncVersion, broadcastLogoutToOtherTabs } from './sync';
 export type { SyncRelayMessage } from './sync';
 export { safeParseHistory } from './inventory';

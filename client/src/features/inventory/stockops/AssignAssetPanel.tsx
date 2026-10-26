@@ -30,7 +30,7 @@ import {
  * everything it does not own comes from the StockOperations context.
  */
 export const AssignAssetPanel: React.FC = () => {
-  const { activeTab, allowedBranches, alertDialog, assets, availableStockAssets, customerDevices, customers, ensureBsDateAvailable, locations, onRefreshData, onUpdateAssetStatus, products, serialRegister, stock, userBranchId } = useStockOperationsCtx();
+  const { activeTab, allowedBranches, alertDialog, assets, availableStockAssets, customerDevices, ensureBsDateAvailable, locations, onRefreshData, onUpdateAssetStatus, products, serialRegister, stock, userBranchId } = useStockOperationsCtx();
 
   const [, setIsBarcodeScannerOpen] = useState(false);
 
@@ -286,7 +286,9 @@ export const AssignAssetPanel: React.FC = () => {
       } else if (item.kind === 'ASSET' && item.assetId && onUpdateAssetStatus) {
         const ledgerAsset = assets.find((x) => x.id === item.assetId);
         if (item.usedAtType === 'CUSTOMER') {
-          const custObj = item.usedAtCustomer || customers.find((c) => c.id === item.usedAtCustomerId);
+          // The picker stored the directory row on the item when it was chosen;
+          // there is no client-side customer array to look the id up in.
+          const custObj = item.usedAtCustomer;
           await onUpdateAssetStatus(item.assetId, {
             status: 'ASSIGNED_TO_CUSTOMER',
             assignedType: 'CUSTOMER',

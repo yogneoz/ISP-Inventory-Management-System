@@ -1000,4 +1000,11 @@ benefits from DF-06's calendar handling but does not block on it.
   `GET /api/sales-invoices` by invoice number/customer and the Sales register
   has no full-array fallback, so the table left the bootstrap. The search
   resends `refreshToken` from the sales counter while the picker is open.
+- **Customers (VOL-4a, 2026-10-26):** the directory left the bootstrap. Every
+  customer choice is a `CustomerPicker` read of the paged, branch-scoped
+  `GET /api/customers`; no screen holds the array. The search runs against
+  `idx_customer_records_search_trgm` and the host keeps the picked
+  `CustomerRecord`, so an id is never resolved by scanning a local list. A
+  branch role's picker sends the shell's active branch (omitting it was a
+  403 before this item).
 - **No new dependencies** are needed for any task in this list.

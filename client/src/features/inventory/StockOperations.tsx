@@ -9,7 +9,6 @@ import {
   Shipment,
   Asset,
   LocationRecord,
-  CustomerRecord,
   CustomerDeviceRecord,
   ApprovalRequest,
 } from '../../types';
@@ -58,7 +57,6 @@ interface StockOperationsProps {
   shipments?: Shipment[];
   assets?: Asset[];
   locations?: LocationRecord[];
-  customers?: CustomerRecord[];
   customerDevices?: CustomerDeviceRecord[];
   approvalRequests?: ApprovalRequest[];
   onCreateOperation: (op: Partial<StockOperation>) => Promise<void>;
@@ -127,7 +125,6 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   shipments = [],
   assets = [],
   locations = [],
-  customers = [],
   customerDevices = [],
   approvalRequests = [],
   onCreateOperation,
@@ -415,7 +412,6 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     confirmDialog,
     consumableOperations,
     currentUser,
-    customers,
     customerDevices,
     serialRegister,
     serialRegisterError,

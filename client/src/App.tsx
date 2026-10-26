@@ -20,13 +20,12 @@ import {
   AuditLog,
   FinancialSummary,
   CustomerDeviceRecord,
-  CustomerRecord,
   ApprovalRequest,
   Category,
   DamageRecord,
   LocationRecord,
 } from './types';
-import { api, setAuthToken, setFiscalYearContext, setUserContext, subscribeToSyncStream, getSyncVersion, broadcastLogoutToOtherTabs } from './services/api';
+import { api, setAuthToken, setFiscalYearContext, setUserContext, setActiveBranchContext, subscribeToSyncStream, getSyncVersion, broadcastLogoutToOtherTabs } from './services/api';
 import { seedBSYearCalendar, getBsCalendarCoverage, type BsCalendarCoverageStatus } from './utils/nepaliCalendar';
 import { NAVIGATE_TAB_EVENT } from './services/api/http';
 import {
@@ -364,6 +363,13 @@ export default function App() {
     setUserContext(currentUser);
   }, [currentUser]);
 
+  // The directory pickers search with the shell's branch rather than a prop
+  // (VOL-4a). Mirror the scope into the request layer so a branch account
+  // always names a branch the server guard accepts.
+  useEffect(() => {
+    setActiveBranchContext(selectedBranchId);
+  }, [selectedBranchId]);
+
   // Force logout when token expires (401 from any API call)
   useEffect(() => {
     const handleAuthExpired = (e: Event) => {
@@ -547,7 +553,6 @@ export default function App() {
   const [settingsBackfillError, setSettingsBackfillError] = useState('');
   const [settingsBackfillLoading, setSettingsBackfillLoading] = useState(false);
   const [customerDevices, setCustomerDevices] = useState<CustomerDeviceRecord[]>([]);
-  const [customers, setCustomers] = useState<CustomerRecord[]>([]);
   const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [purchaseInvoices, setPurchaseInvoices] = useState<PurchaseInvoice[]>([]);
@@ -687,7 +692,6 @@ export default function App() {
     if (data.stock) setStock(data.stock);
     if (data.assets) setAssets(data.assets);
     if (data.customerDevices) setCustomerDevices(data.customerDevices);
-    if (data.customers) setCustomers(data.customers);
     if (data.purchaseOrders) setPurchaseOrders(data.purchaseOrders);
     if (data.purchaseInvoices) setPurchaseInvoices(data.purchaseInvoices);
     if (data.purchaseReturns) setPurchaseReturns(data.purchaseReturns);
@@ -1058,7 +1062,10 @@ export default function App() {
     // Shipments themselves are no longer a bootstrap slice (VOL-3): the SSE
     // handler refreshes the bounded shipment overview explicitly below.
     SHIPMENTS: ['stock', 'financialSummary'],
-    MASTER_DATA: ['customers', 'customerDevices', 'branches', 'suppliers', 'locations', 'companyProfile'],
+    // VOL-4a: customers is no longer a bootstrap slice — the directory pages and
+    // the pickers search GET /api/customers directly, so a MASTER_DATA burst has
+    // no customer array to refresh.
+    MASTER_DATA: ['customerDevices', 'branches', 'suppliers', 'locations', 'companyProfile'],
     CATEGORIES: ['categories'],
     PRODUCTS: ['products', 'stock'],
     FISCAL: ['fiscalYears', 'financialSummary'],
@@ -2222,7 +2229,6 @@ export default function App() {
           products={products}
           branches={branches}
           stock={stock}
-          customers={customers}
           inventorySerials={inventorySerials}
           inventorySerialsError={sellableSerialsError}
           inventorySerialsLoading={sellableSerialsLoading}
@@ -2245,7 +2251,6 @@ export default function App() {
           products={products}
           branches={branches}
           stock={stock}
-          customers={customers}
           inventorySerials={inventorySerials}
           inventorySerialsError={sellableSerialsError}
           inventorySerialsLoading={sellableSerialsLoading}
@@ -2371,7 +2376,6 @@ export default function App() {
         stock={stock}
         locations={locations}
         customerDevices={customerDevices}
-        customers={customers}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="CREATE_TRANSFER"
@@ -2419,7 +2423,6 @@ export default function App() {
         stock={stock}
         locations={locations}
         customerDevices={customerDevices}
-        customers={customers}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="RECEIVE_TRANSFER"
@@ -2476,7 +2479,6 @@ export default function App() {
         stock={stock}
         locations={locations}
         customerDevices={customerDevices}
-        customers={customers}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="PULLOUT"
@@ -2509,7 +2511,6 @@ export default function App() {
         stock={stock}
         locations={locations}
         customerDevices={customerDevices}
-        customers={customers}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="DAMAGE"
@@ -2542,7 +2543,6 @@ export default function App() {
         stock={stock}
         locations={locations}
         customerDevices={customerDevices}
-        customers={customers}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="PULLOUT_REPORT"
@@ -2566,7 +2566,6 @@ export default function App() {
         stock={stock}
         locations={locations}
         customerDevices={customerDevices}
-        customers={customers}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="DAMAGE_REPORT"
@@ -2589,7 +2588,6 @@ export default function App() {
         stock={stock}
         locations={locations}
         customerDevices={customerDevices}
-        customers={customers}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="STOCK_OUT"
@@ -2622,7 +2620,6 @@ export default function App() {
         stock={stock}
         locations={locations}
         customerDevices={customerDevices}
-        customers={customers}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="ASSIGN_ASSET"
@@ -2652,7 +2649,6 @@ export default function App() {
           assets={assets}
           branches={branches}
           locations={locations}
-          customers={customers}
           currentUser={currentUser}
           dateMode={dateMode}
           onUnassignAsset={handleUpdateAssetStatus}
@@ -2668,7 +2664,6 @@ export default function App() {
         stock={stock}
         locations={locations}
         customerDevices={customerDevices}
-        customers={customers}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="CONSUMABLE_ISSUE"
@@ -2701,7 +2696,6 @@ export default function App() {
         stock={stock}
         locations={locations}
         customerDevices={customerDevices}
-        customers={customers}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="CONSUMABLES_REGISTER"
@@ -2738,7 +2732,6 @@ export default function App() {
         stock={stock}
         locations={locations}
         customerDevices={customerDevices}
-        customers={customers}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="DEVICE_EXCHANGE"
@@ -2859,7 +2852,6 @@ export default function App() {
           stockCount={stock.length}
           assetCount={assets.length}
           deviceCount={customerDevices.length}
-          customerCount={customers.length}
           poCount={purchaseOrders.length}
           invoiceCount={purchaseInvoices.length}
           onClearDemoData={async () => {

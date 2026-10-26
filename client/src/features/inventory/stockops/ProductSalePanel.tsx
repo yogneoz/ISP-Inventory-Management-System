@@ -25,7 +25,7 @@ import {
  * everything it does not own comes from the StockOperations context.
  */
 export const ProductSalePanel: React.FC = () => {
-  const { activeTab, allowedBranches, alertDialog, branches, currentUser, customers, ensureBsDateAvailable, focusInput, onCreateOperation, products, serialRegister, stock, userBranchId, validateSourceBranchStockAndSerials } = useStockOperationsCtx();
+  const { activeTab, allowedBranches, alertDialog, branches, currentUser, ensureBsDateAvailable, focusInput, onCreateOperation, products, serialRegister, stock, userBranchId, validateSourceBranchStockAndSerials } = useStockOperationsCtx();
 
   // Product-group filtered catalogs (types/index.ts: 'Product Item' | 'Fixed Asset' |
   // 'Consumable Item'; absent productGroup defaults to 'Product Item' everywhere else
@@ -38,9 +38,13 @@ export const ProductSalePanel: React.FC = () => {
   // Sale Items Handlers
   const handleResetSellForm = () => {
     setSellItems([]);
-    const first = customers[0];
-    setSellCustomerId(first?.id || '');
-    setSellCustomerQuery(first ? sellCustomerDisplay(first) : '');
+    // VOL-4a: no default customer. This form used to pre-select the first row
+    // of the directory — an arbitrary customer — so an operator who never
+    // touched the field billed a real, unrelated person. It now starts empty
+    // and the picker is the only way in.
+    setSellCustomerId('');
+    setSellCustomerRecord(null);
+    setSellCustomerQuery('');
     setSellBranchId(userBranchId);
     setSellPaymentMethod('Cash / Direct Payment');
     setSellNotes('Direct retail product item sale to customer');
@@ -156,7 +160,7 @@ export const ProductSalePanel: React.FC = () => {
   const handleSubmitSellProductSale = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!ensureBsDateAvailable()) return;
-    const cust = customers.find((c) => c.id === sellCustomerId);
+    const cust = sellCustomerRecord;
     const branchObj = branches.find((b) => b.id === sellBranchId);
     const branchName = branchObj?.name || sellBranchId;
 
@@ -222,7 +226,10 @@ Sold device(s) tagged as SOLD in Customer Device Directory.`);
   // 5. (PHASE 1) Product Sale form state — provisionally re-exported for
   //    the merge into SalesInvoices.tsx (Phase 2). Retained in this file
   //    until the refactor target is approved.
-  const [sellCustomerId, setSellCustomerId] = useState<string>(customers[0]?.id || '');
+  const [sellCustomerId, setSellCustomerId] = useState<string>('');
+  // The row the picker returned. Held here so submit and the label never need
+  // a client-side customer array to resolve an id against.
+  const [sellCustomerRecord, setSellCustomerRecord] = useState<CustomerRecord | null>(null);
   const [sellBranchId, setSellBranchId] = useState<string>(userBranchId);
   const [sellPaymentMethod, setSellPaymentMethod] = useState<string>('Cash / Direct Payment');
   const [sellNotes, setSellNotes] = useState<string>('Direct retail product item sale to customer');
@@ -230,21 +237,10 @@ Sold device(s) tagged as SOLD in Customer Device Directory.`);
 
   // Customer SEARCH field state: `sellCustomerQuery` is the visible label,
   // `sellCustomerId` stays the canonical FK.
-  const [sellCustomerQuery, setSellCustomerQuery] = useState<string>(() => {
-    const c = customers[0];
-    return c ? `${c.customerName} (${c.customerId})` : '';
-  });
+  const [sellCustomerQuery, setSellCustomerQuery] = useState<string>('');
   const sellCustomerDisplay = (c: CustomerRecord) => `${c.customerName} (${c.customerId})`;
-  const selectedSellCustomer = sellCustomerId
-    ? customers.find((c) => c.id === sellCustomerId)
-    : undefined;
   const sellCustomerPickerValue = sellCustomerId
-    ? {
-        id: sellCustomerId,
-        label:
-          sellCustomerQuery ||
-          (selectedSellCustomer ? sellCustomerDisplay(selectedSellCustomer) : ''),
-      }
+    ? { id: sellCustomerId, label: sellCustomerQuery }
     : null;
 
   return (
@@ -283,6 +279,7 @@ Sold device(s) tagged as SOLD in Customer Device Directory.`);
                   value={sellCustomerPickerValue}
                   onSelect={(customer) => {
                     setSellCustomerId(customer?.id || '');
+                    setSellCustomerRecord(customer ?? null);
                     setSellCustomerQuery(customer ? sellCustomerDisplay(customer) : '');
                   }}
                   search={api.searchCustomers}

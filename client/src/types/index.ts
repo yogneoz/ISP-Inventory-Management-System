@@ -886,7 +886,12 @@ export interface BootstrapState {
    */
   serialLogs?: SerialLog[];
   customerDevices: CustomerDeviceRecord[];
-  customers: CustomerRecord[];
+  /**
+   * Dropped from the bootstrap payload (VOL-4a: the directory pages and the
+   * pickers search the paged, branch-scoped GET /api/customers), so this
+   * slice is optional — no screen holds the national table.
+   */
+  customers?: CustomerRecord[];
   /**
    * Dropped from the bootstrap payload (served by the paged
    * GET /api/purchase-orders endpoint), so this slice is optional — the

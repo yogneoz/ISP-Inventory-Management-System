@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Trash2,
   AlertTriangle,
@@ -15,6 +15,7 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { User } from '../../types';
+import { api } from '../../services/api';
 import type { ClearDemoDataResult } from '../../services/api/admin';
 
 interface ClearDemoDataViewProps {
@@ -23,7 +24,6 @@ interface ClearDemoDataViewProps {
   stockCount: number;
   assetCount: number;
   deviceCount: number;
-  customerCount: number;
   poCount: number;
   invoiceCount: number;
   /**
@@ -47,7 +47,6 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
   stockCount,
   assetCount,
   deviceCount,
-  customerCount,
   poCount,
   invoiceCount,
   needsFiscalYear = false,
@@ -56,6 +55,26 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
   onNavigateFiscalYears,
   onSignedOut,
 }) => {
+  // VOL-4a: customers left the bootstrap, so this screen reads the directory
+  // total from the paged aggregate instead of receiving the whole array. One
+  // row, one count — the same read the Customers KPI uses. `null` = not known
+  // yet (or the read failed), rendered as "—" rather than a confident zero.
+  const [customerCount, setCustomerCount] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getCustomers({ page: 1, pageSize: 1 })
+      .then((envelope) => {
+        if (!cancelled) setCustomerCount(Number(envelope.totalItems) || 0);
+      })
+      .catch(() => {
+        if (!cancelled) setCustomerCount(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const [confirmText, setConfirmText] = useState('');
   const [isClearing, setIsClearing] = useState(false);
   const [clearedSuccess, setClearedSuccess] = useState(false);
@@ -95,8 +114,10 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
     }
   };
 
+  // A pending customer count makes the total a lower bound until it arrives;
+  // the figure is a coarse "how much is on file" preview, not an audit number.
   const totalOperationalRecords =
-    productCount + stockCount + assetCount + deviceCount + customerCount + poCount + invoiceCount;
+    productCount + stockCount + assetCount + deviceCount + (customerCount ?? 0) + poCount + invoiceCount;
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-12">
@@ -244,7 +265,9 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
                   <Users className={`h-4 w-4 text-amber-500 dark:text-amber-400`} />
                   <span>Customer Records</span>
                 </div>
-                <div className="text-xl font-bold text-slate-900 dark:text-slate-100">{customerCount}</div>
+                <div className="text-xl font-bold text-slate-900 dark:text-slate-100">
+                  {customerCount === null ? '—' : customerCount}
+                </div>
               </div>
 
               <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-100 dark:border-slate-800">

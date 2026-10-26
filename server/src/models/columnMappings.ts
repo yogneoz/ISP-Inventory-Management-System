@@ -168,6 +168,12 @@ export const BOOTSTRAP_TABLES = {
       ['notes', 'notes'],
     ],
   },
+  // Customers are served by GET /api/customers (paged, searchable, branch
+  // scoped from the session). VOL-4a removed the table from the bootstrap
+  // fetch and response; this entry stays so an older client's
+  // `/api/bootstrap/local?key=customers` still answers and the operational
+  // cache keeps the in-memory demo mirror hydrated. The trigram index and the
+  // search expression are defined in masterdata.repo.ts / schema.sql.
   customers: {
     table: 'customer_records',
     scope: { branchCol: 'branch_id' },

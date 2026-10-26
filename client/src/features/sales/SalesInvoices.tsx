@@ -47,8 +47,6 @@ interface SalesInvoicesProps {
   products: Product[];
   branches: Branch[];
   stock: InventoryStock[];
-  /** Customer directory — powers the searchable "Sell to Customer" picker. */
-  customers?: CustomerRecord[];
   /** Sellable inventory serials (serial_log IN_STOCK) — the pre-post gate. */
   inventorySerials?: SerialLog[];
   /** Failure reading that list (DF-17); '' once it succeeds. */
@@ -94,7 +92,6 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
   products,
   branches,
   stock,
-  customers = [],
   inventorySerials = [],
   inventorySerialsError = '',
   inventorySerialsLoading = false,
@@ -349,12 +346,11 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
   };
 
   const customerDisplay = (c: CustomerRecord) => `${c.customerName} (${c.customerId})`;
-  const selectedCustomer = customerId ? customers.find((c) => c.id === customerId) : undefined;
+  // VOL-4a: the form keeps the label the picker produced (`customerQuery`) and
+  // the canonical name; it never resolves the row out of a client-side
+  // directory array, because there is no longer one to resolve from.
   const customerPickerValue = customerId
-    ? {
-        id: customerId,
-        label: customerQuery || (selectedCustomer ? customerDisplay(selectedCustomer) : ''),
-      }
+    ? { id: customerId, label: customerQuery || customerName }
     : null;
 
   const submit = async () => {

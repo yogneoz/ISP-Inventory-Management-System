@@ -13,6 +13,8 @@ export const API_BASE = (((import.meta as any).env?.VITE_API_BASE_URL as string)
 
 let currentUserContext: User | null = null;
 let currentFiscalYearId: string | null = null;
+/** The branch the shell is looking at ('ALL' for a global scope). */
+let currentBranchId: string | null = null;
 let authToken: string | null = typeof localStorage !== 'undefined' ? localStorage.getItem('inventory_auth_token') : null;
 
 export const setAuthToken = (token: string | null) => {
@@ -26,6 +28,36 @@ export const setUserContext = (user: User | null) => {
 export const setFiscalYearContext = (fiscalYearId: string | null) => {
   currentFiscalYearId = fiscalYearId;
 };
+
+/**
+ * Mirror the shell's branch scope into the request layer (ScopeContext owns
+ * the value; this module cannot read a React context).
+ */
+export const setActiveBranchContext = (branchId: string | null) => {
+  currentBranchId = branchId;
+};
+
+/**
+ * The branch a directory read must be scoped to, or null for a truly global
+ * read.
+ *
+ * The server's branch guard (`enforceBranchAccess`) answers **403** to a
+ * branch-scoped GET that does not name one of the account's branches — an
+ * omitted `branchId` is not treated as "all my branches" on these paths. So a
+ * request builder cannot simply leave the parameter off: a branch account
+ * would get a refusal that looks like an empty picker. Prefer the shell's
+ * current branch; fall back to the account's own branch when the shell is
+ * still on 'ALL' (e.g. before the first scope effect runs). A global role with
+ * a global scope returns null, which the server treats as every branch.
+ */
+export function getActiveBranchId(): string | null {
+  if (currentBranchId && currentBranchId !== 'ALL') return currentBranchId;
+  const role = currentUserContext?.role;
+  if (role && role !== 'SUPER_ADMIN' && role !== 'HEAD_OFFICE_ADMIN') {
+    return currentUserContext?.branchId || null;
+  }
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Toast contract

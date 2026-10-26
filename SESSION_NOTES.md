@@ -1,12 +1,12 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-26 · Branch: main · Tests: 1286/1286 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-26 · Branch: main · Tests: 1299/1299 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
-> **Current state (2026-10-26, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1/VOL-2/BUDGET-1/BOOT-1).** All DF-01…DF-17
+> **Current state (2026-10-26, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1/VOL-2/BUDGET-1/BOOT-1/VOL-3/VOL-4a).** All DF-01…DF-17
 > work, the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2, CPE-3,
-> SER-1, SER-2, TRIM-1, SUM-1, VOL-1, VOL-2, BUDGET-1 and BOOT-1 are implemented. **Round 2 closed on 2026-10-26** (archive at
+> SER-1, SER-2, TRIM-1, SUM-1, VOL-1, VOL-2, BUDGET-1, BOOT-1, VOL-3 and VOL-4a are implemented. **Round 2 closed on 2026-10-26** (archive at
 > [worklist/done/2026-10-26-round-2.md](worklist/done/2026-10-26-round-2.md)); **Round 3 is in progress**
-> ([worklist/round-3/README.md](worklist/round-3/README.md)) with BOOT-1 and VOL-3 landed and VOL-4a next. C4 is explicitly parked (one
+> ([worklist/round-3/README.md](worklist/round-3/README.md)) with BOOT-1, VOL-3 and VOL-4a landed and VOL-4b next. C4 is explicitly parked (one
 > `bootstrap/local` call site already; see the architecture backlog §C4). B2 shipped the combined trigram search projection, so all eight
 > item searches share one indexed `search_text` column per table; B3/B4 stay
 > parked. CPE-3 resolved D1 and made the fixed asset, CPE row, serial register and
@@ -121,6 +121,49 @@ Windows-only skips**, docs-count gate at 1286; build clean and bundle budget
 **Landed** as `acafd52` and pushed to `main`; CI run
 [40288667413](https://github.com/yogneoz/ISP-Inventory-Management-System/actions/runs/40288667413)
 (`typecheck-and-test`) green in 327 s.
+
+## ✅ VOL-4a shipped — customers leave the bootstrap, the pickers own their search (2026-10-26)
+
+**Problem.** `customer_records` was the largest master table still shipped whole
+on login: the fan-out selected every row in scope with no cap. The sale form,
+the stock-out panel, the asset-assignment panel and the demo-clear card all held
+the array just to resolve one record (or a count), while the pickers already
+searched the server. Two national-scale defects sat behind it: the search ORed
+six `LOWER(col) LIKE '%term%'` predicates (a sequential scan per debounced
+keystroke), and `searchCustomers` never sent a branch — which the route guard
+answers with **403**, so the shared picker was broken for every branch role.
+
+**Fix.** `GET /api/bootstrap` has no `customers` key and the fan-out no longer
+reads the table; `BOOTSTRAP_TABLES.customers` stays so an older bundle's
+`/api/bootstrap/local?key=customers` still answers. Every customer choice now
+comes from the paged, branch-scoped directory: the controller resolves the
+session's allowed branches and applies `branch_id = ANY(...)` in SQL on top of
+the route guard, and `searchCustomers` sends the shell's active branch (falling
+back to the account branch). The search moved to one concatenated, lower-cased
+expression behind `idx_customer_records_search_trgm`, with a
+`(branch_id, customer_name, customer_id)` btree for the stable page. The hosts
+keep the `CustomerRecord` the picker returned (no `.find` over an array), the
+stock-out panel starts with no customer selected, the demo-clear card reads its
+count from `page=1&pageSize=1`, and `AssetDeployments` lost its unused prop.
+
+**Measured** on a TEMP `customer_records`-shaped table (Nepali name, ward-level
+address, phone, username, email; 14 branches):
+
+| Volume | Rows | Scope | Old payload | Picker (no index) | Picker (trigram) |
+|---|---:|---|---:|---:|---:|
+| 1× | 12,000 | one branch (857) | 0.24 MB / 20 kB gzip | 46 ms | **5 ms** |
+| 1× | 12,000 | national | **3.34 MB / 284 kB gzip** | — | — |
+| 10× | 120,000 | one branch (8,571) | 2.41 MB / 192 kB gzip | 406 ms | **32 ms** |
+| 10× | 120,000 | national | **33.72 MB / 2.84 MB gzip** | — | — |
+
+`EXPLAIN` shows the bitmap index scan at both volumes; the table is unindexed
+for the old path, so the comparison is the finding, not a micro-benchmark.
+Details in [worklist/round-3/VOL-4a.md](worklist/round-3/VOL-4a.md).
+
+**Gates.** `npx tsc --noEmit` clean; 72 targeted tests pass; full suite
+**1299 tests, 1297 pass, 0 fail, 2 Windows-only skips**, docs-count gate green;
+build clean and bundle budget **279.9 kB / 15.8 kB** (320 / 17); both
+convention guards green.
 
 ## ✅ Round 2 closed — the read path no longer scales with history (2026-10-26)
 

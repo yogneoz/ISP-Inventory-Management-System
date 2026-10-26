@@ -483,11 +483,41 @@ try {
  * pageSize are clamped here and echoed back, and the aggregate is computed
  * with the SAME WHERE as the page so the KPI cards always describe the rows.
  * `all=1` returns every filtered row for the CSV export.
+ *
+ * VOL-4a: this is the app's only customer read (the bootstrap stopped shipping
+ * `customer_records`), so the branch scope is resolved from the session here and
+ * applied in SQL rather than trusted from the query string.
  */
 export async function get_customers(req: any, res: Response): Promise<any> {
 const { branchId, query, status, page, pageSize, all } = req.query;
   const exportAll = all === '1' || all === 'true';
-  const options = { branchId, query, status, page, pageSize, all: exportAll };
+
+  // VOL-4a: the customer directory is national data, so branch scope is a
+  // server decision. This endpoint is now the ONLY customer read in the app
+  // (the bootstrap no longer ships the table), which makes it the place a
+  // branch account could otherwise read every ward of the country: previously
+  // an omitted `branchId` or `ALL` returned the whole national directory.
+  // Mirrors /api/transaction-logs and /api/shipments/page — naming a branch
+  // outside the account is a 403, omitting it means "all my branches".
+  const user = req.user;
+  let branchScope: string[] | undefined;
+  let scopedBranchId: unknown = branchId;
+  if (user && user.role !== 'SUPER_ADMIN' && user.role !== 'HEAD_OFFICE_ADMIN') {
+    const allowed = new Set<string>([user.branchId || '', ...(user.allowedBranchIds || [])].filter(Boolean));
+    const requested =
+      typeof branchId === 'string' && branchId !== 'ALL' && branchId.trim() !== '' ? branchId : undefined;
+    if (requested && !allowed.has(requested)) {
+      res.status(403).json({ message: 'Forbidden: this account is not authorized for the requested branch.' });
+      return;
+    }
+    if (allowed.size === 0) {
+      return res.json({ data: [], page: 1, pageSize: 0, totalItems: 0, activeItems: 0, totalCreditLimit: 0 });
+    }
+    branchScope = requested ? [requested] : [...allowed];
+    scopedBranchId = undefined;
+  }
+
+  const options = { branchId: scopedBranchId, branchScope, query, status, page, pageSize, all: exportAll };
 
   if (getPgConnected()) {
     try {
@@ -520,7 +550,11 @@ const { branchId, query, status, page, pageSize, all } = req.query;
 
   let list = customerMasterRecords;
 
-  if (branchId && branchId !== 'ALL') {
+  // Same scope rules as the SQL path above.
+  if (Array.isArray(branchScope)) {
+    const scope = new Set(branchScope);
+    list = list.filter((c) => scope.has(String(c.branchId || '')));
+  } else if (branchId && branchId !== 'ALL') {
     list = list.filter((c) => c.branchId === branchId);
   }
 

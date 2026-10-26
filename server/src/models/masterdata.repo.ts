@@ -233,7 +233,15 @@ export const CUSTOMER_PAGE_SIZE_MAX = 100;
 
 /** Options shared by the list, aggregate and count queries. */
 export interface CustomerListQueryOptions {
+  /** A single branch id, or 'ALL'. Ignored when `branchScope` is present. */
   branchId?: unknown;
+  /**
+   * Explicit allowed-branch list resolved from the authenticated user. A
+   * branch account's read is pinned to these, whatever the query string says:
+   * the customer directory is national data, so scope is a server decision
+   * (VOL-4a), exactly like the movement ledger and the transfer register.
+   */
+  branchScope?: string[];
   query?: unknown;
   /** 'ACTIVE' | 'INACTIVE'; anything else (including 'ALL') means no filter. */
   status?: unknown;
@@ -250,22 +258,42 @@ function customerStatus(status: unknown): 'ACTIVE' | 'INACTIVE' | undefined {
 }
 
 /**
- * WHERE fragment for the customer directory: branch, a case-insensitive search
- * across the six searchable columns, and status. Shared by the paged list and
- * the aggregate query so a KPI can never disagree with the rows it describes.
+ * The exact expression `idx_customer_records_search_trgm` indexes (schema.sql).
+ * Keep the two in lock-step: if this text changes, the index must be rebuilt,
+ * or every picker keystroke falls back to a sequential scan of the directory.
+ */
+export const CUSTOMER_SEARCH_TEXT_SQL =
+  "lower(COALESCE(customer_id, '') || ' ' || COALESCE(customer_name, '') || ' ' || " +
+  "COALESCE(username, '') || ' ' || COALESCE(contact_number, '') || ' ' || " +
+  "COALESCE(email, '') || ' ' || COALESCE(address, ''))";
+
+/**
+ * WHERE fragment for the customer directory: branch scope, a case-insensitive
+ * search across the six searchable columns, and status. Shared by the paged
+ * list and the aggregate query so a KPI can never disagree with the rows it
+ * describes.
  */
 export function buildCustomerListWhere(opts: CustomerListQueryOptions = {}): { whereSql: string; params: unknown[] } {
   const params: unknown[] = [];
   const conditions: string[] = [];
 
-  if (opts.branchId && opts.branchId !== 'ALL') {
+  if (Array.isArray(opts.branchScope)) {
+    if (opts.branchScope.length === 0) {
+      // An account with no branch scope sees nothing; keep the SQL valid so the
+      // caller still gets an empty result rather than an unfiltered read.
+      conditions.push('FALSE');
+    } else {
+      params.push(opts.branchScope);
+      conditions.push(`branch_id = ANY($${params.length})`);
+    }
+  } else if (opts.branchId && opts.branchId !== 'ALL') {
     params.push(opts.branchId);
     conditions.push(`branch_id = $${params.length}`);
   }
 
   if (opts.query && typeof opts.query === 'string' && opts.query.trim()) {
     params.push(`%${opts.query.trim().toLowerCase()}%`);
-    conditions.push(`(LOWER(customer_id) LIKE $${params.length} OR LOWER(customer_name) LIKE $${params.length} OR LOWER(username) LIKE $${params.length} OR LOWER(contact_number) LIKE $${params.length} OR LOWER(email) LIKE $${params.length} OR LOWER(address) LIKE $${params.length})`);
+    conditions.push(`${CUSTOMER_SEARCH_TEXT_SQL} LIKE $${params.length}`);
   }
 
   const status = customerStatus(opts.status);

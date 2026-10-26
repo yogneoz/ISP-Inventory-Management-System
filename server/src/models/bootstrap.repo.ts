@@ -161,6 +161,13 @@ export function parseSerialHistory(rows: any[]): any[] {
  * register pages through GET /api/shipments/page and the shell/dashboard read
  * GET /api/shipments/overview (exact counts + the actionable rows), so the
  * fiscal year's entire dispatch history no longer enters the login payload.
+ *
+ * VOL-4a (2026-10-26): customers is NOT read here. `customer_records` is the
+ * largest master table and the one that grows fastest (the modelled national
+ * target is 120k+ rows); every screen that needs a customer now searches
+ * GET /api/customers (paged, index-backed, branch-scoped from the session),
+ * and the pickers hold the one row they picked. The BOOTSTRAP_TABLES mapping
+ * stays for `/api/bootstrap/local?key=customers` and the demo cache mirror.
  */
 export async function fetchOperationalData(
   pool: QueryExecutor,
@@ -171,7 +178,6 @@ export async function fetchOperationalData(
   stock: any[];
   assets: any[];
   customerDevices: any[];
-  customers: any[];
   purchaseReturns: any[];
   salesReturns: any[];
   auditLogs: any[];
@@ -188,7 +194,6 @@ export async function fetchOperationalData(
     stock,
     assets,
     customerDevices,
-    customers,
     purchaseReturns,
     salesReturns,
     auditLogs,
@@ -206,7 +211,6 @@ export async function fetchOperationalData(
     fetchTable(pool, BOOTSTRAP_TABLES.stock, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.assets, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.customerDevices, scopeParams),
-    fetchTable(pool, BOOTSTRAP_TABLES.customers, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.purchaseReturns, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.salesReturns, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.auditLogs, scopeParams),
@@ -228,6 +232,9 @@ export async function fetchOperationalData(
     // NOTE: shipments is served by GET /api/shipments/page (register) and
     // GET /api/shipments/overview (shell/dashboard), so the dispatch history
     // is read in bounded slices instead of on every login.
+    // NOTE: customers is served by GET /api/customers (paged, searchable,
+    // branch-scoped) — the pickers fetch at most 20 matching rows, so the
+    // national directory never enters first paint.
   ]);
 
   return {
@@ -236,7 +243,6 @@ export async function fetchOperationalData(
     stock,
     assets,
     customerDevices,
-    customers,
     purchaseReturns,
     salesReturns,
     auditLogs,

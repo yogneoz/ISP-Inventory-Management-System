@@ -85,7 +85,6 @@ export interface StockOperationsCtx {
   consumableOperations: StockOperation[];
   damageOperations: StockOperation[];
   currentUser: User | null;
-  customers: CustomerRecord[];
   customerDevices: CustomerDeviceRecord[];
   dateMode: 'BS' | 'AD';
   ensureBsDateAvailable: any;

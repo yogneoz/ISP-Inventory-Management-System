@@ -126,7 +126,6 @@ const { branchId, fiscalYearId } = req.query;
         stock: pgStock,
         assets: pgAssets,
         customerDevices: pgCustomerDevices,
-        customers: data.customers,
         purchaseReturns: data.purchaseReturns,
         salesReturns: data.salesReturns,
         fiscalYears: pgFiscalYears,
@@ -152,6 +151,9 @@ const { branchId, fiscalYearId } = req.query;
         //   - shipments         → GET /api/shipments/page     (VOL-3: register pages;
         //                          GET /api/shipments/overview feeds the shell,
         //                          dashboard and notification counts)
+        //   - customers         → GET /api/customers          (VOL-4a: paged, searchable,
+        //                          branch-scoped; the pickers read ≤20 matches and the
+        //                          directory pages; no screen holds the national table)
         // Their remaining wholesale consumers (dashboard/notification KPIs,
         // the FY closing wizard, the PI PO dropdown, the movement ledger,
         // StockOperations' panels, global search) are served by the client's
@@ -312,7 +314,7 @@ export async function get_bootstrapLocal(req: any, res: Response): Promise<any> 
       // BOOT-1 removed these four from the operational fan-out, so there is
       // no fallback data for them. Answer honestly instead of a payload with
       // only dataVersion, which the client would treat as an empty ledger.
-      if (['purchaseOrders', 'purchaseInvoices', 'stockOperations', 'vendorPayments'].includes(key)) {
+      if (['purchaseOrders', 'purchaseInvoices', 'stockOperations', 'vendorPayments', 'customers'].includes(key)) {
         return res.status(503).json({
           message: `Could not read ${key} from PostgreSQL. Retry shortly; the rows on screen are unchanged.`,
         });

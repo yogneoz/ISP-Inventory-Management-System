@@ -1368,6 +1368,18 @@ CREATE INDEX IF NOT EXISTS idx_customer_records_id ON customer_records(customer_
 CREATE INDEX IF NOT EXISTS idx_customer_records_branch ON customer_records(branch_id);
 CREATE INDEX IF NOT EXISTS idx_customer_records_contact ON customer_records(contact_number);
 CREATE INDEX IF NOT EXISTS idx_customer_records_demo ON customer_records(id) WHERE is_demo = TRUE;
+-- VOL-4a: the customer directory is the app's largest master table (12k at the
+-- modelled 1x, 120k+ nationally) and every picker keystroke runs a contains
+-- search across six columns. This trigram index is the ONE expression
+-- CUSTOMER_SEARCH_TEXT_SQL in server/src/models/masterdata.repo.ts builds its
+-- WHERE from — change either and the search falls back to a sequential scan.
+CREATE INDEX IF NOT EXISTS idx_customer_records_search_trgm ON customer_records USING gin (
+  (lower(COALESCE(customer_id, '') || ' ' || COALESCE(customer_name, '') || ' ' ||
+         COALESCE(username, '') || ' ' || COALESCE(contact_number, '') || ' ' ||
+         COALESCE(email, '') || ' ' || COALESCE(address, ''))) gin_trgm_ops
+);
+-- Stable name-ordered paging within a branch scope (the list's ORDER BY).
+CREATE INDEX IF NOT EXISTS idx_customer_records_name ON customer_records(branch_id, customer_name, customer_id);
 
 -- Customer Device Records indexes
 CREATE INDEX IF NOT EXISTS idx_customer_devices_serials ON customer_device_records(device_serial, pon_serial, mac_address);

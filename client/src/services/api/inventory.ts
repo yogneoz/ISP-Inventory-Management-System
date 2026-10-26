@@ -14,7 +14,7 @@ import type {
   TransactionLog,
   User,
 } from '../../types';
-import { fetchJson } from './http';
+import { fetchJson, getActiveBranchId } from './http';
 
 // Re-used by getSerialLogs for the history JSON column
 export function safeParseHistory(v: unknown): SerialLog['history'] {
@@ -451,11 +451,17 @@ export async function getCustomers(params?: {
  * fixed page: the picker shows a handful of matches, never the whole 12k-row
  * directory. Screens pass this straight to <CustomerPicker search={...}> so
  * the screen-surface guards still see the read.
+ *
+ * VOL-4a: the request names the branch the shell is in. `/api/customers` is a
+ * branch-scoped read, and the server answers 403 (not "all my branches") when a
+ * branch account omits the parameter, so an unscoped search looked like an
+ * empty directory to every non-global user.
  */
 export async function searchCustomers(query: string, limit = 20): Promise<CustomerRecord[]> {
   const q = query.trim();
   if (!q) return [];
   const envelope = await getCustomers({
+    branchId: getActiveBranchId() || undefined,
     query: q,
     page: 1,
     pageSize: Math.max(1, Math.min(50, limit)),
