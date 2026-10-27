@@ -206,7 +206,7 @@ describe('VOL-4b — customer devices off the bootstrap', () => {
     for (const relative of surfaces) {
       const source = fs.readFileSync(path.join(ROOT, 'client/src/features', relative), 'utf8');
       assert.ok(
-        /getCustomerDevice(Page|Export|Overview|Warranty)|getCustomerDevices/.test(source),
+        /getCustomerDevice(Page|Export|Overview|Warranty)/.test(source),
         `${relative} no longer reads a device register at all — did it fall back to a prop?`
       );
       assert.ok(

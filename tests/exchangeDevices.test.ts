@@ -403,4 +403,26 @@ describe('DF-16 + EXCH-1 — wiring', () => {
     walk(path.resolve('client/src'));
     assert.deepEqual(offenders, [], 'the bare endpoint stays only for an older bundle / the local slice');
   });
+
+  test('READ-1: the bare-array device read is gone from the API surface', () => {
+    const apiIndex = read('client/src/services/api/index.ts');
+    assert.ok(
+      !/\bgetCustomerDevices\b/.test(apiIndex),
+      'the api surface must not expose a bare-array device read again (use getCustomerDevicePage/Export/Overview/Warranty)'
+    );
+
+    const inventoryApi = read('client/src/services/api/inventory.ts');
+    assert.ok(
+      !/export async function getCustomerDevices\b/.test(inventoryApi),
+      'the dead wrapper must not be reintroduced'
+    );
+    assert.ok(
+      !/\/api\/customer-devices\$\{/.test(inventoryApi),
+      'no client read may call the bare /api/customer-devices URL (it is capped at 2,000 rows)'
+    );
+    assert.ok(
+      inventoryApi.includes('/api/customer-devices/page'),
+      'the paged register read must stay'
+    );
+  });
 });

@@ -169,7 +169,6 @@ export const api = {
   getTransactionLogs: inventory.getTransactionLogs,
 
   // Customer Devices & Serial Numbers
-  getCustomerDevices: inventory.getCustomerDevices,
   getCustomerDevicePage: inventory.getCustomerDevicePage,
   getCustomerDeviceExport: inventory.getCustomerDeviceExport,
   getCustomerDeviceOverview: inventory.getCustomerDeviceOverview,

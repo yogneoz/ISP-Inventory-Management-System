@@ -118,7 +118,6 @@ const API_STUBS: AnyApi = {
   getBsCalendarYears: async () => [],
   getSerialLogs: async () => [],
   getStock: async () => [],
-  getCustomerDevices: async () => [],
   getStockOperations: async () => [],
   searchCustomers: async () => ({ data: [], total: 0, page: 1, pageSize: 20 }),
   savePreferences: async () => ({}),

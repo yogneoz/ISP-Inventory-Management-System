@@ -419,11 +419,6 @@ function customerDeviceQueryString(params: CustomerDeviceQueryParams, extra: Rec
   return queryString ? `?${queryString}` : '';
 }
 
-/** Legacy bare-array read (older bundle / local slice); bounded server-side. */
-export async function getCustomerDevices(branchId?: string, query?: string): Promise<CustomerDeviceRecord[]> {
-  return fetchJson(`/api/customer-devices${customerDeviceQueryString({ branchId, query })}`);
-}
-
 /** One server-paged slice of the device register. */
 export async function getCustomerDevicePage(
   params: CustomerDeviceQueryParams = {},

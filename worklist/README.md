@@ -18,8 +18,10 @@ is the plan, not a second source of truth.
 
 - [parked.md](parked.md) — decisions we are not acting on, with the trigger to
   reopen each one.
-- `round-N/` — the active round, when there is one. **None right now**: Round 4
-  closed on 2026-10-27 and its folder is archived under [done/](done/README.md).
+- [round-5/](round-5/README.md) — the active round (created 2026-10-27):
+  READ-1 (delete the orphaned bare-array device read), STOCK-1 (index the
+  stock-array lookups out of the screens) and STOCK-2 (the paged-vs-array gate).
+  Past rounds live under [done/](done/README.md).
 - [done/](done/README.md) — completed rounds, kept for reference. Never delete.
 
 ## Status vocabulary
@@ -61,15 +63,19 @@ checklist here.
 
 ## Active work
 
-**No round is active.** Round 4 closed on 2026-10-27 — see
+**Round 5** is active — [round-5/README.md](round-5/README.md): delete the
+orphaned bare-array device read ([READ-1](round-5/READ-1.md)), index the
+stock-array lookups out of the screens ([STOCK-1](round-5/STOCK-1.md)), then
+take the paged-vs-array decision with the new numbers
+([STOCK-2](round-5/STOCK-2.md), a decision, not a build). It is deliberately a
+small round: the payload work is finished. Round 4 closed on 2026-10-27 — see
 [done/2026-10-27-round-4.md](done/2026-10-27-round-4.md): `fixed_assets` left
 the bootstrap ([ASSET-1](done/2026-10-27-round-4/ASSET-1.md), `3efd446`) and the
 Device Exchange picker moved to the paged device read
 ([EXCH-1](done/2026-10-27-round-4/EXCH-1.md), `3d7afe4`). Round 3 closed the day
-before ([done/2026-10-27-round-3.md](done/2026-10-27-round-3.md)). The next
-round is not scoped yet: start from the measured watch list below and
-[parked.md](parked.md) — do not open a parked item without its recorded
-trigger, and add the new evidence there first.
+before ([done/2026-10-27-round-3.md](done/2026-10-27-round-3.md)). Do not open a
+parked item without its recorded trigger; add the new evidence to
+[parked.md](parked.md) first.
 
 Recorded watch items — **measured 2026-10-27** before Round 5 planning, so
 none is an open question any more. `inventory_stock` (product × branch),
