@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { TransactionLog, Product, Branch, InventoryStock, StockOperation, Shipment, PurchaseOrder, DamageRecord } from '../../types';
 import { exportToCSV } from '../../utils/exportUtils';
 import { formatNPR } from '../../utils/nprFormat';
@@ -13,6 +13,7 @@ import StatCard from '../../components/common/StatCard';
 import { FilterCard } from '../../components/common/FilterCard';
 import { PageHeader } from '../../components/common/PageHeader';
 import { api } from '../../services/api';
+import { indexStockByProductBranch, stockOnHandAt } from '../../utils/stockIndex';
 
 interface StockMovementLedgerProps {
   products: Product[];
@@ -44,6 +45,10 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
   sseRefreshKey = 0,
   dateMode,
 }) => {
+  // STOCK-1: one index per stock array; the closing-balance matrix below reads
+  // one quantity per (product, branch) pair instead of scanning per pair.
+  const stockIndex = useMemo(() => indexStockByProductBranch(stock), [stock]);
+
   const [activeBranchId, setActiveBranchId] = useState<string>(selectedBranchId);
 
   // The year's transaction log is no longer in the bootstrap. This screen
@@ -252,10 +257,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
     const branchScope = activeBranchId === 'ALL' ? branches : branches.filter((b) => b.id === activeBranchId);
 
     branchScope.forEach((b) => {
-      const st = stock.find((s) => s.productId === prod.id && s.branchId === b.id);
-      if (st) {
-        currentOnHand += st.quantityOnHand;
-      }
+      currentOnHand += stockOnHandAt(stockIndex, prod.id, b.id);
     });
 
     // Get logs for this product in current branch scope

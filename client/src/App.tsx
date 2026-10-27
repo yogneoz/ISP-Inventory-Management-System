@@ -38,6 +38,7 @@ import {
 import { AppShell } from './components/layout/AppShell';
 import { NavTab, NAV_TABS } from './components/layout/Sidebar';
 import { isOperationAllowed } from './utils/permissions';
+import { indexStockByProductBranch, stockRowAt } from './utils/stockIndex';
 import {
   DOMAIN_REGISTER_KEYS,
   bumpAllRegisterRefresh,
@@ -1745,12 +1746,15 @@ export default function App() {
         : branches.filter((b) => b.id === selectedBranchId);
 
     const lowStockProductMap = new Map<string, { product: Product; qty: number }>();
+    // STOCK-1: index once for the whole pass; the per-pair scan was
+    // products × branches × stock on every click of "group low stock PO".
+    const stockIndex = indexStockByProductBranch(stock);
 
     products.forEach((prod) => {
       let productTotalDeficit = 0;
 
       activeBr.forEach((b) => {
-        const item = stock.find((st) => st.productId === prod.id && st.branchId === b.id);
+        const item = stockRowAt(stockIndex, prod.id, b.id);
         const onHand = item ? item.quantityOnHand : 0;
         const threshold =
           item?.minReorderLevel !== undefined && item?.minReorderLevel !== null

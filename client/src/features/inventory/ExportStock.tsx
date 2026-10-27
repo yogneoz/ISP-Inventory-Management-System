@@ -23,6 +23,11 @@ import { useFilterPageReset } from '../../utils/useFilterPageReset';
 import { api } from '../../services/api';
 import { useDialog } from '../../components/common/DialogProvider';
 import { PageHeader } from '../../components/common/PageHeader';
+import {
+  groupStockByProduct,
+  indexStockByProductBranch,
+  stockRowAt,
+} from '../../utils/stockIndex';
 
 interface ExportStockProps {
   currentUser?: User | null;
@@ -119,11 +124,20 @@ export const ExportStock: React.FC<ExportStockProps> = ({
   const categories = useMemo(() => Array.from(new Set(products.map((p) => p.category))), [products]);
   const serializedProducts = useMemo(() => products.filter((p) => p.requiresSerialTracking), [products]);
 
+  // STOCK-1: the branch lists and the per-pair reads below used to scan the
+  // whole stock array once per product (and once per matrix cell). One index +
+  // one grouping per stock array makes every read O(1).
+  const stockIndex = useMemo(() => indexStockByProductBranch(stock), [stock]);
+  const stockByProduct = useMemo(() => groupStockByProduct(stock), [stock]);
+
   // Helper to get stock on hand for a product given the current branch scope
   const getProductStock = (prodId: string, branchScope = filterBranch) => {
-    return stock
-      .filter((s) => s.productId === prodId && (branchScope === 'ALL' || s.branchId === branchScope))
-      .reduce((sum, item) => sum + (item.quantityOnHand || 0), 0);
+    const rows = stockByProduct.get(prodId) || [];
+    return rows.reduce(
+      (sum, item) =>
+        sum + (branchScope === 'ALL' || item.branchId === branchScope ? item.quantityOnHand || 0 : 0),
+      0
+    );
   };
 
   // Serialized products with stock on hand (for display when no customer devices exist)
@@ -131,9 +145,9 @@ export const ExportStock: React.FC<ExportStockProps> = ({
     return serializedProducts
       .map((p) => {
         const onHand = getProductStock(p.id);
-        const branchStock = filterBranch === 'ALL'
-          ? stock.filter((s) => s.productId === p.id && s.quantityOnHand > 0)
-          : stock.filter((s) => s.productId === p.id && s.branchId === filterBranch && s.quantityOnHand > 0);
+        const branchStock = (stockByProduct.get(p.id) || []).filter((s) =>
+          filterBranch === 'ALL' ? s.quantityOnHand > 0 : s.branchId === filterBranch && s.quantityOnHand > 0
+        );
         return {
           product: p,
           onHand,
@@ -144,7 +158,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
         };
       })
       .filter((item) => item.onHand > 0);
-  }, [serializedProducts, stock, filterBranch, branches]);
+  }, [serializedProducts, stockByProduct, filterBranch, branches]);
 
   // Branch display label
   const currentBranchName = useMemo(() => {
@@ -179,7 +193,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
       if (isConsolidated) {
         // Consolidated View across all branches
         branches.forEach((b) => {
-          const item = stock.find((s) => s.productId === prod.id && s.branchId === b.id);
+          const item = stockRowAt(stockIndex, prod.id, b.id);
           const bOnHand = item ? item.quantityOnHand || 0 : 0;
           onHand += bOnHand;
 
@@ -205,7 +219,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
         }
       } else {
         // Single Branch View
-        const item = stock.find((s) => s.productId === prod.id && s.branchId === filterBranch);
+        const item = stockRowAt(stockIndex, prod.id, filterBranch);
         onHand = item ? item.quantityOnHand || 0 : 0;
         reorderThreshold = (item && item.minReorderLevel !== undefined && item.minReorderLevel !== null)
           ? item.minReorderLevel
@@ -558,10 +572,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
     const branchColumns = branches.map((b) => ({
       key: `branch_${b.id}`,
       label: `${b.code} (${b.name})`,
-      formatter: (_: any, row: Product) => {
-        const item = stock.find((s) => s.productId === row.id && s.branchId === b.id);
-        return item ? item.quantityOnHand : 0;
-      },
+      formatter: (_: any, row: Product) => stockRowAt(stockIndex, row.id, b.id)?.quantityOnHand ?? 0,
     }));
 
     const columns = [
@@ -1270,7 +1281,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                         {p.name}
                       </td>
                       {branches.map((b) => {
-                        const st = stock.find((s) => s.productId === p.id && s.branchId === b.id);
+                        const st = stockRowAt(stockIndex, p.id, b.id);
                         const qty = st ? st.quantityOnHand : 0;
                         const bThreshold = (st && st.minReorderLevel !== undefined && st.minReorderLevel !== null)
                           ? st.minReorderLevel

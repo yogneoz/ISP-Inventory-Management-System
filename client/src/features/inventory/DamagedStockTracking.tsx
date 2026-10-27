@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Product, Branch, InventoryStock, User, StockOperation, DamageRecord } from '../../types';
 import { NavTab } from '../../components/layout/Sidebar';
 import { api } from '../../services/api';
@@ -37,6 +37,7 @@ import {
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { FilterCard } from '../../components/common/FilterCard';
 import { PageHeader } from '../../components/common/PageHeader';
+import { indexStockByProductBranch, stockRowAt } from '../../utils/stockIndex';
 import { useDialog } from '../../components/common/DialogProvider';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 
@@ -212,15 +213,18 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
 
   const categories = Array.from(new Set(products.map((p) => p.category)));
 
-  const activeBranches =
-    selectedBranchId === 'ALL'
-      ? branches
-      : branches.filter((b) => b.id === selectedBranchId);
+  const activeBranches = useMemo(
+    () => (selectedBranchId === 'ALL' ? branches : branches.filter((b) => b.id === selectedBranchId)),
+    [selectedBranchId, branches]
+  );
+
+  // STOCK-1: one index per stock array; the per-pair reads below are O(1).
+  const stockIndex = useMemo(() => indexStockByProductBranch(stock), [stock]);
 
   // Compute damaged stock quantity per product across visible branches
   const productsWithDamaged = products.map((prod) => {
     const branchData = activeBranches.map((b) => {
-      const item = stock.find((st) => st.productId === prod.id && st.branchId === b.id);
+      const item = stockRowAt(stockIndex, prod.id, b.id);
 
       // Get damage records for this product + branch, narrowed by the report
       // date range when one is set.
@@ -464,7 +468,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
     for (const prodItem of visibleProducts) {
       if (prodItem.totalDamagedQty > 0) {
         for (const b of activeBranches) {
-          const s = stock.find((st) => st.productId === prodItem.prod.id && st.branchId === b.id);
+          const s = stockRowAt(stockIndex, prodItem.prod.id, b.id);
           if (s && s.damagedQty && s.damagedQty > 0) {
             openDisposalModal(s, prodItem.prod, b);
             return;
@@ -819,9 +823,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
 
                     {/* Branch Cells */}
                     {activeBranches.map((b) => {
-                      const s = stock.find(
-                        (st) => st.productId === prod.id && st.branchId === b.id
-                      ) || {
+                      const s = stockRowAt(stockIndex, prod.id, b.id) || {
                         id: `stk-${prod.id}-${b.id}`,
                         productId: prod.id,
                         branchId: b.id,

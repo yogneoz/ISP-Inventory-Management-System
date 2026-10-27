@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Product, Branch, InventoryStock, User } from '../../types';
 import { exportToCSV } from '../../utils/exportUtils';
 import {
@@ -12,6 +12,11 @@ import {
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { PageHeader } from '../../components/common/PageHeader';
+import {
+  indexStockByProductBranch,
+  stockDamagedAt,
+  stockOnHandAt,
+} from '../../utils/stockIndex';
 
 interface BranchStockTrackingProps {
   currentUser?: User | null;
@@ -35,19 +40,32 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
 
   const categories = Array.from(new Set(products.map((p) => p.category)));
 
-  const activeBranches =
-    selectedBranchId === 'ALL'
-      ? branches
-      : branches.filter((b) => b.id === selectedBranchId);
+  const activeBranches = useMemo(
+    () =>
+      selectedBranchId === 'ALL'
+        ? branches
+        : branches.filter((b) => b.id === selectedBranchId),
+    [branches, selectedBranchId]
+  );
 
-  // Compute total stock quantity per product across visible branches
-  const productsWithStock = products.map((prod) => {
-    const totalQty = activeBranches.reduce((sum, b) => {
-      const item = stock.find((st) => st.productId === prod.id && st.branchId === b.id);
-      return sum + (item ? Number(item.quantityOnHand) : 0);
-    }, 0);
-    return { prod, totalQty };
-  });
+  // STOCK-1: build one index per stock array, then answer each pair in O(1).
+  // The scan this replaces was products × branches × stock — ~38 s for one pass
+  // at the measured 2,000 × 20 model — and it ran on every render, including
+  // every keystroke in the search box below.
+  const stockIndex = useMemo(() => indexStockByProductBranch(stock), [stock]);
+
+  // Compute total stock quantity per product across visible branches.
+  const productsWithStock = useMemo(
+    () =>
+      products.map((prod) => {
+        const totalQty = activeBranches.reduce(
+          (sum, b) => sum + stockOnHandAt(stockIndex, prod.id, b.id),
+          0
+        );
+        return { prod, totalQty };
+      }),
+    [products, activeBranches, stockIndex]
+  );
 
   const visibleProducts = productsWithStock
     .filter(({ prod, totalQty }) => {
@@ -74,10 +92,7 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
     const dynamicBranchCols = activeBranches.map((b) => ({
       key: `branch_${b.id}`,
       label: `${b.name} (On-Hand)`,
-      formatter: (_: any, prod: Product) => {
-        const item = stock.find((st) => st.productId === prod.id && st.branchId === b.id);
-        return item ? Number(item.quantityOnHand) : 0;
-      },
+      formatter: (_: any, prod: Product) => stockOnHandAt(stockIndex, prod.id, b.id),
     }));
 
     const columns = [
@@ -93,21 +108,17 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
       {
         key: 'totalOnHand',
         label: 'Total On-Hand (Visible Branches)',
-        formatter: (_: any, prod: Product) => {
-          return activeBranches.reduce((sum, b) => {
-            const item = stock.find((st) => st.productId === prod.id && st.branchId === b.id);
-            return sum + (item ? Number(item.quantityOnHand) : 0);
-          }, 0);
-        },
+        formatter: (_: any, prod: Product) =>
+          activeBranches.reduce((sum, b) => sum + stockOnHandAt(stockIndex, prod.id, b.id), 0),
       },
       {
         key: 'totalCostValuation',
         label: 'Total Cost Valuation (NPR)',
         formatter: (_: any, prod: Product) => {
-          const qty = activeBranches.reduce((sum, b) => {
-            const item = stock.find((st) => st.productId === prod.id && st.branchId === b.id);
-            return sum + (item ? Number(item.quantityOnHand) : 0);
-          }, 0);
+          const qty = activeBranches.reduce(
+            (sum, b) => sum + stockOnHandAt(stockIndex, prod.id, b.id),
+            0
+          );
           return qty * (prod.costPrice || 0);
         },
       },
@@ -244,15 +255,15 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
                 </tr>
               ) : (
                 branchStockPagination.pagedItems.map((prod) => {
-                  const systemTotalUsable = branches.reduce((sum, b) => {
-                    const st = stock.find((item) => item.productId === prod.id && item.branchId === b.id);
-                    return sum + (st ? Number(st.quantityOnHand) : 0);
-                  }, 0);
+                  const systemTotalUsable = branches.reduce(
+                    (sum, b) => sum + stockOnHandAt(stockIndex, prod.id, b.id),
+                    0
+                  );
 
-                  const systemTotalDamaged = branches.reduce((sum, b) => {
-                    const st = stock.find((item) => item.productId === prod.id && item.branchId === b.id);
-                    return sum + (st ? Number(st.damagedQty) || 0 : 0);
-                  }, 0);
+                  const systemTotalDamaged = branches.reduce(
+                    (sum, b) => sum + stockDamagedAt(stockIndex, prod.id, b.id),
+                    0
+                  );
 
                   return (
                     <tr key={prod.id} className={`group transition-colors hover:bg-slate-100 dark:hover:bg-slate-800/40`}>
@@ -288,19 +299,9 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
 
                       {/* Branch Stock cells */}
                     {activeBranches.map((b) => {
-                      const s = stock.find(
-                        (st) => st.productId === prod.id && st.branchId === b.id
-                      ) || {
-                        id: `temp-${prod.id}-${b.id}`,
-                        productId: prod.id,
-                        branchId: b.id,
-                        quantityOnHand: 0,
-                        reservedQty: 0,
-                        incomingQty: 0,
-                        lastUpdated: new Date().toISOString(),
-                      };
-
-                      const isLow = s.quantityOnHand <= prod.minReorderLevel;
+                      const onHand = stockOnHandAt(stockIndex, prod.id, b.id);
+                      const damagedQty = stockDamagedAt(stockIndex, prod.id, b.id);
+                      const isLow = onHand <= prod.minReorderLevel;
 
                       return (
                         <td
@@ -314,12 +315,12 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
                                   ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800 dark:text-slate-200'
                               }`}
                             >
-                              {s.quantityOnHand} <span className="text-[10px] text-slate-400 font-normal">{prod.unit} usable</span>
+                              {onHand} <span className="text-[10px] text-slate-400 font-normal">{prod.unit} usable</span>
                             </span>
-                            {(s.damagedQty || 0) > 0 && (
+                            {damagedQty > 0 && (
                               <span className={`inline-flex items-center gap-0.5 text-[10px] font-bold text-amber-600 bg-amber-50 border-amber-200 dark:text-amber-400 dark:bg-amber-950/60 dark:border-amber-800/50 px-1.5 py-0.2 rounded border mt-0.5`}>
                                 <AlertTriangle className="h-2.5 w-2.5" />
-                                <span>{s.damagedQty} damaged</span>
+                                <span>{damagedQty} damaged</span>
                               </span>
                             )}
                           </div>

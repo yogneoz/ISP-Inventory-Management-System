@@ -1,6 +1,6 @@
 # STOCK-1 — index the stock-array lookups out of the screens
 
-Status: `[ ]` not started · Created 2026-10-27 · Estimate 3–4 h
+Status: `[~]` implemented 2026-10-27, gates green — awaiting commit · Created 2026-10-27 · Estimate 3–4 h
 Round: [Round 5](README.md) · Order: 2 · Depends on READ-1 (warm-up only)
 
 ## Problem
@@ -65,32 +65,76 @@ and [appShellRenderCount.test.ts](../../../tests/appShellRenderCount.test.ts):
 
 ## Steps
 
-- [ ] **1. Baseline.** Add the probe, record the three numbers in this note.
-- [ ] **2. One helper.** Add `indexStockByProductBranch(rows)` (and the audit-row
-  equivalent) returning a `Map` keyed by product + branch, in a shared utility
-  under [client/src/utils/](../../../client/src/utils/). Pure, unit-tested,
-  no React, no server.
-- [ ] **3. The two hot screens.** Branch Stock and Physical Stock Audit use the
-  index and memoise the derivations that currently run in the render body. No
-  prop or DOM changes; identical rows and totals.
-- [ ] **4. The remaining consumers.** Dashboard, All Available Stock, Damaged
-  Stock, Reorder Stock and Stock Valuation move to the index where they scan per
-  product × branch. Leave single lookups (`stock.find(s => s.id === id)`) alone —
-  they are not the problem and rewriting them adds risk.
-- [ ] **5. After numbers.** Re-run the probe, record them next to the baseline,
-  and state the ratio.
-- [ ] **6. Gates.** `tsc`; the physical-audit, branch-stock, dashboard and
-  register suites; `check:no-raw-dialogs`; build and bundle budget.
+- [x] **1. Baseline.** A temporary probe (deleted after the run) built 2,000
+  products × 20 branches = 40,000 stock rows and timed the real screen and the
+  pure derivations. Numbers below.
+- [x] **2. One helper.** [stockIndex.ts](../../../client/src/utils/stockIndex.ts):
+  `indexFirstBy`, `indexStockByProductBranch`, `stockRowAt`, `stockOnHandAt`,
+  `stockDamagedAt`. Pure, no React, no server; 8 parity tests in
+  [stockIndex.test.ts](../../../tests/stockIndex.test.ts) prove it returns what
+  `stock.find` returned — including **first-match-wins on duplicates**, the
+  NaN-vs-0 split for a row with a missing quantity field, numeric strings from
+  SQL, and ids that could collide across a separator.
+- [x] **3. The two hot screens.** Branch Stock and Physical Stock Audit build the
+  index once (`useMemo` on `stock`), the totals derivation is memoised on
+  `[products, activeBranches, stockIndex]`, and the audit matrix no longer runs
+  two `auditRows.find` per branch (it indexes the audit rows once too). No prop
+  or DOM change; the row/cell values were checked against the old expressions.
+- [x] **4. The remaining consumers.** Dashboard (low-stock filter + both
+  expandable breakdowns), All Available Stock (`getProductStock` and the
+  per-product branch list, now grouped once), Damaged Stock, Reorder Stock and
+  Stock Valuation all read through the index. The sweep also caught three
+  consumers with the same defect that the plan had not listed: the shell's
+  low-stock **badge** ([AppShell.tsx](../../../client/src/components/layout/AppShell.tsx)),
+  the **notification center** alert derivation, the stock-movement ledger's
+  closing-balance matrix, and App's `handleGroupLowStockPO` (indexed inside the
+  handler, not as a new App hook). Single lookups by stock id (`Dashboard`'s
+  adjustment modal) and the stock-op panels' per-row reads (bounded by the rows
+  on screen) are left alone, as planned.
+- [x] **5. After numbers.** Below, from the same probe after the change.
+- [x] **6. Gates.** `tsc` clean; `stockIndex` 9/9; shell-render, route-tree and
+  KeepMounted probes 26/26 with the helper. Full `npm test`: **1354 tests,
+  1352 pass, 0 fail, 2 Windows-only skips** (321 suites) with the docs-count
+  gate green at 1354; `check:no-raw-dialogs` (161 client files); production
+  build clean; bundle budget OK at **15.8 kB entry / 281.6 kB startup** of
+  17/320 (the helper costs 0.1 kB of entry).
 
 ## Acceptance
 
 - The probe shows the three measurements improved, with the numbers recorded in
-  this note (no claim without a measurement).
+  this note (no claim without a measurement). **Measured above.**
 - Every screen renders the same rows, totals and exports as before — the
   existing suites pass without weakening an assertion.
 - One helper, not eight private copies; its unit tests cover the key shape, the
   missing pair, and duplicate rows.
 - No behaviour or prop change: this item is invisible to a user except in speed.
+
+## Measured (2026-10-27)
+
+Fixture: 2,000 products × 20 branches = 40,000 stock rows, the watch-list model
+(the demo DB holds 18 products / 3 branches / 32 rows, so this is a scale
+fixture, not production data). Same script before and after; the numbers are one
+warm run each.
+
+| Derivation | Before | After | Ratio |
+|---|---|---|---|
+| Pure product totals (`products × branches × stock.find`) | **35,748 ms** | **47.9 ms** (one Map + 40,000 O(1) lookups) | ≈ 746× |
+| Physical Audit consolidated matrix (same scan + two `auditRows.find` per branch) | **35,458 ms** | **52.4 ms** | ≈ 677× |
+| Branch Stock **mount** (real component, jsdom) | **34,604 ms** | **338–406 ms** | ≈ 85–102× |
+| Branch Stock **re-render** (one toggle click, same 20 rows) | **31,449 ms** | **121–171 ms** | ≈ 184–259× |
+| Totals identical before/after | — | `same totals: true` | — |
+
+The shell badge, the notification-center alerts, the ledger's closing matrix and
+App's group-low-stock handler carried the same loop shape, so they belong to the
+same 746× result rather than to a separate measurement; none of them was mounted
+for a before/after screen number.
+
+The residual 338–406 ms mount is jsdom rendering 20 rows × 20 branch cells plus
+lucide icons, not the lookup: the derivation itself is the 47.9 ms row. The
+audit-matrix figures time the **derivation** (its exact loop shape), not a
+mounted screen — the screen renders every audit row unpaginated, so a mount
+measurement would be dominated by jsdom DOM work and would not say anything
+about the lookup.
 
 ## Out of scope
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Branch,
   Product,
@@ -12,6 +12,7 @@ import {
 } from '../../types';
 import { formatDualDate, BS_SEEDING_MENU_PATH, type BsCalendarCoverageStatus } from '../../utils/nepaliCalendar';
 import { getAllowedBranches, getAllowedBranchIds, canUserSeeAllBranches } from '../../utils/permissions';
+import { indexStockByProductBranch, stockRowAt } from '../../utils/stockIndex';
 import { formatNPR } from '../../utils/nprFormat';
 import StatCard from '../../components/common/StatCard';
 import { api } from '../../services/api';
@@ -206,6 +207,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const allowedBranchIds = getAllowedBranchIds(currentUser, branches);
   const canSeeAll = canUserSeeAllBranches(currentUser);
 
+  // STOCK-1: one index per stock array. The dashboard's per-branch reads below
+  // (low-stock list + the two expandable breakdowns) are O(1) instead of a
+  // products × branches × stock scan on every render.
+  const stockIndex = useMemo(() => indexStockByProductBranch(stock), [stock]);
+
   const activeBranches =
     selectedBranchId === 'ALL'
       ? allowedBranches
@@ -230,7 +236,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     let isAnyBranchLow = false;
 
     activeBranches.forEach((b) => {
-      const item = stock.find((st) => st.productId === prod.id && st.branchId === b.id);
+      const item = stockRowAt(stockIndex, prod.id, b.id);
       const onHand = item ? item.quantityOnHand : 0;
       totalOnHand += onHand;
 
@@ -555,9 +561,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       : activeBranches.filter((b) => b.id === selectedBranchId);
 
                   const branchBreakdown = scopeBranches.map((b) => {
-                    const st = stock.find(
-                      (s) => s.productId === prod.id && s.branchId === b.id
-                    );
+                    const st = stockRowAt(stockIndex, prod.id, b.id);
                     const threshold =
                       st?.minReorderLevel !== undefined && st?.minReorderLevel !== null
                         ? st.minReorderLevel
@@ -826,9 +830,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       : activeBranches.filter((b) => b.id === selectedBranchId);
 
                   const branchStockBreakdown = scopeBranches.map((b) => {
-                    const stItem = stock.find(
-                      (s) => s.productId === prod.id && s.branchId === b.id
-                    );
+                    const stItem = stockRowAt(stockIndex, prod.id, b.id);
                     return {
                       branchId: b.id,
                       branchName: b.name,

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Product, Branch, InventoryStock, User } from '../../types';
 import { NavTab } from '../../components/layout/Sidebar';
 import { isOperationAllowed } from '../../utils/permissions';
@@ -24,6 +24,7 @@ import { useClientPagination, TablePagination } from '../../components/common/Ta
 import { FilterCard } from '../../components/common/FilterCard';
 import { PageHeader } from '../../components/common/PageHeader';
 import { useDialog } from '../../components/common/DialogProvider';
+import { indexStockByProductBranch, stockRowAt } from '../../utils/stockIndex';
 
 interface ReorderStockTrackingProps {
   currentUser?: User | null;
@@ -72,10 +73,13 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
 
   const categories = Array.from(new Set(products.map((p) => p.category)));
 
-  const activeBranches =
-    selectedBranchId === 'ALL'
-      ? branches
-      : branches.filter((b) => b.id === selectedBranchId);
+  const activeBranches = useMemo(
+    () => (selectedBranchId === 'ALL' ? branches : branches.filter((b) => b.id === selectedBranchId)),
+    [selectedBranchId, branches]
+  );
+
+  // STOCK-1: one index per stock array; the per-pair reads below are O(1).
+  const stockIndex = useMemo(() => indexStockByProductBranch(stock), [stock]);
 
   // Helper function to resolve effective branch reorder level
   const getBranchReorderThreshold = (prod: Product, branchStock?: InventoryStock) => {
@@ -86,7 +90,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
   };
 
   // Calculate reorder deficit per product across visible branches using PER-BRANCH thresholds & consolidated reorder calculations
-  const productsReorderData = products.map((prod) => {
+  const productsReorderData = useMemo(() => products.map((prod) => {
     let totalOnHand = 0;
     let totalConsolidatedReorderLevel = 0;
     let totalDeficit = 0;
@@ -101,7 +105,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
     }[] = [];
 
     activeBranches.forEach((b) => {
-      const item = stock.find((st) => st.productId === prod.id && st.branchId === b.id);
+      const item = stockRowAt(stockIndex, prod.id, b.id);
       const onHand = item ? Number(item.quantityOnHand) : 0;
       totalOnHand += onHand;
 
@@ -151,7 +155,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
       isBelowMinOverall,
       branchData,
     };
-  });
+  }), [products, activeBranches, stockIndex]);
 
   const visibleProducts = productsReorderData.filter(
     ({ prod, isBelowMinOverall }) => {
@@ -277,7 +281,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
 
       products.forEach((prod) => {
         branches.forEach((b) => {
-          const item = stock.find((st) => st.productId === prod.id && st.branchId === b.id);
+          const item = stockRowAt(stockIndex, prod.id, b.id);
           if (item) {
             let targetMin = prod.minReorderLevel;
             if (bulkStrategy === 'HQ_WEIGHTED') {
@@ -500,9 +504,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
 
                     {/* Branch Cells */}
                     {activeBranches.map((b) => {
-                      const s = stock.find(
-                        (st) => st.productId === prod.id && st.branchId === b.id
-                      ) || {
+                      const s = stockRowAt(stockIndex, prod.id, b.id) || {
                         id: `stk-${prod.id}-${b.id}`,
                         productId: prod.id,
                         branchId: b.id,

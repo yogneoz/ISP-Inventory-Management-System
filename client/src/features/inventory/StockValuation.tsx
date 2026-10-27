@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Product, Branch, InventoryStock } from '../../types';
 import { exportToCSV } from '../../utils/exportUtils';
 import { formatNPR, formatNPRInteger } from '../../utils/nprFormat';
@@ -14,6 +14,12 @@ import { StatCard, StatCardGrid } from '../../components/common/StatCard';
 import { DateField } from '../../components/DateField';
 import { FilterCard } from '../../components/common/FilterCard';
 import { PageHeader } from '../../components/common/PageHeader';
+import {
+  indexStockByProductBranch,
+  stockDamagedAt,
+  stockOnHandAt,
+  stockRowAt,
+} from '../../utils/stockIndex';
 
 interface StockValuationProps {
   products: Product[];
@@ -47,21 +53,23 @@ export const StockValuation: React.FC<StockValuationProps> = ({
   }, [selectedBranchId]);
 
   const categories = Array.from(new Set(products.map((p) => p.category)));
-  const visibleBranches = activeBranchId === 'ALL'
-    ? branches
-    : branches.filter((b) => b.id === activeBranchId);
+  const visibleBranches = useMemo(
+    () => (activeBranchId === 'ALL' ? branches : branches.filter((b) => b.id === activeBranchId)),
+    [activeBranchId, branches]
+  );
+
+  // STOCK-1: one index per stock array; every product × branch read below is
+  // O(1) instead of scanning the array per pair.
+  const stockIndex = useMemo(() => indexStockByProductBranch(stock), [stock]);
 
   // Compute itemized stock valuation data
-  const itemizedValuationData = products.map((prod) => {
+  const itemizedValuationData = useMemo(() => products.map((prod) => {
     let totalOnHand = 0;
     let totalDamaged = 0;
 
     visibleBranches.forEach((b) => {
-      const item = stock.find((s) => s.productId === prod.id && s.branchId === b.id);
-      if (item) {
-        totalOnHand += Number(item.quantityOnHand);
-        totalDamaged += Number(item.damagedQty) || 0;
-      }
+      totalOnHand += stockOnHandAt(stockIndex, prod.id, b.id);
+      totalDamaged += stockDamagedAt(stockIndex, prod.id, b.id);
     });
 
     const costValuation = totalOnHand * prod.costPrice;
@@ -71,9 +79,9 @@ export const StockValuation: React.FC<StockValuationProps> = ({
     const damagedLoss = totalDamaged * prod.costPrice;
 
     const isLow = visibleBranches.some((b) => {
-      const item = stock.find((s) => s.productId === prod.id && s.branchId === b.id);
-      const onHand = item ? item.quantityOnHand : 0;
-      const threshold = item?.minReorderLevel ?? prod.minReorderLevel;
+      const row = stockRowAt(stockIndex, prod.id, b.id);
+      const onHand = row ? Number(row.quantityOnHand) : 0;
+      const threshold = row?.minReorderLevel ?? prod.minReorderLevel;
       return threshold > 0 ? onHand <= threshold : onHand <= 0;
     });
 
@@ -91,7 +99,7 @@ export const StockValuation: React.FC<StockValuationProps> = ({
       isLow,
       isOutOfStock,
     };
-  });
+  }), [products, visibleBranches, stockIndex]);
 
   // Filtered Itemized Data
   const filteredItemized = itemizedValuationData.filter(({ prod, totalOnHand, isLow, isOutOfStock }) => {
@@ -100,8 +108,7 @@ export const StockValuation: React.FC<StockValuationProps> = ({
     // Latest stock movement for this product across the visible branches.
     if (activityFromAD || activityToAD) {
       const latestDay = visibleBranches.reduce((latest: string, b) => {
-        const item = stock.find((s) => s.productId === prod.id && s.branchId === b.id);
-        const day = String(item?.lastUpdated || '').split('T')[0];
+        const day = String(stockRowAt(stockIndex, prod.id, b.id)?.lastUpdated || '').split('T')[0];
         return day && day > latest ? day : latest;
       }, '');
       if (!latestDay) return false;
@@ -170,14 +177,13 @@ export const StockValuation: React.FC<StockValuationProps> = ({
     let bDamagedLoss = 0;
 
     products.forEach((prod) => {
-      const item = stock.find((s) => s.productId === prod.id && s.branchId === b.id);
-      if (item) {
-        bUnits += Number(item.quantityOnHand);
-        bDamaged += Number(item.damagedQty) || 0;
-        bCostVal += Number(item.quantityOnHand) * (prod.costPrice || 0);
-        bRetailVal += Number(item.quantityOnHand) * (prod.sellingPrice || 0);
-        bDamagedLoss += (Number(item.damagedQty) || 0) * (prod.costPrice || 0);
-      }
+      const onHand = stockOnHandAt(stockIndex, prod.id, b.id);
+      const damaged = stockDamagedAt(stockIndex, prod.id, b.id);
+      bUnits += onHand;
+      bDamaged += damaged;
+      bCostVal += onHand * (prod.costPrice || 0);
+      bRetailVal += onHand * (prod.sellingPrice || 0);
+      bDamagedLoss += damaged * (prod.costPrice || 0);
     });
 
     const bMargin = bRetailVal - bCostVal;

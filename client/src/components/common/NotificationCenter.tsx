@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Product, InventoryStock, ApprovalRequest, PurchaseOrder, Shipment, Branch } from '../../types';
 import { formatNPR } from '../../utils/nprFormat';
+import { indexStockByProductBranch, stockRowAt } from '../../utils/stockIndex';
 import { BS_SEEDING_MENU_PATH, type BsCalendarCoverageStatus } from '../../utils/nepaliCalendar';
 import {
   Bell,
@@ -56,6 +57,11 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
 }) => {
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'REORDER' | 'APPROVAL' | 'SHIPMENT' | 'PO'>('ALL');
 
+  // STOCK-1: one index per stock array; the alert derivation below is
+  // products × branches, so scanning the array per pair made it quadratic.
+  // Declared above the closed-panel early return so hook order never changes.
+  const stockIndex = useMemo(() => indexStockByProductBranch(stock), [stock]);
+
   if (!isOpen) return null;
 
   // 1. Generate Low Stock / Reorder Alerts (matching Header badge & Consolidated Total logic accurately)
@@ -83,7 +89,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
     const lowBranchNames: string[] = [];
 
     activeBr.forEach((b) => {
-      const item = stock.find((st) => st.productId === prod.id && st.branchId === b.id);
+      const item = stockRowAt(stockIndex, prod.id, b.id);
       const onHand = item ? item.quantityOnHand : 0;
       totalOnHand += onHand;
 

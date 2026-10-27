@@ -35,6 +35,12 @@ import { TablePagination } from '../../components/common/TablePagination';
 import { getAllowedBranches, canUserSeeAllBranches, isOperationAllowed } from '../../utils/permissions';
 import { exportToCSV } from '../../utils/exportUtils';
 import { useDarkMode } from '../../contexts/DarkModeContext';
+import {
+  indexFirstBy,
+  indexStockByProductBranch,
+  stockOnHandAt,
+  stockRowAt,
+} from '../../utils/stockIndex';
 
 interface PhysicalStockAuditProps {
   currentUser: User | null;
@@ -115,6 +121,12 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
   onCompanyWideBlindCountChange,
 }) => {
   const { isDarkMode } = useDarkMode();
+
+  // STOCK-1: one O(rows) index per stock array. Every (product, branch) read
+  // below is then O(1); the scans this replaces were products × branches ×
+  // stock, and the consolidated matrix recomputed one on every count edit.
+  const stockIndex = useMemo(() => indexStockByProductBranch(stock), [stock]);
+
   // 1. Branch Permission & Access Verification
   const canSeeAll = canUserSeeAllBranches(currentUser);
   const allowedBranches = useMemo(() => getAllowedBranches(currentUser, branches), [currentUser, branches]);
@@ -279,10 +291,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
   // Initialize count state per branch
   const initialAuditRows = useMemo(() => {
     return products.map((prod) => {
-      const stockItem = stock.find(
-        (s) => s.productId === prod.id && s.branchId === activeBranchId
-      );
-      const bookQty = stockItem ? stockItem.quantityOnHand : 0;
+      const bookQty = stockOnHandAt(stockIndex, prod.id, activeBranchId);
 
       // If pending audit exists and has variance data for this product, prefill the submitted counted qty
       let countedQty: number | '' = bookQty;
@@ -315,7 +324,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
         requiresSerialTracking: prod.requiresSerialTracking,
       } as AuditRow;
     });
-  }, [products, stock, activeBranchId, pendingAuditRequest]);
+  }, [products, stockIndex, activeBranchId, pendingAuditRequest]);
 
   const [auditRows, setAuditRows] = useState<AuditRow[]>(initialAuditRows);
 
@@ -710,7 +719,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
         for (const row of stats.discrepancyRows) {
           const c = typeof row.countedQty === 'number' ? row.countedQty : 0;
           const delta = c - row.bookQty;
-          const stockItem = stock.find((s) => s.productId === row.productId && s.branchId === activeBranchId);
+          const stockItem = stockRowAt(stockIndex, row.productId, activeBranchId);
           if (stockItem) {
             await onUpdateStockLevel(
               stockItem.id,
@@ -787,6 +796,11 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
   };
 
   // 6. Consolidated Multi-Branch Matrix Data & Export
+  const auditByProduct = useMemo(
+    () => indexFirstBy(auditRows, (row) => row.productId),
+    [auditRows]
+  );
+
   const consolidatedMatrix = useMemo(() => {
     return products.map((prod) => {
       let companyTotalBookQty = 0;
@@ -794,12 +808,10 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
       let companyTotalVarianceQty = 0;
 
       const branchBreakdowns = visibleBranches.map((b) => {
-        const stk = stock.find((s) => s.productId === prod.id && s.branchId === b.id);
-        const bBookQty = stk ? stk.quantityOnHand : 0;
+        const bBookQty = stockOnHandAt(stockIndex, prod.id, b.id);
+        const localCount = auditByProduct.get(prod.id)?.countedQty;
         const bCountedQty = b.id === activeBranchId
-          ? (typeof auditRows.find((r) => r.productId === prod.id)?.countedQty === 'number'
-              ? (auditRows.find((r) => r.productId === prod.id)?.countedQty as number)
-              : bBookQty)
+          ? (typeof localCount === 'number' ? localCount : bBookQty)
           : bBookQty;
         const bVariance = bCountedQty - bBookQty;
 
@@ -835,7 +847,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
         totalVarianceVal,
       };
     });
-  }, [products, visibleBranches, stock, activeBranchId, auditRows]);
+  }, [products, visibleBranches, stockIndex, activeBranchId, auditByProduct]);
 
   const consolidatedSummary = useMemo(() => {
     let totalBook = 0;

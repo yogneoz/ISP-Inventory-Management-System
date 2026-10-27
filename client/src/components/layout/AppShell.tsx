@@ -16,6 +16,7 @@ import type {
   User,
 } from '../../types';
 import { getBsCalendarCoverage, type BsCalendarCoverageStatus } from '../../utils/nepaliCalendar';
+import { indexStockByProductBranch, stockRowAt } from '../../utils/stockIndex';
 import {
   ShellOverlayProvider,
   type ShellOverlayActions,
@@ -276,6 +277,11 @@ export function AppShell(props: AppShellProps) {
     children,
   } = props;
 
+  // STOCK-1: the low-stock badge below reads one quantity per (product, branch)
+  // pair; without an index that is a products × branches × stock scan on every
+  // shell render.
+  const stockIndex = useMemo(() => indexStockByProductBranch(stock), [stock]);
+
   // --- badge + notification derivations (moved with the dismissed ids) -----
   // Consolidated low-stock SKU count respecting the selected branch context and
   // per-branch thresholds.
@@ -290,7 +296,7 @@ export function AppShell(props: AppShellProps) {
     let isAnyBranchLow = false;
 
     activeBr.forEach((b) => {
-      const item = stock.find((st) => st.productId === prod.id && st.branchId === b.id);
+      const item = stockRowAt(stockIndex, prod.id, b.id);
       const onHand = item ? item.quantityOnHand : 0;
       totalOnHand += onHand;
 
