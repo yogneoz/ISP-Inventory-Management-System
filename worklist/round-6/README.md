@@ -28,7 +28,7 @@ One small item, no migration, no new screen.
 
 | Order | ID | Task | Status | Effort | Depends on |
 |---|---|---|---|---|---|
-| 1 | [CDR-1](CDR-1.md) | Retire the legacy `GET /api/customer-devices` route, its handler and its SQL | `[~]` in progress | 0.5–1 h | READ-1 (done) |
+| 1 | [CDR-1](CDR-1.md) | Retire the legacy `GET /api/customer-devices` route, its handler and its SQL | `[x]` done (`c147d99`, CI run 180) | 0.5–1 h | READ-1 (done) |
 
 ## Order and stop points
 
@@ -36,7 +36,7 @@ One small item, no migration, no new screen.
    the test that pins the array; replace that coverage with a 404 assertion and
    a source guard, and update the current-state docs. Stop: no route matches the
    bare URL, the paged/overview/warranty/exchange reads are untouched, and the
-   guards pass.
+   guards pass. **Done 2026-10-27 (`c147d99`).**
 
 ## Gates for this round
 

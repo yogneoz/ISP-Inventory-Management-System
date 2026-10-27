@@ -64,9 +64,10 @@ checklist here.
 
 **Round 6** is active — [round-6/README.md](round-6/README.md): one item,
 [CDR-1](round-6/CDR-1.md), retires the legacy bare-array
-`GET /api/customer-devices` route that READ-1 left for an older bundle. It is
-implemented and awaiting its commit (route, handler and 2,000-row query gone;
-404 pinned by test). Round 5 closed on 2026-10-27 — see
+`GET /api/customer-devices` route that READ-1 left for an older bundle. It
+shipped on 2026-10-27 ([CDR-1](round-6/CDR-1.md), `c147d99`, CI run 180): the
+route, handler and 2,000-row query are gone and a 404 pins it. Round 6's close
+pass is the next step. Round 5 closed on 2026-10-27 — see
 [done/2026-10-27-round-5.md](done/2026-10-27-round-5.md): the orphaned
 bare-array device read is gone
 ([READ-1](done/2026-10-27-round-5/READ-1.md), `8cdd09b`), the stock-array

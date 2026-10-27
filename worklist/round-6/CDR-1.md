@@ -1,6 +1,6 @@
 # CDR-1 — retire the legacy bare-array device route
 
-Status: `[~]` implemented (2026-10-27) · awaiting commit · Created 2026-10-27 · Estimate 0.5–1 h
+Status: `[x]` done (2026-10-27) · `c147d99` · CI run 180 success · Created 2026-10-27 · Estimate 0.5–1 h
 Round: [Round 6](README.md) · Order: 1 · Depends on READ-1 (done)
 
 ## Problem
@@ -84,6 +84,13 @@ slice mapping. It is recorded below as a follow-up, not folded in.
 - Full `npm test` before the commit: **1354 tests, 321 suites, 1352 pass, 0
   fail, 2 Windows-only skips** in 342.6 s, docs-count gate green at 1354, both
   convention guards green — the whole chain exited 0.
+
+## Shipped
+
+`c147d99` (2026-10-27), pushed to `main`; CI run 180 finished green in 355 s
+(40492383983) with every step passing — fresh-install proof and schema parity,
+`tsc`, the full 1354-test suite, both convention guards, build, bundle budget
+and `npm audit`.
 
 ## Acceptance
 

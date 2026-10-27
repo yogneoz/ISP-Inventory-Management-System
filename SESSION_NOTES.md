@@ -2,7 +2,7 @@
 
 _Date: 2026-10-27 · Branch: main · Tests: 1354/1354 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
-> **Current state (2026-10-27, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1/VOL-2/BUDGET-1/BOOT-1/VOL-3/VOL-4a/VOL-4b/SN-1/ASSET-1/EXCH-1/READ-1).** All DF-01…DF-17
+> **Current state (2026-10-27, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1/VOL-2/BUDGET-1/BOOT-1/VOL-3/VOL-4a/VOL-4b/SN-1/ASSET-1/EXCH-1/READ-1/CDR-1).** All DF-01…DF-17
 > work, the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2, CPE-3,
 > SER-1, SER-2, TRIM-1, SUM-1, VOL-1, VOL-2, BUDGET-1, Round 3
 > (BOOT-1, VOL-3, VOL-4a, VOL-4b) and Round 4's ASSET-1/EXCH-1 are implemented.
@@ -18,8 +18,14 @@ _Date: 2026-10-27 · Branch: main · Tests: 1354/1354 green with a DB (all run i
 > the stock screens (≈ 746× on the product × branch derivation, totals
 > unchanged); and the STOCK-2 gate recorded **NO-GO today, GO-on-evidence**
 > (`9fec135`) for a paged `inventory_stock`, with both firing conditions in
-> [parked.md](worklist/parked.md). No round is active. The payload work is
-> finished — the remaining-array measurement found no item to open, and the
+> [parked.md](worklist/parked.md).
+> **Round 6 is active** ([plan](worklist/round-6/README.md)): CDR-1 (`c147d99`,
+> CI run 180) retired the legacy bare-array `GET /api/customer-devices` route,
+> its handler and its 2,000-row query, replacing the test that pinned the array
+> with a 404 assertion and a source guard; the paged/overview/warranty/exchange
+> reads are untouched, and `/api/bootstrap/local?key=customerDevices` remains
+> the one legacy device read. The round's close pass is next. The payload work
+> is finished — the remaining-array measurement found no item to open, and the
 > `inventory_stock` trigger is recorded in [2026.md](docs/session-notes/2026.md). The
 > notes are split by year (**SN-1**): entries live in
 > [docs/session-notes/2026.md](docs/session-notes/2026.md), this file is the
