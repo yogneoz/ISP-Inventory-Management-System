@@ -6,7 +6,7 @@ current state and this index; the entries live here.
 
 | Year | File | Covers |
 |---|---|---|
-| 2026 | [2026.md](2026.md) | every entry from the first session through the EXCH-1 landing, newest first |
+| 2026 | [2026.md](2026.md) | every entry from the first session through the Round 4 close, newest first |
 
 ## Where new entries go
 

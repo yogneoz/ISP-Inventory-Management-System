@@ -1,7 +1,8 @@
 # Round 4 — the last customer-scale array
 
-Created 2026-10-27 · Status: `[~]` in progress · Previous round:
-[done/2026-10-27-round-3.md](../done/2026-10-27-round-3.md)
+Created 2026-10-27 · Closed 2026-10-27 · Status: `[x]` both items shipped ·
+Previous round: [2026-10-27-round-3.md](../2026-10-27-round-3.md) ·
+Close summary: [2026-10-27-round-4.md](../2026-10-27-round-4.md)
 
 ## Why this round
 
@@ -20,7 +21,7 @@ and `customerDevices` off the login payload. Two recorded gaps remain:
   in the browser, so a branch — or a global view — above that cap cannot reach
   older deployed units. The paged endpoint and its trigram index already exist.
 
-See [../parked.md](../parked.md): A5, A4b, B3, B4 and C4 stay parked with their
+See [../../parked.md](../../parked.md): A5, A4b, B3, B4 and C4 stay parked with their
 recorded triggers; none is reopened by this round.
 
 ## Schedule
@@ -51,7 +52,7 @@ recorded Round 3 follow-up and can land after it without touching the same code.
 5. **EXCH-1** — the exchange picker moves to server search; the legacy array
    loses its last consumer.
 6. **Round close** — full gates, archive this folder under `done/`, update the
-   indexes and the session notes.
+   indexes and the session notes. **Done 2026-10-27.**
 
 Do not remove `assets` from the bootstrap before stages B and C are green:
 unlike a new endpoint, that change breaks every one of the 19 consumers at once.

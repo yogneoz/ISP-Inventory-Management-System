@@ -1,10 +1,11 @@
 # Parked decisions
 
 Reviewed 2026-10-26 against the code, when Round 3 was planned, and
-re-reviewed 2026-10-27 after it closed: every trigger below is still unmet.
-The round's payload work removed arrays rather than changing an owner, and no
-new root cost was measured. These are deliberate “not now”, not forgotten work.
-Do not reopen one without its trigger; add the new evidence here first.
+re-reviewed 2026-10-27 at the Round 3 close and again at the Round 4 close:
+every trigger below is still unmet. Both rounds' payload work removed arrays
+rather than changing an owner, and no new root cost was measured. These are
+deliberate “not now”, not forgotten work. Do not reopen one without its trigger;
+add the new evidence here first.
 
 Permanent detail: [architecture-backlog.md](../docs/architecture-backlog.md),
 [SESSION_NOTES.md](../SESSION_NOTES.md), [serial-register-audit.md](../docs/serial-register-audit.md).

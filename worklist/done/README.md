@@ -24,3 +24,4 @@ round folder is archived beside it when one exists (for example
 | 1 | 2026-10-25 | CPE and serial trust, search scale, bootstrap trim, CLOSE | [2026-10-25-round-1.md](2026-10-25-round-1.md) |
 | 2 | 2026-10-26 | National-volume read path: SQL trading totals, bootstrap payload trim, bundle headroom | [2026-10-26-round-2.md](2026-10-26-round-2.md) |
 | 3 | 2026-10-27 | Finish the login path: SQL bootstrap summary, shipments/customers/customerDevices off the payload, notes split by year | [2026-10-27-round-3.md](2026-10-27-round-3.md) |
+| 4 | 2026-10-27 | The last customer-scale array: fixed assets off the payload, the Device Exchange picker on the paged device read | [2026-10-27-round-4.md](2026-10-27-round-4.md) |

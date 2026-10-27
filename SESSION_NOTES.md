@@ -8,9 +8,12 @@ _Date: 2026-10-27 · Branch: main · Tests: 1344/1344 green with a DB (all run i
 > (BOOT-1, VOL-3, VOL-4a, VOL-4b) and Round 4's ASSET-1/EXCH-1 are implemented.
 > **Round 2 closed on 2026-10-26** ([archive](worklist/done/2026-10-26-round-2.md));
 > **Round 3 closed on 2026-10-27** ([archive](worklist/done/2026-10-27-round-3.md)).
-> **Round 4 is active** ([plan](worklist/round-4/README.md)): ASSET-1 is
-> shipped (`3efd446`, CI green) and EXCH-1 (Device Exchange picker on the paged
-> device read) is shipped (`3d7afe4`, CI green); the round close is next. The
+> **Round 4 closed on 2026-10-27** ([archive](worklist/done/2026-10-27-round-4.md)):
+> ASSET-1 (`3efd446`) took `fixed_assets` off the payload and EXCH-1 (`3d7afe4`)
+> moved the Device Exchange picker to the paged device read, both CI green. **No
+> round is active**; Round 5 is not scoped, and the remaining-array measurement
+> found no payload item to open (the `inventory_stock` trigger is recorded in
+> [2026.md](docs/session-notes/2026.md)). The
 > notes are split by year (**SN-1**): entries live in
 > [docs/session-notes/2026.md](docs/session-notes/2026.md), this file is the
 > current-state index. C4 is explicitly parked (one `bootstrap/local` call site
@@ -32,7 +35,7 @@ _Date: 2026-10-27 · Branch: main · Tests: 1344/1344 green with a DB (all run i
 - [docs/session-notes/README.md](docs/session-notes/README.md) — the folder
   index and the rule for where new entries go.
 - [docs/session-notes/2026.md](docs/session-notes/2026.md) — every entry from
-  the first session through the Round 3 close, newest first.
+  the first session through the Round 4 close, newest first.
 - New entries: prepend below the separator in the current year's file. This
   root file stays short (current state + index) and keeps the gated
   `Tests: N/N` claim read by

@@ -7,7 +7,7 @@ Round: [Round 4](README.md) · Order: 2 · Depends on ASSET-1
 
 The Device Exchange tab is the last consumer of the bounded legacy
 `GET /api/customer-devices` array. Its store
-([exchangeDeviceCache.ts](../../client/src/services/exchangeDeviceCache.ts))
+([exchangeDeviceCache.ts](../../../client/src/services/exchangeDeviceCache.ts))
 fetches the bare array — capped at the 2,000 newest rows for the branch — and
 the panel filters it in the browser with `exchangeSearchQuery`.
 

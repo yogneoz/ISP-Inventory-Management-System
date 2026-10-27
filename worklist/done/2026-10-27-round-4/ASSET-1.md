@@ -20,7 +20,7 @@ login path:
   installed base — 12k units at the modelled 1×, 120k nationally — and never
   ages out by fiscal year.
 - The registers compute depreciation in the browser from cost, method, rate and
-  date ([depreciation.ts](../../client/src/utils/depreciation.ts)), so the
+  date ([depreciation.ts](../../../client/src/utils/depreciation.ts)), so the
   dashboard, statements and closing diagnostics need the whole array to total a
   single number.
 

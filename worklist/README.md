@@ -18,9 +18,8 @@ is the plan, not a second source of truth.
 
 - [parked.md](parked.md) — decisions we are not acting on, with the trigger to
   reopen each one.
-- [round-4/](round-4/README.md) — the active round: ASSET-1 (fixed assets off
-  the bootstrap) and EXCH-1 (the Device Exchange picker) are both shipped; the
-  round close is next.
+- `round-N/` — the active round, when there is one. **None right now**: Round 4
+  closed on 2026-10-27 and its folder is archived under [done/](done/README.md).
 - [done/](done/README.md) — completed rounds, kept for reference. Never delete.
 
 ## Status vocabulary
@@ -62,14 +61,15 @@ checklist here.
 
 ## Active work
 
-**Round 4** is active — [round-4/README.md](round-4/README.md): take
-`fixed_assets` off the bootstrap ([ASSET-1](round-4/ASSET-1.md), done
-`3efd446`) and move the Device Exchange picker to the paged device read
-([EXCH-1](round-4/EXCH-1.md), done `3d7afe4`); the round close is next.
-Round 3 closed on 2026-10-27 — see
-[done/2026-10-27-round-3.md](done/2026-10-27-round-3.md). Do not open a parked
-item without its recorded trigger; add the new evidence to
-[parked.md](parked.md) first.
+**No round is active.** Round 4 closed on 2026-10-27 — see
+[done/2026-10-27-round-4.md](done/2026-10-27-round-4.md): `fixed_assets` left
+the bootstrap ([ASSET-1](done/2026-10-27-round-4/ASSET-1.md), `3efd446`) and the
+Device Exchange picker moved to the paged device read
+([EXCH-1](done/2026-10-27-round-4/EXCH-1.md), `3d7afe4`). Round 3 closed the day
+before ([done/2026-10-27-round-3.md](done/2026-10-27-round-3.md)). The next
+round is not scoped yet: start from the measured watch list below and
+[parked.md](parked.md) — do not open a parked item without its recorded
+trigger, and add the new evidence there first.
 
 Recorded watch items — **measured 2026-10-27** before Round 5 planning, so
 none is an open question any more. `inventory_stock` (product × branch),
