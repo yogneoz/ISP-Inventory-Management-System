@@ -1,6 +1,6 @@
 # STOCK-2 — the gate: re-measure the global stock read, decide paged vs array
 
-Status: `[x]` decided 2026-10-27 — **NO-GO today, GO-on-evidence** (conditions below) · Created 2026-10-27 · Estimate 1 h · **Decision only**
+Status: `[x]` decided (2026-10-27) · `9fec135` · CI run 177 success — **NO-GO today, GO-on-evidence** (conditions below) · Created 2026-10-27 · Estimate 1 h · **Decision only**
 Round: [Round 5](README.md) · Order: 3 · Depends on STOCK-1 (post-fix numbers)
 
 ## Why this exists
@@ -57,7 +57,7 @@ stays with its trigger intact and nobody reopens it on a hunch.
 - [x] **2. Compute the global read at modelled volumes** — table above. 2,000 × 20
   is 0.59–1.03 MiB gzip, i.e. it may or may not cross ≈ 1 MiB.
 - [x] **3. Weigh the consumer count: 32 `stock={stock}` consumers across 32
-  distinct screens** ([App.tsx](../../client/src/App.tsx)), and several need
+  distinct screens** ([App.tsx](../../../client/src/App.tsx)), and several need
   more than a page: `physical-stock-audit` mutates every product's count,
   `reorder-stock`/`create-po` aggregate deficits across branches,
   `stock-valuation` and `dashboard` total values, `export-stock` exports the
@@ -68,8 +68,8 @@ stays with its trigger intact and nobody reopens it on a hunch.
 - [x] **4. Verdict: NO-GO today, GO-on-evidence.** Not because the cost is
   small, but because the one fact the decision needs — the real catalogue and
   branch count — is not in this repo, and the model straddles the line.
-- [x] **5. Written where it is read:** the [worklist watch list](../README.md)
-  and [../parked.md](../parked.md).
+- [x] **5. Written where it is read:** the [worklist watch list](../../README.md)
+  and [../parked.md](../../parked.md).
 
 ## Verdict and its firing conditions
 
@@ -101,6 +101,15 @@ array is catalog-sized in the common branch-scoped case and should stay.
   verdict is conditional and both conditions are stated above.**
 - Nothing in `server/` or `client/` changes. If the verdict is GO, the work is
   scoped as its own round, not started here. **Nothing changed.**
+
+## Recorded
+
+The verdict landed in `9fec135` (2026-10-27): this note, the
+[worklist watch list](../../README.md) and [../parked.md](../../parked.md). CI run 177
+finished green in 367 s (40480395060) — the docs-only commit still exercised the
+fresh-install proof, `tsc`, the full 1354-test suite, both convention guards,
+build, bundle budget and `npm audit`. Nothing in `server/` or `client/` changed,
+as the acceptance required.
 
 ## Out of scope
 

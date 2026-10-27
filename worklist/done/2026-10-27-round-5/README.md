@@ -1,12 +1,13 @@
 # Round 5 — stock-screen scale, and closing the read path
 
-Created 2026-10-27 · Status: `[~]` in progress · Previous round:
-[done/2026-10-27-round-4.md](../done/2026-10-27-round-4.md)
+Created 2026-10-27 · Closed 2026-10-27 · Status: `[x]` shipped + one decision ·
+Previous round: [2026-10-27-round-4.md](../2026-10-27-round-4.md) ·
+Close summary: [2026-10-27-round-5.md](../2026-10-27-round-5.md)
 
 ## Why this round
 
 Rounds 1–4 finished the login payload. The 2026-10-27 watch-list measurement
-([numbers](../done/2026-10-27-round-4.md#measured)) then closed the remaining
+([numbers](../2026-10-27-round-4.md#measured)) then closed the remaining
 arrays as payload items: the return registers are ≈ 203 kB gzip combined and
 already read paged endpoints, damage is fiscal-year scoped and stays below the
 devices array even at an impossible upper bound. **Another payload round is not
@@ -27,7 +28,7 @@ Two things the payload work left behind are worth a round:
   and its `api` entry with no caller. It is small, but it is exactly the kind
   of leftover that quietly comes back if nothing pins it.
 
-See [../parked.md](../parked.md): A5, A4b, B3, B4 and C4 stay parked with their
+See [../parked.md](../../parked.md): A5, A4b, B3, B4 and C4 stay parked with their
 recorded triggers; none is reopened by this round.
 
 ## Schedule
@@ -35,8 +36,8 @@ recorded triggers; none is reopened by this round.
 | Order | ID | Task | Status | Effort | Depends on |
 |---|---|---|---|---|---|
 | 1 | [READ-1](READ-1.md) | Delete the orphaned bare-array device read from the client surface | `[x]` done (`8cdd09b`, CI run 174) | 0.5–1 h | — |
-| 2 | [STOCK-1](STOCK-1.md) | Measure the stock-array lookups, then index them out of the screens | `[~]` implemented 2026-10-27, gates green, awaiting commit | 3–4 h | READ-1 (warm-up, no shared code) |
-| 3 | [STOCK-2](STOCK-2.md) | Gate: re-measure the global stock read and decide paged-vs-array | `[x]` decided 2026-10-27 — NO-GO today, GO-on-evidence | 1 h | STOCK-1 (needs the post-fix numbers) |
+| 2 | [STOCK-1](STOCK-1.md) | Measure the stock-array lookups, then index them out of the screens | `[x]` done (`9009f9c`, CI run 176) | 3–4 h | READ-1 (warm-up, no shared code) |
+| 3 | [STOCK-2](STOCK-2.md) | Gate: re-measure the global stock read and decide paged-vs-array | `[x]` decided (`9fec135`, CI run 177) — NO-GO today, GO-on-evidence | 1 h | STOCK-1 (needs the post-fix numbers) |
 
 **Total:** about half a day of work plus the measurement time. This is a small
 round on purpose: the large payload work is finished, and the honest next step
@@ -61,13 +62,13 @@ whose measurement said no.
 4. **STOCK-2 — decide, do not build.** Re-measure the global login with real
    catalog/branch counts. Record GO (open a paged stock read as its own round)
    or NO-GO (keep the array, keep the trigger). Stop: the decision and its
-   numbers are in the note and in [parked.md](../parked.md) if it is a NO-GO.
+   numbers are in the note and in [parked.md](../../parked.md) if it is a NO-GO.
    **Done 2026-10-27: NO-GO today, GO-on-evidence** — the real volumes are not
    in this repo, the re-measured width straddles the trigger, and the array is
    catalog-sized in the common branch-scoped case. Two firing conditions are
-   recorded in the note and in [parked.md](../parked.md).
+   recorded in the note and in [parked.md](../../parked.md).
 5. **Round close** — full gates, archive this folder under `done/`, update the
-   indexes and the session notes.
+   indexes and the session notes. **Done 2026-10-27.**
 
 Do not start STOCK-2's paged read inside STOCK-1. STOCK-1 must be able to land
 and be reverted on its own; a server migration hidden inside a client

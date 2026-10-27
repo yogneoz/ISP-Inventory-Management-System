@@ -11,11 +11,15 @@ _Date: 2026-10-27 · Branch: main · Tests: 1354/1354 green with a DB (all run i
 > **Round 4 closed on 2026-10-27** ([archive](worklist/done/2026-10-27-round-4.md)):
 > ASSET-1 (`3efd446`) took `fixed_assets` off the payload and EXCH-1 (`3d7afe4`)
 > moved the Device Exchange picker to the paged device read, both CI green.
-> **Round 5 is active** ([plan](worklist/round-5/README.md)): READ-1 (`8cdd09b`,
-> CI run 174) deleted the orphaned bare-array device read, so no client code can
-> reach the capped 2,000-row endpoint; STOCK-1 (index the stock-array lookups in
-> the screens) and the STOCK-2 paged-vs-array decision are next. The payload work
-> is finished — the remaining-array measurement found no item to open, and the
+> **Round 5 closed on 2026-10-27**
+> ([archive](worklist/done/2026-10-27-round-5.md)): READ-1 (`8cdd09b`) deleted
+> the orphaned bare-array device read, so no client code can reach the capped
+> 2,000-row endpoint; STOCK-1 (`9009f9c`) indexed the stock-array lookups out of
+> the stock screens (≈ 746× on the product × branch derivation, totals
+> unchanged); and the STOCK-2 gate recorded **NO-GO today, GO-on-evidence**
+> (`9fec135`) for a paged `inventory_stock`, with both firing conditions in
+> [parked.md](worklist/parked.md). No round is active. The payload work is
+> finished — the remaining-array measurement found no item to open, and the
 > `inventory_stock` trigger is recorded in [2026.md](docs/session-notes/2026.md). The
 > notes are split by year (**SN-1**): entries live in
 > [docs/session-notes/2026.md](docs/session-notes/2026.md), this file is the
@@ -38,7 +42,7 @@ _Date: 2026-10-27 · Branch: main · Tests: 1354/1354 green with a DB (all run i
 - [docs/session-notes/README.md](docs/session-notes/README.md) — the folder
   index and the rule for where new entries go.
 - [docs/session-notes/2026.md](docs/session-notes/2026.md) — every entry from
-  the first session through the READ-1 landing, newest first.
+  the first session through the Round 5 close, newest first.
 - New entries: prepend below the separator in the current year's file. This
   root file stays short (current state + index) and keeps the gated
   `Tests: N/N` claim read by

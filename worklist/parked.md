@@ -1,11 +1,11 @@
 # Parked decisions
 
 Reviewed 2026-10-26 against the code, when Round 3 was planned, and
-re-reviewed 2026-10-27 at the Round 3 close and again at the Round 4 close:
-every trigger below is still unmet. Both rounds' payload work removed arrays
-rather than changing an owner, and no new root cost was measured. These are
-deliberate “not now”, not forgotten work. Do not reopen one without its trigger;
-add the new evidence here first.
+re-reviewed 2026-10-27 at the Round 3, Round 4 and Round 5 closes: every
+trigger below is still unmet. Rounds 3–4's payload work removed arrays rather
+than changing an owner, Round 5's index work removed client-side scans, and no
+new root cost was measured. These are deliberate “not now”, not forgotten work.
+Do not reopen one without its trigger; add the new evidence here first.
 
 Permanent detail: [architecture-backlog.md](../docs/architecture-backlog.md),
 [SESSION_NOTES.md](../SESSION_NOTES.md), [serial-register-audit.md](../docs/serial-register-audit.md).
@@ -18,7 +18,7 @@ Permanent detail: [architecture-backlog.md](../docs/architecture-backlog.md),
 | **B4** | Full JSONB normalization | **Parked** | A product decision that item-level joins/writes are required. B1/B2/B3 have not demanded it. |
 | **C4** | One hydration entry point (`hydrate()`/`refresh()`) | **Parked** | A second `bootstrap/local` caller appears, or a screen bypasses the slice gate. |
 | **SN-1** | Split `SESSION_NOTES.md` by year under `docs/session-notes/` | **Done** (2026-10-27, Round 3 close) — see [docs/session-notes/](../docs/session-notes/README.md) | — executed; the root keeps only the current state and index |
-| **STOCK-2** | A paged `inventory_stock` read (+ a stock overview endpoint for the shell badge and notifications) | **NO-GO today, GO-on-evidence** (2026-10-27, [STOCK-2](round-5/STOCK-2.md)) | A real login's `stock` slice measures **≥ 1 MiB gzip** in the target deployment, or an ALL-scope catalogue well past ~5,000 products makes the client-side filter the bottleneck. Re-measure the row width first — the band is ≈ 143–164 B raw / 15–27 B gzip per row, and the demo DB cannot answer it. |
+| **STOCK-2** | A paged `inventory_stock` read (+ a stock overview endpoint for the shell badge and notifications) | **NO-GO today, GO-on-evidence** (2026-10-27, [STOCK-2](done/2026-10-27-round-5/STOCK-2.md)) | A real login's `stock` slice measures **≥ 1 MiB gzip** in the target deployment, or an ALL-scope catalogue well past ~5,000 products makes the client-side filter the bottleneck. Re-measure the row width first — the band is ≈ 143–164 B raw / 15–27 B gzip per row, and the demo DB cannot answer it. |
 
 ## Why STOCK-2 is a conditional NO-GO
 
@@ -27,9 +27,9 @@ global stock read is 0.59–1.03 MiB gzip, which straddles the trigger, and if t
 real volumes match that model the round would remove more per login than any
 payload item so far (shipments, 300 kB gzip, was the largest). What is missing is
 the one fact the repo cannot hold — the deployment's catalogue and branch count —
-and [STOCK-1](round-5/STOCK-1.md) already removed the client-side cost (a 746×
-improvement in the product × branch derivation), so there is no pressure to
-start on a hunch. The migration is also not a payload deletion like Rounds 2–4:
+and [STOCK-1](done/2026-10-27-round-5/STOCK-1.md) already removed the
+client-side cost (a 746× improvement in the product × branch derivation), so
+there is no pressure to start on a hunch. The migration is also not a payload deletion like Rounds 2–4:
 32 screens consume the array, and the shell badge and the notification center
 need a company-wide count that only a new aggregate endpoint can serve.
 

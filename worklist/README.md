@@ -18,10 +18,9 @@ is the plan, not a second source of truth.
 
 - [parked.md](parked.md) — decisions we are not acting on, with the trigger to
   reopen each one.
-- [round-5/](round-5/README.md) — the active round (created 2026-10-27):
-  READ-1 (delete the orphaned bare-array device read), STOCK-1 (index the
-  stock-array lookups out of the screens) and STOCK-2 (the paged-vs-array gate).
-  Past rounds live under [done/](done/README.md).
+- No active round: Round 5 (2026-10-27) closed and is archived under
+  [done/](done/README.md) — READ-1, STOCK-1 and the STOCK-2 decision. The next
+  round starts as `round-6/` beside this file.
 - [done/](done/README.md) — completed rounds, kept for reference. Never delete.
 
 ## Status vocabulary
@@ -63,24 +62,29 @@ checklist here.
 
 ## Active work
 
-**Round 5** is active — [round-5/README.md](round-5/README.md): the orphaned
-bare-array device read is gone ([READ-1](round-5/READ-1.md), `8cdd09b`, CI run
-174); next is indexing the stock-array lookups out of the screens
-([STOCK-1](round-5/STOCK-1.md)), then the paged-vs-array decision with the new
-numbers ([STOCK-2](round-5/STOCK-2.md), a decision, not a build). It is
-deliberately a small round: the payload work is finished. Round 4 closed on
-2026-10-27 — see
+**No round is active.** Round 5 closed on 2026-10-27 — see
+[done/2026-10-27-round-5.md](done/2026-10-27-round-5.md): the orphaned
+bare-array device read is gone
+([READ-1](done/2026-10-27-round-5/READ-1.md), `8cdd09b`), the stock-array
+lookups are indexed out of the screens
+([STOCK-1](done/2026-10-27-round-5/STOCK-1.md), `9009f9c`; ≈ 746× on the
+product × branch derivation) and the paged-vs-array question is decided rather
+than built ([STOCK-2](done/2026-10-27-round-5/STOCK-2.md), `9fec135`). It was
+deliberately a small round: the payload work is finished. Round 4 closed the
+same day — see
 [done/2026-10-27-round-4.md](done/2026-10-27-round-4.md): `fixed_assets` left
 the bootstrap ([ASSET-1](done/2026-10-27-round-4/ASSET-1.md), `3efd446`) and the
 Device Exchange picker moved to the paged device read
 ([EXCH-1](done/2026-10-27-round-4/EXCH-1.md), `3d7afe4`). Round 3 closed the day
-before ([done/2026-10-27-round-3.md](done/2026-10-27-round-3.md)). Do not open a
-parked item without its recorded trigger; add the new evidence to
+before ([done/2026-10-27-round-3.md](done/2026-10-27-round-3.md)). Start the
+next round by creating `round-6/` beside this file and listing it here. Do not
+open a parked item without its recorded trigger; add the new evidence to
 [parked.md](parked.md) first.
 
 Recorded watch items — **measured 2026-10-27** before Round 5 planning, and
-`inventory_stock` was re-measured and decided at the [STOCK-2](round-5/STOCK-2.md)
-gate, so none is an open question any more. `damageRecords` and the two return
+`inventory_stock` was re-measured and decided at the
+[STOCK-2](done/2026-10-27-round-5/STOCK-2.md) gate, so none is an open question
+any more. `damageRecords` and the two return
 registers are the only uncapped arrays left; at the recorded volumes the return
 registers are ≈ 203 kB gzip combined at 1× (and both already read paged
 endpoints — the arrays are only the degraded fallback), damage is ≤ 653 kB gzip

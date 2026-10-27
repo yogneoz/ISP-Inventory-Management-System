@@ -10,13 +10,13 @@ and, in doing so, removed the last consumer of the bounded bare-array read.
 What is left behind is dead:
 
 - `getCustomerDevices` in
-  [services/api/inventory.ts](../../client/src/services/api/inventory.ts#L423)
+  [services/api/inventory.ts](../../../client/src/services/api/inventory.ts#L423)
   — a wrapper around `GET /api/customer-devices`, capped server-side at the
   2,000 newest rows.
 - Its entry in the `api` surface,
-  [services/api/index.ts](../../client/src/services/api/index.ts#L172).
+  [services/api/index.ts](../../../client/src/services/api/index.ts#L172).
 - A stub for it in
-  [tests/harness/appRouteTreeProbe.tsx](../../tests/harness/appRouteTreeProbe.tsx#L121),
+  [tests/harness/appRouteTreeProbe.tsx](../../../tests/harness/appRouteTreeProbe.tsx#L121),
   which now documents a method the app does not have.
 
 A dead reader of a bounded array is a live trap: the next screen that wants
@@ -34,10 +34,10 @@ removes is part of the register's working path.
   surface.
 - [x] **3. Pin it.** Extend the existing "no client screen calls the legacy
   bare-array read" guard in
-  [tests/exchangeDevices.test.ts](../../tests/exchangeDevices.test.ts) so it
+  [tests/exchangeDevices.test.ts](../../../tests/exchangeDevices.test.ts) so it
   also fails if the wrapper or the `api` entry is restored, not only if a screen
   calls it. Also tightened the device-register source guard in
-  [customerDevicesOffBootstrap.test.ts](../../tests/customerDevicesOffBootstrap.test.ts)
+  [customerDevicesOffBootstrap.test.ts](../../../tests/customerDevicesOffBootstrap.test.ts)
   so a register must read a *paged* device read (the bare name is no longer an
   accepted alternative).
 - [x] **4. Decide the server route: keep it.** `GET /api/customer-devices`

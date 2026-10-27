@@ -1,6 +1,6 @@
 # STOCK-1 — index the stock-array lookups out of the screens
 
-Status: `[~]` implemented 2026-10-27, gates green — awaiting commit · Created 2026-10-27 · Estimate 3–4 h
+Status: `[x]` done (2026-10-27) · `9009f9c` · CI run 176 success · Created 2026-10-27 · Estimate 3–4 h
 Round: [Round 5](README.md) · Order: 2 · Depends on READ-1 (warm-up only)
 
 ## Problem
@@ -20,27 +20,27 @@ watch-list model of 2,000 products × 20 branches that is 40,000 stock rows and
 the pattern is in 8 screens (30 call sites), and two of those passes are not
 memoised at all.
 
-- [BranchStockTracking.tsx:45](../../client/src/features/inventory/BranchStockTracking.tsx#L45-L50)
+- [BranchStockTracking.tsx:45](../../../client/src/features/inventory/BranchStockTracking.tsx#L45-L50)
   builds `productsWithStock` as `products.map` × `activeBranches.reduce` ×
   `stock.find` in the **render body**, so it re-runs on every render — including
   every keystroke in the local search that filters `visibleProducts`. The same
   scan repeats per CSV cell at
-  [:78](../../client/src/features/inventory/BranchStockTracking.tsx#L78) and
-  [:98](../../client/src/features/inventory/BranchStockTracking.tsx#L98).
-- [PhysicalStockAudit.tsx:791](../../client/src/features/inventory/PhysicalStockAudit.tsx#L791-L812)
+  [:78](../../../client/src/features/inventory/BranchStockTracking.tsx#L78) and
+  [:98](../../../client/src/features/inventory/BranchStockTracking.tsx#L98).
+- [PhysicalStockAudit.tsx:791](../../../client/src/features/inventory/PhysicalStockAudit.tsx#L791-L812)
   builds `consolidatedMatrix` the same way, including two `auditRows.find(...)`
   calls per branch, in a `useMemo` whose dependencies include `auditRows` — so
   one count edit recomputes the entire matrix whether or not the matrix tab is
   on screen. Its `initialAuditRows`
-  ([:281](../../client/src/features/inventory/PhysicalStockAudit.tsx#L281-L286))
+  ([:281](../../../client/src/features/inventory/PhysicalStockAudit.tsx#L281-L286))
   scans the array once per product too.
 - The same shape appears in
-  [Dashboard.tsx:233](../../client/src/features/dashboard/Dashboard.tsx#L233)
-  and [:558](../../client/src/features/dashboard/Dashboard.tsx#L558),
-  [ExportStock.tsx:135](../../client/src/features/inventory/ExportStock.tsx#L135-L182),
-  [DamagedStockTracking.tsx:223](../../client/src/features/inventory/DamagedStockTracking.tsx#L223),
-  [ReorderStockTracking.tsx](../../client/src/features/inventory/ReorderStockTracking.tsx)
-  and [StockValuation.tsx](../../client/src/features/inventory/StockValuation.tsx).
+  [Dashboard.tsx:233](../../../client/src/features/dashboard/Dashboard.tsx#L233)
+  and [:558](../../../client/src/features/dashboard/Dashboard.tsx#L558),
+  [ExportStock.tsx:135](../../../client/src/features/inventory/ExportStock.tsx#L135-L182),
+  [DamagedStockTracking.tsx:223](../../../client/src/features/inventory/DamagedStockTracking.tsx#L223),
+  [ReorderStockTracking.tsx](../../../client/src/features/inventory/ReorderStockTracking.tsx)
+  and [StockValuation.tsx](../../../client/src/features/inventory/StockValuation.tsx).
 
 Server paging would not fix this: a paged read gives the screen fewer rows, but
 the same `find` inside a loop stays quadratic in whatever it does receive, and
@@ -51,8 +51,8 @@ payload decision, and it is what makes
 ## Measurement first
 
 Do not write the fix before the baseline is recorded. Build a jsdom probe in the
-style of [keepMountedRenderCount.test.ts](../../tests/keepMountedRenderCount.test.ts)
-and [appShellRenderCount.test.ts](../../tests/appShellRenderCount.test.ts):
+style of [keepMountedRenderCount.test.ts](../../../tests/keepMountedRenderCount.test.ts)
+and [appShellRenderCount.test.ts](../../../tests/appShellRenderCount.test.ts):
 
 - Fixture: 2,000 products × 20 branches = 40,000 stock rows (the watch-list
   model; note in the result that the demo DB holds 18 products / 3 branches /
@@ -68,10 +68,10 @@ and [appShellRenderCount.test.ts](../../tests/appShellRenderCount.test.ts):
 - [x] **1. Baseline.** A temporary probe (deleted after the run) built 2,000
   products × 20 branches = 40,000 stock rows and timed the real screen and the
   pure derivations. Numbers below.
-- [x] **2. One helper.** [stockIndex.ts](../../client/src/utils/stockIndex.ts):
+- [x] **2. One helper.** [stockIndex.ts](../../../client/src/utils/stockIndex.ts):
   `indexFirstBy`, `indexStockByProductBranch`, `stockRowAt`, `stockOnHandAt`,
   `stockDamagedAt`. Pure, no React, no server; 8 parity tests in
-  [stockIndex.test.ts](../../tests/stockIndex.test.ts) prove it returns what
+  [stockIndex.test.ts](../../../tests/stockIndex.test.ts) prove it returns what
   `stock.find` returned — including **first-match-wins on duplicates**, the
   NaN-vs-0 split for a row with a missing quantity field, numeric strings from
   SQL, and ids that could collide across a separator.
@@ -85,7 +85,7 @@ and [appShellRenderCount.test.ts](../../tests/appShellRenderCount.test.ts):
   per-product branch list, now grouped once), Damaged Stock, Reorder Stock and
   Stock Valuation all read through the index. The sweep also caught three
   consumers with the same defect that the plan had not listed: the shell's
-  low-stock **badge** ([AppShell.tsx](../../client/src/components/layout/AppShell.tsx)),
+  low-stock **badge** ([AppShell.tsx](../../../client/src/components/layout/AppShell.tsx)),
   the **notification center** alert derivation, the stock-movement ledger's
   closing-balance matrix, and App's `handleGroupLowStockPO` (indexed inside the
   handler, not as a new App hook). Single lookups by stock id (`Dashboard`'s
@@ -135,6 +135,16 @@ audit-matrix figures time the **derivation** (its exact loop shape), not a
 mounted screen — the screen renders every audit row unpaginated, so a mount
 measurement would be dominated by jsdom DOM work and would not say anything
 about the lookup.
+
+## Shipped
+
+`9009f9c` (2026-10-27), pushed to `main`; CI run 176 finished green in 375 s
+(40477566950) with every step passing — fresh-install proof and schema parity,
+`tsc`, the full 1354-test suite, both convention guards, build, bundle budget and
+`npm audit`. Round-close gates re-run afterwards and all exited 0: 1354 tests,
+321 suites (1352 pass, 0 fail, 2 Windows-only skips, 346 s), docs-count 1354,
+`no-inline-sql` (16 controllers), `no-raw-dialogs` (161 client files), build
+clean, bundle 15.8 kB entry / 281.6 kB startup of 17/320.
 
 ## Out of scope
 
