@@ -70,7 +70,15 @@ Round 3 closed on 2026-10-27 — see
 item without its recorded trigger; add the new evidence to
 [parked.md](parked.md) first.
 
-Recorded watch items, not in this round: `inventory_stock` (product × branch),
-`damageRecords` and the two return registers are also uncapped branch/FY
-arrays, but none is customer-scale on the recorded volumes. Measure before
-opening one.
+Recorded watch items — **measured 2026-10-27** before Round 5 planning, so
+none is an open question any more. `inventory_stock` (product × branch),
+`damageRecords` and the two return registers are the only uncapped arrays
+left; at the recorded volumes the return registers are ≈ 203 kB gzip combined
+at 1× (and both already read paged endpoints — the arrays are only the
+degraded fallback), damage is ≤ 653 kB gzip at 1× even if every stock
+operation were a damage row, and a branch's stock array is catalog-sized. **No Round 5 payload
+item is justified.** The one trigger to keep: revisit `inventory_stock` when a
+global (ALL-scope) login's stock array passes ≈ 1 MiB gzip (catalog × branches
+≈ 2,000 × 20), or when a stock screen needs server-side search/paging. Full
+numbers and limits in
+[docs/session-notes/2026.md](../docs/session-notes/2026.md#-round-5-watch-list-measured--none-of-the-remaining-arrays-earns-an-item-2026-10-27).
