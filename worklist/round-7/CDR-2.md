@@ -1,6 +1,6 @@
 # CDR-2 — retire the customerDevices bootstrap slice
 
-Status: `[~]` implemented (2026-10-27) · awaiting commit · Created 2026-10-27 · Estimate 1–1.5 h
+Status: `[x]` done (2026-10-27) · `46fefb6` · CI run 184 success · Created 2026-10-27 · Estimate 1–1.5 h
 Round: [Round 7](README.md) · Order: 1 · Depends on CDR-1 (done)
 
 ## Problem
@@ -125,8 +125,14 @@ through). Retirement removes the device case entirely.
   the scratch rows were deleted after the run (leftover = 0).
 - Full `npm test` before the commit: **1354 tests, 321 suites, 1352 pass, 0
   fail, 2 Windows-only skips** in 338.2 s, docs-count gate green at 1354 — the
-  whole chain exited 0. The commit and its CI run are recorded here when they
-  exist (mark-shipped), and the round close follows.
+  whole chain exited 0.
+
+## Shipped
+
+`46fefb6` (2026-10-27), pushed to `main`; CI run 184 finished green in 363 s
+(40514590658) with every step passing — fresh-install proof and schema parity,
+`tsc`, the full 1354-test suite, both convention guards, build, bundle budget
+and `npm audit`.
 
 ## Out of scope
 

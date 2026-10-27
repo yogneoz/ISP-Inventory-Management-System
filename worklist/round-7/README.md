@@ -26,7 +26,7 @@ One small item, no migration, no new screen.
 
 | Order | ID | Task | Status | Effort | Depends on |
 |---|---|---|---|---|---|
-| 1 | [CDR-2](CDR-2.md) | Retire the `customerDevices` bootstrap slice and split the cache mapping | `[~]` in progress | 1–1.5 h | CDR-1 (done) |
+| 1 | [CDR-2](CDR-2.md) | Retire the `customerDevices` bootstrap slice and split the cache mapping | `[x]` done (`46fefb6`, CI run 184) | 1–1.5 h | CDR-1 (done) |
 
 ## Order and stop points
 
@@ -35,7 +35,7 @@ One small item, no migration, no new screen.
    hydrated from it; answer `key=customerDevices` with 410 Gone; flip the tests
    and update the current-state docs. Stop: the slice key cannot resolve, the
    cache mirror still hydrates, and the paged/overview/warranty reads are
-   untouched.
+   untouched. **Done 2026-10-27 (`46fefb6`).**
 
 ## Gates for this round
 
