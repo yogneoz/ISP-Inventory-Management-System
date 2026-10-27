@@ -7,6 +7,7 @@ import {
 import { FormCard } from '../../../components/common/FormCard';
 import { ProductSearchBar } from '../ProductSearchBar';
 import { DeviceSerialInput } from '../../../components/common/DeviceSerialInput';
+import { clampLineQuantity } from '../../../utils/lineQuantity';
 import {
   Trash2,
   AlertTriangle,
@@ -114,6 +115,10 @@ export const LabelDamagePanel: React.FC = () => {
       if (item.id !== id) return item;
       const updated = { ...item, ...updates };
       if (updates.quantity !== undefined) {
+        // AUD-3: same class as the padded slot arrays elsewhere — the serial
+        // slots below are built with Array.from({ length: quantity }), so the
+        // quantity is clamped where it enters the line.
+        updated.quantity = clampLineQuantity(updates.quantity);
         const product = products.find((entry) => entry.id === item.productId);
         const isSerialized = product ? product.requiresSerialTracking !== false && product.trackingType !== 'QUANTITY_ONLY' : false;
         updated.totalValue = updated.quantity * updated.unitCost;
@@ -194,7 +199,7 @@ export const LabelDamagePanel: React.FC = () => {
                     <div key={item.id} className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-2">
                       <div className="flex items-center gap-3">
                         <div className="flex-1"><strong>{item.productName}</strong><div className="text-[10px] font-mono text-slate-500">SKU: {item.sku}</div></div>
-                        <input type="number" min={1} value={item.quantity} onChange={(e) => updateDamageItem(item.id, { quantity: Math.max(1, Number(e.target.value) || 1) })} className="w-20 rounded-lg border p-2 text-center font-mono" />
+                        <input type="number" min={1} value={item.quantity} onChange={(e) => updateDamageItem(item.id, { quantity: clampLineQuantity(e.target.value) })} className="w-20 rounded-lg border p-2 text-center font-mono" />
                         <button type="button" onClick={() => setDamageItems((previous) => previous.filter((entry) => entry.id !== item.id))} className="text-rose-500 dark:text-rose-400"><Trash2 className="h-4 w-4" /></button>
                       </div>
                       {isSerialized && <div className="space-y-2 border-t border-slate-200 dark:border-slate-700 pt-2">

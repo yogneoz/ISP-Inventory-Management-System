@@ -40,6 +40,7 @@ import type {
   CustomerRecord, DeviceSerialPair, SerialLog,
 } from '../../types';
 import { localTodayAD } from '../../utils/localDate';
+import { clampLineQuantity } from '../../utils/lineQuantity';
 
 interface SalesInvoicesProps {
   companyProfile?: CompanyProfile | null;
@@ -256,7 +257,8 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
   /** Keeps exactly one serial slot per unit so Sales Returns have 1:1 coverage. */
   const syncSerialSlots = (line: FormLine): DeviceSerialPair[] | undefined => {
     if (!isSerializedProduct(line.productId)) return undefined;
-    const qty = Math.max(1, Number(line.quantity) || 1);
+    // AUD-3: the pad below is bounded by construction, not by what was typed.
+    const qty = clampLineQuantity(line.quantity);
     const slots = [...(line.deviceSerials || [])];
     while (slots.length < qty) slots.push({ deviceSerial: '', ponSerial: '', macAddress: '' });
     return slots.slice(0, qty);
@@ -273,12 +275,17 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
   };
 
   const updateLine = (idx: number, patch: Partial<FormLine>) => {
+    // AUD-3: every quantity enters a line through this patch — typing, the
+    // scan-again increment and product swaps — so the ceiling is applied once
+    // here. A nine-digit quantity used to build that many serial slots on the
+    // keystroke and freeze the tab.
+    const bounded = patch.quantity === undefined ? patch : { ...patch, quantity: clampLineQuantity(patch.quantity) };
     setLines((prev) =>
       prev.map((l, i) => {
         if (i !== idx) return l;
-        const next = { ...l, ...patch };
+        const next = { ...l, ...bounded };
         // Swapping the product or changing qty resizes the serial slots.
-        if (patch.quantity !== undefined || patch.productId !== undefined) next.deviceSerials = syncSerialSlots(next);
+        if (bounded.quantity !== undefined || bounded.productId !== undefined) next.deviceSerials = syncSerialSlots(next);
         return next;
       })
     );
@@ -752,7 +759,7 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
                     {lines.map((line, idx) => {
                       if (!line.productId) return null;
                       const stockState = lineStock(line);
-                      const serialQty = Math.max(1, Number(line.quantity) || 1);
+                      const serialQty = clampLineQuantity(line.quantity);
                       const lineGross = (Number(line.quantity) || 0) * (Number(line.unitPrice) || 0);
                       const subtotal = Math.max(0, lineGross - (Number(line.discount) || 0));
                       const isSerialized = isSerializedProduct(line.productId);

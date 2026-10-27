@@ -9,6 +9,7 @@ import {
 } from '../../types';
 import { ensureBSDayForAD, BS_SEEDING_MENU_PATH } from '../../utils/nepaliCalendar';
 import { getAllowedBranches } from '../../utils/permissions';
+import { clampLineQuantity } from '../../utils/lineQuantity';
 import { ProductSearchBar } from '../inventory/ProductSearchBar';
 import { Plus, Send, Barcode, Boxes, Trash2, AlertTriangle } from 'lucide-react';
 import { FormCard } from '../../components/common/FormCard';
@@ -133,7 +134,10 @@ export const CreateShipmentForm: React.FC<CreateShipmentFormProps> = ({
   };
 
   const updateLineQuantity = (index: number, newQty: number) => {
-    const qty = Math.max(1, newQty);
+    // AUD-3: bound the quantity at entry so the serial-slot pad below and the
+    // `Array.from({ length: quantitySent })` render loop cannot be driven by
+    // an arbitrarily large typed number.
+    const qty = clampLineQuantity(newQty);
     const updated = [...lines];
     const line = updated[index];
     const prod = products.find((p) => p.id === line.productId);

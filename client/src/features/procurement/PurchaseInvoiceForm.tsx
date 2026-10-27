@@ -37,6 +37,7 @@ import { ensureBSDayForAD, BS_SEEDING_MENU_PATH } from '../../utils/nepaliCalend
 import { formatNPR, formatNPRPrecise } from '../../utils/nprFormat';
 import { getAllowedBranches } from '../../utils/permissions';
 import { getDefaultTaxRate } from '../../utils/taxConfig';
+import { clampLineQuantity } from '../../utils/lineQuantity';
 import { LoadStateNotice } from '../../components/common/LoadStateNotice';
 import { useOpenPurchaseOrders } from '../../services/procurementPendingCache';
 import { normalizeMacAddress } from '../../../../shared/macAddress';
@@ -324,7 +325,9 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
 
   const updateLineQty = (index: number, newQty: number) => {
     const updated = [...lines];
-    const qty = Math.max(1, newQty);
+    // AUD-3: the ceiling keeps this line's serial-slot pad — and the
+    // `Array.from({ length: quantity })` render loop it feeds — bounded.
+    const qty = clampLineQuantity(newQty);
     updated[index].quantity = qty;
     const prod = products.find((p) => p.id === updated[index].productId);
     const isSerialized = isSerialTracked(prod);
@@ -471,7 +474,7 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
     for (const line of lines) {
       const product = products.find((p) => p.id === line.productId);
       if (!isSerialTracked(product)) continue;
-      const qty = Math.max(1, Number(line.quantity) || 0);
+      const qty = clampLineQuantity(line.quantity);
       const slots = line.deviceSerials || [];
       if (slots.filter((s) => serialKey(s.deviceSerial)).length !== qty) {
         setSaveMessage(

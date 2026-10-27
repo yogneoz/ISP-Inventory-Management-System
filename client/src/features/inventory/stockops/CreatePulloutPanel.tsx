@@ -8,6 +8,7 @@ import { FormCard } from '../../../components/common/FormCard';
 import { ProductSearchBar } from '../ProductSearchBar';
 import { DeviceSerialInput } from '../../../components/common/DeviceSerialInput';
 import { formatNPR } from '../../../utils/nprFormat';
+import { clampLineQuantity } from '../../../utils/lineQuantity';
 import {
   Trash2,
   Truck,
@@ -164,6 +165,10 @@ export const CreatePulloutPanel: React.FC = () => {
       pulloutItems.map((item) => {
         if (item.id !== id) return item;
         const updated = { ...item, ...updates };
+        // AUD-3: clamp where the quantity enters the line (typed, or the
+        // condition "use available" button), so the serial-slot pad below and
+        // the render loop stay bounded by construction.
+        if (updates.quantity !== undefined) updated.quantity = clampLineQuantity(updates.quantity);
         if (updates.quantity !== undefined || updates.unitCost !== undefined) {
           updated.totalValue = updated.quantity * updated.unitCost;
           // Sync serials count if quantity changed and serials exist

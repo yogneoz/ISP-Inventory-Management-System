@@ -124,6 +124,21 @@ guards the bottom, nothing guards the top.
 e.g. cap at remaining stock-on-hand or a sane ceiling), so every padding loop
 becomes bounded by construction.
 
+**Fixed (same day):** `client/src/utils/lineQuantity.ts` adds the shared
+`clampLineQuantity` (integer in [1, 1000] — unreadable input reads as 1, so a
+cleared cell can never leave a `NaN` quantity behind) and the six handlers
+above apply it where a quantity enters the line: SalesInvoices clamps once in
+`updateLine` (every caller — typing, the scan-again increment and product
+swaps — lands on that patch) plus the row's serial count, `updateLineQty` and
+`updateLineQuantity` replace their bottom-only `Math.max(1, …)`, and the three
+stockops panels clamp the `updates` patch that feeds their pads. A seventh
+instance of the same class, found while wiring the helper, is included:
+`LabelDamagePanel` builds its slots with `Array.from({ length: quantity })`
+bounded only at the bottom. The quantity cell the operator types into is now
+the only entry point, and `tests/lineQuantity.test.ts` covers the clamp (0,
+negative, `''`, NaN, fractions, 10-digit values, `Infinity`) plus a source
+guard per screen and one that the bottom-only clamps are gone.
+
 ### AUD-4 — SSE retry timer is overwritten, not guarded (hardening)
 
 `client/src/services/api/sync.ts` (`scheduleRetry`) assigns
@@ -188,10 +203,10 @@ guidance/limit the next time that screen is touched.
 ## Limits
 
 Pattern-based sweep, not a line-by-line proof: business-logic correctness and
-SQL semantics stay with the 1366-test suite and the per-domain audits under
+SQL semantics stay with the 1379-test suite and the per-domain audits under
 `docs/`. No runtime profiling was done; the effect and cycle passes used
 static heuristics whose candidates were all manually verified. AUD-1 and
 AUD-3 were found by reading, not by a failing test. AUD-1 now has behavioural
-coverage in `tests/auditRowMerge.test.ts` and AUD-2 in
-`tests/permissionMatrixPublish.test.ts`; AUD-3, AUD-4 and AUD-5 are still
-unguarded.
+coverage in `tests/auditRowMerge.test.ts`, AUD-2 in
+`tests/permissionMatrixPublish.test.ts` and AUD-3 in
+`tests/lineQuantity.test.ts`; AUD-4 and AUD-5 are still unguarded.

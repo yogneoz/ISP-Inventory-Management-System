@@ -9,6 +9,7 @@ import { ProductSearchBar } from '../ProductSearchBar';
 import { DeviceSerialInput } from '../../../components/common/DeviceSerialInput';
 import { CustomerPicker } from '../../../components/common/CustomerPicker';
 import { formatNPR } from '../../../utils/nprFormat';
+import { clampLineQuantity } from '../../../utils/lineQuantity';
 import { api } from '../../../services/api';
 import {
   Plus,
@@ -126,6 +127,9 @@ export const ProductSalePanel: React.FC = () => {
       sellItems.map((item) => {
         if (item.id !== id) return item;
         const updated = { ...item, ...updates };
+        // AUD-3: clamp where the quantity enters the line, so the serial-slot
+        // pad and the render loop below stay bounded by construction.
+        if (updates.quantity !== undefined) updated.quantity = clampLineQuantity(updates.quantity);
         if (updates.productId) {
           const selProd = products.find((p) => p.id === updates.productId);
           if (selProd) {

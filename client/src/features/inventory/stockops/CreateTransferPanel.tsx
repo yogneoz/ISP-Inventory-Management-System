@@ -3,6 +3,7 @@ import { useStockOperationsCtx } from './StockOperationsContext';
 import type { TransferFormLine } from './StockOperationsContext';
 import { isOperationAllowed } from '../../../utils/permissions';
 import { tryConvertADToBS } from '../../../utils/nepaliCalendar';
+import { clampLineQuantity } from '../../../utils/lineQuantity';
 import { FormCard } from '../../../components/common/FormCard';
 import { ProductSearchBar } from '../ProductSearchBar';
 import { DeviceSerialInput } from '../../../components/common/DeviceSerialInput';
@@ -153,6 +154,9 @@ export const CreateTransferPanel: React.FC = () => {
           }
         }
         if (updates.quantitySent !== undefined) {
+          // AUD-3: clamp at entry, so the serial-slot pad below is bounded by
+          // construction rather than by the typed number.
+          updated.quantitySent = clampLineQuantity(updates.quantitySent);
           updated.quantity = updated.quantitySent;
           const prod = products.find((p) => p.id === updated.productId);
           if (prod && prod.requiresSerialTracking !== false && prod.trackingType !== 'QUANTITY_ONLY') {
