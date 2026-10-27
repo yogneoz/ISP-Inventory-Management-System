@@ -8,13 +8,10 @@
 import type { Request, Response } from 'express';
 import { pgPool, permissionMatrix, setPermissionMatrix, getUserFromReq, withTransaction, logAuditEvent } from '../app';
 import {
-  PERMISSION_MATRIX_DELETE_ALL_SQL,
   PERMISSION_MATRIX_SELECT_SQL,
-  PERMISSION_MATRIX_UPSERT_SQL,
-  permissionMatrixEntries,
-  permissionMatrixUpsertParams,
   rowsToPermissionMatrix,
 } from '../models/permissions.repo';
+import { persistPermissionMatrix } from '../services/permissionMatrix.service';
 /** Forwarded from permissions.routes.ts (get_permissions). */
 export async function get_permissions(req: any, res: Response): Promise<any> {
   // Mirror-drift rule (#7): the permission matrix is served LIVE from
@@ -43,13 +40,11 @@ try {
       res.status(400).json({ message: 'Invalid permission matrix payload.' });
       return;
     }
-    await withTransaction(async (client) => {
-      await client.query(PERMISSION_MATRIX_DELETE_ALL_SQL);
-      const entries = permissionMatrixEntries(matrix);
-      for (const entry of entries) {
-        await client.query(PERMISSION_MATRIX_UPSERT_SQL, permissionMatrixUpsertParams(entry));
-      }
-      setPermissionMatrix(JSON.parse(JSON.stringify(matrix)));
+    // AUD-2: the replace + publish sequence lives in the service so the
+    // in-memory matrix is only ever published after the COMMIT resolves.
+    await persistPermissionMatrix(matrix, {
+      runInTransaction: withTransaction,
+      publish: setPermissionMatrix,
     });
     console.log(`✅ Permission matrix updated by ${(getUserFromReq(req)).email || 'unknown'}.`);
     // Audit + broadcast: every connected client re-reads the matrix slice

@@ -88,6 +88,19 @@ restart. The happy path is fine; the failure path is the bug.
 **Suggested fix:** move `setPermissionMatrix` after `await
 withTransaction(...)` resolves, so memory only updates on a committed write.
 
+**Fixed (same day):** the replace + publish sequence moved into
+`server/src/services/permissionMatrix.service.ts` (`persistPermissionMatrix`),
+which runs the DELETE/UPSERTs inside the transaction and publishes the
+deep-copied matrix only once it resolves; the controller now supplies
+`withTransaction` and `setPermissionMatrix` as its two dependencies. Ordering
+a COMMIT failure against a live database is not deterministic, so the runner
+and publish hook are injected (the `SerialBackfillDb` pattern) and
+`tests/permissionMatrixPublish.test.ts` drives a runner that fails at COMMIT —
+asserting nothing is published and the real `permissionMatrix` binding keeps
+the previous grants — plus a mid-write failure, the statement order, the
+defensive copy, and a source guard that the controller never calls
+`setPermissionMatrix` itself.
+
 ### AUD-3 — Unbounded serial-slot padding loops keyed to unclamped quantities (Low-Medium)
 
 Six change-handlers pad an array of serial-slot objects up to a line quantity
@@ -175,8 +188,10 @@ guidance/limit the next time that screen is touched.
 ## Limits
 
 Pattern-based sweep, not a line-by-line proof: business-logic correctness and
-SQL semantics stay with the 1361-test suite and the per-domain audits under
+SQL semantics stay with the 1366-test suite and the per-domain audits under
 `docs/`. No runtime profiling was done; the effect and cycle passes used
 static heuristics whose candidates were all manually verified. AUD-1 and
 AUD-3 were found by reading, not by a failing test. AUD-1 now has behavioural
-coverage in `tests/auditRowMerge.test.ts`; AUD-3 is still unguarded.
+coverage in `tests/auditRowMerge.test.ts` and AUD-2 in
+`tests/permissionMatrixPublish.test.ts`; AUD-3, AUD-4 and AUD-5 are still
+unguarded.
