@@ -63,7 +63,7 @@ checklist here.
 
 **Round 4** is active — [round-4/README.md](round-4/README.md): take
 `fixed_assets` off the bootstrap ([ASSET-1](round-4/ASSET-1.md), done
-2026-10-27) and move the Device Exchange picker to the paged device read
+`3efd446`) and move the Device Exchange picker to the paged device read
 ([EXCH-1](round-4/EXCH-1.md), open).
 Round 3 closed on 2026-10-27 — see
 [done/2026-10-27-round-3.md](done/2026-10-27-round-3.md). Do not open a parked

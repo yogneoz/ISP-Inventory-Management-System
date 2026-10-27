@@ -27,7 +27,7 @@ recorded triggers; none is reopened by this round.
 
 | Order | ID | Task | Status | Effort | Depends on |
 |---|---|---|---|---|---|
-| 1 | [ASSET-1](ASSET-1.md) | Take `fixed_assets` off the bootstrap (paged reads, server aggregates, panel lookups) | `[x]` done 2026-10-27 | 3–5 days | — |
+| 1 | [ASSET-1](ASSET-1.md) | Take `fixed_assets` off the bootstrap (paged reads, server aggregates, panel lookups) | `[x]` done (`3efd446`) | 3–5 days | — |
 | 2 | [EXCH-1](EXCH-1.md) | Device Exchange picker searches the paged device read | `[ ]` | 0.5–1 day | ASSET-1 (shared picker/paging pattern) |
 
 **Total:** about one week. ASSET-1 is the scale item; EXCH-1 is the only

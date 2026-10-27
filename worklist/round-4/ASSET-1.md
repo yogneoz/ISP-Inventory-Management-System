@@ -129,6 +129,11 @@ recalculation) are untouched.
   bootstrap trim, schema parity, DF-12/13, VOL-4b); `npm test`; `npm run
   check:no-inline-sql`; `npm run build`; `npm run check:bundle-budget`.
 
+**Landed** as `3efd446` and pushed to `main`; CI run
+[40440447352](https://github.com/yogneoz/ISP-Inventory-Management-System/actions/runs/40440447352)
+(`typecheck-and-test`) green in 368 s — every step from the fresh-install proof
+to the bundle-budget and `npm audit` gates passed.
+
 ## Risks
 
 | Risk | Mitigation |
