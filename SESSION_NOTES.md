@@ -19,12 +19,14 @@ _Date: 2026-10-27 · Branch: main · Tests: 1354/1354 green with a DB (all run i
 > unchanged); and the STOCK-2 gate recorded **NO-GO today, GO-on-evidence**
 > (`9fec135`) for a paged `inventory_stock`, with both firing conditions in
 > [parked.md](worklist/parked.md).
-> **Round 6 is active** ([plan](worklist/round-6/README.md)): CDR-1 (`c147d99`,
-> CI run 180) retired the legacy bare-array `GET /api/customer-devices` route,
-> its handler and its 2,000-row query, replacing the test that pinned the array
+> **Round 6 closed on 2026-10-27**
+> ([archive](worklist/done/2026-10-27-round-6.md)): CDR-1 (`c147d99`, CI run
+> 180) retired the legacy bare-array `GET /api/customer-devices` route, its
+> handler and its 2,000-row query, replacing the test that pinned the array
 > with a 404 assertion and a source guard; the paged/overview/warranty/exchange
 > reads are untouched, and `/api/bootstrap/local?key=customerDevices` remains
-> the one legacy device read. The round's close pass is next. The payload work
+> the one legacy device read, recorded as the round's follow-up. **No round is
+> active.** The payload work
 > is finished — the remaining-array measurement found no item to open, and the
 > `inventory_stock` trigger is recorded in [2026.md](docs/session-notes/2026.md). The
 > notes are split by year (**SN-1**): entries live in
@@ -48,7 +50,7 @@ _Date: 2026-10-27 · Branch: main · Tests: 1354/1354 green with a DB (all run i
 - [docs/session-notes/README.md](docs/session-notes/README.md) — the folder
   index and the rule for where new entries go.
 - [docs/session-notes/2026.md](docs/session-notes/2026.md) — every entry from
-  the first session through the Round 5 close, newest first.
+  the first session through the Round 6 close, newest first.
 - New entries: prepend below the separator in the current year's file. This
   root file stays short (current state + index) and keeps the gated
   `Tests: N/N` claim read by

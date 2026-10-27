@@ -40,15 +40,15 @@ slice mapping. It is recorded below as a follow-up, not folded in.
 
 - [x] **1. Remove the route.** `app.get('/api/customer-devices', ...)` and its
   `get_customerDevices` import are gone from
-  [inventory.routes.ts](../../server/src/routes/inventory.routes.ts). The
+  [inventory.routes.ts](../../../server/src/routes/inventory.routes.ts). The
   `/customer-devices` branch-guard prefix, the `/customer-devices/:id` resource
   check and every `/page`, `/overview`, `/warranty`, `/exchange` route stay.
 - [x] **2. Remove the handler and the SQL it was the only user of.**
   `get_customerDevices` in
-  [inventory.controller.ts](../../server/src/controllers/inventory.controller.ts),
+  [inventory.controller.ts](../../../server/src/controllers/inventory.controller.ts),
   plus the stale "Forwarded from inventory.routes.ts" comment; the two unused
   builder imports go with it. In
-  [inventory.repo.ts](../../server/src/models/inventory.repo.ts),
+  [inventory.repo.ts](../../../server/src/models/inventory.repo.ts),
   `buildCustomerDeviceLegacyListQuery` and its positional wrapper
   `buildCustomerDeviceListQuery` are deleted, and the shared-WHERE comment no
   longer claims a legacy reader. `buildCustomerDeviceWhere`, the mirror filter

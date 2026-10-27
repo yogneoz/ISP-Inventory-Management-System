@@ -18,10 +18,9 @@ is the plan, not a second source of truth.
 
 - [parked.md](parked.md) — decisions we are not acting on, with the trigger to
   reopen each one.
-- [round-6/](round-6/README.md) — the active round (created 2026-10-27):
-  CDR-1 retires the last legacy device read, `GET /api/customer-devices`.
-  Round 5 closed and is archived under [done/](done/README.md).
 - [done/](done/README.md) — completed rounds, kept for reference. Never delete.
+  No round is active: Round 6 closed on 2026-10-27
+  ([note](done/2026-10-27-round-6.md)).
 
 ## Status vocabulary
 
@@ -62,12 +61,16 @@ checklist here.
 
 ## Active work
 
-**Round 6** is active — [round-6/README.md](round-6/README.md): one item,
-[CDR-1](round-6/CDR-1.md), retires the legacy bare-array
-`GET /api/customer-devices` route that READ-1 left for an older bundle. It
-shipped on 2026-10-27 ([CDR-1](round-6/CDR-1.md), `c147d99`, CI run 180): the
-route, handler and 2,000-row query are gone and a 404 pins it. Round 6's close
-pass is the next step. Round 5 closed on 2026-10-27 — see
+**No round is active.** Round 6 closed on 2026-10-27 — see
+[done/2026-10-27-round-6.md](done/2026-10-27-round-6.md): its one item,
+[CDR-1](done/2026-10-27-round-6/CDR-1.md) (`c147d99`, CI run 180), retired the
+legacy bare-array `GET /api/customer-devices` route that READ-1 had left for an
+older bundle — the route, handler and 2,000-row query are gone, a 404 and a
+source guard pin the retirement, and the paged/overview/warranty/exchange reads
+are untouched. The round's one recorded follow-up is
+`GET /api/bootstrap/local?key=customerDevices`, now the only legacy device read:
+it is unbounded, and its mapping also feeds the operational cache, so retiring
+it needs the two mappings separated first. Round 5 closed on 2026-10-27 — see
 [done/2026-10-27-round-5.md](done/2026-10-27-round-5.md): the orphaned
 bare-array device read is gone
 ([READ-1](done/2026-10-27-round-5/READ-1.md), `8cdd09b`), the stock-array

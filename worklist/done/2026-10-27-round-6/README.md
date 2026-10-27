@@ -1,7 +1,8 @@
 # Round 6 — the last legacy device read
 
-Created 2026-10-27 · Status: `[~]` active · One item
-Previous round: [2026-10-27-round-5.md](../done/2026-10-27-round-5.md)
+Created 2026-10-27 · Closed 2026-10-27 · Status: `[x]` shipped · One item
+Previous round: [2026-10-27-round-5.md](../2026-10-27-round-5.md) ·
+Close summary: [2026-10-27-round-6.md](../2026-10-27-round-6.md)
 
 ## Why this round
 
