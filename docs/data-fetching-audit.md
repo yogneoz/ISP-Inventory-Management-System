@@ -420,11 +420,17 @@ same WHERE).
 
 `customer_device_records` is one row per deployed/rented unit, so it grows with
 the customer base. The bootstrap fan-out no longer reads it and the payload has
-no `customerDevices` key; the `BOOTSTRAP_TABLES` mapping stays so an older
-bundle's `/api/bootstrap/local?key=customerDevices` still answers. On a TEMP
+no `customerDevices` key. CDR-2 (2026-10-27) then retired the legacy slice too:
+the mapping moved to `CACHE_ONLY_TABLES` (the operational cache still hydrates
+its mirror from it) and `/api/bootstrap/local?key=customerDevices` answers 410
+Gone, so no request can read the table wholesale. On a TEMP
 table of the same shape, the removed national array was **4.68 MB JSON / 435 kB
 gzip at 1× (12k rows)** and **46.95 MB / 4.05 MB gzip at 10× (120k)**, on every
-login. A branch-scoped read was still 335 kB / 3.36 MB.
+login. A branch-scoped read was still 335 kB / 3.36 MB. Re-measured through the
+real mapping on 2026-10-27 (scratch rows deleted after the run): **5,414.2 KiB
+raw / 431.5 KiB gzip at 12,000 rows** and **52.87 MiB / 4.21 MiB at 120,000**
+(modelled from the measured 462.0 B / 36.8 B per row) — the retired slice had
+been serving that array all along.
 
 The register now reads `GET /api/customer-devices/page` (branch, status, text,
 product, issued-date filters; `pageSize` capped at 200; stable `created_at DESC,

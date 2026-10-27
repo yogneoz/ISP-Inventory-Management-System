@@ -1,14 +1,19 @@
 /**
- * Column mappings for /api/bootstrap AND the server's operational cache
- * (CACHE_LOADS in state/runtimeState.ts) — the SINGLE SOURCE OF TRUTH for
- * which columns are read from each table and how they are aliased to
- * camelCase for the payload.
+ * Column mappings for /api/bootstrap, the /api/bootstrap/local?key= slices AND
+ * the server's operational cache (CACHE_LOADS in state/runtimeState.ts) — the
+ * SINGLE SOURCE OF TRUTH for which columns are read from each table and how
+ * they are aliased to camelCase for the payload.
  *
  * To add a column to the bootstrap payload and the operational cache: add one
  * tuple here. Nothing else changes — the SQL, the Promise.all fan-out, and
  * the response assembly are all generated from these definitions (see
  * ./bootstrap.repo.ts), and runtimeState.ts builds its cache refresh queries
- * from the same configs via buildCacheLoads().
+ * from the same configs via buildCacheSelectSql().
+ *
+ * A mapping that must feed ONLY the operational cache goes in the
+ * CACHE_ONLY_TABLES export below, never in BOOTSTRAP_TABLES: the slice endpoint
+ * resolves keys from BOOTSTRAP_TABLES alone, so that object is the slice
+ * surface as well as the bootstrap surface.
  *
  * Each column is a tuple: [db_column, camelCaseAlias, optionalCast?]
  * e.g. ['start_date_ad', 'startDateAD', '::text'] produces
@@ -143,29 +148,6 @@ export const BOOTSTRAP_TABLES = {
       ['assignment_date_bs', 'assignmentDateBS'],
       ['assignment_notes', 'assignmentNotes'],
       ['device_serial', 'deviceSerial'],
-    ],
-  },
-  customerDevices: {
-    table: 'customer_device_records',
-    scope: { branchCol: 'branch_id', dateCol: 'issued_date_ad' },
-    cache: {},
-    columns: [
-      ['id', 'id'],
-      ['customer_id', 'customerId'],
-      ['customer_name', 'customerName'],
-      ['customer_code', 'customerCode'],
-      ['contact_phone', 'contactPhone'],
-      ['installation_address', 'installationAddress'],
-      ['branch_id', 'branchId'],
-      ['product_name', 'productName'],
-      ['device_serial', 'deviceSerial'],
-      ['pon_serial', 'ponSerial'],
-      ['mac_address', 'macAddress'],
-      ['status', 'status'],
-      ['issued_date_ad', 'issuedDateAD'],
-      ['issued_date_bs', 'issuedDateBS'],
-      ['purchase_bill_ref', 'purchaseBillRef'],
-      ['notes', 'notes'],
     ],
   },
   // Customers are served by GET /api/customers (paged, searchable, branch
@@ -608,10 +590,12 @@ export const BOOTSTRAP_TABLES = {
     ],
   },
   // -----------------------------------------------------------------------------
-  // CACHE-ONLY TABLES — read by the operational cache (CACHE_LOADS in
-  // state/runtimeState.ts) but NOT fetched by GET /api/bootstrap (which gets
-  // fiscal years via fetchFiscalYears's ::text-cast query and never ships the
-  // customer-payments sub-ledger wholesale).
+  // NOT-FETCHED TABLES — read by the operational cache (CACHE_LOADS in
+  // state/runtimeState.ts) and still answerable as slices, but NOT fetched by
+  // GET /api/bootstrap (which gets fiscal years via fetchFiscalYears's
+  // ::text-cast query and never ships the customer-payments sub-ledger
+  // wholesale). A table that must ALSO stay unserved as a slice belongs in the
+  // CACHE_ONLY_TABLES export below, not here.
   // -----------------------------------------------------------------------------
   fiscalYears: {
     table: 'fiscal_years',
@@ -686,6 +670,47 @@ export const BOOTSTRAP_TABLES = {
       ['created_by', 'createdBy'],
       ['created_at', 'createdAt'],
       ['updated_at', 'updatedAt'],
+    ],
+  },
+} as const satisfies Record<string, TableQueryConfig>;
+
+/**
+ * Cache-only mappings — read by the operational cache (CACHE_LOADS in
+ * state/runtimeState.ts) and NOT resolvable by any endpoint: fetchBootstrapSlice
+ * looks up BOOTSTRAP_TABLES only, so an entry here can never be served as a
+ * `/api/bootstrap/local?key=` slice.
+ *
+ * `customerDevices` moved here in CDR-2 (2026-10-27) when its whole-table slice
+ * was retired. The slice answered every row of `customer_device_records` (no
+ * LIMIT; branch/fiscal-year scope from the caller) to a cached pre-VOL-4b
+ * bundle that no current screen can call — the register reads
+ * GET /api/customer-devices/page, its counts read /overview and the warranty
+ * directory reads /warranty. The operational cache still needs this mapping: it
+ * keeps `customerDeviceRecords` hydrated for the CDR/CPE controllers, global
+ * search, the assignment count and the serial-edit capture.
+ */
+export const CACHE_ONLY_TABLES = {
+  customerDevices: {
+    table: 'customer_device_records',
+    scope: { branchCol: 'branch_id', dateCol: 'issued_date_ad' },
+    cache: {},
+    columns: [
+      ['id', 'id'],
+      ['customer_id', 'customerId'],
+      ['customer_name', 'customerName'],
+      ['customer_code', 'customerCode'],
+      ['contact_phone', 'contactPhone'],
+      ['installation_address', 'installationAddress'],
+      ['branch_id', 'branchId'],
+      ['product_name', 'productName'],
+      ['device_serial', 'deviceSerial'],
+      ['pon_serial', 'ponSerial'],
+      ['mac_address', 'macAddress'],
+      ['status', 'status'],
+      ['issued_date_ad', 'issuedDateAD'],
+      ['issued_date_bs', 'issuedDateBS'],
+      ['purchase_bill_ref', 'purchaseBillRef'],
+      ['notes', 'notes'],
     ],
   },
 } as const satisfies Record<string, TableQueryConfig>;

@@ -221,6 +221,21 @@ export async function get_bootstrapLocal(req: any, res: Response): Promise<any> 
     const bId = typeof branchId === 'string' && branchId !== 'ALL' && branchId.trim() !== '' ? branchId : undefined;
     const fId = typeof fiscalYearId === 'string' && fiscalYearId.trim() !== '' ? fiscalYearId : undefined;
 
+    // CDR-2: the customerDevices slice is RETIRED, not missing. It answered the
+    // whole customer_device_records table (no LIMIT, and its branch/fiscal-year
+    // scope came from the caller) to a cached pre-VOL-4b bundle that no current
+    // screen can call; its mapping now feeds the operational cache alone
+    // (CACHE_ONLY_TABLES). Answer definitively — never a 200 with rows, and not
+    // a 503, which would read as "retry" for a permanent retirement.
+    if (key === 'customerDevices') {
+      return res.status(410).json({
+        message:
+          'The customerDevices bootstrap slice was retired (CDR-2, 2026-10-27). ' +
+          'Read devices from GET /api/customer-devices/page (counts from /overview, warranty from /warranty).',
+        sliceRetired: true,
+      });
+    }
+
     // Mirror-drift fix (#7): every slice is read LIVE from PostgreSQL —
     // company-wide slices through their BOOTSTRAP_TABLES mapping and the
     // permission matrix through its own SELECT; nothing is served from the
@@ -319,7 +334,7 @@ export async function get_bootstrapLocal(req: any, res: Response): Promise<any> 
       // BOOT-1/ASSET-1 removed these from the operational fan-out, so there
       // is no fallback data for them. Answer honestly instead of a payload
       // with only dataVersion, which the client would treat as an empty ledger.
-      if (['purchaseOrders', 'purchaseInvoices', 'stockOperations', 'vendorPayments', 'customers', 'customerDevices', 'assets'].includes(key)) {
+      if (['purchaseOrders', 'purchaseInvoices', 'stockOperations', 'vendorPayments', 'customers', 'assets'].includes(key)) {
         return res.status(503).json({
           message: `Could not read ${key} from PostgreSQL. Retry shortly; the rows on screen are unchanged.`,
         });

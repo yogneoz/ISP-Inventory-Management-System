@@ -24,9 +24,11 @@ _Date: 2026-10-27 · Branch: main · Tests: 1354/1354 green with a DB (all run i
 > 180) retired the legacy bare-array `GET /api/customer-devices` route, its
 > handler and its 2,000-row query, replacing the test that pinned the array
 > with a 404 assertion and a source guard; the paged/overview/warranty/exchange
-> reads are untouched, and `/api/bootstrap/local?key=customerDevices` remains
-> the one legacy device read, recorded as the round's follow-up. **No round is
-> active.** The payload work
+> reads are untouched. **Round 7 is active**
+> ([plan](worklist/round-7/README.md)): CDR-2 retires
+> `/api/bootstrap/local?key=customerDevices` — the last legacy device read,
+> 431.5 KiB gzip at the 12k model — by splitting its mapping so the operational
+> cache keeps the mirror, and answers the key with 410 Gone. The payload work
 > is finished — the remaining-array measurement found no item to open, and the
 > `inventory_stock` trigger is recorded in [2026.md](docs/session-notes/2026.md). The
 > notes are split by year (**SN-1**): entries live in

@@ -725,8 +725,10 @@ the export screen pages its preview and exports `all=1` with a truncation flag;
 the stock/assign/exchange panels and the shipment form read the shared serial
 register. `App.tsx` holds no device array or prop — only the
 `registerRefresh.customerDevices` counter. The demo-clear card reads the
-overview total, and `GET /api/bootstrap/local?key=customerDevices` still answers
-an older bundle.
+overview total. `GET /api/bootstrap/local?key=customerDevices` is **retired**
+(CDR-2, 2026-10-27): the slice served the whole table to a cached pre-VOL-4b
+bundle no current screen can call, so its mapping now feeds the operational
+cache alone and the key answers 410 Gone.
 
 EXCH-1 (2026-10-27) moved the last reader of the legacy bare-array
 `GET /api/customer-devices` — the Device Exchange picker — to
@@ -734,8 +736,10 @@ EXCH-1 (2026-10-27) moved the last reader of the legacy bare-array
 eligibility filter and the typed term (debounced, indexed) are searched by the
 server, one shared cache read per scope, 50 rows plus the matching total. The
 bare endpoint now has no client reader, and CDR-1 (2026-10-27) retired the route
-and its 2,000-row query; `GET /api/bootstrap/local?key=customerDevices` still
-answers an older bundle.
+and its 2,000-row query. CDR-2 (2026-10-27) then retired
+`GET /api/bootstrap/local?key=customerDevices` as well — its mapping is
+cache-only now (410 Gone on the key), so no request can read a device array or
+a whole device table.
 
 ### 9.2 Data Flow Pattern
 

@@ -84,7 +84,9 @@ export async function fetchTable(
  * targeted refresh returns exactly what a full bootstrap would — straight
  * from the database, never from an in-memory mirror. auditLogs applies the
  * same 200-row payload cap. Throws when the key has no table mapping (the
- * caller falls back to the operational cache / mirror).
+ * caller falls back to the operational cache / mirror) — which now includes the
+ * retired `customerDevices` key, whose mapping lives in CACHE_ONLY_TABLES for
+ * the operational cache alone (CDR-2).
  */
 export async function fetchBootstrapSlice(
   pool: QueryExecutor,
@@ -174,6 +176,8 @@ export function parseSerialHistory(rows: any[]): any[] {
  * GET /api/customer-devices/overview; the warranty directory has its own paged
  * union because warranty state is derived from the commissioned date. One row
  * per deployed/rented CPE, so this array grew with the customer base too.
+ * CDR-2 (2026-10-27) then moved its mapping to CACHE_ONLY_TABLES and retired
+ * the slice that shared it; the operational cache still reads the mapping.
  */
 export async function fetchOperationalData(
   pool: QueryExecutor,

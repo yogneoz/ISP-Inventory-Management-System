@@ -17,8 +17,9 @@
  *     computed state at all four boundary days.
  *  6. HTTP: `all=1` reports truncation at the cap instead of silently
  *     exporting one page.
- *  7. HTTP: `GET /api/bootstrap/local?key=customerDevices` still answers for
- *     an older client, and the retired bare-array route answers 404 (CDR-1).
+ *  7. HTTP: the retired `customerDevices` slice answers 410 for a super and a
+ *     branch account alike (CDR-2), and the retired bare-array route answers
+ *     404 (CDR-1).
  *
  * Fixtures are prefixed `v4b-` and removed in after(); nothing is read from
  * the demo seed. Skips without a reachable PostgreSQL.
@@ -109,7 +110,7 @@ function addDays(iso: string, days: number): string {
 }
 
 describe('VOL-4b — customer devices off the bootstrap', () => {
-  test('source: the bootstrap fan-out does not read customer_device_records and the payload has no key', () => {
+  test('source: the bootstrap fan-out does not read customer_device_records and the payload has no key', async () => {
     const repo = fs.readFileSync(path.join(ROOT, 'server/src/models/bootstrap.repo.ts'), 'utf8');
     assert.ok(
       !/BOOTSTRAP_TABLES\.customerDevices\b/.test(repo),
@@ -129,11 +130,27 @@ describe('VOL-4b — customer devices off the bootstrap', () => {
       'the bootstrap response serializes customerDevices again — a national device table would ride every login'
     );
 
-    // The legacy local slice must stay mapped for a cached older bundle.
+    // CDR-2: the slice is retired and its mapping is cache-only. A 200 with
+    // rows here again would mean the whole device table is readable wholesale.
+    const mappings = await import('../server/src/models/columnMappings');
+    assert.ok(
+      !('customerDevices' in mappings.BOOTSTRAP_TABLES),
+      'customerDevices is back in BOOTSTRAP_TABLES — the slice endpoint resolves keys from that object and would serve the whole table again'
+    );
+    assert.ok(
+      'customerDevices' in mappings.CACHE_ONLY_TABLES,
+      'the customer_device_records mapping must stay for the operational cache (CDR-2)'
+    );
+    const runtimeState = fs.readFileSync(path.join(ROOT, 'server/src/state/runtimeState.ts'), 'utf8');
+    assert.match(
+      runtimeState,
+      /buildCacheSelectSql\(CACHE_ONLY_TABLES\.customerDevices\)/,
+      'CACHE_LOADS must keep the device mirror hydrated from the cache-only mapping'
+    );
     assert.match(
       controller,
-      /'customerDevices'[^\n]*\]\.includes\(key\)|customerDevices'[^\n]*BOOTSTRAP_TABLES|BOOTSTRAP_TABLES\.customerDevices/,
-      'GET /api/bootstrap/local must still answer key=customerDevices for an older client'
+      /key === 'customerDevices'[\s\S]{0,400}status\(410\)/,
+      'the retired slice key must answer 410 Gone — not a retryable error, and never rows'
     );
   });
 
@@ -387,19 +404,23 @@ describe('VOL-4b — customer devices off the bootstrap', () => {
       return { status: res.status, json };
     }
 
-    test('GET /api/bootstrap ships no customerDevices, but the local slice still answers', { skip: skipNoDb }, async () => {
+    test('GET /api/bootstrap ships no customerDevices, and the retired local slice answers 410', { skip: skipNoDb }, async () => {
       const boot = await get('/api/bootstrap');
       assert.equal(boot.status, 200, JSON.stringify(boot.json));
       assert.ok(!('customerDevices' in boot.json), 'customerDevices must be served by the paged endpoint, not bootstrap');
       assert.ok(Array.isArray(boot.json.branches), 'the rest of the payload must be intact');
 
+      // CDR-2: the slice is retired — 410 Gone, never a 200 with rows, and not
+      // a retryable-looking 503 — for a super account and a branch account
+      // alike (a branch account could previously read the whole country by
+      // omitting branchId).
       const local = await get('/api/bootstrap/local?key=customerDevices');
-      assert.equal(local.status, 200, JSON.stringify(local.json));
-      assert.ok(
-        Array.isArray(local.json?.customerDevices),
-        'an older client bundle still asks for the customerDevices slice; it must keep answering'
-      );
-      assert.ok(typeof local.json?.dataVersion === 'number', 'slice responses must carry dataVersion');
+      assert.equal(local.status, 410, JSON.stringify(local.json));
+      assert.ok(!('customerDevices' in (local.json || {})), 'the retired slice must never carry rows');
+      assert.match(String(local.json?.message || ''), /retired/i);
+
+      const branchLocal = await get('/api/bootstrap/local?key=customerDevices', branchToken);
+      assert.equal(branchLocal.status, 410, 'the retired slice must not answer a branch account either');
     });
 
     test('the register pages newest-first, and a device outside page 1 is reachable', { skip: skipNoDb }, async () => {

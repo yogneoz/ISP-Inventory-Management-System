@@ -10,7 +10,7 @@
  * setters.
  */
 import { pgPool } from '../../db';
-import { BOOTSTRAP_TABLES, buildCacheSelectSql } from '../models/columnMappings';
+import { BOOTSTRAP_TABLES, CACHE_ONLY_TABLES, buildCacheSelectSql } from '../models/columnMappings';
 import {
   INITIAL_COMPANY_PROFILE,
   INITIAL_DOCUMENT_NUMBER_CONFIGS,
@@ -122,8 +122,9 @@ export function setDataVersion(v: number): void { dataVersion = v; }
 
 // The ONE list of operational cache loads — GENERATED from the per-table
 // column mappings in models/columnMappings.ts (single source of truth,
-// duplication audit phase 3). Every entry carrying a `cache` block there
-// becomes a cache load here: at boot (hydrateOperationalData) and after every
+// duplication audit phase 3). Every entry carrying a `cache` block in either
+// mapping object (BOOTSTRAP_TABLES or CACHE_ONLY_TABLES) becomes a cache load
+// here: at boot (hydrateOperationalData) and after every
 // committed write (refreshOperationalCache). Adding a cached column or table
 // means editing its entry in columnMappings.ts and nowhere else. The only
 // per-entry code here is the `apply` callback wiring the rows into the
@@ -159,7 +160,10 @@ export const CACHE_LOADS: Array<{ name: string; query: string; apply: (rows: any
   { name: 'approval_requests', query: buildCacheSelectSql(BOOTSTRAP_TABLES.approvalRequests), apply: (rows) => { if (rows.length > 0) approvalRequests = rows as any; } },
   { name: 'damage_records', query: buildCacheSelectSql(BOOTSTRAP_TABLES.damageRecords), apply: (rows) => { if (rows.length > 0) damageRecords = rows as any; } },
   { name: 'customer_records', query: buildCacheSelectSql(BOOTSTRAP_TABLES.customers), apply: (rows) => { customerMasterRecords = rows as any; } },
-  { name: 'customer_device_records', query: buildCacheSelectSql(BOOTSTRAP_TABLES.customerDevices), apply: (rows) => { customerDeviceRecords = rows as any; } },
+  // CDR-2: customer_device_records is cache-only — its slice was retired
+  // (whole-table read with no callers left), so the mapping must NOT move back
+  // into BOOTSTRAP_TABLES, where the slice endpoint would serve it again.
+  { name: 'customer_device_records', query: buildCacheSelectSql(CACHE_ONLY_TABLES.customerDevices), apply: (rows) => { customerDeviceRecords = rows as any; } },
   { name: 'vendor_payments', query: buildCacheSelectSql(BOOTSTRAP_TABLES.vendorPayments), apply: (rows) => { vendorPayments = rows as any; } },
   { name: 'customer_payments', query: buildCacheSelectSql(BOOTSTRAP_TABLES.customerPayments), apply: (rows) => { customerPayments = rows as any; } },
   {
