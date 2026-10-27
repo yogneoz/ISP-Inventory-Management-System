@@ -82,8 +82,6 @@ import {
   STOCK_OPERATION_SET_STATUS_SQL,
   PULLOUT_RECEIVE_STOCK_SQL,
   pulloutReceiveStockParams,
-  buildCustomerDeviceListQuery,
-  buildCustomerDeviceLegacyListQuery,
   normalizeCustomerDeviceStatuses,
   buildCustomerDevicePageQuery,
   buildCustomerDeviceExportQuery,
@@ -2347,7 +2345,6 @@ try {
 
 }
 
-/** Forwarded from inventory.routes.ts (get_customerDevices). */
 /**
  * VOL-4b: branch scope for every device read. The route guard already refuses
  * an unscoped branch-role GET; this resolves the SAME rule from the session, so
@@ -2536,31 +2533,6 @@ function buildWarrantyMirror(opts: any) {
     ? rows.filter((r) => warrantyStateFor(r.warrantyEndDateAD) === state)
     : rows;
   return { data, counts };
-}
-
-/**
- * Legacy bare-array device read. Kept for an older bundle and the bootstrap
- * local slice; bounded so it can never transfer a national table again.
- */
-export async function get_customerDevices(req: any, res: Response): Promise<any> {
-  const scope = resolveCustomerDeviceScope(req, res);
-  if (!scope) return;
-  const opts = customerDeviceQueryOptions(req, scope);
-
-  if (scope.empty) return res.json([]);
-
-  if (getPgConnected()) {
-    try {
-      const { sql, params } = buildCustomerDeviceLegacyListQuery(opts);
-      const r = await pgPool.query(sql, params);
-      res.json(r.rows);
-      return;
-    } catch (err) {
-      console.error('Error fetching customer devices from DB:', err);
-    }
-  }
-
-  res.json(filterCustomerDeviceMirror(opts).slice(0, 2000));
 }
 
 /**

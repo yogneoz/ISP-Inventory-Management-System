@@ -18,7 +18,7 @@
  *  6. HTTP: `all=1` reports truncation at the cap instead of silently
  *     exporting one page.
  *  7. HTTP: `GET /api/bootstrap/local?key=customerDevices` still answers for
- *     an older client, and the legacy bare-array read stays bounded.
+ *     an older client, and the retired bare-array route answers 404 (CDR-1).
  *
  * Fixtures are prefixed `v4b-` and removed in after(); nothing is read from
  * the demo seed. Skips without a reachable PostgreSQL.
@@ -214,6 +214,30 @@ describe('VOL-4b — customer devices off the bootstrap', () => {
         `${relative} still receives a customerDevices array`
       );
     }
+  });
+
+  test('source: the legacy bare-array route, handler and query are retired (CDR-1)', () => {
+    const routes = fs.readFileSync(path.join(ROOT, 'server/src/routes/inventory.routes.ts'), 'utf8');
+    assert.ok(
+      !/app\.get\(\s*'\/api\/customer-devices'\s*,/.test(routes),
+      'the bare-array device route is registered again — the register must read /page, never a whole-table array'
+    );
+    assert.ok(
+      !/\bget_customerDevices\b/.test(routes),
+      'the legacy device handler is wired back into the routes'
+    );
+
+    const controller = fs.readFileSync(path.join(ROOT, 'server/src/controllers/inventory.controller.ts'), 'utf8');
+    assert.ok(
+      !/function get_customerDevices\b/.test(controller),
+      'the legacy bare-array handler is back; every device read must be paged'
+    );
+
+    const repo = fs.readFileSync(path.join(ROOT, 'server/src/models/inventory.repo.ts'), 'utf8');
+    assert.ok(
+      !/buildCustomerDeviceLegacyListQuery|buildCustomerDeviceListQuery/.test(repo),
+      'the 2,000-row legacy list query is back; every device read must be paged'
+    );
   });
 
   describe('HTTP against real PostgreSQL', () => {
@@ -508,14 +532,18 @@ describe('VOL-4b — customer devices off the bootstrap', () => {
       assert.equal(small.json.truncated, false, 'a complete export must not claim truncation');
     });
 
-    test('the legacy bare-array read still answers, bounded and scoped', { skip: skipNoDb }, async () => {
+    test('the legacy bare-array route is retired, and the paged read still answers', { skip: skipNoDb }, async () => {
+      // CDR-1: every client reader is gone (EXCH-1, READ-1), so the route is
+      // gone too — no caller can mistake a capped page for the whole register.
       const legacy = await get(`/api/customer-devices?branchId=${BRANCH_A}&query=V4B`);
-      assert.equal(legacy.status, 200, JSON.stringify(legacy.json));
-      assert.ok(Array.isArray(legacy.json), 'the older bundle expects a bare array');
-      assert.equal(legacy.json.length, 6);
+      assert.equal(legacy.status, 404, JSON.stringify(legacy.json));
 
-      const unscoped = await get('/api/customer-devices?query=V4B', branchToken);
-      assert.equal(unscoped.status, 403, 'the legacy read must obey the same branch rule');
+      const branchLegacy = await get(`/api/customer-devices?branchId=${BRANCH_A}&query=V4B`, branchToken);
+      assert.equal(branchLegacy.status, 404, 'the array route must not answer for a scoped branch account either');
+
+      const paged = await get(`/api/customer-devices/page?branchId=${BRANCH_A}&query=V4B`);
+      assert.equal(paged.status, 200, 'the paged register must keep answering');
+      assert.equal(paged.json.totalItems, 6);
     });
   });
 });

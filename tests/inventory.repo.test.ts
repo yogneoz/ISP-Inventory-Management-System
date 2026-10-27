@@ -51,7 +51,6 @@ import {
   STOCK_OPERATION_SET_STATUS_SQL,
   PULLOUT_RECEIVE_STOCK_SQL,
   pulloutReceiveStockParams,
-  buildCustomerDeviceListQuery,
   buildCustomerDevicePageQuery,
   buildCustomerDeviceExportQuery,
   buildCustomerDeviceCountQuery,
@@ -332,14 +331,6 @@ describe('stock operations', () => {
 });
 
 describe('customer devices (CPE)', () => {
-  test('list query searches the indexed concatenation case-insensitively', () => {
-    const { sql, params } = buildCustomerDeviceListQuery('BR01', 'FIBER');
-    assert.ok(sql.includes(` WHERE branch_id = $1 AND ${CDR_SEARCH_TEXT_SQL} LIKE $2`));
-    assert.match(sql, / ORDER BY created_at DESC, id DESC LIMIT 2000$/);
-    assert.deepEqual(params, ['BR01', '%fiber%']);
-    assert.ok(!buildCustomerDeviceListQuery().sql.includes(' WHERE '));
-  });
-
   test('the search expression is the one the global trigram index covers', () => {
     for (const col of ['customer_code', 'customer_name', 'product_name', 'device_serial', 'pon_serial', 'mac_address', 'contact_phone']) {
       assert.ok(CDR_SEARCH_TEXT_SQL.includes(`COALESCE(${col}, '')`), `missing ${col}`);

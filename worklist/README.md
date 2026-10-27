@@ -18,9 +18,9 @@ is the plan, not a second source of truth.
 
 - [parked.md](parked.md) — decisions we are not acting on, with the trigger to
   reopen each one.
-- No active round: Round 5 (2026-10-27) closed and is archived under
-  [done/](done/README.md) — READ-1, STOCK-1 and the STOCK-2 decision. The next
-  round starts as `round-6/` beside this file.
+- [round-6/](round-6/README.md) — the active round (created 2026-10-27):
+  CDR-1 retires the last legacy device read, `GET /api/customer-devices`.
+  Round 5 closed and is archived under [done/](done/README.md).
 - [done/](done/README.md) — completed rounds, kept for reference. Never delete.
 
 ## Status vocabulary
@@ -62,7 +62,11 @@ checklist here.
 
 ## Active work
 
-**No round is active.** Round 5 closed on 2026-10-27 — see
+**Round 6** is active — [round-6/README.md](round-6/README.md): one item,
+[CDR-1](round-6/CDR-1.md), retires the legacy bare-array
+`GET /api/customer-devices` route that READ-1 left for an older bundle. It is
+implemented and awaiting its commit (route, handler and 2,000-row query gone;
+404 pinned by test). Round 5 closed on 2026-10-27 — see
 [done/2026-10-27-round-5.md](done/2026-10-27-round-5.md): the orphaned
 bare-array device read is gone
 ([READ-1](done/2026-10-27-round-5/READ-1.md), `8cdd09b`), the stock-array
@@ -76,9 +80,8 @@ same day — see
 the bootstrap ([ASSET-1](done/2026-10-27-round-4/ASSET-1.md), `3efd446`) and the
 Device Exchange picker moved to the paged device read
 ([EXCH-1](done/2026-10-27-round-4/EXCH-1.md), `3d7afe4`). Round 3 closed the day
-before ([done/2026-10-27-round-3.md](done/2026-10-27-round-3.md)). Start the
-next round by creating `round-6/` beside this file and listing it here. Do not
-open a parked item without its recorded trigger; add the new evidence to
+before ([done/2026-10-27-round-3.md](done/2026-10-27-round-3.md)). Do not open a
+parked item without its recorded trigger; add the new evidence to
 [parked.md](parked.md) first.
 
 Recorded watch items — **measured 2026-10-27** before Round 5 planning, and

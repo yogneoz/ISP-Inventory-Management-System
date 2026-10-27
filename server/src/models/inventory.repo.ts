@@ -813,9 +813,9 @@ function dateBound(value: unknown): string | undefined {
 }
 
 /**
- * WHERE fragment shared by the paged register, the overview counts and the
- * legacy bare-array read: branch scope, indexed text search, status, product
- * and commissioned-date window.
+ * WHERE fragment shared by the paged register, its export and the overview
+ * counts: branch scope, indexed text search, status, product and
+ * commissioned-date window.
  */
 export function buildCustomerDeviceWhere(opts: CustomerDeviceQueryOptions = {}): { whereSql: string; params: unknown[] } {
   const params: unknown[] = [];
@@ -911,23 +911,6 @@ export function buildCustomerDeviceOverviewQuery(opts: CustomerDeviceQueryOption
     sql: `SELECT status, COUNT(*)::int AS count FROM customer_device_records${whereSql} GROUP BY status ORDER BY status ASC`,
     params,
   };
-}
-
-/**
- * Legacy bare-array read, kept for an older bundle and `/api/bootstrap/local`
- * consumers. Bounded like the bare shipments read; the register never uses it.
- */
-export function buildCustomerDeviceLegacyListQuery(opts: CustomerDeviceQueryOptions = {}): { sql: string; params: unknown[] } {
-  const { whereSql, params } = buildCustomerDeviceWhere(opts);
-  return {
-    sql: `SELECT ${CDR_SELECT_COLUMNS} FROM customer_device_records${whereSql} ORDER BY created_at DESC, id DESC LIMIT 2000`,
-    params,
-  };
-}
-
-/** Positional form kept for existing callers/tests. */
-export function buildCustomerDeviceListQuery(branchId?: unknown, query?: unknown): { sql: string; params: unknown[] } {
-  return buildCustomerDeviceLegacyListQuery({ branchId, query });
 }
 
 // ---------------------------------------------------------------------------
