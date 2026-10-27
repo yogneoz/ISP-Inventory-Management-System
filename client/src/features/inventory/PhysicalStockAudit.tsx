@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   User,
   Product,
@@ -41,6 +41,7 @@ import {
   stockOnHandAt,
   stockRowAt,
 } from '../../utils/stockIndex';
+import { mergeCountRows } from '../../utils/auditRowMerge';
 
 interface PhysicalStockAuditProps {
   currentUser: User | null;
@@ -328,13 +329,34 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
 
   const [auditRows, setAuditRows] = useState<AuditRow[]>(initialAuditRows);
 
-  // Update rows if initial state changes
+  // AUD-1: a live `stock`/`products` refresh must not erase the operator's
+  // work. Rows this session has marked as touched keep their entered count,
+  // flag and reasons while the fresh book quantities still land everywhere
+  // else; only a genuine session change — a different branch, or a pending
+  // submission appearing/clearing — re-seeds the grid and forgets the marks.
+  const auditSeedSession = `${activeBranchId}|${pendingAuditRequest?.id ?? 'none'}`;
+  const auditSeedSessionRef = useRef(auditSeedSession);
+  const touchedAuditProductsRef = useRef<Set<string>>(new Set());
+  const markAuditTouched = (productId: string) => {
+    touchedAuditProductsRef.current.add(productId);
+  };
   useEffect(() => {
-    setAuditRows(initialAuditRows);
-  }, [initialAuditRows]);
+    if (auditSeedSessionRef.current !== auditSeedSession) {
+      auditSeedSessionRef.current = auditSeedSession;
+      touchedAuditProductsRef.current = new Set();
+      setAuditRows(initialAuditRows);
+      return;
+    }
+    setAuditRows((prev) =>
+      mergeCountRows<AuditRow>(prev, initialAuditRows, (productId) =>
+        touchedAuditProductsRef.current.has(productId)
+      )
+    );
+  }, [initialAuditRows, auditSeedSession]);
 
   const handleCountChange = (productId: string, val: string) => {
     if (isTableLocked) return;
+    markAuditTouched(productId);
     setAuditRows((prev) =>
       prev.map((row) => {
         if (row.productId === productId) {
@@ -365,6 +387,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
 
   const handleQuickAdjust = (productId: string, delta: number) => {
     if (isTableLocked) return;
+    markAuditTouched(productId);
     setAuditRows((prev) =>
       prev.map((row) => {
         if (row.productId === productId) {
@@ -392,6 +415,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
 
   const handleReasonChange = (productId: string, val: string) => {
     if (isTableLocked) return;
+    markAuditTouched(productId);
     setAuditRows((prev) =>
       prev.map((r) =>
         r.productId === productId ? { ...r, varianceReason: val } : r
@@ -401,6 +425,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
 
   const handleCustomReasonChange = (productId: string, text: string) => {
     if (isTableLocked) return;
+    markAuditTouched(productId);
     setAuditRows((prev) =>
       prev.map((r) =>
         r.productId === productId ? { ...r, customReason: text } : r
@@ -410,6 +435,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
 
   const handleSetZeroAll = () => {
     if (isTableLocked) return;
+    auditRows.forEach((row) => markAuditTouched(row.productId));
     setAuditRows((prev) =>
       prev.map((row) => ({
         ...row,
