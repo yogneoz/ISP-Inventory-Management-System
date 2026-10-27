@@ -1,10 +1,11 @@
 # Parked decisions
 
 Reviewed 2026-10-26 against the code, when Round 3 was planned, and
-re-reviewed 2026-10-27 at the Round 3, Round 4, Round 5 and Round 6 closes:
-every trigger below is still unmet. Rounds 3–4's payload work removed arrays
-rather than changing an owner, Round 5's index work removed client-side scans,
-Round 6 removed a dead server route, and no new root cost was measured. These are deliberate “not now”, not forgotten work.
+re-reviewed 2026-10-27 at the Round 3, Round 4, Round 5, Round 6 and Round 7
+closes: every trigger below is still unmet. Rounds 3–4's payload work removed
+arrays rather than changing an owner, Round 5's index work removed client-side
+scans, Rounds 6–7 removed dead server reads (a route, then a bootstrap slice),
+and no new root cost was measured. These are deliberate “not now”, not forgotten work.
 Do not reopen one without its trigger; add the new evidence here first.
 
 Permanent detail: [architecture-backlog.md](../docs/architecture-backlog.md),
