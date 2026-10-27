@@ -3,7 +3,6 @@ import {
   Branch,
   Product,
   InventoryStock,
-  Asset,
   PurchaseOrder,
   TransactionLog,
   FinancialSummary,
@@ -13,10 +12,10 @@ import {
 } from '../../types';
 import { formatDualDate, BS_SEEDING_MENU_PATH, type BsCalendarCoverageStatus } from '../../utils/nepaliCalendar';
 import { getAllowedBranches, getAllowedBranchIds, canUserSeeAllBranches } from '../../utils/permissions';
-import { calculateFixedAssetValues } from '../../utils/depreciation';
 import { formatNPR } from '../../utils/nprFormat';
 import StatCard from '../../components/common/StatCard';
 import { api } from '../../services/api';
+import { useFixedAssetOverview } from '../../services/useFixedAssetOverview';
 import { useShipmentOverview } from '../../services/shipmentOverviewCache';
 import {
   TrendingUp,
@@ -47,7 +46,6 @@ interface DashboardProps {
   products: Product[];
   stock: InventoryStock[];
   branches: Branch[];
-  assets: Asset[];
   /** Scoped open POs from the shared KPI read (statuses DRAFT→PURCHASED). */
   pendingPurchaseOrders: PurchaseOrder[];
   financialSummary: FinancialSummary;
@@ -81,7 +79,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
   products,
   stock,
   branches,
-  assets,
   pendingPurchaseOrders,
   financialSummary,
   categories,
@@ -271,21 +268,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const activeShipmentCount =
     (shipmentOverview.counts.IN_TRANSIT || 0) + (shipmentOverview.counts.DISPATCHED || 0);
 
-  // Total Fixed Assets Net Book Value filtered by branch context
-  const filteredAssets =
-    selectedBranchId === 'ALL'
-      ? assets.filter((a) => canSeeAll || allowedBranchIds.includes(a.branchId))
-      : assets.filter((a) => a.branchId === selectedBranchId);
-
-  // Recalculate NBV using depreciation formula to match Fixed Asset Register
-  const totalAssetNBV = filteredAssets.reduce((sum, a) => {
-    const computed = calculateFixedAssetValues({
-      ...a,
-      acquisitionDateAD: a.placedInServiceDateAD || a.acquisitionDateAD,
-      asOfDateAD: asOfDateAD || new Date().toISOString().slice(0, 10),
-    });
-    return sum + Number(computed.netBookValue ?? 0);
-  }, 0);
+  // ASSET-1: the KPI reads the server overview (same shared depreciation rule
+  // as the registers) instead of filtering a whole fixed-asset table.
+  const assetOverview = useFixedAssetOverview(
+    { branchId: selectedBranchId, asOf: asOfDateAD },
+    sseRefreshKey
+  );
+  const totalAssetNBV = assetOverview.overview?.totals.netBookValue ?? 0;
+  const activeAssetCount = assetOverview.overview?.total ?? 0;
 
   // Filter products for Special Hardware table — dynamic, driven by categories
   // where isSpecialTracked=true. Only serial / MAC / PON tracked products
@@ -419,7 +409,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           tone="emerald"
           hint={
             <span className="flex w-full items-center justify-between">
-              <span>{assets.length} Active Assets</span>
+              <span>{activeAssetCount.toLocaleString('en-IN')} Active Assets</span>
               <span className="font-medium text-emerald-600 dark:text-emerald-400">Net Book Value</span>
             </span>
           }

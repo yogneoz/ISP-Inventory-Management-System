@@ -182,7 +182,6 @@ export async function fetchOperationalData(
   branches: any[];
   products: any[];
   stock: any[];
-  assets: any[];
   purchaseReturns: any[];
   salesReturns: any[];
   auditLogs: any[];
@@ -197,7 +196,6 @@ export async function fetchOperationalData(
     branches,
     products,
     stock,
-    assets,
     purchaseReturns,
     salesReturns,
     auditLogs,
@@ -213,7 +211,6 @@ export async function fetchOperationalData(
     fetchTable(pool, BOOTSTRAP_TABLES.branches, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.products, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.stock, scopeParams),
-    fetchTable(pool, BOOTSTRAP_TABLES.assets, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.purchaseReturns, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.salesReturns, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.auditLogs, scopeParams),
@@ -241,13 +238,17 @@ export async function fetchOperationalData(
     // NOTE: customer devices are served by GET /api/customer-devices/page
     // (register) and /overview (counts); the warranty directory reads its own
     // paged union, so the device table never enters first paint either.
+    // NOTE: fixed assets are served by GET /api/fixed-assets/page (registers),
+    // /overview (dashboard, statements, FY closing), /available (deployment
+    // pickers) and /lookup (one row). The table grows for the life of the
+    // business and never ages out by fiscal year, so it is read in bounded
+    // slices, never in the login payload.
   ]);
 
   return {
     branches,
     products,
     stock,
-    assets,
     purchaseReturns,
     salesReturns,
     auditLogs,

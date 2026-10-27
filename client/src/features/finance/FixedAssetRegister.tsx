@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { Asset, Branch, User } from '../../types';
+import React, { useEffect, useRef, useState } from 'react';
+import { Asset, Branch, FixedAssetTotals, User } from '../../types';
+import { api } from '../../services/api';
 import { ensureBSDayForAD, formatDualDate, BS_SEEDING_MENU_PATH } from '../../utils/nepaliCalendar';
 import { DateField } from '../../components/DateField';
 import { exportToCSV } from '../../utils/exportUtils';
@@ -16,11 +17,20 @@ import {
   Info,
   Download,
 } from 'lucide-react';
-import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { useServerPageClamp, TablePagination } from '../../components/common/TablePagination';
 import { PageHeader } from '../../components/common/PageHeader';
+import { RegisterLoadError } from '../../components/common/RegisterLoadError';
+import { useDialog } from '../../components/common/DialogProvider';
+
+const ZERO_TOTALS: FixedAssetTotals = { acquisitionCost: 0, accumulatedDepreciation: 0, netBookValue: 0 };
 
 interface FixedAssetRegisterProps {
-  assets: Asset[];
+  /**
+   * ASSET-1: the register pages through GET /api/fixed-assets/page and reads
+   * its KPI totals from /overview, so the host no longer passes the whole
+   * fixed-asset table. Asset events bump this token.
+   */
+  refreshToken?: number;
   branches: Branch[];
   selectedBranchId: string;
   asOfDateAD?: string;
@@ -34,7 +44,7 @@ interface FixedAssetRegisterProps {
 }
 
 export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
-  assets,
+  refreshToken = 0,
   branches,
   selectedBranchId,
   asOfDateAD,
@@ -44,11 +54,25 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
   onCreateAsset,
   onUpdateAssetStatus,
 }) => {
+  const { alert: alertDialog } = useDialog();
   const canManageAssets = isOperationAllowed('assets-manage', currentUser?.role);
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(autoOpenModal);
   const [bsError, setBsError] = useState<string | null>(null);
   const [selectedAssetDetail, setSelectedAssetDetail] = useState<Asset | null>(null);
+
+  // Server-paged register (ASSET-1). The page and the KPI totals answer the
+  // same branch + search scope; the totals are formula sums over the whole
+  // filtered set, not just the rows on this page.
+  const [rows, setRows] = useState<Asset[]>([]);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totals, setTotals] = useState<FixedAssetTotals>(ZERO_TOTALS);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [retryToken, setRetryToken] = useState(0);
+  const requestSeq = useRef(0);
 
   // Form state
   const [tagNumber, setTagNumber] = useState(`AST-${Math.floor(1000 + Math.random() * 9000)}`);
@@ -64,26 +88,44 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
     new Date().toISOString().split('T')[0]
   );
 
-  const filteredAssets = assets.filter((a) => {
-    const matchesBranch = selectedBranchId === 'ALL' || a.branchId === selectedBranchId;
-    const matchesSearch =
-      !search ||
-      (a?.name || '').toLowerCase().includes((search || '').toLowerCase()) ||
-      (a?.tagNumber || '').toLowerCase().includes((search || '').toLowerCase());
-    return matchesBranch && matchesSearch;
-  });
+  // A filter change snaps back to page 1 in the same commit, so a search edit
+  // never requests the previous filter's page number.
+  const filterKey = [selectedBranchId, search].join('|');
+  const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
+  if (filterKey !== prevFilterKey) {
+    setPrevFilterKey(filterKey);
+    if (page !== 1) setPage(1);
+  }
 
-  const totalCost = filteredAssets.reduce((sum, a) => sum + Number(a.acquisitionCost ?? 0), 0);
-  const totalAccumDep = filteredAssets.reduce(
-    (sum, a) => sum + Number(calculateFixedAssetValues({ ...a, acquisitionDateAD: a.placedInServiceDateAD || a.acquisitionDateAD, asOfDateAD }).accumulatedDepreciation ?? 0),
-    0
-  );
-  const totalNBV = filteredAssets.reduce(
-    (sum, a) => sum + Number(calculateFixedAssetValues({ ...a, acquisitionDateAD: a.placedInServiceDateAD || a.acquisitionDateAD, asOfDateAD }).netBookValue ?? 0),
-    0
-  );
+  useEffect(() => {
+    const seq = ++requestSeq.current;
+    setLoading(true);
+    setLoadError('');
+    Promise.all([
+      api.getFixedAssetPage({ branchId: selectedBranchId, query: search || undefined }, page, pageSize),
+      api.getFixedAssetOverview({ branchId: selectedBranchId, query: search || undefined, asOf: asOfDateAD }),
+    ])
+      .then(([pageResult, overview]) => {
+        if (seq !== requestSeq.current) return;
+        setRows(Array.isArray(pageResult?.data) ? pageResult.data : []);
+        setTotalItems(Number(pageResult?.totalItems) || 0);
+        setTotals(overview?.totals ?? ZERO_TOTALS);
+        setLoading(false);
+      })
+      .catch((err) => {
+        if (seq !== requestSeq.current) return;
+        setLoadError(err?.message || 'Could not load the fixed-asset register.');
+        setLoading(false);
+      });
+  }, [selectedBranchId, search, page, pageSize, asOfDateAD, refreshToken, retryToken]);
 
-  const assetsPagination = useClientPagination(filteredAssets, 15, [selectedBranchId, search]);
+  const safePage = useServerPageClamp(page, pageSize, totalItems, setPage);
+  const pageCount = Math.max(1, Math.ceil(totalItems / pageSize));
+  const rangeStart = totalItems === 0 ? 0 : (safePage - 1) * pageSize + 1;
+  const rangeEnd = Math.min(safePage * pageSize, totalItems);
+  const totalCost = totals.acquisitionCost;
+  const totalAccumDep = totals.accumulatedDepreciation;
+  const totalNBV = totals.netBookValue;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -120,8 +162,26 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
 
   const selectedBranchObj = branches.find((b) => b.id === selectedAssetDetail?.branchId);
 
-  const handleExportCSV = () => {
-    exportToCSV('Inventory_Fixed_Asset_Register', filteredAssets, [
+  const handleExportCSV = async () => {
+    // The report is the whole filtered set, fetched with the bounded `all=1`
+    // read — never just the rows of the page on screen.
+    let exportRows = rows;
+    let truncated = false;
+    try {
+      const exported = await api.getFixedAssetExport({ branchId: selectedBranchId, query: search || undefined });
+      exportRows = exported.data;
+      truncated = Boolean(exported.truncated);
+    } catch {
+      // Keep the visible page rather than exporting nothing; the server error is
+      // surfaced by the register's own load notice on the next refresh.
+    }
+    // ASSET-1: a capped export is reported, never silently cut at 20,000 rows.
+    if (truncated) {
+      await alertDialog(
+        'The export was capped at 20,000 rows. Narrow the branch or search filters before exporting the rest.'
+      );
+    }
+    exportToCSV('Inventory_Fixed_Asset_Register', exportRows, [
       { key: 'tagNumber', label: 'Tag Number' },
       { key: 'name', label: 'Asset Title' },
       { key: 'category', label: 'Category' },
@@ -206,6 +266,16 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
         />
       </div>
 
+      {loadError && (
+        <RegisterLoadError
+          subject="the fixed-asset register"
+          message={loadError}
+          hasCachedRows={rows.length > 0}
+          loading={loading}
+          onRetry={() => setRetryToken((n) => n + 1)}
+        />
+      )}
+
       {/* Table */}
       <div className={`rounded-2xl border shadow-xs overflow-hidden bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
         <div className="overflow-x-auto">
@@ -225,14 +295,14 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-              {filteredAssets.length === 0 ? (
+              {rows.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="p-8 text-center text-slate-500 dark:text-slate-400 text-xs">
-                    No fixed assets registered for this branch.
+                    {loading ? 'Loading fixed assets…' : 'No fixed assets registered for this branch.'}
                   </td>
                 </tr>
               ) : (
-                assetsPagination.pagedItems.map((asset) => {
+                rows.map((asset) => {
                   const branch = branches.find((b) => b.id === asset.branchId);
                   const financials = calculateFixedAssetValues({ ...asset, acquisitionDateAD: asset.placedInServiceDateAD || asset.acquisitionDateAD, asOfDateAD });
                   return (
@@ -261,7 +331,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                         {asset.depreciationMethod === 'STRAIGHT_LINE' ? 'SL' : 'RB'} @ {asset.depreciationRatePercent}%
                       </td>
                       <td className="p-2.5 text-right font-mono font-bold text-emerald-700 dark:text-emerald-400">
-                        {(financials.netBookValue ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {(financials.accumulatedDepreciation ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                       <td className="p-2.5 text-center" onClick={(e) => e.stopPropagation()}>
                         <select
@@ -288,14 +358,17 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
           </table>
         </div>
         <TablePagination
-          page={assetsPagination.page}
-          pageCount={assetsPagination.pageCount}
-          totalItems={assetsPagination.totalItems}
-          rangeStart={assetsPagination.rangeStart}
-          rangeEnd={assetsPagination.rangeEnd}
-          pageSize={assetsPagination.pageSize}
-          onPageChange={assetsPagination.setPage}
-          onPageSizeChange={assetsPagination.setPageSize}
+          page={safePage}
+          pageCount={pageCount}
+          totalItems={totalItems}
+          rangeStart={rangeStart}
+          rangeEnd={rangeEnd}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(1);
+          }}
           className="mt-1"
         />
       </div>

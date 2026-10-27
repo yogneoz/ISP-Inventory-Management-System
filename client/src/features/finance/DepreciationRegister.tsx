@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { Asset, Branch, CompanyProfile } from '../../types';
+import React, { useEffect, useRef, useState } from 'react';
+import { Asset, Branch, CompanyProfile, FixedAssetGroup, FixedAssetTotals } from '../../types';
+import { api } from '../../services/api';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { exportToCSV } from '../../utils/exportUtils';
 import { calculateFixedAssetValues } from '../../utils/depreciation';
@@ -20,9 +21,15 @@ import {
   FileText,
 } from 'lucide-react';
 import { StatCard } from '../../components/common/StatCard';
+import { useServerPageClamp, TablePagination } from '../../components/common/TablePagination';
+import { RegisterLoadError } from '../../components/common/RegisterLoadError';
+import { useDialog } from '../../components/common/DialogProvider';
+
+const ZERO_TOTALS: FixedAssetTotals = { acquisitionCost: 0, accumulatedDepreciation: 0, netBookValue: 0 };
 
 interface DepreciationRegisterProps {
-  assets: Asset[];
+  /** ASSET-1: grouped summary + overview from the server; date-wise view paged. */
+  refreshToken?: number;
   branches: Branch[];
   selectedBranchId: string;
   asOfDateAD?: string;
@@ -30,113 +37,113 @@ interface DepreciationRegisterProps {
   companyProfile?: CompanyProfile | null;
 }
 
-interface AssetGroup {
-  key: string;
-  masterName: string;
-  category: string;
-  depreciationMethod?: string;
-  depreciationRatePercent?: number;
-  totalCost: number;
-  totalAccumDep: number;
-  totalNBV: number;
-  lotCount: number;
-  lots: Asset[];
-}
-
 export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
-  assets,
+  refreshToken = 0,
   branches,
   selectedBranchId,
   asOfDateAD,
   dateMode,
   companyProfile,
 }) => {
+  const { alert: alertDialog } = useDialog();
   const [activeTab, setActiveTab] = useState<'SUMMARY' | 'DATE_WISE'>('SUMMARY');
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
-  const toggleGroupExpand = (groupKey: string) => {
-    setExpandedGroups((prev) => ({ ...prev, [groupKey]: !prev[groupKey] }));
+  // Server reads (ASSET-1). The summary groups and the KPI totals come from
+  // /overview; the date-wise tab pages through /page ordered by invoice date.
+  const [groups, setGroups] = useState<FixedAssetGroup[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [totals, setTotals] = useState<FixedAssetTotals>(ZERO_TOTALS);
+  const [overviewTotal, setOverviewTotal] = useState(0);
+  const [rows, setRows] = useState<Asset[]>([]);
+  const [totalItems, setTotalItems] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [retryToken, setRetryToken] = useState(0);
+  const [groupLots, setGroupLots] = useState<Record<string, Asset[]>>({});
+  const [groupLoading, setGroupLoading] = useState<Record<string, boolean>>({});
+  const requestSeq = useRef(0);
+
+  const scopedParams = {
+    branchId: selectedBranchId,
+    query: searchQuery || undefined,
+    category: categoryFilter === 'ALL' ? undefined : categoryFilter,
+  } as const;
+
+  const filterKey = [selectedBranchId, searchQuery, categoryFilter].join('|');
+  const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
+  if (filterKey !== prevFilterKey) {
+    setPrevFilterKey(filterKey);
+    if (page !== 1) setPage(1);
+  }
+
+  useEffect(() => {
+    const seq = ++requestSeq.current;
+    setLoading(true);
+    setLoadError('');
+    Promise.all([
+      api.getFixedAssetOverview({ ...scopedParams, asOf: asOfDateAD, groupBy: 'master', categories: true }),
+      activeTab === 'DATE_WISE'
+        ? api.getFixedAssetPage({ ...scopedParams, sort: 'invoiceDate' }, page, pageSize)
+        : Promise.resolve(null),
+    ])
+      .then(([overview, pageResult]) => {
+        if (seq !== requestSeq.current) return;
+        setGroups(overview?.groups ?? []);
+        setCategories(overview?.categories ?? []);
+        setTotals(overview?.totals ?? ZERO_TOTALS);
+        setOverviewTotal(Number(overview?.total) || 0);
+        if (pageResult) {
+          setRows(Array.isArray(pageResult.data) ? pageResult.data : []);
+          setTotalItems(Number(pageResult.totalItems) || 0);
+        }
+        setLoading(false);
+      })
+      .catch((err) => {
+        if (seq !== requestSeq.current) return;
+        setLoadError(err?.message || 'Could not load the depreciation register.');
+        setLoading(false);
+      });
+  }, [selectedBranchId, searchQuery, categoryFilter, asOfDateAD, activeTab, page, pageSize, refreshToken, retryToken]);
+
+  const safePage = useServerPageClamp(page, pageSize, totalItems, setPage);
+  const pageCount = Math.max(1, Math.ceil(totalItems / pageSize));
+  const rangeStart = totalItems === 0 ? 0 : (safePage - 1) * pageSize + 1;
+  const rangeEnd = Math.min(safePage * pageSize, totalItems);
+
+  const toggleGroupExpand = (group: FixedAssetGroup) => {
+    const willExpand = !expandedGroups[group.key];
+    setExpandedGroups((prev) => ({ ...prev, [group.key]: willExpand }));
+    // The group's purchase lots are fetched lazily, bounded, instead of being
+    // carried with the whole table.
+    if (!willExpand || groupLots[group.key] || groupLoading[group.key]) return;
+    setGroupLoading((prev) => ({ ...prev, [group.key]: true }));
+    api
+      .getFixedAssetPage({ ...scopedParams, query: group.masterName, category: group.category }, 1, 200)
+      .then((result) => setGroupLots((prev) => ({ ...prev, [group.key]: result.data })))
+      .catch(() => setGroupLots((prev) => ({ ...prev, [group.key]: [] })))
+      .finally(() => setGroupLoading((prev) => ({ ...prev, [group.key]: false })));
   };
 
-  const filteredAssets = (assets || []).filter((asset) => {
-    const matchesBranch = selectedBranchId === 'ALL' || asset.branchId === selectedBranchId;
-    const matchesSearch =
-      !searchQuery ||
-      asset.name?.toLowerCase().includes((searchQuery || '').toLowerCase()) ||
-      asset.tagNumber?.toLowerCase().includes((searchQuery || '').toLowerCase()) ||
-      asset.invoiceNo?.toLowerCase().includes((searchQuery || '').toLowerCase()) ||
-      asset.supplierName?.toLowerCase().includes((searchQuery || '').toLowerCase());
-    const matchesCategory = categoryFilter === 'ALL' || asset.category === categoryFilter;
+  const totalCost = totals.acquisitionCost;
+  const totalAccumDep = totals.accumulatedDepreciation;
+  const totalNBV = totals.netBookValue;
 
-    return matchesBranch && matchesSearch && matchesCategory;
-  });
-
-  // Group assets by Master Asset Name / Category for Summary view
-  const groupedSummaryMap = filteredAssets.reduce((acc, asset) => {
-    // Strip trailing "(Lot Qty: X)" if present to get standard master title
-    const cleanMasterName = asset.name ? asset.name.replace(/\s*\(Lot Qty:\s*\d+\)/i, '').trim() : 'Uncategorized Asset';
-    const key = `${asset.category}___${cleanMasterName}`;
-
-    if (!acc[key]) {
-      acc[key] = {
-        key,
-        masterName: cleanMasterName,
-        category: asset.category,
-        depreciationMethod: asset.depreciationMethod,
-        depreciationRatePercent: asset.depreciationRatePercent,
-        totalCost: 0,
-        totalAccumDep: 0,
-        totalNBV: 0,
-        lotCount: 0,
-        lots: [],
-      };
-    }
-
-    const financials = calculateFixedAssetValues({ ...asset, acquisitionDateAD: asset.placedInServiceDateAD || asset.acquisitionDateAD, asOfDateAD });
-    acc[key].totalCost += Number(asset.acquisitionCost ?? 0);
-    acc[key].totalAccumDep += Number(financials.accumulatedDepreciation ?? 0);
-    acc[key].totalNBV += Number(financials.netBookValue ?? 0);
-    acc[key].lotCount += 1;
-    acc[key].lots.push(asset);
-
-    return acc;
-  }, {} as Record<string, AssetGroup>);
-
-  const groupedSummaryList: AssetGroup[] = Object.values(groupedSummaryMap);
-
-  // Overall KPI totals — ensure numeric addition by wrapping with Number()
-  const totalCost = filteredAssets.reduce((sum, a) => sum + Number(a.acquisitionCost ?? 0), 0);
-  const totalAccumDep = filteredAssets.reduce(
-    (sum, a) => sum + Number(calculateFixedAssetValues({ ...a, acquisitionDateAD: a.placedInServiceDateAD || a.acquisitionDateAD, asOfDateAD }).accumulatedDepreciation ?? 0),
-    0
-  );
-  const totalNBV = filteredAssets.reduce(
-    (sum, a) => sum + Number(calculateFixedAssetValues({ ...a, acquisitionDateAD: a.placedInServiceDateAD || a.acquisitionDateAD, asOfDateAD }).netBookValue ?? 0),
-    0
-  );
-
-  const categories = Array.from(new Set((assets || []).map((a) => a.category)));
-
-  // Sorted list for Date wise view (Newest Party Invoice Date first)
-  const sortedDatewiseAssets = [...filteredAssets].sort((a, b) => {
-    const dateA = a.purchaseInvoiceDateAD || a.acquisitionDateAD || '';
-    const dateB = b.purchaseInvoiceDateAD || b.acquisitionDateAD || '';
-    return dateB.localeCompare(dateA);
-  });
-
-  const handleExportCSV = () => {
+  const handleExportCSV = async () => {
     if (activeTab === 'SUMMARY') {
-      const data = groupedSummaryList.map((g) => ({
+      const data = groups.map((g) => ({
         AssetTitle: g.masterName,
         Category: g.category,
         PurchaseLotsCount: g.lotCount,
         Method: g.depreciationMethod === 'STRAIGHT_LINE' ? 'Straight Line' : 'Declining Balance / WDV',
         RatePercent: `${g.depreciationRatePercent ?? 0}%`,
-        GrossAcquisitionCost: g.totalCost,
-        AccumulatedDepreciation: g.totalAccumDep,
-        NetBookValue: g.totalNBV,
+        GrossAcquisitionCost: g.totals.acquisitionCost,
+        AccumulatedDepreciation: g.totals.accumulatedDepreciation,
+        NetBookValue: g.totals.netBookValue,
       }));
 
       exportToCSV('Fixed_Asset_Summary_Depreciation_Register', data, [
@@ -150,7 +157,22 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
         { key: 'NetBookValue', label: 'Net Book Value' },
       ], companyProfile);
     } else {
-      const data = sortedDatewiseAssets.map((a) => {
+      let exportRows = rows;
+      let truncated = false;
+      try {
+        const exported = await api.getFixedAssetExport({ ...scopedParams, sort: 'invoiceDate' });
+        exportRows = exported.data;
+        truncated = Boolean(exported.truncated);
+      } catch {
+        // Keep the visible page rather than exporting nothing.
+      }
+      // ASSET-1: a capped export is reported, never silently cut at 20,000 rows.
+      if (truncated) {
+        await alertDialog(
+          'The export was capped at 20,000 rows. Narrow the branch, category or search filters before exporting the rest.'
+        );
+      }
+      const data = exportRows.map((a) => {
         const bObj = branches.find((b) => b.id === a.branchId);
         return {
           PartyInvoiceDateAD: a.purchaseInvoiceDateAD || a.acquisitionDateAD,
@@ -164,8 +186,16 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
           AcquisitionCost: a.acquisitionCost,
           Method: a.depreciationMethod === 'STRAIGHT_LINE' ? 'Straight Line' : 'Declining Balance / WDV',
           RatePercent: `${a.depreciationRatePercent}%`,
-          AccumulatedDepreciation: a.accumulatedDepreciation,
-          NetBookValue: a.netBookValue,
+          AccumulatedDepreciation: calculateFixedAssetValues({
+            ...a,
+            acquisitionDateAD: a.placedInServiceDateAD || a.acquisitionDateAD,
+            asOfDateAD,
+          }).accumulatedDepreciation,
+          NetBookValue: calculateFixedAssetValues({
+            ...a,
+            acquisitionDateAD: a.placedInServiceDateAD || a.acquisitionDateAD,
+            asOfDateAD,
+          }).netBookValue,
         };
       });
 
@@ -236,7 +266,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
           <span className={`px-1.5 py-0.2 text-[10px] rounded-full font-mono ${
             activeTab === 'SUMMARY' ? 'bg-indigo-500/40 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
           }`}>
-            {groupedSummaryList.length}
+            {groups.length}
           </span>
         </button>
 
@@ -249,7 +279,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
           <span className={`px-1.5 py-0.2 text-[10px] rounded-full font-mono ${
             activeTab === 'DATE_WISE' ? 'bg-indigo-500/40 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
           }`}>
-            {sortedDatewiseAssets.length} Lots
+            {totalItems.toLocaleString('en-IN')} Lots
           </span>
         </button>
       </div>
@@ -261,7 +291,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
           icon={<Landmark className="h-4 w-4" />}
           tone="emerald"
           value={formatNPRPrecise(totalCost)}
-          hint={`Total capital expenditure across ${filteredAssets.length} purchase lots`}
+          hint={`Total capital expenditure across ${overviewTotal} purchase lots`}
         />
         <StatCard
           label="TOTAL ACCUMULATED DEPRECIATION"
@@ -308,6 +338,16 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
         }
       />
 
+      {loadError && (
+        <RegisterLoadError
+          subject="the depreciation register"
+          message={loadError}
+          hasCachedRows={groups.length > 0 || rows.length > 0}
+          loading={loading}
+          onRetry={() => setRetryToken((n) => n + 1)}
+        />
+      )}
+
       {/* Active Register View Table */}
       {activeTab === 'SUMMARY' ? (
         /* SUMMARY REGISTER WITH EXPANDABLE PURCHASE LOT ROWS */
@@ -331,20 +371,20 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
-                {groupedSummaryList.length === 0 ? (
+                {groups.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="px-3 py-6 text-center text-slate-400">
-                      No fixed assets found matching filter criteria.
+                      {loading ? 'Loading depreciation summary…' : 'No fixed assets found matching filter criteria.'}
                     </td>
                   </tr>
                 ) : (
-                  groupedSummaryList.map((grp) => {
+                  groups.map((grp) => {
                     const isExpanded = !!expandedGroups[grp.key];
                     return (
                       <React.Fragment key={grp.key}>
                         {/* Parent Summary Row */}
                         <tr
-                          onClick={() => toggleGroupExpand(grp.key)}
+                          onClick={() => toggleGroupExpand(grp)}
                           className={`cursor-pointer transition-colors ${isExpanded ? 'bg-indigo-50/50 dark:bg-indigo-950/30' : 'hover:bg-slate-200 text-slate-800 dark:hover:bg-slate-800/40 dark:text-slate-200'}`}
                         >
                           <td className="px-2.5 py-1.5 text-center">
@@ -377,13 +417,13 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                             </span>
                           </td>
                           <td className="px-2.5 py-1.5 text-right font-mono font-bold text-slate-900 dark:text-white">
-                            {formatNPRPrecise(grp.totalCost)}
+                            {formatNPRPrecise(grp.totals.acquisitionCost)}
                           </td>
                           <td className="px-2.5 py-1.5 text-right font-mono text-rose-500 font-bold">
-                            {formatNPRPrecise(grp.totalAccumDep)}
+                            {formatNPRPrecise(grp.totals.accumulatedDepreciation)}
                           </td>
                           <td className={`px-2.5 py-1.5 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400`}>
-                            {formatNPRPrecise(grp.totalNBV)}
+                            {formatNPRPrecise(grp.totals.netBookValue)}
                           </td>
                         </tr>
 
@@ -396,6 +436,14 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                                   <FileText className="h-3.5 w-3.5" />
                                   <span>Individual Purchase Invoices & Datewise Depreciation Lots ({grp.masterName})</span>
                                 </div>
+                                {groupLoading[grp.key] && !groupLots[grp.key] && (
+                                  <p className="text-[11px] text-slate-500 dark:text-slate-400">Loading purchase lots…</p>
+                                )}
+                                {(groupLots[grp.key]?.length ?? 0) < grp.lotCount && !groupLoading[grp.key] && (
+                                  <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                                    Showing {(groupLots[grp.key] || []).length} of {grp.lotCount} purchase lots — use the date-wise register or search to reach the rest.
+                                  </p>
+                                )}
                                 <table className="w-full text-left text-[11px] border rounded-xl overflow-hidden bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800">
                                   <thead className="bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 font-bold text-[9px] tracking-wider">
                                     <tr>
@@ -409,7 +457,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                                     </tr>
                                   </thead>
                                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
-                                    {grp.lots.map((lot) => (
+                                    {(groupLots[grp.key] || []).map((lot) => (
                                       <tr key={lot.id} className="hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20">
                                         <td className={`px-2.5 py-1.5 font-bold text-indigo-600 dark:text-indigo-400`}>
                                           {lot.acquisitionDateAD} ({lot.acquisitionDateBS})
@@ -489,14 +537,14 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
-                {sortedDatewiseAssets.length === 0 ? (
+                {rows.length === 0 ? (
                   <tr>
                     <td colSpan={9} className="px-3 py-6 text-center text-slate-400">
-                      No purchase lots found matching filter criteria.
+                      {loading ? 'Loading purchase lots…' : 'No purchase lots found matching filter criteria.'}
                     </td>
                   </tr>
                 ) : (
-                  sortedDatewiseAssets.map((asset) => (
+                  rows.map((asset) => (
                     <tr
                       key={asset.id}
                       className={`hover:bg-slate-200 dark:hover:bg-slate-800/40 transition-colors text-slate-800 dark:text-slate-300`}
@@ -560,6 +608,19 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
               </tfoot>
             </table>
           </div>
+          <TablePagination
+            page={safePage}
+            pageCount={pageCount}
+            totalItems={totalItems}
+            rangeStart={rangeStart}
+            rangeEnd={rangeEnd}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setPage(1);
+            }}
+          />
         </div>
       )}
     </div>

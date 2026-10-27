@@ -22,7 +22,6 @@ interface ClearDemoDataViewProps {
   currentUser?: User | null;
   productCount: number;
   stockCount: number;
-  assetCount: number;
   poCount: number;
   invoiceCount: number;
   /**
@@ -44,7 +43,6 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
   currentUser,
   productCount,
   stockCount,
-  assetCount,
   poCount,
   invoiceCount,
   needsFiscalYear = false,
@@ -84,6 +82,24 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
       })
       .catch(() => {
         if (!cancelled) setDeviceCount(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // ASSET-1: fixed assets left the bootstrap, so the demo card counts them
+  // through the bounded overview instead of receiving the whole array.
+  const [fixedAssetCount, setFixedAssetCount] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getFixedAssetOverview({})
+      .then((overview) => {
+        if (!cancelled) setFixedAssetCount(Number(overview?.total) || 0);
+      })
+      .catch(() => {
+        if (!cancelled) setFixedAssetCount(null);
       });
     return () => {
       cancelled = true;
@@ -132,7 +148,7 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
   // A pending customer count makes the total a lower bound until it arrives;
   // the figure is a coarse "how much is on file" preview, not an audit number.
   const totalOperationalRecords =
-    productCount + stockCount + assetCount + (deviceCount ?? 0) + (customerCount ?? 0) + poCount + invoiceCount;
+    productCount + stockCount + (fixedAssetCount ?? 0) + (deviceCount ?? 0) + (customerCount ?? 0) + poCount + invoiceCount;
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-12">
@@ -264,7 +280,7 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
                   <Building className={`h-4 w-4 text-blue-500 dark:text-blue-400`} />
                   <span>Fixed Assets</span>
                 </div>
-                <div className="text-xl font-bold text-slate-900 dark:text-slate-100">{assetCount}</div>
+                <div className="text-xl font-bold text-slate-900 dark:text-slate-100">{fixedAssetCount ?? '—'}</div>
               </div>
 
               <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-100 dark:border-slate-800">

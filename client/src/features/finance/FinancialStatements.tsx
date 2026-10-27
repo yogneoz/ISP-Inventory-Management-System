@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useActivationKey, useTabActive } from '../../components/common/KeepMounted';
-import { FinancialSummary, Asset, PurchaseInvoice, CompanyProfile, Branch, FiscalYear } from '../../types';
+import { FinancialSummary, FixedAssetTotals, PurchaseInvoice, CompanyProfile, Branch, FiscalYear } from '../../types';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { exportToCSV } from '../../utils/exportUtils';
-import { calculateFixedAssetValues } from '../../utils/depreciation';
 import { formatNPR } from '../../utils/nprFormat';
+import { api } from '../../services/api';
 import { PageHeader } from '../../components/common/PageHeader';
 import { getFinancialSummaries } from '../../services/api/finance';
 import {
@@ -23,7 +23,6 @@ import {
 
 interface FinancialStatementsProps {
   financialSummary: FinancialSummary;
-  assets: Asset[];
   invoices: PurchaseInvoice[];
   dateMode: 'BS' | 'AD';
   /** As-of date used for live NBV; matches the Fixed Asset Register / Depreciation Register view. */
@@ -38,6 +37,8 @@ interface FinancialStatementsProps {
   currentFiscalYear?: FiscalYear | null;
   /** Optional: the fiscal-year id currently selected globally (used for per-branch fetches). */
   fiscalYearId?: string;
+  /** ASSET-1: bumped by App when fixed assets change. */
+  refreshToken?: number;
 }
 
 // PostgreSQL NUMERIC columns arrive as strings over the API. Coerce every
@@ -73,24 +74,13 @@ interface BranchFigures {
 function computeFigures(
   branchId: string,
   summary: FinancialSummary,
-  branchAssets: Asset[],
-  asOfDateAD?: string
+  /** ASSET-1: the server's formula totals for this branch at the period date. */
+  assetTotals?: FixedAssetTotals
 ): BranchFigures {
   const inventoryAssetVal = toNumber(summary?.totalInventoryAssetValue);
-  const grossFixedAssets = branchAssets.reduce((sum, a) => sum + toNumber(a.acquisitionCost), 0);
-  const accumulatedDepreciation = branchAssets.reduce(
-    (sum, a) =>
-      sum +
-      toNumber(
-        calculateFixedAssetValues({
-          ...a,
-          acquisitionDateAD: a.placedInServiceDateAD || a.acquisitionDateAD,
-          asOfDateAD,
-        }).accumulatedDepreciation
-      ),
-    0
-  );
-  const fixedAssetNBV = grossFixedAssets - accumulatedDepreciation;
+  const grossFixedAssets = toNumber(assetTotals?.acquisitionCost);
+  const accumulatedDepreciation = toNumber(assetTotals?.accumulatedDepreciation);
+  const fixedAssetNBV = assetTotals ? toNumber(assetTotals.netBookValue) : grossFixedAssets - accumulatedDepreciation;
   const totalAssets = inventoryAssetVal + fixedAssetNBV;
   const accountsPayable = Math.max(0, toNumber(summary?.totalAccountsPayable));
   const netEquity = totalAssets - accountsPayable;
@@ -147,7 +137,6 @@ const sumFigures = (cols: BranchFigures[]): BranchFigures => {
 
 export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
   financialSummary,
-  assets,
   dateMode,
   asOfDateAD,
   companyProfile,
@@ -155,6 +144,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
   fiscalYears,
   currentFiscalYear,
   fiscalYearId,
+  refreshToken = 0,
 }) => {
   const [statementType, setStatementType] = useState<'BALANCE_SHEET' | 'PROFIT_LOSS'>('BALANCE_SHEET');
   // Two views, ERP-style: a single-entity statement + a branch comparison report.
@@ -169,6 +159,10 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
   const [summariesError, setSummariesError] = useState<string | null>(null);
   // A failed batch used to wait for the next tab activation to try again.
   const [summariesRetryKey, setSummariesRetryKey] = useState(0);
+  // ASSET-1: per-branch formula totals at the current as-of date and at the
+  // prior FY's close, from the server overview — never from a whole table.
+  const [assetTotalsByBranch, setAssetTotalsByBranch] = useState<Record<string, FixedAssetTotals>>({});
+  const [priorAssetTotalsByBranch, setPriorAssetTotalsByBranch] = useState<Record<string, FixedAssetTotals>>({});
 
   const activeBranches = useMemo(
     () => (branches || []).filter((b) => b.active),
@@ -234,19 +228,45 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
     };
   }, [isActive, activeBranches, currentFy, priorFy, activationKey, summariesRetryKey, financialSummary]);
 
+  useEffect(() => {
+    if (!isActive) return;
+    let cancelled = false;
+    const toMap = (overview: { byBranch?: Array<{ branchId: string; totals: FixedAssetTotals }> } | null) =>
+      Object.fromEntries((overview?.byBranch || []).map((row) => [row.branchId, row.totals]));
+    const load = async () => {
+      const current = await api.getFixedAssetOverview({ asOf: asOfDateAD, byBranch: true });
+      const prior = priorFy?.endDateAD
+        ? await api.getFixedAssetOverview({ asOf: priorFy.endDateAD, byBranch: true })
+        : null;
+      if (cancelled) return;
+      setAssetTotalsByBranch(toMap(current));
+      setPriorAssetTotalsByBranch(toMap(prior));
+    };
+    load()
+      .catch(() => {
+        // The statement still renders payables/sales; asset figures stay at
+        // zero rather than falling back to a full-table client read.
+        if (!cancelled) {
+          setAssetTotalsByBranch({});
+          setPriorAssetTotalsByBranch({});
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isActive, asOfDateAD, priorFy?.endDateAD, activationKey, financialSummary, refreshToken]);
+
   // ----- Figures per branch × fiscal year ------------------------------------
   const figuresFor = (branchId: string, fy: FiscalYear | null): BranchFigures => {
-    const branchAssets = (assets || []).filter((a) => a.branchId === branchId);
-    // Current FY: evaluated at the global as-of date (matches the Fixed Asset
-    // Register). Prior FY: evaluated at the prior year's END date — "what the
-    // NBV was when that year closed".
+    // Current FY: server totals at the global as-of date (matches the Fixed
+    // Asset Register). Prior FY: totals at the prior year's END date — "what
+    // the NBV was when that year closed".
     const isPrior = Boolean(fy && priorFy && fy.id === priorFy.id);
     const summary = summaryMap[`${branchId}|${fy?.id || ''}`] || financialSummary;
     return computeFigures(
       branchId,
       summary,
-      branchAssets,
-      isPrior ? priorFy?.endDateAD : asOfDateAD
+      isPrior ? priorAssetTotalsByBranch[branchId] : assetTotalsByBranch[branchId]
     );
   };
 
@@ -312,7 +332,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
     }
     return cols;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statementEntity, currentFy, priorFy, comparativeMode, summaryMap, assets, activeBranches, asOfDateAD, financialSummary]);
+  }, [statementEntity, currentFy, priorFy, comparativeMode, summaryMap, assetTotalsByBranch, priorAssetTotalsByBranch, activeBranches, financialSummary]);
 
   const varianceFor = (i: number, get: (f: BranchFigures) => number): number => {
     const cur = periodCols[i - 2];
@@ -330,7 +350,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
     }));
     return rowsOut;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeBranches, currentFy, priorFy, summaryMap, assets, asOfDateAD, financialSummary]);
+  }, [activeBranches, currentFy, priorFy, summaryMap, assetTotalsByBranch, priorAssetTotalsByBranch, financialSummary]);
 
   const comparisonConsolidated = useMemo(
     () => sumFigures(comparisonRows.map((r) => r.current)),

@@ -349,12 +349,13 @@ bootstrap; **paged** = path 4; **self** = path 5; **form** = no read of its own.
 
 | Tab / screen | Data path | Verdict |
 |---|---|---|
-| Executive Dashboard | props (stock, products, POs, shipments, assets) + self recent activity | Live via targeted slices; the eight latest movements are read from `GET /api/transaction-logs` (VOL-1). `financialSummary` prop is unused here. |
+| Executive Dashboard | props (stock, products, POs, shipments) + self recent activity + fixed-asset overview | Live via targeted slices; the eight latest movements are read from `GET /api/transaction-logs` (VOL-1) and the asset KPI reads `GET /api/fixed-assets/overview` (ASSET-1), so no asset array is held. `financialSummary` prop is unused here. |
 | Global search, notifications, help | props / static | Hydration only; no defect found. |
 | All Available Stock, Branch Stock | props stock/products | Fine. |
 | Stock Movement Ledger | self transaction-log window + ops/damage | Fixed by DF-06, then superseded by VOL-1 (2026-10-26): the screen reads a bounded `/api/transaction-logs` window; the bootstrap slice is gone. |
 | Physical Stock Audit | props stock + appSettings | Fine. |
-| Reorder Stock, Stock Valuation, Asset Deployments | props | Fine. (Warranty moved to its own paged read — see below.) |
+| Reorder Stock, Stock Valuation | props | Fine. (Warranty moved to its own paged read — see below.) |
+| Asset Deployments | self paged (ASSET-1) | Reads `GET /api/fixed-assets/page?assigned=1` with branch/type/location/search filters and the bounded export; the register no longer filters an asset array. |
 | Import / Export Stock | props stock/products; devices paged (VOL-4b) | The serialized-device preview pages and the CSV export asks for the filtered set (`all=1`, capped at 20k with a reported `truncated`). |
 | Serial Log Register | paged | Seq + error correct; page clamp fixed by DF-09. Shipment-receipt refresh fixed by DF-06. |
 | Product Master Catalog | self catalog | Stale after every save (P1-1); error state dead (P2-9). |
@@ -370,11 +371,12 @@ bootstrap; **paged** = path 4; **self** = path 5; **form** = no read of its own.
 | Consumables Register | paged | Same; also depends on the shared serial cache for its form host. |
 | Create PO / Purchase Invoice / Sales Invoice / Returns | form | Derived from props; no defect found beyond the stale supplier/branch sync notes. |
 | Create Shipment / Create Transfer / Pullout / Damage Label / Product Sale / Assign Asset | form + `serialRegister` | Validation uses the session-old snapshot (P1-2). VOL-4a: Product Sale and Assign Asset keep the `CustomerRecord` their picker returned; Product Sale starts with no customer selected. |
-| Shipment Register, Receive Inbound, Asset Deployments, Suppliers | props | Fine (host refreshes via `refreshAllData`). |
-| Financial Statements | self (direct `getFinancialSummary`) | Cancel flag + error are correct; N+1 requests (P3-1); summary prop stale cross-client (P1-4). |
+| Shipment Register, Receive Inbound, Suppliers | props | Fine (host refreshes via `refreshAllData`). |
+| Financial Statements | self (direct `getFinancialSummary` + fixed-asset overview) | Cancel flag + error are correct; N+1 requests (P3-1, now also the current and prior-year overview reads); summary prop stale cross-client (P1-4). ASSET-1: the fixed-asset NBV line reads `GET /api/fixed-assets/overview?byBranch=1` at both as-of dates, never an asset array. |
 | Vendor / Customer Ledger | self | Party-switch sequence guard added by DF-08; filters apply on Load by design. |
 | Opening Stock, Vendor Opening Balances | self | FY-switch sequence guard added by DF-08. |
-| VAT Register, Fixed Asset Register, Depreciation Schedule, Fiscal Year Closing | props | Closing-wizard totals depend on the stale financial summary (P1-4). |
+| Fixed Asset Register, Depreciation Schedule | self paged (ASSET-1) | Both page/filter on the server and read KPI totals and the grouped summary from `/overview`; the date-wise lots page too. The export is the bounded `all=1` read. |
+| VAT Register, Fiscal Year Closing | props + fixed-asset overview | Closing-wizard asset diagnoses and depreciation totals now come from `/overview` (ASSET-1), not a local asset array; the summary-prop staleness note (P1-4) still applies to the other figures. |
 | Document Numbering Setup | self list | Silent failure (P2-9). |
 | BS Calendar Utility, Nepali Fiscal & BS Calendar | self | Silent fallback to compiled calendar; no live BS event refresh (P2-7). |
 | BS Calendar health panel | self | Error surfaced correctly; latest-only guard added at close-out (a slow older read cannot paint over a newer report or a repair's re-audit). |

@@ -42,13 +42,13 @@ test('DF-13: statements batch follows the live summary and skips hidden reads', 
     'the batch effect must re-run on a refreshed financialSummary and keep the activation/retry triggers'
   );
   assert.ok(
-    source.includes('asOfDateAD, financialSummary])'),
-    'the statement table memo must depend on the live summary'
+    source.includes('assetTotalsByBranch, priorAssetTotalsByBranch, activeBranches, financialSummary])'),
+    'the statement table memo must depend on the live summary and the server asset totals'
   );
   assert.match(
     source,
-    /summaryMap, assets, asOfDateAD, financialSummary\]\)/,
-    'the branch comparison memo must depend on the live summary'
+    /summaryMap, assetTotalsByBranch, priorAssetTotalsByBranch, financialSummary\]\)/,
+    'the branch comparison memo must depend on the live summary and the server asset totals'
   );
   assert.ok(
     source.includes('getFinancialSummaries('),

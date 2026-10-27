@@ -132,7 +132,7 @@ describe('VOL-4b — customer devices off the bootstrap', () => {
     // The legacy local slice must stay mapped for a cached older bundle.
     assert.match(
       controller,
-      /'customerDevices'\]\.includes\(key\)|customerDevices'[^\n]*BOOTSTRAP_TABLES|BOOTSTRAP_TABLES\.customerDevices/,
+      /'customerDevices'[^\n]*\]\.includes\(key\)|customerDevices'[^\n]*BOOTSTRAP_TABLES|BOOTSTRAP_TABLES\.customerDevices/,
       'GET /api/bootstrap/local must still answer key=customerDevices for an older client'
     );
   });

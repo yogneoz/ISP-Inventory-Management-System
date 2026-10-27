@@ -383,6 +383,56 @@ export interface CustomerDeviceOverview {
   counts: Record<string, number>;
 }
 
+/** ASSET-1: money totals the server computes with the shared depreciation rule. */
+export interface FixedAssetTotals {
+  acquisitionCost: number;
+  accumulatedDepreciation: number;
+  netBookValue: number;
+}
+
+/** ASSET-1: one server-paged slice of the fixed-asset register. */
+export interface FixedAssetPage {
+  data: Asset[];
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  /** Only on an `all=1` export: the row cap was hit and the file is a prefix. */
+  truncated?: boolean;
+}
+
+/** ASSET-1: the closing wizard's depreciation preconditions. */
+export interface FixedAssetClosingSummary {
+  activeCount: number;
+  annualDepreciation: number;
+  missingRateCount: number;
+  missingRateTags: string[];
+}
+
+/** One depreciation-summary row: a master title inside a category. */
+export interface FixedAssetGroup {
+  key: string;
+  masterName: string;
+  category: string;
+  depreciationMethod: string;
+  depreciationRatePercent: number;
+  lotCount: number;
+  totals: FixedAssetTotals;
+}
+
+/** ASSET-1: exact status counts and formula totals behind every aggregate. */
+export interface FixedAssetOverview {
+  total: number;
+  counts: Record<string, number>;
+  totals: FixedAssetTotals;
+  closing: FixedAssetClosingSummary;
+  /** Only on `byBranch=1` for Financial Statements. */
+  byBranch?: Array<{ branchId: string; total: number; totals: FixedAssetTotals }>;
+  /** Only on `groupBy=master` for the Depreciation Register's summary tab. */
+  groups?: FixedAssetGroup[];
+  /** Only on `categories=1`: every category in the branch+search scope. */
+  categories?: string[];
+}
+
 /** VOL-4b: one server-paged slice of the device register. */
 export interface CustomerDevicePage {
   data: CustomerDeviceRecord[];

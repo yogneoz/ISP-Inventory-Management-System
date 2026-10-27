@@ -6,6 +6,7 @@
  */
 import type { Express } from 'express';
 import { get_stock, patch_Id, patch_reorderLevel, post_bulkReorderLevels, post_reconcileAudit, post_assets, patch_status, get_stockOperations, post_stockOperations, post_reverse, post_reverseConsumable, post_reversePullout, post_reverseStockOut, post_receive, get_customerDevices, get_customerDevicesPage, get_customerDevicesOverview, get_customerDevicesWarranty, post_customerDevices, patch_status2, get_lookup, get_exchangeLookup, post_exchangeRefusal, post_dual, post_exchange, get_serialLog } from '../controllers/inventory.controller';
+import { get_fixedAssetsPage, get_fixedAssetsOverview, get_fixedAssetsAvailable, get_fixedAssetsLookup } from '../controllers/fixedAssets.controller';
 import {
   handleUpdateSerials,
   requirePermission,
@@ -42,6 +43,19 @@ app.post('/api/stock/reconcile-audit', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_A
 app.post('/api/assets', requirePermission('assets-manage'), async (req, res, next) => { post_assets(req as any, res as any).catch(next); });
 
 app.patch('/api/assets/:id/status', async (req, res, next) => { patch_status(req as any, res as any).catch(next); });
+
+// ASSET-1: fixed assets left the login payload. The registers page through
+// /page, the dashboard/statements/FY-closing aggregates read /overview, the
+// deployment pickers read /available, and a panel resolves one row with
+// /lookup. Branch scope is resolved from the session and applied in SQL, like
+// the paged shipment/customer/device reads.
+app.get('/api/fixed-assets/page', async (req, res, next) => { get_fixedAssetsPage(req as any, res as any).catch(next); });
+
+app.get('/api/fixed-assets/overview', async (req, res, next) => { get_fixedAssetsOverview(req as any, res as any).catch(next); });
+
+app.get('/api/fixed-assets/available', async (req, res, next) => { get_fixedAssetsAvailable(req as any, res as any).catch(next); });
+
+app.get('/api/fixed-assets/lookup', async (req, res, next) => { get_fixedAssetsLookup(req as any, res as any).catch(next); });
 
 app.get('/api/stock-operations', async (req, res, next) => { get_stockOperations(req as any, res as any).catch(next); });
 

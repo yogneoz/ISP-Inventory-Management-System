@@ -5,7 +5,6 @@ import {
   FinancialSummary,
   Product,
   Branch,
-  Asset,
   PurchaseInvoice,
   CompanyProfile,
 } from '../../types';
@@ -31,7 +30,6 @@ interface AuditTrailReportsProps {
   financialSummary: FinancialSummary;
   products: Product[];
   branches: Branch[];
-  assets: Asset[];
   invoices: PurchaseInvoice[];
   selectedBranchId: string;
   fiscalYearStartAD?: string;
@@ -47,7 +45,6 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
   financialSummary,
   products,
   branches,
-  assets,
   invoices,
   selectedBranchId,
   fiscalYearStartAD,

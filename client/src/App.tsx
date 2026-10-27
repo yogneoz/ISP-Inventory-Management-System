@@ -51,6 +51,7 @@ import {
   useShipmentOverview,
 } from './services/shipmentOverviewCache';
 import { mergeShipmentWindow } from './services/shipmentOverviewStore';
+import { invalidateAvailableFixedAssets, resetAvailableFixedAssets } from './services/availableAssetsCache';
 import { invalidateBranchStock, resetBranchStock } from './services/branchStockCache';
 import { invalidateExchangeDevices, resetExchangeDevices } from './services/exchangeDeviceCache';
 import { LoginModal } from './components/common/LoginModal';
@@ -536,7 +537,6 @@ export default function App() {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [stock, setStock] = useState<InventoryStock[]>([]);
-  const [assets, setAssets] = useState<Asset[]>([]);
   // Sellable (IN_STOCK) serials for the Sell to Customer form's serial gate.
   // serial_log is a paged ledger and was deliberately dropped from bootstrap,
   // so this is one narrow status-filtered fetch per refresh instead of the
@@ -688,7 +688,6 @@ export default function App() {
     if (data.branches) setBranches(data.branches);
     if (data.products) setProducts(data.products);
     if (data.stock) setStock(data.stock);
-    if (data.assets) setAssets(data.assets);
     if (data.purchaseOrders) setPurchaseOrders(data.purchaseOrders);
     if (data.purchaseInvoices) setPurchaseInvoices(data.purchaseInvoices);
     if (data.purchaseReturns) setPurchaseReturns(data.purchaseReturns);
@@ -874,6 +873,9 @@ export default function App() {
     // The exchange tab's deployed-device list is another self-fetching cache;
     // a manual refresh must re-read it too (DF-16).
     invalidateExchangeDevices();
+    // ASSET-1: the deployment picker's assignable assets are their own bounded
+    // shared read; a manual refresh re-reads them with everything else.
+    invalidateAvailableFixedAssets();
     // The KPI surfaces read the scoped pending-procurement cache rather than
     // the purchase slices, so a manual refresh re-reads it too.
     invalidateProcurementPending();
@@ -1076,12 +1078,14 @@ export default function App() {
     // The device register re-reads through registerRefresh.customerDevices
     // (DOMAIN_REGISTER_KEYS); stock still moves on an assignment/exchange.
     CUSTOMER_DEVICES: ['stock'],
-    ASSETS: ['assets'],
+    // ASSET-1: fixed assets left the bootstrap — every asset consumer re-reads
+    // through registerRefresh.fixedAssets (DOMAIN_REGISTER_KEYS).
+    ASSETS: [],
     APPROVALS: ['approvalRequests'],
     // The admin recalculation jobs rebuild live stock and fixed assets, and the
     // ledger backfill rewrites transaction_logs' before/after balances — the
     // movement ledger must re-read or it keeps the placeholders it had at mount.
-    RECALC: ['stock', 'assets', 'financialSummary'],
+    RECALC: ['stock', 'financialSummary'],
     COMPANY_PROFILE: ['companyProfile'],
     AUDIT: ['auditLogs'],
     // Sync-audit improvements #2/#3: first-class slice domains so the
@@ -1107,6 +1111,7 @@ export default function App() {
     salesInvoices: 0,
     shipments: 0,
     customerDevices: 0,
+    fixedAssets: 0,
     transactionLog: 0,
   });
 
@@ -1186,6 +1191,11 @@ export default function App() {
           // the Device Exchange tab lists, and that list is its own cache.
           if (domains.includes('CUSTOMER_DEVICES') || domains.includes('ASSETS')) {
             invalidateExchangeDevices();
+          }
+          // Asset creation/deployment and the recalculation job change which
+          // units are assignable, so the picker's shared list re-reads.
+          if (domains.includes('ASSETS') || domains.includes('RECALC')) {
+            invalidateAvailableFixedAssets();
           }
           // Procurement and shipment events change the open-PO set and the
           // unpaid-bill total the shell/dashboard/vendor-bill picker read.
@@ -1324,6 +1334,8 @@ export default function App() {
     resetBranchStock();
     // Same for the exchange list: it is cached per branch and shared by hosts.
     resetExchangeDevices();
+    // The assignable-asset list is session-scoped too.
+    resetAvailableFixedAssets();
     // Pending-PO/unpaid-bill counts are per branch + fiscal year: the next
     // sign-in may see different figures.
     resetProcurementPending();
@@ -1827,7 +1839,6 @@ export default function App() {
         products={products}
         stock={stock}
         branches={branches}
-        assets={assets}
         pendingPurchaseOrders={procurementPending.pendingPurchaseOrders}
         financialSummary={financialSummary}
         categories={categories}
@@ -2046,7 +2057,7 @@ export default function App() {
       <React.Suspense fallback={<TabLoadingFallback />}>
         <FixedAssetRegister
           currentUser={currentUser}
-          assets={assets}
+          refreshToken={registerRefresh.fixedAssets}
           branches={branches}
           selectedBranchId={selectedBranchId}
           asOfDateAD={assetReportAsOfDateAD}
@@ -2383,7 +2394,6 @@ export default function App() {
         autoOpenModal={false}
         currentUser={currentUser}
         shipments={shipments}
-        assets={assets}
         approvalRequests={approvalRequests}
         sseRefreshKey={registerRefresh.consumableRegister}
         onCreateOperation={handleCreateOperation}
@@ -2429,7 +2439,6 @@ export default function App() {
         autoOpenModal={false}
         currentUser={currentUser}
         shipments={shipments}
-        assets={assets}
         approvalRequests={approvalRequests}
         sseRefreshKey={registerRefresh.consumableRegister}
         onCreateOperation={handleCreateOperation}
@@ -2483,7 +2492,6 @@ export default function App() {
         autoOpenModal={false}
         currentUser={currentUser}
         shipments={shipments}
-        assets={assets}
         approvalRequests={approvalRequests}
         sseRefreshKey={registerRefresh.consumableRegister}
         onCreateOperation={handleCreateOperation}
@@ -2514,7 +2522,6 @@ export default function App() {
         autoOpenModal={false}
         currentUser={currentUser}
         shipments={shipments}
-        assets={assets}
         approvalRequests={approvalRequests}
         sseRefreshKey={registerRefresh.consumableRegister}
         onCreateOperation={handleCreateOperation}
@@ -2545,7 +2552,6 @@ export default function App() {
         autoOpenModal={false}
         currentUser={currentUser}
         shipments={shipments}
-        assets={assets}
         approvalRequests={approvalRequests}
         sseRefreshKey={registerRefresh.consumableRegister}
         onCreateOperation={handleCreateOperation}
@@ -2567,7 +2573,6 @@ export default function App() {
         autoOpenModal={false}
         currentUser={currentUser}
         shipments={shipments}
-        assets={assets}
         approvalRequests={approvalRequests}
         sseRefreshKey={registerRefresh.consumableRegister}
         onCreateOperation={handleCreateOperation}
@@ -2588,7 +2593,6 @@ export default function App() {
         autoOpenModal={false}
         currentUser={currentUser}
         shipments={shipments}
-        assets={assets}
         approvalRequests={approvalRequests}
         sseRefreshKey={registerRefresh.consumableRegister}
         onCreateOperation={handleCreateOperation}
@@ -2619,7 +2623,6 @@ export default function App() {
         autoOpenModal={false}
         currentUser={currentUser}
         shipments={shipments}
-        assets={assets}
         approvalRequests={approvalRequests}
         sseRefreshKey={registerRefresh.consumableRegister}
         onCreateOperation={handleCreateOperation}
@@ -2639,7 +2642,7 @@ export default function App() {
     screenRoute('asset-deployments', (
       <React.Suspense fallback={<TabLoadingFallback />}>
         <AssetDeployments
-          assets={assets}
+          refreshToken={registerRefresh.fixedAssets}
           branches={branches}
           locations={locations}
           currentUser={currentUser}
@@ -2662,7 +2665,6 @@ export default function App() {
         autoOpenModal={false}
         currentUser={currentUser}
         shipments={shipments}
-        assets={assets}
         approvalRequests={approvalRequests}
         sseRefreshKey={registerRefresh.consumableRegister}
         onCreateOperation={handleCreateOperation}
@@ -2693,7 +2695,6 @@ export default function App() {
         autoOpenModal={false}
         currentUser={currentUser}
         shipments={shipments}
-        assets={assets}
         approvalRequests={approvalRequests}
         sseRefreshKey={registerRefresh.consumableRegister}
         onCreateOperation={handleCreateOperation}
@@ -2728,7 +2729,6 @@ export default function App() {
         autoOpenModal={false}
         currentUser={currentUser}
         shipments={shipments}
-        assets={assets}
         approvalRequests={approvalRequests}
         sseRefreshKey={registerRefresh.consumableRegister}
         onCreateOperation={handleCreateOperation}
@@ -2837,7 +2837,6 @@ export default function App() {
           currentUser={currentUser}
           productCount={products.length}
           stockCount={stock.length}
-          assetCount={assets.length}
           poCount={purchaseOrders.length}
           invoiceCount={purchaseInvoices.length}
           onClearDemoData={async () => {
@@ -2868,7 +2867,7 @@ export default function App() {
       <React.Suspense fallback={<TabLoadingFallback />}>
         <FinancialStatements
           financialSummary={financialSummary}
-          assets={assets}
+          refreshToken={registerRefresh.fixedAssets}
           invoices={purchaseInvoices}
           dateMode={dateMode}
           asOfDateAD={assetReportAsOfDateAD}
@@ -2924,7 +2923,7 @@ export default function App() {
     screenRoute('depreciation-register', (
       <React.Suspense fallback={<TabLoadingFallback />}>
         <DepreciationRegister
-          assets={assets}
+          refreshToken={registerRefresh.fixedAssets}
           branches={branches}
           selectedBranchId={selectedBranchId}
           asOfDateAD={assetReportAsOfDateAD}
@@ -2940,7 +2939,6 @@ export default function App() {
           financialSummary={financialSummary}
           products={products}
           branches={branches}
-          assets={assets}
           invoices={purchaseInvoices}
           selectedBranchId={selectedBranchId}
           fiscalYearStartAD={selectedFiscalYear?.startDateAD}
@@ -2975,7 +2973,7 @@ export default function App() {
           financialSummary={financialSummary}
           products={products}
           stock={stock}
-          assets={assets}
+          refreshToken={registerRefresh.fixedAssets}
           branchId={selectedBranchId}
           sseRefreshKey={registerRefresh.purchaseOrders + registerRefresh.purchaseInvoices}
           approvalRequests={approvalRequests}
@@ -3055,7 +3053,6 @@ export default function App() {
       shipments={shipments}
       stockOperations={stockOperations}
       approvalRequests={approvalRequests}
-      assets={assets}
       suppliers={suppliers}
       bsCalendarCoverage={bsCalendarCoverage}
       bsCalendarSeedTab={bsCalendarSeedTab}

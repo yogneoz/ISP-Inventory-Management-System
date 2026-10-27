@@ -16,6 +16,8 @@ import type {
   CustomerDeviceOverview,
   CustomerDevicePage,
   WarrantyDirectoryPage,
+  FixedAssetPage,
+  FixedAssetOverview,
 } from '../../types';
 import { fetchJson, getActiveBranchId } from './http';
 
@@ -109,6 +111,115 @@ export async function updateAssetStatus(id: string, updates: Asset['status'] | P
     method: 'PATCH',
     body: JSON.stringify(body),
   });
+}
+
+/**
+ * ASSET-1: `fixed_assets` is no longer on the bootstrap. These reads are
+ * branch-scoped from the session; the shell's active branch is the default so a
+ * branch role always names a branch the route guard accepts, and a global scope
+ * sends nothing.
+ */
+export interface FixedAssetQueryParams {
+  branchId?: string;
+  query?: string;
+  /** One status or a list; the server whitelists them. */
+  status?: string | string[];
+  category?: string;
+  /** Asset Deployments: only rows assigned to a customer or location. */
+  assigned?: boolean;
+  assignedType?: 'CUSTOMER' | 'LOCATION';
+  assignedLocationId?: string;
+  acquisitionFrom?: string;
+  acquisitionTo?: string;
+  /** Page order: register (default) or the date-wise depreciation view. */
+  sort?: 'invoiceDate';
+}
+
+/** The statement/closing/dashboard aggregate options. */
+export interface FixedAssetOverviewParams extends FixedAssetQueryParams {
+  /** The as-of date the totals are computed for (defaults to today, server). */
+  asOf?: string;
+  byBranch?: boolean;
+  /** The Depreciation Register's grouped summary. */
+  groupBy?: 'master';
+  /** Include every category in the branch+search scope (filter dropdown). */
+  categories?: boolean;
+}
+
+function fixedAssetQueryString(
+  params: FixedAssetQueryParams,
+  extra: Record<string, string | number | undefined> = {}
+): string {
+  const search = new URLSearchParams();
+  // 'ALL' means no branch filter; the server still applies the session scope.
+  if (params.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
+  if (params.query) search.append('query', params.query);
+  const statuses = Array.isArray(params.status) ? params.status.join(',') : params.status;
+  if (statuses) search.append('status', statuses);
+  if (params.category && params.category !== 'ALL') search.append('category', params.category);
+  if (params.assigned) search.append('assigned', '1');
+  if (params.assignedType) search.append('assignedType', params.assignedType);
+  if (params.assignedLocationId && params.assignedLocationId !== 'ALL') {
+    search.append('assignedLocationId', params.assignedLocationId);
+  }
+  if (params.acquisitionFrom) search.append('acquisitionFrom', params.acquisitionFrom);
+  if (params.acquisitionTo) search.append('acquisitionTo', params.acquisitionTo);
+  if (params.sort) search.append('sort', params.sort);
+  for (const [key, value] of Object.entries(extra)) {
+    if (value !== undefined && value !== null && value !== '') search.append(key, String(value));
+  }
+  const queryString = search.toString();
+  return queryString ? `?${queryString}` : '';
+}
+
+/** One server-paged slice of the fixed-asset register. */
+export async function getFixedAssetPage(
+  params: FixedAssetQueryParams = {},
+  page = 1,
+  pageSize = 15
+): Promise<FixedAssetPage> {
+  return fetchJson(`/api/fixed-assets/page${fixedAssetQueryString(params, { page, pageSize })}`);
+}
+
+/** CSV/report export: every matching row, capped server-side with `truncated`. */
+export async function getFixedAssetExport(params: FixedAssetQueryParams = {}): Promise<FixedAssetPage> {
+  return fetchJson(`/api/fixed-assets/page${fixedAssetQueryString(params, { all: 1 })}`);
+}
+
+/** Counts, formula totals and the closing diagnostics, from one row set. */
+export async function getFixedAssetOverview(params: FixedAssetOverviewParams = {}): Promise<FixedAssetOverview> {
+  const search = new URLSearchParams();
+  if (params.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
+  if (params.query) search.append('query', params.query);
+  if (params.category && params.category !== 'ALL') search.append('category', params.category);
+  if (params.acquisitionFrom) search.append('acquisitionFrom', params.acquisitionFrom);
+  if (params.acquisitionTo) search.append('acquisitionTo', params.acquisitionTo);
+  if (params.asOf) search.append('asOf', params.asOf);
+  if (params.byBranch) search.append('byBranch', '1');
+  if (params.groupBy) search.append('groupBy', params.groupBy);
+  if (params.categories) search.append('categories', '1');
+  const queryString = search.toString();
+  return fetchJson(`/api/fixed-assets/overview${queryString ? `?${queryString}` : ''}`);
+}
+
+/** The deployment pickers' bounded ACTIVE/unassigned read. */
+export async function getAvailableFixedAssets(
+  params: FixedAssetQueryParams = {}
+): Promise<{ data: Asset[]; truncated: boolean }> {
+  return fetchJson(`/api/fixed-assets/available${fixedAssetQueryString(params)}`);
+}
+
+/** Resolve one asset by id, tag number or device serial (branch-scoped). */
+export async function lookupFixedAsset(
+  value: { id?: string; tagNumber?: string; serial?: string },
+  branchId?: string
+): Promise<Asset> {
+  const search = new URLSearchParams();
+  if (branchId && branchId !== 'ALL') search.append('branchId', branchId);
+  if (value.id) search.append('id', value.id);
+  if (value.tagNumber) search.append('tag', value.tagNumber);
+  if (value.serial) search.append('serial', value.serial);
+  return fetchJson(`/api/fixed-assets/lookup?${search.toString()}`);
 }
 
 // Stock Operations (Pullout, Damage, Stock Out)

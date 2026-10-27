@@ -1018,4 +1018,16 @@ benefits from DF-06's calendar handling but does not block on it.
   assigned-hardware count now comes from the SQL subquery on its customer page,
   so it never receives the device table; the stock panels and shipment form use
   the serial register, not a device-array fallback.
+- **Fixed assets (ASSET-1, 2026-10-27):** the last customer-scale table left
+  the bootstrap. Both registers read `GET /api/fixed-assets/page` (branch,
+  status, category, assigned/available, text and acquisition-date filters;
+  `all=1` for the bounded export), the dashboard/statements/closing wizard read
+  `/overview`, the deployment pickers read `/available`, and a panel resolves one
+  asset with `/lookup`. Depreciation moved to `shared/depreciation.ts`, and the
+  server aggregates run that same function, so a total can never disagree with
+  the rows it summarises. `ASSETS` now bumps the `fixedAssets` register counter
+  (and `RECALC` too, because recalculation rewrites depreciation); App holds no
+  asset array and passes none to a screen. The legacy
+  `GET /api/bootstrap/local?key=assets` answers for an older bundle and 503s
+  honestly when its live read fails.
 - **No new dependencies** are needed for any task in this list.

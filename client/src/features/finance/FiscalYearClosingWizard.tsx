@@ -4,7 +4,6 @@ import {
   FinancialSummary,
   Product,
   InventoryStock,
-  Asset,
   PurchaseInvoice,
   PurchaseOrder,
   Shipment,
@@ -18,6 +17,7 @@ import { useDialog } from '../../components/common/DialogProvider';
 import { LoadStateNotice } from '../../components/common/LoadStateNotice';
 import { useActivationKey, useTabActive } from '../../components/common/KeepMounted';
 import { api } from '../../services/api';
+import { useFixedAssetOverview } from '../../services/useFixedAssetOverview';
 import type { NavTab } from '../../components/layout/Sidebar';
 import {
   Lock,
@@ -70,7 +70,8 @@ interface FiscalYearClosingWizardProps {
   financialSummary: FinancialSummary;
   products: Product[];
   stock: InventoryStock[];
-  assets: Asset[];
+  /** ASSET-1: bumped by App when fixed assets change. */
+  refreshToken?: number;
   /** Header branch whose purchase documents the diagnostics read. */
   branchId?: string;
   /** Bumped by App on procurement/shipment events and manual refreshes. */
@@ -100,7 +101,7 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
   financialSummary,
   products,
   stock,
-  assets,
+  refreshToken = 0,
   branchId,
   sseRefreshKey,
   approvalRequests = [],
@@ -115,6 +116,9 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
   const defaultFiscalYear: FiscalYear | undefined = fiscalYears.find((fy) => fy.isCurrent) || fiscalYears[0];
   const [selectedFyId, setSelectedFyId] = useState<string>(defaultFiscalYear?.id || '');
   const currentFy: FiscalYear | undefined = fiscalYears.find((fy) => fy.id === selectedFyId) || defaultFiscalYear;
+  // ASSET-1: gross cost, annual depreciation and the missing-rate diagnostics
+  // for the closing year, from the server overview (session branch scope).
+  const assetOverview = useFixedAssetOverview({ asOf: currentFy?.endDateAD }, refreshToken);
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [isLocked, setIsLocked] = useState<boolean>(currentFy?.isClosed || false);
   const [adminEmail, setAdminEmail] = useState<string>(currentUser?.role === 'SUPER_ADMIN' ? currentUser.email : '');
@@ -296,14 +300,10 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
       }
     });
 
-    let fixedAssetValue = 0;
-    let annualDepreciation = 0;
-    assets.forEach((a) => {
-      const cost = a.acquisitionCost || 0;
-      fixedAssetValue += cost;
-      const rate = a.depreciationRatePercent || 15;
-      annualDepreciation += (cost * rate) / 100;
-    });
+    // ASSET-1: the server overview computes these with the same 15% statutory
+    // fallback over every asset; the wizard no longer walks the whole table.
+    const fixedAssetValue = assetOverview.overview?.totals.acquisitionCost ?? 0;
+    const annualDepreciation = assetOverview.overview?.closing.annualDepreciation ?? 0;
 
     let vatInputTax = 0;
     const fStart = currentFy?.startDateAD;
@@ -331,7 +331,7 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
       totalCOGS: financialSummary.totalCostOfGoodsSold || 0,
       totalExpenses: 0,
     };
-  }, [stock, products, assets, purchaseInvoices, financialSummary, currentFy]);
+  }, [stock, products, assetOverview.overview, purchaseInvoices, financialSummary, currentFy]);
 
   // ---- STEP 1 PRE-CLOSING DIAGNOSTICS (live, data-driven) ----
   // Every check is computed from real DB-backed records passed into the
@@ -412,40 +412,35 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
         : `${fyAudits.length} audit batch(es) in ${fyCode} are reconciled — physical counts match the ledger.`,
     };
 
-    // 3) Fixed asset depreciation ledger.
-    const activeAssets = (assets || []).filter(
-      (a) => a.status !== 'DISPOSED' && a.status !== 'MAINTENANCE'
-    );
-    const badRateAssets = activeAssets.filter(
-      (a) => !a.depreciationRatePercent || a.depreciationRatePercent <= 0 || !a.depreciationMethod
-    );
-    const depreciationAmount = activeAssets.reduce(
-      (sum, a) => sum + (a.acquisitionCost || 0) * ((a.depreciationRatePercent || 15) / 100),
-      0
-    );
+    // 3) Fixed asset depreciation ledger. ASSET-1: active count and the
+    // missing-rate tags come from the server's closing summary.
+    const assetClosing = assetOverview.overview?.closing;
+    const activeCount = assetClosing?.activeCount ?? 0;
+    const missingRateCount = assetClosing?.missingRateCount ?? 0;
+    const missingRateTags = assetClosing?.missingRateTags ?? [];
+    const depreciationAmount = assetClosing?.annualDepreciation ?? 0;
     const assetDiagnostic = {
       id: 'asset-depreciation',
       title: 'Fixed Asset Depreciation Ledger',
-      status: (activeAssets.length === 0
+      status: (activeCount === 0
         ? 'warning'
-        : badRateAssets.length
+        : missingRateCount
         ? 'critical'
         : 'ready') as 'ready' | 'warning' | 'critical',
       badge:
-        activeAssets.length === 0
+        activeCount === 0
           ? 'No Assets'
-          : badRateAssets.length
-          ? `${badRateAssets.length} Missing Rate`
+          : missingRateCount
+          ? `${missingRateCount} Missing Rate`
           : 'Ready to Post',
       detail:
-        activeAssets.length === 0
+        activeCount === 0
           ? `No active fixed assets are registered — the depreciation journal will be skipped. Confirm this is expected before closing ${fyCode}.`
-          : badRateAssets.length
-          ? `${badRateAssets.length} asset(s) missing a valid depreciation rate (${badRateAssets
-              .slice(0, 3)
-              .map((a) => a.tagNumber)
-              .join(', ')}${badRateAssets.length > 3 ? '…' : ''}). Fix them in the Fixed Asset Register.`
-          : `Annual depreciation NPR ${depreciationAmount.toLocaleString()} computed for ${activeAssets.length} active fixed asset(s) using statutory rates.`,
+          : missingRateCount
+          ? `${missingRateCount} asset(s) missing a valid depreciation rate (${missingRateTags.join(
+              ', '
+            )}${missingRateCount > 3 ? '…' : ''}). Fix them in the Fixed Asset Register.`
+          : `Annual depreciation NPR ${depreciationAmount.toLocaleString()} computed for ${activeCount} active fixed asset(s) using statutory rates.`,
     };
 
     // 4) VAT sales & purchase register.
@@ -471,7 +466,7 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
     purchaseOrders,
     shipments,
     approvalRequests,
-    assets,
+    assetOverview.overview,
     purchaseInvoices,
     financialSummary,
   ]);
@@ -998,7 +993,7 @@ filing. Consult a professional accountant for IRD submission.
                 icon={<Landmark className="h-4 w-4" />}
                 tone="slate"
                 value={`NPR ${Math.round(Number(closingMetrics.fixedAssetValue) || 0).toLocaleString()}`}
-                hint={`${assets.length} Active Hardware Items`}
+                hint={`${(assetOverview.overview?.total ?? 0).toLocaleString('en-IN')} Active Hardware Items`}
               />
               <StatCard
                 label="Calculated Year Depreciation"

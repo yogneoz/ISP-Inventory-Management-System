@@ -30,7 +30,7 @@ import {
  * everything it does not own comes from the StockOperations context.
  */
 export const AssignAssetPanel: React.FC = () => {
-  const { activeTab, allowedBranches, alertDialog, assets, availableStockAssets, ensureBsDateAvailable, locations, onRefreshData, onUpdateAssetStatus, products, serialRegister, stock, userBranchId } = useStockOperationsCtx();
+  const { activeTab, allowedBranches, alertDialog, availableAssetsError, availableAssetsTruncated, availableStockAssets, ensureBsDateAvailable, locations, onRefreshData, onUpdateAssetStatus, products, serialRegister, stock, userBranchId } = useStockOperationsCtx();
 
   const [, setIsBarcodeScannerOpen] = useState(false);
 
@@ -277,7 +277,7 @@ export const AssignAssetPanel: React.FC = () => {
           createdTags.push(unitTag);
         }
       } else if (item.kind === 'ASSET' && item.assetId && onUpdateAssetStatus) {
-        const ledgerAsset = assets.find((x) => x.id === item.assetId);
+        const ledgerAsset = availableStockAssets.find((x) => x.id === item.assetId);
         if (item.usedAtType === 'CUSTOMER') {
           // The picker stored the directory row on the item when it was chosen;
           // there is no client-side customer array to look the id up in.
@@ -414,7 +414,9 @@ export const AssignAssetPanel: React.FC = () => {
                   <div className="absolute z-50 left-0 right-0 top-full mt-1 max-h-72 overflow-y-auto rounded-xl border shadow-xl divide-y border-slate-200 bg-white divide-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:divide-slate-800">
                     <div className="px-2.5 py-1.5">
                       <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Existing Assets in Ledger (assigns that unit, tag stays)</div>
-                      {availableStockAssets.length === 0 ? (
+                      {availableAssetsError ? (
+                        <div className="p-2 text-[11px] text-rose-600 dark:text-rose-400 text-center">Could not load the assignable assets: {availableAssetsError}</div>
+                      ) : availableStockAssets.length === 0 ? (
                         <div className="p-2 text-[11px] text-slate-400 text-center">No unassigned ledger assets.</div>
                       ) : (
                         <div className="max-h-32 overflow-y-auto space-y-0.5">
@@ -438,6 +440,11 @@ export const AssignAssetPanel: React.FC = () => {
                               </button>
                             ))}
                         </div>
+                      )}
+                      {availableAssetsTruncated && (
+                        <p className="px-2 pb-1 text-[10px] text-amber-600 dark:text-amber-400">
+                          Showing the first {availableStockAssets.length.toLocaleString('en-IN')} assignable assets — refine the search in the Fixed Asset Register to reach the rest.
+                        </p>
                       )}
                     </div>
 

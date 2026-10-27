@@ -1,13 +1,16 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-27 · Branch: main · Tests: 1322/1322 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-27 · Branch: main · Tests: 1338/1338 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
-> **Current state (2026-10-27, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1/VOL-2/BUDGET-1/BOOT-1/VOL-3/VOL-4a/VOL-4b/SN-1).** All DF-01…DF-17
+> **Current state (2026-10-27, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1/VOL-2/BUDGET-1/BOOT-1/VOL-3/VOL-4a/VOL-4b/SN-1/ASSET-1).** All DF-01…DF-17
 > work, the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2, CPE-3,
-> SER-1, SER-2, TRIM-1, SUM-1, VOL-1, VOL-2, BUDGET-1 and Round 3
-> (BOOT-1, VOL-3, VOL-4a, VOL-4b) are implemented. **Round 2 closed on 2026-10-26**
-> ([archive](worklist/done/2026-10-26-round-2.md)); **Round 3 closed on 2026-10-27**
-> ([archive](worklist/done/2026-10-27-round-3.md)) and no round is active. The
+> SER-1, SER-2, TRIM-1, SUM-1, VOL-1, VOL-2, BUDGET-1, Round 3
+> (BOOT-1, VOL-3, VOL-4a, VOL-4b) and Round 4's ASSET-1 are implemented.
+> **Round 2 closed on 2026-10-26** ([archive](worklist/done/2026-10-26-round-2.md));
+> **Round 3 closed on 2026-10-27** ([archive](worklist/done/2026-10-27-round-3.md)).
+> **Round 4 is active** ([plan](worklist/round-4/README.md)): ASSET-1 is
+> implemented and gated (2026-10-27); EXCH-1 (Device Exchange picker on the
+> paged device read) is the remaining item. The
 > notes are split by year (**SN-1**): entries live in
 > [docs/session-notes/2026.md](docs/session-notes/2026.md), this file is the
 > current-state index. C4 is explicitly parked (one `bootstrap/local` call site

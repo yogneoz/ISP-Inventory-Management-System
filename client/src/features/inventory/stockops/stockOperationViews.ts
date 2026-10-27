@@ -8,14 +8,13 @@
  * function, deliberately not memoized: the host calls it on every render
  * exactly like the inline code this was cut from (same cost, same output).
  */
-import type { StockOperation, Product, InventoryStock, Asset } from '../../../types';
+import type { StockOperation, Product, InventoryStock } from '../../../types';
 import { tryConvertADToBS, getNepaliFiscalYear } from '../../../utils/nepaliCalendar';
 
 export interface StockOperationViewsArgs {
   operations: StockOperation[];
   stock: InventoryStock[];
   products: Product[];
-  assets: Asset[];
   canSeeAll: boolean;
   allowedBranchIds: string[];
   branchFilter: string;
@@ -26,7 +25,6 @@ export function computeStockOperationViews({
   operations,
   stock,
   products,
-  assets,
   canSeeAll,
   allowedBranchIds,
   branchFilter,
@@ -101,11 +99,6 @@ export function computeStockOperationViews({
     return true;
   });
 
-  // Available vs Assigned Fixed Assets
-  const availableStockAssets = assets.filter(
-    (a) => a.status === 'ACTIVE' && !a.assignedType
-  );
-
   return {
     damageOperations,
     pulloutOperations,
@@ -113,6 +106,5 @@ export function computeStockOperationViews({
     saleOperations,
     allCombinedOps,
     filteredOperations,
-    availableStockAssets,
   };
 }

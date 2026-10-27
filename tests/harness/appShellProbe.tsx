@@ -74,7 +74,6 @@ function shellProps(handles: ShellHandles): Omit<AppShellProps, 'banners' | 'chi
     shipments: [],
     stockOperations: [],
     approvalRequests: [],
-    assets: [],
     suppliers: [],
     bsCalendarCoverage: null,
     bsCalendarSeedTab: 'bs-calendar',

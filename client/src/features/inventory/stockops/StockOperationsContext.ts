@@ -75,8 +75,12 @@ export interface StockOperationsCtx {
   allCombinedOps: StockOperation[];
   alertDialog: any;
   approvalRequests: ApprovalRequest[];
-  assets: Asset[];
+  /** ASSET-1: bounded ACTIVE/unassigned assets from /api/fixed-assets/available. */
   availableStockAssets: Asset[];
+  /** True when the available list hit its server cap and is a prefix. */
+  availableAssetsTruncated: boolean;
+  /** Failure message for the available list; '' when healthy. */
+  availableAssetsError: string;
   branchFilter: any;
   branches: Branch[];
   canDispatchFromWarehouse: boolean;

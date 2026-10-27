@@ -1,15 +1,18 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { MapPin, UserCheck, Building, Download, Undo2 } from 'lucide-react';
 import { Asset, Branch, LocationRecord, User } from '../../types';
 import { FilterCard } from '../../components/common/FilterCard';
-import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { useServerPageClamp, TablePagination } from '../../components/common/TablePagination';
+import { RegisterLoadError } from '../../components/common/RegisterLoadError';
 import { formatNPR } from '../../utils/nprFormat';
 import { exportToCSV } from '../../utils/exportUtils';
 import { getAllowedBranches } from '../../utils/permissions';
 import { useDialog } from '../../components/common/DialogProvider';
+import { api } from '../../services/api';
 
 interface AssetDeploymentsProps {
-  assets: Asset[];
+  /** ASSET-1: rows page through GET /api/fixed-assets/page?assigned=1. */
+  refreshToken?: number;
   branches: Branch[];
   locations: LocationRecord[];
   currentUser?: User | null;
@@ -27,14 +30,14 @@ interface AssetDeploymentsProps {
  * are invisible there, but fully tracked here once assigned.
  */
 export const AssetDeployments: React.FC<AssetDeploymentsProps> = ({
-  assets,
+  refreshToken = 0,
   branches,
   locations,
   currentUser,
   dateMode,
   onUnassignAsset,
 }) => {
-  const { confirm: confirmDialog, prompt: promptDialog } = useDialog();
+  const { alert: alertDialog, confirm: confirmDialog, prompt: promptDialog } = useDialog();
   const [appliedSearch, setAppliedSearch] = useState('');
   const [branchFilter, setBranchFilter] = useState('ALL');
   const [locationFilter, setLocationFilter] = useState('ALL');
@@ -46,32 +49,54 @@ export const AssetDeployments: React.FC<AssetDeploymentsProps> = ({
     [locations]
   );
 
-  const assignedAssets = useMemo(
-    () =>
-      assets.filter(
-        (a) => a.status === 'ASSIGNED_TO_LOCATION' || a.status === 'ASSIGNED_TO_CUSTOMER' || Boolean(a.assignedType)
-      ),
-    [assets]
-  );
+  // Server-paged deployment register (ASSET-1): assigned rows only, filtered by
+  // branch, deployment type, POP location and the indexed text search.
+  const [rows, setRows] = useState<Asset[]>([]);
+  const [totalItems, setTotalItems] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [retryToken, setRetryToken] = useState(0);
+  const requestSeq = useRef(0);
 
-  const filtered = useMemo(() => {
-    const q = appliedSearch.trim().toLowerCase();
-    return assignedAssets.filter((a) => {
-      if (branchFilter !== 'ALL' && a.branchId !== branchFilter) return false;
-      if (typeFilter !== 'ALL' && a.assignedType !== typeFilter) return false;
-      if (locationFilter !== 'ALL' && a.assignedLocationId !== locationFilter) return false;
-      if (!q) return true;
-      return (
-        a.tagNumber.toLowerCase().includes(q) ||
-        a.name.toLowerCase().includes(q) ||
-        (a.assignedCustomerName || '').toLowerCase().includes(q) ||
-        (a.assignedLocationName || '').toLowerCase().includes(q) ||
-        (a.assignmentNotes || '').toLowerCase().includes(q)
-      );
-    });
-  }, [assignedAssets, appliedSearch, branchFilter, locationFilter, typeFilter]);
+  const filterKey = [appliedSearch, branchFilter, locationFilter, typeFilter].join('|');
+  const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
+  if (filterKey !== prevFilterKey) {
+    setPrevFilterKey(filterKey);
+    if (page !== 1) setPage(1);
+  }
 
-  const pagination = useClientPagination(filtered, 15, [appliedSearch, branchFilter, locationFilter, typeFilter]);
+  const pageParams = {
+    branchId: branchFilter,
+    query: appliedSearch || undefined,
+    assigned: true,
+    assignedType: typeFilter === 'ALL' ? undefined : typeFilter,
+    assignedLocationId: locationFilter === 'ALL' ? undefined : locationFilter,
+  } as const;
+
+  useEffect(() => {
+    const seq = ++requestSeq.current;
+    setLoading(true);
+    setLoadError('');
+    api.getFixedAssetPage(pageParams, page, pageSize)
+      .then((result) => {
+        if (seq !== requestSeq.current) return;
+        setRows(Array.isArray(result?.data) ? result.data : []);
+        setTotalItems(Number(result?.totalItems) || 0);
+        setLoading(false);
+      })
+      .catch((err) => {
+        if (seq !== requestSeq.current) return;
+        setLoadError(err?.message || 'Could not load the asset deployments.');
+        setLoading(false);
+      });
+  }, [appliedSearch, branchFilter, locationFilter, typeFilter, page, pageSize, refreshToken, retryToken]);
+
+  const safePage = useServerPageClamp(page, pageSize, totalItems, setPage);
+  const pageCount = Math.max(1, Math.ceil(totalItems / pageSize));
+  const rangeStart = totalItems === 0 ? 0 : (safePage - 1) * pageSize + 1;
+  const rangeEnd = Math.min(safePage * pageSize, totalItems);
 
   /**
    * Reverse a deployment: clears the assignment and — server-side, guarded by
@@ -114,13 +139,28 @@ export const AssetDeployments: React.FC<AssetDeploymentsProps> = ({
     });
   };
 
-  const handleExport = () => {
+  const handleExport = async () => {
+    let exportRows = rows;
+    let truncated = false;
+    try {
+      const exported = await api.getFixedAssetExport(pageParams);
+      exportRows = exported.data;
+      truncated = Boolean(exported.truncated);
+    } catch {
+      // Keep the visible page rather than exporting nothing.
+    }
+    // ASSET-1: a capped export is reported, never silently cut at 20,000 rows.
+    if (truncated) {
+      await alertDialog(
+        'The export was capped at 20,000 rows. Narrow the branch, type or search filters before exporting the rest.'
+      );
+    }
     exportToCSV({
       filename: 'Asset_Deployments',
       reportTitle: 'Asset Deployments (assigned fixed assets & rental CPEs)',
       branchName: branchFilter === 'ALL' ? 'All Branches' : branches.find((b) => b.id === branchFilter)?.name || branchFilter,
       generatedBy: currentUser?.name ? `${currentUser.name} (${currentUser.role})` : currentUser?.email || 'System User',
-      data: filtered.map((a) => ({
+      data: exportRows.map((a) => ({
         tagNumber: a.tagNumber,
         name: a.name,
         category: a.category,
@@ -162,7 +202,7 @@ export const AssetDeployments: React.FC<AssetDeploymentsProps> = ({
           </p>
         </div>
         <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-200 border border-indigo-200 dark:border-indigo-800">
-          {filtered.length} Deployment{filtered.length === 1 ? '' : 's'}
+          {totalItems.toLocaleString('en-IN')} Deployment{totalItems === 1 ? '' : 's'}
         </span>
       </div>
 
@@ -226,13 +266,25 @@ export const AssetDeployments: React.FC<AssetDeploymentsProps> = ({
         }
       />
 
+      {loadError && (
+        <RegisterLoadError
+          subject="the asset deployments"
+          message={loadError}
+          hasCachedRows={rows.length > 0}
+          loading={loading}
+          onRetry={() => setRetryToken((n) => n + 1)}
+        />
+      )}
+
       {/* Table */}
-      {filtered.length === 0 ? (
+      {rows.length === 0 ? (
         <div className="p-8 rounded-2xl border border-dashed text-center bg-white border-slate-300 text-slate-500 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-400">
           <Building className="h-9 w-9 mx-auto mb-2 text-slate-300 dark:text-slate-700" />
           <h3 className="font-bold text-xs text-slate-800 dark:text-slate-200">No Asset Deployments Found</h3>
           <p className="text-[11px] text-slate-400 max-w-md mx-auto mt-0.5">
-            No assigned assets match the current filters. Deployed assets appear here the moment they are assigned from the Assign Fixed Asset form.
+            {loading
+              ? 'Loading asset deployments…'
+              : 'No assigned assets match the current filters. Deployed assets appear here the moment they are assigned from the Assign Fixed Asset form.'}
           </p>
         </div>
       ) : (
@@ -253,7 +305,7 @@ export const AssetDeployments: React.FC<AssetDeploymentsProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                {pagination.pagedItems.map((a) => (
+                {rows.map((a) => (
                   <tr key={a.id} className="hover:bg-slate-200/60 dark:hover:bg-slate-800/40">
                     <td className="p-2.5 font-mono font-bold text-indigo-600 dark:text-indigo-400">{a.tagNumber}</td>
                     <td className="p-2.5 font-bold text-slate-900 dark:text-white">
@@ -306,14 +358,17 @@ export const AssetDeployments: React.FC<AssetDeploymentsProps> = ({
             </table>
           </div>
           <TablePagination
-            page={pagination.page}
-            pageCount={pagination.pageCount}
-            totalItems={pagination.totalItems}
-            rangeStart={pagination.rangeStart}
-            rangeEnd={pagination.rangeEnd}
-            pageSize={pagination.pageSize}
-            onPageChange={pagination.setPage}
-            onPageSizeChange={pagination.setPageSize}
+            page={safePage}
+            pageCount={pageCount}
+            totalItems={totalItems}
+            rangeStart={rangeStart}
+            rangeEnd={rangeEnd}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setPage(1);
+            }}
           />
         </div>
       )}

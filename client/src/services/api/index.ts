@@ -76,6 +76,11 @@ export const api = {
   reconcileStockAudit: inventory.reconcileStockAudit,
   createAsset: inventory.createAsset,
   updateAssetStatus: inventory.updateAssetStatus,
+  getFixedAssetPage: inventory.getFixedAssetPage,
+  getFixedAssetExport: inventory.getFixedAssetExport,
+  getFixedAssetOverview: inventory.getFixedAssetOverview,
+  getAvailableFixedAssets: inventory.getAvailableFixedAssets,
+  lookupFixedAsset: inventory.lookupFixedAsset,
 
   // Admin recalculation / repair utilities
   recalculateFixedAssets: admin.recalculateFixedAssets,

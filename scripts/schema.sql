@@ -1298,6 +1298,9 @@ CREATE INDEX IF NOT EXISTS idx_fixed_assets_status ON fixed_assets(status);
 CREATE INDEX IF NOT EXISTS idx_assets_acquisition_date ON fixed_assets(acquisition_date_ad);
 CREATE INDEX IF NOT EXISTS idx_fixed_assets_fiscal_year_id ON fixed_assets(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_fixed_assets_purchase_invoice_id ON fixed_assets(purchase_invoice_id) WHERE purchase_invoice_id IS NOT NULL;
+
+-- ASSET-1: the register's stable page for a branch scope (created_at DESC, id DESC).
+CREATE INDEX IF NOT EXISTS idx_fixed_assets_page ON fixed_assets(branch_id, created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_fixed_assets_invoice_date ON fixed_assets(branch_id, purchase_invoice_date_ad);
 CREATE INDEX IF NOT EXISTS idx_fixed_assets_service_date ON fixed_assets(branch_id, placed_in_service_date_ad);
 CREATE INDEX IF NOT EXISTS idx_fixed_assets_demo ON fixed_assets(id) WHERE is_demo = TRUE;

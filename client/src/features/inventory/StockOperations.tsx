@@ -13,7 +13,7 @@ import {
 } from '../../types';
 import { BS_SEEDING_MENU_PATH } from '../../utils/nepaliCalendar';
 import { useBsCalendarGate } from '../../utils/bsCalendarGate';
-import { api } from '../../services/api';
+import { useAvailableFixedAssets } from '../../services/availableAssetsCache';
 import { useSerialRegister } from '../../services/serialRegisterCache';
 import { useBranchStock } from '../../services/branchStockCache';
 import { useExchangeDevices } from '../../services/exchangeDeviceCache';
@@ -54,7 +54,6 @@ interface StockOperationsProps {
   autoOpenModal?: boolean;
   currentUser?: User | null;
   shipments?: Shipment[];
-  assets?: Asset[];
   locations?: LocationRecord[];
   approvalRequests?: ApprovalRequest[];
   onCreateOperation: (op: Partial<StockOperation>) => Promise<void>;
@@ -121,7 +120,6 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   autoOpenModal = false,
   currentUser = null,
   shipments = [],
-  assets = [],
   locations = [],
   approvalRequests = [],
   onCreateOperation,
@@ -386,8 +384,17 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
   // Shared view derivations — tab-bar counts, the synthesized damage log and
   // the filtered register lists — live in stockops/stockOperationViews.ts.
-  const { damageOperations, pulloutOperations, consumableOperations, saleOperations, allCombinedOps, filteredOperations, availableStockAssets } =
-    computeStockOperationViews({ operations, stock: operationStock.rows, products, assets, canSeeAll, allowedBranchIds, branchFilter, activeTab });
+  const { damageOperations, pulloutOperations, consumableOperations, saleOperations, allCombinedOps, filteredOperations } =
+    computeStockOperationViews({ operations, stock: operationStock.rows, products, canSeeAll, allowedBranchIds, branchFilter, activeTab });
+
+  // ASSET-1: the Assign Fixed Asset picker reads the bounded ACTIVE/unassigned
+  // list from the shared cache instead of filtering the bootstrap's whole table
+  // — one read serves every mounted host. A full refresh / stock-operation
+  // counter bump re-reads it.
+  const availableAssets = useAvailableFixedAssets(sseRefreshKey);
+  const availableStockAssets = availableAssets.rows;
+  const availableAssetsTruncated = availableAssets.truncated;
+  const availableAssetsError = availableAssets.error;
 
   // Panel context (Section G commit 2): the host owns only the shared
   // chrome state — active tab, BS-date gate, toast, shared filters, the
@@ -400,8 +407,9 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     allCombinedOps,
     alertDialog,
     approvalRequests,
-    assets,
     availableStockAssets,
+    availableAssetsTruncated,
+    availableAssetsError,
     branchFilter,
     branches,
     canDispatchFromWarehouse,

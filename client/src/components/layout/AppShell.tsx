@@ -91,7 +91,6 @@ export interface AppShellProps {
   shipments: Shipment[];
   stockOperations: StockOperation[];
   approvalRequests: ApprovalRequest[];
-  assets: Asset[];
   suppliers: Supplier[];
   bsCalendarCoverage: BsCalendarCoverageStatus | null;
   bsCalendarSeedTab: NavTab;
@@ -270,7 +269,6 @@ export function AppShell(props: AppShellProps) {
     shipments,
     stockOperations,
     approvalRequests,
-    assets,
     suppliers,
     bsCalendarCoverage,
     bsCalendarSeedTab,

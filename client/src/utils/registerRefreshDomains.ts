@@ -23,6 +23,7 @@ export type RegisterRefreshKey =
   | 'salesInvoices'
   | 'shipments'
   | 'customerDevices'
+  | 'fixedAssets'
   | 'transactionLog';
 
 /**
@@ -54,6 +55,9 @@ export type RegisterRefreshKey =
  *   rewrites the mirrored device_serial the register displays.
  *   The registers read their own paged GETs, so neither the asset nor the CPE
  *   event alone can leave them current.
+ * - fixedAssets: the Fixed Asset Register, Asset Deployments, Depreciation
+ *   Register and the deployment pickers read their own server-paged data.
+ *   ASSETS events create/flip/deploy assets; RECALC rewrites their depreciation.
  * - transactionLog: the three movement-ledger screens (Dashboard recent
  *   activity, Audit Trail's stock tab and the Stock Movement Ledger) now read
  *   `/api/transaction-logs` themselves instead of the bootstrap slice. Every
@@ -71,8 +75,8 @@ export const DOMAIN_REGISTER_KEYS: Record<string, RegisterRefreshKey[]> = {
   // paged transfer register re-reads when the approval queue changes.
   APPROVALS: ['shipments'],
   CUSTOMER_DEVICES: ['serialLog', 'customerDevices', 'transactionLog'],
-  ASSETS: ['serialLog', 'customerDevices', 'transactionLog'],
-  RECALC: ['transactionLog'],
+  ASSETS: ['serialLog', 'customerDevices', 'fixedAssets', 'transactionLog'],
+  RECALC: ['fixedAssets', 'transactionLog'],
 };
 
 /**
@@ -123,6 +127,7 @@ export function bumpAllRegisterRefresh(
     salesInvoices: prev.salesInvoices + 1,
     shipments: prev.shipments + 1,
     customerDevices: prev.customerDevices + 1,
+    fixedAssets: prev.fixedAssets + 1,
     transactionLog: prev.transactionLog + 1,
   };
 }

@@ -18,8 +18,9 @@ is the plan, not a second source of truth.
 
 - [parked.md](parked.md) — decisions we are not acting on, with the trigger to
   reopen each one.
+- [round-4/](round-4/README.md) — the active round: ASSET-1 (fixed assets off
+  the bootstrap) is implemented and gated, EXCH-1 is open.
 - [done/](done/README.md) — completed rounds, kept for reference. Never delete.
-  Nothing is active right now; Round 3 closed 2026-10-27.
 
 ## Status vocabulary
 
@@ -60,7 +61,16 @@ checklist here.
 
 ## Active work
 
-None. Round 3 closed on 2026-10-27 — see
+**Round 4** is active — [round-4/README.md](round-4/README.md): take
+`fixed_assets` off the bootstrap ([ASSET-1](round-4/ASSET-1.md), done
+2026-10-27) and move the Device Exchange picker to the paged device read
+([EXCH-1](round-4/EXCH-1.md), open).
+Round 3 closed on 2026-10-27 — see
 [done/2026-10-27-round-3.md](done/2026-10-27-round-3.md). Do not open a parked
 item without its recorded trigger; add the new evidence to
 [parked.md](parked.md) first.
+
+Recorded watch items, not in this round: `inventory_stock` (product × branch),
+`damageRecords` and the two return registers are also uncapped branch/FY
+arrays, but none is customer-scale on the recorded volumes. Measure before
+opening one.
