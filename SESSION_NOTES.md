@@ -2,7 +2,7 @@
 
 _Date: 2026-10-27 · Branch: main · Tests: 1345/1345 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
-> **Current state (2026-10-27, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1/VOL-2/BUDGET-1/BOOT-1/VOL-3/VOL-4a/VOL-4b/SN-1/ASSET-1/EXCH-1).** All DF-01…DF-17
+> **Current state (2026-10-27, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1/VOL-2/BUDGET-1/BOOT-1/VOL-3/VOL-4a/VOL-4b/SN-1/ASSET-1/EXCH-1/READ-1).** All DF-01…DF-17
 > work, the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2, CPE-3,
 > SER-1, SER-2, TRIM-1, SUM-1, VOL-1, VOL-2, BUDGET-1, Round 3
 > (BOOT-1, VOL-3, VOL-4a, VOL-4b) and Round 4's ASSET-1/EXCH-1 are implemented.
@@ -10,10 +10,13 @@ _Date: 2026-10-27 · Branch: main · Tests: 1345/1345 green with a DB (all run i
 > **Round 3 closed on 2026-10-27** ([archive](worklist/done/2026-10-27-round-3.md)).
 > **Round 4 closed on 2026-10-27** ([archive](worklist/done/2026-10-27-round-4.md)):
 > ASSET-1 (`3efd446`) took `fixed_assets` off the payload and EXCH-1 (`3d7afe4`)
-> moved the Device Exchange picker to the paged device read, both CI green. **No
-> round is active**; Round 5 is not scoped, and the remaining-array measurement
-> found no payload item to open (the `inventory_stock` trigger is recorded in
-> [2026.md](docs/session-notes/2026.md)). The
+> moved the Device Exchange picker to the paged device read, both CI green.
+> **Round 5 is active** ([plan](worklist/round-5/README.md)): READ-1 (`8cdd09b`,
+> CI run 174) deleted the orphaned bare-array device read, so no client code can
+> reach the capped 2,000-row endpoint; STOCK-1 (index the stock-array lookups in
+> the screens) and the STOCK-2 paged-vs-array decision are next. The payload work
+> is finished — the remaining-array measurement found no item to open, and the
+> `inventory_stock` trigger is recorded in [2026.md](docs/session-notes/2026.md). The
 > notes are split by year (**SN-1**): entries live in
 > [docs/session-notes/2026.md](docs/session-notes/2026.md), this file is the
 > current-state index. C4 is explicitly parked (one `bootstrap/local` call site
@@ -35,7 +38,7 @@ _Date: 2026-10-27 · Branch: main · Tests: 1345/1345 green with a DB (all run i
 - [docs/session-notes/README.md](docs/session-notes/README.md) — the folder
   index and the rule for where new entries go.
 - [docs/session-notes/2026.md](docs/session-notes/2026.md) — every entry from
-  the first session through the Round 4 close, newest first.
+  the first session through the READ-1 landing, newest first.
 - New entries: prepend below the separator in the current year's file. This
   root file stays short (current state + index) and keeps the gated
   `Tests: N/N` claim read by

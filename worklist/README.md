@@ -63,12 +63,13 @@ checklist here.
 
 ## Active work
 
-**Round 5** is active — [round-5/README.md](round-5/README.md): delete the
-orphaned bare-array device read ([READ-1](round-5/READ-1.md)), index the
-stock-array lookups out of the screens ([STOCK-1](round-5/STOCK-1.md)), then
-take the paged-vs-array decision with the new numbers
-([STOCK-2](round-5/STOCK-2.md), a decision, not a build). It is deliberately a
-small round: the payload work is finished. Round 4 closed on 2026-10-27 — see
+**Round 5** is active — [round-5/README.md](round-5/README.md): the orphaned
+bare-array device read is gone ([READ-1](round-5/READ-1.md), `8cdd09b`, CI run
+174); next is indexing the stock-array lookups out of the screens
+([STOCK-1](round-5/STOCK-1.md)), then the paged-vs-array decision with the new
+numbers ([STOCK-2](round-5/STOCK-2.md), a decision, not a build). It is
+deliberately a small round: the payload work is finished. Round 4 closed on
+2026-10-27 — see
 [done/2026-10-27-round-4.md](done/2026-10-27-round-4.md): `fixed_assets` left
 the bootstrap ([ASSET-1](done/2026-10-27-round-4/ASSET-1.md), `3efd446`) and the
 Device Exchange picker moved to the paged device read

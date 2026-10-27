@@ -34,7 +34,7 @@ recorded triggers; none is reopened by this round.
 
 | Order | ID | Task | Status | Effort | Depends on |
 |---|---|---|---|---|---|
-| 1 | [READ-1](READ-1.md) | Delete the orphaned bare-array device read from the client surface | `[~]` implemented 2026-10-27, gates green, awaiting commit | 0.5–1 h | — |
+| 1 | [READ-1](READ-1.md) | Delete the orphaned bare-array device read from the client surface | `[x]` done (`8cdd09b`, CI run 174) | 0.5–1 h | — |
 | 2 | [STOCK-1](STOCK-1.md) | Measure the stock-array lookups, then index them out of the screens | `[ ]` | 3–4 h | READ-1 (warm-up, no shared code) |
 | 3 | [STOCK-2](STOCK-2.md) | Gate: re-measure the global stock read and decide paged-vs-array | `[ ]` | 1 h | STOCK-1 (needs the post-fix numbers) |
 
@@ -47,7 +47,7 @@ whose measurement said no.
 
 1. **READ-1** — remove the dead client path and pin it with a guard. Stop: no
    client code can reach the bare device array; the existing exchange suite and
-   the device-register source guard still pass.
+   the device-register source guard still pass. **Done 2026-10-27 (`8cdd09b`).**
 2. **STOCK-1 stage A — measure.** Build the jsdom probe with 2,000 products ×
    20 branches (40,000 stock rows) and record the baseline: Branch Stock first
    render (ALL branch), one keystroke in its local search, one count edit in

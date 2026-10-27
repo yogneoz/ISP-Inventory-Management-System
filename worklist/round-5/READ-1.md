@@ -1,6 +1,6 @@
 # READ-1 — delete the orphaned bare-array device read
 
-Status: `[~]` implemented 2026-10-27, gates green — awaiting commit · Created 2026-10-27 · Estimate 0.5–1 h
+Status: `[x]` done (2026-10-27) · `8cdd09b` · CI run 174 success · Created 2026-10-27 · Estimate 0.5–1 h
 Round: [Round 5](README.md) · Order: 1 · Depends on —
 
 ## Problem
@@ -64,6 +64,13 @@ removes is part of the register's working path.
 - The server `GET /api/customer-devices` route is either kept with a recorded
   reason or removed with its test coverage updated — the note says which.
   **Kept, with the reason in step 4.**
+
+## Shipped
+
+`8cdd09b` (2026-10-27), pushed to `main`; CI run 174 finished green in 376 s
+(40469380167) with every step passing — fresh-install proof and schema parity,
+`tsc`, the full 1345-test suite, both convention guards, build, bundle budget
+and `npm audit`.
 
 ## Out of scope
 
