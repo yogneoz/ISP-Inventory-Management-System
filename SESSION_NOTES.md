@@ -10,7 +10,7 @@ _Date: 2026-10-27 · Branch: main · Tests: 1344/1344 green with a DB (all run i
 > **Round 3 closed on 2026-10-27** ([archive](worklist/done/2026-10-27-round-3.md)).
 > **Round 4 is active** ([plan](worklist/round-4/README.md)): ASSET-1 is
 > shipped (`3efd446`, CI green) and EXCH-1 (Device Exchange picker on the paged
-> device read) is implemented and gated (2026-10-27); the round close is next. The
+> device read) is shipped (`3d7afe4`, CI green); the round close is next. The
 > notes are split by year (**SN-1**): entries live in
 > [docs/session-notes/2026.md](docs/session-notes/2026.md), this file is the
 > current-state index. C4 is explicitly parked (one `bootstrap/local` call site

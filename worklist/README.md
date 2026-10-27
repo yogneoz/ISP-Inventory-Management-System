@@ -19,7 +19,8 @@ is the plan, not a second source of truth.
 - [parked.md](parked.md) — decisions we are not acting on, with the trigger to
   reopen each one.
 - [round-4/](round-4/README.md) — the active round: ASSET-1 (fixed assets off
-  the bootstrap) is implemented and gated, EXCH-1 is open.
+  the bootstrap) and EXCH-1 (the Device Exchange picker) are both shipped; the
+  round close is next.
 - [done/](done/README.md) — completed rounds, kept for reference. Never delete.
 
 ## Status vocabulary
@@ -64,7 +65,7 @@ checklist here.
 **Round 4** is active — [round-4/README.md](round-4/README.md): take
 `fixed_assets` off the bootstrap ([ASSET-1](round-4/ASSET-1.md), done
 `3efd446`) and move the Device Exchange picker to the paged device read
-([EXCH-1](round-4/EXCH-1.md), done 2026-10-27); the round close is next.
+([EXCH-1](round-4/EXCH-1.md), done `3d7afe4`); the round close is next.
 Round 3 closed on 2026-10-27 — see
 [done/2026-10-27-round-3.md](done/2026-10-27-round-3.md). Do not open a parked
 item without its recorded trigger; add the new evidence to

@@ -41,6 +41,13 @@ the panel filters it in the browser with `exchangeSearchQuery`.
   `no-raw-dialogs`; build; bundle budget 15.7 kB entry / 281.2 kB startup
   (17 / 320 kB).
 
+**Landed** as `3d7afe4` and pushed to `main`; CI run
+[40456200247](https://github.com/yogneoz/ISP-Inventory-Management-System/actions/runs/40456200247)
+(`typecheck-and-test`) green in 373 s — every step from the fresh-install proof
+to the bundle-budget and `npm audit` gates passed. The separate watch-list
+measurement commit `0391816` was pushed in the same go, so this run is the green
+history for both.
+
 ## Acceptance
 
 - [x] A device outside the newest 2,000 rows is findable and exchangeable from
