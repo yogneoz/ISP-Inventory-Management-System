@@ -91,10 +91,19 @@ export interface StockOperationsCtx {
   currentUser: User | null;
   dateMode: 'BS' | 'AD';
   ensureBsDateAvailable: any;
-  /** Deployed customer devices for the header's branch (shared per-branch cache, DF-16). */
+  /**
+   * Deployed, exchangeable customer devices (RENTAL/ACTIVE) for the header's
+   * branch and the typed search. EXCH-1: this is one server-paged read from the
+   * shared cache, not the bounded legacy array, so an older unit is reachable.
+   */
   exchangeCustomerDevices: CustomerDeviceRecord[];
+  /** How many rows match this branch + search server-side (may exceed the page). */
+  exchangeDevicesTotal: number;
   /** Last failure reading that list; '' when the read succeeded. */
   exchangeDevicesError: string;
+  /** The exchange picker's search term; the host owns it so the read is shared. */
+  exchangeSearchTerm: string;
+  setExchangeSearchTerm: (v: string) => void;
   filteredOperations: StockOperation[];
   focusInput: any;
   initialDamageModalOpen: boolean;

@@ -221,7 +221,11 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   // previous branch's units on screen. The cache never carries rows across
   // branches; the panel surfaces its error with a Retry. The exchange FORM
   // state still lives in DeviceExchangePanel.
-  const exchangeDevices = useExchangeDevices(selectedBranchId);
+  // EXCH-1: the host owns the exchange search term too, because the read is
+  // server-side now: the tab counter and the picker must describe the SAME
+  // scope, and only a term the host holds is shared by every caller.
+  const [exchangeSearchTerm, setExchangeSearchTerm] = useState<string>('');
+  const exchangeDevices = useExchangeDevices(selectedBranchId, exchangeSearchTerm);
 
   // Allowed branches for current user
   const allowedBranches = getAllowedBranches(currentUser, branches);
@@ -426,12 +430,15 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     damageOperations,
     ensureBsDateAvailable,
     exchangeCustomerDevices: exchangeDevices.rows,
+    exchangeDevicesTotal: exchangeDevices.totalItems,
     exchangeDevicesError: exchangeDevices.error,
     filteredOperations,
     focusInput,
     initialDamageModalOpen,
     initialPulloutModalOpen,
     isLoadingExchangeDevices: exchangeDevices.loading,
+    exchangeSearchTerm,
+    setExchangeSearchTerm,
     isSuperOrInventory,
     isWarehouseOrHeadOffice,
     locations,

@@ -36,6 +36,9 @@ export const DeviceExchangePanel: React.FC = () => {
     ensureBsDateAvailable,
     exchangeCustomerDevices,
     exchangeDevicesError,
+    exchangeDevicesTotal,
+    exchangeSearchTerm,
+    setExchangeSearchTerm,
     isLoadingExchangeDevices,
     onRefreshData,
     products,
@@ -45,7 +48,6 @@ export const DeviceExchangePanel: React.FC = () => {
   } = useStockOperationsCtx();
 
   const [selectedDeviceForExchange, setSelectedDeviceForExchange] = useState<CustomerDeviceRecord | null>(null);
-  const [exchangeSearchQuery, setExchangeSearchQuery] = useState<string>('');
   const [exchangeReason, setExchangeReason] = useState<string>('Defective / Hardware Fault (No Power / Optical Loss)');
   const [oldDeviceAction, setOldDeviceAction] = useState<'DAMAGE' | 'RESTOCK' | 'DISPOSED'>('RESTOCK');
   const [exchangeProductName, setExchangeProductName] = useState<string>('');
@@ -159,20 +161,11 @@ export const DeviceExchangePanel: React.FC = () => {
     }
   };
 
-  const filteredExchangeDevices = exchangeCustomerDevices.filter((d) => {
-    // Only RENTAL (or legacy ACTIVE) CPE products are eligible for hardware exchange
-    if (d.status !== 'RENTAL' && d.status !== 'ACTIVE') return false;
-    if (!exchangeSearchQuery.trim()) return true;
-    const q = (exchangeSearchQuery || '').toLowerCase();
-    return (
-      (d?.customerName || '').toLowerCase().includes(q) ||
-      (d?.customerCode || '').toLowerCase().includes(q) ||
-      (d?.deviceSerial || '').toLowerCase().includes(q) ||
-      (d?.ponSerial || '').toLowerCase().includes(q) ||
-      (d?.productName || '').toLowerCase().includes(q) ||
-      (d.contactPhone && d.contactPhone.includes(q))
-    );
-  });
+  // EXCH-1: the server already searched the whole branch for the term and
+  // returned only RENTAL/ACTIVE units, so this is the result page itself — no
+  // client-side filter over a bounded array. `exchangeDevicesTotal` is how many
+  // units match beyond this page.
+  const filteredExchangeDevices = exchangeCustomerDevices;
 
   return (
     <>
@@ -193,7 +186,7 @@ export const DeviceExchangePanel: React.FC = () => {
               </div>
             </div>
             <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-200 border border-indigo-200 dark:border-indigo-800">
-              {exchangeCustomerDevices.length} Active Deployed Units
+              {(exchangeDevicesTotal || exchangeCustomerDevices.length).toLocaleString('en-IN')} Active Deployed Units
             </span>
           </div>
 
@@ -207,6 +200,7 @@ export const DeviceExchangePanel: React.FC = () => {
               loading={isLoadingExchangeDevices}
               error={exchangeDevicesError}
               onRetry={retryExchangeDevices}
+              hasCachedRows={exchangeCustomerDevices.length > 0}
             />
             {/* Step 1: Select Installed Customer Device */}
             <div className={`p-4 rounded-2xl border space-y-3 bg-slate-50 border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
@@ -237,21 +231,31 @@ export const DeviceExchangePanel: React.FC = () => {
                     <input
                       type="text"
                       placeholder="Search customer name, customer ID code, rental serial number (SN), or PON serial..."
-                      value={exchangeSearchQuery}
-                      onChange={(e) => setExchangeSearchQuery(e.target.value)}
+                      value={exchangeSearchTerm}
+                      onChange={(e) => setExchangeSearchTerm(e.target.value)}
                       className={`w-full rounded-xl border pl-9 pr-3 py-2 text-xs font-semibold border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-white`}
                     />
                   </div>
 
                   <div className="max-h-52 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800">
+                    {isLoadingExchangeDevices && filteredExchangeDevices.length > 0 && (
+                      <div className="px-3 py-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 flex items-center gap-1.5">
+                        <RefreshCw className="h-3 w-3 animate-spin" />
+                        Searching… showing the previous results.
+                      </div>
+                    )}
                     {exchangeDevicesError ? (
                       <div className="p-4 text-center text-slate-400 text-xs">
                         The deployed-device list is unavailable until the read above succeeds.
                       </div>
-                    ) : isLoadingExchangeDevices ? (
+                    ) : isLoadingExchangeDevices && filteredExchangeDevices.length === 0 ? (
                       <div className="p-4 text-center text-slate-400 text-xs">Loading customer devices...</div>
                     ) : filteredExchangeDevices.length === 0 ? (
-                      <div className="p-4 text-center text-slate-400 text-xs">No active RENTAL customer devices match your search query. (Sold products are excluded from device exchange).</div>
+                      <div className="p-4 text-center text-slate-400 text-xs">
+                        {exchangeSearchTerm.trim()
+                          ? `No active RENTAL customer device in this branch matches "${exchangeSearchTerm.trim()}". (Sold products are excluded from device exchange).`
+                          : 'No active RENTAL customer devices exist in this branch yet. (Sold products are excluded from device exchange).'}
+                      </div>
                     ) : (
                       filteredExchangeDevices.map((dev) => (
                         <div
@@ -290,6 +294,15 @@ export const DeviceExchangePanel: React.FC = () => {
                         </div>
                       ))
                     )}
+                    {!exchangeDevicesError &&
+                      !isLoadingExchangeDevices &&
+                      exchangeDevicesTotal > filteredExchangeDevices.length &&
+                      filteredExchangeDevices.length > 0 && (
+                        <div className="p-2.5 text-center text-[11px] text-slate-500 dark:text-slate-400 border-t border-slate-200 dark:border-slate-800">
+                          Showing the first {filteredExchangeDevices.length.toLocaleString('en-IN')} of{' '}
+                          {exchangeDevicesTotal.toLocaleString('en-IN')} matching units — type a serial or customer name to narrow it.
+                        </div>
+                      )}
                   </div>
                 </div>
               ) : (

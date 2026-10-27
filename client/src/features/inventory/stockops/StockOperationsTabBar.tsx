@@ -33,6 +33,7 @@ export const StockOperationsTabBar: React.FC<{ initialType?: string }> = ({ init
     consumableOperations,
     damageOperations,
     exchangeCustomerDevices,
+    exchangeDevicesTotal,
     operations,
     pulloutOperations,
     saleOperations,
@@ -238,7 +239,8 @@ export const StockOperationsTabBar: React.FC<{ initialType?: string }> = ({ init
           className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${activeTab === 'DEVICE_EXCHANGE' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800'}`}
         >
           <RefreshCw className="h-4 w-4 text-indigo-300" />
-          <span>Device Exchange ({exchangeCustomerDevices.length})</span>
+          {/* EXCH-1: the counter is the server's matching total, not the page. */}
+          <span>Device Exchange ({exchangeDevicesTotal || exchangeCustomerDevices.length})</span>
         </button>
 
         <button

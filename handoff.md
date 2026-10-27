@@ -226,7 +226,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 1338 tests; CI runs
+                                        #   drift/concurrency guards — 1344 tests; CI runs
                                         #   tsc + npm test + the no-inline-SQL guard + the
                                         #   production build + npm audit on every push/PR
                                         #   (.github/workflows/ci.yml). The PostgreSQL 16
@@ -544,7 +544,7 @@ The server registers ~130 routes. The most important ones:
 | `/api/shipments/:id/receive` | POST | Receive + verify incoming shipment |
 | `/api/shipments/:id/cancel-receive` | POST | Cancel received shipment |
 | `/api/stock-operations` | GET, POST | Stock out, pullout, damage, consumable issue |
-| `/api/customer-devices` | GET, POST | CPE device tracking. GET is the legacy bare-array read, kept for an older bundle and bounded to 2,000 rows; the register uses `/page` |
+| `/api/customer-devices` | GET, POST | CPE device tracking. GET is the legacy bare-array read, kept for an older bundle and bounded to 2,000 rows; no client screen reads it any more (EXCH-1 moved the last one, the Device Exchange picker, to `/page`) |
 | `/api/customer-devices/page` | GET | The paged device register (VOL-4b): `branchId`, `query`, `status`, `productName`, `issuedFrom`, `issuedTo`, `page`, `pageSize` (capped at 200) → `{ data, page, pageSize, totalItems }`. `all=1` returns the filtered export set, capped at 20,000 rows with `truncated`. The `query` uses the `idx_customer_devices_global_trgm` expression; branch scope is enforced by the route guard, then re-applied in SQL from the session |
 | `/api/customer-devices/overview` | GET | Exact per-status device counts (`{ total, counts }`) under the branch/search/product/date filters, for the register's KPI cards |
 | `/api/customer-devices/warranty` | GET | Paged warranty directory (VOL-4b): SQL union of rented CPE (`issued_date_ad + 12 months`) and fixed assets (`acquisition_date_ad + 12 months`); filters `warranty=VALID|EXPIRING_SOON|EXPIRED`, `category=CPE|FIXED_ASSET`, branch/text/date; returns `{ data, page, pageSize, totalItems, counts }` and each row's server-computed `warrantyState` |
@@ -727,6 +727,14 @@ register. `App.tsx` holds no device array or prop — only the
 `registerRefresh.customerDevices` counter. The demo-clear card reads the
 overview total, and `GET /api/bootstrap/local?key=customerDevices` still answers
 an older bundle.
+
+EXCH-1 (2026-10-27) moved the last reader of the legacy bare-array
+`GET /api/customer-devices` — the Device Exchange picker — to
+`GET /api/customer-devices/page`: the header branch, the RENTAL/ACTIVE
+eligibility filter and the typed term (debounced, indexed) are searched by the
+server, one shared cache read per scope, 50 rows plus the matching total. The
+bare endpoint now has no client reader; it stays for an older bundle and
+`GET /api/bootstrap/local?key=customerDevices`.
 
 ### 9.2 Data Flow Pattern
 
@@ -1270,7 +1278,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 1338 tests against a real PostgreSQL 16 service container
+2. `npm test` — 1344 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM

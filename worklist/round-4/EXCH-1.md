@@ -1,6 +1,6 @@
 # EXCH-1 — the exchange picker searches the paged device read
 
-Status: `[ ]` not started · Created 2026-10-27 · Estimate 0.5–1 day
+Status: `[x]` done (2026-10-27) · Created 2026-10-27 · Estimate 0.5–1 day
 Round: [Round 4](README.md) · Order: 2 · Depends on ASSET-1
 
 ## Problem
@@ -20,27 +20,35 @@ the panel filters it in the browser with `exchangeSearchQuery`.
 
 ## Steps
 
-- [ ] **1. Search on the server.** `exchangeDevicesStore` fetches
+- [x] **1. Search on the server.** `exchangeDevicesStore` fetches
   `/api/customer-devices/page` with the header branch, the typed term and a
-  stable page size; a debounced query replaces the client-side filter.
-- [ ] **2. Keep the picker's contract.** The selected row is still the
-  `CustomerDeviceRecord` the server returned (the exchange submit needs its
-  serial/product/branch); the refusal path, retry, loading and error states and
-  the SSE/refresh invalidation stay as they are.
-- [ ] **3. Delete the legacy read from this surface.** No screen calls
+  50-row page plus the exact matching total; the host owns the term, the read
+  is debounced (250 ms) and each term is its own cache scope, released when the
+  input moves on.
+- [x] **2. Keep the picker's contract.** The selected row is still the
+  `CustomerDeviceRecord` the server returned (`CDR_SELECT_COLUMNS`, the same row
+  shape as before); the refusal path, retry, loading and error states and the
+  SSE/refresh invalidation stay as they are. The previous page of the same
+  branch stays on screen while a new term loads; a branch switch or a failed
+  read shows nothing.
+- [x] **3. Delete the legacy read from this surface.** No screen calls
   `api.getCustomerDevices`; the bare endpoint stays only for an older bundle
   and `/api/bootstrap/local?key=customerDevices`.
-- [ ] **4. Gates.** `tsc`, the exchange/store suites, the device-page contract
-  test, full `npm test`, guards, build and bundle budget.
+- [x] **4. Gates.** `tsc`; the exchange/store suite, the device-page contract
+  test, the refusal-audit suite, the refresh-domain guard and the picker-load
+  schedule 83/83 pass; full `npm test` 1344 tests (1342 pass, 0 fail, 2
+  Windows-only skips), docs-count gate 1344; `no-inline-sql`;
+  `no-raw-dialogs`; build; bundle budget 15.7 kB entry / 281.2 kB startup
+  (17 / 320 kB).
 
 ## Acceptance
 
-- [ ] A device outside the newest 2,000 rows is findable and exchangeable from
+- [x] A device outside the newest 2,000 rows is findable and exchangeable from
   the picker.
-- [ ] No client screen holds or filters the whole device array.
-- [ ] The picker still refuses a replacement that is not an IN_STOCK unit of the
+- [x] No client screen holds or filters the whole device array.
+- [x] The picker still refuses a replacement that is not an IN_STOCK unit of the
   same branch and product, and still reports refusals to the audit endpoint.
-- [ ] Refresh/retry/error behaviour and branch scoping are unchanged.
+- [x] Refresh/retry/error behaviour and branch scoping are unchanged.
 
 ## Risks
 
@@ -49,3 +57,12 @@ the panel filters it in the browser with `exchangeSearchQuery`.
 | A debounced picker issues a request per keystroke | Reuse the shared debounce pattern; keep the previous page while the next loads |
 | The exchange submit assumes the old array's fields | The paged endpoint returns the same row shape (`CDR_SELECT_COLUMNS`) |
 | A branch scope is lost while typing | The store keeps the branch scope key and discards superseded responses, as today |
+
+## Measurement
+
+One device row serializes to **549 B** (15 columns, `CDR_SELECT_COLUMNS`),
+measured on scratch rows inserted and rolled back on the local demo DB. The
+legacy picker read carried up to the 2,000-row cap, ≈ **1.05 MiB** per branch,
+while the paged read carries 50 rows, ≈ **26.8 KiB** — and, more to the point,
+the searched page can return a unit the cap dropped entirely (the store suite
+pins a term that finds a row outside page 1 of a 4,700-row matching set).

@@ -1030,4 +1030,14 @@ benefits from DF-06's calendar handling but does not block on it.
   asset array and passes none to a screen. The legacy
   `GET /api/bootstrap/local?key=assets` answers for an older bundle and 503s
   honestly when its live read fails.
+- **Device Exchange picker (EXCH-1, 2026-10-27):** the last consumer of the
+  bounded legacy `GET /api/customer-devices` array. It now reads
+  `GET /api/customer-devices/page` for the header branch, the RENTAL/ACTIVE
+  eligibility filter and the typed term (server-searched through
+  `CDR_SEARCH_TEXT_SQL`, 50-row page plus the matching total), so a branch above
+  the legacy 2,000-row cap can still find and exchange an older deployed unit. The
+  term is debounced and host-owned, each term is its own cache scope (released
+  when the input moves on, so an abandoned search is not refetched on every SSE
+  burst), and the previous page stays on screen while the next one loads. The
+  bare endpoint now has no client reader at all.
 - **No new dependencies** are needed for any task in this list.
