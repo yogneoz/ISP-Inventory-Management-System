@@ -1,6 +1,6 @@
 # STOCK-2 — the gate: re-measure the global stock read, decide paged vs array
 
-Status: `[ ]` not started · Created 2026-10-27 · Estimate 1 h · **Decision only**
+Status: `[x]` decided 2026-10-27 — **NO-GO today, GO-on-evidence** (conditions below) · Created 2026-10-27 · Estimate 1 h · **Decision only**
 Round: [Round 5](README.md) · Order: 3 · Depends on STOCK-1 (post-fix numbers)
 
 ## Why this exists
@@ -18,6 +18,24 @@ fires only under an assumption is not a decision. [STOCK-1](STOCK-1.md) then
 removes the client-side cost that would otherwise be confused with a payload
 problem.
 
+**Re-measured 2026-10-27 (this item).** The width was re-derived against the
+local demo database through the real `BOOTSTRAP_TABLES.stock` mapping
+(`select id, product_id, branch_id, quantity_on_hand, damaged_qty, reserved_qty,
+incoming_qty, min_reorder_level from inventory_stock`, serialized and gzipped):
+**163.7 B raw / 15.4 B gzip per row** on 28 rows of a 14-product / 2-branch
+fixture. That is a *different* fixture from the recorded 143 B / 27 B — shorter
+ids raise the raw figure, and the demo's many zero quantities compress better —
+so the honest band is **≈ 143–164 B raw and ≈ 15–27 B gzip per row**, and the
+global read at 2,000 × 20 straddles the trigger instead of clearly passing it:
+
+| Volume model | Rows | Raw | Gzip |
+|---|---|---|---|
+| 500 × 20 | 10,000 | 1.56 MiB | **150–264 KiB** |
+| 2,000 × 20 | 40,000 | 6.25 MiB | **0.59–1.03 MiB** |
+| 5,000 × 20 | 100,000 | 15.61 MiB | **1.47–2.57 MiB** |
+| 2,000 × 50 | 100,000 | 15.61 MiB | **1.47–2.57 MiB** |
+| 5,000 × 50 | 250,000 | 39.03 MiB | **3.67–6.44 MiB** |
+
 This item therefore produces a **decision**, not a feature: either the paged
 stock read is justified and becomes the next round's large item, or the array
 stays with its trigger intact and nobody reopens it on a hunch.
@@ -33,28 +51,56 @@ stays with its trigger intact and nobody reopens it on a hunch.
 
 ## Steps
 
-- [ ] **1. Re-measure the row width** if the mapping changed since 2026-10-27
-  (`columnMappings.ts` → `stock`); otherwise reuse the recorded number and say so.
-- [ ] **2. Compute the global read** at the real catalog × branch counts, in
-  raw and gzip, and compare it against the ≈ 1 MiB trigger.
-- [ ] **3. Weigh the consumer count.** A paged stock read means touching every
-  `stock={stock}` consumer in [App.tsx](../../../client/src/App.tsx); list them
-  and estimate the migration honestly (Round 4's ASSET-1 is the reference for
-  a 19-consumer migration).
-- [ ] **4. Record the verdict** in this note: **GO** (with the target payload,
-  the screen order and why the client fix is not enough) or **NO-GO** (with the
-  measured numbers and the trigger restated).
-- [ ] **5. Write it where it is read.** Either way: the worklist watch list and
-  [../parked.md](../parked.md) get the verdict and its reason, so the next
-  planning pass starts from a decision instead of the same open question.
+- [x] **1. Re-measure the row width.** The mapping is unchanged (8 aliases,
+  branch-scoped, no fiscal-year filter); the width was re-derived from the demo
+  DB as above. Result: a band, not a point.
+- [x] **2. Compute the global read at modelled volumes** — table above. 2,000 × 20
+  is 0.59–1.03 MiB gzip, i.e. it may or may not cross ≈ 1 MiB.
+- [x] **3. Weigh the consumer count: 32 `stock={stock}` consumers across 32
+  distinct screens** ([App.tsx](../../client/src/App.tsx)), and several need
+  more than a page: `physical-stock-audit` mutates every product's count,
+  `reorder-stock`/`create-po` aggregate deficits across branches,
+  `stock-valuation` and `dashboard` total values, `export-stock` exports the
+  whole matrix, and the **shell low-stock badge + notification center** need a
+  company-wide count on every render. A paged stock read is therefore an
+  ASSET-1-sized round (3–5 days) **plus** a new stock overview/aggregate
+  endpoint for the badge, since no page can answer it.
+- [x] **4. Verdict: NO-GO today, GO-on-evidence.** Not because the cost is
+  small, but because the one fact the decision needs — the real catalogue and
+  branch count — is not in this repo, and the model straddles the line.
+- [x] **5. Written where it is read:** the [worklist watch list](../README.md)
+  and [../parked.md](../parked.md).
+
+## Verdict and its firing conditions
+
+**NO-GO now.** Nothing in `server/` or `client/` changes; the array stays.
+
+The round should be opened when **either** condition is met:
+
+1. **Payload:** a real login's `stock` slice measures **≥ 1 MiB gzip** in the
+   target deployment (that is ≥ ~2,000 products × 20 branches at the measured
+   27 B/row, or ≥ ~3,500 × 20 at 15.4 B/row). How to check: read the bootstrap
+   response's gzip size for the `stock` key, or count `products` × `branches`
+   active in the deployment and multiply by the band above.
+2. **Reach:** a stock screen must search or page beyond what the client filter
+   can carry in one snapshot — practically, an ALL-scope catalogue well past
+   ~5,000 products, where the client filter's own pass over the array becomes
+   the bottleneck again (STOCK-1 removed the quadratic lookups, not the linear
+   filter).
+
+If condition 1 is met the item is **stronger than any payload item this project
+has removed so far** (shipments 300 kB gzip was the largest); if it is not, the
+array is catalog-sized in the common branch-scoped case and should stay.
 
 ## Acceptance
 
 - A GO/NO-GO is recorded with the measured payload, the real volumes used, and
   the consumer list — or an explicit "volumes unavailable" if they are still
   unknown, in which case the verdict is NO-GO-for-now and the trigger stays.
+  **Done: volumes unavailable (demo DB holds 14 products / 2 branches); the
+  verdict is conditional and both conditions are stated above.**
 - Nothing in `server/` or `client/` changes. If the verdict is GO, the work is
-  scoped as its own round, not started here.
+  scoped as its own round, not started here. **Nothing changed.**
 
 ## Out of scope
 

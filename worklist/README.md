@@ -78,15 +78,24 @@ before ([done/2026-10-27-round-3.md](done/2026-10-27-round-3.md)). Do not open a
 parked item without its recorded trigger; add the new evidence to
 [parked.md](parked.md) first.
 
-Recorded watch items — **measured 2026-10-27** before Round 5 planning, so
-none is an open question any more. `inventory_stock` (product × branch),
-`damageRecords` and the two return registers are the only uncapped arrays
-left; at the recorded volumes the return registers are ≈ 203 kB gzip combined
-at 1× (and both already read paged endpoints — the arrays are only the
-degraded fallback), damage is ≤ 653 kB gzip at 1× even if every stock
-operation were a damage row, and a branch's stock array is catalog-sized. **No Round 5 payload
-item is justified.** The one trigger to keep: revisit `inventory_stock` when a
-global (ALL-scope) login's stock array passes ≈ 1 MiB gzip (catalog × branches
-≈ 2,000 × 20), or when a stock screen needs server-side search/paging. Full
+Recorded watch items — **measured 2026-10-27** before Round 5 planning, and
+`inventory_stock` was re-measured and decided at the [STOCK-2](round-5/STOCK-2.md)
+gate, so none is an open question any more. `damageRecords` and the two return
+registers are the only uncapped arrays left; at the recorded volumes the return
+registers are ≈ 203 kB gzip combined at 1× (and both already read paged
+endpoints — the arrays are only the degraded fallback), damage is ≤ 653 kB gzip
+at 1× even if every stock operation were a damage row, and a branch's stock
+array is catalog-sized. **No payload item is justified today.**
+
+`inventory_stock` **NO-GO today, GO-on-evidence** (STOCK-2, 2026-10-27): the
+re-measured row width is ≈ 143–164 B raw / 15–27 B gzip, so a global ALL-scope
+read is 0.59–1.03 MiB gzip at 2,000 × 20 — straddling the ≈ 1 MiB trigger — and
+the deployment's real catalogue and branch count are not recorded anywhere in
+this repo (the demo DB holds 14 products / 2 branches). Open the round when
+**either** a real login's `stock` slice measures ≥ 1 MiB gzip in the target
+deployment, **or** an ALL-scope catalogue well past ~5,000 products makes the
+client-side filter the bottleneck again. The migration is ASSET-1-sized: 32
+screens plus a new stock overview endpoint, because the shell badge and the
+notification center need a company-wide count that no page can answer. Full
 numbers and limits in
 [docs/session-notes/2026.md](../docs/session-notes/2026.md#-round-5-watch-list-measured--none-of-the-remaining-arrays-earns-an-item-2026-10-27).

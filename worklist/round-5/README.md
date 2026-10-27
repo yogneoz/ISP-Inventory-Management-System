@@ -36,7 +36,7 @@ recorded triggers; none is reopened by this round.
 |---|---|---|---|---|---|
 | 1 | [READ-1](READ-1.md) | Delete the orphaned bare-array device read from the client surface | `[x]` done (`8cdd09b`, CI run 174) | 0.5–1 h | — |
 | 2 | [STOCK-1](STOCK-1.md) | Measure the stock-array lookups, then index them out of the screens | `[~]` implemented 2026-10-27, gates green, awaiting commit | 3–4 h | READ-1 (warm-up, no shared code) |
-| 3 | [STOCK-2](STOCK-2.md) | Gate: re-measure the global stock read and decide paged-vs-array | `[ ]` | 1 h | STOCK-1 (needs the post-fix numbers) |
+| 3 | [STOCK-2](STOCK-2.md) | Gate: re-measure the global stock read and decide paged-vs-array | `[x]` decided 2026-10-27 — NO-GO today, GO-on-evidence | 1 h | STOCK-1 (needs the post-fix numbers) |
 
 **Total:** about half a day of work plus the measurement time. This is a small
 round on purpose: the large payload work is finished, and the honest next step
@@ -62,6 +62,10 @@ whose measurement said no.
    catalog/branch counts. Record GO (open a paged stock read as its own round)
    or NO-GO (keep the array, keep the trigger). Stop: the decision and its
    numbers are in the note and in [parked.md](../parked.md) if it is a NO-GO.
+   **Done 2026-10-27: NO-GO today, GO-on-evidence** — the real volumes are not
+   in this repo, the re-measured width straddles the trigger, and the array is
+   catalog-sized in the common branch-scoped case. Two firing conditions are
+   recorded in the note and in [parked.md](../parked.md).
 5. **Round close** — full gates, archive this folder under `done/`, update the
    indexes and the session notes.
 
