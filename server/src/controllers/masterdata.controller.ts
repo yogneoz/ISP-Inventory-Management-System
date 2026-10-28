@@ -8,6 +8,7 @@
 import type { Request, Response } from 'express';
 import { getPgConnected, pgPool, uomList, setUomList, withReplaced, withAppended, logAuditEvent, locationRecords, setLocationRecords, withPrepended, suppliers, setSuppliers, products, setProducts, branches, setInventoryStock, inventoryStock, categories, setCategories, productGroups, setProductGroups, broadcastChange, customerMasterRecords, customerDeviceRecords, setCustomerMasterRecords, withTransaction, companyProfile } from '../app';
 import { defaultVatRateFor } from '../utils/money';
+import { warrantyTermError } from '../../../shared/warrantyTerm';
 
 /**
  * VAT rate for a product being created: the submitted value wins — including
@@ -387,11 +388,27 @@ if (getPgConnected()) {
 
 }
 
+/**
+ * WTY-3: warranty defaults are whole months, 0..120. 0 means "no warranty"
+ * and suppresses coverage creation; anything non-integral is a 400, not a
+ * silently clamped value. The rule itself is shared with the product form.
+ */
+function warrantyMonthsOrError(value: unknown): { months?: number; error?: string } {
+  if (value === undefined || value === null || value === '') return { months: 12 };
+  const error = warrantyTermError(value);
+  if (error) return { error };
+  return { months: Number(value) };
+}
+
 /** Forwarded from masterdata.routes.ts (post_products). */
 export async function post_products(req: any, res: Response): Promise<any> {
 try {
     const name = String(req.body.name ?? '').trim();
     if (!name) return res.status(400).json({ message: 'Product name is required.' });
+    const vendorTerm = warrantyMonthsOrError(req.body.vendorWarrantyMonths);
+    if (vendorTerm.error) return res.status(400).json({ message: vendorTerm.error });
+    const sellerTerm = warrantyMonthsOrError(req.body.sellerWarrantyMonths);
+    if (sellerTerm.error) return res.status(400).json({ message: sellerTerm.error });
 
     // Product group is curated master data: an unknown or retired name is a 400
     // here, never a foreign-key 500 from PostgreSQL.
@@ -420,6 +437,8 @@ try {
       requiresSerialTracking: Boolean(req.body.requiresSerialTracking),
       trackingType: req.body.trackingType || 'QUANTITY_ONLY',
       description: req.body.description || '',
+      vendorWarrantyMonths: vendorTerm.months,
+      sellerWarrantyMonths: sellerTerm.months,
       status: req.body.status || 'ACTIVE',
     };
     setProducts(withAppended(products, newProd));
@@ -472,6 +491,19 @@ try {
 
     const previous = products[idx];
     const oldProd = { ...previous };
+    // A term is optional on edit: omitting it (or sending null/"") keeps the
+    // stored value. Only an explicit, invalid value is a 400 — and it is
+    // rejected BEFORE the cache or the database is touched.
+    for (const field of ['vendorWarrantyMonths', 'sellerWarrantyMonths'] as const) {
+      if (!(field in req.body)) continue;
+      if (req.body[field] === null || req.body[field] === '') {
+        delete req.body[field];
+        continue;
+      }
+      const term = warrantyMonthsOrError(req.body[field]);
+      if (term.error) return res.status(400).json({ message: term.error });
+      req.body[field] = term.months;
+    }
     const next: any = { ...previous, ...req.body };
     // Identity is the URL's, never the body's.
     next.id = previous.id;

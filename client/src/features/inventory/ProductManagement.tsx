@@ -4,6 +4,7 @@ import { isOperationAllowed } from '../../utils/permissions';
 import { exportToCSV } from '../../utils/exportUtils';
 import { formatNPR } from '../../utils/nprFormat';
 import { getDefaultTaxRate } from '../../utils/taxConfig';
+import { warrantyTermError } from '../../../../shared/warrantyTerm';
 import {
   activeProductGroups,
   behaviorOf,
@@ -35,6 +36,7 @@ import {
   FileSpreadsheet,
   AlertTriangle,
   RefreshCw,
+  ShieldCheck,
 } from 'lucide-react';
 
 const CODE39_MAP: Record<string, string> = {
@@ -160,6 +162,10 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
   const [depreciationRate, setDepreciationRate] = useState<number>(15);
   const [usefulLifeYears, setUsefulLifeYears] = useState<number>(5);
   const [salvageValuePercent, setSalvageValuePercent] = useState<number>(10);
+  // WTY-1 defaults: used to prefill a new coverage only. 0 = no warranty.
+  const [vendorWarrantyMonths, setVendorWarrantyMonths] = useState<number>(12);
+  const [sellerWarrantyMonths, setSellerWarrantyMonths] = useState<number>(12);
+  const [warrantyError, setWarrantyError] = useState<string>('');
 
   // Server-driven catalog and category options (never bootstrap slices)
   const [catalog, setCatalog] = useState<Product[]>([]);
@@ -337,6 +343,9 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
     setDepreciationRate(15);
     setUsefulLifeYears(5);
     setSalvageValuePercent(10);
+    setVendorWarrantyMonths(12);
+    setSellerWarrantyMonths(12);
+    setWarrantyError('');
     setIsModalOpen(true);
   };
 
@@ -362,6 +371,9 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
     setDepreciationRate(p.depreciationRate ?? 15);
     setUsefulLifeYears(p.usefulLifeYears ?? 5);
     setSalvageValuePercent(p.salvageValuePercent ?? 10);
+    setVendorWarrantyMonths(p.vendorWarrantyMonths ?? 12);
+    setSellerWarrantyMonths(p.sellerWarrantyMonths ?? 12);
+    setWarrantyError('');
     setIsModalOpen(true);
   };
 
@@ -374,6 +386,21 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
+
+    // Same rule as the API: a term is whole months in 0..120. Reject before the
+    // request so the operator sees which block is wrong, and so an invalid
+    // value can never reach (or silently fall back to 12 in) the database.
+    const vendorTermError = warrantyTermError(vendorWarrantyMonths);
+    const sellerTermError = warrantyTermError(sellerWarrantyMonths);
+    if (vendorTermError || sellerTermError) {
+      setWarrantyError(
+        vendorTermError
+          ? `Suppliers warranty: ${vendorTermError}`
+          : `Sellers warranty: ${sellerTermError}`
+      );
+      return;
+    }
+    setWarrantyError('');
 
     const payload: Partial<Product> = {
       sku,
@@ -389,6 +416,8 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
       requiresSerialTracking,
       trackingType: (requiresSerialTracking ? 'SERIAL_MAC_PON' : 'QUANTITY_ONLY') as 'SERIAL_MAC_PON' | 'QUANTITY_ONLY',
       description,
+      vendorWarrantyMonths: Number(vendorWarrantyMonths),
+      sellerWarrantyMonths: Number(sellerWarrantyMonths),
       ...(behaviorOf(productGroup) === 'FIXED_ASSET'
         ? {
             depreciationMethod,
@@ -1200,6 +1229,58 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                   </div>
                 </div>
               )}
+
+              {/* WTY-1 warranty defaults: prefill only, never retroactive. */}
+              <div className={`p-3 rounded-xl border space-y-2.5 bg-sky-50/70 border-sky-200 dark:bg-sky-950/20 dark:border-sky-800/40`}>
+                <div className="flex items-center gap-1.5 text-sky-700 dark:text-sky-300 text-xs font-bold">
+                  <ShieldCheck className="h-4 w-4" />
+                  <span>Warranty Defaults</span>
+                </div>
+                <p className="text-[10px] leading-relaxed text-sky-800/80 dark:text-sky-300/80">
+                  Used only to prefill the expiry when this product is purchased, sold or issued. Existing coverage keeps its own dates. 0 = no warranty.
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold mb-1 opacity-80">Suppliers warranty (months)</label>
+                    <input
+                      type="number"
+                      aria-label="Suppliers warranty months"
+                      min={0}
+                      max={120}
+                      step={1}
+                      value={vendorWarrantyMonths}
+                      onChange={(e) => { setVendorWarrantyMonths(Number(e.target.value)); setWarrantyError(''); }}
+                      onInvalid={(e) => {
+                        e.preventDefault();
+                        setWarrantyError(`Suppliers warranty: ${warrantyTermError(Number(e.currentTarget.value)) || 'enter a whole number of months.'}`);
+                      }}
+                      className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-sky-500 border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold mb-1 opacity-80">Sellers warranty (months)</label>
+                    <input
+                      type="number"
+                      aria-label="Sellers warranty months"
+                      min={0}
+                      max={120}
+                      step={1}
+                      value={sellerWarrantyMonths}
+                      onChange={(e) => { setSellerWarrantyMonths(Number(e.target.value)); setWarrantyError(''); }}
+                      onInvalid={(e) => {
+                        e.preventDefault();
+                        setWarrantyError(`Sellers warranty: ${warrantyTermError(Number(e.currentTarget.value)) || 'enter a whole number of months.'}`);
+                      }}
+                      className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-sky-500 border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
+                    />
+                  </div>
+                </div>
+                {warrantyError && (
+                  <p role="alert" className="text-[10px] font-semibold text-red-600 dark:text-red-400">
+                    {warrantyError}
+                  </p>
+                )}
+              </div>
 
               {/* Pricing & Tax Block */}
               <div className="grid grid-cols-3 gap-3">

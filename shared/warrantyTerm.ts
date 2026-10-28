@@ -57,6 +57,19 @@ export function defaultWarrantyEnd(startAD: string, months: number = DEFAULT_WAR
   return addCalendarMonths(startAD, months);
 }
 
+/**
+ * The one validation rule for a product's warranty term. The product form and
+ * the API both call this, so a term the browser accepts can never be a term the
+ * server silently clamps to 12.
+ */
+export function warrantyTermError(value: unknown): string | null {
+  const numeric = Number(value);
+  if (!Number.isInteger(numeric) || numeric < 0 || numeric > MAX_WARRANTY_MONTHS) {
+    return `Warranty term must be a whole number of months between 0 and ${MAX_WARRANTY_MONTHS}.`;
+  }
+  return null;
+}
+
 /** A coverage needs both dates, in order, on real calendar days. */
 export function isValidWarrantyRange(startAD: unknown, endAD: unknown): boolean {
   return isAdDate(startAD) && isAdDate(endAD) && endAD >= startAD;

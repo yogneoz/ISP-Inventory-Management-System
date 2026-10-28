@@ -1,6 +1,6 @@
 # WTY-3 — product warranty defaults
 
-Status: `[~]` in progress (scaffold on disk, no gates run) · Started 2026-10-28 · Round 9
+Status: `[x]` done (2026-10-28) · Started 2026-10-28 · Round 9
 Order: 3 · Depends on WTY-1 (columns + types); feeds WTY-4 and WTY-5.
 
 ## Why
@@ -28,14 +28,37 @@ snapshots its term, so a later product edit never rewrites history.
 
 ## Acceptance checklist
 
-- [ ] Create without terms stores 12/12; explicit 0 stores 0; 24 stores 24.
-- [ ] `1.5`, `-1`, `121`, `"abc"` each return 400 and change nothing.
-- [ ] Edit with one term omitted keeps that column's stored value; edit updates
-      both when supplied.
-- [ ] The product modal shows both fields with the stored values, explains 0,
+- [x] Create without terms stores 12/12; explicit 0 stores 0; 24 stores 24.
+      `tests/productWarranty.api.test.ts` reads the row back from PostgreSQL and
+      the catalog endpoint, so the defaults are proven through the real HTTP
+      surface, not just the handler.
+- [x] `1.5`, `-1`, `121`, `"abc"` each return 400 and change nothing — on
+      create every bad term is refused with a message naming the 0–120 range and
+      leaves no product row; on edit each refusal leaves the stored row
+      byte-identical.
+- [x] Edit with one term omitted keeps that column's stored value; edit updates
+      both when supplied. `null`/`''` on edit means "keep", never "reset to
+      12" — the regression the missing column mapping would have caused.
+- [x] The product modal shows both fields with the stored values, explains 0,
       and refuses an out-of-range entry client-side before the request.
-- [ ] Existing product tests and the master-data guards stay green;
+      `tests/productWarrantyForm.test.ts` mounts the real screen: a new SKU
+      starts at 12/12; editing loads 24/0; entering 121 blocks the submit with a
+      field-named alert and no API call; correcting to 3 submits once with both
+      terms in the payload (including the 0) and closes the modal.
+- [x] Existing product tests and the master-data guards stay green;
       `npx tsc --noEmit` clean.
+
+## Verified locally (2026-10-28)
+
+- `npx tsc --noEmit` — clean.
+- `tests/productWarranty.api.test.ts` (6) + `tests/productWarrantyForm.test.ts`
+  (2) — **8 tests, 8 pass, 0 fail**.
+- `tests/masterdata.repo.test.ts` (28 tests) — green after the product cache
+  mapping and the 17-param `productUpdateParams` contract were updated; the
+  added assertion proves an explicit `0` survives the update params instead of
+  being coerced to the 12-month default.
+- Full `npm test` — **1515 tests, 1513 pass, 0 fail, 2 Windows-only skips**,
+  docs-count gate at 1515 after this slice's doc bump.
 
 ## Out of scope
 

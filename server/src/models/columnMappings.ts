@@ -94,6 +94,11 @@ export const BOOTSTRAP_TABLES = {
       ['requires_serial_tracking', 'requiresSerialTracking'],
       ['tracking_type', 'trackingType'],
       ['description', 'description'],
+      // WTY-3: the operational cache feeds the edit form, and a PUT that omits
+      // a term must keep the stored one. Missing these columns made the cache
+      // drop the values, so an omitted term fell back to 12 on every edit.
+      ['vendor_warranty_months', 'vendorWarrantyMonths'],
+      ['seller_warranty_months', 'sellerWarrantyMonths'],
       ['status', 'status'],
     ],
   },

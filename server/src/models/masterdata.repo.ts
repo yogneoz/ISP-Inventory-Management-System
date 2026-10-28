@@ -113,21 +113,30 @@ export const SUPPLIER_DELETE_SQL = 'DELETE FROM suppliers WHERE id = $1';
 // ---------------------------------------------------------------------------
 
 export const PRODUCT_SELECT =
-  'SELECT id, sku, barcode, name, category, product_group AS "productGroup", unit, cost_price AS "costPrice", selling_price AS "sellingPrice", tax_rate AS "taxRate", min_reorder_level AS "minReorderLevel", requires_serial_tracking AS "requiresSerialTracking", tracking_type AS "trackingType", description, status FROM products ORDER BY created_at DESC';
+  'SELECT id, sku, barcode, name, category, product_group AS "productGroup", unit, cost_price AS "costPrice", selling_price AS "sellingPrice", tax_rate AS "taxRate", min_reorder_level AS "minReorderLevel", requires_serial_tracking AS "requiresSerialTracking", tracking_type AS "trackingType", description, vendor_warranty_months AS "vendorWarrantyMonths", seller_warranty_months AS "sellerWarrantyMonths", status FROM products ORDER BY created_at DESC';
 
-export const PRODUCT_UPSERT_SQL = `INSERT INTO products (id, sku, barcode, name, category, product_group, unit, cost_price, selling_price, tax_rate, min_reorder_level, requires_serial_tracking, tracking_type, description, status)
- VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+/** WTY-1 term bounds: 0 = no warranty, 120 = ten years. */
+function warrantyMonths(value: unknown, fallback = 12): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric >= 0 && numeric <= 120 ? Math.trunc(numeric) : fallback;
+}
+
+export const PRODUCT_UPSERT_SQL = `INSERT INTO products (id, sku, barcode, name, category, product_group, unit, cost_price, selling_price, tax_rate, min_reorder_level, requires_serial_tracking, tracking_type, description, vendor_warranty_months, seller_warranty_months, status)
+ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
  ON CONFLICT (id) DO UPDATE SET
    sku = EXCLUDED.sku,
    name = EXCLUDED.name,
    category = EXCLUDED.category,
-   selling_price = EXCLUDED.selling_price;`;
+   selling_price = EXCLUDED.selling_price,
+   vendor_warranty_months = EXCLUDED.vendor_warranty_months,
+   seller_warranty_months = EXCLUDED.seller_warranty_months;`;
 
 export function productUpsertParams(p: Record<string, any>): unknown[] {
   return [
     p.id, p.sku, p.barcode, p.name, p.category, p.productGroup, p.unit,
     p.costPrice, p.sellingPrice, p.taxRate, p.minReorderLevel,
-    p.requiresSerialTracking, p.trackingType, p.description, p.status,
+    p.requiresSerialTracking, p.trackingType, p.description,
+    warrantyMonths(p.vendorWarrantyMonths), warrantyMonths(p.sellerWarrantyMonths), p.status,
   ];
 }
 
@@ -145,8 +154,10 @@ export const PRODUCT_UPDATE_SQL = `UPDATE products SET
    requires_serial_tracking = $11,
    tracking_type = $12,
    description = $13,
-   status = $14
- WHERE id = $15;`;
+   status = $14,
+   vendor_warranty_months = $15,
+   seller_warranty_months = $16
+ WHERE id = $17;`;
 
 export function productUpdateParams(
   p: Record<string, any>,
@@ -179,6 +190,8 @@ export function productUpdateParams(
     p.trackingType || 'QUANTITY_ONLY',
     p.description || '',
     p.status || 'ACTIVE',
+    warrantyMonths(p.vendorWarrantyMonths),
+    warrantyMonths(p.sellerWarrantyMonths),
     id,
   ];
 }

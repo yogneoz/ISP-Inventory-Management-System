@@ -80,14 +80,25 @@ describe('productUpdateParams', () => {
     const params = productUpdateParams(p, 'prod-1');
     assert.deepEqual(params, [
       'SKU-1', '', 'Router', 'CPE', 'Product Item', 'Pcs',
-      0, 0, 13, 5, false, 'QUANTITY_ONLY', '', 'ACTIVE', 'prod-1',
+      0, 0, 13, 5, false, 'QUANTITY_ONLY', '', 'ACTIVE', 12, 12, 'prod-1',
     ]);
-    assert.equal(params.length, 15);
+    assert.equal(params.length, 17);
     assert.equal(
       productUpdateParams({ sku: 'S', name: 'N', category: 'C' }, 'id1')[4],
       undefined,
       'the builder must not invent a group name — resolving it is the controller\'s job'
     );
+  });
+
+  test('carries both warranty terms and preserves an explicit 0', () => {
+    // WTY-3: the update builder persists the product's defaults. 0 means "no
+    // warranty" and must survive as a value, not fall back to 12.
+    const params = productUpdateParams(
+      { sku: 'S', name: 'N', category: 'C', vendorWarrantyMonths: 0, sellerWarrantyMonths: 36 },
+      'id1'
+    );
+    assert.equal(params[14], 0);
+    assert.equal(params[15], 36);
   });
 
   test('preserves supplied truthy values over defaults', () => {
