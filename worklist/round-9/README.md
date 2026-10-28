@@ -27,18 +27,18 @@ Work proceeds in this order; each note is the slice's single source of truth.
 | # | Item | Scope | Status |
 |---|---|---|---|
 | 1 | [WTY-1](WTY-1.md) | Shared date arithmetic, `warranty_coverages` schema, product columns, types, demo mirror and legacy backfill | `[x]` `bae0efa` |
-| 2 | [WTY-2](WTY-2.md) | Coverage repo/service/controller/routes, branch scope, permissions and the audited edit endpoint | `[x]` gated |
-| 3 | [WTY-3](WTY-3.md) | Product vendor/seller warranty defaults in the API and the product form | `[x]` gated |
+| 2 | [WTY-2](WTY-2.md) | Coverage repo/service/controller/routes, branch scope, permissions and the audited edit endpoint | `[x]` `f1ebd83` |
+| 3 | [WTY-3](WTY-3.md) | Product vendor/seller warranty defaults in the API and the product form | `[x]` `cf84fa1` |
 | 4 | [WTY-4](WTY-4.md) | Vendor coverage capture at purchase invoice and fixed asset; supersede on return/disposal | `[ ]` |
 | 5 | [WTY-5](WTY-5.md) | Seller coverage capture at issue, sale and exchange; supersede on collection/refund | `[ ]` |
 | 6 | [WTY-6](WTY-6.md) | Suppliers Warranty and Sellers Warranty screens, navigation, client API and the device badge | `[ ]` |
 | 7 | [WTY-7](WTY-7.md) | Demo coverage data, clear-demo order and backfill verification | `[ ]` |
 | 8 | [WTY-8](WTY-8.md) | Docs, table/screen/route/operation counts, full gates and the CI record | `[ ]` |
 
-WTY-1 shipped as `bae0efa` after its own gates; WTY-2 and WTY-3 sit on top of
-it with every acceptance line gated — the coverage API's repo, HTTP,
-branch-scope, permission and audited-edit claims, and the product defaults'
-validation and form round-trip. WTY-4–8 are untouched.
+WTY-1 shipped as `bae0efa`, WTY-2 as `f1ebd83` and WTY-3 as `cf84fa1`, each
+after its own gates and with every acceptance line ticked — the coverage API's
+repo, HTTP, branch-scope, permission and audited-edit claims, and the product
+defaults' validation and form round-trip. WTY-4–8 are untouched.
 
 ## Commit policy
 

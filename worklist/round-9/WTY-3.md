@@ -1,6 +1,6 @@
 # WTY-3 — product warranty defaults
 
-Status: `[x]` done (2026-10-28) · Started 2026-10-28 · Round 9
+Status: `[x]` done (2026-10-28) · `cf84fa1` · Started 2026-10-28 · Round 9
 Order: 3 · Depends on WTY-1 (columns + types); feeds WTY-4 and WTY-5.
 
 ## Why

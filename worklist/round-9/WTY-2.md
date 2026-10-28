@@ -1,6 +1,6 @@
 # WTY-2 — the coverage API, branch scope and the audited correction
 
-Status: `[x]` done (2026-10-28) · Started 2026-10-28 · Round 9
+Status: `[x]` done (2026-10-28) · `f1ebd83` · Started 2026-10-28 · Round 9
 Order: 2 · Depends on WTY-1 (table + types).
 
 ## Why
