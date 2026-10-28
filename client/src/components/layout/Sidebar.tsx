@@ -73,6 +73,7 @@ export type NavTab =
   | 'product-master'
   | 'opening-stock'
   | 'category-management'
+  | 'product-group-management'
   | 'uom-management'
   | 'import-stock'
   | 'export-stock'
@@ -145,6 +146,7 @@ export const NAV_TABS: NavTab[] = [
   'product-master',
   'opening-stock',
   'category-management',
+  'product-group-management',
   'uom-management',
   'import-stock',
   'export-stock',
@@ -561,6 +563,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       : []),
     ...(isOperationAllowed('category-manage', currentUser?.role)
       ? [{ id: 'category-management' as NavTab, label: 'Category Management', icon: Grid }]
+      : []),
+    ...(isOperationAllowed('product-group-manage', currentUser?.role)
+      ? [{ id: 'product-group-management' as NavTab, label: 'Product Group Management', icon: Layers }]
       : []),
     ...(isOperationAllowed('uom-manage', currentUser?.role)
       ? [{ id: 'uom-management' as NavTab, label: 'UoM Management', icon: Ruler }]

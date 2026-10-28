@@ -3,6 +3,7 @@ import { Branch, InventoryStock, Product, CustomerDeviceRecord, User } from '../
 import { exportToCSV } from '../../utils/exportUtils';
 import { formatBSDate } from '../../utils/nepaliCalendar';
 import { formatNPR } from '../../utils/nprFormat';
+import { getProductGroups } from '../../utils/productGroupBehavior';
 import {
   DownloadCloud,
   FileSpreadsheet,
@@ -274,7 +275,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
     return reorderStockData.filter((item) => {
       const prod = item.product;
       const matchesCat = filterCategory === 'ALL' || prod.category === filterCategory;
-      const matchesGrp = filterGroup === 'ALL' || (prod.productGroup || 'Product Item') === filterGroup;
+      const matchesGrp = filterGroup === 'ALL' || (prod.productGroup || '') === filterGroup;
 
       if (filterReorderStatus === 'LOW_ONLY' && !item.isBelowReorder) return false;
       if (filterReorderStatus === 'OUT_OF_STOCK' && !item.isOutOfStock) return false;
@@ -303,7 +304,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
       const matchesCat = filterCategory === 'ALL' || p.category === filterCategory;
-      const matchesGrp = filterGroup === 'ALL' || (p.productGroup || 'Product Item') === filterGroup;
+      const matchesGrp = filterGroup === 'ALL' || (p.productGroup || '') === filterGroup;
       if (searchQuery.trim()) {
         const q = (searchQuery || '').toLowerCase().trim();
         const matchName = (p?.name || '').toLowerCase().includes(q);
@@ -443,7 +444,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
       {
         key: 'group',
         label: 'Product Group',
-        formatter: (_: any, row: any) => row.product.productGroup || 'Product Item',
+        formatter: (_: any, row: any) => row.product.productGroup || '—',
       },
       {
         key: 'category',
@@ -528,7 +529,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
       { key: 'sku', label: 'SKU' },
       { key: 'barcode', label: 'Barcode' },
       { key: 'name', label: 'Product Name' },
-      { key: 'productGroup', label: 'Product Group', formatter: (val: string) => val || 'Product Item' },
+      { key: 'productGroup', label: 'Product Group', formatter: (val: string) => val || '—' },
       { key: 'category', label: 'Category' },
       { key: 'unit', label: 'UoM' },
       { key: 'costPrice', label: 'Cost Price (NPR)' },
@@ -764,9 +765,11 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                 className={`rounded-xl border px-3 py-1.5 text-xs font-medium focus:outline-none focus:border-indigo-500 cursor-pointer bg-slate-50 border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
               >
                 <option value="ALL">All Groups</option>
-                <option value="Product Item">Product Item (Equipment/Resale)</option>
-                <option value="Consumable Item">Consumable Item (Splitters/Sleeves)</option>
-                <option value="Fixed Asset">Fixed Asset (Capital Assets)</option>
+                {getProductGroups().map((group) => (
+                  <option key={group.id} value={group.name}>
+                    {group.name}
+                  </option>
+                ))}
               </select>
 
               {/* Category Filter */}
@@ -1212,7 +1215,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                           )}
                         </div>
                       </td>
-                      <td className="p-2.5 text-slate-500">{p.productGroup || 'Product Item'}</td>
+                      <td className="p-2.5 text-slate-500">{p.productGroup || '—'}</td>
                       <td className="p-2.5 text-slate-500">{p.category}</td>
                       <td className="p-2.5 text-center font-mono font-bold text-slate-800 dark:text-slate-200">
                         {qty} {p.unit}

@@ -89,7 +89,9 @@ export interface Product {
   barcode: string;
   name: string;
   category: string;
-  productGroup?: 'Product Item' | 'Fixed Asset' | 'Consumable Item';
+  /** The product group NAME (see ProductGroup). Free-form since groups became
+   *  master data; behaviour, not this string, drives sales/asset rules. */
+  productGroup?: string;
   unit: 'Pcs' | 'Box' | 'Kg' | 'Set' | 'Mtr' | 'Roll' | 'Pair' | string;
   costPrice: number;
   sellingPrice: number;
@@ -101,7 +103,7 @@ export interface Product {
   status?: 'ACTIVE' | 'INACTIVE' | 'DISCONTINUED';
   imageUrl?: string;
 
-  // Depreciation Settings (for productGroup === 'Fixed Asset')
+  // Depreciation Settings (for groups whose behaviour is FIXED_ASSET)
   depreciationMethod?: 'STRAIGHT_LINE' | 'DECLINING_BALANCE' | 'WRITTEN_DOWN_VALUE';
   depreciationRate?: number; // Annual percentage e.g. 15 for 15%
   usefulLifeYears?: number; // Useful life in years e.g. 5
@@ -114,6 +116,27 @@ export interface Category {
   code: string;
   description?: string;
   isSpecialTracked?: boolean;
+  productCount?: number;
+}
+
+/**
+ * Fixed behaviour a product group maps to. The three values are the business
+ * rules the app implements; the group NAME is customer-editable.
+ *  - STOCK_ITEM: sellable items and serialized equipment.
+ *  - CONSUMABLE: quantity-only material issued to jobs/technicians.
+ *  - FIXED_ASSET: capitalized equipment that depreciates.
+ */
+export type ProductGroupBehavior = 'STOCK_ITEM' | 'CONSUMABLE' | 'FIXED_ASSET';
+
+export interface ProductGroup {
+  id: string;
+  code: string;
+  name: string;
+  behavior: ProductGroupBehavior;
+  sortOrder: number;
+  active: boolean;
+  isSystem?: boolean;
+  /** Live count of products currently assigned, filled by the list endpoint. */
   productCount?: number;
 }
 
@@ -1030,6 +1053,7 @@ export interface BootstrapState {
   approvalRequests: ApprovalRequest[];
   categories?: Category[];
   uom?: UnitOfMeasure[];
+  productGroups?: ProductGroup[];
   locations?: LocationRecord[];
   companyProfile?: CompanyProfile;
   damageRecords?: DamageRecord[];

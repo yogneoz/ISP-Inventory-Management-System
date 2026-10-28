@@ -28,7 +28,7 @@ test('A4: the tab tree is declared once, as a typed route table', () => {
   );
 
   const keys = [...app.matchAll(/screenRoute\('([^']+)'/g)].map((match) => match[1]);
-  assert.equal(keys.length, 67, 'every tab must be declared in the table');
+  assert.equal(keys.length, 68, 'every tab must be declared in the table');
   assert.equal(new Set(keys).size, keys.length, 'a tab must not be declared twice');
 
   const navTabs = new Set(NAV_TABS as string[]);

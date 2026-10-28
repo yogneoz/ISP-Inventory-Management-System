@@ -1,6 +1,6 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-28 · Branch: main · Tests: 1448/1448 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-28 · Branch: main · Tests: 1468/1468 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
 > **Current state (2026-10-27, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1/VOL-2/BUDGET-1/BOOT-1/VOL-3/VOL-4a/VOL-4b/SN-1/ASSET-1/EXCH-1/READ-1/CDR-1/CDR-2).** All DF-01…DF-17
 > work, the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2, CPE-3,
@@ -60,7 +60,17 @@ _Date: 2026-10-28 · Branch: main · Tests: 1448/1448 green with a DB (all run i
 > (`getScopedBranches`), pinned by 4 render tests. **Draft seeding
 > (2026-10-28):** an opening-stock edit now seeds its untouched fields from the
 > row, so a quantity-only edit no longer blanks damaged quantity and cost or
-> blocks Save, pinned by 2 render tests. **No round is active.** The payload work
+> blocks Save, pinned by 2 render tests. **Product groups as master data
+> (2026-10-28):** the product modal's hard-coded group names, category `ALL`
+> sentinel, custom-category link and duplicated unit control are gone. A new
+> `product_groups` table (the 37th; seeded with the three original groups)
+> backs the group select, `products.product_group` references it with a rename
+> cascade, and a `product-group-manage` permission owns the new Product Group
+> Management tab. Every screen that compared a group name now asks
+> [productGroupBehavior.ts](client/src/utils/productGroupBehavior.ts) for the
+> behaviour, so renaming or adding a group keeps the selling, issuing and
+> depreciation rules. Pinned by 3 new test files; suite at **1468/1468**
+> (1466 pass, 0 fail, 2 Windows-only skips). **No round is active.** The payload work
 > is finished — the remaining-array measurement found no item to open, and the
 > `inventory_stock` trigger is recorded in [2026.md](docs/session-notes/2026.md). The
 > notes are split by year (**SN-1**): entries live in

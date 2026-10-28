@@ -99,7 +99,7 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
       { key: 'sku', label: 'SKU Code' },
       { key: 'barcode', label: 'Barcode' },
       { key: 'name', label: 'Product Name' },
-      { key: 'productGroup', label: 'Product Group', formatter: (val: string) => val || 'Product Item' },
+      { key: 'productGroup', label: 'Product Group', formatter: (val: string) => val || '—' },
       { key: 'category', label: 'Category' },
       { key: 'unit', label: 'Unit (UoM)' },
       { key: 'costPrice', label: 'Cost Price (NPR)', formatter: (val: number) => val || 0 },

@@ -10,6 +10,7 @@ import { ProductSearchBar } from '../ProductSearchBar';
 import { api } from '../../../services/api';
 import { formatNPR } from '../../../utils/nprFormat';
 import { clampLineQuantity } from '../../../utils/lineQuantity';
+import { isConsumableProduct } from '../../../utils/productGroupBehavior';
 import {
   Plus,
   Trash2,
@@ -28,8 +29,10 @@ import {
 export const ConsumableIssuePanel: React.FC = () => {
   const { activeTab, allowedBranches, alertDialog, branches, currentUser, ensureBsDateAvailable, locations, onCreateOperation, products, stock, userBranchId, validateSourceBranchStockAndSerials } = useStockOperationsCtx();
 
+  // Behaviour-filtered: any group with CONSUMABLE behaviour (renamed or custom
+  // groups included) issues material here.
   const consumableProducts = useMemo(
-    () => products.filter((p) => (p.productGroup || 'Product Item') === 'Consumable Item'),
+    () => products.filter((p) => isConsumableProduct(p)),
     [products]
   );
 

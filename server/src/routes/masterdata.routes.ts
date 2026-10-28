@@ -5,7 +5,7 @@
  * position of this domain's first route.
  */
 import type { Express } from 'express';
-import { get_uom, post_uom, put_Id, delete_Id, get_locations, post_locations, delete_Id2, get_suppliers, post_suppliers, put_Id3, delete_Id3, get_products, post_products, put_Id4, delete_Id4, get_categories, post_categories, put_Id5, delete_Id5, get_customers, post_customers, post_bulk, put_Id6, delete_Id6 } from '../controllers/masterdata.controller';
+import { get_uom, post_uom, put_Id, delete_Id, get_locations, post_locations, delete_Id2, get_suppliers, post_suppliers, put_Id3, delete_Id3, get_products, post_products, put_Id4, delete_Id4, get_categories, post_categories, put_Id5, delete_Id5, get_product_groups, post_product_groups, put_product_groups, delete_product_groups, get_customers, post_customers, post_bulk, put_Id6, delete_Id6 } from '../controllers/masterdata.controller';
 import { requirePermission, requireRole } from '../app';
 import type { Category, CustomerRecord, LocationRecord, Supplier, UnitOfMeasure } from '../../../client/src/types';
 
@@ -47,6 +47,16 @@ app.post('/api/categories', requirePermission('category-manage'), async (req, re
 app.put('/api/categories/:id', requirePermission('category-manage'), async (req, res, next) => { put_Id5(req as any, res as any).catch(next); });
 
 app.delete('/api/categories/:id', requirePermission('category-manage'), async (req, res, next) => { delete_Id5(req as any, res as any).catch(next); });
+
+// Product groups: product group is master data, so its writes use their own
+// matrix operation (seeded with Super Admin / Inventory Manager / HO Admin).
+app.get('/api/product-groups', async (req, res, next) => { get_product_groups(req as any, res as any).catch(next); });
+
+app.post('/api/product-groups', requirePermission('product-group-manage'), async (req, res, next) => { post_product_groups(req as any, res as any).catch(next); });
+
+app.put('/api/product-groups/:id', requirePermission('product-group-manage'), async (req, res, next) => { put_product_groups(req as any, res as any).catch(next); });
+
+app.delete('/api/product-groups/:id', requirePermission('product-group-manage'), async (req, res, next) => { delete_product_groups(req as any, res as any).catch(next); });
 
 app.get('/api/customers', async (req, res, next) => { get_customers(req as any, res as any).catch(next); });
 

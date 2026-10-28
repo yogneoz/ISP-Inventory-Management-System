@@ -79,7 +79,7 @@ import { cacheRefreshHook } from './middleware/cacheRefreshHook';
 // Extracted modules (see header comment for the full map).
 export {
   companyProfile, docNumberConfigs, users, suppliers, uomList, locationRecords,
-  branches, fiscalYears, products, categories, inventoryStock, assetRegister,
+  branches, fiscalYears, products, categories, productGroups, inventoryStock, assetRegister,
   customerDeviceRecords, customerMasterRecords, purchaseOrders, purchaseInvoices,
   salesInvoices, purchaseReturns, salesReturns,
   shipments, stockOperations, auditTrail, transactionLogs, vendorPayments,
@@ -87,6 +87,7 @@ export {
   approvalRequests, damageRecords, serialLogs, activeUser, permissionMatrix,
   setCompanyProfile, setDocNumberConfigs, setUsers, setSuppliers, setUomList,
   setLocationRecords, setBranches, setFiscalYears, setProducts, setCategories,
+  setProductGroups,
   setInventoryStock, setAssetRegister, setPurchaseOrders, setPurchaseInvoices,
   setSalesInvoices, setPurchaseReturns, setSalesReturns,
   setShipments, setStockOperations, setAuditTrail, setTransactionLogs,

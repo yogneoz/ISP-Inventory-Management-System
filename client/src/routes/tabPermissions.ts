@@ -29,6 +29,7 @@ export const TAB_PERMISSIONS: Record<string, string | string[]> = {
   'stock-out': 'stock-out',
   'opening-stock': 'opening-stock-view',
   'category-management': 'category-manage',
+  'product-group-management': 'product-group-manage',
   'uom-management': 'uom-manage',
   'product-master': 'prod-view',
   branches: 'admin-branches',

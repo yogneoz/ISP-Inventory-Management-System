@@ -1,7 +1,7 @@
 // Seed constants: default company profile, document numbering, master data
 // (UoM, locations, branches, fiscal years, suppliers) and demo user accounts.
 // Extracted verbatim from app.ts. Runtime state declarations remain in app.ts.
-import type { CompanyProfile, DocumentNumberConfig, UnitOfMeasure, LocationRecord, Branch, FiscalYear, Supplier, User } from '../../../client/src/types';
+import type { CompanyProfile, DocumentNumberConfig, UnitOfMeasure, LocationRecord, Branch, FiscalYear, Supplier, User, ProductGroup } from '../../../client/src/types';
 
 // EXAMPLE/DUMMY company profile (is_demo-labelled data). Replace via the
 // Company Setup screen once real company details are available.
@@ -56,6 +56,16 @@ export const INITIAL_DOCUMENT_NUMBER_CONFIGS: DocumentNumberConfig[] = [
   { id: 'BR', documentType: 'Bank Receive', prefix: 'BR-2081-', suffix: '', minDigits: 4, startingNumber: 1001, nextNumber: 1001, resetEveryFiscalYear: true, notes: 'Used for bank transfer and cheque receipts received from customers.' },
 ];
 
+
+// The three product groups the app shipped with. scripts/schema.sql seeds the
+// same rows for PostgreSQL (and for every test database); this copy is what a
+// PG-less demo run starts from. tests/productGroups.repo.test.ts asserts the two
+// lists stay identical, so neither can drift alone.
+export const INITIAL_PRODUCT_GROUPS: ProductGroup[] = [
+  { id: 'pg-product-item', code: 'PRODUCT_ITEM', name: 'Product Item', behavior: 'STOCK_ITEM', sortOrder: 10, active: true, isSystem: true },
+  { id: 'pg-consumable-item', code: 'CONSUMABLE_ITEM', name: 'Consumable Item', behavior: 'CONSUMABLE', sortOrder: 20, active: true, isSystem: true },
+  { id: 'pg-fixed-asset', code: 'FIXED_ASSET', name: 'Fixed Asset', behavior: 'FIXED_ASSET', sortOrder: 30, active: true, isSystem: true },
+];
 
 // Master Initial Seed Specifications for PostgreSQL database initialization
 export const INITIAL_MASTER_UOM: UnitOfMeasure[] = [

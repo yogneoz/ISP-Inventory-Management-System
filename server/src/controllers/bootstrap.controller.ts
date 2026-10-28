@@ -146,6 +146,7 @@ const { branchId, fiscalYearId } = req.query;
         users: data.users,
         approvalRequests: pgApprovalRequests,
         categories: data.categories,
+        productGroups: data.productGroups,
         uom: data.uom,
         locations: data.locations,
         companyProfile: data.companyProfile[0] || companyProfile,

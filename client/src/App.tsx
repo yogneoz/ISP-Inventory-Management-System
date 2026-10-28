@@ -125,6 +125,9 @@ const WarrantyProducts = React.lazy(() =>
 const CategoryManagement = React.lazy(() =>
   import('./features/inventory/CategoryManagement').then((m) => ({ default: m.CategoryManagement }))
 );
+const ProductGroupManagement = React.lazy(() =>
+  import('./features/inventory/ProductGroupManagement').then((m) => ({ default: m.ProductGroupManagement }))
+);
 const UomManagement = React.lazy(() =>
   import('./features/inventory/UomManagement').then((m) => ({ default: m.UomManagement }))
 );
@@ -210,6 +213,7 @@ import { DatabaseSetupBanner } from './components/common/DatabaseSetupBanner';
 import { BootstrapBlockedBanner } from './components/common/BootstrapBlockedBanner';
 import { setCurrencyConfig } from './utils/nprFormat';
 import { setDefaultTaxRate } from './utils/taxConfig';
+import { setProductGroups } from './utils/productGroupBehavior';
 import { useDarkMode } from './contexts/DarkModeContext';
 import { useSession } from './contexts/SessionContext';
 import { useScope } from './contexts/ScopeContext';
@@ -703,6 +707,10 @@ export default function App() {
     if (data.users) setUsers(data.users as User[]);
     if (data.approvalRequests) setApprovalRequests(data.approvalRequests);
     if (data.categories) setCategories(data.categories);
+    // Product groups ride the login payload: the name → behaviour lookup must
+    // be authoritative before any sales/asset screen paints, so it is applied
+    // here rather than fetched lazily by each consumer.
+    if (data.productGroups) setProductGroups(data.productGroups);
     if (data.companyProfile) {
       setCompanyProfile(data.companyProfile);
       applyCurrencyConfig(data.companyProfile);
@@ -1071,7 +1079,7 @@ export default function App() {
     // VOL-4b: customer devices are no longer a bootstrap slice either — the
     // register pages and the warranty directory reads its own union, so the
     // MASTER_DATA burst has no device array to refresh.
-    MASTER_DATA: ['branches', 'suppliers', 'locations', 'companyProfile'],
+    MASTER_DATA: ['branches', 'suppliers', 'locations', 'companyProfile', 'productGroups'],
     CATEGORIES: ['categories'],
     PRODUCTS: ['products', 'stock'],
     FISCAL: ['fiscalYears', 'financialSummary'],
@@ -1925,6 +1933,14 @@ export default function App() {
         />
       </React.Suspense>
     )),
+    screenRoute('product-group-management', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <ProductGroupManagement
+          currentUser={currentUser}
+          products={products}
+        />
+      </React.Suspense>
+    )),
     screenRoute('uom-management', (
       <React.Suspense fallback={<TabLoadingFallback />}>
         <UomManagement
@@ -1938,6 +1954,7 @@ export default function App() {
           branches={branches}
           products={products}
           onCreateProduct={handleCreateProduct}
+          onUpdateProduct={handleUpdateProduct}
           onRefreshData={refreshAllData}
         />
       </React.Suspense>

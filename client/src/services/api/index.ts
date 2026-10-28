@@ -220,6 +220,12 @@ export const api = {
   updateCategory: admin.updateCategory,
   deleteCategory: admin.deleteCategory,
 
+  // Product Group API
+  getProductGroups: admin.getProductGroups,
+  createProductGroup: admin.createProductGroup,
+  updateProductGroup: admin.updateProductGroup,
+  deleteProductGroup: admin.deleteProductGroup,
+
   // UoM API
   getUoms: admin.getUoms,
   createUom: admin.createUom,

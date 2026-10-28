@@ -898,7 +898,7 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
 });
 
 describe('Feature-screen coverage — every screen\'s server-call surface is pinned', () => {
-  // Audit (2026-10-03) of all 50 screens under client/src/features — now 66
+  // Audit (2026-10-03) of all 50 screens under client/src/features — now 67
   // after the §G StockOperations decomposition added 12 tab panels (and
   // commit 2 the extracted tab-bar chrome) under inventory/stockops, plus
   // the BS-calendar integrity work's Calendar Health panel — each
@@ -1034,9 +1034,13 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'finance/VatRegister.tsx': [],
     'inventory/BranchStockTracking.tsx': [],
     'inventory/ExportStock.tsx': ['getCustomerDeviceExport', 'getCustomerDevicePage'],
-    'inventory/ImportStock.tsx': [],
+    // CSV alignment (product-group round): the importer validates each row's
+    // category/unit against the master tables before writing, so a typo is a
+    // row error instead of a new phantom category or a hard-coded unit.
+    'inventory/ImportStock.tsx': ['getCategories', 'getUoms'],
     'inventory/PhysicalStockAudit.tsx': [],
-    'inventory/ProductManagement.tsx': ['getCategories', 'getProducts'],
+    'inventory/ProductManagement.tsx': ['getCategories', 'getProductGroups', 'getProducts', 'getUoms'],
+    'inventory/ProductGroupManagement.tsx': ['createProductGroup', 'deleteProductGroup', 'getProductGroups', 'updateProductGroup'],
     'inventory/ProductSearchBar.tsx': [],
     'inventory/ReorderStockTracking.tsx': [],
     'inventory/StockValuation.tsx': [],
@@ -1123,6 +1127,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'finance/VendorLedger.tsx',
     'finance/VendorOpeningBalances.tsx',
     'inventory/CategoryManagement.tsx',
+    'inventory/ProductGroupManagement.tsx',
     'inventory/ProductManagement.tsx',
     'inventory/UomManagement.tsx',
     'settings/LocationsManagement.tsx',
@@ -1276,6 +1281,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'finance/VendorLedger.tsx': 'vendor-ledger',
     'finance/VendorOpeningBalances.tsx': 'vendor-opening-balances',
     'inventory/CategoryManagement.tsx': 'category-management',
+    'inventory/ProductGroupManagement.tsx': 'product-group-management',
     'inventory/ProductManagement.tsx': ['all-stock', 'product-master'],
     'inventory/UomManagement.tsx': 'uom-management',
     'settings/LocationsManagement.tsx': 'locations',
@@ -1311,7 +1317,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
 
   test('docs screen-count claims match reality — total, table and pinned-elsewhere', () => {
     // The three docs quote these tallies (README, handoff, SESSION_NOTES:
-    // "all 66 screens", "the 55 screens not covered", "the other 11").
+    // "all 67 screens", "the 56 screens not covered", "the other 11").
     // Real values come from THIS code — the features walk and the two
     // tables above — so a screen added or reclassified without updating
     // the docs fails here: the screen-count twin of the docs-count gate

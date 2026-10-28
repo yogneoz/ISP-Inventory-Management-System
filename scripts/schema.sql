@@ -133,6 +133,40 @@ CREATE TABLE IF NOT EXISTS categories (
 );
 
 -- ==========================================
+-- 5b. Product Groups Table (customer-defined catalog buckets)
+-- ==========================================
+-- A product group is an operator-named bucket of catalog rows plus ONE fixed
+-- behaviour. The behaviour -- not the name -- is what sales eligibility,
+-- consumable issuing and depreciation key off, so a business can rename or add
+-- groups ("Vehicles", "Network Equipment") without touching any business rule.
+-- `is_system` protects the three built-ins from deletion; the supported way to
+-- stop offering a group is retiring it (active = FALSE).
+CREATE TABLE IF NOT EXISTS product_groups (
+    id VARCHAR(50) PRIMARY KEY,
+    code VARCHAR(50) UNIQUE NOT NULL,
+    name VARCHAR(100) UNIQUE NOT NULL,
+    behavior VARCHAR(30) NOT NULL CHECK (behavior IN ('STOCK_ITEM', 'CONSUMABLE', 'FIXED_ASSET')),
+    sort_order INT NOT NULL DEFAULT 100,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    is_system BOOLEAN NOT NULL DEFAULT FALSE,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- The three groups the application shipped with. Seeded HERE (not in dbBoot) so
+-- a fresh install, an upgraded database and every test database agree. The
+-- untargeted ON CONFLICT keeps the seed a no-op after an operator renames a
+-- group: a renamed row still owns its code, so no built-in is resurrected.
+INSERT INTO product_groups (id, code, name, behavior, sort_order, active, is_system)
+VALUES
+  ('pg-product-item', 'PRODUCT_ITEM', 'Product Item', 'STOCK_ITEM', 10, TRUE, TRUE),
+  ('pg-consumable-item', 'CONSUMABLE_ITEM', 'Consumable Item', 'CONSUMABLE', 20, TRUE, TRUE),
+  ('pg-fixed-asset', 'FIXED_ASSET', 'Fixed Asset', 'FIXED_ASSET', 30, TRUE, TRUE)
+ON CONFLICT DO NOTHING;
+
+-- ==========================================
 -- 6. Products Table
 -- ==========================================
 CREATE TABLE IF NOT EXISTS products (
@@ -141,7 +175,11 @@ CREATE TABLE IF NOT EXISTS products (
     barcode VARCHAR(100),
     name VARCHAR(255) NOT NULL,
     category VARCHAR(100) NOT NULL,
-    product_group VARCHAR(50) NOT NULL CHECK (product_group IN ('Product Item', 'Fixed Asset', 'Consumable Item')),
+    -- The group NAME is stored (not its id) so every existing payload, CSV
+    -- export and report keeps reading a human-readable value. The foreign key
+    -- makes a rename cascade to every product and refuses deleting a group
+    -- that is still in use.
+    product_group VARCHAR(50) NOT NULL REFERENCES product_groups(name) ON UPDATE CASCADE ON DELETE RESTRICT,
     unit VARCHAR(30) DEFAULT 'Pcs',
     cost_price NUMERIC(12, 2) DEFAULT 0.00,
     selling_price NUMERIC(12, 2) DEFAULT 0.00,
@@ -1282,6 +1320,25 @@ CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku);
 CREATE INDEX IF NOT EXISTS idx_products_name ON products(name);
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
 CREATE INDEX IF NOT EXISTS idx_products_group ON products(product_group);
+
+-- Existing databases: the original schema pinned product_group to the three
+-- built-in names with an inline CHECK. Swap it for the foreign key above.
+-- Both statements are idempotent, so this runs on every boot without effect on
+-- a database that already matches (the inline FK is auto-named
+-- products_product_group_fkey, so the DO block skips on a fresh install).
+ALTER TABLE products DROP CONSTRAINT IF EXISTS products_product_group_check;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'products_product_group_fkey'
+      AND conrelid = 'products'::regclass
+  ) THEN
+    ALTER TABLE products ADD CONSTRAINT products_product_group_fkey
+      FOREIGN KEY (product_group) REFERENCES product_groups(name)
+      ON UPDATE CASCADE ON DELETE RESTRICT;
+  END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS idx_products_status ON products(status);
 CREATE INDEX IF NOT EXISTS idx_products_demo ON products(id) WHERE is_demo = TRUE;
 

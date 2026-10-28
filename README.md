@@ -22,7 +22,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 - **Fiscal Year Closing & Lock Wizard**:
   - 5-step guided wizard for year-end inventory valuation, fixed asset depreciation posting, trial balance roll-forward, and IRD period locking.
   - Super Admin re-authentication and downloadable official IRD Audit Closing Certificate.
-- **Role-Based Access Control (RBAC)**: 9 roles × 42 operations permission matrix, editable in-app and persisted server-side in the `permission_matrix` table (with client-side caching).
+- **Role-Based Access Control (RBAC)**: 9 roles × 48 operations permission matrix, editable in-app and persisted server-side in the `permission_matrix` table (with client-side caching).
 - **Vendor Ledger & Payments**: Vendor payments sub-ledger with bank/cheque details, partial payments, payment reversal, and a full vendor ledger report with running balances.
 - **Stock Movement Ledger & Transaction Logs**: Complete audit trail for stock receipts, dispatches, issues, transfers, damage pullouts, and manual adjustments.
 - **Consumable & Fixed Asset Management**:
@@ -91,7 +91,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 │       │                             #   pipeline incl. helmet, registerAllRoutes); re-exports
 │       │                             #   every historical symbol so imports stay stable
 │       ├── state/runtimeState.ts     # Shared runtime state as ESM live bindings + CACHE_LOADS
-│       ├── boot/dbBoot.ts            # Schema DDL sync (36 tables), seeding, permission matrix
+│       ├── boot/dbBoot.ts            # Schema DDL sync (37 tables), seeding, permission matrix
 │       ├── realtime/sse.ts           # sseClients + broadcastChange (SSE fan-out)
 │       ├── db/transactions.ts        # withTransaction / withConnection helpers
 │       ├── syncDomains.ts            # SSE event → client-domain mapping (targeted refresh)
@@ -113,7 +113,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 │                                     #   rateLimiter.ts, docNumber.ts, fiscalYear.ts)
 │
 ├── scripts/                          # Database Automation Scripts
-│   ├── schema.sql                    # Full PostgreSQL schema — 36 tables, idempotent, safe to re-run
+│   ├── schema.sql                    # Full PostgreSQL schema — 37 tables, idempotent, safe to re-run
 │   ├── setup_db.js                   # Node.js setup: schema + master data + demo dataset + FY backfill
 │   ├── setup_postgres.sh             # Shell: auto-install & configure PostgreSQL (Linux/macOS/Windows)
 │   ├── demo_dataset.js               # Linked demo dataset (is_demo = TRUE)
@@ -199,7 +199,7 @@ npm run setup:pg
 
 **What this script does:**
 1. Connects to PostgreSQL (falls back to the shell installer `setup_postgres.sh` on Linux/macOS if unreachable).
-2. Applies `scripts/schema.sql` — all **36 tables**, constraints, foreign keys, and indexes (fully idempotent, atomic).
+2. Applies `scripts/schema.sql` — all **37 tables**, constraints, foreign keys, and indexes (fully idempotent, atomic).
 3. Seeds fiscal years, the Bikram Sambat calendar (2078–2085 BS), UOMs, document-numbering configs, company profile, branches, and example user accounts.
 4. Seeds the linked demo dataset (products, stock, serial log, fixed assets, purchase orders/invoices, vendor payments) with `is_demo = TRUE`.
 5. Backfills `fiscal_year_id` on transactional rows from their AD dates.
@@ -639,7 +639,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   passing its counter (2 PurchaseOrders, 2 PurchaseInvoices, 1
   SerialLogRegister, 11 StockOperations, 4 ReturnsRegister, 2 SalesInvoices).
   A newly added unwired mount fails.
-- **All 66 feature screens pinned** — a coverage table asserts every screen
+- **All 67 feature screens pinned** — a coverage table asserts every screen
   under `client/src/features` exists in `SCREEN_SURFACE_PINS` with its exact
   server-call surface (`api.*` methods **and** named `services/api` imports —
   FinancialStatements.tsx imports `getFinancialSummary` directly, which a
@@ -709,7 +709,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 1448-test suite against a PostgreSQL 16 service container (zero DB skips;
+  full 1468-test suite against a PostgreSQL 16 service container (zero DB skips;
   the two unconditional skips are Windows-only real-signal checks, which CI runs,
   and the live-drain check runs under `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1` so its
   preconditions cannot silently skip it) →

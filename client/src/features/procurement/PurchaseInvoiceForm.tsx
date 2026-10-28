@@ -37,6 +37,7 @@ import { ensureBSDayForAD, BS_SEEDING_MENU_PATH } from '../../utils/nepaliCalend
 import { formatNPR, formatNPRPrecise } from '../../utils/nprFormat';
 import { getAllowedBranches } from '../../utils/permissions';
 import { getDefaultTaxRate } from '../../utils/taxConfig';
+import { behaviorOf } from '../../utils/productGroupBehavior';
 import { clampLineQuantity } from '../../utils/lineQuantity';
 import { LoadStateNotice } from '../../components/common/LoadStateNotice';
 import { useOpenPurchaseOrders } from '../../services/procurementPendingCache';
@@ -214,7 +215,12 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
     const typeMismatch = lines.find((line) => {
       const poItem = poByProduct.get(line.productId);
       const product = products.find((item) => item.id === line.productId);
-      return poItem?.productGroup && product?.productGroup !== poItem.productGroup;
+      if (!poItem?.productGroup) return false;
+      // Names differ after a group rename; only a behaviour change is a real
+      // mismatch (the server applies the same rule).
+      const billGroup = product?.productGroup;
+      if (billGroup === poItem.productGroup) return false;
+      return behaviorOf(billGroup) !== behaviorOf(poItem.productGroup);
     });
     if (exceeding) return { valid: false, message: `Quantity exceeding PO: ${exceeding.productName} allows only ${poByProduct.get(exceeding.productId)?.quantity}.` };
     if (missing) return { valid: false, message: `PO product missing from bill: ${missing.productName}.` };

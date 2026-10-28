@@ -10,6 +10,7 @@ import { DeviceSerialInput } from '../../../components/common/DeviceSerialInput'
 import { CustomerPicker } from '../../../components/common/CustomerPicker';
 import { formatNPR } from '../../../utils/nprFormat';
 import { clampLineQuantity } from '../../../utils/lineQuantity';
+import { isSellableProduct } from '../../../utils/productGroupBehavior';
 import { api } from '../../../services/api';
 import {
   Plus,
@@ -28,11 +29,10 @@ import {
 export const ProductSalePanel: React.FC = () => {
   const { activeTab, allowedBranches, alertDialog, branches, currentUser, ensureBsDateAvailable, focusInput, onCreateOperation, products, serialRegister, stock, userBranchId, validateSourceBranchStockAndSerials } = useStockOperationsCtx();
 
-  // Product-group filtered catalogs (types/index.ts: 'Product Item' | 'Fixed Asset' |
-  // 'Consumable Item'; absent productGroup defaults to 'Product Item' everywhere else
-  // in the app, matching ProductManagement's display convention).
+  // Behaviour-filtered catalog: anything whose group is a STOCK_ITEM (including
+  // groups an operator renamed or added) is sellable here.
   const saleEligibleProducts = useMemo(
-    () => products.filter((p) => (p.productGroup || 'Product Item') === 'Product Item'),
+    () => products.filter((p) => isSellableProduct(p)),
     [products]
   );
 

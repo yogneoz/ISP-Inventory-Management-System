@@ -21,8 +21,9 @@ import type {
   AuditLog, TransactionLog, CustomerDeviceRecord, CustomerRecord,
   ApprovalRequest, Category, UnitOfMeasure, LocationRecord,
   DocumentNumberConfig, DamageRecord, SerialLog, VendorPayment,
-  SalesInvoice, PurchaseReturn, SalesReturn, CustomerPayment,
+  SalesInvoice, PurchaseReturn, SalesReturn, CustomerPayment, ProductGroup,
 } from '../../../client/src/types';
+import { INITIAL_PRODUCT_GROUPS } from '../config/seedData';
 
 // ---------------------------------------------------------------------------
 // Runtime state seeded from config/seedData.ts constants:
@@ -40,6 +41,9 @@ export let branches: readonly Branch[] = [];
 export let fiscalYears: readonly FiscalYear[] = [];
 export let products: readonly Product[] = [];
 export let categories: readonly Category[] = [];
+// Seeded from the same three groups scripts/schema.sql seeds, so PG-less demo
+// mode resolves behaviour instead of falling back to an empty list.
+export let productGroups: readonly ProductGroup[] = INITIAL_PRODUCT_GROUPS.map((g) => ({ ...g }));
 export let inventoryStock: readonly InventoryStock[] = [];
 export let assetRegister: readonly Asset[] = [];
 export let customerDeviceRecords: readonly CustomerDeviceRecord[] = [];
@@ -81,6 +85,7 @@ export function setBranches(value: readonly Branch[]): void { branches = value; 
 export function setFiscalYears(value: readonly FiscalYear[]): void { fiscalYears = value; }
 export function setProducts(value: readonly Product[]): void { products = value; }
 export function setCategories(value: readonly Category[]): void { categories = value; }
+export function setProductGroups(value: readonly ProductGroup[]): void { productGroups = value; }
 export function setInventoryStock(value: readonly InventoryStock[]): void { inventoryStock = value; }
 export function setAssetRegister(value: readonly Asset[]): void { assetRegister = value; }
 export function setCustomerDeviceRecords(value: readonly CustomerDeviceRecord[]): void { customerDeviceRecords = value; }
@@ -143,6 +148,7 @@ export const CACHE_LOADS: Array<{ name: string; query: string; apply: (rows: any
   { name: 'companyProfile', query: buildCacheSelectSql(BOOTSTRAP_TABLES.companyProfile), apply: (rows) => { if (rows.length > 0) companyProfile = rows[0]; } },
   { name: 'products', query: buildCacheSelectSql(BOOTSTRAP_TABLES.products), apply: (rows) => { products = rows as any; } },
   { name: 'categories', query: buildCacheSelectSql(BOOTSTRAP_TABLES.categories), apply: (rows) => { categories = rows as any; } },
+  { name: 'product_groups', query: buildCacheSelectSql(BOOTSTRAP_TABLES.productGroups), apply: (rows) => { if (rows.length > 0) productGroups = rows as any; } },
   { name: 'inventory_stock', query: buildCacheSelectSql(BOOTSTRAP_TABLES.stock), apply: (rows) => { inventoryStock = rows as any; } },
   { name: 'fixed_assets', query: buildCacheSelectSql(BOOTSTRAP_TABLES.assets), apply: (rows) => { assetRegister = rows as any; } },
   { name: 'purchase_orders', query: buildCacheSelectSql(BOOTSTRAP_TABLES.purchaseOrders), apply: (rows) => { purchaseOrders = rows as any; } },

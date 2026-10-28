@@ -449,6 +449,24 @@ export const BOOTSTRAP_TABLES = {
       ['is_base_unit', 'isBaseUnit'],
     ],
   },
+  // Customer-defined product groups. Small, bounded master data, so it rides
+  // the login payload (like uom/categories): the client needs the name →
+  // behaviour lookup before any sales or asset screen paints, and a deferred
+  // fetch would leave those filters guessing.
+  productGroups: {
+    table: 'product_groups',
+    orderBy: 'sort_order ASC, name ASC',
+    cache: { cacheOnlyColumns: ['is_demo', 'created_by'] },
+    columns: [
+      ['id', 'id'],
+      ['code', 'code'],
+      ['name', 'name'],
+      ['behavior', 'behavior'],
+      ['sort_order', 'sortOrder'],
+      ['active', 'active'],
+      ['is_system', 'isSystem'],
+    ],
+  },
   locations: {
     table: 'locations',
     scope: { branchCol: 'branch_id' },

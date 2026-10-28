@@ -160,12 +160,16 @@ export function productUpdateParams(
   // product back into a 13% one on save.
   const taxRate = Number(p.taxRate);
   const effectiveTaxRate = Number.isFinite(taxRate) && taxRate >= 0 ? taxRate : defaultTaxRate;
+  // The controller resolves productGroup against the managed table before this
+  // builder runs, so there is deliberately no hard-coded group fallback here:
+  // a missing value must fail loudly instead of silently reviving a name the
+  // operator may have renamed or retired.
   return [
     p.sku,
     p.barcode || '',
     p.name,
     p.category,
-    p.productGroup || 'Product Item',
+    p.productGroup,
     p.unit || 'Pcs',
     Number(p.costPrice) || 0,
     Number(p.sellingPrice) || 0,
@@ -220,6 +224,50 @@ export function categoryUpdateParams(c: Record<string, any>, id: string): unknow
 }
 
 export const CATEGORY_DELETE_SQL = 'DELETE FROM categories WHERE id = $1;';
+
+// ---------------------------------------------------------------------------
+// Product groups
+// ---------------------------------------------------------------------------
+
+export const PRODUCT_GROUP_SELECT = `SELECT g.id, g.code, g.name, g.behavior,
+  g.sort_order AS "sortOrder", g.active, g.is_system AS "isSystem",
+  (SELECT COUNT(*)::int FROM products p WHERE p.product_group = g.name) AS "productCount"
+ FROM product_groups g ORDER BY g.sort_order ASC, g.name ASC`;
+
+export const PRODUCT_GROUP_UPSERT_SQL = `INSERT INTO product_groups (id, code, name, behavior, sort_order, active, is_system)
+ VALUES ($1, $2, $3, $4, $5, $6, $7)
+ ON CONFLICT (id) DO UPDATE SET
+   code = EXCLUDED.code,
+   name = EXCLUDED.name,
+   behavior = EXCLUDED.behavior,
+   sort_order = EXCLUDED.sort_order,
+   active = EXCLUDED.active,
+   updated_at = CURRENT_TIMESTAMP;`;
+
+export function productGroupUpsertParams(g: Record<string, any>): unknown[] {
+  return [g.id, g.code, g.name, g.behavior, Number(g.sortOrder) || 100, Boolean(g.active), Boolean(g.isSystem)];
+}
+
+// A rename updates the referenced name; products.product_group carries a
+// FOREIGN KEY ... ON UPDATE CASCADE, so every assigned product follows in the
+// same transaction.
+export const PRODUCT_GROUP_UPDATE_SQL = `UPDATE product_groups
+ SET code = $1,
+     name = $2,
+     behavior = $3,
+     sort_order = $4,
+     active = $5,
+     updated_at = CURRENT_TIMESTAMP
+ WHERE id = $6;`;
+
+export function productGroupUpdateParams(g: Record<string, any>, id: string): unknown[] {
+  return [g.code, g.name, g.behavior, Number(g.sortOrder) || 100, Boolean(g.active), id];
+}
+
+export const PRODUCT_GROUP_DELETE_SQL = 'DELETE FROM product_groups WHERE id = $1;';
+
+export const PRODUCT_GROUP_BY_NAME_SQL =
+  'SELECT id, code, name, behavior, sort_order AS "sortOrder", active, is_system AS "isSystem" FROM product_groups WHERE name = $1';
 
 // ---------------------------------------------------------------------------
 // Customers

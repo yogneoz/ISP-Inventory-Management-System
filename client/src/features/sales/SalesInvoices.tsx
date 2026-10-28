@@ -30,6 +30,7 @@ import { useDialog } from '../../components/common/DialogProvider';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 import { formatMoney } from '../../utils/nprFormat';
 import { getDefaultTaxRate } from '../../utils/taxConfig';
+import { isSellableProduct } from '../../utils/productGroupBehavior';
 import { inputClass, labelClass, btnPrimary, btnGhost } from '../../components/common/styleConstants';
 import { api } from '../../services/api';
 import { DeviceSerialInput } from '../../components/common/DeviceSerialInput';
@@ -228,9 +229,9 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
   const stockFor = (productId: string): number =>
     stock.find((s) => s.productId === productId && s.branchId === branchId)?.quantityOnHand ?? 0;
 
-  /** Only "Product Item" group products are sellable on this invoice. */
+  /** Only products whose group behaviour is STOCK_ITEM are sellable here. */
   const saleEligibleProducts = useMemo(
-    () => products.filter((p) => (p.productGroup || 'Product Item') === 'Product Item'),
+    () => products.filter((p) => isSellableProduct(p)),
     [products]
   );
 

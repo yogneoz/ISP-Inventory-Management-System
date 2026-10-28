@@ -6,7 +6,7 @@
  * original route handlers.
  */
 import type { Request, Response } from 'express';
-import { getPgConnected, pgPool, uomList, setUomList, withReplaced, withAppended, logAuditEvent, locationRecords, setLocationRecords, withPrepended, suppliers, setSuppliers, products, setProducts, branches, setInventoryStock, inventoryStock, categories, setCategories, broadcastChange, customerMasterRecords, customerDeviceRecords, setCustomerMasterRecords, withTransaction, companyProfile } from '../app';
+import { getPgConnected, pgPool, uomList, setUomList, withReplaced, withAppended, logAuditEvent, locationRecords, setLocationRecords, withPrepended, suppliers, setSuppliers, products, setProducts, branches, setInventoryStock, inventoryStock, categories, setCategories, productGroups, setProductGroups, broadcastChange, customerMasterRecords, customerDeviceRecords, setCustomerMasterRecords, withTransaction, companyProfile } from '../app';
 import { defaultVatRateFor } from '../utils/money';
 
 /**
@@ -19,13 +19,123 @@ function taxRateOrDefault(submitted: unknown): number {
   const rate = Number(submitted);
   return Number.isFinite(rate) && rate >= 0 ? rate : defaultVatRateFor(companyProfile);
 }
-import { UnitOfMeasure, LocationRecord, Supplier, Category, CustomerRecord } from '../../../client/src/types';
+
+// ---------------------------------------------------------------------------
+// Product group resolution (product_groups master data)
+// ---------------------------------------------------------------------------
+
+const PRODUCT_GROUP_BEHAVIORS: readonly ProductGroupBehavior[] = ['STOCK_ITEM', 'CONSUMABLE', 'FIXED_ASSET'];
+
+/** Case-insensitive lookup by name or code among the managed groups. */
+function findProductGroup(value: unknown): ProductGroup | undefined {
+  const clean = String(value ?? '').trim().toLowerCase();
+  if (!clean) return undefined;
+  return productGroups.find((g) => g.name.toLowerCase() === clean || g.code.toLowerCase() === clean);
+}
+
+function defaultProductGroup(): ProductGroup | undefined {
+  return productGroups.find((g) => g.active && g.behavior === 'STOCK_ITEM') || productGroups.find((g) => g.active);
+}
+
+/**
+ * Resolves the group a product write may use. A product already in a retired
+ * group stays editable (it can be renamed or reclassified), but a NEW
+ * assignment to a retired or unknown group is refused — the caller returns 400
+ * instead of letting the foreign key surface as a 500.
+ */
+function resolveProductGroupForWrite(
+  submitted: unknown,
+  currentName?: string
+): { group?: ProductGroup; error?: string } {
+  const clean = String(submitted ?? '').trim();
+  const candidate = clean
+    ? findProductGroup(clean)
+    : currentName
+      ? findProductGroup(currentName)
+      : defaultProductGroup();
+  if (!candidate) {
+    return {
+      error: clean
+        ? `Unknown product group '${clean}'. Add it in Product Group Management first.`
+        : 'No product group is configured. Add one in Product Group Management first.',
+    };
+  }
+  const isCurrent = currentName
+    ? candidate.name.toLowerCase() === String(currentName).trim().toLowerCase()
+    : false;
+  if (!candidate.active && !isCurrent) {
+    return { error: `Product group '${candidate.name}' is retired. Pick an active group.` };
+  }
+  return { group: candidate };
+}
+
+/**
+ * Resolves a product's unit to a row in the `uom` table, creating it first when
+ * the value only arrives through a CSV import (the UI offers the table's own
+ * symbols). Additive and audited: an unused unit row is harmless, while a
+ * rejected import row loses the operator's data.
+ */
+const UNIT_TYPE_BY_SYMBOL: Record<string, UnitOfMeasure['type']> = {
+  MTR: 'Length', METER: 'Length', KM: 'Length', CM: 'Length', FT: 'Length',
+  KG: 'Weight', GM: 'Weight', LTR: 'Volume', ML: 'Volume',
+  BOX: 'Package', ROLL: 'Package', BAG: 'Package', BUNDLE: 'Package', CARTON: 'Package',
+  SET: 'Count', PCS: 'Count', PAIR: 'Count', UNIT: 'Count',
+};
+
+async function ensureCategoryName(req: any, submitted: unknown): Promise<string> {
+  const clean = String(submitted ?? '').trim();
+  if (!clean) return '';
+  const existing = categories.find((c) => (c.name || '').toLowerCase() === clean.toLowerCase());
+  if (existing) return existing.name;
+
+  const slug = clean.toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 20) || 'CAT';
+  let code = `CAT-${slug}`;
+  let suffix = 2;
+  while (categories.some((c) => (c.code || '').toUpperCase() === code)) code = `CAT-${slug}-${suffix++}`;
+
+  const created: Category = {
+    id: `cat-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    name: clean,
+    code,
+    description: 'Created automatically from a product save.',
+    isSpecialTracked: false,
+  };
+  setCategories(withAppended(categories, created));
+  if (getPgConnected()) await pgPool.query(CATEGORY_UPSERT_SQL, categoryUpsertParams(created));
+  logAuditEvent(req, 'CREATE_CATEGORY', 'CATEGORIES', `Created category ${created.name} (${created.code}) from a product save`);
+  broadcastChange({ type: 'CATEGORY_CREATED', entity: 'CATEGORIES' });
+  return created.name;
+}
+
+async function ensureUnitSymbol(req: any, submitted: unknown): Promise<string> {
+  const clean = String(submitted ?? '').trim();
+  if (!clean) return '';
+  const existing = uomList.find(
+    (u) => (u.symbol || '').toLowerCase() === clean.toLowerCase() || (u.name || '').toLowerCase() === clean.toLowerCase()
+  );
+  if (existing) return existing.symbol;
+
+  const created: UnitOfMeasure = {
+    id: `uom-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    name: clean,
+    symbol: clean,
+    type: UNIT_TYPE_BY_SYMBOL[clean.toUpperCase()] || 'Count',
+    isBaseUnit: false,
+  };
+  setUomList(withAppended(uomList, created));
+  if (getPgConnected()) await pgPool.query(UOM_UPSERT_SQL, upsertUomParams(created));
+  logAuditEvent(req, 'CREATE_UOM', 'MASTER_DATA', `Created unit of measure ${created.name} (${created.symbol}) from a product save`);
+  broadcastChange({ type: 'MASTER_DATA_UPDATED', entity: 'MASTER_DATA' });
+  return created.symbol;
+}
+import { UnitOfMeasure, LocationRecord, Supplier, Category, CustomerRecord, ProductGroup, ProductGroupBehavior } from '../../../client/src/types';
 import {
   UOM_SELECT, UOM_UPSERT_SQL, upsertUomParams, UOM_UPDATE_SQL, updateUomParams, UOM_DELETE_SQL,
   buildLocationSelectSql, LOCATION_UPSERT_SQL, locationParams, LOCATION_DELETE_SQL,
   SUPPLIER_SELECT, SUPPLIER_UPSERT_SQL, supplierUpsertParams, SUPPLIER_UPDATE_SQL, supplierUpdateParams, SUPPLIER_DELETE_SQL,
   PRODUCT_SELECT, PRODUCT_UPSERT_SQL, productUpsertParams, PRODUCT_UPDATE_SQL, productUpdateParams, PRODUCT_DELETE_SQL, STOCK_INIT_SQL, stockInitParams,
   CATEGORY_SELECT, CATEGORY_UPSERT_SQL, categoryUpsertParams, CATEGORY_UPDATE_SQL, categoryUpdateParams, CATEGORY_DELETE_SQL,
+  PRODUCT_GROUP_SELECT, PRODUCT_GROUP_UPSERT_SQL, productGroupUpsertParams, PRODUCT_GROUP_UPDATE_SQL, productGroupUpdateParams, PRODUCT_GROUP_DELETE_SQL,
   buildCustomerListQuery, buildCustomerListAggregateQuery, normalizeCustomerPaging, CUSTOMER_UPSERT_SQL, customerUpsertParams,
   CUSTOMER_UPDATE_BY_ID_OR_CODE_SQL, customerUpdateByIdOrCodeParams, CUSTOMER_DELETE_BY_ID_OR_CODE_SQL,
 } from '../models/masterdata.repo';
@@ -280,14 +390,29 @@ if (getPgConnected()) {
 /** Forwarded from masterdata.routes.ts (post_products). */
 export async function post_products(req: any, res: Response): Promise<any> {
 try {
+    const name = String(req.body.name ?? '').trim();
+    if (!name) return res.status(400).json({ message: 'Product name is required.' });
+
+    // Product group is curated master data: an unknown or retired name is a 400
+    // here, never a foreign-key 500 from PostgreSQL.
+    const resolvedGroup = resolveProductGroupForWrite(req.body.productGroup);
+    if (!resolvedGroup.group) return res.status(400).json({ message: resolvedGroup.error });
+
+    // Category and unit are resolved against their tables. A value only a CSV
+    // import can introduce is created (and audited) rather than stored as free
+    // text, so products never point at a master row that does not exist.
+    const category = await ensureCategoryName(req, req.body.category);
+    if (!category) return res.status(400).json({ message: 'Category is required.' });
+    const unit = (await ensureUnitSymbol(req, req.body.unit)) || uomList[0]?.symbol || 'Pcs';
+
     const newProd = {
       id: `prod-${Date.now()}`,
       sku: req.body.sku || `SKU-${Date.now()}`,
       barcode: req.body.barcode || '',
-      name: req.body.name || 'Untitled Product',
-      category: req.body.category || 'General',
-      productGroup: req.body.productGroup || 'Product Item',
-      unit: req.body.unit || 'Pcs',
+      name,
+      category,
+      productGroup: resolvedGroup.group.name,
+      unit,
       costPrice: Number(req.body.costPrice) || 0,
       sellingPrice: Number(req.body.sellingPrice) || 0,
       taxRate: taxRateOrDefault(req.body.taxRate),
@@ -345,8 +470,26 @@ try {
     const idx = products.findIndex((p) => p.id === id);
     if (idx === -1) return res.status(404).json({ message: 'Product not found' });
 
-    const oldProd = { ...products[idx] };
-    setProducts(withReplaced(products, idx, { ...products[idx], ...req.body }));
+    const previous = products[idx];
+    const oldProd = { ...previous };
+    const next: any = { ...previous, ...req.body };
+    // Identity is the URL's, never the body's.
+    next.id = previous.id;
+
+    const resolvedGroup = resolveProductGroupForWrite(req.body.productGroup, previous.productGroup);
+    if (!resolvedGroup.group) return res.status(400).json({ message: resolvedGroup.error });
+    next.productGroup = resolvedGroup.group.name;
+
+    if (req.body.category !== undefined) {
+      const category = await ensureCategoryName(req, req.body.category);
+      if (!category) return res.status(400).json({ message: 'Category is required.' });
+      next.category = category;
+    }
+    if (req.body.unit !== undefined) {
+      next.unit = (await ensureUnitSymbol(req, req.body.unit)) || previous.unit;
+    }
+
+    setProducts(withReplaced(products, idx, next));
     const updated = products[idx];
 
     if (getPgConnected()) {
@@ -488,6 +631,185 @@ try {
  * `customer_records`), so the branch scope is resolved from the session here and
  * applied in SQL rather than trusted from the query string.
  */
+/** Unique, readable code for a new/renamed group (codes never carry business meaning). */
+function uniqueProductGroupCode(base: string, excludeId?: string): string {
+  const clean = String(base || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'GROUP';
+  let code = clean;
+  let suffix = 2;
+  while (productGroups.some((g) => g.id !== excludeId && (g.code || '').toUpperCase() === code)) {
+    code = `${clean}_${suffix++}`;
+  }
+  return code;
+}
+
+/** Forwarded from masterdata.routes.ts (get_product_groups). */
+export async function get_product_groups(req: any, res: Response): Promise<any> {
+if (getPgConnected()) {
+    try {
+      const r = await pgPool.query(PRODUCT_GROUP_SELECT);
+      setProductGroups(r.rows as any);
+      res.json(r.rows);
+      return;
+    } catch (err: any) {
+      console.warn('Database note on GET /api/product-groups:', err?.message || err);
+    }
+  }
+  res.json(
+    productGroups.map((g) => ({
+      ...g,
+      productCount: products.filter((p) => (p.productGroup || '') === g.name).length,
+    }))
+  );
+
+}
+
+/** Forwarded from masterdata.routes.ts (post_product_groups). */
+export async function post_product_groups(req: any, res: Response): Promise<any> {
+try {
+    const name = String(req.body.name ?? '').trim();
+    if (!name) return res.status(400).json({ message: 'Group name is required.' });
+    if (name.length > 100) return res.status(400).json({ message: 'Group name must be 100 characters or fewer.' });
+
+    const behavior = String(req.body.behavior ?? '').trim().toUpperCase() as ProductGroupBehavior;
+    if (!PRODUCT_GROUP_BEHAVIORS.includes(behavior)) {
+      return res.status(400).json({
+        message: `Invalid behaviour '${req.body.behavior}'. Use STOCK_ITEM, CONSUMABLE or FIXED_ASSET.`,
+      });
+    }
+    if (productGroups.some((g) => g.name.toLowerCase() === name.toLowerCase())) {
+      return res.status(409).json({ message: `A product group named '${name}' already exists.` });
+    }
+
+    const group: ProductGroup = {
+      id: `pg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      code: uniqueProductGroupCode(req.body.code || name),
+      name,
+      behavior,
+      sortOrder: Number(req.body.sortOrder) || 100,
+      active: req.body.active === undefined ? true : Boolean(req.body.active),
+      isSystem: false,
+    };
+    setProductGroups(withAppended(productGroups, group));
+
+    if (getPgConnected()) {
+      await pgPool.query(PRODUCT_GROUP_UPSERT_SQL, productGroupUpsertParams(group as any));
+    }
+    logAuditEvent(req, 'CREATE_PRODUCT_GROUP', 'MASTER_DATA', `Created product group ${group.name} (${group.behavior})`);
+    broadcastChange({ type: 'MASTER_DATA_UPDATED', entity: 'MASTER_DATA' });
+    res.status(201).json(group);
+  } catch (err: any) {
+    console.error('Error creating product group:', err);
+    res.status(500).json({ message: `Database error: ${err.message}` });
+  }
+
+}
+
+/** Forwarded from masterdata.routes.ts (put_product_groups). */
+export async function put_product_groups(req: any, res: Response): Promise<any> {
+try {
+    const { id } = req.params;
+    const idx = productGroups.findIndex((g) => g.id === id);
+    if (idx === -1) return res.status(404).json({ message: 'Product group not found.' });
+
+    const current = productGroups[idx];
+    const name = req.body.name === undefined ? current.name : String(req.body.name).trim();
+    if (!name) return res.status(400).json({ message: 'Group name is required.' });
+    if (name.length > 100) return res.status(400).json({ message: 'Group name must be 100 characters or fewer.' });
+    if (productGroups.some((g) => g.id !== id && g.name.toLowerCase() === name.toLowerCase())) {
+      return res.status(409).json({ message: `A product group named '${name}' already exists.` });
+    }
+
+    const behavior = req.body.behavior === undefined
+      ? current.behavior
+      : (String(req.body.behavior).trim().toUpperCase() as ProductGroupBehavior);
+    if (!PRODUCT_GROUP_BEHAVIORS.includes(behavior)) {
+      return res.status(400).json({
+        message: `Invalid behaviour '${req.body.behavior}'. Use STOCK_ITEM, CONSUMABLE or FIXED_ASSET.`,
+      });
+    }
+
+    const code = req.body.code === undefined
+      ? current.code
+      : uniqueProductGroupCode(req.body.code, id);
+
+    const next: ProductGroup = {
+      ...current,
+      code,
+      name,
+      behavior,
+      sortOrder: req.body.sortOrder === undefined ? current.sortOrder : Number(req.body.sortOrder) || 100,
+      active: req.body.active === undefined ? current.active : Boolean(req.body.active),
+    };
+    const renamed = current.name !== next.name;
+    const behaviorChanged = current.behavior !== next.behavior;
+
+    setProductGroups(withReplaced(productGroups, idx, next));
+    if (renamed) {
+      // PostgreSQL performs the same rename through the foreign key's ON UPDATE
+      // CASCADE; this keeps the in-memory catalog consistent until the cache
+      // refresh re-reads both tables.
+      setProducts(products.map((p) => ((p.productGroup || '') === current.name ? { ...p, productGroup: next.name } : p)));
+    }
+
+    if (getPgConnected()) {
+      await pgPool.query(PRODUCT_GROUP_UPDATE_SQL, productGroupUpdateParams(next as any, id));
+    }
+
+    const change = renamed ? `renamed '${current.name}' to '${next.name}'` : `updated '${next.name}'`;
+    logAuditEvent(
+      req,
+      behaviorChanged ? 'PRODUCT_GROUP_BEHAVIOR_CHANGED' : 'UPDATE_PRODUCT_GROUP',
+      'MASTER_DATA',
+      `Product group ${change}${behaviorChanged ? ` (behaviour ${current.behavior} -> ${next.behavior})` : ''}`
+    );
+    broadcastChange({ type: 'MASTER_DATA_UPDATED', entity: 'MASTER_DATA' });
+    res.json(next);
+  } catch (err: any) {
+    console.error('Error updating product group:', err);
+    res.status(500).json({ message: `Database error: ${err.message}` });
+  }
+
+}
+
+/** Forwarded from masterdata.routes.ts (delete_product_groups). */
+export async function delete_product_groups(req: any, res: Response): Promise<any> {
+try {
+    const { id } = req.params;
+    const group = productGroups.find((g) => g.id === id);
+    if (!group) return res.status(404).json({ message: 'Product group not found.' });
+    if (group.isSystem) {
+      return res.status(409).json({
+        message: `'${group.name}' is a built-in group. Retire it (active off) instead of deleting it.`,
+      });
+    }
+
+    const inUse = products.filter((p) => (p.productGroup || '') === group.name).length;
+    if (inUse > 0) {
+      return res.status(409).json({
+        message: `'${group.name}' is assigned to ${inUse} product${inUse === 1 ? '' : 's'}. Move them to another group first, or retire this group.`,
+      });
+    }
+
+    if (getPgConnected()) {
+      await pgPool.query(PRODUCT_GROUP_DELETE_SQL, [id]);
+    }
+    setProductGroups(productGroups.filter((g) => g.id !== id));
+    logAuditEvent(req, 'DELETE_PRODUCT_GROUP', 'MASTER_DATA', `Deleted product group ${group.name}`);
+    broadcastChange({ type: 'MASTER_DATA_UPDATED', entity: 'MASTER_DATA' });
+    res.json({ success: true });
+  } catch (err: any) {
+    // 23503 = foreign key violation: a product was assigned after the check.
+    if (err?.code === '23503') {
+      return res.status(409).json({
+        message: 'This group is still assigned to products. Move them first, or retire the group.',
+      });
+    }
+    console.error('Error deleting product group:', err);
+    res.status(500).json({ message: `Database error: ${err.message}` });
+  }
+
+}
+
 export async function get_customers(req: any, res: Response): Promise<any> {
 const { branchId, query, status, page, pageSize, all } = req.query;
   const exportAll = all === '1' || all === 'true';

@@ -6,7 +6,7 @@
  * original route handlers.
  */
 import type { Request, Response } from 'express';
-import { getPgConnected, pgPool, purchaseOrders, issueNextDocNumber, setPurchaseOrders, withReplaced, withPrepended, inventoryStock, logAuditEvent, purchaseInvoices, withTransaction, branches, products, companyProfile, setPurchaseInvoices, suppliers, setInventoryStock, withAppended, customerDeviceRecords, setCustomerDeviceRecords, vendorPayments, getUserFromReq, broadcastChange, VENDOR_PAYMENT_SELECT, providerSupplierIdFromName, findBsDayRecordForAdDate, setVendorPayments, purchaseReturns, setPurchaseReturns, transactionLogs, setTransactionLogs, serialLogs, setSerialLogs } from '../app';
+import { getPgConnected, pgPool, purchaseOrders, issueNextDocNumber, setPurchaseOrders, withReplaced, withPrepended, inventoryStock, logAuditEvent, purchaseInvoices, withTransaction, branches, products, companyProfile, setPurchaseInvoices, suppliers, setInventoryStock, withAppended, customerDeviceRecords, setCustomerDeviceRecords, vendorPayments, getUserFromReq, broadcastChange, VENDOR_PAYMENT_SELECT, providerSupplierIdFromName, findBsDayRecordForAdDate, setVendorPayments, purchaseReturns, setPurchaseReturns, transactionLogs, setTransactionLogs, serialLogs, setSerialLogs, productGroups } from '../app';
 import { VendorPayment, VendorPaymentMethod, TransactionLog } from '../../../client/src/types';
 import { computeBillTotals, defaultVatRateFor, resolveLedgerUnitCost } from '../utils/money';
 import { demoPurchaseInvoiceTxn, demoPurchaseReturnTxn, demoPurchaseReturnCancelTxn, findOrCreateDemoStock } from '../models/txnLogRows';
@@ -516,10 +516,22 @@ try {
       const quantityMismatch = items.find((item: any) => Number(item.quantity) !== Number(poItems.get(item.productId)?.quantity || 0));
       const missing = (linkedPO.items as any[]).find((item: any) => !invoiceItems.has(item.productId));
       const extra = items.find((item: any) => !poItems.has(item.productId));
+      // A group RENAME rewrites the product through the foreign key cascade but
+      // not the historical PO line, so two different names are only a real
+      // mismatch when they no longer resolve to the same behaviour.
+      const behaviorOfGroup = (name?: string | null): string => {
+        const clean = String(name ?? '').trim().toLowerCase();
+        if (!clean) return 'STOCK_ITEM';
+        return productGroups.find((g) => g.name.toLowerCase() === clean || g.code.toLowerCase() === clean)?.behavior || 'STOCK_ITEM';
+      };
       const typeMismatch = items.find((item: any) => {
         const poItem = poItems.get(item.productId);
+        if (!poItem) return false;
         const product = products.find((entry) => entry.id === item.productId);
-        return poItem && (item.productGroup || product?.productGroup) !== (poItem.productGroup || product?.productGroup);
+        const invoiceGroup = item.productGroup || product?.productGroup;
+        const poGroup = poItem.productGroup || product?.productGroup;
+        if (invoiceGroup === poGroup) return false;
+        return behaviorOfGroup(invoiceGroup) !== behaviorOfGroup(poGroup);
       });
       if (exceeding) return res.status(400).json({ message: `Quantity exceeding PO for ${exceeding.productName || exceeding.productId}. Ordered quantity: ${poItems.get(exceeding.productId)?.quantity || 0}.` });
       if (missing) return res.status(400).json({ message: `PO product missing from vendor bill: ${missing.productName}.` });

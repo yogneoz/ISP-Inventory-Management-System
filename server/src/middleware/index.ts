@@ -106,6 +106,7 @@ export function enforceOperationalPermissions(req: any, res: any, next: any) {
     ['/suppliers', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'PROCUREMENT_OFFICER']],
     ['/products', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'INVENTORY_MANAGER']],
     ['/categories', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'INVENTORY_MANAGER']],
+    ['/product-groups', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'INVENTORY_MANAGER']],
     ['/uom', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'INVENTORY_MANAGER']],
     ['/locations', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'INVENTORY_MANAGER']],
     ['/stock/', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'INVENTORY_MANAGER', 'AUDITOR']],

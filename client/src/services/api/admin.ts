@@ -1,6 +1,7 @@
 import type {
   CompanyProfile,
   Category,
+  ProductGroup,
   UnitOfMeasure,
   LocationRecord,
 } from '../../types';
@@ -103,6 +104,31 @@ export async function updateCategory(id: string, category: Partial<Category>): P
 
 export async function deleteCategory(id: string): Promise<{ success: boolean }> {
   return fetchJson(`/api/categories/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+// Product Group API
+export async function getProductGroups(): Promise<ProductGroup[]> {
+  return fetchJson('/api/product-groups');
+}
+
+export async function createProductGroup(group: Partial<ProductGroup>): Promise<ProductGroup> {
+  return fetchJson('/api/product-groups', {
+    method: 'POST',
+    body: JSON.stringify(group),
+  });
+}
+
+export async function updateProductGroup(id: string, group: Partial<ProductGroup>): Promise<ProductGroup> {
+  return fetchJson(`/api/product-groups/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(group),
+  });
+}
+
+export async function deleteProductGroup(id: string): Promise<{ success: boolean }> {
+  return fetchJson(`/api/product-groups/${id}`, {
     method: 'DELETE',
   });
 }

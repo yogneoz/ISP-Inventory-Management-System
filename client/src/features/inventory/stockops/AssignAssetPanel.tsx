@@ -12,6 +12,7 @@ import { api } from '../../../services/api';
 import { ensureBSDayForAD, BS_SEEDING_MENU_PATH } from '../../../utils/nepaliCalendar';
 import { FormCard } from '../../../components/common/FormCard';
 import { formatNPR } from '../../../utils/nprFormat';
+import { isFixedAssetProduct } from '../../../utils/productGroupBehavior';
 import {
   Trash2,
   X,
@@ -44,12 +45,13 @@ export const AssignAssetPanel: React.FC = () => {
   // register is the authority now that the purchase bill writes it
   // transactionally (serial-register audit, Slice 1).
 
-  // Catalog candidates: productGroup 'Fixed Asset' plus ONU/Router/STB hardware.
+  // Catalog candidates: groups with FIXED_ASSET behaviour plus ONU/Router/STB
+  // hardware (which is deployed as an asset from stock).
   const assignableCatalogProducts = useMemo(
     () =>
       products.filter(
         (p) =>
-          p.productGroup === 'Fixed Asset' ||
+          isFixedAssetProduct(p) ||
           (p?.category || '').toLowerCase().includes('router') ||
           (p?.category || '').toLowerCase().includes('onu') ||
           (p?.category || '').toLowerCase().includes('stb') ||

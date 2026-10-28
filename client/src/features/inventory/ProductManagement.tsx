@@ -1,9 +1,17 @@
 import React, { useEffect, useState } from 'react';
-import { Category, InventoryStock, Product, User } from '../../types';
+import { Category, InventoryStock, Product, ProductGroup, UnitOfMeasure, User } from '../../types';
 import { isOperationAllowed } from '../../utils/permissions';
 import { exportToCSV } from '../../utils/exportUtils';
 import { formatNPR } from '../../utils/nprFormat';
 import { getDefaultTaxRate } from '../../utils/taxConfig';
+import {
+  activeProductGroups,
+  behaviorOf,
+  getProductGroups,
+  productGroupBadgeClass,
+  productGroupBadgeIcon,
+  setProductGroups,
+} from '../../utils/productGroupBehavior';
 import { PageHeader } from '../../components/common/PageHeader';
 import { useDialog } from '../../components/common/DialogProvider';
 import { useActivationKey } from '../../components/common/KeepMounted';
@@ -138,8 +146,9 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
   const [barcode, setBarcode] = useState<string>('');
   const [name, setName] = useState<string>('');
   const [category, setCategory] = useState<string>('');
-  const [isCustomCategory, setIsCustomCategory] = useState<boolean>(false);
-  const [productGroup, setProductGroup] = useState<'Product Item' | 'Fixed Asset' | 'Consumable Item'>('Product Item');
+  // Product group NAME from product_groups master data — behaviour is resolved
+  // from the group, never from a hard-coded literal.
+  const [productGroup, setProductGroup] = useState<string>('');
   const [unit, setUnit] = useState<Product['unit']>('Pcs');
   const [costPrice, setCostPrice] = useState<number>(0);
   const [sellingPrice, setSellingPrice] = useState<number>(0);
@@ -155,6 +164,9 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
   // Server-driven catalog and category options (never bootstrap slices)
   const [catalog, setCatalog] = useState<Product[]>([]);
   const [masterCategories, setMasterCategories] = useState<Category[]>([]);
+  // Options for the form's two master-data selects, loaded with the catalog.
+  const [groupOptions, setGroupOptions] = useState<ProductGroup[]>([]);
+  const [unitOptions, setUnitOptions] = useState<UnitOfMeasure[]>([]);
   const [catalogLoadError, setCatalogLoadError] = useState('');
   // Bumped after this screen's own create/edit/delete and by Retry. The list is
   // server-owned, so a save must re-read it instead of leaving the new row out
@@ -171,23 +183,40 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
   // missing categories as hard-coded strings into the component).
   const [categoryOptions, setCategoryOptions] = useState<string[]>(['ALL']);
   const [categories, setCategories] = useState<string[]>(['ALL']);
-  const availableCategories = categories.filter(Boolean);
+  // The category FILTER list carries the 'ALL' sentinel; the product form must
+  // never offer it as a real category (a product saved with category 'ALL' was
+  // invisible to every category filter, and the server invented 'General').
+  const availableCategories = categories.filter((cat) => Boolean(cat) && cat !== 'ALL');
+
+  // Master-data options for the form. Falls back to the built-in groups until
+  // the fetch lands, so the select is never empty on a first paint.
+  const allGroups = groupOptions.length > 0 ? groupOptions : getProductGroups();
+  const activeGroups = allGroups.filter((group) => group.active);
+  const behaviorShortLabel = (value: ReturnType<typeof behaviorOf>): string =>
+    value === 'STOCK_ITEM' ? 'sellable' : value === 'CONSUMABLE' ? 'consumable' : 'depreciating asset';
 
   useEffect(() => {
     let cancelled = false;
 
     const load = async () => {
       try {
-        const [cat = [], prod = []] = await Promise.all([
+        const [cat = [], prod = [], groups = [], uoms = []] = await Promise.all([
           api.getCategories(),
           api.getProducts({
             branchId: selectedBranchId !== 'ALL' ? selectedBranchId : undefined,
           }),
+          api.getProductGroups(),
+          api.getUoms(),
         ]);
 
         if (!cancelled) {
           setCatalog(Array.isArray(prod) ? prod : (prod as { data?: Product[] }).data || []);
           setMasterCategories(cat || []);
+          setGroupOptions(Array.isArray(groups) ? groups : []);
+          // Keep the app-wide name → behaviour lookup fresh: a group created or
+          // renamed on the management screen lands here on the next load too.
+          setProductGroups(groups);
+          setUnitOptions(Array.isArray(uoms) ? uoms : []);
           setCatalogLoadError('');
         }
       } catch (err: any) {
@@ -224,7 +253,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
 
   const filteredProducts = catalog.filter((p) => {
     const matchesCat = filterCategory === 'ALL' || p.category === filterCategory;
-    const matchesGroup = filterProductGroup === 'ALL' || (p.productGroup || 'Product Item') === filterProductGroup;
+    const matchesGroup = filterProductGroup === 'ALL' || (p.productGroup || '') === filterProductGroup;
     const matchesSearch =
       !effectiveSearch ||
       (p?.name || '').toLowerCase().includes((effectiveSearch || '').toLowerCase()) ||
@@ -248,7 +277,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
       { key: 'sku', label: 'Product Code / SKU' },
       { key: 'barcode', label: 'Barcode' },
       { key: 'name', label: 'Product Name' },
-      { key: 'productGroup', label: 'Product Group', formatter: (val: string) => val || 'Product Item' },
+      { key: 'productGroup', label: 'Product Group', formatter: (val: string) => val || '—' },
       { key: 'category', label: 'Category' },
       {
         key: 'trackingType',
@@ -296,9 +325,8 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
     setBarcode('');
     setName('');
     setCategory('');
-    setIsCustomCategory(false);
-    setProductGroup('Product Item');
-    setUnit('Pcs');
+    setProductGroup(activeProductGroups()[0]?.name || '');
+    setUnit(unitOptions[0]?.symbol || 'Pcs');
     setCostPrice(1000);
     setSellingPrice(1300);
     setTaxRate(getDefaultTaxRate());
@@ -322,8 +350,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
     setBarcode(p.barcode || p.sku);
     setName(p.name);
     setCategory(p.category || '');
-    setIsCustomCategory(!availableCategories.includes(p.category));
-    setProductGroup(p.productGroup || 'Product Item');
+    setProductGroup(p.productGroup || activeProductGroups()[0]?.name || '');
     setUnit(p.unit);
     setCostPrice(p.costPrice);
     setSellingPrice(p.sellingPrice);
@@ -362,7 +389,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
       requiresSerialTracking,
       trackingType: (requiresSerialTracking ? 'SERIAL_MAC_PON' : 'QUANTITY_ONLY') as 'SERIAL_MAC_PON' | 'QUANTITY_ONLY',
       description,
-      ...(productGroup === 'Fixed Asset'
+      ...(behaviorOf(productGroup) === 'FIXED_ASSET'
         ? {
             depreciationMethod,
             depreciationRate: Number(depreciationRate),
@@ -595,9 +622,11 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
             className={`rounded-lg border px-2 py-1 text-xs font-medium focus:outline-none focus:border-indigo-500 cursor-pointer bg-slate-50 border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
           >
             <option value="ALL" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">All Groups</option>
-            <option value="Product Item" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">Product Item (Equipment/Resale)</option>
-            <option value="Consumable Item" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-amber-400 font-semibold">Consumable Item (Splitters/Sleeves/Couplers)</option>
-            <option value="Fixed Asset" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-indigo-400 font-semibold">Fixed Asset (Capital Equipment)</option>
+            {allGroups.map((group) => (
+              <option key={group.id} value={group.name} className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">
+                {group.name} ({behaviorShortLabel(group.behavior)})
+              </option>
+            ))}
           </select>
 
           <span className={`text-[11px] font-semibold text-slate-500 dark:text-slate-400`}>Category:</span>
@@ -671,7 +700,8 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
               ) : (
                 filteredProducts.map((p) => {
                   const qtyOnHand = getProductStockQty(p.id);
-                  const grp = p.productGroup || 'Product Item';
+                  const grp = p.productGroup || activeGroups[0]?.name || 'Unassigned';
+                  const grpBehavior = behaviorOf(p.productGroup);
                   return (
                     <tr key={p.id} className={`transition-colors hover:bg-slate-200 dark:hover:bg-slate-800/40`}>
                       <td className="px-2.5 py-1.5">
@@ -690,17 +720,12 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                         )}
                       </td>
                       <td className="px-2.5 py-1.5">
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${grp === 'Fixed Asset'
-                            ? 'bg-purple-50 dark:bg-purple-950/80 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800'
-                            : grp === 'Consumable Item'
-                              ? 'bg-amber-50 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
-                              : 'bg-sky-50 dark:bg-sky-950/80 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-800'
-                          }`}>
-                          {grp === 'Consumable Item' ? '🛠️ Consumable' : grp === 'Fixed Asset' ? '🏢 Fixed Asset' : '📦 Product Item'}
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${productGroupBadgeClass(grpBehavior)}`}>
+                          {productGroupBadgeIcon(grpBehavior)} {grp}
                         </span>
                       </td>
                       <td className="px-2.5 py-1.5">
-                        {grp === 'Fixed Asset' ? (
+                        {grpBehavior === 'FIXED_ASSET' ? (
                           <div className="flex flex-col text-[10px]">
                             <span className="font-bold text-purple-700 dark:text-purple-300">
                               {p.depreciationMethod === 'WRITTEN_DOWN_VALUE'
@@ -828,7 +853,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                     {printingProduct.name}
                   </div>
                   <div className="text-slate-500 text-[11px]">
-                    Category: {printingProduct.category} | Group: {printingProduct.productGroup || 'Product Item'}
+                    Category: {printingProduct.category} | Group: {printingProduct.productGroup || '—'}
                   </div>
                 </div>
 
@@ -1022,87 +1047,64 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                     Product Group
                   </label>
                   <select
+                    required
                     value={productGroup}
                     onChange={(e) => {
-                      const val = e.target.value as 'Product Item' | 'Fixed Asset' | 'Consumable Item';
+                      const val = e.target.value;
                       setProductGroup(val);
-                      if (val === 'Fixed Asset') {
+                      // Conveniences key off behaviour, not the group's name, so
+                      // a custom group gets the same defaults.
+                      const behavior = behaviorOf(val);
+                      if (behavior === 'FIXED_ASSET') {
                         setMinReorderLevel(0);
-                      } else if (val === 'Consumable Item') {
+                      } else if (behavior === 'CONSUMABLE') {
                         setMinReorderLevel(20);
                         setRequiresSerialTracking(false);
                       }
                     }}
-                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
+                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 cursor-pointer border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
                   >
-                    <option value="Product Item">Product Item (Equipment/Resale)</option>
-                    <option value="Consumable Item">Consumable Item (Splitters, Sleeves, Couplers)</option>
-                    <option value="Fixed Asset">Fixed Asset (Capital Equipment)</option>
+                    {!productGroup ? <option value="" disabled>Select a product group…</option> : null}
+                    {activeGroups.map((group) => (
+                      <option key={group.id} value={group.name}>
+                        {group.name} ({behaviorShortLabel(group.behavior)})
+                      </option>
+                    ))}
+                    {productGroup && !activeGroups.some((group) => group.name === productGroup) ? (
+                      <option value={productGroup}>{productGroup} (retired)</option>
+                    ) : null}
                   </select>
                 </div>
 
                 <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-[11px] font-semibold opacity-80">
-                      Category
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const nextIsCustom = !isCustomCategory;
-                        setIsCustomCategory(nextIsCustom);
-                        if (!nextIsCustom) {
-                          setCategory(availableCategories[0] || '');
-                        }
-                      }}
-                      className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold hover:underline cursor-pointer"
-                    >
-                      {isCustomCategory ? '← Choose Existing' : '＋ Type Custom'}
-                    </button>
-                  </div>
-
-                  {isCustomCategory ? (
-                    <input
-                      type="text"
-                      required
-                      value={category}
-                      onChange={(e) => {
-                        const newCat = e.target.value;
-                        setCategory(newCat);
-                        if ((newCat || '').toLowerCase().includes('asset') || (newCat || '').toLowerCase().includes('fixed')) {
-                          setMinReorderLevel(0);
-                        }
-                      }}
-                      placeholder="e.g. Fiber Drop Wire, Splitters..."
-                      className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
-                    />
-                  ) : (
-                    <select
-                      value={category}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (val === '__ADD_NEW_CUSTOM__') {
-                          setIsCustomCategory(true);
-                          setCategory('');
-                        } else {
-                          setCategory(val);
-                          if ((val || '').toLowerCase().includes('asset') || (val || '').toLowerCase().includes('fixed')) {
-                            setMinReorderLevel(0);
-                          }
-                        }
-                      }}
-                      className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 cursor-pointer border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
-                    >
-                      {availableCategories.map((cat) => (
-                        <option key={cat} value={cat}>
-                          {cat}
-                        </option>
-                      ))}
-                      <option value="__ADD_NEW_CUSTOM__" className="font-bold text-indigo-600">
-                        ＋ Type Custom Category...
+                  <label className="block text-[11px] font-semibold mb-1 opacity-80">
+                    Category
+                  </label>
+                  <select
+                    required
+                    value={category}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setCategory(val);
+                      if ((val || '').toLowerCase().includes('asset') || (val || '').toLowerCase().includes('fixed')) {
+                        setMinReorderLevel(0);
+                      }
+                    }}
+                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 cursor-pointer border-slate-300 bg-slate-50 dark:border-slate-700 dark:bg-slate-900 ${category ? 'text-slate-900 dark:text-slate-200' : 'text-slate-400 dark:text-slate-500'}`}
+                  >
+                    <option value="" disabled>Select a category…</option>
+                    {availableCategories.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
                       </option>
-                    </select>
-                  )}
+                    ))}
+                    {category && !availableCategories.includes(category) ? (
+                      <option value={category}>{category} (not in category list)</option>
+                    ) : null}
+                  </select>
+                  <p className="text-[9px] text-slate-400 mt-0.5">
+                    Categories are managed under Category Management.
+                  </p>
                 </div>
 
                 <div>
@@ -1111,21 +1113,26 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                   </label>
                   <select
                     value={unit}
-                    onChange={(e) => setUnit(e.target.value as any)}
-                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
+                    onChange={(e) => setUnit(e.target.value)}
+                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 cursor-pointer border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
                   >
-                    <option value="Pcs">Pcs (Pieces)</option>
-                    <option value="Box">Box</option>
-                    <option value="Kg">Kg (Kilograms)</option>
-                    <option value="Set">Set</option>
-                    <option value="Mtr">Mtr (Meters)</option>
-                    <option value="Roll">Roll</option>
+                    {/* Units are master data (UoM Management), never a hard-coded
+                        list — a unit added there is offered here immediately. */}
+                    {unitOptions.length === 0 ? <option value={unit}>{unit}</option> : null}
+                    {unitOptions.map((uom) => (
+                      <option key={uom.id} value={uom.symbol}>
+                        {uom.symbol} ({uom.name})
+                      </option>
+                    ))}
+                    {unit && !unitOptions.some((uom) => uom.symbol === unit) ? (
+                      <option value={unit}>{unit} (not in UoM list)</option>
+                    ) : null}
                   </select>
                 </div>
               </div>
 
               {/* Fixed Asset Depreciation Configuration Block */}
-              {productGroup === 'Fixed Asset' && (
+              {behaviorOf(productGroup) === 'FIXED_ASSET' && (
                 <div className={`p-3 rounded-xl border space-y-2.5 bg-purple-50/70 border-purple-200 dark:bg-purple-950/20 dark:border-purple-800/40`}>
                   <div className="flex items-center gap-1.5 text-purple-700 dark:text-purple-300 text-xs font-bold">
                     <TrendingDown className="h-4 w-4" />
@@ -1231,10 +1238,13 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                     onChange={(e) => setTaxRate(Number(e.target.value))}
                     className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
                   />
+                  <p className="text-[9px] text-slate-400 mt-0.5">
+                    Company default: {getDefaultTaxRate()}% (Company Profile). Enter 0 for a VAT-exempt item.
+                  </p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-semibold mb-1 opacity-80">
                     Min Reorder Level
@@ -1259,23 +1269,9 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                     <option value="true">Yes</option>
                     <option value="false">No</option>
                   </select>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold mb-1 opacity-80">
-                    Default Unit
-                  </label>
-                  <select
-                    value={unit}
-                    onChange={(e) => setUnit(e.target.value as any)}
-                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
-                  >
-                    <option value="Pcs">Pcs (Pieces)</option>
-                    <option value="Box">Box</option>
-                    <option value="Kg">Kg (Kilograms)</option>
-                    <option value="Set">Set</option>
-                    <option value="Mtr">Mtr (Meters)</option>
-                    <option value="Roll">Roll</option>
-                  </select>
+                  <p className="text-[9px] text-slate-400 mt-0.5">
+                    Serial/MAC/PON units are tracked individually; quantity-only units are not.
+                  </p>
                 </div>
               </div>
 
@@ -1439,7 +1435,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                         >
                           {bulkShowCategory && (
                             <div className="w-full text-[9px] font-extrabold uppercase tracking-wider text-slate-500 truncate">
-                              {lbl.product.category} • {lbl.product.productGroup || 'Product Item'}
+                              {lbl.product.category} • {lbl.product.productGroup || '—'}
                             </div>
                           )}
 

@@ -193,6 +193,7 @@ export async function fetchOperationalData(
   users: any[];
   approvalRequests: any[];
   categories: any[];
+  productGroups: any[];
   uom: any[];    locations: any[];    companyProfile: any[];
     damageRecords: any[];
 }> {
@@ -207,6 +208,7 @@ export async function fetchOperationalData(
     users,
     approvalRequests,
     categories,
+    productGroups,
     uom,
     locations,
     companyProfile,
@@ -222,6 +224,7 @@ export async function fetchOperationalData(
     fetchTable(pool, BOOTSTRAP_TABLES.users, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.approvalRequests, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.categories, scopeParams),
+    fetchTable(pool, BOOTSTRAP_TABLES.productGroups, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.uom, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.locations, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.companyProfile, scopeParams),
@@ -260,6 +263,7 @@ export async function fetchOperationalData(
     users,
     approvalRequests,
     categories,
+    productGroups,
     uom,
     locations,
     companyProfile,

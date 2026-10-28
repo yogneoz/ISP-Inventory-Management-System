@@ -241,6 +241,12 @@ const DEFAULT_GROUPS: PermissionGroup[] = [
         permissions: DEFAULT_PERMISSIONS_MATRIX['category-manage'],
       },
       {
+        id: 'product-group-manage',
+        operationName: 'Manage Product Groups',
+        description: 'Define the catalog groups operators can assign to a product, and the fixed behaviour (stock item, consumable, or depreciating fixed asset) each one maps to',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['product-group-manage'],
+      },
+      {
         id: 'edit-device-serials',
         operationName: 'Edit Device Serial Numbers (Serial/PON/MAC)',
         description: 'Edit serial numbers, PON serials, and MAC addresses for customer devices with cascading updates to all source tables',

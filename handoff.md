@@ -164,7 +164,7 @@ ISP-Inventory-Management-System/
 │       │                              #   facade re-exporting every historical symbol
 │       ├── state/runtimeState.ts      # Shared runtime state as ESM live bindings + accessors,
 │       │                              #   CACHE_LOADS + hydrateOperationalData/refresh
-│       ├── boot/dbBoot.ts             # syncDatabaseAndIndexes: full schema DDL sync (36 tables),
+│       ├── boot/dbBoot.ts             # syncDatabaseAndIndexes: full schema DDL sync (37 tables),
 │       │                              #   seedInitialPostgresData, permission matrix load,
 │       │                              #   serial-log backfill
 │       ├── realtime/sse.ts            # sseClients Set + broadcastChange (SSE fan-out)
@@ -226,7 +226,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 1448 tests; CI runs
+                                        #   drift/concurrency guards — 1468 tests; CI runs
                                         #   tsc + npm test + the no-inline-SQL guard + the
                                         #   production build + npm audit on every push/PR
                                         #   (.github/workflows/ci.yml). The PostgreSQL 16
@@ -370,7 +370,7 @@ ISP-Inventory-Management-System/
 │           └── DataRecalculationMaintenance.tsx # Admin: recalculate stock, assets, calendar, FY links
 │
 ├── scripts/
-│   ├── schema.sql                     # Full PostgreSQL schema (36 tables, idempotent)
+│   ├── schema.sql                     # Full PostgreSQL schema (37 tables, idempotent)
 │   ├── setup_db.js                    # Node.js database setup & seed runner
 │   ├── setup_postgres.sh              # Shell: auto-install & configure PostgreSQL
 │   ├── demo_dataset.js                # Demo data seeder (is_demo=TRUE, all-IN_STOCK serials)
@@ -390,7 +390,7 @@ ISP-Inventory-Management-System/
 
 ## 5. Database Schema & Relationships
 
-### 5.1 Tables Overview (36 tables)
+### 5.1 Tables Overview (37 tables)
 
 | # | Table | Purpose | Key Columns |
 |---|---|---|---|
@@ -430,6 +430,7 @@ ISP-Inventory-Management-System/
 | 34 | `sales_returns` | Sales return register | id (PK), return_number (UNIQUE), original_invoice_id (FK→sales_invoices), customer_id, branch_id, reason, restockable |
 | 35 | `app_settings` | Company-wide configuration (key/value) — replaces the browser-localStorage copies | setting_key (PK), setting_value, updated_by, updated_at |
 | 36 | `user_preferences` | Per-user UI preferences (key/value) — theme, date mode, last active tab | (user_id, pref_key) PK, pref_value, updated_at |
+| 37 | `product_groups` | Product-group master data (customer-editable names; behaviour is fixed) | id (PK), code (UNIQUE), name (UNIQUE), behavior (STOCK_ITEM/CONSUMABLE/FIXED_ASSET), sort_order, active, is_system |
 
 ### 5.2 Serial Log Uniqueness
 
@@ -448,6 +449,10 @@ branches.id ←─ users, inventory_stock, fixed_assets, purchase_orders,
 products.id ←─ inventory_stock (CASCADE), fixed_assets (SET NULL),
                stock_operations (SET NULL), transaction_logs (SET NULL),
                damage_records (CASCADE), serial_log (SET NULL)
+
+product_groups.name ←─ products.product_group (ON UPDATE CASCADE,
+               ON DELETE RESTRICT): the stored value is the group NAME, so a
+               rename cascades and an in-use group cannot be deleted
 
 fiscal_years.id ←─ purchase_orders, purchase_invoices, shipments,
                    stock_operations, customer_device_records, approval_requests,
@@ -517,6 +522,7 @@ The server registers ~130 routes. The most important ones:
 | `/api/users` | GET, POST, PUT/DELETE `:id`, POST `:id/reset-password` |
 | `/api/products` | GET, POST, PUT/DELETE `:id` |
 | `/api/categories` | GET, POST, PUT/DELETE `:id` |
+| `/api/product-groups` | GET, POST, PUT/DELETE `:id` (rename cascades to `products.product_group`; a group in use cannot be deleted) |
 | `/api/uom` | GET, POST, PUT/DELETE `:id` |
 | `/api/locations` | GET, POST, PUT/DELETE `:id` |
 | `/api/company-profile` | GET, PUT |
@@ -654,7 +660,7 @@ Every `/api/*` request passes through this middleware chain in order:
 | `FIELD_TECHNICIAN` | Field operations | Single branch |
 | `AUDITOR` | Read-only audit access | Single branch |
 
-### 8.2 Permissions Matrix (41 operations × 9 roles)
+### 8.2 Permissions Matrix (48 operations × 9 roles)
 
 Defined in `src/utils/permissionMatrixData.ts` (`INVENTORY_OPERATIONS`, `APP_ROLES`, `DEFAULT_PERMISSIONS_MATRIX`). Key groups:
 
@@ -959,7 +965,7 @@ calculateFixedAssetValues({
 
 ### 12.4 `utils/permissions.ts` + `permissionMatrixData.ts`
 
-- `DEFAULT_PERMISSIONS_MATRIX` — 41 operation keys × 9 roles
+- `DEFAULT_PERMISSIONS_MATRIX` — 48 operation keys × 9 roles
 - `isOperationAllowed(opId, userRole, ...)` — server matrix → localStorage → defaults
 - `canUserSeeAllBranches(user)` — SUPER_ADMIN, INVENTORY_MANAGER, HEAD_OFFICE_ADMIN
 - `getAllowedBranchIds(user, branches)` — resolves accessible branch list
@@ -995,6 +1001,24 @@ calculateFixedAssetValues({
   BS calendar tabs.
 - Tests: `tests/excel.helper.test.ts` proves roundtrip + numeric-precision equivalence
   with the old parser.
+
+### 12.9 `utils/productGroupBehavior.ts`
+
+- The client twin of `product_groups.behavior`. Product-group NAMES are
+  customer-editable master data, so screens must never branch on a literal
+  name; `behaviorOf(name)` returns the fixed rule the app implements
+  (`STOCK_ITEM` / `CONSUMABLE` / `FIXED_ASSET`).
+- `setProductGroups(groups)` — seeded from the bootstrap payload in App.tsx and
+  by the two screens that own the data; an empty/invalid payload is ignored so
+  a failed fetch cannot blank the lookup.
+- `activeProductGroups()` — the groups a NEW product may be assigned to;
+  `isSellableProduct(product)` — the sales/issue gate.
+- Until the first payload lands, `BUILT_IN_PRODUCT_GROUPS` reproduces the three
+  groups the app shipped with, so first paint and demo mode behave exactly as
+  the old hard-coded literals did. An unknown/legacy name is a stock item.
+- Tests: `tests/productGroupBehaviour.test.ts`; the schema/repo side is pinned by
+  `tests/productGroups.repo.test.ts` and the modal by
+  `tests/productGroupModal.test.ts`.
 
 ---
 
@@ -1283,7 +1307,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 1448 tests against a real PostgreSQL 16 service container
+2. `npm test` — 1468 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM
@@ -1350,10 +1374,10 @@ so any unwired new fetch fails the suite instead of shipping:
   remount refreshes it). Each test pins the effect deps carrying the refresh key and EVERY App.tsx render
   site passing it (2 PO, 2 PI, 1 SerialLogRegister, 11 StockOperations, 4 ReturnsRegister,
   2 SalesInvoices) — a newly added unwired mount fails.
-- **Feature-screen coverage (2026-10-03 audit, all 66 screens — the §G StockOperations
+- **Feature-screen coverage (2026-10-03 audit, all 67 screens — the §G StockOperations
   split added 12 tab panels plus the extracted tab-bar chrome, and the BS-calendar
   integrity work added the Calendar Health panel)** — a `SCREEN_SURFACE_PINS`
-  table pins the 55 screens not covered above (the other 11 are pinned by the dedicated
+  table pins the 56 screens not covered above (the other 11 are pinned by the dedicated
   tests); an unpinned new screen fails coverage, and each pinned screen must match its
   exact surface. Surfaces use `serverCallsIn` = `api.*` methods **plus named
   `services/api` imports** — the audit found FinancialStatements.tsx imports
@@ -1446,7 +1470,7 @@ All demo users share password: `Demo@123`
 | Order | File | Why |
 |---|---|---|
 | 1 | `src/types/index.ts` | All data structures — the vocabulary of the system |
-| 2 | `scripts/schema.sql` | Full database schema (36 tables) — the data model |
+| 2 | `scripts/schema.sql` | Full database schema (37 tables) — the data model |
 | 3 | `server/src/app.ts` (top section) | Composition root: middleware chain, helmet config, body limit |
 | 3b | `server/src/state/runtimeState.ts` | Shared runtime state (ESM live bindings), CACHE_LOADS, cache refresh |
 | 3c | `server/src/boot/dbBoot.ts` | Schema sync, seeding, permission-matrix load |

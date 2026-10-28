@@ -70,14 +70,24 @@ describe('supplier params', () => {
 });
 
 describe('productUpdateParams', () => {
-  test('applies numeric and string defaults verbatim from the controller', () => {
-    const p = { sku: 'SKU-1', name: 'Router', category: 'CPE' };
+  test('carries the controller-resolved group and the numeric/string defaults', () => {
+    // The group is master data now: the controller resolves the body's value
+    // against product_groups (and keeps the previous name when the body omits
+    // it) before this builder runs. The builder therefore carries the value
+    // through verbatim — it must NOT fall back to a literal group name, which
+    // would revive a name the operator renamed or retired.
+    const p = { sku: 'SKU-1', name: 'Router', category: 'CPE', productGroup: 'Product Item' };
     const params = productUpdateParams(p, 'prod-1');
     assert.deepEqual(params, [
       'SKU-1', '', 'Router', 'CPE', 'Product Item', 'Pcs',
       0, 0, 13, 5, false, 'QUANTITY_ONLY', '', 'ACTIVE', 'prod-1',
     ]);
     assert.equal(params.length, 15);
+    assert.equal(
+      productUpdateParams({ sku: 'S', name: 'N', category: 'C' }, 'id1')[4],
+      undefined,
+      'the builder must not invent a group name — resolving it is the controller\'s job'
+    );
   });
 
   test('preserves supplied truthy values over defaults', () => {

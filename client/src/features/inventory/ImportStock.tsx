@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Branch, Product } from '../../types';
 import { UploadCloud, FileSpreadsheet, Download, CheckCircle2, AlertCircle, ArrowRight, FileText, Check, Upload, RefreshCw } from 'lucide-react';
 import { formatNPR } from '../../utils/nprFormat';
 import { getDefaultTaxRate } from '../../utils/taxConfig';
+import { findProductGroup, getProductGroups } from '../../utils/productGroupBehavior';
+import { api } from '../../services/api';
 import { PageHeader } from '../../components/common/PageHeader';
 import { useDialog } from '../../components/common/DialogProvider';
 
@@ -10,6 +12,8 @@ interface ImportStockProps {
   branches: Branch[];
   products: Product[];
   onCreateProduct: (prod: Omit<Product, 'id'>) => Promise<void>;
+  /** Duplicate SKUs are UPDATED, not re-inserted (the preview promises this). */
+  onUpdateProduct?: (id: string, prod: Partial<Product>) => Promise<void>;
   onRefreshData?: () => void;
 }
 
@@ -17,7 +21,7 @@ interface ParsedImportRow {
   sku: string;
   barcode: string;
   name: string;
-  productGroup: 'Product Item' | 'Fixed Asset' | 'Consumable Item';
+  productGroup: string;
   category: string;
   unit: string;
   costPrice: number;
@@ -35,6 +39,7 @@ export const ImportStock: React.FC<ImportStockProps> = ({
   branches,
   products,
   onCreateProduct,
+  onUpdateProduct,
   onRefreshData,
 }) => {
   const { alert: alertDialog } = useDialog();
@@ -42,6 +47,28 @@ export const ImportStock: React.FC<ImportStockProps> = ({
   const [parsedRows, setParsedRows] = useState<ParsedImportRow[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [importSuccessMessage, setImportSuccessMessage] = useState<string | null>(null);
+
+  // Master-data names, so the preview can say exactly which category/unit a row
+  // will CREATE (the server creates a missing row on save rather than storing
+  // free text). Empty sets before the fetch lands mean "assume it will create",
+  // which errs on the side of showing the operator more.
+  const [knownCategories, setKnownCategories] = useState<Set<string>>(new Set());
+  const [knownUnits, setKnownUnits] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all([api.getCategories(), api.getUoms()])
+      .then(([cats, uoms]) => {
+        if (cancelled) return;
+        setKnownCategories(new Set((cats || []).map((c: any) => (c?.name || '').toLowerCase()).filter(Boolean)));
+        setKnownUnits(new Set((uoms || []).map((u: any) => (u?.symbol || '').toLowerCase()).filter(Boolean)));
+      })
+      .catch(() => {
+        /* preview only — a failed read must not block the import */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const sampleCsvData = `SKU,Barcode,ProductName,ProductGroup,Category,Unit,CostPrice,SellingPrice,TaxRate,MinReorder,TargetBranch,InitialQty
 SPL-1X8-01,890102938101,PLC Fiber Optic Splitter 1x8 SC/APC,Consumable Item,Splitters,Pcs,450,650,13,20,ALL,100
@@ -76,8 +103,13 @@ EXM-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixe
       const catLower = (category || '').toLowerCase();
       const nameLower = (name || '').toLowerCase();
 
-      let productGroup: 'Product Item' | 'Fixed Asset' | 'Consumable Item' = 'Product Item';
-      if (
+      // 1. An explicit group name that exists in master data wins verbatim.
+      // 2. Otherwise the CSV keyword is mapped to a BEHAVIOUR and the first
+      //    active group with that behaviour is used — so a shop that renamed
+      //    "Fixed Asset" to "Capital Equipment" still imports correctly.
+      const activeGroups = getProductGroups().filter((group) => group.active);
+      const explicitGroup = findProductGroup(cols[3]);
+      const desiredBehavior = (
         rawGrp.includes('consumable') ||
         rawGrp.includes('splitter') ||
         rawGrp.includes('sleeve') ||
@@ -91,11 +123,16 @@ EXM-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixe
         nameLower.includes('sleeve') ||
         nameLower.includes('coupler') ||
         nameLower.includes('fast connector')
-      ) {
-        productGroup = 'Consumable Item';
-      } else if (rawGrp.includes('asset') || rawGrp.includes('fixed')) {
-        productGroup = 'Fixed Asset';
-      }
+      )
+        ? 'CONSUMABLE'
+        : rawGrp.includes('asset') || rawGrp.includes('fixed')
+          ? 'FIXED_ASSET'
+          : 'STOCK_ITEM';
+      const productGroup =
+        explicitGroup?.name ||
+        activeGroups.find((group) => group.behavior === desiredBehavior)?.name ||
+        activeGroups[0]?.name ||
+        '';
       const unit = cols[5] || 'Pcs';
       const costPrice = parseFloat(cols[6]) || 0;
       const sellingPrice = parseFloat(cols[7]) || 0;
@@ -113,10 +150,19 @@ EXM-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixe
       const targetBranchId = matchingBranch ? matchingBranch.id : branches[0]?.id || 'ALL';
 
       const isDuplicateSku = existingSkus.has((sku || '').toLowerCase());
-      const isValid = Boolean(sku && name && costPrice >= 0);
-      let notes = 'New SKU ready to insert';
-      if (isDuplicateSku) notes = 'Existing SKU detected (will update existing entry)';
+      let isValid = Boolean(sku && name && costPrice >= 0 && productGroup);
+      // Say exactly what the save will add to master data, so a typo in the CSV
+      // cannot quietly create a category nobody looked at.
+      const creates: string[] = [];
+      if (category && !knownCategories.has(category.toLowerCase())) creates.push(`category "${category}"`);
+      if (unit && !knownUnits.has(unit.toLowerCase())) creates.push(`unit "${unit}"`);
+      let notes = isDuplicateSku
+        ? 'Existing SKU detected (will update the existing product)'
+        : 'New SKU ready to insert';
+      if (creates.length > 0) notes += ` · will create ${creates.join(' and ')}`;
       if (!name) notes = 'Missing Product Name';
+      if (!productGroup) notes = 'No active product group is configured';
+      if (name && !productGroup) isValid = false;
 
       rows.push({
         sku,
@@ -177,8 +223,8 @@ EXM-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixe
 
       for (const row of parsedRows) {
         if (!row.isValid) continue;
-        
-        await onCreateProduct({
+
+        const payload = {
           sku: row.sku,
           barcode: row.barcode,
           name: row.name,
@@ -190,11 +236,19 @@ EXM-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixe
           taxRate: row.taxRate,
           minReorderLevel: row.minReorderLevel,
           description: `Imported stock file: ${selectedFileName || 'Template'}. Initial Qty: ${row.initialQty} ${row.unit}`,
-        });
+        };
 
-        if (row.isDuplicate) {
+        // The preview promises an update for an existing SKU. Posting it to
+        // createProduct would insert a new id and trip UNIQUE(sku), so route it
+        // to the existing product's update instead.
+        const existing = row.isDuplicate
+          ? products.find((p) => (p.sku || '').toLowerCase() === row.sku.toLowerCase())
+          : undefined;
+        if (existing && onUpdateProduct) {
+          await onUpdateProduct(existing.id, payload);
           updatedCount++;
         } else {
+          await onCreateProduct(payload as Omit<Product, 'id'>);
           createdCount++;
         }
       }

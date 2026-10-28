@@ -101,6 +101,12 @@ describe('dbBoot.ts ↔ scripts/schema.sql single-source-of-truth guard', () => 
       'WHERE CURRENCY_CODE IS NULL OR CURRENCY_CODE',
       'ALTER TABLE STOCK_OPERATIONS ALTER COLUMN FISCAL_YEAR DROP DEFAULT',
       'UPDATE VENDOR_PAYMENTS SET FISCAL_YEAR_ID',
+      // Product groups: seed + the CHECK → foreign-key swap. The FK is what
+      // makes a rename cascade and blocks deleting a group still in use.
+      'INSERT INTO PRODUCT_GROUPS (ID, CODE, NAME, BEHAVIOR, SORT_ORDER, ACTIVE, IS_SYSTEM)',
+      'ALTER TABLE PRODUCTS DROP CONSTRAINT IF EXISTS PRODUCTS_PRODUCT_GROUP_CHECK',
+      'FOREIGN KEY (PRODUCT_GROUP) REFERENCES PRODUCT_GROUPS(NAME)',
+      'ON UPDATE CASCADE ON DELETE RESTRICT',
     ];
     for (const fragment of required) {
       assert.ok(
@@ -110,11 +116,11 @@ describe('dbBoot.ts ↔ scripts/schema.sql single-source-of-truth guard', () => 
     }
   });
 
-  test('schema.sql still declares all 36 tables (fresh-install completeness)', () => {
+  test('schema.sql still declares all 37 tables (fresh-install completeness)', () => {
     const tables = new Set(
       (schemaSql.match(/CREATE TABLE IF NOT EXISTS (\w+)/g) || []).map((s) => s.replace('CREATE TABLE IF NOT EXISTS ', ''))
     );
-    assert.equal(tables.size, 36, `schema.sql should declare exactly 36 tables, found ${tables.size}`);
+    assert.equal(tables.size, 37, `schema.sql should declare exactly 37 tables, found ${tables.size}`);
   });
 
   test('serial_log carries the register-wide uniqueness (device serial + PON + MAC)', () => {
