@@ -70,7 +70,8 @@ _Date: 2026-10-28 · Branch: main · Tests: 1468/1468 green with a DB (all run i
 > [productGroupBehavior.ts](client/src/utils/productGroupBehavior.ts) for the
 > behaviour, so renaming or adding a group keeps the selling, issuing and
 > depreciation rules. Pinned by 3 new test files; suite at **1468/1468**
-> (1466 pass, 0 fail, 2 Windows-only skips). **No round is active.** The payload work
+> (1466 pass, 0 fail, 2 Windows-only skips). Shipped as `0cc1e8f` (CI run 201
+> green). **No round is active.** The payload work
 > is finished — the remaining-array measurement found no item to open, and the
 > `inventory_stock` trigger is recorded in [2026.md](docs/session-notes/2026.md). The
 > notes are split by year (**SN-1**): entries live in
