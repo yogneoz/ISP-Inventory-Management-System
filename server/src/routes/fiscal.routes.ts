@@ -6,6 +6,7 @@
 import type express from 'express';
 import { pgPool } from '../../db';
 import { requireRole, getUserFromReq } from '../middleware/index';
+import { allowedBranchScope } from '../middleware/branchScope';
 import { withTransaction } from '../db/transactions';
 import { logAuditEvent } from './fiscal.auditAccess';
 
@@ -58,7 +59,11 @@ expressApp.get(
         [id]
       );
 
-      const rows = rowsRes.rows;
+      // A branch account reads only its own branches' register: the rows are a
+      // product × branch grid, so without this filter one branch's manager saw
+      // every branch's opening quantities and costs.
+      const scope = allowedBranchScope(getUserFromReq(req));
+      const rows = scope ? rowsRes.rows.filter((r: any) => scope.has(r.branchId)) : rowsRes.rows;
       const stats = {
         totalRows: rows.length,
         manualAdjustments: rows.filter((r: any) => r.sourceType === 'MANUAL_ADJUSTMENT').length,
@@ -108,6 +113,10 @@ expressApp.put(
       ]);
       const productNameById = new Map<string, string>(prodRes.rows.map((r: any) => [r.id, r.name]));
       const branchNameById = new Map<string, string>(branchRes.rows.map((r: any) => [r.id, r.name]));
+      // The batch rows carry their own branchId, which the app-level guard's
+      // top-level body check cannot see — refuse a branch outside the account
+      // here, before anything is written.
+      const scope = allowedBranchScope(user);
 
       // ---- Validate every row BEFORE writing anything (all-or-nothing) ----
       const updates: Array<{
@@ -133,6 +142,11 @@ expressApp.put(
         }
         if (!branchId || !branchNameById.has(branchId)) {
           return res.status(400).json({ message: `Invalid branch reference in opening-stock adjustment: ${label}` });
+        }
+        if (scope && !scope.has(branchId)) {
+          return res.status(403).json({
+            message: `Forbidden: this account is not authorized for branch '${branchNameById.get(branchId) || branchId}'.`,
+          });
         }
         if (!Number.isInteger(quantityOnHand) || quantityOnHand < 0) {
           return res.status(400).json({ message: `Quantity on hand must be a whole number >= 0 for ${label}.` });
@@ -262,7 +276,10 @@ expressApp.get(
         [id]
       );
 
-      const rows = rowsRes.rows;
+      // Same branch contract as the opening-stock register: a branch account
+      // sees only its own branches' supplier × branch balances.
+      const scope = allowedBranchScope(getUserFromReq(req));
+      const rows = scope ? rowsRes.rows.filter((r: any) => scope.has(r.branchId)) : rowsRes.rows;
       const stats = {
         totalRows: rows.length,
         manualAdjustments: rows.filter((r: any) => r.sourceType === 'MANUAL_ADJUSTMENT').length,
@@ -316,6 +333,9 @@ expressApp.put(
       ]);
       const supplierNameById = new Map<string, string>(supRes.rows.map((r: any) => [r.id, r.name]));
       const branchNameById = new Map<string, string>(branchRes.rows.map((r: any) => [r.id, r.name]));
+      // Batch rows carry their own branchId, invisible to the app-level guard's
+      // top-level body check — refuse a foreign branch before writing.
+      const scope = allowedBranchScope(user);
 
       // ---- Validate every row BEFORE writing anything (all-or-nothing) ----
       const updates: Array<{ supplierId: string; branchId: string; openingBalance: number }> = [];
@@ -333,6 +353,11 @@ expressApp.put(
         }
         if (!branchId || !branchNameById.has(branchId)) {
           return res.status(400).json({ message: `Invalid branch reference in vendor opening-balance adjustment: ${label}` });
+        }
+        if (scope && !scope.has(branchId)) {
+          return res.status(403).json({
+            message: `Forbidden: this account is not authorized for branch '${branchNameById.get(branchId) || branchId}'.`,
+          });
         }
         if (Number.isNaN(openingBalance)) {
           return res.status(400).json({ message: `Opening balance must be a number for ${label}.` });

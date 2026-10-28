@@ -1,6 +1,6 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-28 · Branch: main · Tests: 1426/1426 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-28 · Branch: main · Tests: 1434/1434 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
 > **Current state (2026-10-27, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1/VOL-2/BUDGET-1/BOOT-1/VOL-3/VOL-4a/VOL-4b/SN-1/ASSET-1/EXCH-1/READ-1/CDR-1/CDR-2).** All DF-01…DF-17
 > work, the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2, CPE-3,
@@ -49,8 +49,13 @@ _Date: 2026-10-28 · Branch: main · Tests: 1426/1426 green with a DB (all run i
 > approval cancel, `bootstrap/local` slices and the audit trail itself were
 > unguarded, caller-attributed or shipped to every role. Pinned by
 > `tests/authorization.audit.test.ts`; `tsc` clean and the suite at
-> **1426/1426** (1424 pass, 0 fail, 2 Windows-only skips). Shipped as
-> `9942f16` (CI run 195 green). **No round is
+> **1434/1434** (1432 pass, 0 fail, 2 Windows-only skips). Shipped as
+> `9942f16` (CI run 195 green). **Branch-scope registry (2026-10-28):** the
+> by-id guard's table list is now declarative and checked against
+> `scripts/schema.sql` (6-test guard), so a new branch-scoped table fails CI
+> unless it is guarded or explicitly exempted; the fiscal opening-stock and
+> vendor-opening batch registers now refuse nested rows outside the actor's
+> branches (AUTHZ-12/13). **No round is
 > active.** The payload work
 > is finished — the remaining-array measurement found no item to open, and the
 > `inventory_stock` trigger is recorded in [2026.md](docs/session-notes/2026.md). The

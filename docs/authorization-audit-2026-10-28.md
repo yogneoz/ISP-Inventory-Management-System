@@ -250,15 +250,30 @@ from a role that cannot display it. Covered by AUTHZ-11.
   matching matrix operation; reverses and returns carry their own operations;
   shipment cancellation/receipt use their own operations and creator parity.
 
+### Follow-up (2026-10-28) — the by-id table is now schema-checked
+
+The by-id list moved out of the middleware into
+`server/src/middleware/branchScope.ts`, together with the collection prefixes
+and the segment list, and `tests/branchScopeRegistry.test.ts` parses
+`scripts/schema.sql`: every table that declares a branch column must be named
+in the registry or exempted with a written reason, so a new branch-scoped table
+now fails CI until someone decides how it is guarded. Building that list found
+two more gaps: `PUT /api/fiscal-years/:id/opening-stock` and
+`.../vendor-opening-balances` take branch ids inside nested `rows`, which the
+app-level guard's top-level body check cannot see, and their GETs rendered
+every branch's grid. Both registers now filter reads and refuse nested rows
+outside the actor's allowed branches (`allowedBranchScope`), with AUTHZ-12/13
+in the suite pinning the refusal and the HQ-wide path.
+
 ## Limits
 
 Pattern-and-path review with targeted handler reading, not a penetration test.
-The by-id table is a fixed list; a new branch-scoped table needs a row there
-(the test file names the ones covered). Branch checks only run while
+The by-id table is a schema-checked registry now (see the follow-up), so an
+exemption is always explicit rather than silent. Branch checks only run while
 PostgreSQL is connected — the demo (PG-down) mode serves the in-memory mirror
 and has no tenant boundary to enforce. No attempt was made to bypass the HMAC
 token or the login rate limiter; those were verified by reading, not attacked.
-`tests/authorization.audit.test.ts` (14 tests) needs a reachable PostgreSQL and
+`tests/authorization.audit.test.ts` (16 tests) needs a reachable PostgreSQL and
 skips without one, matching the suite's DB convention. The receive-lane suite's
 route-gate fixture was moved into the actor's own branch so the revived id
 lookup cannot pre-empt the permission message that suite pins.

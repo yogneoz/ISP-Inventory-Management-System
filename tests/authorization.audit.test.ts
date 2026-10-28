@@ -18,6 +18,9 @@
  *    actor is the verified session, never a body-supplied user object.
  *  - AUTHZ-11: the audit trail is gated on `admin-audit`, not shipped to
  *    every signed-in role through bootstrap.
+ *  - AUTHZ-12/13: the fiscal-year opening-stock and vendor-opening registers
+ *    are branch-scoped on read and refuse nested batch rows for a branch the
+ *    actor does not hold (the app-level guard only sees top-level body ids).
  */
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -77,7 +80,7 @@ const tokens = {
   hq: issueAuthToken(HQ_WIDE),
 };
 
-describe('authorization audit (AUTHZ-1…11)', () => {
+describe('authorization audit (AUTHZ-1…13)', () => {
   let port = 0;
   let close: (() => Promise<void>) | null = null;
 
@@ -92,6 +95,11 @@ describe('authorization audit (AUTHZ-1…11)', () => {
     await pool!.query("DELETE FROM approval_requests WHERE id LIKE 'azq-%'");
     await pool!.query("DELETE FROM audit_logs WHERE id LIKE 'azq-%'");
     await pool!.query("DELETE FROM customer_records WHERE id LIKE 'azq-%'");
+    await pool!.query("DELETE FROM fiscal_year_opening_stock WHERE fiscal_year_id LIKE 'azq-%'");
+    await pool!.query("DELETE FROM vendor_opening_balances WHERE fiscal_year_id LIKE 'azq-%'");
+    await pool!.query("DELETE FROM fiscal_years WHERE id LIKE 'azq-%'");
+    await pool!.query("DELETE FROM suppliers WHERE id LIKE 'azq-%'");
+    await pool!.query("DELETE FROM products WHERE id LIKE 'azq-%'");
     await pool!.query("DELETE FROM branches WHERE id LIKE 'azq-%'");
 
     await pool!.query(
@@ -130,6 +138,30 @@ describe('authorization audit (AUTHZ-1…11)', () => {
       "('azq-audit-1', 'azq-aud@example.com', 'AZQ Auditor', 'AZQ test action', 'SYSTEM', 'audit gate fixture', '2083-06-15 BS', 'azq-a')"
     );
 
+    // Fiscal-year opening registers (AUTHZ-12/13): one product × branch and
+    // supplier × branch grid, so branch scope is observable on both tables.
+    await pool!.query(
+      "INSERT INTO fiscal_years (id, code, start_date_ad, end_date_ad, start_date_bs, end_date_bs, is_current, is_closed) VALUES " +
+      "('azq-fy', 'AZQ-FY', '2026-07-16', '2027-07-15', '2083-04-01', '2084-03-31', FALSE, FALSE)"
+    );
+    await pool!.query(
+      "INSERT INTO products (id, sku, name, category, product_group) VALUES " +
+      "('azq-prod', 'AZQ-SKU', 'AZQ Product', 'AZQ', 'Product Item')"
+    );
+    await pool!.query(
+      "INSERT INTO suppliers (id, supplier_code, name) VALUES ('azq-sup', 'AZQ-SUP', 'AZQ Supplier')"
+    );
+    await pool!.query(
+      "INSERT INTO fiscal_year_opening_stock (id, fiscal_year_id, product_id, branch_id, quantity_on_hand, damaged_qty, unit_cost) VALUES " +
+      "('open-azq-fy-azq-prod-azq-a', 'azq-fy', 'azq-prod', 'azq-a', 7, 0, 10), " +
+      "('open-azq-fy-azq-prod-azq-b', 'azq-fy', 'azq-prod', 'azq-b', 9, 0, 10)"
+    );
+    await pool!.query(
+      "INSERT INTO vendor_opening_balances (id, fiscal_year_id, supplier_id, branch_id, opening_balance) VALUES " +
+      "('vopen-azq-fy-azq-sup-azq-a', 'azq-fy', 'azq-sup', 'azq-a', 100), " +
+      "('vopen-azq-fy-azq-sup-azq-b', 'azq-fy', 'azq-sup', 'azq-b', 200)"
+    );
+
     // Tests never run dbBoot; seed the matrix the guarded routes read.
     setPermissionMatrix(JSON.parse(JSON.stringify(DEFAULT_PERMISSIONS_MATRIX)));
 
@@ -155,6 +187,11 @@ describe('authorization audit (AUTHZ-1…11)', () => {
       await pool.query("DELETE FROM approval_requests WHERE id LIKE 'azq-%'");
       await pool.query("DELETE FROM audit_logs WHERE id LIKE 'azq-%'");
       await pool.query("DELETE FROM customer_records WHERE id LIKE 'azq-%'");
+      await pool.query("DELETE FROM fiscal_year_opening_stock WHERE fiscal_year_id LIKE 'azq-%'");
+      await pool.query("DELETE FROM vendor_opening_balances WHERE fiscal_year_id LIKE 'azq-%'");
+      await pool.query("DELETE FROM fiscal_years WHERE id LIKE 'azq-%'");
+      await pool.query("DELETE FROM suppliers WHERE id LIKE 'azq-%'");
+      await pool.query("DELETE FROM products WHERE id LIKE 'azq-%'");
       await pool.query("DELETE FROM branches WHERE id LIKE 'azq-%'");
       await pool.end();
     }
@@ -287,6 +324,57 @@ describe('authorization audit (AUTHZ-1…11)', () => {
       (auditor.json?.auditLogs || []).some((row: any) => row.id === 'azq-audit-1'),
       'AUDITOR holds admin-audit and receives the row'
     );
+  });
+
+  test('AUTHZ-12: the opening-stock register is branch-scoped for reads and nested batch rows', { skip: skipPositive }, async () => {
+    const own = await call('GET', '/api/fiscal-years/azq-fy/opening-stock', tokens.acct);
+    assert.equal(own.status, 200);
+    const ownRows: any[] = own.json?.rows || [];
+    assert.ok(ownRows.some((r) => r.branchId === 'azq-a'), 'own-branch row is present');
+    assert.ok(!ownRows.some((r) => r.branchId === 'azq-b'), 'another branch’s row must not be');
+    assert.equal(own.json?.stats?.totalRows, ownRows.length, 'stats follow the filtered rows');
+
+    // The batch rows carry their own branchId, which the app-level guard’s
+    // top-level body check cannot see — the handler is the only guard.
+    const foreign = await call('PUT', '/api/fiscal-years/azq-fy/opening-stock', tokens.inv, {
+      rows: [{ productId: 'azq-prod', branchId: 'azq-b', quantityOnHand: 3, damagedQty: 0, unitCost: 1 }],
+    });
+    assert.equal(foreign.status, 403, 'a batch row for another branch must be refused');
+    const untouched = await pool!.query(
+      "SELECT quantity_on_hand FROM fiscal_year_opening_stock WHERE id = 'open-azq-fy-azq-prod-azq-b'"
+    );
+    assert.equal(Number(untouched.rows[0]?.quantity_on_hand), 9, 'the refused write changed nothing');
+
+    const ownWrite = await call('PUT', '/api/fiscal-years/azq-fy/opening-stock', tokens.inv, {
+      rows: [{ productId: 'azq-prod', branchId: 'azq-a', quantityOnHand: 11, damagedQty: 0, unitCost: 1 }],
+    });
+    assert.equal(ownWrite.status, 200, 'the own-branch batch write is allowed');
+
+    const hq = await call('GET', '/api/fiscal-years/azq-fy/opening-stock', tokens.hq);
+    const hqRows: any[] = hq.json?.rows || [];
+    assert.ok(hqRows.some((r) => r.branchId === 'azq-a') && hqRows.some((r) => r.branchId === 'azq-b'), 'an HQ-wide account still reads every branch');
+  });
+
+  test('AUTHZ-13: the vendor-opening register is branch-scoped for reads and nested batch rows', { skip: skipPositive }, async () => {
+    const own = await call('GET', '/api/fiscal-years/azq-fy/vendor-opening-balances', tokens.acct);
+    assert.equal(own.status, 200);
+    const ownRows: any[] = own.json?.rows || [];
+    assert.ok(ownRows.some((r) => r.branchId === 'azq-a'), 'own-branch row is present');
+    assert.ok(!ownRows.some((r) => r.branchId === 'azq-b'), 'another branch’s row must not be');
+
+    const foreign = await call('PUT', '/api/fiscal-years/azq-fy/vendor-opening-balances', tokens.acct, {
+      rows: [{ supplierId: 'azq-sup', branchId: 'azq-b', openingBalance: 5 }],
+    });
+    assert.equal(foreign.status, 403, 'a batch row for another branch must be refused');
+    const untouched = await pool!.query(
+      "SELECT opening_balance FROM vendor_opening_balances WHERE id = 'vopen-azq-fy-azq-sup-azq-b'"
+    );
+    assert.equal(Number(untouched.rows[0]?.opening_balance), 200, 'the refused write changed nothing');
+
+    const ownWrite = await call('PUT', '/api/fiscal-years/azq-fy/vendor-opening-balances', tokens.acct, {
+      rows: [{ supplierId: 'azq-sup', branchId: 'azq-a', openingBalance: 150 }],
+    });
+    assert.equal(ownWrite.status, 200, 'the own-branch batch write is allowed');
   });
 
   test('ALIGN-1: purchase-invoice delete matches the inv-delete matrix', { skip: skipPositive }, async () => {
