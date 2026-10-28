@@ -26,7 +26,7 @@ Work proceeds in this order; each note is the slice's single source of truth.
 
 | # | Item | Scope | Status |
 |---|---|---|---|
-| 1 | [WTY-1](WTY-1.md) | Shared date arithmetic, `warranty_coverages` schema, product columns, types, demo mirror and legacy backfill | `[~]` scaffold on disk, not gated |
+| 1 | [WTY-1](WTY-1.md) | Shared date arithmetic, `warranty_coverages` schema, product columns, types, demo mirror and legacy backfill | `[x]` `bae0efa` |
 | 2 | [WTY-2](WTY-2.md) | Coverage repo/service/controller/routes, branch scope, permissions and the audited edit endpoint | `[~]` scaffold on disk, not gated |
 | 3 | [WTY-3](WTY-3.md) | Product vendor/seller warranty defaults in the API and the product form | `[~]` scaffold on disk, not gated |
 | 4 | [WTY-4](WTY-4.md) | Vendor coverage capture at purchase invoice and fixed asset; supersede on return/disposal | `[ ]` |
@@ -35,9 +35,9 @@ Work proceeds in this order; each note is the slice's single source of truth.
 | 7 | [WTY-7](WTY-7.md) | Demo coverage data, clear-demo order and backfill verification | `[ ]` |
 | 8 | [WTY-8](WTY-8.md) | Docs, table/screen/route/operation counts, full gates and the CI record | `[ ]` |
 
-The scaffold written by the interrupted pass is called out honestly: WTY-1–3
-have files on disk but **no acceptance line is ticked** and nothing is committed
-until its own gates pass. The remaining slices are untouched.
+WTY-1 shipped as `bae0efa` after its own gates. WTY-2/3 still carry the
+interrupted pass's scaffold: their files are on disk but **no acceptance line is
+ticked** and nothing is committed until their gates pass. WTY-4–8 are untouched.
 
 ## Commit policy
 

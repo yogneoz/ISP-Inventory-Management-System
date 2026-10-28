@@ -1,6 +1,6 @@
 # WTY-1 — warranty term arithmetic, schema and the coverage record
 
-Status: `[x]` done (2026-10-28) · `7b93e6f` · Started 2026-10-28 · Round 9
+Status: `[x]` done (2026-10-28) · `bae0efa` · Started 2026-10-28 · Round 9
 Order: 1 · Depends on: none. Blocks every other WTY item.
 
 ## Why
