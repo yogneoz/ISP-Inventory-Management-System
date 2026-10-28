@@ -17,7 +17,7 @@ import {
 import { api } from '../../services/api';
 import { createLatestOnly } from '../../utils/latestOnly';
 import { exportToCSV, CSVColumn } from '../../utils/exportUtils';
-import { filterFiscalYears, isOperationAllowed } from '../../utils/permissions';
+import { filterFiscalYears, getScopedBranches, isOperationAllowed } from '../../utils/permissions';
 import { FiscalYearSelect } from '../../components/common/FiscalYearSelect';
 import { formatNPR } from '../../utils/nprFormat';
 import {
@@ -69,6 +69,13 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
   const canView = isOperationAllowed('opening-stock-view', role);
   const canEditRole = isOperationAllowed('opening-stock-edit', role);
 
+  // Only the account's own branches are offered or submitted: the server's
+  // branch registry refuses an out-of-scope row by id (and the fiscal registers
+  // refuse nested batch rows), so an option here the account cannot use would
+  // be a guaranteed error, not a feature.
+  const scopedBranches = useMemo(() => getScopedBranches(currentUser, branches), [currentUser, branches]);
+  const scopedBranchIds = useMemo(() => new Set(scopedBranches.map((b) => b.id)), [scopedBranches]);
+
   const defaultFyId = useMemo(() => {
     // Prioritize current fiscal year, then first open, then first available
     const current = fiscalYears.find((f) => f.isCurrent);
@@ -104,6 +111,12 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
   const [addDamaged, setAddDamaged] = useState<string>('0');
   const [addCost, setAddCost] = useState<string>('0');
   const [adding, setAdding] = useState<boolean>(false);
+
+  // A profile switch (or a bootstrap branch list change) must not leave the
+  // filter pointing at a branch the account no longer holds.
+  useEffect(() => {
+    if (branchFilter !== 'ALL' && !scopedBranchIds.has(branchFilter)) setBranchFilter('ALL');
+  }, [branchFilter, scopedBranchIds]);
 
   useEffect(() => {
     if (!fiscalYears.some((f) => f.id === selectedFyId)) {
@@ -191,15 +204,18 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
   };
 
   const changedRows = useMemo(
-    () => (data ? data.rows.filter(isRowChanged) : []),
+    () => (data ? data.rows.filter((row) => scopedBranchIds.has(row.branchId) && isRowChanged(row)) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [data, drafts]
+    [data, drafts, scopedBranchIds]
   );
 
   const filteredRows = useMemo(() => {
     if (!data) return [];
     const q = search.trim().toLowerCase();
     return data.rows.filter((row) => {
+      // Defence in depth: a stale cache or an older payload can still carry
+      // another branch's row, and it must never be shown or edited here.
+      if (!scopedBranchIds.has(row.branchId)) return false;
       if (branchFilter !== 'ALL' && row.branchId !== branchFilter) return false;
       if (zeroOnly && Number(row.quantityOnHand) !== 0) return false;
       if (changedOnly && !isRowChanged(row)) return false;
@@ -207,7 +223,7 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
       return true;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, search, branchFilter, zeroOnly, changedOnly, drafts]);
+  }, [data, search, branchFilter, zeroOnly, changedOnly, drafts, scopedBranchIds]);
 
   const validateDraftRow = (row: FiscalYearOpeningStockRow): string | null => {
     const d = getDraft(row);
@@ -296,6 +312,10 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
   const handleAddRow = async () => {
     if (!addProductId || !addBranchId) {
       setSaveMessage({ type: 'error', text: 'Select both a product and a branch to add an opening-stock row.' });
+      return;
+    }
+    if (!scopedBranchIds.has(addBranchId)) {
+      setSaveMessage({ type: 'error', text: 'Select a branch within your access to add an opening-stock row.' });
       return;
     }
     const qty = Number(addQty);
@@ -522,7 +542,7 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
             className={`px-3 py-2 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200`}
           >
             <option value="ALL">All Branches</option>
-            {branches.map((b) => (
+            {scopedBranches.map((b) => (
               <option key={b.id} value={b.id}>
                 {b.name}
               </option>
@@ -816,7 +836,7 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
                   className={`w-full px-3 py-2 rounded-lg border text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200`}
                 >
                   <option value="">Select a branch…</option>
-                  {branches.map((b) => (
+                  {scopedBranches.map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.name}
                     </option>

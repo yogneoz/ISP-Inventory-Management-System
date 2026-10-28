@@ -42,6 +42,27 @@ export const getAllowedBranches = (user: User | null | undefined, branches: Bran
 };
 
 /**
+ * Branches a screen may OFFER for selection, mirroring the server's branch
+ * contract (`allowedBranchScope` in server/src/middleware/branchScope.ts):
+ * Super Admin, Head Office Admin and a signed `branchId` of 'ALL' are global;
+ * every other account is limited to its own branch plus its explicitly allowed
+ * ones.
+ *
+ * Deliberately stricter than canUserSeeAllBranches, which treats every
+ * INVENTORY_MANAGER as global for display: the server only treats one as global
+ * when the signed branch is 'ALL'. Offering the extra branches would present
+ * options whose submissions the server refuses.
+ */
+export const getScopedBranches = (user: User | null | undefined, branches: Branch[]): Branch[] => {
+  if (!user) return [];
+  if (user.role === 'SUPER_ADMIN' || user.role === 'HEAD_OFFICE_ADMIN' || user.branchId === 'ALL') {
+    return branches;
+  }
+  const ids = new Set<string>([user.branchId || '', ...(user.allowedBranchIds || [])].filter(Boolean));
+  return branches.filter((b) => ids.has(b.id));
+};
+
+/**
  * The permission matrix is SERVER DATA (permission_matrix table, served by
  * GET /api/bootstrap and GET/PUT /api/permissions) and is never read from or
  * written to browser storage: a localStorage copy could be edited by anyone

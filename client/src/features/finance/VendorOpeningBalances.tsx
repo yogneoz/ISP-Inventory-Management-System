@@ -14,7 +14,7 @@ import {
 import { api } from '../../services/api';
 import { createLatestOnly } from '../../utils/latestOnly';
 import { exportToCSV, CSVColumn } from '../../utils/exportUtils';
-import { filterFiscalYears, isOperationAllowed } from '../../utils/permissions';
+import { filterFiscalYears, getScopedBranches, isOperationAllowed } from '../../utils/permissions';
 import { FiscalYearSelect } from '../../components/common/FiscalYearSelect';
 import { FilterCard } from '../../components/common/FilterCard';
 import { formatNPR } from '../../utils/nprFormat';
@@ -56,6 +56,11 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
   const canView = isOperationAllowed('opening-stock-view', role);
   const canEditRole = isOperationAllowed('opening-stock-edit', role);
 
+  // Same branch contract as the opening-stock register: only the account's own
+  // branches are offered, displayed or submitted (the server refuses the rest).
+  const scopedBranches = useMemo(() => getScopedBranches(currentUser, branches), [currentUser, branches]);
+  const scopedBranchIds = useMemo(() => new Set(scopedBranches.map((b) => b.id)), [scopedBranches]);
+
   const defaultFyId = useMemo(() => {
     // Prioritize current fiscal year, then first open, then first available
     const current = fiscalYears.find((f) => f.isCurrent);
@@ -81,6 +86,12 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
   const [vendorBranchFilter, setVendorBranchFilter] = useState<string>('ALL');
   const [vendorNonZeroOnly, setVendorNonZeroOnly] = useState<boolean>(false);
   const [vendorChangedOnly, setVendorChangedOnly] = useState<boolean>(false);
+
+  // A profile switch must not leave the filter pointing at a branch the
+  // account no longer holds.
+  useEffect(() => {
+    if (vendorBranchFilter !== 'ALL' && !scopedBranchIds.has(vendorBranchFilter)) setVendorBranchFilter('ALL');
+  }, [vendorBranchFilter, scopedBranchIds]);
 
   useEffect(() => {
     if (!fiscalYears.some((f) => f.id === selectedFyId)) {
@@ -152,14 +163,17 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
     return Number(vendorDrafts[row.id].openingBalance) !== Number(row.openingBalance);
   };
   const changedVendorRows = useMemo(
-    () => (vendorData ? vendorData.rows.filter(isVendorRowChanged) : []),
+    () => (vendorData ? vendorData.rows.filter((row) => scopedBranchIds.has(row.branchId) && isVendorRowChanged(row)) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [vendorData, vendorDrafts]
+    [vendorData, vendorDrafts, scopedBranchIds]
   );
   const filteredVendorRows = useMemo(() => {
     if (!vendorData) return [];
     const q = vendorSearch.trim().toLowerCase();
     return vendorData.rows.filter((row) => {
+      // Defence in depth: a stale cache or an older payload can still carry
+      // another branch's row, and it must never be shown or edited here.
+      if (!scopedBranchIds.has(row.branchId)) return false;
       if (vendorBranchFilter !== 'ALL' && row.branchId !== vendorBranchFilter) return false;
       if (vendorNonZeroOnly && Number(row.openingBalance) === 0) return false;
       if (vendorChangedOnly && !isVendorRowChanged(row)) return false;
@@ -173,7 +187,7 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
       return true;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vendorData, vendorSearch, vendorBranchFilter, vendorNonZeroOnly, vendorChangedOnly, vendorDrafts]);
+  }, [vendorData, vendorSearch, vendorBranchFilter, vendorNonZeroOnly, vendorChangedOnly, vendorDrafts, scopedBranchIds]);
 
   const validateVendorDraftRow = (row: VendorOpeningBalanceRow): string | null => {
     const d = getVendorDraft(row);
@@ -430,7 +444,7 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
                     className="px-3 py-2 rounded-xl border text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200 cursor-pointer"
                   >
                     <option value="ALL">All Branches</option>
-                    {branches.map((b) => (
+                    {scopedBranches.map((b) => (
                       <option key={b.id} value={b.id}>{b.name}</option>
                     ))}
                   </select>
