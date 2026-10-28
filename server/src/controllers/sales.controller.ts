@@ -38,6 +38,7 @@ import {
 } from '../models/sales.repo';
 import { planSerialGateEntries, resolveSerialGateInDb, serialGateKey } from '../services/serialGate.service';
 import { intFromEnv } from '../utils/envGuard';
+import { firstLineQuantityRefusal } from '../utils/lineQuantity';
 
 /**
  * Approval threshold for returns: a return whose recomputed grand total
@@ -245,6 +246,11 @@ export async function post_salesInvoices(req: any, res: Response): Promise<any> 
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ message: 'A sales invoice requires at least one item line.' });
     }
+    // QTY-1: the ceiling the screens clamp to is enforced here too, so a POST
+    // that never went through the UI cannot carry an absurd or fractional
+    // quantity into stock and the ledger.
+    const quantityRefusal = firstLineQuantityRefusal(items);
+    if (quantityRefusal) return res.status(400).json({ message: quantityRefusal });
     // C1: totals recomputed from line primitives; client aggregates ignored.
     const totals = computeBillTotals(items, undefined, defaultVatRateFor(companyProfile));
     const targetBranchId = req.body.branchId || branches[0]?.id || 'WH001';
@@ -534,6 +540,11 @@ export async function post_salesReturns(req: any, res: Response): Promise<any> {
     if (!originalRef) {
       return res.status(400).json({ message: 'A sales return must reference the original sales invoice.' });
     }
+    // QTY-1: whole numbers only. A return is bounded by the invoice line it
+    // reverses (checked below), not by the typed-line ceiling, so a legacy
+    // line above the ceiling stays returnable.
+    const quantityRefusal = firstLineQuantityRefusal(items, { uncapped: true });
+    if (quantityRefusal) return res.status(400).json({ message: quantityRefusal });
 
     // C1: totals are recomputed from line primitives; client aggregates ignored.
     const totals = computeBillTotals(items);

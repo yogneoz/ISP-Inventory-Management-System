@@ -139,6 +139,55 @@ the only entry point, and `tests/lineQuantity.test.ts` covers the clamp (0,
 negative, `''`, NaN, fractions, 10-digit values, `Infinity`) plus a source
 guard per screen and one that the bottom-only clamps are gone.
 
+### QTY-1 — the line-quantity ceiling existed only in the UI (follow-up of AUD-3)
+
+AUD-3 capped what the operator can type, but the API still accepted any number:
+every line-item write handler parsed `Number(item.quantity)` (or
+`quantityChanged` / `quantitySent`) with no whole-number check and no upper
+bound. A crafted POST — or an older deployed bundle — could post a sale,
+receipt, return, shipment or stock operation carrying `quantity: 9e15` into
+stock and the ledger, and a fractional quantity was accepted verbatim.
+
+**Fixed (same day):** the rule moved to `shared/lineQuantity.ts` so the
+browser and the server read the same constants: `clampLineQuantity` keeps the
+AUD-3 behaviour (the client entry re-exports it), and the new
+`lineQuantityRefusal` returns the operator-facing refusal for a value that is
+not a whole number in range. `server/src/utils/lineQuantity.ts`
+(`firstLineQuantityRefusal`) applies it, and every line-item write endpoint
+returns it as a 400 before its first database touch:
+
+- `post_salesInvoices` — ceiling `[1, 1000]`;
+- `post_purchaseOrders` and `put_Id` — a PO line reserves incoming stock, so
+  the ceiling applies on create **and** update (body lines only);
+- `post_purchaseInvoices` — ceiling for a direct bill; a bill matched to a PO
+  is bounded by the PO line instead (`uncapped`), so a legacy PO line above
+  the ceiling stays billable through the existing match rule;
+- `post_salesReturns`, `post_purchaseReturns` — whole numbers only, magnitude
+  left to the existing invoice-bound guard so a legacy invoice line above the
+  ceiling stays returnable;
+- `post_shipments` — the ceiling, read through `shipmentQtySent` so the check
+  sees exactly the number the dispatch will deduct;
+- `post_stockOperations` — whole numbers on every line; drawing lines
+  (damage, pullout, sale, consumable, disposal) stay bounded by the stock or
+  damaged pool they draw from (`uncapped`), so a bulk write-off of accumulated
+  damage above 1000 units keeps working, while `MANUAL_ADJUSTMENT` — which can
+  credit stock with no pool bound — takes the signed range `[-1000, 1000]`
+  with the zero no-op still allowed.
+
+The four screens whose quantity inputs still fed a refused value clamp at the
+entry now: `ReturnsRegister` floors (`parseLineQuantity(_, 0)` — a cleared
+line stays excluded, not silently counted as 1), `PurchaseOrderForm` clamps
+typing, the auto-populate deficit and the scan-again increment,
+`ConsumableIssuePanel` clamps its patch, and `DamagedStockTracking`'s disposal
+input floors while keeping its `[1, damagedQty]` pool bound.
+`tests/lineQuantityApi.test.ts` (20 tests) covers the shared rule's edges, the
+over-HTTP refusals for oversized and fractional payloads on all eight
+handlers, the pool-bounded disposal exception, and source guards that each
+handler still calls the guard and each screen clamps. Writing the guard
+exposed a real trap: an options field named `valueOf` is inherited by every
+object from `Object.prototype`, so the "default reader" would have silently
+never run — the option is `quantityOf`, with a comment saying why.
+
 ### AUD-4 — SSE retry timer is overwritten, not guarded (hardening)
 
 `client/src/services/api/sync.ts` (`scheduleRetry`) assigns
@@ -208,5 +257,6 @@ SQL semantics stay with the 1379-test suite and the per-domain audits under
 static heuristics whose candidates were all manually verified. AUD-1 and
 AUD-3 were found by reading, not by a failing test. AUD-1 now has behavioural
 coverage in `tests/auditRowMerge.test.ts`, AUD-2 in
-`tests/permissionMatrixPublish.test.ts` and AUD-3 in
-`tests/lineQuantity.test.ts`; AUD-4 and AUD-5 are still unguarded.
+`tests/permissionMatrixPublish.test.ts`, AUD-3 in
+`tests/lineQuantity.test.ts` and QTY-1 (the API half of the same rule) in
+`tests/lineQuantityApi.test.ts`; AUD-4 and AUD-5 are still unguarded.

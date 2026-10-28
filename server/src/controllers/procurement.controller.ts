@@ -12,6 +12,7 @@ import { computeBillTotals, defaultVatRateFor, resolveLedgerUnitCost } from '../
 import { demoPurchaseInvoiceTxn, demoPurchaseReturnTxn, demoPurchaseReturnCancelTxn, findOrCreateDemoStock } from '../models/txnLogRows';
 import { bsDateOr400 } from '../utils/bsDate';
 import { intFromEnv } from '../utils/envGuard';
+import { firstLineQuantityRefusal } from '../utils/lineQuantity';
 import {
    PO_UPSERT_SQL, poUpsertParams, PO_UPDATE_SQL, poUpdateParams, PO_FIND_FOR_DELETE_SQL, PO_DELETE_SQL,
   PO_FIND_BY_REF_SQL, PO_MARK_STATUS_SQL, PO_INCOMING_STOCK_SQL, poIncomingStockParams, PO_RELEASE_INCOMING_SQL,
@@ -106,6 +107,10 @@ const { branchId, status, supplier, query, dateFromAD, dateToAD, page, pageSize,
 export async function post_purchaseOrders(req: any, res: Response): Promise<any> {
 try {
     const items = req.body.items || [];
+    // QTY-1: a PO line reserves incoming stock, so it takes the UI ceiling at
+    // the API too — whole numbers in [1, MAX_LINE_QUANTITY].
+    const quantityRefusal = firstLineQuantityRefusal(items);
+    if (quantityRefusal) return res.status(400).json({ message: quantityRefusal });
     // C1: PO totals are recomputed from line primitives (quantity × unitPrice,
     // taxRate/isTaxExempt) — client-supplied subtotal/taxAmount per line and
     // header totals are ignored. There is no PO-level discount input, so no
@@ -172,6 +177,12 @@ try {
 export async function put_Id(req: any, res: Response): Promise<any> {
 try {
     const { id } = req.params;
+    // QTY-1: validate the submitted lines before any lookup — an update can
+    // grow a PO's lines, and a PO line reserves incoming stock.
+    if (Array.isArray(req.body.items)) {
+      const quantityRefusal = firstLineQuantityRefusal(req.body.items);
+      if (quantityRefusal) return res.status(400).json({ message: quantityRefusal });
+    }
     // PostgreSQL is the only decision source when connected; the mirror is a
     // demo-mode (PG-down) fallback only.
     let existingPO: any;
@@ -446,6 +457,15 @@ async function registerPurchaseSerials(
 /** Forwarded from procurement.routes.ts (post_purchaseInvoices). */
 export async function post_purchaseInvoices(req: any, res: Response): Promise<any> {
 try {
+    const items = req.body.items || req.body.lines || [];
+    // QTY-1: whole numbers only. A bill matched to a Purchase Order is bounded
+    // by that PO's line (the match rule below refuses any other value), so a
+    // legacy PO line above the typed-line ceiling stays billable; a direct
+    // bill has no such bound and takes the ceiling.
+    const quantityRefusal = firstLineQuantityRefusal(items, {
+      uncapped: Boolean(req.body.poReferenceId || req.body.poId),
+    });
+    if (quantityRefusal) return res.status(400).json({ message: quantityRefusal });
     const targetBranchId = req.body.branchId || branches[0]?.id || 'WH001';
     const invDate = req.body.invoiceDateAD || req.body.invoiceDateAd || new Date().toISOString().split('T')[0];
     const invoiceNumber = req.body.invoiceNumber || (await issueNextDocNumber(targetBranchId, 'PI', invDate));
@@ -462,7 +482,6 @@ try {
       // the server-derived value.
       invoiceDateBS,
     };
-    const items = req.body.items || req.body.lines || [];
     // C1: the invoice's financial aggregates are recomputed from line
     // primitives (quantity × unitPrice, per-line taxRate/isTaxExempt). A
     // bill-level totalDiscount is a legitimate business input (like qty and
@@ -1571,6 +1590,11 @@ export async function post_purchaseReturns(req: any, res: Response): Promise<any
     if (!originalRef) {
       return res.status(400).json({ message: 'A purchase return must reference the original purchase invoice.' });
     }
+    // QTY-1: whole numbers only. A return is bounded by the invoice line it
+    // reverses (checked below), not by the typed-line ceiling, so a legacy
+    // line above the ceiling stays returnable.
+    const quantityRefusal = firstLineQuantityRefusal(items, { uncapped: true });
+    if (quantityRefusal) return res.status(400).json({ message: quantityRefusal });
 
     // C1: totals are recomputed from line primitives; client aggregates ignored.
     const totals = computeBillTotals(items, undefined, defaultVatRateFor(companyProfile));

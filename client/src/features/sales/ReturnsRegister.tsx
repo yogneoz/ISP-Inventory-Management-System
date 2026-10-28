@@ -29,6 +29,7 @@ import { SearchPicker } from '../../components/common/SearchPicker';
 import { useDialog } from '../../components/common/DialogProvider';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 import { formatMoney } from '../../utils/nprFormat';
+import { parseLineQuantity } from '../../utils/lineQuantity';
 import { getDefaultTaxRate } from '../../utils/taxConfig';
 import { inputClass, labelClass, btnPrimary, btnGhost } from '../../components/common/styleConstants';
 import { api } from '../../services/api';
@@ -574,7 +575,7 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
                   </div>
                   <div className="col-span-2">
                     <input type="number" min="0" max={line.maxQty} className={inputClass} value={line.quantity}
-                      onChange={(e) => updateLine(idx, { quantity: Number(e.target.value) })} placeholder="Qty" />
+                      onChange={(e) => updateLine(idx, { quantity: parseLineQuantity(e.target.value, 0) })} placeholder="Qty" />
                   </div>
                   <div className="col-span-2">
                     <div className={`rounded-lg border px-3 py-2 text-sm ${isDarkMode ? 'border-slate-700 bg-slate-800/60' : 'border-slate-200 bg-slate-50'}`}>

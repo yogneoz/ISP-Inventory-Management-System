@@ -9,6 +9,7 @@ import { LocationPicker } from '../../../components/common/LocationPicker';
 import { ProductSearchBar } from '../ProductSearchBar';
 import { api } from '../../../services/api';
 import { formatNPR } from '../../../utils/nprFormat';
+import { clampLineQuantity } from '../../../utils/lineQuantity';
 import {
   Plus,
   Trash2,
@@ -83,6 +84,10 @@ export const ConsumableIssuePanel: React.FC = () => {
       consumableItems.map((item) => {
         if (item.id !== id) return item;
         const updated = { ...item, ...updates };
+        // AUD-3/QTY-1: clamp the quantity where it enters the line, so the
+        // issue payload can never carry a fraction or exceed the shared
+        // ceiling the API refuses.
+        if (updates.quantity !== undefined) updated.quantity = clampLineQuantity(updates.quantity);
         if (updates.productId) {
           const selProd = products.find((p) => p.id === updates.productId);
           if (selProd) {

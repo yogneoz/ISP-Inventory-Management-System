@@ -30,6 +30,7 @@ import { ProductSearchBar } from '../inventory/ProductSearchBar';
 import { ensureBSDayForAD, BS_SEEDING_MENU_PATH } from '../../utils/nepaliCalendar';
 import { formatNPR, formatNPRPrecise } from '../../utils/nprFormat';
 import { getAllowedBranches } from '../../utils/permissions';
+import { clampLineQuantity } from '../../utils/lineQuantity';
 import { getDefaultTaxRate } from '../../utils/taxConfig';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 import { useDialog } from '../../components/common/DialogProvider';
@@ -218,7 +219,7 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
     const lowStockLines: OrderFormLine[] = Array.from(lowStockProductMap.values()).map(
       ({ product, qty }) => ({
         productId: product.id,
-        quantity: Math.max(1, qty),
+        quantity: clampLineQuantity(qty),
         unitPrice: product.costPrice,
         discount: 0,
         isTaxExempt: taxationType === 'TAX_EXEMPTED' || product.taxRate === 0,
@@ -238,7 +239,7 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
         const updated = [...prevLines];
         updated[existingIdx] = {
           ...updated[existingIdx],
-          quantity: updated[existingIdx].quantity + 1,
+          quantity: clampLineQuantity(updated[existingIdx].quantity + 1),
         };
         return updated;
       } else {
@@ -294,7 +295,13 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
         isTaxExempt: taxationType === 'TAX_EXEMPTED' || prod?.taxRate === 0,
       };
     } else {
-      updated[index] = { ...updated[index], [field]: value };
+      // AUD-3/QTY-1: the quantity is clamped where it enters the line (the API
+      // refuses anything above the shared ceiling), so a typed fraction or a
+      // 10-digit value can never reach the submit payload.
+      updated[index] = {
+        ...updated[index],
+        [field]: field === 'quantity' ? clampLineQuantity(value) : value,
+      };
     }
     setLines(updated);
   };

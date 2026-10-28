@@ -29,6 +29,7 @@ import { cdrDuplicateFromRow, cdrDuplicateMessage, findCdrDuplicate } from '../s
 import { macKey } from '../../../shared/macAddress';
 import { computeOperationTotalValue, computeLegacyOperationTotalValue } from '../utils/money';
 import { PI_FIND_BY_ID_SQL } from '../models/procurement.repo';
+import { firstLineQuantityRefusal } from '../utils/lineQuantity';
 import { resolveBsDateForLedger, todayBs } from '../utils/bsDate';
 import {
   buildStockListQuery,
@@ -1213,6 +1214,19 @@ try {
       : req.body.productId
       ? [{ productId: req.body.productId, productName: req.body.productName || '', quantity: opType === 'MANUAL_ADJUSTMENT' ? (Number(req.body.quantityChanged) || 0) : Math.abs(Number(req.body.quantityChanged) || 0), deviceSerials: req.body.deviceSerials || [] }]
       : [];
+    // QTY-1: every line quantity is a whole number. Drawing lines are already
+    // bounded by the stock/damaged pool they draw from (the availability check
+    // below), so they pass `uncapped` — a bulk write-off of accumulated damage
+    // stays possible. MANUAL_ADJUSTMENT can credit stock with no pool bound,
+    // so it keeps the signed ceiling (and a zero-delta no-op stays valid).
+    const quantityRefusal = firstLineQuantityRefusal(operationItems, {
+      allowSigned: opType === 'MANUAL_ADJUSTMENT',
+      uncapped: opType !== 'MANUAL_ADJUSTMENT',
+    });
+    if (quantityRefusal) {
+      res.status(400).json({ message: quantityRefusal });
+      return;
+    }
     // DISPOSAL writes units off the damaged pool and MANUAL_ADJUSTMENT can
     // credit stock — both move inventory, so both join the drawing types in
     // the lock + guarded-apply path (stock-movement audit).

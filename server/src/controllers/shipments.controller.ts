@@ -22,6 +22,7 @@ import {
 } from '../models/shipments.repo';
 import { buildTxnMultiRowInsertSql, flattenTxnParams, txnInsertOnConflictParams } from '../models/inventory.repo';
 import { bsDateOr400 } from '../utils/bsDate';
+import { firstLineQuantityRefusal } from '../utils/lineQuantity';
 import type { TransactionLog } from '../../../client/src/types';
 
 /**
@@ -352,6 +353,14 @@ try {
     }
     const sourceBranch = branches.find((b) => b.id === effectiveSourceBranchId);
     const destBranch = branches.find((b) => b.id === req.body.destinationBranchId);
+
+    // QTY-1: a dispatch line is typed, and the client clamps it to the ceiling;
+    // the API refuses anything beyond it so an older bundle or a script cannot
+    // dispatch an absurd or fractional line.
+    const quantityRefusal = firstLineQuantityRefusal(req.body.items || [], {
+      quantityOf: (item: any) => shipmentQtySent(item),
+    });
+    if (quantityRefusal) return res.status(400).json({ message: quantityRefusal });
 
     // BS calendar gate: a shipment dispatch may only be posted when its date
     // has a seeded BS day record in bs_day_records (Nepali date is mandatory).

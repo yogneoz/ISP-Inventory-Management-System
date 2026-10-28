@@ -9,6 +9,7 @@ import { ensureBSDayForAD, getNepaliFiscalYear, BS_SEEDING_MENU_PATH } from '../
 import { useActivationKey } from '../../components/common/KeepMounted';
 import { useBsCalendarGate } from '../../utils/bsCalendarGate';
 import { localTodayAD } from '../../utils/localDate';
+import { parseLineQuantity } from '../../utils/lineQuantity';
 import StatCard from '../../components/common/StatCard';
 import { DateField } from '../../components/DateField';
 import {
@@ -1068,7 +1069,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                     min="1"
                     max={disposalStock.stockItem.damagedQty || 1}
                     value={disposalQty}
-                    onChange={(e) => setDisposalQty(Math.min(disposalStock.stockItem.damagedQty || 1, Math.max(1, Number(e.target.value))))}
+                    onChange={(e) => setDisposalQty(parseLineQuantity(e.target.value, 1, disposalStock.stockItem.damagedQty || 1))}
                     className={`w-full rounded-xl border px-3 py-2 text-sm font-mono font-bold bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white`}
                     required
                   />
