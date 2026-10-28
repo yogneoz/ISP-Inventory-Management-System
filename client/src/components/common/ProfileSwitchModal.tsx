@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { User, Branch } from '../../types';
 import { canUserSwitchProfiles } from '../../utils/permissions';
 import {
@@ -52,6 +52,20 @@ export const ProfileSwitchModal: React.FC<ProfileSwitchModalProps> = ({
   const [editPassword, setEditPassword] = useState('');
   const [updateSuccess, setUpdateSuccess] = useState(false);
   const [updating, setUpdating] = useState(false);
+
+  // AppShell keeps this modal mounted and toggles `isOpen`, so the state
+  // above is created once. After a profile switch that left the previous
+  // account's name and email in the edit tab: editing only the name would
+  // submit the old account's email as the new profile's identity. Re-seed the
+  // editor whenever it opens or the signed-in identity changes. The deps are
+  // primitive on purpose — a refresh that re-creates the same user object must
+  // not wipe what the operator is typing.
+  useEffect(() => {
+    if (!isOpen || !currentUser) return;
+    setEditName(currentUser.name);
+    setEditEmail(currentUser.email);
+    setEditPassword('');
+  }, [isOpen, currentUser?.id, currentUser?.name, currentUser?.email]);
 
   if (!isOpen || !currentUser) return null;
 
