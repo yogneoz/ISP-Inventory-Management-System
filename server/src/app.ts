@@ -68,6 +68,7 @@ import { registerAdminRoutes } from './routes/admin.routes';
 import { registerAuthRoutes } from './routes/auth.routes';
 import { registerMasterdataRoutes } from './routes/masterdata.routes';
 import { registerInventoryRoutes } from './routes/inventory.routes';
+import { registerWarrantyRoutes } from './routes/warranty.routes';
 import { registerProcurementRoutes } from './routes/procurement.routes';
 import { registerSalesRoutes } from './routes/sales.routes';
 import { registerShipmentsRoutes } from './routes/shipments.routes';
@@ -301,6 +302,7 @@ export function registerAllRoutes(expressApp: express.Express) {
   registerAuthRoutes(expressApp);
   registerMasterdataRoutes(expressApp);
   registerInventoryRoutes(expressApp);
+  registerWarrantyRoutes(expressApp);
   registerProcurementRoutes(expressApp);
   registerSalesRoutes(expressApp);
   registerShipmentsRoutes(expressApp);

@@ -1,6 +1,6 @@
 # WTY-2 — the coverage API, branch scope and the audited correction
 
-Status: `[~]` in progress (scaffold on disk, no gates run) · Started 2026-10-28 · Round 9
+Status: `[x]` done (2026-10-28) · Started 2026-10-28 · Round 9
 Order: 2 · Depends on WTY-1 (table + types).
 
 ## Why
@@ -37,26 +37,52 @@ read.
 - `client/src/utils/permissionMatrixData.ts` — the two operations' defaults
   (read open to all roles, edit manager/super/head-office) and the
   `PermissionManagement` descriptions of them.
+- `server/src/middleware/branchScope.ts` — `warranty_coverages` registered as
+  the `/warranties` resource, so `enforceBranchAccess` refuses a correction that
+  names another branch's row before the controller runs; `vendor` and `seller`
+  are register segments, not record ids. This is also what keeps
+  `tests/branchScopeRegistry.test.ts` green for the new table.
 - `PATCH` validation: both dates required, real AD calendar dates, end ≥ start;
   term 0–120 or null; notes capped; branch ownership checked against the stored
   row; audit entry names the unit and the old → new dates.
 
 ## Acceptance checklist
 
-- [ ] Repo builders: every filter combination, status clause, branch-scope
+- [x] Repo builders: every filter combination, status clause, branch-scope
       branch and stable ordering; page/pageSize clamped; the summary ignores the
       status filter but honours search/category/date/branch.
-- [ ] HTTP: a branch account reading its own branch succeeds; a forged branchId
+      `tests/warranty.repo.test.ts` — 11 tests, including a refused empty scope
+      that binds `FALSE` (not "all branches") and count/summary sharing the
+      page's WHERE clause.
+- [x] HTTP: a branch account reading its own branch succeeds; a forged branchId
       is 403; an account with no scope gets an empty page (never the country);
-      super/head-office may use `ALL`.
-- [ ] Both routes answer 403 without `warranty-view`; PATCH answers 403 without
-      `warranty-edit`.
-- [ ] The PATCH accepts a corrected expiry and writes an audit row; rejects a
+      super/head-office may use `ALL`. `tests/warranty.api.test.ts` drives the
+      real Express app against PostgreSQL, not handlers in isolation.
+- [x] Both routes answer 403 without `warranty-view`; PATCH answers 403 without
+      `warranty-edit` (and a view-only account can still read).
+- [x] The PATCH accepts a corrected expiry and writes an audit row; rejects a
       reversed range, a missing date, a term outside 0–120 and a row outside the
-      caller's branch.
-- [ ] The demo mirror answers the same pages and counts as the SQL path for the
+      caller's branch. Proven end to end: a correction inserts a new current
+      period, keeps the prior row as history (`is_current = false`), and the
+      audit entry names the unit and old → new dates; a second correction stacks
+      another period and still leaves exactly one current row; every rejected
+      request leaves the stored row byte-identical and appends no audit row.
+- [x] The demo mirror answers the same pages and counts as the SQL path for the
       same fixture.
-- [ ] `npx tsc --noEmit` clean; `check:no-inline-sql` green.
+- [x] `npx tsc --noEmit` clean; `check:no-inline-sql` green; the branch-scope
+      registry guard passes with the new table guarded.
+
+## Verified locally (2026-10-28)
+
+- `npx tsc --noEmit` — clean.
+- `npx tsx --test tests/branchScopeRegistry.test.ts tests/warranty.api.test.ts
+  tests/warranty.repo.test.ts` — **29 tests, 29 pass, 0 fail** (registry 6,
+  HTTP 12, builders 11).
+- `npm run check:no-inline-sql` — clean (17 controller files).
+- Full `npm test` on the combined WTY-2 + WTY-3 tree — **1515 tests, 1513
+  pass, 0 fail, 2 Windows-only skips**. The run's only non-zero exit was the
+  docs-count gate still claiming 1468; that bump lands with WTY-3's docs, which
+  is also where the suite grew to 1515.
 
 ## Out of scope
 

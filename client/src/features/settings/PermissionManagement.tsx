@@ -247,6 +247,18 @@ const DEFAULT_GROUPS: PermissionGroup[] = [
         permissions: DEFAULT_PERMISSIONS_MATRIX['product-group-manage'],
       },
       {
+        id: 'warranty-view',
+        operationName: 'View Suppliers & Sellers Warranty Registers',
+        description: 'Read the inbound supplier warranty and outbound seller warranty registers, including expiry state and source document',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['warranty-view'],
+      },
+      {
+        id: 'warranty-edit',
+        operationName: 'Correct Warranty Dates',
+        description: 'Correct a stored warranty start, expiry or note when the supplier or customer contract differs from the computed default',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['warranty-edit'],
+      },
+      {
         id: 'edit-device-serials',
         operationName: 'Edit Device Serial Numbers (Serial/PON/MAC)',
         description: 'Edit serial numbers, PON serials, and MAC addresses for customer devices with cascading updates to all source tables',

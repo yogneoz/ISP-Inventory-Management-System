@@ -64,6 +64,10 @@ export const BRANCH_SCOPED_RESOURCES: readonly BranchScopedResource[] = [
   { prefix: '/customer-payments', table: 'customer_payments', columns: ['branch_id'] },
   { prefix: '/approval-requests', table: 'approval_requests', columns: ['branch_id'] },
   { prefix: '/locations', table: 'locations', columns: ['branch_id'] },
+  // Warranty coverage rows are branch custody: correcting one by id must not
+  // reach another branch's register (WTY-2). The list reads name their own
+  // scope in the controller, so they are not in BRANCH_SCOPED_READ_PATHS.
+  { prefix: '/warranties', table: 'warranty_coverages', columns: ['branch_id'] },
 ];
 
 /**
@@ -137,6 +141,8 @@ export const COLLECTION_SEGMENTS: ReadonlySet<string> = new Set([
   'available',
   'lookup',
   'warranty',
+  'vendor',
+  'seller',
   'exchange',
   'refusal',
   'bulk',
