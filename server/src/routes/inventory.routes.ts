@@ -32,9 +32,13 @@ export const CPE_EXCHANGE_ROLES = [...CPE_MANAGER_ROLES, 'FIELD_TECHNICIAN'] as 
 export function registerInventoryRoutes(app: Express) {
 app.get('/api/stock', async (req, res, next) => { get_stock(req as any, res as any).catch(next); });
 
-app.patch('/api/stock/:id', async (req, res, next) => { patch_Id(req as any, res as any).catch(next); });
+// Direct quantity/damage rewrites are a stock-level adjustment, not a read:
+// gate them on the stock-level write operation (AUTHZ-6). Ordinary movements
+// still go through POST /api/stock-operations, which has its own type-aware
+// permission.
+app.patch('/api/stock/:id', requirePermission('opening-stock-edit'), async (req, res, next) => { patch_Id(req as any, res as any).catch(next); });
 
-app.patch('/api/stock/:id/reorder-level', async (req, res, next) => { patch_reorderLevel(req as any, res as any).catch(next); });
+app.patch('/api/stock/:id/reorder-level', requirePermission('prod-edit'), async (req, res, next) => { patch_reorderLevel(req as any, res as any).catch(next); });
 
 app.post('/api/stock/bulk-reorder-levels', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'INVENTORY_MANAGER'), async (req, res, next) => { post_bulkReorderLevels(req as any, res as any).catch(next); });
 

@@ -151,7 +151,11 @@ describe('receive lane 403s (route gate + handler lane gate)', () => {
       "('rlt-br-po', 'ST-RLT-BRPO', 'INTER_BRANCH', 'rlt-src', 'RLT Source', 'BRH01', 'Branch 2', '2026-09-01', '2083-05-16 BS', 'IN_TRANSIT', '', $1), " +
       "('rlt-wh-fd', 'ST-RLT-WHFD', 'INTER_BRANCH', 'rlt-src', 'RLT Source', 'WH001', 'Branch 1 (Head Office)', '2026-09-01', '2083-05-16 BS', 'IN_TRANSIT', '', $1), " +
       "('rlt-br-fd', 'ST-RLT-BRFD', 'INTER_BRANCH', 'rlt-src', 'RLT Source', 'BRH01', 'Branch 2', '2026-09-01', '2083-05-16 BS', 'IN_TRANSIT', '', $1), " +
-      "('rlt-route-acct', 'ST-RLT-ACCT', 'INTER_BRANCH', 'rlt-src', 'RLT Source', 'BRH01', 'Branch 2', '2026-09-01', '2083-05-16 BS', 'IN_TRANSIT', '', $1)",
+      // Destination is the ACCOUNTANT's own branch (WH001): the by-id branch
+      // guard (AUTHZ-1) must not pre-empt the route permission gate this test
+      // exists to prove, so the record is in scope and only the missing
+      // operation can reject the call.
+      "('rlt-route-acct', 'ST-RLT-ACCT', 'INTER_BRANCH', 'rlt-src', 'RLT Source', 'WH001', 'Branch 1 (Head Office)', '2026-09-01', '2083-05-16 BS', 'IN_TRANSIT', '', $1)",
       [shipItem]
     );
 
@@ -179,7 +183,7 @@ describe('receive lane 403s (route gate + handler lane gate)', () => {
       fixture('rlt-br-po', 'ST-RLT-BRPO', BR, 'Branch 2') as any,
       fixture('rlt-wh-fd', 'ST-RLT-WHFD', WH, 'Branch 1 (Head Office)') as any,
       fixture('rlt-br-fd', 'ST-RLT-BRFD', BR, 'Branch 2') as any,
-      fixture('rlt-route-acct', 'ST-RLT-ACCT', BR, 'Branch 2') as any,
+      fixture('rlt-route-acct', 'ST-RLT-ACCT', WH, 'Branch 1 (Head Office)') as any,
     ] as any);
 
     // Synthetic lane matrix so the route layer (OR of the two ops) and the

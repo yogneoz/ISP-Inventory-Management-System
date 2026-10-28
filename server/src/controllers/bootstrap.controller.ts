@@ -15,8 +15,23 @@ import {
 } from '../models/settings.repo';
 import { PERMISSION_MATRIX_SELECT_SQL, rowsToPermissionMatrix } from '../models/permissions.repo';
 import { fetchBootstrapSlice } from '../models/bootstrap.repo';
+import { BOOTSTRAP_TABLES } from '../models/columnMappings';
 import { fetchFinancialSummaryFromDb } from '../services/financialSummary.service';
-import { getPgConnected, fetchFiscalYears, pgPool, pickCurrentFiscalYear, selectBootstrapFiscalYear, toCalendarDate, fetchOperationalData, fetchOpeningStock, products, approvalRequests, branches, fiscalYears, suppliers, users, categories, companyProfile, getDataVersion, setPgConnected, setIsPgConnected, assetRegister, auditTrail, locationRecords, getUserFromReq } from '../app';
+import { getPgConnected, fetchFiscalYears, pgPool, pickCurrentFiscalYear, selectBootstrapFiscalYear, toCalendarDate, fetchOperationalData, fetchOpeningStock, products, approvalRequests, branches, fiscalYears, suppliers, users, categories, companyProfile, getDataVersion, setPgConnected, setIsPgConnected, assetRegister, auditTrail, locationRecords, getUserFromReq, permissionMatrix } from '../app';
+
+/**
+ * AUTHZ-11: the Activities Log screen is gated on `admin-audit`, but the
+ * bootstrap payload carried every audit row to every signed-in role, and
+ * `bootstrap/local?key=auditLogs` served them on demand. Only that screen
+ * consumes the array, so an ungranted role gets an empty one — a 403 would
+ * make the client's targeted refresh treat the slice as failed and fall back
+ * to a full bootstrap on every audit event.
+ */
+function canReadAuditLogs(user: any): boolean {
+  if (!user?.email) return false;
+  if (user.role === 'SUPER_ADMIN') return true;
+  return Boolean((permissionMatrix as any)?.['admin-audit']?.[user.role]);
+}
 /** Forwarded from bootstrap.routes.ts (get_bootstrap). */
 export async function get_bootstrap(req: any, res: Response): Promise<any> {
 const { branchId, fiscalYearId } = req.query;
@@ -125,7 +140,7 @@ const { branchId, fiscalYearId } = req.query;
         purchaseReturns: data.purchaseReturns,
         salesReturns: data.salesReturns,
         fiscalYears: pgFiscalYears,
-        auditLogs: pgAuditLogs,
+        auditLogs: canReadAuditLogs(bootstrapUser) ? pgAuditLogs : [],
         financialSummary,
         suppliers: data.suppliers,
         users: data.users,
@@ -217,8 +232,32 @@ const { branchId, fiscalYearId } = req.query;
 export async function get_bootstrapLocal(req: any, res: Response): Promise<any> {
   try {
     const key = String(req.query.key || '');
+    if (key === 'auditLogs' && !canReadAuditLogs(getUserFromReq(req))) {
+      return res.json({ dataVersion: getDataVersion(), auditLogs: [] });
+    }
     const { branchId, fiscalYearId } = req.query;
-    const bId = typeof branchId === 'string' && branchId !== 'ALL' && branchId.trim() !== '' ? branchId : undefined;
+    let bId = typeof branchId === 'string' && branchId !== 'ALL' && branchId.trim() !== '' ? branchId : undefined;
+
+    // AUTHZ-10: the slice endpoint's branch filter was optional for branch
+    // accounts, so `?key=customers` with no branchId read every branch — the
+    // same gap Round 7 measured on the retired device slice. The full
+    // `/bootstrap` read has always required the caller's own branch; a slice
+    // of a branch-scoped table (or the computed financial summary) now
+    // defaults to that branch instead of all of them. Company-wide keys
+    // (products, suppliers, settings, …) keep their global read.
+    const sliceUser = getUserFromReq(req) as any;
+    const sliceGlobalViewer =
+      !sliceUser?.email ||
+      sliceUser.role === 'SUPER_ADMIN' ||
+      sliceUser.role === 'HEAD_OFFICE_ADMIN' ||
+      sliceUser.branchId === 'ALL';
+    if (!sliceGlobalViewer) {
+      const mapping = (BOOTSTRAP_TABLES as Record<string, any>)[key];
+      const branchScopedKey =
+        key === 'financialSummary' ||
+        Boolean(mapping?.scope?.branchCol || mapping?.scope?.branchOrCols);
+      if (branchScopedKey && !bId) bId = String(sliceUser.branchId || '') || undefined;
+    }
     const fId = typeof fiscalYearId === 'string' && fiscalYearId.trim() !== '' ? fiscalYearId : undefined;
 
     // CDR-2: the customerDevices slice is RETIRED, not missing. It answered the

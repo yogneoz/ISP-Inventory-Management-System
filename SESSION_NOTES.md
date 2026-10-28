@@ -1,6 +1,6 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-28 · Branch: main · Tests: 1412/1412 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-28 · Branch: main · Tests: 1426/1426 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
 > **Current state (2026-10-27, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1/VOL-2/BUDGET-1/BOOT-1/VOL-3/VOL-4a/VOL-4b/SN-1/ASSET-1/EXCH-1/READ-1/CDR-1/CDR-2).** All DF-01…DF-17
 > work, the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2, CPE-3,
@@ -39,7 +39,18 @@ _Date: 2026-10-28 · Branch: main · Tests: 1412/1412 green with a DB (all run i
 > `f1c1131`), and the close pass fixed the two hardening items it had recorded
 > as unguarded (AUD-4, AUD-5); a newly published `qs` advisory was cleared by
 > the lockfile pin `67e7d47`, and the close pass shipped as `7621a20` (CI run
-> 193). **No round is active.** The payload work
+> 193).
+> **Authorization audit (2026-10-28)**
+> ([doc](docs/authorization-audit-2026-10-28.md)) reviewed all 158 routes and
+> fixed eleven gaps: the by-id branch guard had been dead code (Express 4
+> resets `req.params` in app-level middleware), return-register lists leaked
+> across branches without a filter, and the customer ledger, financial
+> statements, vendor ledger, stock rewrites, PO status, customer delete,
+> approval cancel, `bootstrap/local` slices and the audit trail itself were
+> unguarded, caller-attributed or shipped to every role. Pinned by
+> `tests/authorization.audit.test.ts`; `tsc` clean and the suite at
+> **1426/1426** (1424 pass, 0 fail, 2 Windows-only skips). **No round is
+> active.** The payload work
 > is finished — the remaining-array measurement found no item to open, and the
 > `inventory_stock` trigger is recorded in [2026.md](docs/session-notes/2026.md). The
 > notes are split by year (**SN-1**): entries live in

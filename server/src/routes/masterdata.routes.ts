@@ -56,6 +56,6 @@ app.post('/api/customers/bulk', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 
 
 app.put('/api/customers/:id', requirePermission('customers-manage'), async (req, res, next) => { put_Id6(req as any, res as any).catch(next); });
 
-app.delete('/api/customers/:id', async (req, res, next) => { delete_Id6(req as any, res as any).catch(next); });
+app.delete('/api/customers/:id', requirePermission('customers-manage'), async (req, res, next) => { delete_Id6(req as any, res as any).catch(next); });
 
 }

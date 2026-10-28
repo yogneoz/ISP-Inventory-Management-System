@@ -850,6 +850,26 @@ export async function get_customerLedger(req: any, res: Response): Promise<any> 
       return res.status(404).json({ message: 'Customer not found.' });
     }
 
+    // AUTHZ-3: the route's branch filter scopes the LEDGER LINES, but it did
+    // not scope the CUSTOMER. A branch user could pass their own branchId and
+    // a customer id from another branch, and the 200-vs-404 answer plus the
+    // customer's name leaked that record. Legacy rows without a branch stay
+    // readable (they predate the column).
+    const ledgerUser = getUserFromReq(req) as any;
+    if (
+      ledgerUser?.email &&
+      ledgerUser.role !== 'SUPER_ADMIN' &&
+      ledgerUser.role !== 'HEAD_OFFICE_ADMIN' &&
+      ledgerUser.branchId !== 'ALL'
+    ) {
+      const allowedBranches = new Set<string>(
+        [ledgerUser.branchId || '', ...((ledgerUser.allowedBranchIds as string[]) || [])].filter(Boolean)
+      );
+      if (customer.branchId && !allowedBranches.has(String(customer.branchId))) {
+        return res.status(404).json({ message: 'Customer not found.' });
+      }
+    }
+
     const nameMatcher = (name: string) =>
       String(name || '').toLowerCase() === customer.customerName.toLowerCase() ||
       String(name || '').toLowerCase().includes(customer.customerName.toLowerCase()) ||

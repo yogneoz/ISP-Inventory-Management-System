@@ -123,15 +123,32 @@ export function enforceOperationalPermissions(req: any, res: any, next: any) {
 export async function enforceBranchAccess(req: any, res: any, next: any) {
   const user = req.user;
   if (!user || user.role === 'SUPER_ADMIN' || user.role === 'HEAD_OFFICE_ADMIN') return next();
+  // A signed `branchId` of 'ALL' is the HQ-wide account shape the shipment
+  // handlers already recognise (shipments.controller.ts). It is bound by the
+  // operation matrix, not by one branch, so the per-branch checks below would
+  // deny it the scope it exists to have.
+  if (user.branchId === 'ALL') return next();
   if (req.path === '/bootstrap') {
     const requestedBootstrapBranch = req.query?.branchId;
     if (typeof requestedBootstrapBranch !== 'string' || requestedBootstrapBranch === 'ALL' || requestedBootstrapBranch !== user.branchId) {
       return res.status(403).json({ message: 'Forbidden: bootstrap must be scoped to the authenticated user branch.' });
     }
   }
-  const branchScopedReadPaths = ['/stock', '/assets', '/purchase-orders', '/purchase-invoices', '/vendor-payments', '/shipments', '/stock-operations', '/customer-devices', '/customers', '/approval-requests', '/locations'];
-  if (req.method === 'GET' && branchScopedReadPaths.some((path) => req.path === path || req.path.startsWith(`${path}/`))) {
-    if (req.query?.branchId !== user.branchId && !(user.allowedBranchIds || []).includes(req.query?.branchId)) {
+  const branchScopedReadPaths = ['/stock', '/assets', '/purchase-orders', '/purchase-invoices', '/vendor-payments', '/shipments', '/stock-operations', '/customer-devices', '/customers', '/sales-invoices', '/sales-returns', '/purchase-returns', '/approval-requests', '/locations'];
+  const collectionSegments = new Set([
+    'page', 'overview', 'available', 'lookup', 'warranty', 'exchange',
+    'refusal', 'bulk', 'bulk-reorder-levels', 'reconcile-audit',
+  ]);
+  const scopedRead = branchScopedReadPaths.find((path) => req.path === path || req.path.startsWith(`${path}/`));
+  if (req.method === 'GET' && scopedRead) {
+    // The filter requirement is a COLLECTION rule (a list with no branchId
+    // would read every branch). A one-record path is scoped by the id check
+    // below instead, and its query branch only narrows the record's lines: the
+    // customer ledger deliberately defaults to ALL for a customer's history,
+    // so demanding a filter here would 403 the ledger screen for branch users.
+    const firstSegment = req.path.slice(scopedRead.length + 1).split('/')[0] || '';
+    const isCollectionPath = !firstSegment || collectionSegments.has(firstSegment);
+    if (isCollectionPath && req.query?.branchId !== user.branchId && !(user.allowedBranchIds || []).includes(req.query?.branchId)) {
       return res.status(403).json({ message: 'Forbidden: branch-scoped reads require an authorized branch filter.' });
     }
   }
@@ -146,7 +163,7 @@ export async function enforceBranchAccess(req: any, res: any, next: any) {
   if (requested.size === 0 && (req.query?.branchId === 'ALL' || req.body?.branchId === 'ALL')) {
     return res.status(403).json({ message: 'Forbidden: branch users cannot access all branches.' });
   }
-  if (getPgConnected() && req.params?.id) {
+  if (getPgConnected()) {
     const resourceTables: Array<[string, string, string[]]> = [
       ['/stock', 'inventory_stock', ['branch_id']],
       ['/assets', 'fixed_assets', ['branch_id']],
@@ -158,17 +175,30 @@ export async function enforceBranchAccess(req: any, res: any, next: any) {
       ['/customer-devices', 'customer_device_records', ['branch_id']],
       ['/serial-log', 'serial_log', ['branch_id']],
       ['/customers', 'customer_records', ['branch_id']],
+      ['/sales-invoices', 'sales_invoices', ['branch_id']],
+      ['/sales-returns', 'sales_returns', ['branch_id']],
+      ['/purchase-returns', 'purchase_returns', ['branch_id']],
+      ['/customer-payments', 'customer_payments', ['branch_id']],
       ['/approval-requests', 'approval_requests', ['branch_id']],
       ['/locations', 'locations', ['branch_id']],
     ];
-    const resource = resourceTables.find(([prefix]) => req.path === `${prefix}/${req.params.id}` || req.path.startsWith(`${prefix}/${req.params.id}/`));
+    // The id is parsed from the path, not read from req.params: this runs in
+    // an app-level `app.use('/api', …)`, and Express 4 resets req.params for
+    // middleware layers (a probe against the installed version returns {}).
+    // The old `req.params?.id` check never ran for any table, so every
+    // by-id branch rule below was dead code; the shipment authz suite had
+    // recorded the symptom (VERIFY-001) without this fix.
+    const resource = resourceTables.find(([prefix]) => req.path === prefix || req.path.startsWith(`${prefix}/`));
     if (resource) {
-      const columns = resource[2].join(', ');
-      const lookup = resource[1] === 'shipments' ? 'id = $1 OR tracking_code = $1' : 'id = $1';
-      const result = await pgPool.query(`SELECT ${columns} FROM ${resource[1]} WHERE ${lookup} LIMIT 1`, [req.params.id]);
-      const row = result.rows[0];
-      if (row && !resource[2].some((column) => allowed.has(row[column]))) {
-        return res.status(403).json({ message: 'Forbidden: this record belongs to another branch.' });
+      const [prefix, table, columns] = resource;
+      const resourceId = decodeURIComponent(req.path.slice(prefix.length + 1).split('/')[0] || '');
+      if (resourceId && !collectionSegments.has(resourceId)) {
+        const lookup = table === 'shipments' ? 'id = $1 OR tracking_code = $1' : 'id = $1';
+        const result = await pgPool.query(`SELECT ${columns.join(', ')} FROM ${table} WHERE ${lookup} LIMIT 1`, [resourceId]);
+        const row = result.rows[0];
+        if (row && !columns.some((column) => allowed.has(row[column]))) {
+          return res.status(403).json({ message: 'Forbidden: this record belongs to another branch.' });
+        }
       }
     }
   }

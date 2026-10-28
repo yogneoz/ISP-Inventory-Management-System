@@ -6,7 +6,7 @@
  * original route handlers.
  */
 import type { Request, Response } from 'express';
-import { ensurePostgresConnection, setPgConnected, setIsPgConnected, getPgConnected, pgPool, transactionLogs, approvalRequests, setApprovalRequests, withPrepended, logAuditEvent, getUserFromReq, withTransaction, withConnection, products, inventoryStock, setInventoryStock, withAppended, setTransactionLogs, shipments, branches, customerDeviceRecords, serialLogs, setSerialLogs, auditTrail } from '../app';
+import { ensurePostgresConnection, setPgConnected, setIsPgConnected, getPgConnected, pgPool, transactionLogs, approvalRequests, setApprovalRequests, withPrepended, logAuditEvent, getUserFromReq, withTransaction, withConnection, products, inventoryStock, setInventoryStock, withAppended, setTransactionLogs, shipments, branches, customerDeviceRecords, serialLogs, setSerialLogs, auditTrail, permissionMatrix } from '../app';
 import { ApprovalRequest, AuditLog, CustomerDeviceRecord, TransactionLog } from '../../../client/src/types';
 import { todayBs } from '../utils/bsDate';
 import {
@@ -582,7 +582,7 @@ try {
 export async function post_cancel(req: any, res: Response): Promise<any> {
 try {
     const { id } = req.params;
-    const { user, reason } = req.body;
+    const { reason } = req.body;
 
     let request = approvalRequests.find((r) => r.id === id);
     if (getPgConnected() && !request) {
@@ -596,11 +596,26 @@ try {
       return;
     }
 
+    // AUTHZ-9: cancellation follows the client's matrix row exactly — the
+    // Approval Workflow screen is driven by `workflow-approval-cancel`
+    // (Super Admin, Head Office Admin, Inventory Manager by default), not by
+    // "anyone who can name the id". The actor is the verified session: the old
+    // code copied req.body.user into the audit fields, so a caller could
+    // attribute the cancellation to someone else.
     const currentU = getUserFromReq(req);
+    const canCancel =
+      currentU.role === 'SUPER_ADMIN' ||
+      Boolean((permissionMatrix as any)?.['workflow-approval-cancel']?.[currentU.role as string]);
+    if (!canCancel) {
+      return res.status(403).json({
+        message: `Forbidden: role '${currentU.role}' is not permitted for operation 'workflow-approval-cancel'.`,
+      });
+    }
+
     request.status = 'CANCELLED';
-    request.processedByEmail = user?.email || currentU.email || request.requestedByEmail;
-    request.processedByName = user?.name || currentU.name || request.requestedByName;
-    request.processedByRole = user?.role || currentU.role || request.requestedByRole;
+    request.processedByEmail = currentU.email || request.requestedByEmail;
+    request.processedByName = currentU.name || request.requestedByName;
+    request.processedByRole = currentU.role || request.requestedByRole;
     request.processedAtAD = new Date().toISOString();
     request.processedAtBS = todayBs(); // C4: from bs_day_records cache
     request.rejectionReason = reason?.trim() || 'Request cancelled by user';
