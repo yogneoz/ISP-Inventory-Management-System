@@ -39,6 +39,10 @@ written; where it conflicts with the code, the code wins.
 | AUTHZ-10 | Medium | A branch-scoped bootstrap slice defaulted to every branch | Fixed |
 | AUTHZ-11 | Medium | The audit trail was shipped to every signed-in role | Fixed |
 
+Shipped as commit `9942f16`; CI run 195 passed every gate (typecheck, the
+full suite against PostgreSQL 16, the no-inline-SQL and no-raw-dialog guards,
+the production build, the bundle budget and `npm audit`).
+
 ### AUTHZ-1 — the by-id branch guard never ran (High)
 
 `server/src/middleware/index.ts`, `enforceBranchAccess`, guarded record access

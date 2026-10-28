@@ -49,7 +49,8 @@ _Date: 2026-10-28 · Branch: main · Tests: 1426/1426 green with a DB (all run i
 > approval cancel, `bootstrap/local` slices and the audit trail itself were
 > unguarded, caller-attributed or shipped to every role. Pinned by
 > `tests/authorization.audit.test.ts`; `tsc` clean and the suite at
-> **1426/1426** (1424 pass, 0 fail, 2 Windows-only skips). **No round is
+> **1426/1426** (1424 pass, 0 fail, 2 Windows-only skips). Shipped as
+> `9942f16` (CI run 195 green). **No round is
 > active.** The payload work
 > is finished — the remaining-array measurement found no item to open, and the
 > `inventory_stock` trigger is recorded in [2026.md](docs/session-notes/2026.md). The
