@@ -181,16 +181,19 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
       damagedQty: String(row.damagedQty),
       unitCost: String(row.unitCost),
     };
-  const updateDraft = (rowId: string, field: keyof Draft, value: string) => {
-    setDrafts((prev) => ({
-      ...prev,
-      [rowId]: {
-        quantityOnHand: prev[rowId]?.quantityOnHand ?? '',
-        damagedQty: prev[rowId]?.damagedQty ?? '',
-        unitCost: prev[rowId]?.unitCost ?? '',
-        [field]: value,
-      },
-    }));
+  // Seed a new draft from the row itself (not empty strings): editing one field
+  // must leave the other two showing the values already on screen, or a
+  // quantity-only edit looks blank in the damaged/cost inputs and the save
+  // fails validation on fields the operator never touched.
+  const updateDraft = (row: FiscalYearOpeningStockRow, field: keyof Draft, value: string) => {
+    setDrafts((prev) => {
+      const base = prev[row.id] || {
+        quantityOnHand: String(row.quantityOnHand),
+        damagedQty: String(row.damagedQty),
+        unitCost: String(row.unitCost),
+      };
+      return { ...prev, [row.id]: { ...base, [field]: value } };
+    });
   };
 
   const isRowChanged = (row: FiscalYearOpeningStockRow): boolean => {
@@ -711,7 +714,7 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
                               step={1}
                               disabled={!canEdit}
                               value={changed ? draft.quantityOnHand : String(row.quantityOnHand)}
-                              onChange={(e) => updateDraft(row.id, 'quantityOnHand', e.target.value)}
+                              onChange={(e) => updateDraft(row, 'quantityOnHand', e.target.value)}
                               className={`${inputBase} w-20 font-bold`}
                             />
                             {changed && (
@@ -728,7 +731,7 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
                             step={1}
                             disabled={!canEdit}
                             value={changed ? draft.damagedQty : String(row.damagedQty)}
-                            onChange={(e) => updateDraft(row.id, 'damagedQty', e.target.value)}
+                            onChange={(e) => updateDraft(row, 'damagedQty', e.target.value)}
                             className={`${inputBase} w-16`}
                           />
                         </td>
@@ -739,7 +742,7 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
                             step={0.01}
                             disabled={!canEdit}
                             value={changed ? draft.unitCost : String(row.unitCost)}
-                            onChange={(e) => updateDraft(row.id, 'unitCost', e.target.value)}
+                            onChange={(e) => updateDraft(row, 'unitCost', e.target.value)}
                             className={`${inputBase} w-24`}
                           />
                         </td>

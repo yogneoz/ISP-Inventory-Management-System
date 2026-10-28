@@ -1,6 +1,6 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-28 · Branch: main · Tests: 1438/1438 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-28 · Branch: main · Tests: 1440/1440 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
 > **Current state (2026-10-27, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1/VOL-2/BUDGET-1/BOOT-1/VOL-3/VOL-4a/VOL-4b/SN-1/ASSET-1/EXCH-1/READ-1/CDR-1/CDR-2).** All DF-01…DF-17
 > work, the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2, CPE-3,
@@ -57,8 +57,10 @@ _Date: 2026-10-28 · Branch: main · Tests: 1438/1438 green with a DB (all run i
 > vendor-opening batch registers now refuse nested rows outside the actor's
 > branches (AUTHZ-12/13). **Client scope (2026-10-28):** those two screens build
 > their branch pickers, visible rows and save payload from the same scope
-> (`getScopedBranches`), pinned by 4 render tests. **No round is
-> active.** The payload work
+> (`getScopedBranches`), pinned by 4 render tests. **Draft seeding
+> (2026-10-28):** an opening-stock edit now seeds its untouched fields from the
+> row, so a quantity-only edit no longer blanks damaged quantity and cost or
+> blocks Save, pinned by 2 render tests. **No round is active.** The payload work
 > is finished — the remaining-array measurement found no item to open, and the
 > `inventory_stock` trigger is recorded in [2026.md](docs/session-notes/2026.md). The
 > notes are split by year (**SN-1**): entries live in
