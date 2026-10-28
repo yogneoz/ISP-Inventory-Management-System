@@ -191,6 +191,10 @@ CREATE TABLE IF NOT EXISTS products (
     depreciation_method VARCHAR(50),
     depreciation_rate NUMERIC(5, 2),
     useful_life_years INT,
+    -- WTY-1: term defaults only. A coverage row snapshots the term and its exact
+    -- expiry; changing these never rewrites coverage already captured.
+    vendor_warranty_months INT NOT NULL DEFAULT 12 CHECK (vendor_warranty_months BETWEEN 0 AND 120),
+    seller_warranty_months INT NOT NULL DEFAULT 12 CHECK (seller_warranty_months BETWEEN 0 AND 120),
     status VARCHAR(20) DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'INACTIVE', 'DISCONTINUED')),
     is_demo BOOLEAN NOT NULL DEFAULT FALSE,
     created_by VARCHAR(150),
@@ -815,6 +819,55 @@ CREATE TABLE IF NOT EXISTS customer_device_records (
 );
 
 -- ==========================================
+-- 17a. Warranty Coverages (WTY-1)
+-- ==========================================
+-- One row per coverage period. VENDOR rows are what a supplier owes us;
+-- SELLER rows are what we give a customer. `end_date_ad` is authoritative and
+-- `term_months` keeps the term snapshot that produced it (NULL when an exact
+-- date was entered freehand). The partial unique index allows one CURRENT row
+-- per type + serial; a reissue/receipt supersedes the old row instead of
+-- overwriting history.
+CREATE TABLE IF NOT EXISTS warranty_coverages (
+    id VARCHAR(60) PRIMARY KEY,
+    coverage_type VARCHAR(10) NOT NULL CHECK (coverage_type IN ('VENDOR', 'SELLER')),
+    item_category VARCHAR(20) NOT NULL CHECK (item_category IN ('CPE', 'FIXED_ASSET', 'SOLD_PRODUCT')),
+    product_id VARCHAR(50) REFERENCES products(id) ON DELETE SET NULL,
+    product_name VARCHAR(255) NOT NULL,
+    serial_number VARCHAR(100) NOT NULL,
+    asset_id VARCHAR(50) REFERENCES fixed_assets(id) ON DELETE CASCADE,
+    device_record_id VARCHAR(50) REFERENCES customer_device_records(id) ON DELETE CASCADE,
+    branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
+    party_id VARCHAR(50),
+    party_name VARCHAR(200),
+    source_type VARCHAR(30) NOT NULL,
+    source_id VARCHAR(60),
+    source_number VARCHAR(120),
+    start_date_ad DATE NOT NULL,
+    end_date_ad DATE NOT NULL,
+    term_months INT CHECK (term_months IS NULL OR term_months BETWEEN 0 AND 120),
+    start_basis VARCHAR(30) NOT NULL DEFAULT 'MANUAL'
+      CHECK (start_basis IN ('INVOICE_DATE', 'ACQUISITION_DATE', 'ISSUE_DATE', 'SALE_DATE', 'LEGACY_12_MONTH', 'MANUAL')),
+    notes TEXT,
+    is_current BOOLEAN NOT NULL DEFAULT TRUE,
+    superseded_at TIMESTAMP WITH TIME ZONE,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR(150),
+    updated_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CHECK (end_date_ad >= start_date_ad)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_warranty_current_unit
+  ON warranty_coverages (coverage_type, serial_number) WHERE is_current = TRUE;
+CREATE INDEX IF NOT EXISTS idx_warranty_type_end
+  ON warranty_coverages (coverage_type, is_current, end_date_ad);
+CREATE INDEX IF NOT EXISTS idx_warranty_branch_type_end
+  ON warranty_coverages (branch_id, coverage_type, is_current, end_date_ad);
+CREATE INDEX IF NOT EXISTS idx_warranty_source
+  ON warranty_coverages (source_type, source_id);
+
+-- ==========================================
 -- 17b. Serial Log (one row per unique serial — consolidated register)
 -- ==========================================
 CREATE TABLE IF NOT EXISTS serial_log (
@@ -1089,6 +1142,9 @@ ALTER TABLE products ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT F
 ALTER TABLE products ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
 ALTER TABLE products ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
 ALTER TABLE products ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+-- WTY-1 defaults for databases created before the warranty columns existed.
+ALTER TABLE products ADD COLUMN IF NOT EXISTS vendor_warranty_months INT NOT NULL DEFAULT 12;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS seller_warranty_months INT NOT NULL DEFAULT 12;
 ALTER TABLE inventory_stock ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE inventory_stock ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
 ALTER TABLE inventory_stock ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
@@ -1801,3 +1857,80 @@ BEGIN
     ALTER TABLE customer_payments ADD CONSTRAINT customer_payments_cheque_bs_required CHECK (cheque_date_ad IS NULL OR (cheque_date_bs IS NOT NULL AND cheque_date_bs <> ''));
   END IF;
 END $$;
+
+-- ---------------------------------------------------------------------------
+-- WTY-1 legacy warranty backfill (idempotent).
+--
+-- Before this table the app DERIVED one 12-month countdown at read time:
+-- CPE from issued_date, fixed assets from acquisition. The backfill preserves
+-- that behaviour for existing rows, flagged LEGACY_12_MONTH so the origin is
+-- visible and an operator can correct it. Deterministic ids make every re-run a
+-- no-op; the NOT EXISTS guard respects a row an operator has already replaced.
+-- ---------------------------------------------------------------------------
+INSERT INTO warranty_coverages (
+  id, coverage_type, item_category, product_id, product_name, serial_number,
+  asset_id, branch_id, party_name, source_type, source_id, source_number,
+  start_date_ad, end_date_ad, term_months, start_basis, is_demo
+)
+SELECT
+  'wc-legacy-asset-' || a.id, 'VENDOR', 'FIXED_ASSET', a.product_id, a.name,
+  UPPER(TRIM(a.tag_number)), a.id, a.branch_id, a.supplier_name,
+  'FIXED_ASSET', a.id, a.invoice_no,
+  a.acquisition_date_ad, (a.acquisition_date_ad + INTERVAL '12 months')::date,
+  12, 'LEGACY_12_MONTH', a.is_demo
+FROM fixed_assets a
+WHERE a.acquisition_date_ad IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM warranty_coverages w
+    WHERE w.coverage_type = 'VENDOR'
+      AND w.serial_number = UPPER(TRIM(a.tag_number))
+      AND w.is_current = TRUE
+  )
+ON CONFLICT DO NOTHING;
+
+INSERT INTO warranty_coverages (
+  id, coverage_type, item_category, product_id, product_name, serial_number,
+  device_record_id, branch_id, party_id, party_name, source_type, source_id,
+  source_number, start_date_ad, end_date_ad, term_months, start_basis, is_demo
+)
+SELECT
+  'wc-legacy-cdr-' || c.id, 'SELLER',
+  CASE WHEN c.status = 'SOLD' THEN 'SOLD_PRODUCT' ELSE 'CPE' END,
+  NULL, c.product_name, UPPER(TRIM(c.device_serial)),
+  c.id, c.branch_id, c.customer_id, c.customer_name,
+  'CUSTOMER_DEVICE', c.id, c.customer_code,
+  c.issued_date_ad, (c.issued_date_ad + INTERVAL '12 months')::date,
+  12, 'LEGACY_12_MONTH', c.is_demo
+FROM customer_device_records c
+WHERE c.issued_date_ad IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM warranty_coverages w
+    WHERE w.coverage_type = 'SELLER'
+      AND w.serial_number = UPPER(TRIM(c.device_serial))
+      AND w.is_current = TRUE
+  )
+ON CONFLICT DO NOTHING;
+
+INSERT INTO warranty_coverages (
+  id, coverage_type, item_category, product_id, product_name, serial_number,
+  branch_id, party_name, source_type, source_id, source_number,
+  start_date_ad, end_date_ad, term_months, start_basis, is_demo
+)
+SELECT
+  'wc-legacy-serial-' || s.id, 'VENDOR', 'CPE', s.product_id, COALESCE(s.product_name, ''),
+  UPPER(TRIM(s.device_serial)), s.branch_id, pi.supplier_name,
+  'PURCHASE_INVOICE', pi.id, pi.invoice_number,
+  pi.invoice_date_ad, (pi.invoice_date_ad + INTERVAL '12 months')::date,
+  12, 'LEGACY_12_MONTH', s.is_demo
+FROM serial_log s
+JOIN purchase_invoices pi ON pi.id = s.source_id
+WHERE s.source_type = 'PURCHASE'
+  AND s.status <> 'RETURNED_TO_VENDOR'
+  AND pi.invoice_date_ad IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM warranty_coverages w
+    WHERE w.coverage_type = 'VENDOR'
+      AND w.serial_number = UPPER(TRIM(s.device_serial))
+      AND w.is_current = TRUE
+  )
+ON CONFLICT DO NOTHING;

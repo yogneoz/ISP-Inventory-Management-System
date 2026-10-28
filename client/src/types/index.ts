@@ -108,6 +108,11 @@ export interface Product {
   depreciationRate?: number; // Annual percentage e.g. 15 for 15%
   usefulLifeYears?: number; // Useful life in years e.g. 5
   salvageValuePercent?: number; // Salvage value % e.g. 10
+
+  // WTY-1 warranty defaults. Used only to prefill a new coverage; 0 = no
+  // warranty. Existing coverage snapshots its own term and exact expiry.
+  vendorWarrantyMonths?: number;
+  sellerWarrantyMonths?: number;
 }
 
 export interface Category {
@@ -396,6 +401,10 @@ export interface CustomerDeviceRecord {
   disconnectedDateBS?: string;
   warrantyMonths?: number;
   warrantyEndDateAD?: string;
+  /** WTY-1: the current stored seller coverage, joined by the list read. */
+  sellerWarrantyStartDateAD?: string | null;
+  sellerWarrantyEndDateAD?: string | null;
+  sellerWarrantyState?: 'VALID' | 'EXPIRING_SOON' | 'EXPIRED' | null;
   purchaseBillRef?: string;
   notes?: string;
 }
@@ -464,6 +473,86 @@ export interface CustomerDevicePage {
   totalItems: number;
   /** Only on an `all=1` export: the row cap was hit and the file is a prefix. */
   truncated?: boolean;
+}
+
+/** WTY-1: what a coverage obliges, and how its start date was chosen. */
+export type WarrantyCoverageType = 'VENDOR' | 'SELLER';
+export type WarrantyItemCategory = 'CPE' | 'FIXED_ASSET' | 'SOLD_PRODUCT';
+export type WarrantyStartBasis =
+  | 'INVOICE_DATE'
+  | 'ACQUISITION_DATE'
+  | 'ISSUE_DATE'
+  | 'SALE_DATE'
+  | 'LEGACY_12_MONTH'
+  | 'MANUAL';
+
+/** The stored coverage row (what the table holds, before computed state). */
+export interface WarrantyCoverageRecord {
+  id: string;
+  coverageType: WarrantyCoverageType;
+  itemCategory: WarrantyItemCategory;
+  productId?: string | null;
+  productName: string;
+  serialNumber: string;
+  assetId?: string | null;
+  deviceRecordId?: string | null;
+  branchId?: string | null;
+  partyId?: string | null;
+  partyName?: string | null;
+  sourceType: string;
+  sourceId?: string | null;
+  sourceNumber?: string | null;
+  startDateAD: string;
+  endDateAD: string;
+  termMonths?: number | null;
+  startBasis: WarrantyStartBasis;
+  notes?: string | null;
+  isCurrent: boolean;
+  supersededAt?: string | null;
+  isDemo?: boolean;
+}
+
+/**
+ * WTY-1: one stored coverage period. Unlike the retired union, the exact
+ * expiry comes from the row (never recomputed in the browser) and `daysRemaining`
+ * is the server's own day count from CURRENT_DATE.
+ */
+export interface WarrantyCoverageRow {
+  id: string;
+  coverageType: WarrantyCoverageType;
+  itemCategory: WarrantyItemCategory;
+  productId?: string | null;
+  productName: string;
+  serialNumber: string;
+  branchId?: string | null;
+  branchName?: string | null;
+  partyName?: string | null;
+  sourceType: string;
+  sourceId?: string | null;
+  sourceNumber?: string | null;
+  startDateAD: string;
+  endDateAD: string;
+  termMonths?: number | null;
+  startBasis: WarrantyStartBasis;
+  warrantyState: 'VALID' | 'EXPIRING_SOON' | 'EXPIRED';
+  daysRemaining: number;
+  notes?: string | null;
+  isDemo?: boolean;
+}
+
+export interface WarrantyCoverageCounts {
+  total: number;
+  valid: number;
+  expiring: number;
+  expired: number;
+}
+
+export interface WarrantyCoveragePage {
+  data: WarrantyCoverageRow[];
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  counts: WarrantyCoverageCounts;
 }
 
 /**

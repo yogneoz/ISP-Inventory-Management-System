@@ -116,11 +116,11 @@ describe('dbBoot.ts ↔ scripts/schema.sql single-source-of-truth guard', () => 
     }
   });
 
-  test('schema.sql still declares all 37 tables (fresh-install completeness)', () => {
+  test('schema.sql still declares all 38 tables (fresh-install completeness)', () => {
     const tables = new Set(
       (schemaSql.match(/CREATE TABLE IF NOT EXISTS (\w+)/g) || []).map((s) => s.replace('CREATE TABLE IF NOT EXISTS ', ''))
     );
-    assert.equal(tables.size, 37, `schema.sql should declare exactly 37 tables, found ${tables.size}`);
+    assert.equal(tables.size, 38, `schema.sql should declare exactly 38 tables, found ${tables.size}`);
   });
 
   test('serial_log carries the register-wide uniqueness (device serial + PON + MAC)', () => {

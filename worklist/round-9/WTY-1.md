@@ -1,6 +1,6 @@
 # WTY-1 — warranty term arithmetic, schema and the coverage record
 
-Status: `[~]` in progress (scaffold on disk, no gates run) · Started 2026-10-28 · Round 9
+Status: `[x]` done (2026-10-28) · `7b93e6f` · Started 2026-10-28 · Round 9
 Order: 1 · Depends on: none. Blocks every other WTY item.
 
 ## Why
@@ -86,17 +86,28 @@ history.
 
 ## Acceptance checklist
 
-- [ ] `shared/warrantyTerm.ts` clamps month-end (31 Jan + 1 → 28/29 Feb), rejects
+- [x] `shared/warrantyTerm.ts` clamps month-end (31 Jan + 1 → 28/29 Feb), rejects
       invalid dates/terms, and `warrantyStateFor` matches the 30-day rule; a
       focused suite covers the boundary days (`tests/warrantyTerm.test.ts`).
-- [ ] The schema adds the table and both product columns for a fresh database
+- [x] The schema adds the table and both product columns for a fresh database
       **and** for a pre-existing one; the schema parity/drift guards pass.
-- [ ] The partial unique index allows one current row per type + serial and the
+- [x] The partial unique index allows one current row per type + serial and the
       backfill is idempotent (second run inserts nothing, existing current rows
       are respected).
-- [ ] The demo mirror exists and is not part of `BOOTSTRAP_TABLES`, `CACHE_LOADS`
+- [x] The demo mirror exists and is not part of `BOOTSTRAP_TABLES`, `CACHE_LOADS`
       or any slice; the payload guards stay green.
-- [ ] `npx tsc --noEmit` clean.
+- [x] `npx tsc --noEmit` clean.
+
+## Verified locally (2026-10-28)
+
+- `npx tsc --noEmit` clean.
+- `tests/warrantyTerm.test.ts`, `tests/warrantySchema.guard.test.ts` and
+  `tests/schemaSource.parity.test.ts`: **20 tests, 20 pass, 0 fail**.
+- `tests/schema.drift.guard.test.ts`: **2 pass** against the live PostgreSQL
+  (the table and both product columns exist in both the file and the database).
+- Applying `scripts/schema.sql` twice to the live database left the coverage
+  count at **3 → 3 → 3** with **0 duplicate current rows**, proving the backfill
+  is re-runnable.
 
 ## Out of scope
 

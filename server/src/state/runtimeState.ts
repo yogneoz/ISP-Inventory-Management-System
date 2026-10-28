@@ -22,6 +22,7 @@ import type {
   ApprovalRequest, Category, UnitOfMeasure, LocationRecord,
   DocumentNumberConfig, DamageRecord, SerialLog, VendorPayment,
   SalesInvoice, PurchaseReturn, SalesReturn, CustomerPayment, ProductGroup,
+  WarrantyCoverageRecord,
 } from '../../../client/src/types';
 import { INITIAL_PRODUCT_GROUPS } from '../config/seedData';
 
@@ -62,6 +63,10 @@ export let customerPayments: readonly CustomerPayment[] = [];
 export let approvalRequests: readonly ApprovalRequest[] = [];
 export let damageRecords: readonly DamageRecord[] = [];
 export let serialLogs: readonly SerialLog[] = [];
+// WTY-1: PostgreSQL mode reads warranty_coverages directly through the paged
+// register queries. This mirror is for demo mode (PG down) only and is
+// deliberately NOT a bootstrap/cache slice — the registers self-fetch.
+export let warrantyCoverages: readonly WarrantyCoverageRecord[] = [];
 
 // Active user session mirror; authentication always reads PostgreSQL.
 export let activeUser: User | null = null;
@@ -104,6 +109,7 @@ export function setCustomerPayments(value: readonly CustomerPayment[]): void { c
 export function setApprovalRequests(value: readonly ApprovalRequest[]): void { approvalRequests = value; }
 export function setDamageRecords(value: readonly DamageRecord[]): void { damageRecords = value; }
 export function setSerialLogs(value: readonly SerialLog[]): void { serialLogs = value; }
+export function setWarrantyCoverages(value: readonly WarrantyCoverageRecord[]): void { warrantyCoverages = value; }
 export function setPermissionMatrix(value: Record<string, Record<string, boolean>>): void { permissionMatrix = value; }
 export function setActiveUser(value: User): void { activeUser = value; }
 export function setPgConnected(v: boolean): void { isPgConnected = v; }
