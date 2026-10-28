@@ -68,7 +68,8 @@ shipped AUD-1 (`fbcd013`, run 188), AUD-2 (`6df8ed7`, run 189) and AUD-3
 (`053a898`, run 190), plus its API follow-up QTY-1 (`f1c1131`, green under run
 192 after the `qs` pin `67e7d47` unblocked the audit step), and the close pass
 fixed the two hardening items the audit had recorded as unguarded (AUD-4,
-AUD-5). No audit item is open. Round 7 closed on 2026-10-27 — see
+AUD-5). The close pass shipped as `7621a20` (CI run 193). No audit item is
+open. Round 7 closed on 2026-10-27 — see
 [done/2026-10-27-round-7.md](done/2026-10-27-round-7.md): its one item,
 [CDR-2](done/2026-10-27-round-7/CDR-2.md) (`46fefb6`, CI run 184), retired the
 `customerDevices` bootstrap slice — the last legacy device read, left by CDR-1

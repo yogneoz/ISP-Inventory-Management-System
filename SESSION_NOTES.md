@@ -38,7 +38,8 @@ _Date: 2026-10-28 · Branch: main · Tests: 1412/1412 green with a DB (all run i
 > unbounded line quantities in the UI and the API (AUD-3 `053a898`, QTY-1
 > `f1c1131`), and the close pass fixed the two hardening items it had recorded
 > as unguarded (AUD-4, AUD-5); a newly published `qs` advisory was cleared by
-> the lockfile pin `67e7d47`. **No round is active.** The payload work
+> the lockfile pin `67e7d47`, and the close pass shipped as `7621a20` (CI run
+> 193). **No round is active.** The payload work
 > is finished — the remaining-array measurement found no item to open, and the
 > `inventory_stock` trigger is recorded in [2026.md](docs/session-notes/2026.md). The
 > notes are split by year (**SN-1**): entries live in
