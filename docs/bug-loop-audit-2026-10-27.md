@@ -200,6 +200,14 @@ but one handler change (e.g. handling `onerror` without nulling
 Adding `if (retryTimeout) return;` at the top of `scheduleRetry` makes the
 invariant explicit.
 
+**Fixed (2026-10-28, round close):** `scheduleRetry` now returns early while a retry is
+pending, so the invariant is enforced rather than implied by today's callers.
+`tests/syncRetryGuard.test.ts` drives the failure path a future handler change
+would create — two `onerror` invocations from one failed source — and asserts
+that one reconnect opens, not two, while the ladder still reconnects and can
+schedule again after the next failure; it also pins that unsubscribing clears
+the pending timer. Node's mocked timers keep the suite off the wall clock.
+
 ### AUD-5 — BS day-range generation has no span cap (hardening)
 
 `client/src/features/finance/NepaliFiscalManagement.tsx:328` iterates every
@@ -207,7 +215,19 @@ day between two user-supplied AD dates, converting each one. The default is
 one fiscal year (~365 iterations), which is fine; the inputs are not capped,
 so a multi-decade span grinds the screen through tens of thousands of
 conversions. Not a hang (invalid dates no-op the loop) — worth a span
-guidance/limit the next time that screen is touched.
+guidance/limit the next time that screen was touched.
+
+**Fixed (2026-10-28, round close):** `client/src/utils/bsRangeSpan.ts` adds
+`MAX_BS_RANGE_DAYS` (3,660 days — about ten years, far above any real
+conversion) and `bsRangeSpanRefusal`, which counts the inclusive span on UTC
+calendar days (so a DST boundary cannot add or drop one) and returns the
+operator-facing sentence when the range is longer. `handleConvertRange` calls
+it after the existing invalid/reversed checks and before the day loop, so the
+loop is bounded by construction. `tests/bsRangeSpan.test.ts` covers the span
+arithmetic (single day, a fiscal year, leap day, a DST-crossing span), the cap
+edges (exactly at the cap and one day past it), the default bound, the
+invalid/reversed passthrough, and a source guard that the check precedes the
+`while` loop.
 
 ## Verified clean (dismissed candidates, so the sweep is reproducible)
 
@@ -252,11 +272,12 @@ guidance/limit the next time that screen is touched.
 ## Limits
 
 Pattern-based sweep, not a line-by-line proof: business-logic correctness and
-SQL semantics stay with the 1379-test suite and the per-domain audits under
+SQL semantics stay with the full suite and the per-domain audits under
 `docs/`. No runtime profiling was done; the effect and cycle passes used
 static heuristics whose candidates were all manually verified. AUD-1 and
-AUD-3 were found by reading, not by a failing test. AUD-1 now has behavioural
-coverage in `tests/auditRowMerge.test.ts`, AUD-2 in
-`tests/permissionMatrixPublish.test.ts`, AUD-3 in
-`tests/lineQuantity.test.ts` and QTY-1 (the API half of the same rule) in
-`tests/lineQuantityApi.test.ts`; AUD-4 and AUD-5 are still unguarded.
+AUD-3 were found by reading, not by a failing test. All five findings and the
+QTY-1 follow-up now have coverage: AUD-1 in `tests/auditRowMerge.test.ts`,
+AUD-2 in `tests/permissionMatrixPublish.test.ts`, AUD-3 in
+`tests/lineQuantity.test.ts`, QTY-1 (the API half of the same rule) in
+`tests/lineQuantityApi.test.ts`, AUD-4 in `tests/syncRetryGuard.test.ts` and
+AUD-5 in `tests/bsRangeSpan.test.ts`. No audit item is open.

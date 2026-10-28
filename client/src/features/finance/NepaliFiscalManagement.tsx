@@ -3,6 +3,7 @@ import { useActivationKey } from '../../components/common/KeepMounted';
 import { FiscalYear } from '../../types';
 import { api } from '../../services/api';
 import { useBsCalendarRefresh } from '../../utils/bsCalendarRefresh';
+import { bsRangeSpanRefusal } from '../../utils/bsRangeSpan';
 import { useDialog } from '../../components/common/DialogProvider';
 import { PageHeader } from '../../components/common/PageHeader';
 import {
@@ -315,6 +316,20 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
       setRangeConversionStatus({
         type: 'error',
         message: 'Start Date (AD) must be prior to or equal to End Date (AD).',
+        records: [],
+        missingYears: [],
+      });
+      return;
+    }
+
+    // AUD-5: the loop below converts every day in the range, so cap the span
+    // before it starts rather than letting a multi-decade range freeze the
+    // screen through tens of thousands of conversions.
+    const spanRefusal = bsRangeSpanRefusal(rangeStartDateAD, rangeEndDateAD);
+    if (spanRefusal) {
+      setRangeConversionStatus({
+        type: 'error',
+        message: spanRefusal,
         records: [],
         missingYears: [],
       });

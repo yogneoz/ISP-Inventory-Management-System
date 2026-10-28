@@ -1,6 +1,6 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-27 · Branch: main · Tests: 1399/1399 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-28 · Branch: main · Tests: 1412/1412 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
 > **Current state (2026-10-27, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1/VOL-2/BUDGET-1/BOOT-1/VOL-3/VOL-4a/VOL-4b/SN-1/ASSET-1/EXCH-1/READ-1/CDR-1/CDR-2).** All DF-01…DF-17
 > work, the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2, CPE-3,
@@ -30,7 +30,15 @@ _Date: 2026-10-27 · Branch: main · Tests: 1399/1399 green with a DB (all run i
 > 184) retired `/api/bootstrap/local?key=customerDevices` — the last legacy
 > device read, 431.5 KiB gzip at the 12k model — by moving its mapping to
 > `CACHE_ONLY_TABLES` so the operational cache keeps the mirror; the key
-> answers 410 Gone. **No round is active.** The payload work
+> answers 410 Gone.
+> **Round 8 closed on 2026-10-28**
+> ([archive](worklist/done/2026-10-28-round-8.md)): the bug & loop audit
+> ([doc](docs/bug-loop-audit-2026-10-27.md)) fixed the stock-audit count loss
+> (AUD-1 `fbcd013`), the permission-matrix publish order (AUD-2 `6df8ed7`) and
+> unbounded line quantities in the UI and the API (AUD-3 `053a898`, QTY-1
+> `f1c1131`), and the close pass fixed the two hardening items it had recorded
+> as unguarded (AUD-4, AUD-5); a newly published `qs` advisory was cleared by
+> the lockfile pin `67e7d47`. **No round is active.** The payload work
 > is finished — the remaining-array measurement found no item to open, and the
 > `inventory_stock` trigger is recorded in [2026.md](docs/session-notes/2026.md). The
 > notes are split by year (**SN-1**): entries live in
@@ -54,7 +62,7 @@ _Date: 2026-10-27 · Branch: main · Tests: 1399/1399 green with a DB (all run i
 - [docs/session-notes/README.md](docs/session-notes/README.md) — the folder
   index and the rule for where new entries go.
 - [docs/session-notes/2026.md](docs/session-notes/2026.md) — every entry from
-  the first session through the Round 7 close, newest first.
+  the first session through the Round 8 close, newest first.
 - New entries: prepend below the separator in the current year's file. This
   root file stays short (current state + index) and keeps the gated
   `Tests: N/N` claim read by

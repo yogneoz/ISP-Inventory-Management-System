@@ -85,6 +85,13 @@ export function subscribeToSyncStream(
 
   function scheduleRetry() {
     if (disposed) return;
+    // AUD-4: one pending reconnect at a time. Today's callers cannot reach
+    // this twice (onerror fires once per source, and the source is closed and
+    // nulled here), but the guard makes the invariant explicit: a second
+    // onerror or an extra caller must not stack two timers, because both
+    // would open their own EventSource and every later event would be
+    // delivered twice.
+    if (retryTimeout) return;
     // Exponential backoff with ±20% jitter, capped at 30s.
     const jitter = retryDelayMs * 0.2 * (Math.random() * 2 - 1);
     const delay = Math.min(30000, Math.round(retryDelayMs + jitter));

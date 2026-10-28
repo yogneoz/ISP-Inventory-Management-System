@@ -19,8 +19,8 @@ is the plan, not a second source of truth.
 - [parked.md](parked.md) — decisions we are not acting on, with the trigger to
   reopen each one.
 - [done/](done/README.md) — completed rounds, kept for reference. Never delete.
-  No round is active: Round 7 closed on 2026-10-27
-  ([note](done/2026-10-27-round-7.md)).
+  No round is active: Round 8 (the bug & loop audit) closed on 2026-10-28
+  ([note](done/2026-10-28-round-8.md)).
 
 ## Status vocabulary
 
@@ -61,7 +61,14 @@ checklist here.
 
 ## Active work
 
-**No round is active.** Round 7 closed on 2026-10-27 — see
+**No round is active.** Round 8 closed on 2026-10-28 — see
+[done/2026-10-28-round-8.md](done/2026-10-28-round-8.md): the bug & loop audit
+([docs/bug-loop-audit-2026-10-27.md](../docs/bug-loop-audit-2026-10-27.md))
+shipped AUD-1 (`fbcd013`, run 188), AUD-2 (`6df8ed7`, run 189) and AUD-3
+(`053a898`, run 190), plus its API follow-up QTY-1 (`f1c1131`, green under run
+192 after the `qs` pin `67e7d47` unblocked the audit step), and the close pass
+fixed the two hardening items the audit had recorded as unguarded (AUD-4,
+AUD-5). No audit item is open. Round 7 closed on 2026-10-27 — see
 [done/2026-10-27-round-7.md](done/2026-10-27-round-7.md): its one item,
 [CDR-2](done/2026-10-27-round-7/CDR-2.md) (`46fefb6`, CI run 184), retired the
 `customerDevices` bootstrap slice — the last legacy device read, left by CDR-1
