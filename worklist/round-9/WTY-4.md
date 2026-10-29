@@ -1,6 +1,6 @@
 # WTY-4 — capture what the supplier owes us
 
-Status: `[x]` done (2026-10-28) · Round 9
+Status: `[x]` done (2026-10-28) · `870726b` · Round 9
 Order: 4 · Depends on WTY-1/2/3.
 
 ## Why
