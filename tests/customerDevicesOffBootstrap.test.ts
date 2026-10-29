@@ -13,8 +13,7 @@
  *     for a branch role, forging another branch is a 403, and a multi-branch
  *     account reads the branches it names.
  *  5. HTTP: the overview counts every status under the search filters (not
- *     just the page on screen), and the warranty union filters by the exact
- *     computed state at all four boundary days.
+ *     just the page on screen).
  *  6. HTTP: `all=1` reports truncation at the cap instead of silently
  *     exporting one page.
  *  7. HTTP: the retired `customerDevices` slice answers 410 for a super and a
@@ -37,7 +36,6 @@ import {
   CDR_SEARCH_TEXT_SQL,
   CUSTOMER_DEVICE_EXPORT_MAX,
 } from '../server/src/models/inventory.repo';
-import { getWarrantyInfo } from '../client/src/utils/warranty';
 import { ensureReferenceData } from './fixtures/referenceData';
 
 dotenv.config();
@@ -60,13 +58,12 @@ const skipNoDb = !dbReachable && 'needs a reachable PostgreSQL (requirePostgres 
 
 const BRANCH_A = 'V4BBR';
 const BRANCH_B = 'V4BBR2';
-const BRANCH_W = 'V4BBRW';
 const BRANCH_E = 'V4BBRE';
 const CODE_PREFIX = 'V4B-';
 
 const SUPER_USER = {
   id: 'v4b-super', email: 'v4b-super@example.com', name: 'V4B Super',
-  role: 'SUPER_ADMIN', branchId: BRANCH_A, allowedBranchIds: [BRANCH_A, BRANCH_B, BRANCH_W, BRANCH_E],
+  role: 'SUPER_ADMIN', branchId: BRANCH_A, allowedBranchIds: [BRANCH_A, BRANCH_B, BRANCH_E],
   canSwitchUser: false,
 } as any;
 
@@ -95,19 +92,6 @@ const DEVICE_ROWS = [
   { id: 'v4b-b01', serial: 'V4B-SN-B01', status: 'ACTIVE', branch: BRANCH_B, name: 'V4B Beta 01', minutesAgo: 2 },
   { id: 'v4b-b02', serial: 'V4B-SN-B02', status: 'RENTAL', branch: BRANCH_B, name: 'V4B Beta 02', minutesAgo: 1 },
 ];
-
-/** `endIso` minus 12 calendar months, the inverse of the server's +12 rule. */
-function issueDateFor(endIso: string): string {
-  const end = new Date(`${endIso}T00:00:00Z`);
-  end.setUTCMonth(end.getUTCMonth() - 12);
-  return end.toISOString().slice(0, 10);
-}
-
-function addDays(iso: string, days: number): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
 
 describe('VOL-4b — customer devices off the bootstrap', () => {
   test('source: the bootstrap fan-out does not read customer_device_records and the payload has no key', async () => {
@@ -217,7 +201,6 @@ describe('VOL-4b — customer devices off the bootstrap', () => {
     const surfaces = [
       'sales/CustomersManagement.tsx',
       'sales/CustomerMasterDirectory.tsx',
-      'inventory/WarrantyProducts.tsx',
       'inventory/ExportStock.tsx',
     ];
     for (const relative of surfaces) {
@@ -260,7 +243,6 @@ describe('VOL-4b — customer devices off the bootstrap', () => {
   describe('HTTP against real PostgreSQL', () => {
     let port = 0;
     let close: (() => Promise<void>) | null = null;
-    let todayAd = '';
     const superToken = issueAuthToken(SUPER_USER);
     const branchToken = issueAuthToken(BRANCH_USER);
     const multiToken = issueAuthToken(MULTI_USER);
@@ -271,7 +253,6 @@ describe('VOL-4b — customer devices off the bootstrap', () => {
       for (const [id, code, name] of [
         [BRANCH_A, 'V4BA', 'V4B Test Branch A'],
         [BRANCH_B, 'V4BB', 'V4B Test Branch B'],
-        [BRANCH_W, 'V4BW', 'V4B Warranty Branch'],
         [BRANCH_E, 'V4BE', 'V4B Export Branch'],
       ]) {
         await pool.query(
@@ -302,53 +283,6 @@ describe('VOL-4b — customer devices off the bootstrap', () => {
             row.branch === BRANCH_A ? '2026-08-01' : '2026-08-02',
             String(row.minutesAgo),
           ]
-        );
-      }
-
-      const todayRow = await pool.query('SELECT CURRENT_DATE::text AS d');
-      todayAd = todayRow.rows[0].d as string;
-
-      // Warranty boundary rows: end = today-1, today, today+30, today+31.
-      const boundaryEnds = [addDays(todayAd, -1), todayAd, addDays(todayAd, 30), addDays(todayAd, 31)];
-      for (let i = 0; i < boundaryEnds.length; i++) {
-        const issued = issueDateFor(boundaryEnds[i]);
-        await pool.query(
-          `INSERT INTO customer_device_records
-             (id, customer_id, customer_name, customer_code, contact_phone, installation_address,
-              branch_id, product_name, device_serial, pon_serial, mac_address, status,
-              issued_date_ad, issued_date_bs, purchase_bill_ref, created_at)
-           VALUES ($1, $2, $3, $4, '9800000000', 'Lalitpur', $5, 'V4B Warranty Router', $6, $7, $8, 'RENTAL',
-                   $9, '2083-07-10', 'V4B-WBILL', CURRENT_TIMESTAMP - ($10 || ' minutes')::interval)`,
-          [
-            `v4b-w${i + 1}`,
-            `${CODE_PREFIX}WCUST-${i + 1}`,
-            `V4B Warranty ${i + 1}`,
-            `${CODE_PREFIX}W${i + 1}`,
-            BRANCH_W,
-            `V4B-W-SN-00${i + 1}`,
-            `V4B-W-PON-00${i + 1}`,
-            `AA:BB:CC:DD:FF:0${i + 1}`,
-            // Two rows share an issue date in August 2025/2026; the serial
-            // search below distinguishes them, not the date.
-            issued,
-            String(10 + i),
-          ]
-        );
-      }
-
-      // Two fixed assets: one valid, one expired, in the warranty branch.
-      const validAssetIssue = issueDateFor(boundaryEnds[3]);
-      const expiredAssetIssue = issueDateFor(boundaryEnds[0]);
-      for (const [suffix, issued, tag] of [
-        ['a1', validAssetIssue, 'V4B-TAG-001'],
-        ['a2', expiredAssetIssue, 'V4B-TAG-002'],
-      ]) {
-        await pool.query(
-          `INSERT INTO fixed_assets
-             (id, tag_number, name, category, branch_id, acquisition_date_ad, acquisition_date_bs,
-              acquisition_cost, net_book_value, status, invoice_no)
-           VALUES ($1, $2, $3, 'NETWORK_EQUIPMENT', $4, $5, '2083-07-10', 10000, 10000, 'ACTIVE', 'V4B-WBILL')`,
-          [`v4b-${suffix}`, tag, `V4B Fixed Asset ${suffix}`, BRANCH_W, issued]
         );
       }
 
@@ -392,7 +326,7 @@ describe('VOL-4b — customer devices off the bootstrap', () => {
       if (!pool) return;
       await pool.query("DELETE FROM fixed_assets WHERE id LIKE 'v4b-%'");
       await pool.query("DELETE FROM customer_device_records WHERE id LIKE 'v4b-%'");
-      await pool.query('DELETE FROM branches WHERE id IN ($1, $2, $3, $4)', [BRANCH_A, BRANCH_B, BRANCH_W, BRANCH_E]);
+      await pool.query('DELETE FROM branches WHERE id IN ($1, $2, $3)', [BRANCH_A, BRANCH_B, BRANCH_E]);
     }
 
     async function get(urlPath: string, token = superToken) {
@@ -496,48 +430,6 @@ describe('VOL-4b — customer devices off the bootstrap', () => {
       const overviewB = await get(`/api/customer-devices/overview?branchId=${BRANCH_B}&query=V4B`, multiToken);
       assert.equal(overviewB.status, 200, JSON.stringify(overviewB.json));
       assert.deepEqual(overviewB.json.counts, { ACTIVE: 1, RENTAL: 1 });
-    });
-
-    test('the warranty union filters by the same computed state at all four boundary days', { skip: skipNoDb }, async () => {
-      const base = `/api/customer-devices/warranty?branchId=${BRANCH_W}&query=V4B-W&category=CPE&pageSize=50`;
-      const all = await get(base);
-      assert.equal(all.status, 200, JSON.stringify(all.json));
-      assert.equal(all.json.totalItems, 4);
-      assert.deepEqual(all.json.counts, { total: 4, valid: 1, expiring: 2, expired: 1 });
-
-      const expectedEnds = [addDays(todayAd, -1), todayAd, addDays(todayAd, 30), addDays(todayAd, 31)];
-      const bySerial = new Map(all.json.data.map((row: any) => [row.serialOrTag, row]));
-      for (let i = 0; i < expectedEnds.length; i++) {
-        const row = bySerial.get(`V4B-W-SN-00${i + 1}`) as any;
-        assert.ok(row, `missing warranty fixture row ${i + 1}`);
-        assert.equal(row.warrantyEndDateAD, expectedEnds[i], 'the server must return the end date it filtered on');
-        // The client utility and the SQL rule must agree at each boundary.
-        assert.equal(
-          row.warrantyState,
-          getWarrantyInfo(row.issuedDateAD, 12).status,
-          `warranty SQL and getWarrantyInfo disagree for ${row.serialOrTag}`
-        );
-      }
-
-      const expired = await get(base + '&warranty=EXPIRED');
-      assert.equal(expired.status, 200, JSON.stringify(expired.json));
-      assert.deepEqual(expired.json.data.map((r: any) => r.serialOrTag), ['V4B-W-SN-001']);
-      assert.equal(expired.json.counts.total, 4, 'the summary describes the population, not the state filter');
-
-      const expiring = await get(base + '&warranty=EXPIRING_SOON');
-      assert.equal(expiring.status, 200, JSON.stringify(expiring.json));
-      assert.deepEqual(expiring.json.data.map((r: any) => r.serialOrTag).sort(), ['V4B-W-SN-002', 'V4B-W-SN-003']);
-
-      const valid = await get(base + '&warranty=VALID');
-      assert.equal(valid.status, 200, JSON.stringify(valid.json));
-      assert.deepEqual(valid.json.data.map((r: any) => r.serialOrTag), ['V4B-W-SN-004']);
-
-      const assets = await get(`/api/customer-devices/warranty?branchId=${BRANCH_W}&query=V4B-TAG&category=FIXED_ASSET&pageSize=50`);
-      assert.equal(assets.status, 200, JSON.stringify(assets.json));
-      assert.equal(assets.json.totalItems, 2);
-      assert.equal(assets.json.counts.valid, 1);
-      assert.equal(assets.json.counts.expired, 1);
-      assert.ok(assets.json.data.every((r: any) => r.type === 'FIXED_ASSET'));
     });
 
     test('all=1 reports truncation at the cap instead of silently exporting one page', { skip: skipNoDb }, async () => {

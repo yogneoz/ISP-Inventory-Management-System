@@ -226,7 +226,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 1550 tests; CI runs
+                                        #   drift/concurrency guards — 1558 tests; CI runs
                                         #   tsc + npm test + the no-inline-SQL guard + the
                                         #   production build + npm audit on every push/PR
                                         #   (.github/workflows/ci.yml). The PostgreSQL 16
@@ -329,7 +329,9 @@ ISP-Inventory-Management-System/
 │       │   ├── PhysicalStockAudit.tsx   # Physical count & variance reconciliation
 │       │   ├── CategoryManagement.tsx   # Product category CRUD
 │       │   ├── UomManagement.tsx        # Unit of Measure CRUD
-│       │   ├── WarrantyProducts.tsx     # Device warranty tracking
+│       │   ├── SupplierWarrantyRegister.tsx # Suppliers coverage register (WTY-6)
+│       │   ├── SellerWarrantyRegister.tsx   # Sellers coverage register (WTY-6)
+│       │   ├── warranty/                    # Shared coverage register + audited edit modal
 │       │   ├── ImportStock.tsx          # CSV import of stock data
 │       │   ├── ExportStock.tsx          # CSV/Excel export of stock
 │       │   └── ProductSearchBar.tsx     # Reusable product search component
@@ -553,7 +555,8 @@ The server registers ~130 routes. The most important ones:
 | `/api/customer-devices` | POST | CPE device registration. The GET bare-array read was retired in CDR-1 (2026-10-27): EXCH-1 moved the last screen (the Device Exchange picker) to `/page` and READ-1 deleted the client wrapper, so the route and its 2,000-row query are gone |
 | `/api/customer-devices/page` | GET | The paged device register (VOL-4b): `branchId`, `query`, `status`, `productName`, `issuedFrom`, `issuedTo`, `page`, `pageSize` (capped at 200) → `{ data, page, pageSize, totalItems }`. `all=1` returns the filtered export set, capped at 20,000 rows with `truncated`. The `query` uses the `idx_customer_devices_global_trgm` expression; branch scope is enforced by the route guard, then re-applied in SQL from the session |
 | `/api/customer-devices/overview` | GET | Exact per-status device counts (`{ total, counts }`) under the branch/search/product/date filters, for the register's KPI cards |
-| `/api/customer-devices/warranty` | GET | Paged warranty directory (VOL-4b): SQL union of rented CPE (`issued_date_ad + 12 months`) and fixed assets (`acquisition_date_ad + 12 months`); filters `warranty=VALID|EXPIRING_SOON|EXPIRED`, `category=CPE|FIXED_ASSET`, branch/text/date; returns `{ data, page, pageSize, totalItems, counts }` and each row's server-computed `warrantyState` |
+| `/api/warranties/vendor`, `/api/warranties/seller` | GET | The two paged coverage registers (WTY-2). `status`, `query`, `category`, `startFrom/startTo`, `branchId`, `page`, `pageSize`; defaults to all statuses; returns the stored exact expiry plus the server-computed `warrantyState`/`daysRemaining` and all-status KPI counts. Branch scope is resolved from the session |
+| `/api/warranties/:id` | PATCH | Corrects a coverage period (WTY-2): validates start/end and supersedes the current row with an audit entry; requires `warranty-edit` |
 | `/api/customers` | GET, POST, PUT/DELETE `:id` | Customer directory — the app's only customer read since VOL-4a. GET is paged: `branchId`, `query`, `status`, `page`, `pageSize` → `{ data, page, pageSize, totalItems, activeItems, totalCreditLimit }`; `all=1` returns the full filtered set for CSV export. The `query` search is trigram-indexed (`idx_customer_records_search_trgm`) and branch scope is enforced by the route guard, then re-applied in SQL from the session |
 | `/api/damage-records` | GET, POST, PUT `:id` | Damage lifecycle |
 | `/api/approval-requests` | GET, POST, `:id/process`, `:id/cancel` | Approval workflow |
@@ -1307,7 +1310,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 1550 tests against a real PostgreSQL 16 service container
+2. `npm test` — 1558 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM
@@ -1374,10 +1377,10 @@ so any unwired new fetch fails the suite instead of shipping:
   remount refreshes it). Each test pins the effect deps carrying the refresh key and EVERY App.tsx render
   site passing it (2 PO, 2 PI, 1 SerialLogRegister, 11 StockOperations, 4 ReturnsRegister,
   2 SalesInvoices) — a newly added unwired mount fails.
-- **Feature-screen coverage (2026-10-03 audit, all 67 screens — the §G StockOperations
+- **Feature-screen coverage (2026-10-03 audit, all 70 screens — the §G StockOperations
   split added 12 tab panels plus the extracted tab-bar chrome, and the BS-calendar
   integrity work added the Calendar Health panel)** — a `SCREEN_SURFACE_PINS`
-  table pins the 56 screens not covered above (the other 11 are pinned by the dedicated
+  table pins the 59 screens not covered above (the other 11 are pinned by the dedicated
   tests); an unpinned new screen fails coverage, and each pinned screen must match its
   exact surface. Surfaces use `serverCallsIn` = `api.*` methods **plus named
   `services/api` imports** — the audit found FinancialStatements.tsx imports

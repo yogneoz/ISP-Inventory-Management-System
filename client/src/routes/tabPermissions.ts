@@ -32,6 +32,8 @@ export const TAB_PERMISSIONS: Record<string, string | string[]> = {
   'product-group-management': 'product-group-manage',
   'uom-management': 'uom-manage',
   'product-master': 'prod-view',
+  'supplier-warranty': 'warranty-view',
+  'seller-warranty': 'warranty-view',
   branches: 'admin-branches',
   suppliers: 'suppliers-manage',
   'import-stock': 'stock-import-export',

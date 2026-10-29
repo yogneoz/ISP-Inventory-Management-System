@@ -55,9 +55,6 @@ import {
   buildCustomerDeviceExportQuery,
   buildCustomerDeviceCountQuery,
   buildCustomerDeviceOverviewQuery,
-  buildWarrantyDirectoryQuery,
-  buildWarrantySummaryQuery,
-  buildWarrantyCountQuery,
   CDR_SEARCH_TEXT_SQL,
   CUSTOMER_DEVICE_EXPORT_MAX,
   CDR_DUPLICATE_CHECK_SQL,
@@ -397,23 +394,6 @@ describe('customer devices (CPE)', () => {
     const count = buildCustomerDeviceCountQuery(opts);
     assert.deepEqual(count.params, page.params);
     assert.match(count.sql, /SELECT COUNT\(\*\)::int AS count FROM customer_device_records/);
-  });
-
-  test('the warranty read unions both hardware families and computes the state in SQL', () => {
-    const page = buildWarrantyDirectoryQuery({ branchId: 'BR1', warranty: 'VALID', category: 'CPE' }, 2, 10);
-    assert.match(page.sql, /WITH warranty_items AS \(/);
-    assert.match(page.sql, /FROM customer_device_records c/);
-    assert.match(page.sql, /UNION ALL/);
-    assert.match(page.sql, /FROM fixed_assets a/);
-    assert.match(page.sql, /warranty_end_ad > CURRENT_DATE \+ 30/);
-    assert.match(page.sql, /AND item_type = \$2/);
-    assert.match(page.sql, / LIMIT 10 OFFSET 10$/);
-
-    const summary = buildWarrantySummaryQuery({ branchId: 'BR1' });
-    assert.match(summary.sql, /COUNT\(\*\) FILTER \(WHERE warranty_end_ad < CURRENT_DATE\)::int AS expired/);
-
-    const count = buildWarrantyCountQuery({ branchId: 'BR1', warranty: 'EXPIRED' });
-    assert.match(count.sql, /warranty_end_ad < CURRENT_DATE/);
   });
 
   test('duplicate probe is case/trim-insensitive, covers normalized MAC, and excludes the record itself', () => {

@@ -559,38 +559,6 @@ export interface WarrantyCoveragePage {
   counts: WarrantyCoverageCounts;
 }
 
-/**
- * VOL-4b: one warranty-directory row. The server unions rented CPE and fixed
- * assets and computes the warranty end date, so the screen never reconstructs
- * the whole device table to filter it.
- */
-export interface WarrantyDirectoryRow {
-  type: 'CPE' | 'FIXED_ASSET';
-  id: string;
-  name: string;
-  serialOrTag: string;
-  secondarySerial: string;
-  macAddress?: string;
-  assignedTo: string;
-  assignedAddress: string;
-  branchId: string;
-  branchName: string;
-  issuedDateAD: string | null;
-  status: string;
-  purchaseBillRef?: string | null;
-  warrantyEndDateAD: string;
-  /** Computed by the same rule that filtered the page — never re-derived here. */
-  warrantyState: 'VALID' | 'EXPIRING_SOON' | 'EXPIRED';
-}
-
-export interface WarrantyDirectoryPage {
-  data: WarrantyDirectoryRow[];
-  page: number;
-  pageSize: number;
-  totalItems: number;
-  counts: { total: number; valid: number; expiring: number; expired: number };
-}
-
 export interface PurchaseInvoice {
   id: string;
   invoiceNumber: string;

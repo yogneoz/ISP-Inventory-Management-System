@@ -119,8 +119,15 @@ const AssetDeployments = React.lazy(() =>
 const StatCardShowcase = import.meta.env?.DEV
   ? React.lazy(() => import('./features/dev/StatCardShowcase').then((m) => ({ default: m.StatCardShowcase })))
   : () => null;
-const WarrantyProducts = React.lazy(() =>
-  import('./features/inventory/WarrantyProducts').then((m) => ({ default: m.WarrantyProducts }))
+const SupplierWarrantyRegister = React.lazy(() =>
+  import('./features/inventory/SupplierWarrantyRegister').then((m) => ({
+    default: m.SupplierWarrantyRegister,
+  }))
+);
+const SellerWarrantyRegister = React.lazy(() =>
+  import('./features/inventory/SellerWarrantyRegister').then((m) => ({
+    default: m.SellerWarrantyRegister,
+  }))
 );
 const CategoryManagement = React.lazy(() =>
   import('./features/inventory/CategoryManagement').then((m) => ({ default: m.CategoryManagement }))
@@ -2771,11 +2778,22 @@ export default function App() {
         onUpdateAssetStatus={handleUpdateAssetStatus}
       />
     )),
-    screenRoute('warranty-products', (
+    screenRoute('supplier-warranty', (
       <React.Suspense fallback={<TabLoadingFallback />}>
-        <WarrantyProducts
+        <SupplierWarrantyRegister
           selectedBranchId={selectedBranchId}
           dateMode={dateMode}
+          currentUser={currentUser}
+          refreshKey={registerRefresh.customerDevices}
+        />
+      </React.Suspense>
+    )),
+    screenRoute('seller-warranty', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <SellerWarrantyRegister
+          selectedBranchId={selectedBranchId}
+          dateMode={dateMode}
+          currentUser={currentUser}
           refreshKey={registerRefresh.customerDevices}
         />
       </React.Suspense>

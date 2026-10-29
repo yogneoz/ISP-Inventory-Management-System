@@ -105,9 +105,6 @@ import {
   normalizeCustomerDevicePaging,
   CUSTOMER_DEVICE_EXPORT_MAX,
   CUSTOMER_DEVICE_STATUSES,
-  buildWarrantyDirectoryQuery,
-  buildWarrantyCountQuery,
-  buildWarrantySummaryQuery,
   CDR_DUPLICATE_CHECK_SQL,
   CDR_SERIAL_ROW_SQL,
   CDR_REDEPLOY_BY_SERIAL_SQL,
@@ -2597,113 +2594,6 @@ function filterCustomerDeviceMirror(opts: any, list: readonly CustomerDeviceReco
     });
 }
 
-/** Client getWarrantyInfo's month arithmetic, for the demo mirror only. */
-function warrantyEndFor(issued?: string | null): string {
-  const raw = String(issued || '').slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return '1970-01-01';
-  const [y, m, d] = raw.split('-').map(Number);
-  return new Date(Date.UTC(y, m - 1 + 12, d)).toISOString().slice(0, 10);
-}
-
-function warrantyStateFor(endAd: string): 'VALID' | 'EXPIRING_SOON' | 'EXPIRED' {
-  const end = new Date(`${endAd}T00:00:00Z`).getTime();
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
-  const days = Math.floor((end - today.getTime()) / 86400000);
-  if (days < 0) return 'EXPIRED';
-  if (days <= 30) return 'EXPIRING_SOON';
-  return 'VALID';
-}
-
-/**
- * Warranty directory mirror (demo mode): both hardware families, the same
- * computed state and filters as the SQL union.
- */
-function buildWarrantyMirror(opts: any) {
-  const branchName = (branchId?: string) => branches.find((b) => b.id === branchId)?.name || branchId || '';
-  const cpe = customerDeviceRecords.map((c) => ({
-    type: 'CPE' as const,
-    id: c.id,
-    name: c.productName,
-    serialOrTag: c.deviceSerial,
-    secondarySerial: c.ponSerial || '',
-    macAddress: c.macAddress,
-    assignedTo: `${c.customerName} (${c.customerCode})`,
-    assignedAddress: c.installationAddress || '',
-    branchId: c.branchId,
-    branchName: branchName(c.branchId),
-    issuedDateAD: c.issuedDateAD,
-    status: c.status,
-    purchaseBillRef: c.purchaseBillRef,
-    warrantyEndDateAD: warrantyEndFor(c.issuedDateAD),
-    warrantyState: warrantyStateFor(warrantyEndFor(c.issuedDateAD)),
-  }));
-  const assets = assetRegister.map((a) => ({
-    type: 'FIXED_ASSET' as const,
-    id: a.id,
-    name: a.name,
-    serialOrTag: a.tagNumber,
-    secondarySerial: '-',
-    macAddress: undefined,
-    assignedTo: a.assignedCustomerName
-      ? `Customer: ${a.assignedCustomerName}`
-      : a.assignedLocationName
-        ? `Location: ${a.assignedLocationName}`
-        : 'Internal Branch Office / Node',
-    assignedAddress: branches.find((b) => b.id === a.branchId)?.location || '-',
-    branchId: a.branchId,
-    branchName: branchName(a.branchId),
-    issuedDateAD: a.acquisitionDateAD,
-    status: a.status,
-    purchaseBillRef: a.invoiceNo,
-    warrantyEndDateAD: warrantyEndFor(a.acquisitionDateAD),
-    warrantyState: warrantyStateFor(warrantyEndFor(a.acquisitionDateAD)),
-  }));
-  const scope = Array.isArray(opts.branchScope) ? new Set<string>(opts.branchScope) : null;
-  const q = typeof opts.query === 'string' ? opts.query.trim().toLowerCase() : '';
-  const category = typeof opts.category === 'string' ? opts.category.trim().toUpperCase() : '';
-  const state = typeof opts.warranty === 'string' ? opts.warranty.trim().toUpperCase() : '';
-  const from = typeof opts.issuedFrom === 'string' ? opts.issuedFrom : '';
-  const to = typeof opts.issuedTo === 'string' ? opts.issuedTo : '';
-
-  const rows = [...cpe, ...assets]
-    .filter((item) => {
-      if (scope) {
-        if (scope.size === 0 || !scope.has(String(item.branchId || ''))) return false;
-      } else if (opts.branchId && opts.branchId !== 'ALL' && item.branchId !== opts.branchId) {
-        return false;
-      }
-      if (category && (category === 'CPE' || category === 'FIXED_ASSET') && item.type !== category) return false;
-      const issued = String(item.issuedDateAD || '').slice(0, 10);
-      if (from && (!issued || issued < from)) return false;
-      if (to && (!issued || issued > to)) return false;
-      if (q) {
-        const hay = [item.name, item.serialOrTag, item.secondarySerial, item.assignedTo, item.branchName]
-          .map((v) => String(v || '').toLowerCase()).join(' ');
-        if (!hay.includes(q)) return false;
-      }
-      return true;
-    })
-    .sort((a, b) => {
-      const ai = String(a.issuedDateAD || '');
-      const bi = String(b.issuedDateAD || '');
-      if (ai !== bi) return bi.localeCompare(ai);
-      if (a.type !== b.type) return a.type.localeCompare(b.type);
-      return String(a.id).localeCompare(String(b.id));
-    });
-
-  const counts = {
-    total: rows.length,
-    valid: rows.filter((r) => warrantyStateFor(r.warrantyEndDateAD) === 'VALID').length,
-    expiring: rows.filter((r) => warrantyStateFor(r.warrantyEndDateAD) === 'EXPIRING_SOON').length,
-    expired: rows.filter((r) => warrantyStateFor(r.warrantyEndDateAD) === 'EXPIRED').length,
-  };
-  const data = state === 'VALID' || state === 'EXPIRING_SOON' || state === 'EXPIRED'
-    ? rows.filter((r) => warrantyStateFor(r.warrantyEndDateAD) === state)
-    : rows;
-  return { data, counts };
-}
-
 /**
  * VOL-4b: the register's paged read. Filters match the indexed expression, the
  * order is stable, and `all=1` is the CSV export (capped, truncation reported).
@@ -2796,66 +2686,6 @@ export async function get_customerDevicesOverview(req: any, res: Response): Prom
     counts[status] = (counts[status] || 0) + 1;
   }
   res.json({ total: mirror.length, counts });
-}
-
-/**
- * VOL-4b: warranty directory. The CPE table cannot be shipped whole to the
- * warranty screen, and warranty state is derived from the commissioned date, so
- * this read unions both hardware families in SQL, filters by computed state and
- * pages the result with exact counts.
- */
-export async function get_customerDevicesWarranty(req: any, res: Response): Promise<any> {
-  const scope = resolveCustomerDeviceScope(req, res);
-  if (!scope) return;
-  const opts = {
-    ...customerDeviceQueryOptions(req, scope),
-    warranty: req.query?.warranty,
-    category: req.query?.category,
-  };
-  const paging = normalizeCustomerDevicePaging(req.query?.page, req.query?.pageSize);
-
-  if (scope.empty) {
-    return res.json({ data: [], page: 1, pageSize: paging.pageSize, totalItems: 0, counts: { total: 0, valid: 0, expiring: 0, expired: 0 } });
-  }
-
-  if (getPgConnected()) {
-    try {
-      const list = buildWarrantyDirectoryQuery(opts, paging.page, paging.pageSize);
-      const count = buildWarrantyCountQuery(opts);
-      const summary = buildWarrantySummaryQuery(opts);
-      const [rows, totals, counts] = await Promise.all([
-        pgPool.query(list.sql, list.params as any[]),
-        pgPool.query(count.sql, count.params as any[]),
-        pgPool.query(summary.sql, summary.params as any[]),
-      ]);
-      res.json({
-        data: rows.rows,
-        page: paging.page,
-        pageSize: paging.pageSize,
-        totalItems: Number(totals.rows[0]?.count) || 0,
-        counts: {
-          total: Number(counts.rows[0]?.total) || 0,
-          valid: Number(counts.rows[0]?.valid) || 0,
-          expiring: Number(counts.rows[0]?.expiring) || 0,
-          expired: Number(counts.rows[0]?.expired) || 0,
-        },
-      });
-      return;
-    } catch (err: any) {
-      console.error('Error reading the warranty directory from DB:', err);
-      return res.status(500).json({ message: 'Could not load the warranty directory from the database. Reload to retry.' });
-    }
-  }
-
-  const mirror = buildWarrantyMirror(opts);
-  const offset = (paging.page - 1) * paging.pageSize;
-  res.json({
-    data: mirror.data.slice(offset, offset + paging.pageSize),
-    page: paging.page,
-    pageSize: paging.pageSize,
-    totalItems: mirror.data.length,
-    counts: mirror.counts,
-  });
 }
 
 /** Forwarded from inventory.routes.ts (post_customerDevices). */

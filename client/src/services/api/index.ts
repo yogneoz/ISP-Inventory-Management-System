@@ -34,11 +34,13 @@ import * as finance from './finance';
 import * as admin from './admin';
 import * as search from './search';
 import * as settings from './settings';
+import * as warranty from './warranty';
 
 export { API_BASE, fetchJson, setAuthToken, setUserContext, setFiscalYearContext, setActiveBranchContext, getActiveBranchId } from './http';
 export { subscribeToSyncStream, getSyncVersion, broadcastLogoutToOtherTabs } from './sync';
 export type { SyncRelayMessage } from './sync';
 export { safeParseHistory } from './inventory';
+export type { WarrantyRegisterQuery, WarrantyCorrectionInput } from './warranty';
 
 export const api = {
   // Bootstrap
@@ -168,11 +170,15 @@ export const api = {
   getAuditTrail: inventory.getAuditTrail,
   getTransactionLogs: inventory.getTransactionLogs,
 
+  // Warranty registers (WTY-6): supplier-side and seller-side coverage
+  fetchVendorWarranties: warranty.fetchVendorWarranties,
+  fetchSellerWarranties: warranty.fetchSellerWarranties,
+  updateWarrantyCoverage: warranty.updateWarrantyCoverage,
+
   // Customer Devices & Serial Numbers
   getCustomerDevicePage: inventory.getCustomerDevicePage,
   getCustomerDeviceExport: inventory.getCustomerDeviceExport,
   getCustomerDeviceOverview: inventory.getCustomerDeviceOverview,
-  getCustomerDeviceWarranty: inventory.getCustomerDeviceWarranty,
   createCustomerDevice: inventory.createCustomerDevice,
   updateCustomerDeviceStatus: inventory.updateCustomerDeviceStatus,
   exchangeCustomerDevice: inventory.exchangeCustomerDevice,

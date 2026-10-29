@@ -26,6 +26,7 @@ import {
   Building2,
   Users,
   UserCheck,
+  ShieldAlert,
   ShieldCheck,
   ClipboardList,
   ChevronDown,
@@ -118,7 +119,8 @@ export type NavTab =
   | 'fiscal-year-management'
   | 'fiscal-year-closing'
   | 'audit'
-  | 'warranty-products'
+  | 'supplier-warranty'
+  | 'seller-warranty'
   | 'company-setup'
   | 'data-recalculation'
   | 'help-documentation'
@@ -191,7 +193,8 @@ export const NAV_TABS: NavTab[] = [
   'fiscal-year-management',
   'fiscal-year-closing',
   'audit',
-  'warranty-products',
+  'supplier-warranty',
+  'seller-warranty',
   'company-setup',
   'data-recalculation',
   'help-documentation',
@@ -283,7 +286,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ? [{ id: 'complete-serial-inventory' as NavTab, label: 'Serial Log Register', icon: Package, hasSeparatorAbove: true }]
       : []),
     { id: 'customer-devices' as NavTab, label: 'Customer Device Serials', icon: Smartphone },
-    { id: 'warranty-products' as NavTab, label: 'View Warranty Products', icon: ShieldCheck },
+    ...(isOperationAllowed('warranty-view', currentUser?.role)
+      ? [
+          { id: 'supplier-warranty' as NavTab, label: 'Suppliers Warranty', icon: ShieldCheck },
+          { id: 'seller-warranty' as NavTab, label: 'Sellers Warranty', icon: ShieldAlert },
+        ]
+      : []),
     { id: 'device-exchange' as NavTab, label: 'Device Exchange & Replacement', icon: RefreshCw },
   ];
   groups.push({

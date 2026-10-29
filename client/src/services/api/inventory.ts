@@ -15,7 +15,6 @@ import type {
   User,
   CustomerDeviceOverview,
   CustomerDevicePage,
-  WarrantyDirectoryPage,
   FixedAssetPage,
   FixedAssetOverview,
 } from '../../types';
@@ -443,22 +442,6 @@ export async function getCustomerDeviceExport(params: CustomerDeviceQueryParams 
 /** Exact per-status counts for the register KPIs. */
 export async function getCustomerDeviceOverview(params: CustomerDeviceQueryParams = {}): Promise<CustomerDeviceOverview> {
   return fetchJson(`/api/customer-devices/overview${customerDeviceQueryString(params)}`);
-}
-
-/** The warranty directory: CPE + fixed assets, paged, with computed states. */
-export async function getCustomerDeviceWarranty(
-  params: CustomerDeviceQueryParams & { warranty?: string; category?: string } = {},
-  page = 1,
-  pageSize = 15
-): Promise<WarrantyDirectoryPage> {
-  return fetchJson(
-    `/api/customer-devices/warranty${customerDeviceQueryString(params, {
-      page,
-      pageSize,
-      warranty: params.warranty,
-      category: params.category,
-    })}`
-  );
 }
 
 export async function createCustomerDevice(

@@ -795,12 +795,25 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
       /refreshKey=\{registerRefresh\.customerDevices\}/
     );
 
-    const warranty = readFeatureSource('inventory/WarrantyProducts.tsx');
-    assert.match(warranty, /refreshKey\?: number;/);
-    assert.match(warranty, /api\.getCustomerDeviceWarranty\(/);
-    assert.match(warranty, /refreshKey, retryKey\]\);/);
+    // WTY-6: the two warranty registers share one paged body and both re-read
+    // when the device/asset counter bumps (a capture can add or retire a row).
+    const warrantyRegister = readFeatureSource('inventory/warranty/WarrantyRegister.tsx');
+    assert.match(warrantyRegister, /api\.fetchVendorWarranties\b/);
+    assert.match(warrantyRegister, /api\.fetchSellerWarranties\b/);
+    assert.match(warrantyRegister, /refreshKey,\s+retryKey,/);
+    assertNoRawFetch(warrantyRegister, 'WarrantyRegister.tsx');
+
+    const supplierWarranty = readFeatureSource('inventory/SupplierWarrantyRegister.tsx');
+    assert.match(supplierWarranty, /coverageType="VENDOR"/);
     assertEveryRenderSiteWired(
-      'WarrantyProducts',
+      'SupplierWarrantyRegister',
+      /refreshKey=\{registerRefresh\.customerDevices\}/
+    );
+
+    const sellerWarranty = readFeatureSource('inventory/SellerWarrantyRegister.tsx');
+    assert.match(sellerWarranty, /coverageType="SELLER"/);
+    assertEveryRenderSiteWired(
+      'SellerWarrantyRegister',
       /refreshKey=\{registerRefresh\.customerDevices\}/
     );
 
@@ -1044,7 +1057,10 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'inventory/ProductSearchBar.tsx': [],
     'inventory/ReorderStockTracking.tsx': [],
     'inventory/StockValuation.tsx': [],
-    'inventory/WarrantyProducts.tsx': ['getCustomerDeviceWarranty'],
+    'inventory/SupplierWarrantyRegister.tsx': [],
+    'inventory/SellerWarrantyRegister.tsx': [],
+    'inventory/warranty/WarrantyEditModal.tsx': ['updateWarrantyCoverage'],
+    'inventory/warranty/WarrantyRegister.tsx': ['fetchSellerWarranties', 'fetchVendorWarranties'],
     'procurement/ReceiveInboundWarehouse.tsx': [],
     'procurement/SuppliersManagement.tsx': [],
     'sales/CustomerMasterDirectory.tsx': ['createCustomer', 'deleteCustomer', 'getCustomerDeviceOverview', 'getCustomerDevicePage', 'getCustomers', 'updateCustomer'],
@@ -1216,9 +1232,9 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
         'finance/FixedAssetRegister.tsx',
         'inventory/AssetDeployments.tsx',
         'inventory/SerialLogRegister.tsx',
-        // VOL-4b: the warranty directory pages its CPE + fixed-asset union.
-        'inventory/WarrantyProducts.tsx',
         'inventory/stockops/ConsumablesRegisterPanel.tsx',
+        // WTY-6: the shared warranty register pages both coverage sides.
+        'inventory/warranty/WarrantyRegister.tsx',
         'procurement/PurchaseInvoices.tsx',
         'procurement/PurchaseOrders.tsx',
         'procurement/ShipmentRegister.tsx',
