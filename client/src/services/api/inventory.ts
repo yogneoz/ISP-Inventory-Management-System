@@ -97,6 +97,8 @@ export async function createAsset(
      *  the rental-CPE customer_device_records row it creates. */
     devicePonSerial?: string;
     deviceMacAddress?: string;
+    /** WTY-4: exact supplier warranty expiry captured with the asset. */
+    supplierWarrantyEndDateAD?: string;
   }
 ): Promise<Asset> {
   return fetchJson('/api/assets', {

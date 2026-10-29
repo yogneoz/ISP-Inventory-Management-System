@@ -13,6 +13,15 @@ import { calculateFixedAssetValues } from '../../../client/src/utils/depreciatio
 import { buildDamageRecordInsert, quarantineSerialsInDb, quarantineInMemorySerials, deriveDamageItems, validateReversalAvailability, buildReversalLedgerWithStock, buildReversalLedgerFromRestoredRows, restoreSerialsInDb, mirrorReversal, restoreInMemorySerials, buildDamagePoolLedgerChange } from '../services/damage.service';
 import { shouldRestockOnUnassign, buildRestockTransaction, restoreInMemorySerial, cpeFindPatterns, buildCpeReversalClose } from '../services/unassignRestock.service';
 import { buildAssetCollectionNotes, collectCpeFixedAsset, exchangeCpeFixedAsset, exchangeOutLedgerId } from '../services/cpeAssetLifecycle.service';
+import {
+  defaultCoverageEnd,
+  recordWarrantyCoverage,
+  recordWarrantyCoverageMirror,
+  supersedeVendorCoverageForAsset,
+  supersedeVendorCoverageForAssetMirror,
+  warrantyDateError,
+  warrantyMonthsFor,
+} from '../services/warranty.service';
 import { SerialGateError, planSerialGateEntries, resolveSerialGateInDb, resolveSerialGateInMemory, serialGateKey } from '../services/serialGate.service';
 import {
   issueOperationSerialsInDb,
@@ -771,6 +780,43 @@ try {
     const deployFromStock = req.body.deployFromStock === true &&
       ['ASSIGNED_TO_LOCATION', 'ASSIGNED_TO_CUSTOMER'].includes(String(newAsset.status)) &&
       Boolean(newAsset.productId);
+
+    // WTY-4: one supplier coverage per registered asset, keyed by its tag. The
+    // operator's expiry wins; otherwise the linked product's supplier term
+    // prefills it (12 when no product is linked). A reversed or malformed date
+    // refuses the write instead of being clamped. Assets consumed from stock
+    // already carry the coverage the purchase invoice captured, so they are not
+    // keyed a second time by tag.
+    const assetWarrantyStartAD = String(newAsset.acquisitionDateAD).split('T')[0];
+    const assetWarrantyProduct = products.find((entry) => entry.id === newAsset.productId);
+    const typedAssetWarrantyEnd = String(req.body.supplierWarrantyEndDateAD || '').trim();
+    if (typedAssetWarrantyEnd) {
+      const warrantyError = warrantyDateError(assetWarrantyStartAD, typedAssetWarrantyEnd);
+      if (warrantyError) return res.status(400).json({ message: warrantyError });
+    }
+    const assetWarrantyEnd = typedAssetWarrantyEnd
+      || defaultCoverageEnd(assetWarrantyStartAD, assetWarrantyProduct, 'VENDOR').endDateAD;
+    const assetWarranty = !deployFromStock && assetWarrantyEnd
+      ? {
+          coverageType: 'VENDOR' as const,
+          itemCategory: 'FIXED_ASSET' as const,
+          productId: newAsset.productId || null,
+          productName: newAsset.name,
+          serialNumber: newAsset.tagNumber,
+          assetId: newAsset.id,
+          branchId: newAsset.branchId,
+          partyName: newAsset.supplierName || null,
+          sourceType: 'FIXED_ASSET',
+          sourceId: newAsset.id,
+          sourceNumber: newAsset.tagNumber,
+          startDateAD: assetWarrantyStartAD,
+          endDateAD: assetWarrantyEnd,
+          termMonths: warrantyMonthsFor(assetWarrantyProduct, 'VENDOR'),
+          startBasis: 'ACQUISITION_DATE',
+          isDemo: false,
+        }
+      : null;
+
     if (deployFromStock) {
       const qty = 1;
       const branchId = String(newAsset.branchId);
@@ -977,9 +1023,16 @@ try {
     // gate refuses must not leave a phantom asset behind in the register.
     const idx = assetRegister.findIndex((a) => a.id === newAsset.id);
     setAssetRegister(idx >= 0 ? withReplaced(assetRegister, idx, newAsset as any) : withPrepended(assetRegister, newAsset as any));
+    // Demo-mode twin of the coverage write above.
+    if (!getPgConnected() && assetWarranty) recordWarrantyCoverageMirror(assetWarranty);
 
     if (getPgConnected()) {
-      await pgPool.query(ASSET_UPSERT_SQL, assetUpsertParams(newAsset));
+      // The asset and the supplier coverage it creates commit together, so a
+      // failed coverage insert cannot leave an asset the register never saw.
+      await withTransaction(async (client) => {
+        await client.query(ASSET_UPSERT_SQL, assetUpsertParams(newAsset));
+        if (assetWarranty) await recordWarrantyCoverage(client, assetWarranty);
+      });
     }
     logAuditEvent(req, 'ASSIGN_FIXED_ASSET', 'FIXED_ASSETS', `Assigned / Registered Fixed Asset Tag #${newAsset.tagNumber} (${newAsset.name}) at branch ${newAsset.branchId}${deployFromStock ? ` — deducted ${1} unit of ${newAsset.productId} from branch stock` : ''}`);
     res.status(201).json(newAsset);
@@ -1015,6 +1068,9 @@ try {
     // and duplicate unassign calls never double-restore.
     const isUnassign = String(req.body?.status || '') === 'ACTIVE' &&
       ['ASSIGNED_TO_LOCATION', 'ASSIGNED_TO_CUSTOMER'].includes(prevStatus);
+    // WTY-4: a disposed asset keeps its coverage history but stops being a
+    // current supplier obligation.
+    const isDisposal = String(req.body?.status || '') === 'DISPOSED';
     const todayAD = new Date().toISOString().split('T')[0];
     let restockTxn: TransactionLog | null = null;
 
@@ -1119,19 +1175,23 @@ try {
       // clearing any of them (unassign) must also reach the database. An
       // asset unassign is already fully written by the lifecycle service.
       const b = req.body || {};
-      await pgPool.query(ASSET_SET_ASSIGNMENT_SQL, [
-        b.status || 'ACTIVE',
-        b.assignedType || null,
-        b.assignedCustomerId || null,
-        b.assignedCustomerName || null,
-        b.assignedLocationId || null,
-        b.assignedLocationName || null,
-        b.assignmentDateAD || null,
-        b.assignmentDateBS || null,
-        b.assignmentNotes || null,
-        id,
-      ]);
+      await withTransaction(async (client) => {
+        await client.query(ASSET_SET_ASSIGNMENT_SQL, [
+          b.status || 'ACTIVE',
+          b.assignedType || null,
+          b.assignedCustomerId || null,
+          b.assignedCustomerName || null,
+          b.assignedLocationId || null,
+          b.assignedLocationName || null,
+          b.assignmentDateAD || null,
+          b.assignmentDateBS || null,
+          b.assignmentNotes || null,
+          id,
+        ]);
+        if (isDisposal) await supersedeVendorCoverageForAsset(client, id);
+      });
     }
+    if (isDisposal && !getPgConnected()) supersedeVendorCoverageForAssetMirror(id);
     logAuditEvent(req, 'UPDATE_ASSET_STATUS', 'FIXED_ASSETS', `Updated Fixed Asset status to ${req.body.status || 'UPDATED'}`);
     res.json(asset || req.body);
   } catch (err: any) {

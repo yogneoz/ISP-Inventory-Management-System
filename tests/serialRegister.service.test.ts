@@ -63,8 +63,8 @@ describe('planPurchaseSerialEntries', () => {
     );
     assert.equal(plan.error, null);
     assert.deepEqual(plan.entries, [
-      { deviceSerial: 'SN-1', ponSerial: 'PON-1', macAddress: 'AA', productId: 'p-onu', productName: 'ONU ROUTER', branchId: 'WH001' },
-      { deviceSerial: 'SN-2', ponSerial: 'PON-2', macAddress: 'BB', productId: 'p-onu', productName: 'ONU ROUTER', branchId: 'WH001' },
+      { deviceSerial: 'SN-1', ponSerial: 'PON-1', macAddress: 'AA', productId: 'p-onu', productName: 'ONU ROUTER', branchId: 'WH001', lineIndex: 0 },
+      { deviceSerial: 'SN-2', ponSerial: 'PON-2', macAddress: 'BB', productId: 'p-onu', productName: 'ONU ROUTER', branchId: 'WH001', lineIndex: 0 },
     ]);
   });
 
@@ -168,7 +168,7 @@ describe('planPurchaseSerialEntries', () => {
     );
     assert.equal(serialOnly.error, null);
     assert.deepEqual(serialOnly.entries[0], {
-      deviceSerial: 'SN-9', ponSerial: null, macAddress: null, productId: 'p-sn', productName: 'SERIAL ONLY', branchId: 'WH001',
+      deviceSerial: 'SN-9', ponSerial: null, macAddress: null, productId: 'p-sn', productName: 'SERIAL ONLY', branchId: 'WH001', lineIndex: 0,
     });
   });
 
@@ -209,7 +209,7 @@ describe('purchaseRegisterHistoryEntry', () => {
 describe('applyRegisterEntryToMirror (demo mode)', () => {
   const entry = {
     deviceSerial: 'SN-1', ponSerial: 'PON-1', macAddress: 'AA',
-    productId: 'p-onu', productName: 'ONU ROUTER', branchId: 'WH001',
+    productId: 'p-onu', productName: 'ONU ROUTER', branchId: 'WH001', lineIndex: 0,
   };
   const ctx = {
     id: 'sl-new', timestamp: '2026-10-13T00:00:00Z', sourceId: 'inv-1',

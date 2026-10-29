@@ -32,6 +32,8 @@ export interface PurchaseSerialEntry {
   productId: string;
   productName: string;
   branchId: string;
+  /** Position in the invoice's item list (WTY-4 warranty capture). */
+  lineIndex: number;
 }
 
 /** History entry appended to `serial_log.history_json`. */
@@ -106,7 +108,8 @@ export function planPurchaseSerialEntries(
   const seenPon = new Set<string>();
   const seenMac = new Set<string>();
 
-  for (const item of items || []) {
+  for (let lineIndex = 0; lineIndex < (items || []).length; lineIndex++) {
+    const item = items[lineIndex];
     const product = (products || []).find((p) => p.id === item?.productId);
     const raw = Array.isArray(item?.deviceSerials) ? item.deviceSerials : [];
     const pairs = raw
@@ -161,6 +164,7 @@ export function planPurchaseSerialEntries(
         productId: String(item?.productId || ''),
         productName: name,
         branchId,
+        lineIndex,
       });
     }
   }

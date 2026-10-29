@@ -39,6 +39,7 @@ import { getAllowedBranches } from '../../utils/permissions';
 import { getDefaultTaxRate } from '../../utils/taxConfig';
 import { behaviorOf } from '../../utils/productGroupBehavior';
 import { clampLineQuantity } from '../../utils/lineQuantity';
+import { applyWarrantyPrefill, warrantyEndFieldError, warrantyEndFor } from '../../utils/warrantyCapture';
 import { LoadStateNotice } from '../../components/common/LoadStateNotice';
 import { useOpenPurchaseOrders } from '../../services/procurementPendingCache';
 import { normalizeMacAddress } from '../../../../shared/macAddress';
@@ -55,6 +56,10 @@ interface InvoiceFormLine {
   unitPrice: number;
   discount: number;
   deviceSerials: DeviceSerialPair[];
+  /** Suppliers warranty expiry captured with this line (WTY-4). */
+  warrantyEndDateAD?: string;
+  /** True once the operator edits the prefilled expiry. */
+  warrantyTouched?: boolean;
 }
 
 interface PurchaseInvoiceFormProps {
@@ -280,6 +285,8 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
             macAddress: '',
           });
         }
+        // A quantity change never re-derives the warranty expiry: the operator
+        // may already have typed the supplier's contract date.
         updated[existingIdx] = {
           ...updated[existingIdx],
           quantity: newQty,
@@ -309,6 +316,10 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
                   },
                 ]
               : [],
+            warrantyEndDateAD: isSerialized
+              ? warrantyEndFor(purchaseDateAD, prod.vendorWarrantyMonths)
+              : undefined,
+            warrantyTouched: false,
           },
         ];
       }
@@ -389,6 +400,22 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
     updateLineMacAddress(lineIdx, serialIdx, normalized);
   };
 
+  /** Purchase-date change: only untouched prefills follow it. */
+  const handlePurchaseDateChange = (value: string) => {
+    setPurchaseDateAD(value);
+    setLines((prev) =>
+      applyWarrantyPrefill(prev, value, (line) =>
+        products.find((p) => p.id === line.productId)?.vendorWarrantyMonths
+      )
+    );
+  };
+
+  const updateLineWarrantyEnd = (index: number, value: string) => {
+    const updated = [...lines];
+    updated[index] = { ...updated[index], warrantyEndDateAD: value, warrantyTouched: true };
+    setLines(updated);
+  };
+
   const updateLinePrice = (index: number, newPrice: number) => {
     const updated = [...lines];
     updated[index].unitPrice = Math.max(0, newPrice);
@@ -454,6 +481,18 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
         `Vendor bill date (${vendorBillDateAD}) cannot be after the purchase date (${purchaseDateAD}). Please correct the dates and try again.`
       );
       return;
+    }
+
+    // WTY-4: the supplier's expiry is a contract date, so a reversed or
+    // malformed one is refused here and again by the API — never clamped.
+    for (const line of lines) {
+      const product = products.find((p) => p.id === line.productId);
+      if (!isSerialTracked(product)) continue;
+      const warrantyError = warrantyEndFieldError(purchaseDateAD, line.warrantyEndDateAD);
+      if (warrantyError) {
+        setSaveMessage(`${line.productName}: ${warrantyError}`);
+        return;
+      }
     }
 
     // BS dates are mandatory: auto-resolve both dates from the synced seeded
@@ -539,6 +578,7 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
         ...s,
         macAddress: normalizeMacAddress(s.macAddress) || undefined,
       })),
+      warrantyEndDateAD: l.warrantyEndDateAD || undefined,
     }));
 
     // Default to CREDIT mode transaction as requested
@@ -614,7 +654,7 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
                   label="Purchase Date"
                   mode={dateMode}
                   value={purchaseDateAD}
-                  onChange={setPurchaseDateAD}
+                  onChange={handlePurchaseDateChange}
                   required
                   id="pi-purchase-date"
                   min={vendorBillDateAD || undefined}
@@ -1006,7 +1046,7 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
                                   <td colSpan={7} className="px-3 py-2">
                                     <div className="flex items-center gap-2 text-[11px] font-medium text-slate-500 dark:text-slate-400">
                                       <Tag className="h-3.5 w-3.5 text-slate-400" />
-                                      <span>Bulk Consumable Item — Device, PON & MAC serial tracking skipped ({line.quantity} {line.unit})</span>
+                                      <span>Bulk Consumable Item — Device, PON & MAC serial tracking skipped ({line.quantity} {line.unit}); a quantity-only line carries no per-unit supplier warranty</span>
                                     </div>
                                   </td>
                                 </tr>
@@ -1019,6 +1059,24 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
                                   <div className="text-[11px] font-bold text-blue-900 dark:text-blue-300 mb-2 flex items-center gap-1.5">
                                     <Barcode className={`h-3.5 w-3.5 text-blue-600 dark:text-blue-400`} />
                                     <span>Serial Numbers — Device + MAC required, PON optional, for {line.productName} ({line.quantity} Units)</span>
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-2 mb-2">
+                                    <label
+                                      htmlFor={`pi-warranty-${idx}`}
+                                      className="text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400"
+                                    >
+                                      Suppliers warranty expires
+                                    </label>
+                                    <input
+                                      id={`pi-warranty-${idx}`}
+                                      type="date"
+                                      value={line.warrantyEndDateAD || ''}
+                                      onChange={(e) => updateLineWarrantyEnd(idx, e.target.value)}
+                                      className="rounded-lg border px-2 py-1 text-[11px] font-mono font-bold border-blue-200 bg-white text-blue-900 dark:border-blue-800 dark:bg-slate-900 dark:text-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    />
+                                    <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                                      Prefilled from the purchase date + this product's supplier term; an edited date is kept.
+                                    </span>
                                   </div>
                                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                                     {Array.from({ length: line.quantity }).map((_, sIdx) => (

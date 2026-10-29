@@ -14,6 +14,7 @@ import { warrantyCoverages, setWarrantyCoverages } from '../state/runtimeState';
 import {
   WARRANTY_INSERT_SQL,
   WARRANTY_SUPERSEDE_CURRENT_SQL,
+  WARRANTY_SUPERSEDE_BY_ASSET_SQL,
   WARRANTY_SUPERSEDE_BY_DEVICE_SQL,
   WARRANTY_SUPERSEDE_BY_SOURCE_SQL,
   WARRANTY_SUPERSEDE_BY_ID_SQL,
@@ -75,6 +76,68 @@ export function normalizeTermMonths(value: unknown): number | null | undefined {
   const numeric = Number(value);
   if (!Number.isFinite(numeric) || numeric < 0 || numeric > MAX_WARRANTY_MONTHS) return undefined;
   return Math.trunc(numeric);
+}
+
+/**
+ * WTY-4: the VENDOR coverages a purchase receipt creates, one per serialised
+ * unit, in the invoice's own transaction. The operator's expiry wins; otherwise
+ * the product's supplier term prefills it (0 means the product carries none).
+ * A malformed/reversed date is a refusal, never a clamp.
+ */
+export interface PurchaseCoverageEntry {
+  deviceSerial: string;
+  productId: string;
+  productName: string;
+  /** Position in the invoice's item list, so duplicate products stay distinct. */
+  lineIndex: number;
+}
+
+export function buildPurchaseWarrantyCaptures(args: {
+  invoiceDateAD: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  supplierId?: string | null;
+  supplierName?: string | null;
+  branchId: string;
+  entries: PurchaseCoverageEntry[];
+  lines: Array<{ warrantyEndDateAD?: string }>;
+  productFor: (productId: string) => Product | undefined;
+}): { captures: CaptureCoverageInput[]; error: string | null } {
+  const captures: CaptureCoverageInput[] = [];
+  for (const entry of args.entries) {
+    const product = args.productFor(entry.productId);
+    const line = args.lines[entry.lineIndex];
+    const typedEnd = typeof line?.warrantyEndDateAD === 'string' ? line.warrantyEndDateAD.trim() : '';
+    const termMonths = warrantyMonthsFor(product, 'VENDOR');
+    let endDateAD: string | null;
+    if (typedEnd) {
+      const dateError = warrantyDateError(args.invoiceDateAD, typedEnd);
+      if (dateError) return { captures: [], error: `${entry.productName}: ${dateError}` };
+      endDateAD = typedEnd;
+    } else {
+      endDateAD = defaultCoverageEnd(args.invoiceDateAD, product, 'VENDOR').endDateAD;
+    }
+    if (!endDateAD) continue;
+    captures.push({
+      coverageType: 'VENDOR',
+      itemCategory: 'CPE',
+      productId: entry.productId || null,
+      productName: entry.productName,
+      serialNumber: entry.deviceSerial,
+      branchId: args.branchId,
+      partyId: args.supplierId || null,
+      partyName: args.supplierName || null,
+      sourceType: 'PURCHASE_INVOICE',
+      sourceId: args.invoiceId,
+      sourceNumber: args.invoiceNumber,
+      startDateAD: args.invoiceDateAD,
+      endDateAD,
+      termMonths,
+      startBasis: 'INVOICE_DATE',
+      isDemo: false,
+    });
+  }
+  return { captures, error: null };
 }
 
 /**
@@ -160,6 +223,23 @@ export async function supersedeCoverageBySource(
   sourceId: string
 ): Promise<void> {
   await executor.query(WARRANTY_SUPERSEDE_BY_SOURCE_SQL, [coverageType, sourceType, sourceId]);
+}
+
+/** Fixed-asset disposal/edit: retire the current supplier row for one asset. */
+export async function supersedeVendorCoverageForAsset(
+  executor: { query: (sql: string, params?: any[]) => Promise<any> },
+  assetId: string
+): Promise<void> {
+  await executor.query(WARRANTY_SUPERSEDE_BY_ASSET_SQL, [assetId]);
+}
+
+export function supersedeVendorCoverageForAssetMirror(assetId: string): void {
+  const now = new Date().toISOString();
+  setWarrantyCoverages(warrantyCoverages.map((row) =>
+    row.coverageType === 'VENDOR' && row.assetId === assetId && row.isCurrent
+      ? { ...row, isCurrent: false, supersededAt: now }
+      : row
+  ));
 }
 
 export function supersedeCoverageBySourceMirror(

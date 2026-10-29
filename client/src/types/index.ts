@@ -377,6 +377,8 @@ export interface PurchaseInvoiceItem {
   taxAmount: number;
   total: number;
   deviceSerials?: DeviceSerialPair[];
+  /** WTY-4: the supplier warranty expiry captured with this serialised line. */
+  warrantyEndDateAD?: string;
 }
 
 export interface CustomerDeviceRecord {

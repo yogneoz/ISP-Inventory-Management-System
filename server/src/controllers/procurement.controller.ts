@@ -45,6 +45,13 @@ import {
   purchaseRegisterHistoryEntry, SerialRegisterError,
 } from '../services/serialRegister.service';
 import type { PurchaseSerialEntry } from '../services/serialRegister.service';
+import {
+  buildPurchaseWarrantyCaptures,
+  recordWarrantyCoverage,
+  recordWarrantyCoverageMirror,
+  supersedeCoverageBySource,
+  supersedeCoverageBySourceMirror,
+} from '../services/warranty.service';
 /** Forwarded from procurement.routes.ts (get_purchaseOrders). */
 export async function get_purchaseOrders(req: any, res: Response): Promise<any> {
 const { branchId, status, supplier, query, dateFromAD, dateToAD, page, pageSize, all } = req.query;
@@ -576,6 +583,25 @@ try {
     );
     const resolvedSupplierId = supplierId || supLookup?.id || null;
 
+    // WTY-4: the supplier's warranty is captured from the bill that creates the
+    // units, one VENDOR row per serial. Planned before any write so a reversed
+    // or malformed expiry refuses the whole bill.
+    const warrantyPlan = buildPurchaseWarrantyCaptures({
+      invoiceDateAD: newInv.invoiceDateAD,
+      invoiceId: newInv.id,
+      invoiceNumber: newInv.invoiceNumber,
+      supplierId: resolvedSupplierId,
+      supplierName: newInv.supplierName,
+      branchId: targetBranchId,
+      entries: serialPlan.entries,
+      lines: items,
+      productFor: (productId) => products.find((entry) => entry.id === productId) as any,
+    });
+    if (warrantyPlan.error) {
+      res.status(400).json({ message: warrantyPlan.error });
+      return;
+    }
+
     if (getPgConnected()) {
       // All-or-nothing: invoice upsert + per-item stock receive + txn log + PO
       // status flip must commit together or not at all.
@@ -607,6 +633,14 @@ try {
           await registerPurchaseSerials(client, serialPlan.entries, newInv, targetBranchId);
         }
 
+        // Same transaction as the receipt: either the units and their supplier
+        // coverages both exist, or a rolled-back receipt leaves neither.
+        if (!invoiceAlreadyExists) {
+          for (const capture of warrantyPlan.captures) {
+            await recordWarrantyCoverage(client, capture);
+          }
+        }
+
         const poRef = newInv.poReferenceId || req.body.poId;
         if (poRef) {
           await client.query(PO_MARK_STATUS_SQL, ['RECEIVED', poRef]);
@@ -621,6 +655,11 @@ try {
     if (!getPgConnected()) {
       const idx = purchaseInvoices.findIndex((i) => i.id === newInv.id);
       setPurchaseInvoices(idx >= 0 ? withReplaced(purchaseInvoices, idx, newInv) : withPrepended(purchaseInvoices, newInv));
+    }
+
+    // Demo mode (PG down) twin of the coverage write above.
+    if (!getPgConnected() && !invoiceAlreadyExists) {
+      for (const capture of warrantyPlan.captures) recordWarrantyCoverageMirror(capture);
     }
 
     // Demo mode (PG down) twin of the register write above.
@@ -1562,6 +1601,9 @@ function validateReturnSerials(items: any[]): string | null {
  * RETURNED_TO_VENDOR with a history entry.
  */
 async function applyPurchaseReturnEffects(client: any, ret: any, items: any[], branchId: string): Promise<void> {
+  // WTY-4: a return retires what that bill captured. One statement for the
+  // invoice's VENDOR rows; other purchases keep their current coverage.
+  await supersedeCoverageBySource(client, 'VENDOR', 'PURCHASE_INVOICE', ret.originalInvoiceId);
   for (let itemIdx = 0; itemIdx < items.length; itemIdx++) {
     const item = items[itemIdx];
     const qty = Math.abs(Number(item.quantity)) || 0;
@@ -1709,6 +1751,8 @@ export async function post_purchaseReturns(req: any, res: Response): Promise<any
           }));
         });
         if (demoTxns.length > 0) setTransactionLogs([...demoTxns, ...transactionLogs]);
+        // Demo-mode twin of the coverage supersede in applyPurchaseReturnEffects.
+        supersedeCoverageBySourceMirror('VENDOR', 'PURCHASE_INVOICE', newRet.originalInvoiceId);
       }
     }
 

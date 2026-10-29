@@ -1463,7 +1463,10 @@ export default function App() {
 
   // Asset Actions
   const handleCreateAsset = async (
-    asset: Omit<Asset, 'id' | 'netBookValue' | 'accumulatedDepreciation'>
+    asset: Omit<Asset, 'id' | 'netBookValue' | 'accumulatedDepreciation'> & {
+      /** WTY-4: exact supplier warranty expiry captured with the asset. */
+      supplierWarrantyEndDateAD?: string;
+    }
   ) => {
     await api.createAsset(asset);
 

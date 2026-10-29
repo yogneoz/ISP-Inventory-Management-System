@@ -21,6 +21,7 @@ import { useServerPageClamp, TablePagination } from '../../components/common/Tab
 import { PageHeader } from '../../components/common/PageHeader';
 import { RegisterLoadError } from '../../components/common/RegisterLoadError';
 import { useDialog } from '../../components/common/DialogProvider';
+import { warrantyEndFieldError, warrantyEndFor } from '../../utils/warrantyCapture';
 
 const ZERO_TOTALS: FixedAssetTotals = { acquisitionCost: 0, accumulatedDepreciation: 0, netBookValue: 0 };
 
@@ -38,7 +39,10 @@ interface FixedAssetRegisterProps {
   autoOpenModal?: boolean;
   currentUser?: User | null;
   onCreateAsset: (
-    asset: Omit<Asset, 'id' | 'netBookValue' | 'accumulatedDepreciation'>
+    asset: Omit<Asset, 'id' | 'netBookValue' | 'accumulatedDepreciation'> & {
+      /** WTY-4: exact supplier warranty expiry captured with the asset. */
+      supplierWarrantyEndDateAD?: string;
+    }
   ) => Promise<void>;
   onUpdateAssetStatus: (id: string, status: Asset['status']) => Promise<void>;
 }
@@ -87,6 +91,17 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
   const [acquisitionDateAD, setAcquisitionDateAD] = useState(
     new Date().toISOString().split('T')[0]
   );
+  // WTY-4: the supplier expiry is captured with the asset. It follows the
+  // acquisition date only until the operator edits it.
+  const [supplierWarrantyEndDateAD, setSupplierWarrantyEndDateAD] = useState(() =>
+    warrantyEndFor(new Date().toISOString().split('T')[0], 12)
+  );
+  const [warrantyTouched, setWarrantyTouched] = useState(false);
+
+  const handleAcquisitionDateChange = (value: string) => {
+    setAcquisitionDateAD(value);
+    if (!warrantyTouched) setSupplierWarrantyEndDateAD(warrantyEndFor(value, 12));
+  };
 
   // A filter change snaps back to page 1 in the same commit, so a search edit
   // never requests the previous filter's page number.
@@ -138,6 +153,15 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
       setBsError(`BS date is not available for ${acquisitionDateAD}. Please contact your system administrator for BS month seeding — ${BS_SEEDING_MENU_PATH}.`);
       return;
     }
+    const warrantyError = warrantyEndFieldError(
+      acquisitionDateAD,
+      supplierWarrantyEndDateAD,
+      'Supplier warranty expiry'
+    );
+    if (warrantyError) {
+      setBsError(warrantyError);
+      return;
+    }
     setBsError(null);
 
     await onCreateAsset({
@@ -151,6 +175,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
       purchaseInvoiceDateBS: acquisitionDateBS,
       capitalizationDateAD: acquisitionDateAD,
       placedInServiceDateAD: acquisitionDateAD,
+      supplierWarrantyEndDateAD: supplierWarrantyEndDateAD || undefined,
       acquisitionCost: Number(acquisitionCost),
       depreciationMethod,
       depreciationRatePercent: Number(depreciationRatePercent),
@@ -220,6 +245,9 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                 onClick={() => {
                   setTagNumber(`AST-${Math.floor(1000 + Math.random() * 9000)}`);
                   setName('');
+                  setSupplierWarrantyEndDateAD(warrantyEndFor(acquisitionDateAD, 12));
+                  setWarrantyTouched(false);
+                  setBsError(null);
                   setIsModalOpen(true);
                 }}
                 className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-blue-700 shadow-md shadow-blue-600/20 transition-all cursor-pointer"
@@ -572,10 +600,29 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                     label="Acquisition Date"
                     mode={dateMode}
                     value={acquisitionDateAD}
-                    onChange={setAcquisitionDateAD}
+                    onChange={handleAcquisitionDateChange}
                     required
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                  Supplier Warranty Expires
+                </label>
+                <input
+                  id="asset-supplier-warranty-expiry"
+                  type="date"
+                  value={supplierWarrantyEndDateAD}
+                  onChange={(e) => {
+                    setSupplierWarrantyEndDateAD(e.target.value);
+                    setWarrantyTouched(true);
+                  }}
+                  className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100`}
+                />
+                <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
+                  Prefilled from the acquisition date + 12 months; an edited expiry is kept.
+                </p>
               </div>
 
               <div className="grid grid-cols-3 gap-3">

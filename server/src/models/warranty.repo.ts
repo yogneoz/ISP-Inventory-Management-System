@@ -274,6 +274,11 @@ export const WARRANTY_SUPERSEDE_BY_SOURCE_SQL = `UPDATE warranty_coverages SET
   is_current = FALSE, superseded_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
 WHERE coverage_type = $1 AND source_type = $2 AND source_id = $3 AND is_current = TRUE`;
 
+/** Supersede the current supplier row a fixed asset created (disposal/edit). */
+export const WARRANTY_SUPERSEDE_BY_ASSET_SQL = `UPDATE warranty_coverages SET
+  is_current = FALSE, superseded_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+WHERE coverage_type = 'VENDOR' AND asset_id = $1 AND is_current = TRUE`;
+
 /** Supersede every current row for a device record (collection/exchange). */
 export const WARRANTY_SUPERSEDE_BY_DEVICE_SQL = `UPDATE warranty_coverages SET
   is_current = FALSE, superseded_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
