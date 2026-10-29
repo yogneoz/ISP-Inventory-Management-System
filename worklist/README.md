@@ -19,13 +19,11 @@ is the plan, not a second source of truth.
 - [parked.md](parked.md) — decisions we are not acting on, with the trigger to
   reopen each one.
 - [done/](done/README.md) — completed rounds, kept for reference. Never delete.
-- [round-9/](round-9/README.md) — **active**: the two-sided warranty registers,
-  one note per slice ([WTY-1](round-9/WTY-1.md) foundation →
-  [WTY-2](round-9/WTY-2.md) API → [WTY-3](round-9/WTY-3.md) product defaults →
-  [WTY-4](round-9/WTY-4.md)/[WTY-5](round-9/WTY-5.md) capture →
-  [WTY-6](round-9/WTY-6.md) registers → [WTY-7](round-9/WTY-7.md) demo data →
-  [WTY-8](round-9/WTY-8.md) docs and gates). Round 8 (the bug & loop audit)
-  closed on 2026-10-28 ([note](done/2026-10-28-round-8.md)).
+- **No active round.** Round 9 (the two-sided warranty registers) closed on
+  2026-10-29 — [close note](done/2026-10-29-round-9.md), per-slice notes in
+  [done/2026-10-29-round-9/](done/2026-10-29-round-9/README.md). Round 8 (the
+  bug & loop audit) closed on 2026-10-28
+  ([note](done/2026-10-28-round-8.md)).
 
 ## Status vocabulary
 
@@ -66,14 +64,16 @@ checklist here.
 
 ## Active work
 
-**Round 9 is active (2026-10-28)** — the two-sided warranty build. The approved
-plan is registered slice by slice in [round-9/](round-9/README.md): exact expiry
-dates, a `warranty_coverages` table, product defaults, capture at
-purchase/asset/issue/sale/exchange, the **Suppliers Warranty** and **Sellers
-Warranty** registers, legacy backfill, demo data, docs and tests. Each slice has
-its own note, acceptance list and commit (`WTY-1`…`WTY-8`); WTY-1–3 carry a
-partial scaffold from the interrupted first pass and are marked as such until
-their gates run. Claims/RMA is recorded as the next module, not open work. Round 8 closed on 2026-10-28 — see
+**Round 9 closed on 2026-10-29** — the two-sided warranty build. Every slice
+(`WTY-1`…`WTY-8`) shipped with its own note and commit; the compact record is
+[done/2026-10-29-round-9.md](done/2026-10-29-round-9.md) and the per-slice
+notes are archived in
+[done/2026-10-29-round-9/](done/2026-10-29-round-9/README.md). The round now
+stores the supplier's promise and the customer's promise as separate coverage
+periods with exact expiry dates, captures them at purchase/asset/issue/sale/
+exchange, and shows them in the Suppliers Warranty and Sellers Warranty
+registers. Claims/RMA is recorded as the next module with its trigger, not open
+work. **No round is active.** Round 8 closed on 2026-10-28 — see
 [done/2026-10-28-round-8.md](done/2026-10-28-round-8.md): the bug & loop audit
 ([docs/bug-loop-audit-2026-10-27.md](../docs/bug-loop-audit-2026-10-27.md))
 shipped AUD-1 (`fbcd013`, run 188), AUD-2 (`6df8ed7`, run 189) and AUD-3

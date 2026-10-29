@@ -1,6 +1,6 @@
 # WTY-8 — docs, counts and the round-close gates
 
-Status: `[x]` 2026-10-29 · Round 9 close
+Status: `[x]` 2026-10-29 · Commit `2fbbbfb` · Round 9 close
 Order: 8 · Depends on WTY-1…7.
 
 ## Why
@@ -74,7 +74,7 @@ register row, and a new three-row warranty endpoint table.
 - Deleted the dead `client/src/utils/warranty.ts` (`getWarrantyInfo`) and updated
   the stale 67→70 screen comment in `KeepMounted.tsx`.
 
-## Gate evidence (2026-10-29)
+## Gate evidence (2026-10-29) — committed as `2fbbbfb`
 
 - `npx tsc --noEmit` — clean.
 - Full `npm test` — **1567 tests, 1565 pass, 0 fail, 2 Windows-only skips**;

@@ -2,6 +2,8 @@
 
 Dates: 2026-10-28 → 2026-10-29 · Closed 2026-10-29 · Owner: main
 
+Compact close note: [2026-10-29-round-9.md](../2026-10-29-round-9.md).
+
 ## Goal
 
 The warranty directory derives one 12-month countdown from an issue or
@@ -33,7 +35,7 @@ Work proceeds in this order; each note is the slice's single source of truth.
 | 5 | [WTY-5](WTY-5.md) | Seller coverage capture at issue, sale and exchange; supersede on collection/refund | `[x]` `752d3e4` |
 | 6 | [WTY-6](WTY-6.md) | Suppliers Warranty and Sellers Warranty screens, navigation, client API and the device badge | `[x]` `5abf19e` |
 | 7 | [WTY-7](WTY-7.md) | Demo coverage data, clear-demo order and backfill verification | `[x]` `7c56a6c` |
-| 8 | [WTY-8](WTY-8.md) | Docs, table/screen/route/operation counts, full gates and the CI record | `[x]` *(this close)* |
+| 8 | [WTY-8](WTY-8.md) | Docs, table/screen/route/operation counts, full gates and the CI record | `[x]` `2fbbbfb` |
 
 WTY-1 shipped as `bae0efa`, WTY-2 as `f1ebd83` and WTY-3 as `cf84fa1`, each
 after its own gates and with every acceptance line ticked — the coverage API's
