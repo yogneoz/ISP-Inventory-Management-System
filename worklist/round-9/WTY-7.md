@@ -1,6 +1,6 @@
 # WTY-7 — demo coverage, backfill proof and the clear order
 
-Status: `[x]` implemented 2026-10-29 (uncommitted) · Round 9
+Status: `[x]` 2026-10-29 · Commit `7c56a6c` · Round 9
 Order: 7 · Depends on WTY-1/4/5.
 
 ## Why
@@ -58,7 +58,7 @@ The clear path must also remove coverage rows or re-seeding leaves orphans.
 - `server/src/models/admin.repo.ts` — `warranty_coverages` is the FIRST demo
   table cleared, before products, fixed assets, serials and device records.
 
-## Gate evidence (2026-10-29)
+## Gate evidence (2026-10-29) — committed as `7c56a6c`
 
 - `npx tsc --noEmit` — clean.
 - New `tests/demoWarrantySeed.test.ts` — the fixture tests plus the live

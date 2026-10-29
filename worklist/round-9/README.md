@@ -32,7 +32,7 @@ Work proceeds in this order; each note is the slice's single source of truth.
 | 4 | [WTY-4](WTY-4.md) | Vendor coverage capture at purchase invoice and fixed asset; supersede on return/disposal | `[x]` `870726b` |
 | 5 | [WTY-5](WTY-5.md) | Seller coverage capture at issue, sale and exchange; supersede on collection/refund | `[x]` `752d3e4` |
 | 6 | [WTY-6](WTY-6.md) | Suppliers Warranty and Sellers Warranty screens, navigation, client API and the device badge | `[x]` `5abf19e` |
-| 7 | [WTY-7](WTY-7.md) | Demo coverage data, clear-demo order and backfill verification | `[x]` *(uncommitted)* |
+| 7 | [WTY-7](WTY-7.md) | Demo coverage data, clear-demo order and backfill verification | `[x]` `7c56a6c` |
 | 8 | [WTY-8](WTY-8.md) | Docs, table/screen/route/operation counts, full gates and the CI record | `[ ]` |
 
 WTY-1 shipped as `bae0efa`, WTY-2 as `f1ebd83` and WTY-3 as `cf84fa1`, each
@@ -45,11 +45,10 @@ or disposal. WTY-5 is done: every capture surface takes an explicit coverage swi
 returns the stored promise. WTY-6 (`5abf19e`) is done: the two registers read the coverage
 API, the shared correction dialog supersedes through the audited PATCH, and the
 old combined directory (screen, route, nav entry and device endpoint) is gone.
-WTY-7 is implemented and gated: the demo seed now carries 8 run-date-relative
+WTY-7 (`7c56a6c`) is done: the demo seed now carries 8 run-date-relative
 coverages (all three states on both registers), the clear path removes them
 before their parents, and the shipped legacy backfill is proven idempotent
-against a live database. WTY-8 (docs and the final gate/CI record) remains; no
-commit has been made for WTY-7 yet.
+against a live database. WTY-8 (docs and the final gate/CI record) remains.
 
 **WTY-5 scope was amended 2026-10-29** after an audit of blank-expiry behaviour:
 a blank date silently fell back to the product term, so "no warranty for this
