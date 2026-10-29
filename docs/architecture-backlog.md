@@ -475,6 +475,29 @@ does not have to rediscover it.
 | 3 | A: is root re-render cost user-visible yet? If not, A1/A2 are enough for now | A3 |
 | 4 | B: does any report need item-level joins, or only search? **Resolved by B1 (2026-10-25): search only → B2 shipped; B3 parked.** | B3/B4 |
 
+## Product follow-ups
+
+### Two-sided warranty coverage — shipped 2026-10-29
+
+The derived 12-month warranty countdown is gone. `warranty_coverages` stores one
+row per supplier or seller coverage period with the **authoritative exact expiry**
+(plus its start date, term snapshot and start basis), one current row per type +
+serial, and audited supersede instead of overwrite. Product defaults (0 = none)
+prefill every capture, each capture surface has an explicit per-unit switch, and
+the **Suppliers Warranty** / **Sellers Warranty** registers are self-fetching
+paged reads — no bootstrap slice, no read-time recomputation. Round record:
+[round-9](../worklist/done/2026-10-29-round-9.md).
+
+### Claims / RMA — next module, not open work
+
+Recorded as the follow-up trigger, not a started slice. Reopen only when the
+business needs either side of a claim: recovering a failed unit from a supplier
+under the stored supplier coverage, or taking a customer repair/replacement
+through intake, diagnosis and return. The coverage table is the join point — a
+claim must point at a `warranty_coverages` row, never at a recomputed date — and
+the existing approval workflow is the pattern for its state machine. Do not add
+claim demo data or screens before that requirement exists.
+
 ## Explicitly not doing
 
 - **No big-bang App.tsx extraction.** Screens come out one at a time, behind A6.

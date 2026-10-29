@@ -140,9 +140,9 @@ const USER_GUIDES: UserGuide[] = [
       'ISP hardware: Overview → Serial Log Register records every ONU/router unit with its Device Serial, PON Serial and MAC address when it arrives.',
       'Overview → Customer Device Serials: assign a unit to a customer (status IN_STOCK → ACTIVE or RENTAL). The customer\'s device history stays attached to them.',
       'Defective unit? Log the return in Customer Device Serials — a manager must authorize the restock/exchange before the replacement goes out (Overview → Device Exchange & Replacement).',
-      'Warranty: Overview → View Warranty Products to see units still under warranty and their coverage dates.',
+      'Warranty: Inventory → Suppliers Warranty records what the supplier owes us; Inventory → Sellers Warranty records what we promised the customer. Both show the stored expiry and its current state.',
     ],
-    result: 'Every sold item and every customer-installed device is traceable by serial, with warranty and exchange history.',
+    result: 'Every sold item and every customer-installed device is traceable by serial, with its supplier and seller warranty periods and exchange history.',
   },
   {
     id: 'approvals',

@@ -22,7 +22,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 - **Fiscal Year Closing & Lock Wizard**:
   - 5-step guided wizard for year-end inventory valuation, fixed asset depreciation posting, trial balance roll-forward, and IRD period locking.
   - Super Admin re-authentication and downloadable official IRD Audit Closing Certificate.
-- **Role-Based Access Control (RBAC)**: 9 roles × 48 operations permission matrix, editable in-app and persisted server-side in the `permission_matrix` table (with client-side caching).
+- **Role-Based Access Control (RBAC)**: 9 roles × 50 operations permission matrix, editable in-app and persisted server-side in the `permission_matrix` table (with client-side caching).
 - **Vendor Ledger & Payments**: Vendor payments sub-ledger with bank/cheque details, partial payments, payment reversal, and a full vendor ledger report with running balances.
 - **Stock Movement Ledger & Transaction Logs**: Complete audit trail for stock receipts, dispatches, issues, transfers, damage pullouts, and manual adjustments.
 - **Consumable & Fixed Asset Management**:
@@ -30,14 +30,15 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
   - Consumables Issue Register: searchable ledger of consumable issues with branch/status filters, expandable line items, CSV export, and safeguarded reversal (mandatory reason, stock returned, audit-logged).
   - Fixed Asset Register with depreciation schedules (Straight Line, Declining Balance, Written Down Value) and automated Income Tax Act rates.
   - ERP-style asset dates: supplier invoice date, capitalization date, and placed-in-service date. Depreciation starts from the placed-in-service date and is persisted in PostgreSQL.
+- **Two-Sided Warranty Coverage**: every purchased serial and fixed asset can carry the supplier's promise, and every issued/sold unit the promise we give the customer. Each coverage stores its exact expiry date (the authoritative value), the term snapshot that produced it and the start basis; a correction supersedes the old period with an audit entry instead of overwriting history. Product terms (0 = no warranty) prefill every capture, a per-unit switch can explicitly record "no warranty", and the **Suppliers Warranty** / **Sellers Warranty** registers page, filter and show state from the stored expiry.
 - **Serial, MAC, PON & Customer Device Tracking**:
-  - Assign ONUs/routers to customers with PON serial number, MAC address, and warranty tracking.
+  - Assign ONUs/routers to customers with PON serial number and MAC address.
   - Multi-tier approval workflows for device returns, disconnection refunds, and restock.
 - **Purchase Orders, Invoices & Shipments**: Draft, approve, and receive purchase orders with suppliers, manage VAT purchase invoices, and track inter-branch shipments.
 - **Nepali Fiscal Calendar Support**: Native support for BS calendar conversion (AD/BS), Bikram Sambat months, and Nepali fiscal year reporting (2078–2085 BS seeded). The month lengths live in **one** file — `shared/bsCalendarYears.json`, patro-verified month by month — which the client bundle, the server config, the database seeder and the UI seed presets all read, so a year cannot be corrected in one place and stay stale in another (`npm run audit:bs-dates` re-checks the database against it, and the BS Calendar Utility's **Calendar Health** panel runs the same engine in-app — it lists every stored BS date that disagrees with the patro, repairs only the rows whose correct value is derivable, and reports the rest instead of guessing). A year the patro does not publish yet is seeded as *provisional* (its Baisakh 1 derived from the previous year's end, flagged until confirmed), and a day the calendar does not contain is shown as `BS not seeded` rather than dated.
 - **Financial Overview (Management View) & Tax Registers**: Statement of Financial Position and Trading Summary per branch or consolidated (with prior-year comparative and variance), a branch-comparison report, VAT purchase register, and depreciation schedules. Compiled from operational registers — clearly labeled as a management view, not statutory accounting.
 - **Real-Time Multi-User Sync with Targeted Refresh**: Server-Sent Events (SSE) broadcast every mutation tagged with the client-state domain it invalidates. Clients re-fetch **only that domain's slice** (`GET /api/bootstrap/local?key=...`) instead of re-downloading the whole bootstrap; unknown events fall back to a full atomic bootstrap resync.
-- **Automated PostgreSQL Setup**: Built-in automated shell and Node.js setup scripts (`npm run setup:pg`) that can install, configure PostgreSQL, migrate all **30 relational database tables**, and optionally seed a linked demo dataset.
+- **Automated PostgreSQL Setup**: Built-in automated shell and Node.js setup scripts (`npm run setup:pg`) that can install, configure PostgreSQL, migrate all **38 relational database tables**, and optionally seed a linked demo dataset.
 - **Hardened HTTP Surface**:
   - **helmet security headers** on every response (CSP, nosniff, frame protection, cross-origin policies) — configured LAN-safe (no HSTS/`upgrade-insecure-requests` on plain HTTP; re-enable behind a TLS proxy).
   - **Authenticated SSE**: `/api/sync/stream` and `/api/sync/version` require the app's HMAC token via `Authorization: Bearer` header or `?token=` query parameter (EventSource cannot send headers; the client attaches the stored token automatically). Rejections happen before any stream handshake.
@@ -91,7 +92,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 │       │                             #   pipeline incl. helmet, registerAllRoutes); re-exports
 │       │                             #   every historical symbol so imports stay stable
 │       ├── state/runtimeState.ts     # Shared runtime state as ESM live bindings + CACHE_LOADS
-│       ├── boot/dbBoot.ts            # Schema DDL sync (37 tables), seeding, permission matrix
+│       ├── boot/dbBoot.ts            # Schema DDL sync (38 tables), seeding, permission matrix
 │       ├── realtime/sse.ts           # sseClients + broadcastChange (SSE fan-out)
 │       ├── db/transactions.ts        # withTransaction / withConnection helpers
 │       ├── syncDomains.ts            # SSE event → client-domain mapping (targeted refresh)
@@ -113,7 +114,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 │                                     #   rateLimiter.ts, docNumber.ts, fiscalYear.ts)
 │
 ├── scripts/                          # Database Automation Scripts
-│   ├── schema.sql                    # Full PostgreSQL schema — 37 tables, idempotent, safe to re-run
+│   ├── schema.sql                    # Full PostgreSQL schema — 38 tables, idempotent, safe to re-run
 │   ├── setup_db.js                   # Node.js setup: schema + master data + demo dataset + FY backfill
 │   ├── setup_postgres.sh             # Shell: auto-install & configure PostgreSQL (Linux/macOS/Windows)
 │   ├── demo_dataset.js               # Linked demo dataset (is_demo = TRUE)
@@ -199,7 +200,7 @@ npm run setup:pg
 
 **What this script does:**
 1. Connects to PostgreSQL (falls back to the shell installer `setup_postgres.sh` on Linux/macOS if unreachable).
-2. Applies `scripts/schema.sql` — all **37 tables**, constraints, foreign keys, and indexes (fully idempotent, atomic).
+2. Applies `scripts/schema.sql` — all **38 tables**, constraints, foreign keys, and indexes (fully idempotent, atomic).
 3. Seeds fiscal years, the Bikram Sambat calendar (2078–2085 BS), UOMs, document-numbering configs, company profile, branches, and example user accounts.
 4. Seeds the linked demo dataset (products, stock, serial log, fixed assets, purchase orders/invoices, vendor payments) with `is_demo = TRUE`.
 5. Backfills `fiscal_year_id` on transactional rows from their AD dates.
@@ -532,12 +533,22 @@ and pagination, so the client loads exactly one page of rows at a time.
 | Shipment & Transfer Register | `GET /api/shipments/page` (+ `GET /api/shipments/overview`) | **Trimmed from bootstrap** — the register pages; the shell badges, header count, dashboard KPI, notification center and receive lanes read exact per-status counts and the in-flight rows from `/overview`; the FY closing wizard keeps the bounded bare-array `GET /api/shipments` read |
 | Customer Master Directory | `GET /api/customers` | **Trimmed from bootstrap** (VOL-4a) — always a `{ data, page, pageSize, totalItems, activeItems, totalCreditLimit }` envelope; `branchId`, `query`, `status`, `page`, `pageSize` filter server-side, `all=1` returns the full filtered set for CSV export. The `query` contains-search is backed by `idx_customer_records_search_trgm` (120k rows: 406 ms → 32 ms), and every picker in the app reads at most 20 matching rows from here instead of holding the national directory. Branch scope is enforced by the route guard **and** re-applied in SQL from the session; the picker sends the shell's active branch |
 | Fixed Asset Register & Depreciation | `GET /api/fixed-assets/page` (+ `/overview`, `/available`, `/lookup`) | **Trimmed from bootstrap** (ASSET-1) — the register and Asset Deployments page/filter server-side (`pageSize` capped at 200, stable `created_at DESC, id DESC`; the date-wise depreciation view orders by party-invoice date) and the export is the bounded `all=1` read (20,000 rows, `truncated` flag). `/overview` returns exact status counts, formula totals (cost / accumulated / NBV) computed with the **same shared depreciation function the registers render**, `byBranch=1` for Financial Statements, `groupBy=master` for the depreciation summary, and the closing-wizard diagnostics (active count, missing-rate tags, annual depreciation with the 15% statutory fallback). `/available` is the deployment picker's bounded ACTIVE/unassigned list (2,000 + truncation) and `/lookup` resolves one asset by id, tag or serial. Branch scope is re-applied in SQL from the session; the legacy `GET /api/bootstrap/local?key=assets` still answers for an older bundle |
-| Customer Device Register & Warranty | `GET /api/customer-devices/page` (+ `/overview`, `/warranty`) | **Trimmed from bootstrap** (VOL-4b) — the register pages and filters server-side (`pageSize` capped at 200, stable `created_at DESC, id DESC`); `/overview` returns exact per-status counts for the KPI cards; `/warranty` pages a SQL union of rented CPE and fixed assets with the warranty state computed and filtered in SQL. `all=1` returns the filtered export set, capped at 20,000 rows with a `truncated` flag. The search uses `idx_customer_devices_global_trgm` and a new `(branch_id, created_at DESC, id DESC)` page index; branch scope is re-applied in SQL from the session. The legacy bare-array `GET /api/customer-devices` is **retired** (CDR-1, 2026-10-27): EXCH-1 moved the last reader, the Device Exchange picker, to `/page` with the search and the RENTAL/ACTIVE filter applied in SQL, READ-1 deleted the client wrapper, and the server route and its 2,000-row query are gone — no request can ask for a device array. `/api/bootstrap/local?key=customerDevices` is **retired** as well (CDR-2, 2026-10-27): the slice answered the whole `customer_device_records` table to a cached pre-VOL-4b bundle no current screen can call (5.29 MiB raw / 431.5 KiB gzip at the 12k model), so its mapping now feeds the operational cache alone and the key answers 410 Gone — no request can read a device table wholesale |
+| Customer Device Register | `GET /api/customer-devices/page` (+ `/overview`) | **Trimmed from bootstrap** (VOL-4b) — the register pages and filters server-side (`pageSize` capped at 200, stable `created_at DESC, id DESC`); `/overview` returns exact per-status counts for the KPI cards. `all=1` returns the filtered export set, capped at 20,000 rows with a `truncated` flag. The search uses `idx_customer_devices_global_trgm` and a `(branch_id, created_at DESC, id DESC)` page index; branch scope is re-applied in SQL from the session. The legacy bare-array `GET /api/customer-devices` is **retired** (CDR-1, 2026-10-27): EXCH-1 moved the last reader, the Device Exchange picker, to `/page` with the search and the RENTAL/ACTIVE filter applied in SQL, READ-1 deleted the client wrapper, and the server route and its 2,000-row query are gone — no request can ask for a device array. `/api/bootstrap/local?key=customerDevices` is **retired** as well (CDR-2, 2026-10-27): the slice answered the whole `customer_device_records` table to a cached pre-VOL-4b bundle no current screen can call (5.29 MiB raw / 431.5 KiB gzip at the 12k model), so its mapping now feeds the operational cache alone and the key answers 410 Gone — no request can read a device table wholesale |
+| Suppliers Warranty | `GET /api/warranties/vendor` | **Self-fetching** (WTY-6) — the inbound coverage register pages and filters in SQL by `status`, `query`, category, start-date range and the session branch. Each row carries the stored exact expiry plus the server-computed state and days remaining; the KPI cards are exact counts over the whole filtered set. Not a bootstrap slice |
+| Sellers Warranty | `GET /api/warranties/seller` | **Self-fetching** (WTY-6) — the outbound coverage register over the same filtered read. Its rows are what the customer was promised at issue/sale/exchange, with the same stored-expiry state rule; the retired 12-month recomputation is gone |
 
 > **Guarded:** these are the only server-paged lists in the app. Adding a
 > `pageSize:` request key to any other feature screen fails
 > `tests/registerRefreshDomains.test.ts` until it is wired to a register
 > refresh key (see **Targeted Real-Time Refresh** below).
+
+### Warranty coverage endpoints
+
+| Endpoint | Method | Purpose |
+| :--- | :--- | :--- |
+| `/api/warranties/vendor` | GET | Suppliers Warranty page: `status`, `query`, `category`, `startFrom`, `startTo`, `branchId`, `page`, `pageSize`; defaults to **all** statuses and returns the stored exact expiry, the server-computed `warrantyState`/`daysRemaining` and the all-status KPI counts |
+| `/api/warranties/seller` | GET | Sellers Warranty page with the same filters and envelope, over the promise given to the customer |
+| `/api/warranties/:id` | PATCH | Corrects one coverage period: validates the start/end pair, supersedes the current row (history stays) and writes an audit entry; requires `warranty-edit`. Branch scope is resolved from the session, never the query string |
 
 ### `GET /api/bootstrap` refuses honestly when it cannot scope to a fiscal year
 

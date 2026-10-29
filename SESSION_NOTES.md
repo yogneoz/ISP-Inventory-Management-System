@@ -71,7 +71,18 @@ _Date: 2026-10-29 · Branch: main · Tests: 1567/1567 green with a DB (all run i
 > behaviour, so renaming or adding a group keeps the selling, issuing and
 > depreciation rules. Pinned by 3 new test files; suite at **1468/1468**
 > (1466 pass, 0 fail, 2 Windows-only skips). Shipped as `0cc1e8f` (CI run 201
-> green); the docs follow-up `57dd45b` passed as run 202. **No round is active.** The payload work
+> green); the docs follow-up `57dd45b` passed as run 202. **Round 9 closed on
+> 2026-10-29** ([archive](worklist/done/2026-10-29-round-9.md)): warranty
+> coverage is now two explicit objects — what a supplier owes us and what we
+> promise a customer — stored with the authoritative exact expiry and shown in
+> the **Suppliers Warranty** and **Sellers Warranty** registers. Capture runs
+> at purchase invoice, fixed asset, issue, sale and exchange, with a per-unit
+> "no warranty" switch; the old derived 12-month directory, its
+> `/api/customer-devices/warranty` read and its client helper are retired. Demo
+> data exercises all three states on both sides. WTY-1…8 are committed
+> (`bae0efa`, `f1ebd83`, `cf84fa1`, `870726b`, `752d3e4`, `5abf19e`,
+> `7c56a6c`, and the WTY-8 close-out commit); CI was not requested for this
+> round. **No round is active.** The payload work
 > is finished — the remaining-array measurement found no item to open, and the
 > `inventory_stock` trigger is recorded in [2026.md](docs/session-notes/2026.md). The
 > notes are split by year (**SN-1**): entries live in

@@ -1,6 +1,6 @@
 # Round 9 — the two-sided warranty registers
 
-Dates: 2026-10-28 → open · Owner: main
+Dates: 2026-10-28 → 2026-10-29 · Closed 2026-10-29 · Owner: main
 
 ## Goal
 
@@ -33,7 +33,7 @@ Work proceeds in this order; each note is the slice's single source of truth.
 | 5 | [WTY-5](WTY-5.md) | Seller coverage capture at issue, sale and exchange; supersede on collection/refund | `[x]` `752d3e4` |
 | 6 | [WTY-6](WTY-6.md) | Suppliers Warranty and Sellers Warranty screens, navigation, client API and the device badge | `[x]` `5abf19e` |
 | 7 | [WTY-7](WTY-7.md) | Demo coverage data, clear-demo order and backfill verification | `[x]` `7c56a6c` |
-| 8 | [WTY-8](WTY-8.md) | Docs, table/screen/route/operation counts, full gates and the CI record | `[ ]` |
+| 8 | [WTY-8](WTY-8.md) | Docs, table/screen/route/operation counts, full gates and the CI record | `[x]` *(this close)* |
 
 WTY-1 shipped as `bae0efa`, WTY-2 as `f1ebd83` and WTY-3 as `cf84fa1`, each
 after its own gates and with every acceptance line ticked — the coverage API's
@@ -48,7 +48,10 @@ old combined directory (screen, route, nav entry and device endpoint) is gone.
 WTY-7 (`7c56a6c`) is done: the demo seed now carries 8 run-date-relative
 coverages (all three states on both registers), the clear path removes them
 before their parents, and the shipped legacy backfill is proven idempotent
-against a live database. WTY-8 (docs and the final gate/CI record) remains.
+against a live database. WTY-8 closes the round: the docs now state 38 tables /
+70 screens / 50 operations, the retired directory is gone from the help and the
+handoff, and the full gate chain is green (1567 tests, build, bundle budget at
+287.1 kB gz). CI was not run because it was not requested.
 
 **WTY-5 scope was amended 2026-10-29** after an audit of blank-expiry behaviour:
 a blank date silently fell back to the product term, so "no warranty for this
@@ -81,7 +84,7 @@ Before a slice is marked done:
 4. `npm run check:no-inline-sql`, `check:no-raw-dialogs`, build and
    `check:bundle-budget` (client code moves).
 5. CI green on the pushed commit, recorded in the note — only when the user
-   asks for a CI check.
+   asks for a CI check. No CI check was requested for this round.
 
 ## Boundary
 

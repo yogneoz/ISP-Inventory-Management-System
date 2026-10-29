@@ -440,8 +440,8 @@ id DESC` order) and its KPI cards read exact per-status counts from
 btree backs the page), and `EXPLAIN` on a 120k TEMP table shows the trigram
 bitmap scan at 86 ms for a broad serial prefix, while a 10%-matching name
 search resolves in 2 ms through the page index. The warranty directory got its
-own paged union (`/warranty`) because its state is derived from the commissioned
-date: 36 ms at 12k / 128 ms at 120k for the page plus the four exact state
+own paged union (`/warranty`) because its state was derived from the commissioned
+date (WTY-6 later retired that union; see 7c): 36 ms at 12k / 128 ms at 120k for the page plus the four exact state
 counts. The CSV export requests `all=1`, caps at 20,000 rows and returns
 `truncated` instead of silently exporting the first page.
 
@@ -457,10 +457,42 @@ the shell prop, the clear-demo array and the App state are removed.
 Evidence: [customerDevicesOffBootstrap.test.ts](../tests/customerDevicesOffBootstrap.test.ts)
 (bootstrap has no key while the local slice answers; page 2 reachable; cap
 enforced; branch omission/forgery refused; overview counts; the warranty union
-at all four boundary days against `getWarrantyInfo`; a real 20,001-row export
+at all four boundary days against the then-current `getWarrantyInfo`; a real 20,001-row export
 reports truncation) and [inventory.repo.test.ts](../tests/inventory.repo.test.ts)
 (the indexed expression, paging/export caps, overview/status semantics and the
 warranty SQL shape).
+
+---
+
+## 7c. Post-audit — warranty coverage becomes two self-fetching registers (WTY-6)
+
+The derived warranty directory was the last reader that invented a term at read
+time: one 12-month countdown from the issue/acquisition date, called both a
+customer warranty and a vendor warranty. The replacement stores the promise
+instead of recomputing it. `warranty_coverages` holds one row per coverage
+period (`VENDOR` or `SELLER`), with the authoritative exact expiry, its start
+date, the term snapshot and the start basis; a partial unique index allows one
+current row per type + serial, and a correction supersedes the old period rather
+than overwriting it.
+
+The two screens read their own paged endpoints — `GET /api/warranties/vendor`
+and `GET /api/warranties/seller` — with the status/category/date/branch filters
+and the KPI counts computed in SQL over the whole filtered set. **No bootstrap
+slice was added**: `warranty_coverages` is not in `BOOTSTRAP_TABLES`,
+`CACHE_LOADS` or any `bootstrap/local` key, so the table never rides a login and
+an older bundle cannot request it wholesale. `GET /api/customer-devices/warranty`,
+its 12-month union and the old directory screen are retired; a source guard
+(`tests/warrantyRegisters.test.ts`) fails if any of them returns. The old client
+utility that derived the same countdown (`client/src/utils/warranty.ts`) was
+deleted in WTY-8 so no code path can reintroduce a computed expiry.
+
+Evidence: [warrantyRegisters.test.ts](../tests/warrantyRegisters.test.ts)
+(both registers, KPIs vs page, filters/branch/paging arguments, both empty
+states, correction refetch, reversed range refused, 403, view-only role and the
+retirement guards), [warranty.api.test.ts](../tests/warranty.api.test.ts) (real
+HTTP: branch scope, permission gate, audited supersede) and
+[productWarranty.api.test.ts](../tests/productWarranty.api.test.ts) (product
+defaults round-trip and validation).
 
 ---
 

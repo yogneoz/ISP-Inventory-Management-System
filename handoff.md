@@ -1,7 +1,7 @@
 # Project Handoff Document — Inventory Management System
 
 > **Full project analysis, architecture, database relationships, and developer guide.**  
-> Updated: 2026-10-27 | Version: 1.6
+> Updated: 2026-10-29 | Version: 1.7
 
 ---
 
@@ -33,6 +33,7 @@
 - Multi-branch inventory tracking with inter-branch stock transfers
 - Purchase order → Invoice → Goods Receipt workflow
 - Serial Log Register: one row per physical device (Device Serial / PON Serial / MAC) with lifecycle history, duplicate prevention, dual-panel conflict resolution, and cross-table cascade corrections
+- Two-sided warranty coverage: supplier terms captured at purchase/asset receipt, seller terms captured at issue/sale/exchange, with exact expiry dates and two separate registers
 - Fixed asset register with depreciation (Straight Line, Declining Balance, WDV)
 - Customer device (ONU/Router) tracking with PON serial, MAC address
 - Physical stock audit & reconciliation with variance reports
@@ -124,7 +125,7 @@
   `boot/dbBoot.ts` (schema sync/seeding), `realtime/sse.ts`, `db/transactions.ts`,
   `services/` (audit, serial edit, doc-number claim, super-admin re-auth) and
   `utils/` (doc numbering, fiscal year, rate limiter).
-- **Single bootstrap endpoint** (`GET /api/bootstrap`) returns ALL data in one roundtrip, filtered by `branchId` and `fiscalYearId` query params. Exception (bootstrap trim, 2026-10-08): the three big ledgers — `stockOperations`, `purchaseOrders`, `purchaseInvoices` — are **trimmed from the payload** and hydrated by the client through deferred `GET /api/bootstrap/local?key=<slice>` calls right after bootstrap (the same endpoint the SSE targeted refresh uses), so wholesale consumers keep identical freshness while first paint gets a lighter payload. Follow-up (2026-10-25): the KPI surfaces, vendor-bill open-PO picker and FY closing wizard no longer take those arrays — they read scoped pages (`purchase-orders?status=…&dateFrom…`, `purchase-invoices?page=1&pageSize=1`, `shipments?branchId&dateFrom…`); the movement ledger still takes the deferred slice; global search now issues one bounded, branch/FY-scoped `GET /api/global-search` request per debounced keystroke (5 rows per group, index-backed), so it no longer receives any bootstrap slice. Both the full bootstrap and the targeted `GET /api/bootstrap/local` slices read **live from PostgreSQL** (mirror-drift fix, 2026-10-05): the full payload runs the operational-data fan-out in bootstrap.repo.ts (BOOT-1, 2026-10-26, removed purchase orders, purchase invoices, stock operations and vendor payments from it — the first three fed only the financial summary, which now aggregates in SQL, and no client read the fourth; VOL-3, 2026-10-26, also removed shipments: the register pages through `GET /api/shipments/page` and the shell badges/dashboard/notifications read `GET /api/shipments/overview`, while the FY closing wizard keeps the bounded bare-array `GET /api/shipments` read; VOL-4a, 2026-10-26, removed customers — the national directory (12k modelled, 120k+ target) is served only by the paged, trigram-searchable, branch-scoped `GET /api/customers`, and the pickers fetch ≤20 matches; VOL-4b, 2026-10-26, removed customer devices — the register pages through `GET /api/customer-devices/page`, its KPI cards read `/overview`, and the warranty directory reads a paged CPE + fixed-asset union from `/warranty`, so the per-unit table no longer rides a login; ASSET-1, 2026-10-27, removed fixed assets — the two registers page through `GET /api/fixed-assets/page`, the dashboard/statements/closing wizard read `/overview` (formula totals from the same shared depreciation function the registers render), the deployment pickers read the bounded `/available` list, and a panel resolves one row via `/lookup`, so the table that grows for the life of the business no longer enters first paint); targeted slices resolve through the same `BOOTSTRAP_TABLES` column mappings (`fetchBootstrapSlice`), the permission matrix via its own SELECT, appSettings via the settings-repo SELECT. The in-memory mirrors are only the operational cache that controllers write/mutate through — never the serving layer for bootstrap reads — so a manual DB edit, a second server instance or a missed cache refresh can never be served stale (live-read failure falls back to the operational-data query, then the cache).
+- **Single bootstrap endpoint** (`GET /api/bootstrap`) returns ALL data in one roundtrip, filtered by `branchId` and `fiscalYearId` query params. Exception (bootstrap trim, 2026-10-08): the three big ledgers — `stockOperations`, `purchaseOrders`, `purchaseInvoices` — are **trimmed from the payload** and hydrated by the client through deferred `GET /api/bootstrap/local?key=<slice>` calls right after bootstrap (the same endpoint the SSE targeted refresh uses), so wholesale consumers keep identical freshness while first paint gets a lighter payload. Follow-up (2026-10-25): the KPI surfaces, vendor-bill open-PO picker and FY closing wizard no longer take those arrays — they read scoped pages (`purchase-orders?status=…&dateFrom…`, `purchase-invoices?page=1&pageSize=1`, `shipments?branchId&dateFrom…`); the movement ledger still takes the deferred slice; global search now issues one bounded, branch/FY-scoped `GET /api/global-search` request per debounced keystroke (5 rows per group, index-backed), so it no longer receives any bootstrap slice. Both the full bootstrap and the targeted `GET /api/bootstrap/local` slices read **live from PostgreSQL** (mirror-drift fix, 2026-10-05): the full payload runs the operational-data fan-out in bootstrap.repo.ts (BOOT-1, 2026-10-26, removed purchase orders, purchase invoices, stock operations and vendor payments from it — the first three fed only the financial summary, which now aggregates in SQL, and no client read the fourth; VOL-3, 2026-10-26, also removed shipments: the register pages through `GET /api/shipments/page` and the shell badges/dashboard/notifications read `GET /api/shipments/overview`, while the FY closing wizard keeps the bounded bare-array `GET /api/shipments` read; VOL-4a, 2026-10-26, removed customers — the national directory (12k modelled, 120k+ target) is served only by the paged, trigram-searchable, branch-scoped `GET /api/customers`, and the pickers fetch ≤20 matches; VOL-4b, 2026-10-26, removed customer devices — the register pages through `GET /api/customer-devices/page`, its KPI cards read `/overview`, and the warranty directory of the time read a paged CPE + fixed-asset union from `/warranty` (that derived union was retired in WTY-6; see §6.4), so the per-unit table no longer rides a login; ASSET-1, 2026-10-27, removed fixed assets — the two registers page through `GET /api/fixed-assets/page`, the dashboard/statements/closing wizard read `/overview` (formula totals from the same shared depreciation function the registers render), the deployment pickers read the bounded `/available` list, and a panel resolves one row via `/lookup`, so the table that grows for the life of the business no longer enters first paint); targeted slices resolve through the same `BOOTSTRAP_TABLES` column mappings (`fetchBootstrapSlice`), the permission matrix via its own SELECT, appSettings via the settings-repo SELECT. The in-memory mirrors are only the operational cache that controllers write/mutate through — never the serving layer for bootstrap reads — so a manual DB edit, a second server instance or a missed cache refresh can never be served stale (live-read failure falls back to the operational-data query, then the cache).
 - **In-memory runtime caches** are hydrated from PostgreSQL on startup (via the single `CACHE_LOADS` list in `server/src/app.ts`) and fully re-read from PostgreSQL after every successful mutating API call (an automatic hook re-reads all cache tables before the write response is sent). The arrays are declared `readonly` so the typechecker rejects any hand-maintained mirror mutation — PostgreSQL is the only place writes land, and caches are always re-derived from it.
 - **SSE (Server-Sent Events)** for real-time sync: all connected clients get a `broadcastChange()` notification on any mutation, triggering a re-fetch. Every mutation broadcast is tagged with a client `domain` (`server/src/syncDomains.ts`); a recognized domain re-fetches ONLY its bootstrap slice, any unrecognized event falls back to a full bootstrap. Reliability (2026-10-05 sync improvements): reconnects back off exponentially (1s→30s ±20% jitter) with immediate retry on tab-visibility/network recovery; on reconnect and during stream outages (30s `/api/sync/version` polling) the client reconciles the server `dataVersion` against the last applied version and refreshes if mutations were missed; a `BroadcastChannel` relays events + logout across tabs of the same browser; permission-matrix, app-settings, document-number and audit-trail mutations broadcast their own domains so those slices never lag.
 - **Server-side permission matrix**: the authoritative matrix lives in the `permission_matrix` table (seeded from the same defaults as the client at startup); clients cache it via the bootstrap payload.
@@ -164,7 +165,7 @@ ISP-Inventory-Management-System/
 │       │                              #   facade re-exporting every historical symbol
 │       ├── state/runtimeState.ts      # Shared runtime state as ESM live bindings + accessors,
 │       │                              #   CACHE_LOADS + hydrateOperationalData/refresh
-│       ├── boot/dbBoot.ts             # syncDatabaseAndIndexes: full schema DDL sync (37 tables),
+│       ├── boot/dbBoot.ts             # syncDatabaseAndIndexes: full schema DDL sync (38 tables),
 │       │                              #   seedInitialPostgresData, permission matrix load,
 │       │                              #   serial-log backfill
 │       ├── realtime/sse.ts            # sseClients Set + broadcastChange (SSE fan-out)
@@ -285,7 +286,7 @@ ISP-Inventory-Management-System/
 │   │   │   └── setServerMatrix() / savePermissionsMatrix()
 │   │   ├── sessionCache.ts            # Client-side session persistence
 │   │   │   └── saveRecentBootstrapCache() (instant 0ms UI load)
-│   │   ├── warranty.ts                # getWarrantyInfo() → VALID / EXPIRING_SOON / EXPIRED
+│   │   ├── warrantyCapture.ts         # Exact-expiry prefill + explicit per-unit covered switch (WTY-4/5)
 │   │   ├── nprFormat.ts               # Multi-currency formatting (configurable code/locale/position)
 │   │   ├── companyProfile.ts          # Company profile helpers
 │   │   ├── exportUtils.ts             # CSV/Excel export helpers
@@ -372,7 +373,7 @@ ISP-Inventory-Management-System/
 │           └── DataRecalculationMaintenance.tsx # Admin: recalculate stock, assets, calendar, FY links
 │
 ├── scripts/
-│   ├── schema.sql                     # Full PostgreSQL schema (37 tables, idempotent)
+│   ├── schema.sql                     # Full PostgreSQL schema (38 tables, idempotent)
 │   ├── setup_db.js                    # Node.js database setup & seed runner
 │   ├── setup_postgres.sh              # Shell: auto-install & configure PostgreSQL
 │   ├── demo_dataset.js                # Demo data seeder (is_demo=TRUE, all-IN_STOCK serials)
@@ -392,7 +393,7 @@ ISP-Inventory-Management-System/
 
 ## 5. Database Schema & Relationships
 
-### 5.1 Tables Overview (37 tables)
+### 5.1 Tables Overview (38 tables)
 
 | # | Table | Purpose | Key Columns |
 |---|---|---|---|
@@ -433,6 +434,7 @@ ISP-Inventory-Management-System/
 | 35 | `app_settings` | Company-wide configuration (key/value) — replaces the browser-localStorage copies | setting_key (PK), setting_value, updated_by, updated_at |
 | 36 | `user_preferences` | Per-user UI preferences (key/value) — theme, date mode, last active tab | (user_id, pref_key) PK, pref_value, updated_at |
 | 37 | `product_groups` | Product-group master data (customer-editable names; behaviour is fixed) | id (PK), code (UNIQUE), name (UNIQUE), behavior (STOCK_ITEM/CONSUMABLE/FIXED_ASSET), sort_order, active, is_system |
+| 38 | `warranty_coverages` | Supplier and seller coverage periods (one current row per type + serial) | id (PK), coverage_type (VENDOR/SELLER), item_category, product_id, asset_id, device_record_id, branch_id, serial_number, start_date_ad, end_date_ad, term_months, start_basis, is_current, superseded_at, is_demo |
 
 ### 5.2 Serial Log Uniqueness
 
@@ -455,6 +457,12 @@ products.id ←─ inventory_stock (CASCADE), fixed_assets (SET NULL),
 product_groups.name ←─ products.product_group (ON UPDATE CASCADE,
                ON DELETE RESTRICT): the stored value is the group NAME, so a
                rename cascades and an in-use group cannot be deleted
+
+warranty_coverages.product_id ←─ products (SET NULL);
+               .asset_id ←─ fixed_assets (CASCADE);
+               .device_record_id ←─ customer_device_records (CASCADE);
+               .branch_id ←─ branches (CASCADE); one CURRENT row per
+               (coverage_type, serial_number) via a partial unique index
 
 fiscal_years.id ←─ purchase_orders, purchase_invoices, shipments,
                    stock_operations, customer_device_records, approval_requests,
@@ -663,14 +671,14 @@ Every `/api/*` request passes through this middleware chain in order:
 | `FIELD_TECHNICIAN` | Field operations | Single branch |
 | `AUDITOR` | Read-only audit access | Single branch |
 
-### 8.2 Permissions Matrix (48 operations × 9 roles)
+### 8.2 Permissions Matrix (50 operations × 9 roles)
 
 Defined in `src/utils/permissionMatrixData.ts` (`INVENTORY_OPERATIONS`, `APP_ROLES`, `DEFAULT_PERMISSIONS_MATRIX`). Key groups:
 
 - **Procurement**: `po-create`, `po-receive`, `inv-create`, `inv-pay`, `po-delete`, `inv-delete`, `branch-procurement-control`
 - **Warehouse**: `shipment-create`, `wh-receive-pullouts`, `wh-restrict-transfer`, `shipment-history`
 - **Branch Ops**: `branch-transfer-create`, `branch-transfer-receive`, `branch-transfer-cancel-receive`, `branch-transfer-request-cancel`, `branch-pullout-dispatch`, `branch-damage-mark`, `stock-disposal-writeoff`, `branch-asset-assign`, `stock-out`
-- **Inventory**: `prod-view`, `prod-edit`, `uom-manage`, `edit-device-serials`, `category-manage`, `stock-import-export`, `opening-stock-view`, `opening-stock-edit`
+- **Inventory**: `prod-view`, `prod-edit`, `uom-manage`, `edit-device-serials`, `category-manage`, `product-group-manage`, `stock-import-export`, `opening-stock-view`, `opening-stock-edit`, `warranty-view`, `warranty-edit`
 - **Financials**: `assets-manage`, `fin-statements`, `vat-register`, `stock-valuation`
 - **Master/Settings**: `suppliers-manage`, plus admin operations (`admin-users`, `admin-branches`, `admin-audit`, `admin-fiscal`, `auth-switch-user`, `workflow-approval`)
 
@@ -726,8 +734,9 @@ count from the paged aggregate (`page=1&pageSize=1`), and
 
 `customerDevices` left the bootstrap in VOL-4b (2026-10-26). The Customer Device
 Serials register pages `GET /api/customer-devices/page`, its KPI cards read
-`/overview`, and the Warranty directory pages the CPE + fixed-asset union from
-`/warranty` (state computed in SQL so the filter and the badge cannot drift).
+`/overview`; supplier and seller warranty periods are separate stored coverage
+rows read by the two self-fetching registers (`/api/warranties/vendor` and
+`/api/warranties/seller`), never recomputed from a device's issue date.
 The customer directory's assigned-hardware count comes from the SQL subquery on
 its paged customer row and fetches only an expanded customer's bounded serials;
 the export screen pages its preview and exports `all=1` with a truncation flag;
@@ -769,7 +778,7 @@ a whole device table.
 
 The `Sidebar` component defines `NAV_TABS` — navigation entries organized into groups (visibility filtered per role/permissions):
 - Dashboard
-- **Inventory**: Serial Log Register, Products, Stock, Reorder, Damage, Stock Operations, Ledger, Audit, Valuation, Import/Export, Categories, UOM, Warranty
+- **Inventory**: Serial Log Register, Products, Stock, Reorder, Damage, Stock Operations, Ledger, Audit, Valuation, Import/Export, Categories, UOM, Suppliers Warranty, Sellers Warranty
 - **Procurement**: Suppliers, POs, Invoices, Inbound Receiving, Shipments
 - **Sales**: Customer Directory, Customer Devices, Import Customers
 - **Finance**: Fixed Assets, Financial Overview, VAT Register, Depreciation, Vendor Ledger, Vendor Opening Balances, Fiscal Years, Document Numbering, BS Calendar, Audit Trail, Opening Stock
@@ -968,15 +977,17 @@ calculateFixedAssetValues({
 
 ### 12.4 `utils/permissions.ts` + `permissionMatrixData.ts`
 
-- `DEFAULT_PERMISSIONS_MATRIX` — 48 operation keys × 9 roles
+- `DEFAULT_PERMISSIONS_MATRIX` — 50 operation keys × 9 roles
 - `isOperationAllowed(opId, userRole, ...)` — server matrix → localStorage → defaults
 - `canUserSeeAllBranches(user)` — SUPER_ADMIN, INVENTORY_MANAGER, HEAD_OFFICE_ADMIN
 - `getAllowedBranchIds(user, branches)` — resolves accessible branch list
 - `setServerMatrix(matrix)` — caches the bootstrap-delivered matrix
 
-### 12.5 `utils/warranty.ts`
+### 12.5 `utils/warrantyCapture.ts`
 
-- `getWarrantyInfo(issuedDateAD, customMonths = 12)` → `{ status: 'VALID' | 'EXPIRING_SOON' | 'EXPIRED', daysRemaining, label }`
+- `warrantyEndFor(startAD, termMonths)` / `warrantyEndFieldError(startAD, endAD)` — the exact-expiry prefill and validation every capture surface shares
+- `warrantyCoveredDefault(product, type)` and `applyWarrantyPrefill(...)` — the per-unit switch defaults from the product term; `covered: false` writes no coverage row, while a blank date on a covered unit is a form error rather than a silent fallback
+- The old derived `getWarrantyInfo()` 12-month countdown was deleted in WTY-8; state now comes from the stored `end_date_ad` on the server
 
 ### 12.6 `utils/nprFormat.ts`
 
@@ -1473,7 +1484,7 @@ All demo users share password: `Demo@123`
 | Order | File | Why |
 |---|---|---|
 | 1 | `src/types/index.ts` | All data structures — the vocabulary of the system |
-| 2 | `scripts/schema.sql` | Full database schema (37 tables) — the data model |
+| 2 | `scripts/schema.sql` | Full database schema (38 tables) — the data model |
 | 3 | `server/src/app.ts` (top section) | Composition root: middleware chain, helmet config, body limit |
 | 3b | `server/src/state/runtimeState.ts` | Shared runtime state (ESM live bindings), CACHE_LOADS, cache refresh |
 | 3c | `server/src/boot/dbBoot.ts` | Schema sync, seeding, permission-matrix load |

@@ -87,7 +87,7 @@ export function KeepMounted({
   // Once the tab has been visible once, keep its children mounted forever
   // (until the whole app unmounts). Before that, render nothing — a lazy
   // child would otherwise fetch its chunk and mount at startup, mounting
-  // all 67 screens on page load.
+  // all 70 screens on page load.
   const everVisible = useRef(visible);
   if (visible) everVisible.current = true;
   // One slot cache per mounted tab: a stable element for this screen across
