@@ -1,6 +1,6 @@
 # WTY-8 — docs, counts and the round-close gates
 
-Status: `[x]` 2026-10-29 · Commit `2fbbbfb` · Round 9 close
+Status: `[x]` 2026-10-29 · Commit `2fbbbfb` · CI #207 green · Round 9 close
 Order: 8 · Depends on WTY-1…7.
 
 ## Why
@@ -83,8 +83,11 @@ register row, and a new three-row warranty endpoint table.
 - `npm run check:no-raw-dialogs` — clean (170 client files).
 - `npm run build` — success; `npm run check:bundle-budget` — **287.1 kB gz**
   startup of 320 kB across 72 chunks (entry 16.1 of 17 kB).
-- CI was **not run**: the user has not asked for a CI check in this pass, and
-  the round's earlier slices were not pushed by this close-out.
+- CI [run 207](https://github.com/yogneoz/ISP-Inventory-Management-System/actions/runs/40810558722)
+  on the pushed `main` tip `16772ff` (which contains `2fbbbfb`) — **success**,
+  all 18 steps green in 7m38s: `npm ci`, fresh-install schema parity, `tsc`,
+  the full suite with `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1`, both static guards,
+  build, bundle budget and `npm audit --omit=dev`.
 
 ## Out of scope
 

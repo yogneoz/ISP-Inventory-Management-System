@@ -53,7 +53,8 @@ before their parents, and the shipped legacy backfill is proven idempotent
 against a live database. WTY-8 closes the round: the docs now state 38 tables /
 70 screens / 50 operations, the retired directory is gone from the help and the
 handoff, and the full gate chain is green (1567 tests, build, bundle budget at
-287.1 kB gz). CI was not run because it was not requested.
+287.1 kB gz). CI run 207 is green on the pushed archive tip `16772ff`
+(18/18 steps).
 
 **WTY-5 scope was amended 2026-10-29** after an audit of blank-expiry behaviour:
 a blank date silently fell back to the product term, so "no warranty for this
@@ -85,8 +86,8 @@ Before a slice is marked done:
    count.
 4. `npm run check:no-inline-sql`, `check:no-raw-dialogs`, build and
    `check:bundle-budget` (client code moves).
-5. CI green on the pushed commit, recorded in the note — only when the user
-   asks for a CI check. No CI check was requested for this round.
+5. CI green on the pushed commit, recorded in the note — run 207, green on
+   `16772ff`.
 
 ## Boundary
 
