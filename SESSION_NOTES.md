@@ -82,7 +82,12 @@ _Date: 2026-10-29 · Branch: main · Tests: 1577/1577 green with a DB (all run i
 > data exercises all three states on both sides. WTY-1…8 are committed
 > (`bae0efa`, `f1ebd83`, `cf84fa1`, `870726b`, `752d3e4`, `5abf19e`,
 > `7c56a6c`, and the WTY-8 close-out commit); CI was not requested for this
-> round. **No round is active.** The payload work
+> round. **Boot paint (2026-10-29):** `eff9074` keeps a static splash until the
+> saved screen commits, preloads that tab and applies cached bootstrap before
+> paint, and a headless-Chrome frame gate now runs in CI after the production
+> build — [run 209](https://github.com/yogneoz/ISP-Inventory-Management-System/actions/runs/40881397737)
+> is green on every step. The remaining UI/UX pass is not started.
+> **No round is active.** The payload work
 > is finished — the remaining-array measurement found no item to open, and the
 > `inventory_stock` trigger is recorded in [2026.md](docs/session-notes/2026.md). The
 > notes are split by year (**SN-1**): entries live in

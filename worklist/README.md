@@ -64,6 +64,15 @@ checklist here.
 
 ## Active work
 
+**Completed outside a round — production boot-paint gate (2026-10-29).**
+`eff9074` keeps the static splash until the saved screen commits, preloads that
+tab and applies the cached bootstrap before paint; CI now runs the
+headless-Chrome frame check after the production build, with a seeded demo
+database and a 12 s budget. [Run 209](https://github.com/yogneoz/ISP-Inventory-Management-System/actions/runs/40881397737)
+is green on every step (7m18s). Detail and measurements:
+[2026 session note](../docs/session-notes/2026.md#-production-boot-paint-and-its-ci-gate-2026-10-29).
+No round was opened and the remaining UI/UX pass is not started.
+
 **Round 9 closed on 2026-10-29** — the two-sided warranty build. Every slice
 (`WTY-1`…`WTY-8`) shipped with its own note and commit; the compact record is
 [done/2026-10-29-round-9.md](done/2026-10-29-round-9.md) and the per-slice
