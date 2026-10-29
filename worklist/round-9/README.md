@@ -31,7 +31,7 @@ Work proceeds in this order; each note is the slice's single source of truth.
 | 3 | [WTY-3](WTY-3.md) | Product vendor/seller warranty defaults in the API and the product form | `[x]` `cf84fa1` |
 | 4 | [WTY-4](WTY-4.md) | Vendor coverage capture at purchase invoice and fixed asset; supersede on return/disposal | `[x]` `870726b` |
 | 5 | [WTY-5](WTY-5.md) | Seller coverage capture at issue, sale and exchange; supersede on collection/refund | `[x]` `752d3e4` |
-| 6 | [WTY-6](WTY-6.md) | Suppliers Warranty and Sellers Warranty screens, navigation, client API and the device badge | `[x]` pending hash |
+| 6 | [WTY-6](WTY-6.md) | Suppliers Warranty and Sellers Warranty screens, navigation, client API and the device badge | `[x]` `5abf19e` |
 | 7 | [WTY-7](WTY-7.md) | Demo coverage data, clear-demo order and backfill verification | `[ ]` |
 | 8 | [WTY-8](WTY-8.md) | Docs, table/screen/route/operation counts, full gates and the CI record | `[ ]` |
 
@@ -42,7 +42,7 @@ defaults' validation and form round-trip. WTY-4 (`870726b`) captures supplier co
 from the purchase invoice and the fixed-asset register, and retires it on return
 or disposal. WTY-5 is done: every capture surface takes an explicit coverage switch, both
 `Assign Fixed Asset` branches write the seller row, and the customer-device read
-returns the stored promise. WTY-6 is done: the two registers read the coverage
+returns the stored promise. WTY-6 (`5abf19e`) is done: the two registers read the coverage
 API, the shared correction dialog supersedes through the audited PATCH, and the
 old combined directory (screen, route, nav entry and device endpoint) is gone.
 WTY-7–8 remain.

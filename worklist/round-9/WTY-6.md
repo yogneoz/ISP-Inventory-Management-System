@@ -1,6 +1,6 @@
 # WTY-6 — Suppliers Warranty and Sellers Warranty registers
 
-Status: `[x]` done (2026-10-29) · Round 9
+Status: `[x]` done (2026-10-29) · `5abf19e` · Round 9
 Order: 6 · Depends on WTY-2 (API) and the capture slices for meaningful data.
 
 ## Why
