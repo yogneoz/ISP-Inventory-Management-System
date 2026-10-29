@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import {
   User,
   Supplier,
@@ -206,7 +206,6 @@ const NepaliFiscalManagement = React.lazy(() =>
 import { BranchesManagement } from './features/settings/BranchesManagement';
 import { CompanySetupManagement } from './features/settings/CompanySetupManagement';
 
-const ACTIVE_TAB_STORAGE_KEY = 'inventory_active_tab';
 import { SuppliersManagement } from './features/procurement/SuppliersManagement';
 import { UsersManagement } from './features/settings/UsersManagement';
 import { PermissionManagement } from './features/settings/PermissionManagement';
@@ -226,6 +225,7 @@ import { useSession } from './contexts/SessionContext';
 import { useScope } from './contexts/ScopeContext';
 import { useDialog } from './components/common/DialogProvider';
 import { AppRoutes, screenRoute, type AppRoute } from './routes/appRoutes';
+import { ACTIVE_TAB_STORAGE_KEY } from './screenPreload';
 import { isTabAccessible } from './routes/tabPermissions';
 import { broadcastBsCalendarUpdated } from './utils/bsCalendarRefresh';
 import { Loader2 } from 'lucide-react';
@@ -233,7 +233,10 @@ import { Loader2 } from 'lucide-react';
 /** Suspense fallback matching the boot-loading spinner (used by all lazy tabs). */
 function TabLoadingFallback() {
   return (
-    <div className="flex flex-col items-center justify-center h-64 space-y-3">
+    <div
+      id="tab-loading-fallback"
+      className="flex flex-col items-center justify-center h-64 space-y-3"
+    >
       <Loader2 className="h-8 w-8 text-indigo-500 animate-spin" />
       <p className="text-xs font-semibold text-slate-400">Loading module…</p>
     </div>
@@ -593,6 +596,8 @@ export default function App() {
   });
   const [postgresStatus, setPostgresStatus] = useState<{
     isConnected: boolean;
+    /** False until a bootstrap attempt has actually established the state. */
+    statusKnown: boolean;
     host: string;
     port: number;
     database: string;
@@ -601,6 +606,7 @@ export default function App() {
     errorDetails?: string;
   }>({
     isConnected: false,
+    statusKnown: false,
     host: 'localhost',
     port: 5432,
     database: 'inventory_db',
@@ -678,6 +684,8 @@ export default function App() {
      *  bootstrap can name the screen that fixes it instead of only describing it. */
     noCurrentFiscalYear?: boolean;
   } | null>(null);
+  /** Only a KNOWN failure shows the setup banner; a 503 also owns the notice. */
+  const databaseUnavailable = postgresStatus.statusKnown && !postgresStatus.isConnected;
 
   // C1/C2 hydration bookkeeping: the per-slice status table and the request
   // gate that stamps every slice fetch with its view (branch|FY) and sequence.
@@ -722,7 +730,13 @@ export default function App() {
       setCompanyProfile(data.companyProfile);
       applyCurrencyConfig(data.companyProfile);
     }
-    if (data.postgresDatabaseStatus) setPostgresStatus(data.postgresDatabaseStatus);
+    // Cached payloads are display data, never proof of reachability: a
+    // snapshot saved while the database was down must not paint "PostgreSQL
+    // Offline" for the frames before the live bootstrap answers. Only a
+    // response received in this session sets the banner's state.
+    if (data.postgresDatabaseStatus && !options.fromCache) {
+      setPostgresStatus({ ...data.postgresDatabaseStatus, statusKnown: true });
+    }
     if (data.permissionsMatrix) {
       applyServerMatrix(data.permissionsMatrix);
       setPermissionsMatrix(data.permissionsMatrix);
@@ -846,7 +860,13 @@ export default function App() {
   });
   const serverDataVersionRef = useRef<number | undefined>(undefined);
 
-  useEffect(() => {
+  // useLayoutEffect, not useEffect: the cached payload must be applied in the
+  // same commit as the shell's first mount. An effect runs AFTER the browser
+  // paints the loading spinner, which is why a reload with a warm cache still
+  // flashed "Synchronizing multi-branch inventory database..." for ~190 ms.
+  // A layout effect flushes its state updates before paint, so the boot splash
+  // hands over straight to the populated screen.
+  useLayoutEffect(() => {
     const cached = loadRecentBootstrapCache(cacheScopeRef.current, {
       // Only trust snapshots saved within the last 2 minutes. Older snapshots
       // are ignored so the UI never flashes stale operational data.
@@ -948,10 +968,19 @@ export default function App() {
           });
         }
         // A structured 4xx came FROM the application, so PostgreSQL is
-        // reachable and the setup banner must stop claiming otherwise. A 503
-        // is the opposite case and keeps it: that one really is the database.
+        // reachable. A 503 is the opposite case: the server answered, and its
+        // reason belongs on the setup banner. Any other failure (no status —
+        // the server itself is unreachable) proves nothing about PostgreSQL,
+        // so the state stays unknown and the bootstrap notice carries it.
         if (status === 400 || status === 409) {
-          setPostgresStatus((prev) => (prev.isConnected ? prev : { ...prev, isConnected: true }));
+          setPostgresStatus((prev) => ({ ...prev, isConnected: true, statusKnown: true }));
+        } else if (status === 503) {
+          setPostgresStatus((prev) => ({
+            ...prev,
+            isConnected: false,
+            statusKnown: true,
+            errorDetails: err?.message || prev.errorDetails,
+          }));
         }
         // DF-17 residual (close-out review): the successful path loads the
         // sellable serials after the payload applies, so a FAILED bootstrap on
@@ -3105,7 +3134,7 @@ export default function App() {
           {/* Direct PostgreSQL Database Setup Notification Banner */}
           <DatabaseSetupBanner
             onRefresh={refreshAllData}
-            loading={loading}
+            statusKnown={postgresStatus.statusKnown}
             postgresConfig={{
               host: postgresStatus.host,
               port: postgresStatus.port,
@@ -3116,8 +3145,10 @@ export default function App() {
             }}
           />
 
-          {/* Refused bootstrap: the server's own reason, not a database alarm. */}
-          {bootstrapBlocked && (
+          {/* Refused bootstrap: the server's own reason, not a database alarm.
+              A 503 is already explained, with the setup steps, by the banner
+              above — stacking both was the duplicate notice operators saw. */}
+          {bootstrapBlocked && !databaseUnavailable && (
             <BootstrapBlockedBanner
               message={bootstrapBlocked.message}
               status={bootstrapBlocked.status}
@@ -3148,6 +3179,7 @@ export default function App() {
           <LoadStateNotice
             subject="company settings"
             loading={settingsBackfillLoading}
+            showLoading={false}
             error={settingsBackfillError}
             onRetry={() => void loadSettingsFromServer()}
             emptyNote=" The app is using default settings until this succeeds."
@@ -3161,6 +3193,7 @@ export default function App() {
           <LoadStateNotice
             subject="open purchase orders and unpaid bills"
             loading={procurementPending.loading}
+            showLoading={false}
             error={procurementPending.error}
             onRetry={() => {
               void import('./services/procurementPendingCache').then((mod) =>
@@ -3179,7 +3212,10 @@ export default function App() {
         className={`flex-1 overflow-y-auto p-2.5 sm:p-3.5 transition-colors duration-200 bg-[#e9ebee] dark:bg-[#0a0c10]`}
       >
         {loading ? (
-          <div className="flex flex-col items-center justify-center h-64 space-y-3">
+          <div
+            id="app-sync-spinner"
+            className="flex flex-col items-center justify-center h-64 space-y-3"
+          >
             <Loader2 className="h-8 w-8 text-indigo-500 animate-spin" />
             <p className="text-xs font-semibold text-slate-400">
               Synchronizing multi-branch inventory database...

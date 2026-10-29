@@ -1,10 +1,15 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Database, AlertTriangle, Terminal, RefreshCw, CheckCircle2, ChevronRight, X } from 'lucide-react';
+import React, { useState } from 'react';
+import { Database, AlertTriangle, Terminal, RefreshCw, CheckCircle2, ChevronRight } from 'lucide-react';
 
 interface DatabaseSetupBannerProps {
   onRefresh?: () => void;
-  /** True while the app is still loading its initial bootstrap data. */
-  loading?: boolean;
+  /**
+   * True once a bootstrap attempt has ESTABLISHED the database state. The
+   * initial `isConnected: false` only means "not known yet", so rendering the
+   * offline warning before this flag is set is how a healthy launch used to
+   * flash a false "PostgreSQL Offline" banner and then push the page twice.
+   */
+  statusKnown?: boolean;
   postgresConfig?: {
     host: string;
     port: number;
@@ -17,7 +22,7 @@ interface DatabaseSetupBannerProps {
 
 export const DatabaseSetupBanner: React.FC<DatabaseSetupBannerProps> = ({
   onRefresh,
-  loading = false,
+  statusKnown = false,
   postgresConfig = {
     host: 'localhost',
     port: 5432,
@@ -29,19 +34,6 @@ export const DatabaseSetupBanner: React.FC<DatabaseSetupBannerProps> = ({
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [copiedStep, setCopiedStep] = useState<string | null>(null);
   const [isChecking, setIsChecking] = useState<boolean>(false);
-  const [isConnectedDismissed, setIsConnectedDismissed] = useState<boolean>(false);
-  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Connected state: stay visible while the app is loading data, then fade
-  // away after a short delay (or immediately on manual dismiss).
-  useEffect(() => {
-    if (!postgresConfig.isConnected || isConnectedDismissed) return;
-    if (loading) return;
-    hideTimerRef.current = setTimeout(() => setIsConnectedDismissed(true), 1800);
-    return () => {
-      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-    };
-  }, [postgresConfig.isConnected, loading, isConnectedDismissed]);
 
   const handleCopy = (text: string, stepId: string) => {
     navigator.clipboard.writeText(text);
@@ -60,38 +52,20 @@ export const DatabaseSetupBanner: React.FC<DatabaseSetupBannerProps> = ({
     }
   };
 
-  if (postgresConfig.isConnected) {
-    if (isConnectedDismissed) return null;
-    return (
-      <div
-        id="db-connected-notification-banner"
-        className="border-b bg-emerald-50 border-emerald-300 text-emerald-800 dark:bg-emerald-950/50 dark:border-emerald-800/60 dark:text-emerald-200"
-      >
-        <div className="max-w-7xl mx-auto px-4 py-1.5 sm:px-6">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-xs sm:text-sm tracking-tight">database is connected</span>
-            <button
-              type="button"
-              onClick={() => setIsConnectedDismissed(true)}
-              aria-label="Dismiss database status banner"
-              className="flex-shrink-0 p-1 rounded-lg hover:bg-emerald-500/10 transition cursor-pointer text-emerald-700 dark:text-emerald-300"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // Unknown is not offline: the first paint knows nothing until a bootstrap
+  // response arrives. Connected is equally not news — the loaded application
+  // already proves it, and a transient green bar was a second layout shift.
+  if (!statusKnown || postgresConfig.isConnected) return null;
 
-  const bashCommand = `npm run setup:postgres`;
-  const dockerCommand = `docker run --name inventory_postgres -e POSTGRES_DB=inventory_db -e POSTGRES_USER=inventory_user -e POSTGRES_PASSWORD=securepassword -p 5432:5432 -d postgres:16-alpine`;
-  const envExample = `DATABASE_URL="postgres://inventory_user:securepassword@localhost:5432/inventory_db"
-POSTGRES_HOST="localhost"
-POSTGRES_PORT="5432"
-POSTGRES_DB="inventory_db"
-POSTGRES_USER="inventory_user"
-POSTGRES_PASSWORD="securepassword"`;
+  const connectionTarget = `${postgresConfig.user}@${postgresConfig.host}:${postgresConfig.port}/${postgresConfig.database}`;
+  const bashCommand = `npm run setup:pg`;
+  const dockerCommand = `docker run --name inventory_postgres -e POSTGRES_DB=${postgresConfig.database} -e POSTGRES_USER=${postgresConfig.user} -e POSTGRES_PASSWORD=YOUR_PASSWORD -p ${postgresConfig.port}:5432 -d postgres:16-alpine`;
+  const envExample = `DATABASE_URL="postgres://${postgresConfig.user}:YOUR_PASSWORD@${postgresConfig.host}:${postgresConfig.port}/${postgresConfig.database}"
+POSTGRES_HOST="${postgresConfig.host}"
+POSTGRES_PORT="${postgresConfig.port}"
+POSTGRES_DB="${postgresConfig.database}"
+POSTGRES_USER="${postgresConfig.user}"
+POSTGRES_PASSWORD="YOUR_PASSWORD"`;
 
   return (
     <div
@@ -109,15 +83,22 @@ POSTGRES_PASSWORD="securepassword"`;
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-semibold text-xs sm:text-sm tracking-tight flex items-center gap-1.5">
                   <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 inline" />
-                  PostgreSQL Database Setup Required (Self-Hosted Mode)
+                  Database connection failed
                 </span>
                 <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-200/70 text-amber-900 dark:bg-amber-900/60 dark:text-amber-300 border border-amber-400/40">
-                  PostgreSQL Offline
+                  PostgreSQL unreachable
                 </span>
               </div>
               <p className="text-[11px] sm:text-xs opacity-90 mt-0.5">
-                The application is configured to run on your own PostgreSQL server. Connect your local/on-premise PostgreSQL instance to enable direct database operations.
+                The application could not reach PostgreSQL at{' '}
+                <span className="font-mono">{connectionTarget}</span>. Fix the connection,
+                then retry.
               </p>
+              {postgresConfig.errorDetails ? (
+                <p className="text-[11px] sm:text-xs opacity-80 mt-0.5 font-mono break-words">
+                  {postgresConfig.errorDetails}
+                </p>
+              ) : null}
             </div>
           </div>
 
@@ -130,7 +111,7 @@ POSTGRES_PASSWORD="securepassword"`;
               className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-amber-600 hover:bg-amber-700 text-white shadow-xs transition-colors cursor-pointer disabled:opacity-50"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isChecking ? 'animate-spin' : ''}`} />
-              <span>{isChecking ? 'Checking Connection...' : 'Test Connection'}</span>
+              <span>{isChecking ? 'Retrying...' : 'Retry Connection'}</span>
             </button>
 
             <button
@@ -163,7 +144,7 @@ POSTGRES_PASSWORD="securepassword"`;
                   <span className="w-4 h-4 rounded-full bg-amber-500 text-white flex items-center justify-center text-[10px]">
                     1
                   </span>
-                  Automated Linux/Unix Script
+                  Automated Setup (npm)
                 </span>
                 <button
                   onClick={() => handleCopy(bashCommand, 'step1')}
@@ -173,7 +154,7 @@ POSTGRES_PASSWORD="securepassword"`;
                 </button>
               </div>
               <p className="text-[11px] mb-2 text-slate-600 dark:text-slate-400">
-                Runs automated PostgreSQL installer, user provisioning, and full schema migration.
+                Installs/configures PostgreSQL, applies the schema and seeds the demo data.
               </p>
               <div className="font-mono text-[11px] bg-slate-950 text-slate-200 p-2 rounded border border-slate-800 overflow-x-auto select-all">
                 {bashCommand}
@@ -199,7 +180,7 @@ POSTGRES_PASSWORD="securepassword"`;
                 </button>
               </div>
               <p className="text-[11px] mb-2 text-slate-600 dark:text-slate-400">
-                Instantly spins up PostgreSQL 16 container with the required database credentials.
+                Spins up PostgreSQL 16 with this database and user; replace YOUR_PASSWORD.
               </p>
               <div className="font-mono text-[11px] bg-slate-950 text-slate-200 p-2 rounded border border-slate-800 overflow-x-auto select-all">
                 {dockerCommand}
@@ -225,7 +206,7 @@ POSTGRES_PASSWORD="securepassword"`;
                 </button>
               </div>
               <p className="text-[11px] mb-2 text-slate-600 dark:text-slate-400">
-                Ensure your server's <code className="font-mono">.env</code> contains your PostgreSQL connection details.
+                Match your server's <code className="font-mono">.env</code> to these values; use the password set for the PostgreSQL role.
               </p>
               <pre className="font-mono text-[10px] bg-slate-950 text-slate-200 p-2 rounded border border-slate-800 overflow-x-auto select-all leading-tight">
                 {envExample}

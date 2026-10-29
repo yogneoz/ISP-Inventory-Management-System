@@ -1,5 +1,7 @@
 # Enterprise ERP & Multi-Branch Inventory Management System
 
+[![CI](https://github.com/yogneoz/ISP-Inventory-Management-System/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/yogneoz/ISP-Inventory-Management-System/actions/workflows/ci.yml)
+
 A full-featured enterprise inventory tracking, physical stock audit, and multi-branch resource planning solution built for **React 19, TypeScript, Tailwind CSS** with **Node.js/Express** and **PostgreSQL**. Purpose-built for **ISP / fiber-network operations in Nepal**.
 
 ---
@@ -506,12 +508,19 @@ docker run -d \
 | **Database Integrity Check** | `npm run integrity:check` |
 | **BS Calendar / BS-Date Audit** *(add `-- --apply` to correct)* | `npm run audit:bs-dates` |
 | **API Smoke Test** *(server must be running)* | `npm run smoke` |
+| **Production Boot Timing** *(after `npm run build`; needs Chrome + demo DB)* | `npm run check:boot-timing` |
 | **Write-Latency Benchmark** *(server must be running)* | `npm run bench:write` |
 | **Full Demo Reset** | `node scripts/reset_fresh_demo.mjs` |
 | **PM2 Process Status** | `pm2 status` |
 | **View Server Logs** | `pm2 logs enterprise-erp` |
 | **Restart Application** | `pm2 restart enterprise-erp` |
 | **PostgreSQL Backup** | `pg_dump -U inventory_user -h localhost inventory_db > backup_$(date +%Y%m%d).sql` |
+
+### ⏱️ Production Boot Timing Check
+
+`npm run check:boot-timing` serves the built app from `dist/` on a free port and reloads the saved **Create Sales Invoice** tab twice in headless Chrome — once with an empty bootstrap cache, once warm. It samples every animation frame and fails if the lazy `Loading module…` fallback or the shell sync spinner is ever actually visible after the splash lifts, or if the app root is ever blank. It also asserts that the warm reload never mounts the shell spinner (the cached bootstrap paints immediately). It prints first paint, FCP, the splash window and any exposed-loading frames for both reloads.
+
+It needs a production build (`npm run build`, or pass `-- --build`), a reachable PostgreSQL and the demo account (`superadmin@example.com` / `Demo@123` by default; override with `BOOT_TRACE_EMAIL` / `BOOT_TRACE_PASSWORD`). Pass `-- --base-url http://host:port` to measure an already-running production server instead of starting one. Chrome/Edge/Chromium is auto-detected; set `BOOT_TRACE_BROWSER` if needed. It is not part of `npm test`, which must stay runnable without a browser, but CI runs it as a hard gate after the production build: `npm run setup:pg` seeds the demo account first, the CI budget is 12 s instead of the 6 s local default, and a missing browser fails the job rather than skipping the check.
 
 ---
 
@@ -564,11 +573,13 @@ configuration problem — never a database outage:
 
 It never falls back to a different year (that would serve a view nobody asked for)
 and never answers an unscoped 200 (every-year figures in an accounting system are
-silently wrong numbers). The client renders the server's own message through
-`client/src/components/common/BootstrapBlockedBanner.tsx` instead of the
-"PostgreSQL Offline" setup banner, which infers reachability from the very payload
-the refusal blocked. Proof: `tests/bootstrapFiscalYearHonesty.test.ts` (four
-fiscal-year states over real HTTP against a database built from `schema.sql` alone).
+silently wrong numbers). The client renders 400/409 refusals through
+`client/src/components/common/BootstrapBlockedBanner.tsx`. A 503 is the one case
+that reaches `DatabaseSetupBanner`, which now shows the server's reason and the
+setup steps only after a request has actually failed — the initial "not known
+yet" state no longer claims the database is offline. Proof:
+`tests/bootstrapFiscalYearHonesty.test.ts` (four fiscal-year states over real
+HTTP against a database built from `schema.sql` alone).
 
 ### Request parameters (all optional)
 
@@ -720,12 +731,15 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 1567-test suite against a PostgreSQL 16 service container (zero DB skips;
+  full 1577-test suite against a PostgreSQL 16 service container (zero DB skips;
   the two unconditional skips are Windows-only real-signal checks, which CI runs,
   and the live-drain check runs under `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1` so its
   preconditions cannot silently skip it) →
-  no-inline-SQL guard → production build (`vite build` + server bundle) →
-  `npm audit --omit=dev` (fails on any production-dependency advisory).
+  no-inline-SQL guard → no-raw-dialogs guard → production build (`vite build` +
+  server bundle) → startup bundle-size budget → production boot-timing gate
+  (headless Chrome: the splash must cover the lazy fallback and shell spinner on a
+  cold reload, and a warm reload must paint cached bootstrap without the spinner)
+  → `npm audit --omit=dev` (fails on any production-dependency advisory).
 - **CI failures report themselves**: the suite runs against a database created
   from `scripts/schema.sql` alone, so each suite provisions the reference data it
   needs (`tests/fixtures/referenceData.ts`); a failing run prints a GitHub

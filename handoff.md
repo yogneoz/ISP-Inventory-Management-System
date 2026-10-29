@@ -227,9 +227,10 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 1567 tests; CI runs
-                                        #   tsc + npm test + the no-inline-SQL guard + the
-                                        #   production build + npm audit on every push/PR
+                                        #   drift/concurrency guards — 1577 tests; CI runs
+                                        #   tsc + npm test + the source guards + the
+                                        #   production build + the boot-timing gate +
+                                        #   npm audit on every push/PR
                                         #   (.github/workflows/ci.yml). The PostgreSQL 16
                                         #   service container lets ALL tests run in CI; the
                                         #   two unconditional skips are Windows-only
@@ -1278,7 +1279,7 @@ The convention is enforced by `scripts/check_no_inline_sql.ts` (`npm run check:n
 
 ### 15.11 CI Gate Pipeline
 
-Every push/PR runs five gates in order (`.github/workflows/ci.yml`); all must pass.
+Every push/PR runs eight gates in order (`.github/workflows/ci.yml`); all must pass.
 The job is bounded by `timeout-minutes: 30` (~6x the measured runtime) — a wedged step used to burn the
 360-minute default per push, which is how an 86-minute hang in the npm test step (all tests green, the
 lifecycle process tests left node's runner unable to exit; fixed) went unnoticed as "still running".
@@ -1315,13 +1316,15 @@ longer retells it either: `DatabaseSetupBanner` infers reachability from the ver
 so it used to announce "PostgreSQL Offline — run the setup commands" for a connected database;
 `BootstrapBlockedBanner`
 ([client/src/components/common/BootstrapBlockedBanner.tsx](client/src/components/common/BootstrapBlockedBanner.tsx))
-now shows the server's own message and clears on a successful load. Proven by
+now shows the server's own message and clears on a successful load. `DatabaseSetupBanner` is reserved for a
+known 503 (it renders nothing while the state is still unknown), and the shell overlays both notices below the
+header so arriving or clearing a banner never resizes the workspace. Proven by
 [tests/bootstrapFiscalYearHonesty.test.ts](tests/bootstrapFiscalYearHonesty.test.ts), which drives four
 fiscal-year states over real HTTP against a throwaway database built from `schema.sql` alone — and which
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 1567 tests against a real PostgreSQL 16 service container
+2. `npm test` — 1577 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM
@@ -1349,9 +1352,27 @@ fails with the old 503 body on the pre-fix code.
    (`node:test/reporters` exports only dot/junit/spec/tap/lcov), which is why
    this is hand-rolled.
 3. `npm run check:no-inline-sql` — repository-layer convention (§15.8)
-4. `npm run build` — production bundles (vite + esbuild). Catches
+4. `npm run check:no-raw-dialogs` — no native alert/confirm/prompt in the
+   client; every dialog goes through useDialog().
+5. `npm run build` — production bundles (vite + esbuild). Catches
    bundling-only breakage (bad imports, chunk misconfig) that typecheck misses.
-5. `npm audit --omit=dev` — non-zero exit on any production-dependency
+6. `npm run check:bundle-budget` — entry-chunk and eager-graph gzip budgets,
+   so a screen accidentally re-added to the eager imports fails CI.
+7. Boot timing — `npm run setup:pg` seeds the demo account into the app
+   database (the suite above only uses throwaway databases), then
+   `npm run check:boot-timing -- --budget-ms 12000` serves the production
+   `dist/` bundle on a free port, reloads the saved **Create Sales Invoice** tab
+   twice in headless Chrome (empty and warm bootstrap cache), and samples every
+   animation frame. It fails if `#tab-loading-fallback` or `#app-sync-spinner` is
+   ever genuinely visible after `#boot-splash` lifts, or if `#root` is ever blank —
+   a DOM-presence test cannot catch that, because the splash covers both. It also
+   asserts the settled screen and that the warm reload never mounts the shell
+   spinner, and prints the splash window (measured 2026-10-29: ~0.93–1.12 s cold,
+   ~0.30–0.39 s warm). A missing browser or a failed login fails the job — there
+   is no skip path — and the 12 s CI budget is generous because the gate is frame
+   visibility, not speed. Still not part of `npm test`, which must stay runnable
+   without a browser. See README's Operational Commands Reference.
+8. `npm audit --omit=dev` — non-zero exit on any production-dependency
    advisory. Deliberately scoped: dev tooling advisories surface in local
    audits but do not block CI.
 

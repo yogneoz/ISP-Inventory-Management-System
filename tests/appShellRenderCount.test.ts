@@ -77,6 +77,17 @@ describe('A2 — shell state stays out of the tab tree', () => {
 
     assert.equal(handles.tabRenders, 1, 'precondition: the workspace rendered once on mount');
 
+    // Banners are an overlay under the header, never a flex sibling that
+    // changes the workspace height when one arrives or leaves.
+    const bannerStack = query(tree.container, '#shell-banner-stack');
+    assert.equal(
+      bannerStack.contains(query(tree.container, '[data-banners]')),
+      true,
+      'the shell must render App banners inside the anchored stack'
+    );
+    assert.match(bannerStack.className, /\babsolute\b/);
+    assert.match(bannerStack.className, /\btop-full\b/);
+
     // Sidebar toggle (Header's hamburger). The mobile backdrop appearing is the
     // proof the shell really re-rendered.
     assert.equal(has(tree.container, SIDEBAR_BACKDROP), false, 'precondition: drawer closed');

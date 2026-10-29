@@ -27,6 +27,15 @@ export interface LoadStateNoticeProps {
   error: string;
   /** True when the list still has rows from an earlier successful load. */
   hasCachedRows?: boolean;
+  /**
+   * Show the in-flight loading status. Defaults to true: a screen whose empty
+   * state would otherwise look like "no rows exist" needs it. Shell-level
+   * background reads (company settings, procurement badges) set this to false —
+   * they already keep the last values on screen and a 30px notice that mounts
+   * and unmounts while the page settles is a visible flicker, not information.
+   * Failures still render with Retry.
+   */
+  showLoading?: boolean;
   onRetry: () => void;
   /** Copy appended when cached rows are on screen (defaults to the list wording). */
   cachedNote?: string;
@@ -39,6 +48,7 @@ export const LoadStateNotice: React.FC<LoadStateNoticeProps> = ({
   loading,
   error,
   hasCachedRows = false,
+  showLoading = true,
   onRetry,
   cachedNote = ' Showing the last loaded rows — they may be out of date.',
   emptyNote = ' Nothing is shown below — this is not an empty list.',
@@ -74,7 +84,7 @@ export const LoadStateNotice: React.FC<LoadStateNoticeProps> = ({
 
   // A re-activation refetch with rows already on screen must not flash a
   // spinner over a usable list; only the first empty load shows it.
-  if (loading && !hasCachedRows) {
+  if (showLoading && loading && !hasCachedRows) {
     return (
       <div
         role="status"

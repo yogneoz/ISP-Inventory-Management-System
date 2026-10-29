@@ -498,48 +498,62 @@ export function AppShell(props: AppShellProps) {
     <div
       className={`h-screen w-screen overflow-hidden font-sans flex flex-col antialiased transition-colors duration-200 bg-[#f0f2f5] text-slate-800 dark:bg-[#0a0c10] dark:text-slate-300`}
     >
-      {/* Top App Header (Fixed at top) */}
-      <Header
-        companyProfile={companyProfile}
-        currentUser={currentUser}
-        rootUser={rootUser}
-        onSwitchBackToRoot={onSwitchBackToRoot}
-        users={users}
-        onSwitchProfile={onSwitchProfile}
-        branches={branches}
-        selectedBranchId={selectedBranchId}
-        onSelectBranch={onSelectBranch}
-        dateMode={dateMode}
-        onToggleDateMode={onToggleDateMode}
-        currentFiscalYear={currentFiscalYear}
-        fiscalYears={fiscalYears}
-        selectedFiscalYearId={selectedFiscalYearId}
-        onSelectFiscalYear={onSelectFiscalYear}
-        onOpenBarcodeModal={() => openShellOverlay('barcode')}
-        onOpenSearchModal={
-          activeTab === 'fiscal-year-closing' ? undefined : () => openShellOverlay('search')
-        }
-        onLogout={onLogout}
-        onSwitchUser={onLogin}
-        onRefreshData={refreshAllData}
-        searchQuery={searchQuery}
-        onSearchChange={onSearchChange}
-        lowStockCount={lowStockCount}
-        onToggleTheme={onToggleTheme}
-        onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
-        isSidebarOpen={isSidebarOpen}
-        products={products}
-        stock={stock}
-        approvalRequests={approvalRequests}
-        purchaseOrders={purchaseOrders}
-        shipments={shipments}
-        onSelectTab={onSelectTab}
-        onOpenNotification={() => toggleShellOverlay('notifications')}
-        onOpenProfileModal={() => openShellOverlay('profile')}
-        isShellOverlayOpen={isShellOverlayOpen}
-      />
+      {/* Header + notices share one anchored block: the notices are absolutely
+          positioned below the header, so arriving/leaving never changes the
+          workspace's height (the old flex child pushed every screen down and
+          back up twice per launch). */}
+      <div className="relative z-30 flex-shrink-0">
+        {/* Top App Header (Fixed at top) */}
+        <Header
+          companyProfile={companyProfile}
+          currentUser={currentUser}
+          rootUser={rootUser}
+          onSwitchBackToRoot={onSwitchBackToRoot}
+          users={users}
+          onSwitchProfile={onSwitchProfile}
+          branches={branches}
+          selectedBranchId={selectedBranchId}
+          onSelectBranch={onSelectBranch}
+          dateMode={dateMode}
+          onToggleDateMode={onToggleDateMode}
+          currentFiscalYear={currentFiscalYear}
+          fiscalYears={fiscalYears}
+          selectedFiscalYearId={selectedFiscalYearId}
+          onSelectFiscalYear={onSelectFiscalYear}
+          onOpenBarcodeModal={() => openShellOverlay('barcode')}
+          onOpenSearchModal={
+            activeTab === 'fiscal-year-closing' ? undefined : () => openShellOverlay('search')
+          }
+          onLogout={onLogout}
+          onSwitchUser={onLogin}
+          onRefreshData={refreshAllData}
+          searchQuery={searchQuery}
+          onSearchChange={onSearchChange}
+          lowStockCount={lowStockCount}
+          onToggleTheme={onToggleTheme}
+          onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
+          isSidebarOpen={isSidebarOpen}
+          products={products}
+          stock={stock}
+          approvalRequests={approvalRequests}
+          purchaseOrders={purchaseOrders}
+          shipments={shipments}
+          onSelectTab={onSelectTab}
+          onOpenNotification={() => toggleShellOverlay('notifications')}
+          onOpenProfileModal={() => openShellOverlay('profile')}
+          isShellOverlayOpen={isShellOverlayOpen}
+        />
 
-      {banners}
+        {/* empty:hidden matters: most of the time every banner returns null.
+            The stack used to keep its box-shadow while empty, painting a thin
+            grey strip under the header that read as a blank banner. */}
+        <div
+          id="shell-banner-stack"
+          className="absolute inset-x-0 top-full z-40 max-h-[calc(100vh-3.25rem)] overflow-y-auto shadow-lg pointer-events-none empty:hidden [&>*]:pointer-events-auto"
+        >
+          {banners}
+        </div>
+      </div>
 
       {/* Main Workspace Layout */}
       <div className="flex flex-1 min-h-0 overflow-hidden relative">

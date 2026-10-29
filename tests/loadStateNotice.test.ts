@@ -132,6 +132,31 @@ describe('load state notice — loading vs failed vs empty', () => {
       tree.unmount();
     }
   });
+
+  test('a quiet background read paints nothing while loading but its failure still retries', () => {
+    // Shell-level reads (settings, procurement badges) keep the last values on
+    // screen; a 31px "Loading…" bar mounting and unmounting while the page
+    // settles is the startup flicker this prop exists to remove.
+    const { tree } = render({ loading: true, showLoading: false });
+    try {
+      assert.equal(tree.container.childElementCount, 0, 'no loading bar is painted');
+      tree.rerender(
+        createElement(LoadStateNotice, {
+          subject: 'company settings',
+          loading: false,
+          showLoading: false,
+          error: 'settings unavailable',
+          onRetry: () => {},
+        })
+      );
+      const alert = tree.container.querySelector('[role="alert"]');
+      assert.ok(alert, 'a real failure is still reported');
+      assert.match(alert!.textContent || '', /Could not load company settings/);
+      assert.ok(tree.container.querySelector('button'), 'the failure still offers Retry');
+    } finally {
+      tree.unmount();
+    }
+  });
 });
 
 describe('setup lists — loading/error state is kept and rendered', () => {

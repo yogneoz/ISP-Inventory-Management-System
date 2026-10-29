@@ -22,7 +22,8 @@ jobs:
     # guard, authenticated positive-path HTTP tests). The credentials must
     # match DATABASE_URL below. Tests only run against throwaway databases
     # (inventory_concurrency_test etc.) or read information_schema — the app
-    # database is created here but never modified by the suite.
+    # database is never modified by the suite. The boot-timing seed below
+    # rebuilds it with the demo dataset after the suite has finished.
     services:
       postgres:
         image: postgres:16
@@ -106,6 +107,28 @@ jobs:
       # (see scripts/check_bundle_budget.mjs for the incident) fails CI.
       - name: Enforce startup bundle size budget
         run: npm run check:bundle-budget
+      # Paint-order gate, measured on the production build above: the splash
+      # must cover the lazy route fallback and the shell sync spinner on a cold
+      # reload, and a warm reload must paint cached bootstrap immediately (no
+      # spinner). A missing browser or a failed login FAILS the job — there is
+      # no skip path, so this cannot silently become a green no-op. The demo
+      # seed is the documented setup:pg path; the suite above never touches the
+      # app database, so rebuilding it here cannot invalidate a test result.
+      - name: Seed demo data for the boot-timing check
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: '5432'
+          POSTGRES_DB: inventory_db
+          POSTGRES_USER: inventory_user
+          POSTGRES_PASSWORD: securepassword
+        run: npm run setup:pg
+      # 12 s is a generous CI-only wall-clock bound; locally the default is
+      # 6 s. The gate itself is frame visibility, not speed: a splash that never
+      # lifts ends the trace as "timeout" and fails either way.
+      - name: Production boot timing — splash covers loading, warm cache paints instantly
+        env:
+          BOOT_TRACE_NO_SANDBOX: '1'
+        run: npm run check:boot-timing -- --budget-ms 12000
       # npm audit exits non-zero when vulnerabilities are found; gating on
       # --omit=dev covers the deployable dependency surface (dev tooling
       # advisories are surfaced in local audits but do not block the build).

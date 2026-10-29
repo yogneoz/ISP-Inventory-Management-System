@@ -19,6 +19,7 @@
     "check:no-inline-sql": "tsx scripts/check_no_inline_sql.ts",
     "check:no-raw-dialogs": "tsx scripts/check_no_raw_dialogs.ts",
     "check:bundle-budget": "node scripts/check_bundle_budget.mjs",
+    "check:boot-timing": "node scripts/check_boot_timing.mjs",
     "audit:bs-dates": "tsx scripts/audit_bs_calendar_dates.ts",
     "verify:fresh-install": "node scripts/verify_fresh_install.mjs"
   },
