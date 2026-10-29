@@ -81,11 +81,12 @@ an "expired" badge. The audit log records the declared-none decision.
 - `npx tsx --test tests/warrantyCapture.test.ts
   tests/sellerWarrantyCapture.api.test.ts tests/purchaseWarrantyCapture.api.test.ts
   tests/fixedAssetWarranty.api.test.ts tests/fixedAssetWarrantyForm.test.ts` —
-  **23 tests, 23 pass, 0 fail** against PostgreSQL: 7 resolver/prefill, 7 seller
-  HTTP, 8 supplier capture (the two WTY-4 suites plus the two new switch cases),
-  and 2 asset-modal render tests (one new for the switch).
-- Full `npm test` — **1549 tests, 1547 pass, 0 fail, 2 Windows-only skips**;
-  docs-count gate green at 1549; `npx tsc --noEmit` clean.
+  **24 tests, 24 pass, 0 fail** against PostgreSQL: 7 resolver/prefill, 8 seller
+  HTTP (both Assign Fixed Asset branches included), 8 supplier capture (the two
+  WTY-4 suites plus the two new switch cases), and 2 asset-modal render tests
+  (one new for the switch).
+- Full `npm test` — **1550 tests, 1548 pass, 0 fail, 2 Windows-only skips**;
+  docs-count gate green at 1550; `npx tsc --noEmit` clean.
 - `npm run check:no-inline-sql` — clean (no new SQL outside the repo layer).
 - Observed over real HTTP, not just status codes: the assignment row carries the
   CDR id, customer, branch, `ISSUE_DATE`, the exact typed expiry and stays

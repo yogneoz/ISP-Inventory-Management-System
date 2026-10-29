@@ -93,6 +93,7 @@ describe('seller warranty capture (real HTTP + PostgreSQL)', { skip: skipNoDb },
   async function cleanup() {
     await pool!.query("DELETE FROM warranty_coverages WHERE serial_number LIKE 'W5-%'");
     await pool!.query("DELETE FROM customer_device_records WHERE device_serial LIKE 'W5-%'");
+    await pool!.query("DELETE FROM fixed_assets WHERE id LIKE 'w5-asset-%'");
     await pool!.query("DELETE FROM sales_invoices WHERE id LIKE 'w5-si-%'");
     await pool!.query("DELETE FROM stock_operations WHERE id LIKE 'w5-op-%'");
     await pool!.query("DELETE FROM serial_log WHERE device_serial LIKE 'W5-%'");
@@ -217,6 +218,47 @@ describe('seller warranty capture (real HTTP + PostgreSQL)', { skip: skipNoDb },
     assert.equal(row.endDateAD, '2031-01-31', 'the exact contract date wins over the 12-month term');
     assert.equal(row.startBasis, 'ISSUE_DATE');
     assert.equal(row.isCurrent, true);
+  });
+
+  test('the deploy-from-stock Assign Fixed Asset branch writes the same promise', async () => {
+    await stockUnit('W5-DEP-1', 'W5-DEP-1-PON');
+    const res = await call('POST', '/api/assets', {
+      id: 'w5-asset-1',
+      tagNumber: 'W5-TAG-1',
+      name: product.name,
+      category: 'IT Equipment',
+      branchId: BRANCH,
+      acquisitionDateAD: today,
+      acquisitionCost: 100,
+      productId: PRODUCT,
+      status: 'ASSIGNED_TO_CUSTOMER',
+      assignedType: 'CUSTOMER',
+      assignedCustomerId: 'w5-cust',
+      assignedCustomerName: 'W5 Customer',
+      assignmentDateAD: today,
+      deployFromStock: true,
+      deviceSerial: 'W5-DEP-1',
+      devicePonSerial: 'W5-DEP-1-PON',
+      sellerWarrantyEndDateAD: '2032-05-31',
+    });
+    assert.equal(res.status, 201, JSON.stringify(res.json));
+
+    const [row] = await coverages('W5-DEP-1');
+    assert.ok(row, 'the deployed rental unit must carry the customer promise');
+    assert.equal(row.coverageType, 'SELLER');
+    assert.equal(row.itemCategory, 'CPE');
+    assert.equal(row.deviceRecordId, 'cdr-asset-w5-asset-1', 'keyed by the device row the deploy created');
+    assert.equal(row.sourceType, 'CUSTOMER_ASSIGNMENT');
+    assert.equal(row.sourceId, 'cdr-asset-w5-asset-1');
+    assert.equal(row.endDateAD, '2032-05-31');
+    assert.equal(row.startBasis, 'ISSUE_DATE');
+    assert.equal(row.isCurrent, true);
+    // The inbound side stays untouched: the purchase invoice already captured
+    // the supplier coverage, so a deploy must not key a second VENDOR row.
+    const vendor = await pool!.query(
+      "SELECT count(*)::int AS n FROM warranty_coverages WHERE coverage_type = 'VENDOR' AND serial_number = 'W5-DEP-1'"
+    );
+    assert.equal(Number(vendor.rows[0].n), 0);
   });
 
   test('covered off writes no row; covered on with a blank date is refused', async () => {
