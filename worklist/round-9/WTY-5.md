@@ -1,6 +1,6 @@
 # WTY-5 — capture what we promise the customer
 
-Status: `[x]` done (2026-10-29) · Round 9
+Status: `[x]` done (2026-10-29) · `752d3e4` · Round 9
 Order: 5 · Depends on WTY-1/2/3.
 
 ## Why

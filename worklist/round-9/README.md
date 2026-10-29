@@ -30,7 +30,7 @@ Work proceeds in this order; each note is the slice's single source of truth.
 | 2 | [WTY-2](WTY-2.md) | Coverage repo/service/controller/routes, branch scope, permissions and the audited edit endpoint | `[x]` `f1ebd83` |
 | 3 | [WTY-3](WTY-3.md) | Product vendor/seller warranty defaults in the API and the product form | `[x]` `cf84fa1` |
 | 4 | [WTY-4](WTY-4.md) | Vendor coverage capture at purchase invoice and fixed asset; supersede on return/disposal | `[x]` `870726b` |
-| 5 | [WTY-5](WTY-5.md) | Seller coverage capture at issue, sale and exchange; supersede on collection/refund | `[x]` |
+| 5 | [WTY-5](WTY-5.md) | Seller coverage capture at issue, sale and exchange; supersede on collection/refund | `[x]` `752d3e4` |
 | 6 | [WTY-6](WTY-6.md) | Suppliers Warranty and Sellers Warranty screens, navigation, client API and the device badge | `[ ]` |
 | 7 | [WTY-7](WTY-7.md) | Demo coverage data, clear-demo order and backfill verification | `[ ]` |
 | 8 | [WTY-8](WTY-8.md) | Docs, table/screen/route/operation counts, full gates and the CI record | `[ ]` |
