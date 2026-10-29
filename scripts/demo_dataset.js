@@ -10,6 +10,57 @@
 // removes rows where is_demo = TRUE, leaving real business data untouched.
 // ============================================================================
 
+import fs from 'node:fs';
+
+// ---------------------------------------------------------------------------
+// Run-date helpers
+// ---------------------------------------------------------------------------
+// Demo warranty dates must stay meaningful however long after the seed they
+// are looked at: a fixed acquisition date turns every seeded row "expired"
+// within a year (the empty-register bug WTY-7 exists to prevent). Every date a
+// coverage is built from is therefore derived from the day the seeder runs.
+// The month-add rule must match shared/warrantyTerm.ts exactly (calendar
+// months, clamped to the target month's last day); tests/demoWarrantySeed.test.ts
+// asserts that parity against the shared helper.
+const BS_CALENDAR_YEARS = JSON.parse(
+  fs.readFileSync(new URL('../shared/bsCalendarYears.json', import.meta.url), 'utf8')
+).years;
+
+/** AD date `offset` days from today (UTC calendar days). */
+function shiftDays(offset) {
+  const now = new Date();
+  const base = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return new Date(base + offset * 86_400_000).toISOString().slice(0, 10);
+}
+
+/** Calendar months, clamped to the target month's last day (2026-01-31 + 1 -> 2026-02-28). */
+function addMonthsClamped(dateAD, months) {
+  const [year, month, day] = dateAD.split('-').map(Number);
+  const monthIndex = month - 1 + months;
+  const targetYear = year + Math.floor(monthIndex / 12);
+  const targetMonth = ((monthIndex % 12) + 12) % 12;
+  const lastDay = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
+  return `${String(targetYear).padStart(4, '0')}-${String(targetMonth + 1).padStart(2, '0')}-${String(Math.min(day, lastDay)).padStart(2, '0')}`;
+}
+
+/** AD -> 'YYYY-MM-DD BS' from the repository's one canonical BS calendar. */
+function bsLabel(adDate) {
+  for (const year of BS_CALENDAR_YEARS) {
+    if (adDate < year.startAD) continue;
+    let running = new Date(`${year.startAD}T00:00:00Z`);
+    for (let monthIdx = 0; monthIdx < year.daysInMonths.length; monthIdx += 1) {
+      const days = year.daysInMonths[monthIdx];
+      const end = new Date(running.getTime() + (days - 1) * 86_400_000).toISOString().slice(0, 10);
+      if (adDate <= end) {
+        const day = Math.round((Date.parse(`${adDate}T00:00:00Z`) - running.getTime()) / 86_400_000) + 1;
+        return `${year.yearBS}-${String(monthIdx + 1).padStart(2, '0')}-${String(day).padStart(2, '0')} BS`;
+      }
+      running = new Date(running.getTime() + days * 86_400_000);
+    }
+  }
+  throw new Error(`Demo dataset: ${adDate} is outside the bundled BS calendar`);
+}
+
 const EXCEL_ITEMS = [
   { code: 'SPL001', group: 'CONSUMABLE ITEM', type: 'Splitter', name: 'PLC Fiber Optic Splitter 1x8 SC/APC', uom: 'Pcs', qty: 50, val: 450 },
   { code: 'SPL002', group: 'CONSUMABLE ITEM', type: 'Splitter', name: 'PLC Fiber Optic Splitter 1x16 SC/APC', uom: 'Pcs', qty: 30, val: 850 },
@@ -123,6 +174,11 @@ export function buildDemoDataset(branches) {
       requiresSerialTracking,
       trackingType: requiresSerialTracking ? 'SERIAL_MAC_PON' : 'QUANTITY_ONLY',
       description: `[${productGroup}] ${item.type} - ${item.name}`,
+      // WTY-7: demonstrate both ends of the term range — a no-warranty
+      // consumable and a 24-month ONU — so the product-default UI has real
+      // examples. Everything else keeps the 12-month default.
+      vendorWarrantyMonths: item.code === 'SPL001' ? 0 : (item.code === 'ONU001' ? 24 : 12),
+      sellerWarrantyMonths: item.code === 'SPL001' ? 0 : (item.code === 'ONU001' ? 24 : 12),
       isDemo: true,
     };
 
@@ -204,7 +260,11 @@ export function buildDemoDataset(branches) {
     });
   });
 
-  // Demo fixed assets: one per FIXED ASSET excel item.
+  // Demo fixed assets: one per FIXED ASSET excel item. Acquisition dates are
+  // offset from the seed run so the supplier-warranty register exercises
+  // expired (-420d), expiring (-340d) and valid (-30d) rows on a fresh seed
+  // instead of freezing every asset on one date that later reads expired.
+  const ASSET_ACQUISITION_OFFSETS_DAYS = [-420, -340, -30];
   const demoAssetRegister = EXCEL_ITEMS
     .filter((item) => item.group === 'FIXED ASSET')
     .map((item, idx) => {
@@ -216,6 +276,7 @@ export function buildDemoDataset(branches) {
       const cost = item.val > 0 ? item.val * 1000 : 25000;
       const accum = Math.round(cost * 0.15);
       const assignedBranch = branches[idx % branches.length].id;
+      const acquiredOn = shiftDays(ASSET_ACQUISITION_OFFSETS_DAYS[idx % ASSET_ACQUISITION_OFFSETS_DAYS.length]);
 
       return {
         id: `ast-${item.code.toLowerCase()}`,
@@ -223,12 +284,12 @@ export function buildDemoDataset(branches) {
         name: item.name,
         category: cat,
         branchId: assignedBranch,
-        acquisitionDateAD: '2024-04-15',
-        acquisitionDateBS: '2081-01-03 BS',
-        purchaseInvoiceDateAD: '2024-04-15',
-        purchaseInvoiceDateBS: '2081-01-03 BS',
-        capitalizationDateAD: '2024-04-15',
-        placedInServiceDateAD: '2024-04-15',
+        acquisitionDateAD: acquiredOn,
+        acquisitionDateBS: bsLabel(acquiredOn),
+        purchaseInvoiceDateAD: acquiredOn,
+        purchaseInvoiceDateBS: bsLabel(acquiredOn),
+        capitalizationDateAD: acquiredOn,
+        placedInServiceDateAD: acquiredOn,
         acquisitionCost: cost,
         depreciationMethod: 'STRAIGHT_LINE',
         depreciationRatePercent: 15,
@@ -290,9 +351,9 @@ export function buildDemoDataset(branches) {
       sourceType: 'FIXED_ASSET',
       sourceId: asset.id,
       history: [
-        { status: 'IN_STOCK', sourceType: 'PURCHASE', dateAD: '2024-04-15' },
+        { status: 'IN_STOCK', sourceType: 'PURCHASE', dateAD: asset.acquisitionDateAD },
       ],
-      createdAt: '2024-04-15T10:00:00Z',
+      createdAt: `${asset.acquisitionDateAD}T10:00:00Z`,
       updatedAt: undefined,
       isDemo: true,
     });
@@ -340,6 +401,108 @@ export function buildDemoDataset(branches) {
         isDemo: true,
       });
     }
+  });
+
+  // Demo warranty coverages (WTY-7): the fixture the two registers are
+  // demonstrated with. Every start date is derived from the seed run, and the
+  // three states are present on BOTH sides so a fresh seed never shows an
+  // empty or all-expired register:
+  //   - supplier (VENDOR) side: fixed assets acquired -420/-340/-30 days, so
+  //     their 12-month product term yields expired / expiring / valid; two
+  //     purchased ONU serials start 45 days ago on a 24-month term (valid).
+  //   - seller side: ONU units sold 60 days ago, one with the 24-month default
+  //     (valid), one with a negotiated expiry 20 days out (expiring) and one
+  //     that ended 5 days ago (expired).
+  // The partial unique index allows one CURRENT row per type + serial; the
+  // collection below is keyed that way, so re-seeding can never create a
+  // duplicate-current row.
+  const demoWarrantyCoverages = [];
+  const coverageKey = new Set();
+  const pushCoverage = (row) => {
+    const key = `${row.coverageType}:${row.serialNumber.toUpperCase()}`;
+    if (coverageKey.has(key)) throw new Error(`Demo warranty collision: ${key}`);
+    coverageKey.add(key);
+    demoWarrantyCoverages.push({ ...row, isCurrent: true, isDemo: true });
+  };
+
+  demoAssetRegister.forEach((asset, idx) => {
+    const product = demoProducts.find((p) => p.id === asset.productId);
+    const term = product?.vendorWarrantyMonths ?? 12;
+    const supplier = demoSuppliers[idx % demoSuppliers.length];
+    pushCoverage({
+      id: `demo-wc-vendor-asset-${asset.id}`,
+      coverageType: 'VENDOR',
+      itemCategory: 'FIXED_ASSET',
+      productId: asset.productId,
+      productName: asset.name,
+      serialNumber: asset.tagNumber,
+      assetId: asset.id,
+      branchId: asset.branchId,
+      partyId: supplier.id,
+      partyName: supplier.name,
+      sourceType: 'FIXED_ASSET',
+      sourceId: asset.id,
+      sourceNumber: asset.tagNumber,
+      startDateAD: asset.acquisitionDateAD,
+      endDateAD: addMonthsClamped(asset.acquisitionDateAD, term),
+      termMonths: term,
+      startBasis: 'ACQUISITION_DATE',
+      notes: 'Demo supplier warranty captured with the fixed asset.',
+    });
+  });
+
+  const purchasedOn = shiftDays(-45);
+  demoSerialLogs
+    .filter((row) => row.productId === 'prod-onu001')
+    .slice(0, 2)
+    .forEach((row, idx) => {
+      pushCoverage({
+        id: `demo-wc-vendor-serial-${idx + 1}`,
+        coverageType: 'VENDOR',
+        itemCategory: 'CPE',
+        productId: row.productId,
+        productName: row.productName,
+        serialNumber: row.deviceSerial,
+        branchId: row.branchId,
+        partyId: demoSuppliers[0].id,
+        partyName: demoSuppliers[0].name,
+        sourceType: 'PURCHASE_INVOICE',
+        sourceId: 'demo-pi-101',
+        sourceNumber: `PI-${HQ_BRANCH_CODE}-202608100001`,
+        startDateAD: purchasedOn,
+        endDateAD: addMonthsClamped(purchasedOn, 24),
+        termMonths: 24,
+        startBasis: 'INVOICE_DATE',
+        notes: 'Demo supplier warranty captured on the purchase invoice.',
+      });
+    });
+
+  const soldOn = shiftDays(-60);
+  const sellerCoverages = [
+    { serialNumber: 'SN-ONU001-SOLD-0001', endDateAD: addMonthsClamped(soldOn, 24), termMonths: 24, note: 'valid' },
+    { serialNumber: 'SN-ONU001-SOLD-0002', endDateAD: shiftDays(20), termMonths: null, note: 'expiring' },
+    { serialNumber: 'SN-ONU001-SOLD-0003', endDateAD: shiftDays(-5), termMonths: null, note: 'expired' },
+  ];
+  sellerCoverages.forEach((row, idx) => {
+    pushCoverage({
+      id: `demo-wc-seller-${idx + 1}`,
+      coverageType: 'SELLER',
+      itemCategory: 'SOLD_PRODUCT',
+      productId: 'prod-onu001',
+      productName: 'ONU ROUTER DUAL BAND 2.4G/5G GPON',
+      serialNumber: row.serialNumber,
+      branchId: HQ_BRANCH_ID,
+      partyId: 'CUS-10291',
+      partyName: 'Example Customer 1',
+      sourceType: 'SALES_INVOICE',
+      sourceId: 'demo-si-101',
+      sourceNumber: `INV-${HQ_BRANCH_CODE}-202608200001`,
+      startDateAD: soldOn,
+      endDateAD: row.endDateAD,
+      termMonths: row.termMonths,
+      startBasis: 'SALE_DATE',
+      notes: `Demo seller warranty (${row.note}) issued with the sale.`,
+    });
   });
 
   // Demo purchase order (references the first demo supplier + a demo product).
@@ -856,6 +1019,7 @@ export function buildDemoDataset(branches) {
     inventoryStock: demoInventoryStock,
     assetRegister: demoAssetRegister,
     serialLogs: demoSerialLogs,
+    warrantyCoverages: demoWarrantyCoverages,
     purchaseOrders: demoPurchaseOrders,
     purchaseInvoices: demoPurchaseInvoices,
     salesInvoices: demoSalesInvoices,

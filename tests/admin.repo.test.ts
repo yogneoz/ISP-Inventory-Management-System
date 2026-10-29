@@ -85,8 +85,9 @@ function maxPlaceholder(sql: string): number {
 
 describe('demo data cleanup', () => {
   test('clears every operational table by the is_demo flag only', () => {
-    assert.equal(DEMO_DATA_TABLES.length, 21);
+    assert.equal(DEMO_DATA_TABLES.length, 22);
     assert.ok(DEMO_DATA_TABLES.includes('serial_log'));
+    assert.ok(DEMO_DATA_TABLES.includes('warranty_coverages'));
     // Users, branches and company profile are never demo-cleared.
     assert.ok(!(DEMO_DATA_TABLES as readonly string[]).includes('users'));
     assert.ok(!(DEMO_DATA_TABLES as readonly string[]).includes('branches'));
@@ -95,6 +96,21 @@ describe('demo data cleanup', () => {
 
   test('demoDataDeleteSql scopes the delete to is_demo rows', () => {
     assert.equal(demoDataDeleteSql('products'), 'DELETE FROM products WHERE is_demo = TRUE');
+  });
+
+  test('warranty coverages are cleared before every table they reference', () => {
+    // A parent-first delete would let an FK cascade hide the coverage rows
+    // from the count the demo-clear card reports — and, for a product with a
+    // real (is_demo = FALSE) coverage, would delete the parent before the
+    // operator ever saw the footprint. Child-first keeps the order explicit.
+    assert.equal(DEMO_DATA_TABLES[0], 'warranty_coverages');
+    const order = DEMO_DATA_TABLES as readonly string[];
+    for (const parent of ['products', 'fixed_assets', 'serial_log', 'customer_device_records']) {
+      assert.ok(
+        order.indexOf('warranty_coverages') < order.indexOf(parent),
+        `warranty_coverages must be cleared before ${parent}`
+      );
+    }
   });
 
   test('demo fiscal-year clear preserves the Nepali calendar and cascade targets', () => {

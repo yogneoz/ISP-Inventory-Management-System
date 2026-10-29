@@ -551,10 +551,10 @@ async function seedDemoData(client) {
   if (!(await skipTable('products'))) {
     for (const p of dataset.products) {
       await client.query(
-        `INSERT INTO products (id, sku, barcode, name, category, product_group, unit, cost_price, selling_price, tax_rate, min_reorder_level, requires_serial_tracking, tracking_type, description, status, is_demo, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'ACTIVE', TRUE, 'setup:pg demo seeder')
+        `INSERT INTO products (id, sku, barcode, name, category, product_group, unit, cost_price, selling_price, tax_rate, min_reorder_level, requires_serial_tracking, tracking_type, description, vendor_warranty_months, seller_warranty_months, status, is_demo, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'ACTIVE', TRUE, 'setup:pg demo seeder')
          ON CONFLICT (id) DO NOTHING`,
-        [p.id, p.sku, p.barcode, p.name, p.category, p.productGroup, p.unit, p.costPrice, p.sellingPrice, p.taxRate, p.minReorderLevel, p.requiresSerialTracking, p.trackingType, p.description]
+        [p.id, p.sku, p.barcode, p.name, p.category, p.productGroup, p.unit, p.costPrice, p.sellingPrice, p.taxRate, p.minReorderLevel, p.requiresSerialTracking, p.trackingType, p.description, p.vendorWarrantyMonths ?? 12, p.sellerWarrantyMonths ?? 12]
       );
     }
     summary.products = dataset.products.length;
@@ -681,6 +681,34 @@ async function seedDemoData(client) {
       );
     }
     summary.serial_log = (dataset.serialLogs || []).length;
+  }
+
+  // Seed warranty_coverages demo rows (WTY-7). Runs after products, fixed
+  // assets and serials so every FK target exists. ON CONFLICT DO NOTHING (no
+  // target) covers both a repeated id and the partial unique index that allows
+  // one CURRENT row per coverage_type + serial, so a drizzle of stale legacy
+  // rows can never abort the seed.
+  if (!(await skipTable('warranty_coverages'))) {
+    const demoCoverages = dataset.warrantyCoverages || [];
+    for (const w of demoCoverages) {
+      await client.query(
+        `INSERT INTO warranty_coverages (
+           id, coverage_type, item_category, product_id, product_name, serial_number,
+           asset_id, device_record_id, branch_id, party_id, party_name,
+           source_type, source_id, source_number, start_date_ad, end_date_ad,
+           term_months, start_basis, notes, is_current, is_demo, created_by, updated_by
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, TRUE, TRUE, 'setup:pg demo seeder', 'setup:pg demo seeder')
+         ON CONFLICT DO NOTHING`,
+        [
+          w.id, w.coverageType, w.itemCategory, w.productId || null, w.productName,
+          w.serialNumber, w.assetId || null, w.deviceRecordId || null, w.branchId || null,
+          w.partyId || null, w.partyName || null, w.sourceType, w.sourceId || null,
+          w.sourceNumber || null, w.startDateAD, w.endDateAD,
+          w.termMonths ?? null, w.startBasis, w.notes || '',
+        ]
+      );
+    }
+    summary.warranty_coverages = demoCoverages.length;
   }
 
   if (!(await skipTable('purchase_orders'))) {
@@ -1003,6 +1031,7 @@ async function runSetup() {
         (SELECT COUNT(*) FROM customer_payments WHERE is_demo) AS customer_payments,
         (SELECT COUNT(*) FROM vendor_payments WHERE is_demo) AS vendor_payments,
         (SELECT COUNT(*) FROM serial_log WHERE is_demo)      AS serial_log,
+        (SELECT COUNT(*) FROM warranty_coverages WHERE is_demo) AS warranty_coverages,
         (SELECT COUNT(*) FROM damage_records WHERE is_demo)  AS damage_records
     `);
     console.log(`\n📌 Demo rows now in database: ${JSON.stringify(demoCounts.rows[0])}`);

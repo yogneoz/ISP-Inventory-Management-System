@@ -20,6 +20,10 @@ import type { Asset, Branch, CompanyProfile, DocumentNumberConfig, FiscalYear, U
  * rows are removed (FK cascades would otherwise hide them).
  */
 export const DEMO_DATA_TABLES = [
+  // WTY-7: warranty_coverages references products, fixed_assets, serial_log's
+  // units and customer_device_records. It is cleared FIRST so its is_demo rows
+  // are counted before an FK cascade from a parent could remove them.
+  'warranty_coverages',
   'transaction_logs',
   'audit_logs',
   'vendor_payments',
