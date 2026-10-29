@@ -284,6 +284,11 @@ export const WARRANTY_SUPERSEDE_BY_DEVICE_SQL = `UPDATE warranty_coverages SET
   is_current = FALSE, superseded_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
 WHERE coverage_type = 'SELLER' AND device_record_id = $1 AND is_current = TRUE`;
 
+/** Retire the seller promise for returned/sold units named by serial. */
+export const WARRANTY_SUPERSEDE_SELLER_BY_SERIALS_SQL = `UPDATE warranty_coverages SET
+  is_current = FALSE, superseded_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+WHERE coverage_type = 'SELLER' AND serial_number = ANY($1) AND is_current = TRUE`;
+
 /**
  * Retire exactly the row being corrected. A correction is a NEW period, not an
  * overwrite: the old row keeps its original dates for audit and drops out of

@@ -379,6 +379,8 @@ export interface PurchaseInvoiceItem {
   deviceSerials?: DeviceSerialPair[];
   /** WTY-4: the supplier warranty expiry captured with this serialised line. */
   warrantyEndDateAD?: string;
+  /** WTY-5: false means the operator declared no supplier warranty for the line. */
+  warrantyCovered?: boolean;
 }
 
 export interface CustomerDeviceRecord {
@@ -675,6 +677,10 @@ export interface SaleItem {
   // Present on some stock-operation item payloads (e.g. pullout-style lines)
   condition?: PulloutItem['condition'];
   unitCost?: number;
+  /** WTY-5: the customer promise captured with this sold serialised line. */
+  sellerWarrantyEndDateAD?: string;
+  /** WTY-5: false writes no seller coverage for the line. */
+  sellerWarrantyCovered?: boolean;
 }
 
 export interface ConsumableIssueItem {

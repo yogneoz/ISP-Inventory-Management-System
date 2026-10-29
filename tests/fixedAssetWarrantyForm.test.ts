@@ -60,6 +60,52 @@ describe('fixed-asset supplier warranty field', () => {
     api.getFixedAssetOverview = real.overview;
   });
 
+  test('switching the supplier warranty off hides the date and says so', async () => {
+    const tree = mountTree(
+      createElement(
+        DialogProvider as any,
+        null,
+        createElement(FixedAssetRegister, {
+          branches,
+          selectedBranchId: 'b1',
+          dateMode: 'AD',
+          currentUser: user,
+          onCreateAsset: async () => {},
+          onUpdateAssetStatus: async () => {},
+        } as any)
+      )
+    );
+    try {
+      await settle();
+      const open = [...tree.container.querySelectorAll('button')].find((button) =>
+        /Register Fixed Asset/.test(button.textContent || '')
+      ) as HTMLButtonElement | undefined;
+      act(() => open!.click());
+      await settle();
+
+      const toggle = tree.container.querySelector('#asset-supplier-warranty-covered') as HTMLInputElement | null;
+      assert.ok(toggle, 'the modal must offer the coverage switch');
+      assert.equal(toggle!.checked, true, 'a new asset starts covered');
+      assert.ok(
+        tree.container.querySelector('#asset-supplier-warranty-expiry'),
+        'a covered asset shows its expiry'
+      );
+
+      act(() => toggle!.click());
+      await settle();
+
+      assert.equal(toggle!.checked, false);
+      assert.equal(
+        tree.container.querySelector('#asset-supplier-warranty-expiry'),
+        null,
+        'switching coverage off removes the date instead of submitting a hidden one'
+      );
+      assert.match(String(tree.container.textContent), /No supplier warranty/);
+    } finally {
+      tree.unmount();
+    }
+  });
+
   test('a new asset prefills 12 months and an untouched expiry follows the acquisition date', async () => {
     const tree = mountTree(
       createElement(

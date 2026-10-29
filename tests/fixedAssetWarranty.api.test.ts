@@ -197,6 +197,14 @@ describe('fixed-asset supplier warranty (real HTTP + PostgreSQL)', { skip: skipN
     assert.equal(row.endDateAD, '2031-06-30', 'the typed contract date is authoritative');
   });
 
+  test('an asset declared without a supplier warranty writes no row', async () => {
+    const res = await call('POST', '/api/assets', assetBody('W4A-TAG-NONE', {
+      supplierWarrantyCovered: false,
+    }));
+    assert.equal(res.status, 201, JSON.stringify(res.json));
+    assert.deepEqual(await coverage('W4A-TAG-NONE'), [], 'no coverage means no invented 12-month row');
+  });
+
   test('a reversed expiry refuses the asset and writes neither row', async () => {
     const res = await call('POST', '/api/assets', assetBody('W4A-TAG-BAD', {
       supplierWarrantyEndDateAD: '2019-01-01',

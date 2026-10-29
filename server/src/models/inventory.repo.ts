@@ -879,10 +879,37 @@ export function normalizeCustomerDevicePaging(page?: unknown, pageSize?: unknown
   return { page: Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1, pageSize: size };
 }
 
+/**
+ * WTY-5: the current SELLER coverage travels with the device row. A device
+ * with no row returns NULL dates and NULL state, so the register can say "No
+ * warranty" instead of inventing a term from the issue date.
+ */
+export const CDR_SELLER_COVERAGE_JOIN_SQL = `
+  LEFT JOIN LATERAL (
+    SELECT w.start_date_ad AS seller_start, w.end_date_ad AS seller_end
+    FROM warranty_coverages w
+    WHERE w.coverage_type = 'SELLER'
+      AND w.device_record_id = customer_device_records.id
+      AND w.is_current
+    ORDER BY w.created_at DESC
+    LIMIT 1
+  ) seller_warranty ON TRUE`;
+
+export const CDR_SELLER_COVERAGE_COLUMNS = `
+  seller_warranty.seller_start AS "sellerWarrantyStartDateAD",
+  seller_warranty.seller_end AS "sellerWarrantyEndDateAD",
+  CASE
+    WHEN seller_warranty.seller_end IS NULL THEN NULL
+    WHEN seller_warranty.seller_end < CURRENT_DATE THEN 'EXPIRED'
+    WHEN seller_warranty.seller_end <= CURRENT_DATE + 30 THEN 'EXPIRING_SOON'
+    ELSE 'VALID' END AS "sellerWarrantyState"`;
+
 /** The register page, ordered by the composite `(branch_id, created_at, id)` index. */
 export function buildCustomerDevicePageQuery(opts: CustomerDeviceQueryOptions = {}, page = 1, pageSize = CUSTOMER_DEVICE_PAGE_SIZE_DEFAULT) {
   const { whereSql, params } = buildCustomerDeviceWhere(opts);
-  const sql = `SELECT ${CDR_SELECT_COLUMNS} FROM customer_device_records${whereSql} ORDER BY created_at DESC, id DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
+  const sql = `SELECT ${CDR_SELECT_COLUMNS}, ${CDR_SELLER_COVERAGE_COLUMNS}
+    FROM customer_device_records${CDR_SELLER_COVERAGE_JOIN_SQL}${whereSql}
+    ORDER BY created_at DESC, id DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
   return { sql, params };
 }
 
@@ -899,7 +926,9 @@ export function buildCustomerDeviceCountQuery(opts: CustomerDeviceQueryOptions =
  */
 export function buildCustomerDeviceExportQuery(opts: CustomerDeviceQueryOptions = {}) {
   const { whereSql, params } = buildCustomerDeviceWhere(opts);
-  const sql = `SELECT ${CDR_SELECT_COLUMNS} FROM customer_device_records${whereSql} ORDER BY created_at DESC, id DESC LIMIT ${CUSTOMER_DEVICE_EXPORT_MAX + 1}`;
+  const sql = `SELECT ${CDR_SELECT_COLUMNS}, ${CDR_SELLER_COVERAGE_COLUMNS}
+    FROM customer_device_records${CDR_SELLER_COVERAGE_JOIN_SQL}${whereSql}
+    ORDER BY created_at DESC, id DESC LIMIT ${CUSTOMER_DEVICE_EXPORT_MAX + 1}`;
   return { sql, params };
 }
 

@@ -30,7 +30,7 @@ Work proceeds in this order; each note is the slice's single source of truth.
 | 2 | [WTY-2](WTY-2.md) | Coverage repo/service/controller/routes, branch scope, permissions and the audited edit endpoint | `[x]` `f1ebd83` |
 | 3 | [WTY-3](WTY-3.md) | Product vendor/seller warranty defaults in the API and the product form | `[x]` `cf84fa1` |
 | 4 | [WTY-4](WTY-4.md) | Vendor coverage capture at purchase invoice and fixed asset; supersede on return/disposal | `[x]` `870726b` |
-| 5 | [WTY-5](WTY-5.md) | Seller coverage capture at issue, sale and exchange; supersede on collection/refund | `[ ]` |
+| 5 | [WTY-5](WTY-5.md) | Seller coverage capture at issue, sale and exchange; supersede on collection/refund | `[x]` |
 | 6 | [WTY-6](WTY-6.md) | Suppliers Warranty and Sellers Warranty screens, navigation, client API and the device badge | `[ ]` |
 | 7 | [WTY-7](WTY-7.md) | Demo coverage data, clear-demo order and backfill verification | `[ ]` |
 | 8 | [WTY-8](WTY-8.md) | Docs, table/screen/route/operation counts, full gates and the CI record | `[ ]` |
@@ -40,7 +40,20 @@ after its own gates and with every acceptance line ticked — the coverage API's
 repo, HTTP, branch-scope, permission and audited-edit claims, and the product
 defaults' validation and form round-trip. WTY-4 (`870726b`) captures supplier coverage
 from the purchase invoice and the fixed-asset register, and retires it on return
-or disposal. WTY-5–8 are untouched.
+or disposal. WTY-5 is done: every capture surface takes an explicit coverage switch, both
+`Assign Fixed Asset` branches write the seller row, and the customer-device read
+returns the stored promise. WTY-6–8 are untouched.
+
+**WTY-5 scope was amended 2026-10-29** after an audit of blank-expiry behaviour:
+a blank date silently fell back to the product term, so "no warranty for this
+unit" could not be expressed, and the `Assign Fixed Asset` rental-CPE form had
+no capture at all. The slice now owns the explicit per-unit coverage switch
+across every capture surface, both assignment branches, and the stored seller
+read. Details and evidence are in
+[WTY-5](WTY-5.md#audit-findings-2026-10-29).
+
+The one remaining invented term is the legacy "View Warranty Products"
+directory, which still computes `issued_date + 12`; WTY-6 replaces that screen.
 
 ## Commit policy
 

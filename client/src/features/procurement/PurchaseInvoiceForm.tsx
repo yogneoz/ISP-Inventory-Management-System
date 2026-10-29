@@ -39,7 +39,7 @@ import { getAllowedBranches } from '../../utils/permissions';
 import { getDefaultTaxRate } from '../../utils/taxConfig';
 import { behaviorOf } from '../../utils/productGroupBehavior';
 import { clampLineQuantity } from '../../utils/lineQuantity';
-import { applyWarrantyPrefill, warrantyEndFieldError, warrantyEndFor } from '../../utils/warrantyCapture';
+import { applyWarrantyPrefill, warrantyCoveredDefault, warrantyEndFieldError, warrantyEndFor } from '../../utils/warrantyCapture';
 import { LoadStateNotice } from '../../components/common/LoadStateNotice';
 import { useOpenPurchaseOrders } from '../../services/procurementPendingCache';
 import { normalizeMacAddress } from '../../../../shared/macAddress';
@@ -60,6 +60,8 @@ interface InvoiceFormLine {
   warrantyEndDateAD?: string;
   /** True once the operator edits the prefilled expiry. */
   warrantyTouched?: boolean;
+  /** WTY-5: false declares "no supplier warranty" and writes no row. */
+  warrantyCovered?: boolean;
 }
 
 interface PurchaseInvoiceFormProps {
@@ -320,6 +322,9 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
               ? warrantyEndFor(purchaseDateAD, prod.vendorWarrantyMonths)
               : undefined,
             warrantyTouched: false,
+            warrantyCovered: isSerialized
+              ? warrantyCoveredDefault(prod.vendorWarrantyMonths)
+              : undefined,
           },
         ];
       }
@@ -416,6 +421,24 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
     setLines(updated);
   };
 
+  /**
+   * WTY-5: turning the coverage off is a declaration, not an empty field. The
+   * date is cleared so a hidden value can never be submitted, and turning it
+   * back on re-derives the untouched prefill.
+   */
+  const updateLineWarrantyCovered = (index: number, covered: boolean) => {
+    const updated = [...lines];
+    const line = updated[index];
+    const product = products.find((p) => p.id === line.productId);
+    updated[index] = {
+      ...line,
+      warrantyCovered: covered,
+      warrantyEndDateAD: covered ? warrantyEndFor(purchaseDateAD, product?.vendorWarrantyMonths) : '',
+      warrantyTouched: !covered,
+    };
+    setLines(updated);
+  };
+
   const updateLinePrice = (index: number, newPrice: number) => {
     const updated = [...lines];
     updated[index].unitPrice = Math.max(0, newPrice);
@@ -488,7 +511,12 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
     for (const line of lines) {
       const product = products.find((p) => p.id === line.productId);
       if (!isSerialTracked(product)) continue;
-      const warrantyError = warrantyEndFieldError(purchaseDateAD, line.warrantyEndDateAD);
+      const warrantyError = warrantyEndFieldError(
+        purchaseDateAD,
+        line.warrantyEndDateAD,
+        'Suppliers warranty expiry',
+        line.warrantyCovered
+      );
       if (warrantyError) {
         setSaveMessage(`${line.productName}: ${warrantyError}`);
         return;
@@ -579,6 +607,7 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
         macAddress: normalizeMacAddress(s.macAddress) || undefined,
       })),
       warrantyEndDateAD: l.warrantyEndDateAD || undefined,
+      warrantyCovered: l.warrantyCovered,
     }));
 
     // Default to CREDIT mode transaction as requested
@@ -1062,20 +1091,43 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
                                   </div>
                                   <div className="flex flex-wrap items-center gap-2 mb-2">
                                     <label
-                                      htmlFor={`pi-warranty-${idx}`}
-                                      className="text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400"
+                                      htmlFor={`pi-warranty-covered-${idx}`}
+                                      className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400 cursor-pointer"
                                     >
-                                      Suppliers warranty expires
+                                      <input
+                                        id={`pi-warranty-covered-${idx}`}
+                                        type="checkbox"
+                                        checked={line.warrantyCovered !== false}
+                                        onChange={(e) => updateLineWarrantyCovered(idx, e.target.checked)}
+                                        className="h-3.5 w-3.5 rounded border-blue-300 text-blue-600 focus:ring-blue-500"
+                                      />
+                                      Suppliers warranty covered
                                     </label>
-                                    <input
-                                      id={`pi-warranty-${idx}`}
-                                      type="date"
-                                      value={line.warrantyEndDateAD || ''}
-                                      onChange={(e) => updateLineWarrantyEnd(idx, e.target.value)}
-                                      className="rounded-lg border px-2 py-1 text-[11px] font-mono font-bold border-blue-200 bg-white text-blue-900 dark:border-blue-800 dark:bg-slate-900 dark:text-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    />
+                                    {line.warrantyCovered !== false ? (
+                                      <>
+                                        <label
+                                          htmlFor={`pi-warranty-${idx}`}
+                                          className="text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400"
+                                        >
+                                          Expires
+                                        </label>
+                                        <input
+                                          id={`pi-warranty-${idx}`}
+                                          type="date"
+                                          value={line.warrantyEndDateAD || ''}
+                                          onChange={(e) => updateLineWarrantyEnd(idx, e.target.value)}
+                                          className="rounded-lg border px-2 py-1 text-[11px] font-mono font-bold border-blue-200 bg-white text-blue-900 dark:border-blue-800 dark:bg-slate-900 dark:text-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        />
+                                      </>
+                                    ) : (
+                                      <span className="rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                                        No supplier warranty
+                                      </span>
+                                    )}
                                     <span className="text-[10px] text-slate-500 dark:text-slate-400">
-                                      Prefilled from the purchase date + this product's supplier term; an edited date is kept.
+                                      {line.warrantyCovered !== false
+                                        ? "Prefilled from the purchase date + this product's supplier term; an edited date is kept."
+                                        : 'No coverage will be recorded for these units.'}
                                     </span>
                                   </div>
                                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">

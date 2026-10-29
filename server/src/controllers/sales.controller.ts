@@ -37,6 +37,14 @@ import {
   SI_CLAIMED_SERIALS_SQL, SI_RELEASE_SERIAL_SQL, siCancelTxnLogParams,
 } from '../models/sales.repo';
 import { planSerialGateEntries, resolveSerialGateInDb, serialGateKey } from '../services/serialGate.service';
+import {
+  buildSellerCoverageCaptures,
+  recordWarrantyCoverageMirror,
+  supersedeCoverageBySource,
+  supersedeCoverageBySourceMirror,
+  supersedeSellerCoverageForSerials,
+  writeSellerCoveragePlan,
+} from '../services/warranty.service';
 import { intFromEnv } from '../utils/envGuard';
 import { firstLineQuantityRefusal } from '../utils/lineQuantity';
 
@@ -102,6 +110,8 @@ async function applySalesReturnEffects(client: any, ret: any, items: any[], bran
       );
     }
     const serials = returnItemSerials(item);
+    // A returned unit is no longer covered by the promise the sale made.
+    await supersedeSellerCoverageForSerials(client, serials);
     if (serials.length > 0) {
       await client.query(SR_SERIAL_FLIP_SQL, [
         serials,
@@ -289,11 +299,41 @@ export async function post_salesInvoices(req: any, res: Response): Promise<any> 
     }
     if (alreadyExists) return res.status(409).json({ message: `Sales invoice ${invoiceNumber} already exists.` });
 
+    // WTY-5: a sold serial carries the promise we made with this invoice.
+    // Planned before any write, so a covered line without an expiry refuses the
+    // invoice instead of silently inventing the product default.
+    const sellerWarrantyPlan = buildSellerCoverageCaptures({
+      startDateAD: invDate,
+      entries: items.flatMap((item: any) =>
+        (Array.isArray(item?.deviceSerials) ? item.deviceSerials : [])
+          .map((entry: any) => String(typeof entry === 'string' ? entry : entry?.deviceSerial || '').trim())
+          .filter((serial: string) => serial.length > 0)
+          .map((serial: string) => ({
+            deviceSerial: serial,
+            productId: item.productId || null,
+            productName: item.productName || 'Product',
+            warrantyCovered: item.sellerWarrantyCovered,
+            warrantyEndDateAD: item.sellerWarrantyEndDateAD,
+          }))
+      ),
+      productFor: (productId) => products.find((entry) => entry.id === productId),
+      partyId: newInv.customerId || null,
+      partyName: newInv.customerName || null,
+      branchId: targetBranchId,
+      sourceType: 'SALES_INVOICE',
+      sourceId: newInv.id,
+      sourceNumber: invoiceNumber,
+      itemCategory: 'SOLD_PRODUCT',
+      startBasis: 'SALE_DATE',
+    });
+    if (sellerWarrantyPlan.error) return res.status(400).json({ message: sellerWarrantyPlan.error });
+
     if (getPgConnected()) {
       // All-or-nothing: invoice insert + per-item guarded stock deduction + ledger.
       await withTransaction(async (client) => {
         await client.query(SI_INSERT_SQL, siInsertParams(newInv, JSON.stringify(items)));
         await claimInvoiceSerials(client, items, newInv, targetBranchId, invDate);
+        await writeSellerCoveragePlan(client, sellerWarrantyPlan.captures);
         for (let itemIdx = 0; itemIdx < items.length; itemIdx++) {
           const item = items[itemIdx];
           const qty = Math.abs(Number(item.quantity)) || 0;
@@ -329,6 +369,7 @@ export async function post_salesInvoices(req: any, res: Response): Promise<any> 
         }));
       }
       if (newTxns.length > 0) setTransactionLogs([...newTxns, ...transactionLogs]);
+      for (const capture of sellerWarrantyPlan.captures) recordWarrantyCoverageMirror(capture);
     }
 
     logAuditEvent(req, 'CREATE_SALES_INVOICE', 'SALES', `Created Sales Invoice #${newInv.invoiceNumber} for customer ${newInv.customerName}`);
@@ -462,6 +503,11 @@ export async function post_salesInvoiceCancel(req: any, res: Response): Promise<
           throw new Error('Could not release one or more serials — nothing was cancelled.');
         }
       }
+      // The cancelled invoice no longer promises any warranty.
+      await supersedeCoverageBySource(client, 'SELLER', 'SALES_INVOICE', String(inv.id));
+      // A cancelled invoice whose serials went back to stock also ends any
+      // promise keyed by the unit (covers rows from other capture paths).
+      if (serials.length > 0) await supersedeSellerCoverageForSerials(client, serials);
     });
 
     // Keep the in-memory bootstrap mirror in step so the register does not
@@ -471,6 +517,9 @@ export async function post_salesInvoiceCancel(req: any, res: Response): Promise<
         i.id === existing.id || i.invoiceNumber === existing.invoiceNumber ? { ...i, status: 'CANCELLED' as const } : i
       )
     );
+    if (!getPgConnected()) {
+      supersedeCoverageBySourceMirror('SELLER', 'SALES_INVOICE', String(existing.id));
+    }
 
     logAuditEvent(req, 'CANCEL_SALES_INVOICE', 'SALES', `Cancelled Sales Invoice #${existing.invoiceNumber}${reason ? ` — ${reason}` : ''}`);
     res.json({ ...existing, status: 'CANCELLED' });

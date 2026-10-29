@@ -251,6 +251,23 @@ describe('purchase warranty capture (real HTTP + PostgreSQL)', { skip: skipNoDb 
     assert.equal(Number(inv.rows[0].n), 0, 'a refused bill must not exist');
   });
 
+  test('switching the coverage off writes no row; switching it on with a blank date refuses the bill', async () => {
+    const off = await call('POST', '/api/purchase-invoices', invoiceBody('w4-inv-off', [
+      line({ deviceSerials: serial('W4-OFF1'), warrantyCovered: false }),
+    ]));
+    assert.equal(off.status, 201, JSON.stringify(off.json));
+    assert.deepEqual(await coverage('W4-OFF1'), [], 'a declared-none unit gets no invented expiry');
+
+    const blank = await call('POST', '/api/purchase-invoices', invoiceBody('w4-inv-blank', [
+      line({ deviceSerials: serial('W4-BLANK1'), warrantyCovered: true }),
+    ]));
+    assert.equal(blank.status, 400, JSON.stringify(blank.json));
+    assert.match(String(blank.json?.message), /required, or turn the warranty off/i);
+    assert.deepEqual(await coverage('W4-BLANK1'), []);
+    const inv = await pool!.query("SELECT count(*)::int AS n FROM purchase_invoices WHERE id = 'w4-inv-blank'");
+    assert.equal(Number(inv.rows[0].n), 0, 'a refused bill must not exist');
+  });
+
   test('a quantity-only line creates no per-unit coverage', async () => {
     const { rows } = await pool!.query("SELECT count(*)::int AS n FROM warranty_coverages WHERE serial_number LIKE 'W4-CABLE%'");
     assert.equal(Number(rows[0].n), 0);

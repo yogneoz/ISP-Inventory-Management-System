@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useStockOperationsCtx } from './StockOperationsContext';
 import { DeviceSerialInput, findRegisterRow } from '../../../components/common/DeviceSerialInput';
 import {
@@ -11,6 +11,7 @@ import {
 } from '../../../types';
 import { api } from '../../../services/api';
 import { FormCard } from '../../../components/common/FormCard';
+import { warrantyCoveredDefault, warrantyEndFieldError, warrantyEndFor } from '../../../utils/warrantyCapture';
 import { LoadStateNotice } from '../../../components/common/LoadStateNotice';
 import {
   Plus,
@@ -55,8 +56,21 @@ export const DeviceExchangePanel: React.FC = () => {
   const [exchangeNewPon, setExchangeNewPon] = useState<string>('');
   const [exchangeNewMac, setExchangeNewMac] = useState<string>('');
   const [exchangeNotes, setExchangeNotes] = useState<string>('');
+  // WTY-5: the replacement restarts the customer promise.
+  const [exchangeSellerWarrantyEnd, setExchangeSellerWarrantyEnd] = useState<string>('');
+  const [exchangeSellerWarrantyCovered, setExchangeSellerWarrantyCovered] = useState<boolean>(true);
+  const [exchangeSellerWarrantyTouched, setExchangeSellerWarrantyTouched] = useState<boolean>(false);
 
   const [isSubmittingExchange, setIsSubmittingExchange] = useState<boolean>(false);
+
+  // Prefill from the product's seller term until the operator edits it.
+  useEffect(() => {
+    if (!selectedDeviceForExchange || exchangeSellerWarrantyTouched) return;
+    const productName = exchangeProductName || selectedDeviceForExchange.productName;
+    const prod = products.find((p) => p.name.trim().toLowerCase() === String(productName).trim().toLowerCase());
+    setExchangeSellerWarrantyEnd(warrantyEndFor(new Date().toISOString().split('T')[0], prod?.sellerWarrantyMonths));
+    setExchangeSellerWarrantyCovered(warrantyCoveredDefault(prod?.sellerWarrantyMonths));
+  }, [selectedDeviceForExchange?.id, exchangeProductName, exchangeSellerWarrantyTouched, products]);
 
   const handlePerformExchange = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -121,6 +135,17 @@ export const DeviceExchangePanel: React.FC = () => {
     const resolvedPon = String(registerRow.ponSerial ?? exchangeNewPon ?? '').trim();
     const resolvedMac = String(registerRow.macAddress ?? exchangeNewMac ?? '').trim();
 
+    const exchangeWarrantyError = warrantyEndFieldError(
+      new Date().toISOString().split('T')[0],
+      exchangeSellerWarrantyEnd,
+      'Seller warranty expiry',
+      exchangeSellerWarrantyCovered
+    );
+    if (exchangeWarrantyError) {
+      alertDialog(exchangeWarrantyError);
+      return;
+    }
+
     setIsSubmittingExchange(true);
     try {
       await api.exchangeCustomerDevice({
@@ -133,6 +158,9 @@ export const DeviceExchangePanel: React.FC = () => {
         newMacAddress: resolvedMac || undefined,
         notes: exchangeNotes.trim() || undefined,
         branchId: exchangeBranchId,
+        sellerWarrantyEndDateAD:
+          exchangeSellerWarrantyCovered ? exchangeSellerWarrantyEnd || undefined : undefined,
+        sellerWarrantyCovered: exchangeSellerWarrantyCovered,
       }, { silentErrorToast: true });
 
       const actionText =
@@ -442,6 +470,47 @@ export const DeviceExchangePanel: React.FC = () => {
                     }
                   />
                 </div>
+              </div>
+            </div>
+
+            {/* WTY-5: what we promise on the replacement unit. */}
+            <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-3 dark:border-indigo-900 dark:bg-indigo-950/30">
+              <label className="flex items-center gap-2 text-xs font-bold text-indigo-800 dark:text-indigo-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={exchangeSellerWarrantyCovered}
+                  onChange={(e) => {
+                    const covered = e.target.checked;
+                    setExchangeSellerWarrantyCovered(covered);
+                    setExchangeSellerWarrantyTouched(true);
+                    if (!covered) setExchangeSellerWarrantyEnd('');
+                  }}
+                  className="h-3.5 w-3.5 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                Sellers warranty covered on the replacement
+              </label>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                {exchangeSellerWarrantyCovered ? (
+                  <input
+                    type="date"
+                    value={exchangeSellerWarrantyEnd}
+                    onChange={(e) => {
+                      setExchangeSellerWarrantyEnd(e.target.value);
+                      setExchangeSellerWarrantyTouched(true);
+                    }}
+                    aria-label="Seller warranty expiry for the replacement device"
+                    className="rounded-lg border px-2.5 py-1.5 text-xs font-mono border-indigo-200 bg-white text-indigo-900 dark:border-indigo-800 dark:bg-slate-900 dark:text-indigo-200"
+                  />
+                ) : (
+                  <span className="rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                    No warranty given
+                  </span>
+                )}
+                <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                  {exchangeSellerWarrantyCovered
+                    ? "Prefilled from the replacement product's seller term; an edited date is kept."
+                    : 'The customer-device register will show “No warranty” for the replacement.'}
+                </span>
               </div>
             </div>
 

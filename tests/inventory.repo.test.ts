@@ -371,8 +371,11 @@ describe('customer devices (CPE)', () => {
     assert.deepEqual(params, ['BR1', 'CUS-1', 'CUS-1']);
 
     const ignored = buildCustomerDevicePageQuery({ customerId: { evil: true } }, 1, 15);
-    assert.ok(!ignored.sql.includes(' WHERE '), 'a non-string customerId must not reach the WHERE');
-    assert.deepEqual(ignored.params, []);
+    // The row query now carries a coverage subquery with its own WHERE, so the
+    // assertion targets the filter itself: nothing was bound and no customer
+    // predicate was added for a non-string id.
+    assert.ok(!ignored.sql.includes('customer_code =') && !ignored.sql.includes('customer_id ='));
+    assert.deepEqual(ignored.params, [], 'a non-string customerId must not reach the WHERE');
   });
 
   test('the overview groups counts by status under the search filters, not the status filter', () => {

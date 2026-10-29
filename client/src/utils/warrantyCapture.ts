@@ -9,12 +9,14 @@
  */
 import { defaultWarrantyEnd, isAdDate } from '../../../shared/warrantyTerm';
 
-/** The field a dirty-tracked capture draft carries. */
+/** The fields a dirty-tracked capture draft carries. */
 export interface WarrantyDraft {
   /** Exact expiry; `''` means "no date yet" (e.g. a 0-month term). */
   warrantyEndDateAD?: string;
   /** True once the operator edits the date; prefill must leave it alone. */
   warrantyTouched?: boolean;
+  /** WTY-5: explicit switch. False writes no coverage and hides the date. */
+  warrantyCovered?: boolean;
 }
 
 /**
@@ -41,6 +43,7 @@ export function applyWarrantyPrefill<T extends WarrantyDraft>(
   termOf: (draft: T) => number | null | undefined
 ): T[] {
   return drafts.map((draft) => {
+    if (draft.warrantyCovered === false) return draft;
     if (draft.warrantyTouched || draft.warrantyEndDateAD === undefined) return draft;
     return { ...draft, warrantyEndDateAD: warrantyEndFor(startDateAD, termOf(draft)) };
   });
@@ -54,11 +57,23 @@ export function applyWarrantyPrefill<T extends WarrantyDraft>(
 export function warrantyEndFieldError(
   startDateAD: string,
   endDateAD: string | null | undefined,
-  label = 'Suppliers warranty expiry'
+  label = 'Suppliers warranty expiry',
+  covered?: boolean
 ): string | null {
-  if (!endDateAD) return null;
+  if (covered === false) return null;
+  if (!endDateAD) {
+    // WTY-5: a covered unit needs an expiry; only the legacy (unspecified)
+    // state may fall back to the product term at submit.
+    return covered === true ? `${label} is required, or turn the warranty off for this unit.` : null;
+  }
   if (!isAdDate(endDateAD)) return `${label} must be a real calendar date.`;
   if (!isAdDate(startDateAD)) return `${label} needs a valid purchase date first.`;
   if (endDateAD < startDateAD) return `${label} cannot be before the purchase date.`;
   return null;
+}
+
+/** The switch's default: a product that carries no term starts switched off. */
+export function warrantyCoveredDefault(termMonths: number | null | undefined): boolean {
+  const term = Number(termMonths);
+  return Number.isFinite(term) && term > 0;
 }

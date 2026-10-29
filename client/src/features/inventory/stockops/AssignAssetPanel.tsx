@@ -14,6 +14,11 @@ import { FormCard } from '../../../components/common/FormCard';
 import { formatNPR } from '../../../utils/nprFormat';
 import { isFixedAssetProduct } from '../../../utils/productGroupBehavior';
 import {
+  warrantyCoveredDefault,
+  warrantyEndFieldError,
+  warrantyEndFor,
+} from '../../../utils/warrantyCapture';
+import {
   Trash2,
   X,
   Search,
@@ -90,7 +95,10 @@ export const AssignAssetPanel: React.FC = () => {
 
   // 4. Submit Assign Fixed Asset
   // --- Asset deployment bin handlers (Product Sale pattern) ---
+  const todaySellerStart = () => new Date().toISOString().split('T')[0];
+
   const handleAddAssignAssetToBin = (asset: Asset) => {
+    const startAD = todaySellerStart();
     setAssignItems((prev) => [
       ...prev,
       {
@@ -106,6 +114,9 @@ export const AssignAssetPanel: React.FC = () => {
         ponSerial: '',
         macAddress: '',
         usedAtType: 'FIELD' as const,
+        sellerWarrantyEndDateAD: warrantyEndFor(startAD, 12),
+        sellerWarrantyTouched: false,
+        sellerWarrantyCovered: true,
         remarks: '',
       },
     ]);
@@ -115,6 +126,7 @@ export const AssignAssetPanel: React.FC = () => {
 
   const handleAddAssignProductToBin = (prod: Product) => {
     const serialized = assetIsSerializedProduct(prod);
+    const startAD = todaySellerStart();
     setAssignItems((prev) => [
       ...prev,
       {
@@ -132,6 +144,9 @@ export const AssignAssetPanel: React.FC = () => {
         ponSerial: '',
         macAddress: '',
         usedAtType: 'FIELD' as const,
+        sellerWarrantyEndDateAD: warrantyEndFor(startAD, prod.sellerWarrantyMonths),
+        sellerWarrantyTouched: false,
+        sellerWarrantyCovered: warrantyCoveredDefault(prod.sellerWarrantyMonths),
         remarks: '',
       },
     ]);
@@ -206,6 +221,20 @@ export const AssignAssetPanel: React.FC = () => {
         alertDialog(`Line "${item.productName}": select a Customer.`);
         return;
       }
+      // WTY-5: the customer promise is required unless the operator turned it
+      // off for this unit — never silently derived at save.
+      if (item.usedAtType === 'CUSTOMER') {
+        const warrantyError = warrantyEndFieldError(
+          todayAD,
+          item.sellerWarrantyEndDateAD,
+          'Seller warranty expiry',
+          item.sellerWarrantyCovered
+        );
+        if (warrantyError) {
+          alertDialog(`Line "${item.productName}": ${warrantyError}`);
+          return;
+        }
+      }
       if (item.kind === 'PRODUCT' && item.isSerialized) {
         if (item.quantity !== 1) {
           alertDialog(`Line "${item.productName}": a serialized unit deploys one serial per line — set quantity to 1 and add another line for the next device.`);
@@ -275,6 +304,11 @@ export const AssignAssetPanel: React.FC = () => {
             // can leave the two registers disagreeing.
             devicePonSerial: unitIdentity ? (item.ponSerial || undefined) : undefined,
             deviceMacAddress: unitIdentity ? (item.macAddress || undefined) : undefined,
+            sellerWarrantyEndDateAD:
+              item.usedAtType === 'CUSTOMER' && item.sellerWarrantyCovered !== false
+                ? item.sellerWarrantyEndDateAD || undefined
+                : undefined,
+            sellerWarrantyCovered: item.usedAtType === 'CUSTOMER' ? item.sellerWarrantyCovered : undefined,
           });
           createdTags.push(unitTag);
         }
@@ -312,6 +346,11 @@ export const AssignAssetPanel: React.FC = () => {
               status: 'RENTAL',
               issuedDateAD: todayAD,
               issuedDateBS: todayBS,
+              sellerWarrantyEndDateAD:
+                item.sellerWarrantyCovered !== false
+                  ? item.sellerWarrantyEndDateAD || undefined
+                  : undefined,
+              sellerWarrantyCovered: item.sellerWarrantyCovered,
               notes: `[FIXED ASSET CPE - Tag: ${ledgerAsset?.tagNumber}] ${item.remarks}`,
             });
           }
@@ -562,6 +601,12 @@ export const AssignAssetPanel: React.FC = () => {
                                   usedAtCustomerId: t === 'CUSTOMER' ? item.usedAtCustomerId : undefined,
                                   usedAtCustomerName: t === 'CUSTOMER' ? item.usedAtCustomerName : undefined,
                                   usedAtCustomer: t === 'CUSTOMER' ? item.usedAtCustomer : undefined,
+                                  sellerWarrantyEndDateAD: t === 'CUSTOMER'
+                                    ? item.sellerWarrantyEndDateAD || warrantyEndFor(todaySellerStart(), 12)
+                                    : item.sellerWarrantyEndDateAD,
+                                  sellerWarrantyCovered: t === 'CUSTOMER'
+                                    ? item.sellerWarrantyCovered !== false
+                                    : item.sellerWarrantyCovered,
                                 });
                               }}
                               className="w-full rounded-xl border px-2.5 py-1.5 h-9 text-[11px] font-bold bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -632,6 +677,57 @@ export const AssignAssetPanel: React.FC = () => {
                             />
                           </div>
                         </div>
+
+                        {/* WTY-5: the customer promise travels with a rental/issued line. */}
+                        {item.usedAtType === 'CUSTOMER' && (
+                          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/60 px-2.5 py-2 dark:border-indigo-900 dark:bg-indigo-950/30">
+                            <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-indigo-700 dark:text-indigo-300 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={item.sellerWarrantyCovered !== false}
+                                onChange={(e) => {
+                                  const covered = e.target.checked;
+                                  handleUpdateAssignItem(item.id, {
+                                    sellerWarrantyCovered: covered,
+                                    sellerWarrantyEndDateAD: covered
+                                      ? item.sellerWarrantyEndDateAD || warrantyEndFor(todaySellerStart(), 12)
+                                      : '',
+                                    sellerWarrantyTouched: !covered,
+                                  });
+                                }}
+                                className="h-3.5 w-3.5 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500"
+                              />
+                              Sellers warranty covered
+                            </label>
+                            {item.sellerWarrantyCovered !== false ? (
+                              <>
+                                <label className="text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                  Expires
+                                </label>
+                                <input
+                                  type="date"
+                                  value={item.sellerWarrantyEndDateAD || ''}
+                                  onChange={(e) =>
+                                    handleUpdateAssignItem(item.id, {
+                                      sellerWarrantyEndDateAD: e.target.value,
+                                      sellerWarrantyTouched: true,
+                                    })
+                                  }
+                                  className="rounded-lg border px-2 py-1 text-[11px] font-mono font-bold border-indigo-200 bg-white text-indigo-900 dark:border-indigo-800 dark:bg-slate-900 dark:text-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                />
+                              </>
+                            ) : (
+                              <span className="rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                                No warranty given
+                              </span>
+                            )}
+                            <span className="w-full text-[10px] text-slate-500 dark:text-slate-400">
+                              {item.sellerWarrantyCovered !== false
+                                ? 'Told to the customer at issue; prefilled from the product’s seller term.'
+                                : 'The customer-device register will show “No warranty” for this unit.'}
+                            </span>
+                          </div>
+                        )}
 
                         {/* Serial identity verification (serialized PRODUCT lines only) */}
                         {item.kind === 'PRODUCT' && item.isSerialized && (

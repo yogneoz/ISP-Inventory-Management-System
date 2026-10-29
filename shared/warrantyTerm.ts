@@ -75,6 +75,71 @@ export function isValidWarrantyRange(startAD: unknown, endAD: unknown): boolean 
   return isAdDate(startAD) && isAdDate(endAD) && endAD >= startAD;
 }
 
+/**
+ * What a capture surface decided for one unit (WTY-5).
+ *
+ * `covered: false` is a real answer — the operator turned the warranty off —
+ * and must write no row. It is deliberately distinct from a blank date on a
+ * covered unit, which is an unfinished form, not "none". Without that split a
+ * cleared field silently resurrects the product default.
+ */
+export interface CoverageResolution {
+  covered: boolean;
+  endDateAD: string | null;
+  /** The product term that produced the expiry; null once a typed date exists. */
+  termMonths: number | null;
+  error: string | null;
+}
+
+/**
+ * The one rule every capture path shares. `covered` is a tri-state input: an
+ * explicit boolean is honoured, `undefined` keeps the pre-WTY-5 behaviour
+ * (blank = derive from the product term) so an older API caller is not broken.
+ */
+export function resolveWarrantyCoverage(args: {
+  covered?: unknown;
+  endDateAD?: unknown;
+  startDateAD: string;
+  termMonths: number;
+  label?: string;
+}): CoverageResolution {
+  const label = args.label || 'Warranty expiry';
+  const term = Number.isFinite(args.termMonths) ? Math.trunc(args.termMonths) : 0;
+  const explicit = typeof args.covered === 'boolean' ? args.covered : undefined;
+  const typed = typeof args.endDateAD === 'string' ? args.endDateAD.trim() : '';
+
+  if (explicit === false) {
+    return { covered: false, endDateAD: null, termMonths: term > 0 ? term : null, error: null };
+  }
+  if (typed) {
+    if (!isValidWarrantyRange(args.startDateAD, typed)) {
+      return {
+        covered: true,
+        endDateAD: null,
+        termMonths: null,
+        error: `${label} must be a real date on or after the warranty start date.`,
+      };
+    }
+    // A typed date is the contract, not the catalog default; a 0-month product
+    // with a negotiated date must not store "0 months" beside a real expiry.
+    return { covered: true, endDateAD: typed, termMonths: term > 0 ? term : null, error: null };
+  }
+  if (explicit === true) {
+    return {
+      covered: true,
+      endDateAD: null,
+      termMonths: null,
+      error: `${label} is required, or turn the warranty off for this unit.`,
+    };
+  }
+  if (term <= 0) return { covered: false, endDateAD: null, termMonths: null, error: null };
+  const derived = addCalendarMonths(args.startDateAD, term);
+  if (!derived) {
+    return { covered: true, endDateAD: null, termMonths: null, error: `${label} needs a valid start date.` };
+  }
+  return { covered: true, endDateAD: derived, termMonths: term, error: null };
+}
+
 /** Whole days from today to the expiry; negative once expired. */
 export function warrantyDaysRemaining(endAD: string, today: string = todayAd()): number | null {
   if (!isAdDate(endAD) || !isAdDate(today)) return null;

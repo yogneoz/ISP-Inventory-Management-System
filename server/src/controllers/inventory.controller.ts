@@ -14,14 +14,19 @@ import { buildDamageRecordInsert, quarantineSerialsInDb, quarantineInMemorySeria
 import { shouldRestockOnUnassign, buildRestockTransaction, restoreInMemorySerial, cpeFindPatterns, buildCpeReversalClose } from '../services/unassignRestock.service';
 import { buildAssetCollectionNotes, collectCpeFixedAsset, exchangeCpeFixedAsset, exchangeOutLedgerId } from '../services/cpeAssetLifecycle.service';
 import {
-  defaultCoverageEnd,
+  buildSellerCoverageCaptures,
   recordWarrantyCoverage,
   recordWarrantyCoverageMirror,
+  supersedeCoverageBySource,
+  supersedeCoverageBySourceMirror,
+  supersedeSellerCoverageForDevice,
+  supersedeSellerCoverageForDeviceMirror,
   supersedeVendorCoverageForAsset,
   supersedeVendorCoverageForAssetMirror,
-  warrantyDateError,
   warrantyMonthsFor,
+  writeSellerCoveragePlan,
 } from '../services/warranty.service';
+import { resolveWarrantyCoverage } from '../../../shared/warrantyTerm';
 import { SerialGateError, planSerialGateEntries, resolveSerialGateInDb, resolveSerialGateInMemory, serialGateKey } from '../services/serialGate.service';
 import {
   issueOperationSerialsInDb,
@@ -789,14 +794,15 @@ try {
     // keyed a second time by tag.
     const assetWarrantyStartAD = String(newAsset.acquisitionDateAD).split('T')[0];
     const assetWarrantyProduct = products.find((entry) => entry.id === newAsset.productId);
-    const typedAssetWarrantyEnd = String(req.body.supplierWarrantyEndDateAD || '').trim();
-    if (typedAssetWarrantyEnd) {
-      const warrantyError = warrantyDateError(assetWarrantyStartAD, typedAssetWarrantyEnd);
-      if (warrantyError) return res.status(400).json({ message: warrantyError });
-    }
-    const assetWarrantyEnd = typedAssetWarrantyEnd
-      || defaultCoverageEnd(assetWarrantyStartAD, assetWarrantyProduct, 'VENDOR').endDateAD;
-    const assetWarranty = !deployFromStock && assetWarrantyEnd
+    const vendorWarranty = resolveWarrantyCoverage({
+      covered: req.body.supplierWarrantyCovered,
+      endDateAD: req.body.supplierWarrantyEndDateAD,
+      startDateAD: assetWarrantyStartAD,
+      termMonths: warrantyMonthsFor(assetWarrantyProduct, 'VENDOR'),
+      label: 'Supplier warranty expiry',
+    });
+    if (vendorWarranty.error) return res.status(400).json({ message: vendorWarranty.error });
+    const assetWarranty = !deployFromStock && vendorWarranty.covered && vendorWarranty.endDateAD
       ? {
           coverageType: 'VENDOR' as const,
           itemCategory: 'FIXED_ASSET' as const,
@@ -810,12 +816,45 @@ try {
           sourceId: newAsset.id,
           sourceNumber: newAsset.tagNumber,
           startDateAD: assetWarrantyStartAD,
-          endDateAD: assetWarrantyEnd,
-          termMonths: warrantyMonthsFor(assetWarrantyProduct, 'VENDOR'),
+          endDateAD: vendorWarranty.endDateAD,
+          termMonths: vendorWarranty.termMonths,
           startBasis: 'ACQUISITION_DATE',
           isDemo: false,
         }
       : null;
+
+    // WTY-5: a rental CPE is the moment the customer promise starts. The row
+    // is keyed by the device record the deploy transaction creates, so the
+    // register can resolve it without guessing from the issue date.
+    const sellerWarrantyStartAD = String(
+      newAsset.assignmentDateAD || newAsset.acquisitionDateAD
+    ).split('T')[0];
+    const deployCdrId = `cdr-asset-${newAsset.id}`;
+    const sellerWarrantyPlan = deployFromStock
+      && newAsset.status === 'ASSIGNED_TO_CUSTOMER'
+      && newAsset.deviceSerial
+      ? buildSellerCoverageCaptures({
+          startDateAD: sellerWarrantyStartAD,
+          entries: [{
+            deviceSerial: String(newAsset.deviceSerial),
+            productId: newAsset.productId || null,
+            productName: newAsset.name,
+            warrantyCovered: req.body.sellerWarrantyCovered,
+            warrantyEndDateAD: req.body.sellerWarrantyEndDateAD,
+          }],
+          productFor: () => assetWarrantyProduct,
+          partyId: newAsset.assignedCustomerId || null,
+          partyName: newAsset.assignedCustomerName || null,
+          branchId: newAsset.branchId,
+          sourceType: 'CUSTOMER_ASSIGNMENT',
+          sourceId: deployCdrId,
+          sourceNumber: newAsset.tagNumber,
+          itemCategory: 'CPE',
+          startBasis: 'ISSUE_DATE',
+          deviceRecordIdFor: () => deployCdrId,
+        })
+      : { captures: [], error: null };
+    if (sellerWarrantyPlan.error) return res.status(400).json({ message: sellerWarrantyPlan.error });
 
     if (deployFromStock) {
       const qty = 1;
@@ -949,6 +988,10 @@ try {
                 notes: `[RENTAL CPE ASSET - Tag: ${newAsset.tagNumber}]${newAsset.assignmentNotes ? ' ' + newAsset.assignmentNotes : ''}`,
               };
               await registerCustomerDeviceRow(client, cdrRow);
+              // Same transaction as the rental row: the promise and the device
+              // it covers commit together, so a failed coverage insert cannot
+              // leave a deployed unit the register never promised to cover.
+              await writeSellerCoveragePlan(client, sellerWarrantyPlan.captures);
             }
           }
         });
@@ -1013,6 +1056,8 @@ try {
               notes: `[RENTAL CPE ASSET - Tag: ${newAsset.tagNumber}]${newAsset.assignmentNotes ? ' ' + newAsset.assignmentNotes : ''}`,
             };
             setCustomerDeviceRecords(upsertCdrMirror(customerDeviceRecords, cdrRow).rows);
+            // Demo twin of the seller coverage write.
+            for (const capture of sellerWarrantyPlan.captures) recordWarrantyCoverageMirror(capture);
           }
         }
       }
@@ -1391,6 +1436,40 @@ try {
       status: req.body.status || (opType === 'PULLOUT' ? 'DISPATCHED' : 'LOGGED'),
     };
 
+    // WTY-5: a retail sale starts the customer promise on every sold serial.
+    // Planned before any write so a missing expiry on a covered line refuses
+    // the sale instead of silently inventing the product default.
+    const sellerWarrantyPlan = opType === 'STOCK_OUT'
+      ? buildSellerCoverageCaptures({
+          startDateAD: opDateAD,
+          entries: operationItems.flatMap((item: any) =>
+            (Array.isArray(item?.deviceSerials) ? item.deviceSerials : [])
+              .map((entry: any) => String(typeof entry === 'string' ? entry : entry?.deviceSerial || '').trim())
+              .filter((serial: string) => serial.length > 0)
+              .map((serial: string) => ({
+                deviceSerial: serial,
+                productId: item.productId || null,
+                productName: item.productName || 'Product',
+                warrantyCovered: item.sellerWarrantyCovered,
+                warrantyEndDateAD: item.sellerWarrantyEndDateAD,
+              }))
+          ),
+          productFor: (productId) => products.find((entry) => entry.id === productId),
+          partyId: req.body.customerId || null,
+          partyName: req.body.customerName || null,
+          branchId: opBranchId,
+          sourceType: 'STOCK_OPERATION',
+          sourceId: newOp.id,
+          sourceNumber: newOp.referenceNumber || null,
+          itemCategory: 'SOLD_PRODUCT',
+          startBasis: 'SALE_DATE',
+        })
+      : { captures: [], error: null };
+    if (sellerWarrantyPlan.error) {
+      res.status(400).json({ message: sellerWarrantyPlan.error });
+      return;
+    }
+
     // Slice 2: plan the units this operation draws and resolve them through the
     // ONE shared gate — under the transaction's own row lock below, so the
     // unit cannot change between "is it ours?" and "consume it". A refusal
@@ -1588,6 +1667,10 @@ try {
         // CONSUMED, STOCK_OUT → SOLD). DAMAGE has its own quarantine.
         await issueOperationSerialsInDb(client, serialGatePlan.entries, newOp as any, newOp.dateAD);
 
+        // Same transaction as the sale: the customer's warranty starts with the
+        // invoice that moves the unit, or not at all.
+        await writeSellerCoveragePlan(client, sellerWarrantyPlan.captures);
+
         for (const txn of operationTransactions) {
           await client.query(TXN_INSERT_ON_CONFLICT_SQL, txnInsertOnConflictParams(txn));
         }
@@ -1623,6 +1706,10 @@ try {
         action: gateAction,
         productName: (entry) => entry.productName,
       });
+    }
+    // Demo twin of the sale's seller coverage write (PG path wrote above).
+    if (!getPgConnected() && opType === 'STOCK_OUT') {
+      for (const capture of sellerWarrantyPlan.captures) recordWarrantyCoverageMirror(capture);
     }
     const idx = stockOperations.findIndex((o) => o.id === newOp.id);
     setStockOperations(idx >= 0 ? withReplaced(stockOperations, idx, newOp) : withPrepended(stockOperations, newOp));
@@ -2192,6 +2279,11 @@ async function reverseIssuedOperation(
         }
         reversalLedger = buildLedger(beforeByProduct);
         await restoreOperationSerialsInDb(client, op as any, reason, reversedBy, reversalDateAD);
+        // WTY-5: a reversed sale ends the promise that sale started. Retire by
+        // source so only this operation's rows move.
+        if (expectedType === 'STOCK_OUT') {
+          await supersedeCoverageBySource(client, 'SELLER', 'STOCK_OPERATION', String(op.id));
+        }
         await client.query(STOCK_OPERATION_CANCEL_SQL, [reversedBy, op.id]);
         if (reversalLedger.length > 0) {
           await client.query(
@@ -2238,6 +2330,9 @@ async function reverseIssuedOperation(
       setSerialLogs(
         restoreOperationSerialsInMemory(serialLogs as any, op as any, reason, reversedBy, reversalDateAD) as any
       );
+      if (expectedType === 'STOCK_OUT') {
+        supersedeCoverageBySourceMirror('SELLER', 'STOCK_OPERATION', String(op.id));
+      }
     }
     setTransactionLogs([
       ...reversalLedger.filter((txn) => !transactionLogs.some((entry) => entry.id === txn.id)),
@@ -2811,6 +2906,34 @@ try {
 
     const issuedDateAD = newRecord.issuedDateAD || new Date().toISOString().split('T')[0];
     const issuedDateBS = newRecord.issuedDateBS || todayBs(); // C4: from bs_day_records cache
+    const remainsAssigned = serialStatusForCdrStatus(nextStatus) === 'CUSTOMER_ASSIGNED';
+
+    // WTY-5: the customer promise is captured with the issue, in the same
+    // transaction as the device row. The switch is explicit, so "no warranty"
+    // is a declaration rather than an empty field that would re-derive 12.
+    const sellerWarrantyPlan = remainsAssigned && normalizedDeviceSerial
+      ? buildSellerCoverageCaptures({
+          startDateAD: issuedDateAD,
+          entries: [{
+            deviceSerial: normalizedDeviceSerial,
+            productId: product?.id || null,
+            productName: product?.name || String(newRecord.productName || ''),
+            warrantyCovered: req.body.sellerWarrantyCovered,
+            warrantyEndDateAD: req.body.sellerWarrantyEndDateAD,
+          }],
+          productFor: () => product,
+          partyId: newRecord.customerId || newRecord.customerCode || null,
+          partyName: newRecord.customerName || null,
+          branchId,
+          sourceType: 'CUSTOMER_DEVICE',
+          sourceId: newRecord.id,
+          sourceNumber: normalizedDeviceSerial,
+          itemCategory: 'CPE',
+          startBasis: 'ISSUE_DATE',
+          deviceRecordIdFor: () => newRecord.id,
+        })
+      : { captures: [], error: null };
+    if (sellerWarrantyPlan.error) return res.status(400).json({ message: sellerWarrantyPlan.error });
 
     // ---------------------------------------------------------------------
     // Single-movement guard (stock-movement audit): a unit deployed by the
@@ -2918,6 +3041,14 @@ try {
           } as CustomerDeviceRecord)
         );
 
+        // The promise follows the device row in the same transaction; a
+        // release/collection retires it instead of leaving a phantom term.
+        if (remainsAssigned) {
+          await writeSellerCoveragePlan(client, sellerWarrantyPlan.captures);
+        } else {
+          await supersedeSellerCoverageForDevice(client, newRecord.id);
+        }
+
         // Sync the Serial Log Register: assigning (or releasing) a device in
         // this directory must flip the unit's register status, or the
         // register's status filter disagrees with the customer directory
@@ -2991,6 +3122,14 @@ try {
     setCustomerDeviceRecords(idx >= 0
       ? withReplaced(customerDeviceRecords, idx, { ...newRecord, status: nextStatus, branchId })
       : withPrepended(customerDeviceRecords, { ...newRecord, status: nextStatus, branchId }));
+    // Demo twin of the seller coverage write above.
+    if (!getPgConnected()) {
+      if (remainsAssigned) {
+        for (const capture of sellerWarrantyPlan.captures) recordWarrantyCoverageMirror(capture);
+      } else {
+        supersedeSellerCoverageForDeviceMirror(newRecord.id);
+      }
+    }
     // Demo mode: mirror the register flip the PG path wrote above.
     if (!getPgConnected() && normalizedDeviceSerial) {
       const serialStatus = serialStatusForCdrStatus(nextStatus);
@@ -3075,6 +3214,12 @@ try {
       // and the fixed-asset lifecycle commit together or not at all.
       await withTransaction(async (client) => {
         await client.query(CDR_UPDATE_STATUS_SQL, [newStatusStr, id]);
+        // WTY-5: a collection, refund or stock return ends the customer
+        // promise. The old period stays for audit; the register stops showing
+        // it as current.
+        if (serialStatusForCdrStatus(newStatusStr) !== 'CUSTOMER_ASSIGNED') {
+          await supersedeSellerCoverageForDevice(client, id);
+        }
         const serialStatus = serialStatusForCdrStatus(newStatusStr);
         if (serialStatus && record!.deviceSerial) {
           await client.query(
@@ -3117,6 +3262,9 @@ try {
     }
     // Demo mode: mirror the register flip so both surfaces stay in step.
     if (!getPgConnected()) {
+      if (serialStatusForCdrStatus(newStatusStr) !== 'CUSTOMER_ASSIGNED') {
+        supersedeSellerCoverageForDeviceMirror(id);
+      }
       const serialStatus = serialStatusForCdrStatus(newStatusStr);
       if (serialStatus && record.deviceSerial) {
         setSerialLogs(flipSerialMirror(
@@ -3525,6 +3673,36 @@ try {
       notes: `[REPLACEMENT DEVICE] Replaced previous SN ${oldRecord.deviceSerial} on ${dateStrAD}. ${notes || ''}`,
     };
 
+    // WTY-5: an exchange restarts the customer promise on the replacement and
+    // retires the old unit's row. The operator's switch/date wins; otherwise
+    // the replacement product's seller term prefills it.
+    const exchNewProd = products.find(
+      (p) => p.name.trim().toLowerCase() === String(newProductName || oldRecord.productName || '').trim().toLowerCase()
+    );
+    const sellerWarrantyPlan = replacementSerial
+      ? buildSellerCoverageCaptures({
+          startDateAD: dateStrAD,
+          entries: [{
+            deviceSerial: replacementSerial,
+            productId: exchNewProd?.id || null,
+            productName: exchNewProd?.name || String(newProductName || oldRecord.productName || ''),
+            warrantyCovered: req.body.sellerWarrantyCovered,
+            warrantyEndDateAD: req.body.sellerWarrantyEndDateAD,
+          }],
+          productFor: () => exchNewProd,
+          partyId: oldRecord.customerId || oldRecord.customerCode || null,
+          partyName: oldRecord.customerName || null,
+          branchId: exchBranchId,
+          sourceType: 'CUSTOMER_EXCHANGE',
+          sourceId: newRecord.id,
+          sourceNumber: replacementSerial,
+          itemCategory: 'CPE',
+          startBasis: 'ISSUE_DATE',
+          deviceRecordIdFor: () => newRecord.id,
+        })
+      : { captures: [], error: null };
+    if (sellerWarrantyPlan.error) return res.status(400).json({ message: sellerWarrantyPlan.error });
+
     mirroredNewRecordId = newRecord.id;
     setCustomerDeviceRecords(upsertCdrMirror(customerDeviceRecords, newRecord).rows);
 
@@ -3565,6 +3743,12 @@ try {
         // Replacement row, serial-keyed: a serial the register has seen before
         // (e.g. a unit swapped back in) is re-activated instead of inserted.
         await registerCustomerDeviceRow(client, newRecord);
+
+        // The old unit's promise ends; the replacement's begins — same
+        // transaction, so the register cannot show two current rows for one
+        // customer device.
+        await supersedeSellerCoverageForDevice(client, oldDeviceId);
+        await writeSellerCoveragePlan(client, sellerWarrantyPlan.captures);
 
         // +1 usable stock (RESTOCK) or +1 damaged stock (DAMAGE) at the
         // fulfilling branch; DISPOSED is scrap and correctly adds nothing.
@@ -3672,6 +3856,10 @@ try {
         )
       );
       setSerialLogs(nextSerials);
+      // Demo mode twin of the coverage swap: the old unit's promise ends and
+      // the replacement's starts in the same step.
+      supersedeSellerCoverageForDeviceMirror(oldDeviceId);
+      for (const capture of sellerWarrantyPlan.captures) recordWarrantyCoverageMirror(capture);
       // Demo-mode twin of the stock maintenance above.
       if (exchProd && (exchAction === 'RESTOCK' || exchAction === 'DAMAGE')) {
         let stk = inventoryStock.find((s) => s.productId === exchProd.id && s.branchId === exchBranchId);

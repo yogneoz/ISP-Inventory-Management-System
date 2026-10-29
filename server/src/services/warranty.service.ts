@@ -9,6 +9,7 @@ import {
   DEFAULT_WARRANTY_MONTHS,
   isValidWarrantyRange,
   MAX_WARRANTY_MONTHS,
+  resolveWarrantyCoverage,
 } from '../../../shared/warrantyTerm';
 import { warrantyCoverages, setWarrantyCoverages } from '../state/runtimeState';
 import {
@@ -18,6 +19,7 @@ import {
   WARRANTY_SUPERSEDE_BY_DEVICE_SQL,
   WARRANTY_SUPERSEDE_BY_SOURCE_SQL,
   WARRANTY_SUPERSEDE_BY_ID_SQL,
+  WARRANTY_SUPERSEDE_SELLER_BY_SERIALS_SQL,
   warrantyInsertParams,
   type WarrantyInsertInput,
 } from '../models/warranty.repo';
@@ -100,24 +102,22 @@ export function buildPurchaseWarrantyCaptures(args: {
   supplierName?: string | null;
   branchId: string;
   entries: PurchaseCoverageEntry[];
-  lines: Array<{ warrantyEndDateAD?: string }>;
+  lines: Array<{ warrantyEndDateAD?: string; warrantyCovered?: boolean }>;
   productFor: (productId: string) => Product | undefined;
 }): { captures: CaptureCoverageInput[]; error: string | null } {
   const captures: CaptureCoverageInput[] = [];
   for (const entry of args.entries) {
     const product = args.productFor(entry.productId);
     const line = args.lines[entry.lineIndex];
-    const typedEnd = typeof line?.warrantyEndDateAD === 'string' ? line.warrantyEndDateAD.trim() : '';
-    const termMonths = warrantyMonthsFor(product, 'VENDOR');
-    let endDateAD: string | null;
-    if (typedEnd) {
-      const dateError = warrantyDateError(args.invoiceDateAD, typedEnd);
-      if (dateError) return { captures: [], error: `${entry.productName}: ${dateError}` };
-      endDateAD = typedEnd;
-    } else {
-      endDateAD = defaultCoverageEnd(args.invoiceDateAD, product, 'VENDOR').endDateAD;
-    }
-    if (!endDateAD) continue;
+    const resolution = resolveWarrantyCoverage({
+      covered: line?.warrantyCovered,
+      endDateAD: line?.warrantyEndDateAD,
+      startDateAD: args.invoiceDateAD,
+      termMonths: warrantyMonthsFor(product, 'VENDOR'),
+      label: 'Warranty expiry',
+    });
+    if (resolution.error) return { captures: [], error: `${entry.productName}: ${resolution.error}` };
+    if (!resolution.covered || !resolution.endDateAD) continue;
     captures.push({
       coverageType: 'VENDOR',
       itemCategory: 'CPE',
@@ -131,13 +131,88 @@ export function buildPurchaseWarrantyCaptures(args: {
       sourceId: args.invoiceId,
       sourceNumber: args.invoiceNumber,
       startDateAD: args.invoiceDateAD,
-      endDateAD,
-      termMonths,
+      endDateAD: resolution.endDateAD,
+      termMonths: resolution.termMonths,
       startBasis: 'INVOICE_DATE',
       isDemo: false,
     });
   }
   return { captures, error: null };
+}
+
+/**
+ * WTY-5: the customer promise, captured where the unit leaves us — assignment,
+ * sale or exchange. One SELLER row per serial, in the caller's transaction.
+ */
+export interface SellerCoverageEntry {
+  deviceSerial: string;
+  productId?: string | null;
+  productName: string;
+  /** Per-unit switch; false writes no row. */
+  warrantyCovered?: boolean;
+  /** Operator-typed expiry, already scoped to this unit. */
+  warrantyEndDateAD?: string;
+}
+
+export function buildSellerCoverageCaptures(args: {
+  startDateAD: string;
+  entries: SellerCoverageEntry[];
+  productFor: (productId: string | null | undefined) => Product | undefined;
+  partyId?: string | null;
+  partyName?: string | null;
+  branchId: string;
+  sourceType: string;
+  sourceId: string;
+  sourceNumber?: string | null;
+  itemCategory: 'CPE' | 'SOLD_PRODUCT';
+  startBasis: 'ISSUE_DATE' | 'SALE_DATE';
+  deviceRecordIdFor?: (serialNumber: string) => string | null | undefined;
+}): { captures: CaptureCoverageInput[]; error: string | null } {
+  const captures: CaptureCoverageInput[] = [];
+  for (const entry of args.entries) {
+    const product = args.productFor(entry.productId);
+    const resolution = resolveWarrantyCoverage({
+      covered: entry.warrantyCovered,
+      endDateAD: entry.warrantyEndDateAD,
+      startDateAD: args.startDateAD,
+      termMonths: warrantyMonthsFor(product, 'SELLER'),
+      label: 'Seller warranty expiry',
+    });
+    if (resolution.error) return { captures: [], error: `${entry.productName}: ${resolution.error}` };
+    if (!resolution.covered || !resolution.endDateAD) continue;
+    captures.push({
+      coverageType: 'SELLER',
+      itemCategory: args.itemCategory,
+      productId: entry.productId || null,
+      productName: entry.productName,
+      serialNumber: entry.deviceSerial,
+      deviceRecordId: args.deviceRecordIdFor?.(entry.deviceSerial) || null,
+      branchId: args.branchId,
+      partyId: args.partyId || null,
+      partyName: args.partyName || null,
+      sourceType: args.sourceType,
+      sourceId: args.sourceId,
+      sourceNumber: args.sourceNumber || null,
+      startDateAD: args.startDateAD,
+      endDateAD: resolution.endDateAD,
+      termMonths: resolution.termMonths,
+      startBasis: args.startBasis,
+      isDemo: false,
+    });
+  }
+  return { captures, error: null };
+}
+
+/** Writes a seller plan, or its demo-mode mirror when PostgreSQL is down. */
+export async function writeSellerCoveragePlan(
+  executor: { query: (sql: string, params?: any[]) => Promise<any> } | null,
+  captures: CaptureCoverageInput[]
+): Promise<void> {
+  if (!executor) {
+    for (const capture of captures) recordWarrantyCoverageMirror(capture);
+    return;
+  }
+  for (const capture of captures) await recordWarrantyCoverage(executor, capture);
 }
 
 /**
@@ -204,6 +279,27 @@ export async function supersedeSellerCoverageForDevice(
   deviceRecordId: string
 ): Promise<void> {
   await executor.query(WARRANTY_SUPERSEDE_BY_DEVICE_SQL, [deviceRecordId]);
+}
+
+/** A return/refund retires the sold units' promise, by serial. */
+export async function supersedeSellerCoverageForSerials(
+  executor: { query: (sql: string, params?: any[]) => Promise<any> },
+  serials: string[]
+): Promise<void> {
+  const normalized = [...new Set(serials.map(normalizeWarrantySerial).filter(Boolean))];
+  if (normalized.length === 0) return;
+  await executor.query(WARRANTY_SUPERSEDE_SELLER_BY_SERIALS_SQL, [normalized]);
+}
+
+export function supersedeSellerCoverageForSerialsMirror(serials: string[]): void {
+  const keys = new Set(serials.map(normalizeWarrantySerial).filter(Boolean));
+  if (keys.size === 0) return;
+  const now = new Date().toISOString();
+  setWarrantyCoverages(warrantyCoverages.map((row) =>
+    row.coverageType === 'SELLER' && keys.has(row.serialNumber) && row.isCurrent
+      ? { ...row, isCurrent: false, supersededAt: now }
+      : row
+  ));
 }
 
 export function supersedeSellerCoverageForDeviceMirror(deviceRecordId: string): void {

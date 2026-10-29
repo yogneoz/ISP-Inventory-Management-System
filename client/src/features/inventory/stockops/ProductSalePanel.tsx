@@ -11,6 +11,11 @@ import { CustomerPicker } from '../../../components/common/CustomerPicker';
 import { formatNPR } from '../../../utils/nprFormat';
 import { clampLineQuantity } from '../../../utils/lineQuantity';
 import { isSellableProduct } from '../../../utils/productGroupBehavior';
+import {
+  warrantyCoveredDefault,
+  warrantyEndFieldError,
+  warrantyEndFor,
+} from '../../../utils/warrantyCapture';
 import { api } from '../../../services/api';
 import {
   Plus,
@@ -27,6 +32,7 @@ import {
  * everything it does not own comes from the StockOperations context.
  */
 export const ProductSalePanel: React.FC = () => {
+  const todaySaleStart = () => new Date().toISOString().split('T')[0];
   const { activeTab, allowedBranches, alertDialog, branches, currentUser, ensureBsDateAvailable, focusInput, onCreateOperation, products, serialRegister, stock, userBranchId, validateSourceBranchStockAndSerials } = useStockOperationsCtx();
 
   // Behaviour-filtered catalog: anything whose group is a STOCK_ITEM (including
@@ -113,6 +119,12 @@ export const ProductSalePanel: React.FC = () => {
           discount: 0,
           totalValue: price,
           deviceSerials: isSerialized ? [{ deviceSerial: '', ponSerial: '' }] : undefined,
+          sellerWarrantyEndDateAD: isSerialized
+            ? warrantyEndFor(new Date().toISOString().split('T')[0], selProd.sellerWarrantyMonths)
+            : undefined,
+          sellerWarrantyCovered: isSerialized
+            ? warrantyCoveredDefault(selProd.sellerWarrantyMonths)
+            : undefined,
         },
       ]);
     }
@@ -175,6 +187,25 @@ export const ProductSalePanel: React.FC = () => {
     if (sellItems.length === 0) {
       alertDialog('Please add at least one product item to the sales invoice.');
       return;
+    }
+
+    // WTY-5: the customer promise on every sold serial. Off is a declaration;
+    // on requires the date, so a blank line cannot become a 12-month guess.
+    const todaySaleAD = new Date().toISOString().split('T')[0];
+    for (const item of sellItems) {
+      const prod = products.find((p) => p.id === item.productId);
+      const isSerialized = prod ? prod.requiresSerialTracking !== false && prod.trackingType !== 'QUANTITY_ONLY' : true;
+      if (!isSerialized) continue;
+      const warrantyError = warrantyEndFieldError(
+        todaySaleAD,
+        item.sellerWarrantyEndDateAD,
+        'Seller warranty expiry',
+        item.sellerWarrantyCovered
+      );
+      if (warrantyError) {
+        alertDialog(`${item.productName}: ${warrantyError}`);
+        return;
+      }
     }
 
     // Strict validation for Branch Stock Quantity and Serial Register
@@ -399,6 +430,38 @@ Sold device(s) tagged as SOLD in Customer Device Directory.`);
                                   <span className="text-[10px] text-purple-700 dark:text-purple-300 font-bold block">
                                     ✓ Scan Serials for {item.productName} ({item.quantity} Unit{item.quantity > 1 ? 's' : ''})
                                   </span>
+                                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                                    <label className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wide text-purple-700 dark:text-purple-300 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={item.sellerWarrantyCovered !== false}
+                                        onChange={(e) => {
+                                          const covered = e.target.checked;
+                                          handleUpdateSellItem(item.id, {
+                                            sellerWarrantyCovered: covered,
+                                            sellerWarrantyEndDateAD: covered
+                                              ? item.sellerWarrantyEndDateAD || warrantyEndFor(todaySaleStart(), 12)
+                                              : '',
+                                          });
+                                        }}
+                                        className="h-3 w-3 rounded border-purple-300 text-purple-600 focus:ring-purple-500"
+                                      />
+                                      Sellers warranty
+                                    </label>
+                                    {item.sellerWarrantyCovered !== false ? (
+                                      <input
+                                        type="date"
+                                        value={item.sellerWarrantyEndDateAD || ''}
+                                        onChange={(e) => handleUpdateSellItem(item.id, { sellerWarrantyEndDateAD: e.target.value })}
+                                        aria-label={`Seller warranty expiry for ${item.productName}`}
+                                        className="rounded-md border px-1.5 py-0.5 text-[10px] font-mono border-purple-200 bg-white text-purple-900 dark:border-purple-800 dark:bg-slate-900 dark:text-purple-200"
+                                      />
+                                    ) : (
+                                      <span className="rounded-full border border-slate-300 bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                                        No warranty
+                                      </span>
+                                    )}
+                                  </div>
                                   {Array.from({ length: item.quantity }).map((_, sIdx) => (
                                     <div key={sIdx} className="flex items-center gap-1.5 mt-1 text-xs">
                                       <span className="font-mono text-[10px] font-bold text-slate-400">#{sIdx + 1}</span>

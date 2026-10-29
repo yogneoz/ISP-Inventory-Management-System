@@ -66,6 +66,10 @@ export interface AssignBinLine {
   /** The directory row picked for this line. Kept so submit never depends on
    *  the customer still being present in a stale bootstrap snapshot. */
   usedAtCustomer?: CustomerRecord;
+  /** WTY-5: the seller warranty promised for this rental/issued unit. */
+  sellerWarrantyEndDateAD?: string;
+  sellerWarrantyTouched?: boolean;
+  sellerWarrantyCovered?: boolean;
   remarks: string;
 }
 

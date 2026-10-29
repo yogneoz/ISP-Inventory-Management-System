@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { CustomerDeviceRecord, Branch, Product, SerialLog, User, ApprovalRequest } from '../../types';
 import { formatDualDate, convertADToBS, formatBSDate } from '../../utils/nepaliCalendar';
-import { getWarrantyInfo } from '../../utils/warranty';
+import { warrantyStatusLabel } from '../../../../shared/warrantyTerm';
 import { isOperationAllowed, getAllowedBranches } from '../../utils/permissions';
 import { exportToCSV } from '../../utils/exportUtils';
 import StatCard from '../../components/common/StatCard';
@@ -761,7 +761,12 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
               ) : (
                 customerDevicesRows.map((rec) => {
                   const branch = branches.find((b) => b.id === rec.branchId);
-                  const wInfo = getWarrantyInfo(rec.issuedDateAD, rec.warrantyMonths || 12);
+                  // WTY-5: the stored customer promise, never issued date + 12.
+                  const sellerWarrantyEnd = rec.sellerWarrantyEndDateAD || null;
+                  const sellerWarrantyState = rec.sellerWarrantyState || null;
+                  const sellerWarrantyLabel = sellerWarrantyEnd
+                    ? warrantyStatusLabel(sellerWarrantyEnd)
+                    : 'No warranty';
                   const pendingDisconnect = getPendingDisconnectRequest(rec);
                   return (
                     <tr key={rec.id} className={`transition-colors hover:bg-blue-50/40 text-slate-800 dark:hover:bg-slate-800/50 dark:text-slate-200`}>
@@ -854,16 +859,21 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                       {/* Warranty Status Column */}
                       <td className="p-2.5 text-center">
                         <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase border whitespace-normal break-words max-w-[130px] text-center justify-center ${
-                          wInfo.status === 'VALID'
+                          sellerWarrantyState === 'VALID'
                             ? 'bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
-                            : wInfo.status === 'EXPIRING_SOON'
+                            : sellerWarrantyState === 'EXPIRING_SOON'
                             ? 'bg-amber-50 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800'
-                            : 'bg-rose-50 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-800'
+                            : sellerWarrantyState === 'EXPIRED'
+                            ? 'bg-rose-50 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-800'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700'
                         }`}>
-                          {wInfo.status === 'VALID' && <ShieldCheck className="h-3 w-3 text-emerald-600 dark:text-emerald-400 shrink-0" />}
-                          {wInfo.status === 'EXPIRING_SOON' && <Clock className="h-3 w-3 text-amber-600 dark:text-amber-400 shrink-0" />}
-                          {wInfo.status === 'EXPIRED' && <ShieldAlert className="h-3 w-3 text-rose-600 dark:text-rose-400 shrink-0" />}
-                          <span>{wInfo.label}</span>
+                          {sellerWarrantyState === 'VALID' && <ShieldCheck className="h-3 w-3 text-emerald-600 dark:text-emerald-400 shrink-0" />}
+                          {sellerWarrantyState === 'EXPIRING_SOON' && <Clock className="h-3 w-3 text-amber-600 dark:text-amber-400 shrink-0" />}
+                          {sellerWarrantyState === 'EXPIRED' && <ShieldAlert className="h-3 w-3 text-rose-600 dark:text-rose-400 shrink-0" />}
+                          <span>{sellerWarrantyLabel}</span>
+                          {sellerWarrantyEnd && (
+                            <span className="font-mono font-semibold normal-case opacity-80">{sellerWarrantyEnd}</span>
+                          )}
                         </div>
                       </td>
 

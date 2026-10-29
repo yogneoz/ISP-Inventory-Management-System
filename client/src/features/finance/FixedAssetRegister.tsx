@@ -42,6 +42,8 @@ interface FixedAssetRegisterProps {
     asset: Omit<Asset, 'id' | 'netBookValue' | 'accumulatedDepreciation'> & {
       /** WTY-4: exact supplier warranty expiry captured with the asset. */
       supplierWarrantyEndDateAD?: string;
+      /** WTY-5: false declares "no supplier warranty" for this asset. */
+      supplierWarrantyCovered?: boolean;
     }
   ) => Promise<void>;
   onUpdateAssetStatus: (id: string, status: Asset['status']) => Promise<void>;
@@ -97,10 +99,15 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
     warrantyEndFor(new Date().toISOString().split('T')[0], 12)
   );
   const [warrantyTouched, setWarrantyTouched] = useState(false);
+  // WTY-5: the asset may carry no supplier warranty at all; the switch makes
+  // that a declaration instead of an empty field the server would refill.
+  const [supplierWarrantyCovered, setSupplierWarrantyCovered] = useState(true);
 
   const handleAcquisitionDateChange = (value: string) => {
     setAcquisitionDateAD(value);
-    if (!warrantyTouched) setSupplierWarrantyEndDateAD(warrantyEndFor(value, 12));
+    if (supplierWarrantyCovered && !warrantyTouched) {
+      setSupplierWarrantyEndDateAD(warrantyEndFor(value, 12));
+    }
   };
 
   // A filter change snaps back to page 1 in the same commit, so a search edit
@@ -156,7 +163,8 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
     const warrantyError = warrantyEndFieldError(
       acquisitionDateAD,
       supplierWarrantyEndDateAD,
-      'Supplier warranty expiry'
+      'Supplier warranty expiry',
+      supplierWarrantyCovered
     );
     if (warrantyError) {
       setBsError(warrantyError);
@@ -175,7 +183,8 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
       purchaseInvoiceDateBS: acquisitionDateBS,
       capitalizationDateAD: acquisitionDateAD,
       placedInServiceDateAD: acquisitionDateAD,
-      supplierWarrantyEndDateAD: supplierWarrantyEndDateAD || undefined,
+      supplierWarrantyEndDateAD: supplierWarrantyCovered ? supplierWarrantyEndDateAD || undefined : undefined,
+      supplierWarrantyCovered,
       acquisitionCost: Number(acquisitionCost),
       depreciationMethod,
       depreciationRatePercent: Number(depreciationRatePercent),
@@ -247,6 +256,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                   setName('');
                   setSupplierWarrantyEndDateAD(warrantyEndFor(acquisitionDateAD, 12));
                   setWarrantyTouched(false);
+                  setSupplierWarrantyCovered(true);
                   setBsError(null);
                   setIsModalOpen(true);
                 }}
@@ -607,21 +617,43 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
               </div>
 
               <div>
-                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                  Supplier Warranty Expires
+                <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1 cursor-pointer">
+                  <input
+                    id="asset-supplier-warranty-covered"
+                    type="checkbox"
+                    checked={supplierWarrantyCovered}
+                    onChange={(e) => {
+                      const covered = e.target.checked;
+                      setSupplierWarrantyCovered(covered);
+                      setSupplierWarrantyEndDateAD(
+                        covered ? warrantyEndFor(acquisitionDateAD, 12) : ''
+                      );
+                      setWarrantyTouched(!covered);
+                    }}
+                    className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  Supplier Warranty Covered
                 </label>
-                <input
-                  id="asset-supplier-warranty-expiry"
-                  type="date"
-                  value={supplierWarrantyEndDateAD}
-                  onChange={(e) => {
-                    setSupplierWarrantyEndDateAD(e.target.value);
-                    setWarrantyTouched(true);
-                  }}
-                  className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100`}
-                />
+                {supplierWarrantyCovered ? (
+                  <input
+                    id="asset-supplier-warranty-expiry"
+                    type="date"
+                    value={supplierWarrantyEndDateAD}
+                    onChange={(e) => {
+                      setSupplierWarrantyEndDateAD(e.target.value);
+                      setWarrantyTouched(true);
+                    }}
+                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100`}
+                  />
+                ) : (
+                  <span className="inline-block rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                    No supplier warranty
+                  </span>
+                )}
                 <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
-                  Prefilled from the acquisition date + 12 months; an edited expiry is kept.
+                  {supplierWarrantyCovered
+                    ? 'Prefilled from the acquisition date + 12 months; an edited expiry is kept.'
+                    : 'No coverage will be recorded for this asset.'}
                 </p>
               </div>
 

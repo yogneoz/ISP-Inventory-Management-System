@@ -99,6 +99,11 @@ export async function createAsset(
     deviceMacAddress?: string;
     /** WTY-4: exact supplier warranty expiry captured with the asset. */
     supplierWarrantyEndDateAD?: string;
+    /** WTY-5: false declares "no supplier warranty" for this asset. */
+    supplierWarrantyCovered?: boolean;
+    /** WTY-5: the customer promise captured when a rental CPE is deployed. */
+    sellerWarrantyEndDateAD?: string;
+    sellerWarrantyCovered?: boolean;
   }
 ): Promise<Asset> {
   return fetchJson('/api/assets', {
@@ -456,7 +461,13 @@ export async function getCustomerDeviceWarranty(
   );
 }
 
-export async function createCustomerDevice(record: Omit<CustomerDeviceRecord, 'id'>): Promise<CustomerDeviceRecord> {
+export async function createCustomerDevice(
+  record: Omit<CustomerDeviceRecord, 'id'> & {
+    /** WTY-5: the seller warranty captured at issue (false = none). */
+    sellerWarrantyEndDateAD?: string | null;
+    sellerWarrantyCovered?: boolean;
+  }
+): Promise<CustomerDeviceRecord> {
   return fetchJson('/api/customer-devices', {
     method: 'POST',
     body: JSON.stringify(record),
@@ -481,6 +492,9 @@ export async function exchangeCustomerDevice(payload: {
   newMacAddress?: string;
   notes?: string;
   branchId?: string;
+  /** WTY-5: the seller warranty on the replacement (false = none). */
+  sellerWarrantyEndDateAD?: string;
+  sellerWarrantyCovered?: boolean;
 }, options?: { silentErrorToast?: boolean }): Promise<{ oldRecord: CustomerDeviceRecord; newRecord: CustomerDeviceRecord; message: string }> {
   // Both exchange dialogs show the server's refusal in their own dialog, so the
   // global toast is suppressed there: one refusal, one place, no duplicate that

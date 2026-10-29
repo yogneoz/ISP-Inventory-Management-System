@@ -1466,6 +1466,8 @@ export default function App() {
     asset: Omit<Asset, 'id' | 'netBookValue' | 'accumulatedDepreciation'> & {
       /** WTY-4: exact supplier warranty expiry captured with the asset. */
       supplierWarrantyEndDateAD?: string;
+      /** WTY-5: false declares "no supplier warranty" for this asset. */
+      supplierWarrantyCovered?: boolean;
     }
   ) => {
     await api.createAsset(asset);
