@@ -1,6 +1,6 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-30 · Branch: main · Tests: 1648/1648 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-30 · Branch: main · Tests: 1661/1661 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
 > **Current state (2026-10-27, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1/VOL-2/BUDGET-1/BOOT-1/VOL-3/VOL-4a/VOL-4b/SN-1/ASSET-1/EXCH-1/READ-1/CDR-1/CDR-2).** All DF-01…DF-17
 > work, the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2, CPE-3,
@@ -172,6 +172,18 @@ _Date: 2026-10-30 · Branch: main · Tests: 1648/1648 green with a DB (all run i
 > filter that shows the reason and document while the active KPIs stay
 > active-only. Detail:
 > [2026.md](docs/session-notes/2026.md#-returns-per-unit-serial-capture-2026-10-30).
+> **Warranty register CSV export (2026-10-30):** both registers now export
+> through the registers' existing `all=1` shape — the unpaged builder is the
+> page read with its LIMIT/OFFSET removed, so the file is the filtered
+> population, not the visible page; a failed full read aborts instead of writing
+> a partial file. Every row carries coverage start and expiry in **AD and BS**,
+> the state in the register's wording, the signed days remaining (blank for a
+> retired row), the retirement reason with its CN/DN, source, branch and the
+> correction note; a BS date the calendar cannot derive shows the app's
+> "BS not seeded" marker rather than the AD value. Proven by
+> `tests/warrantyExport.test.ts` (12 tests) and the export-query case in
+> `tests/warranty.repo.test.ts`. Detail:
+> [2026.md](docs/session-notes/2026.md#-warranty-register-csv-export-ad-and-bs-2026-10-30).
 > **No round is active.** The payload work
 > is finished — the remaining-array measurement found no item to open, and the
 > `inventory_stock` trigger is recorded in [2026.md](docs/session-notes/2026.md). The

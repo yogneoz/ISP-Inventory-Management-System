@@ -12,6 +12,7 @@ import { logAuditEvent } from '../services/audit.service';
 import { getUserFromReq } from '../middleware/auth';
 import {
   buildWarrantyCountQuery,
+  buildWarrantyExportQuery,
   buildWarrantyPageQuery,
   buildWarrantySummaryQuery,
   WARRANTY_FIND_BY_ID_SQL,
@@ -202,6 +203,9 @@ async function listWarranty(req: any, res: Response, coverageType: 'VENDOR' | 'S
   const scope = resolveWarrantyScope(req, res);
   if (!scope) return;
   const { page, pageSize } = paging(req.query);
+  // ?all=1 is the CSV export: every filtered row, never the visible page.
+  // The response stays the same envelope so one client shape reads both.
+  const wantsAll = String(req.query?.all ?? '') === '1';
   const opts = queryOptions(req, coverageType, scope);
   if (scope.empty) {
     return res.json({
@@ -215,7 +219,9 @@ async function listWarranty(req: any, res: Response, coverageType: 'VENDOR' | 'S
 
   if (getPgConnected()) {
     try {
-      const rowsQuery = buildWarrantyPageQuery(opts, page, pageSize);
+      const rowsQuery = wantsAll
+        ? buildWarrantyExportQuery(opts)
+        : buildWarrantyPageQuery(opts, page, pageSize);
       const countQuery = buildWarrantyCountQuery(opts);
       const summaryQuery = buildWarrantySummaryQuery(opts);
       const [rows, count, summary] = await Promise.all([
@@ -225,8 +231,8 @@ async function listWarranty(req: any, res: Response, coverageType: 'VENDOR' | 'S
       ]);
       return res.json({
         data: rows.rows,
-        page,
-        pageSize,
+        page: wantsAll ? 1 : page,
+        pageSize: wantsAll ? rows.rows.length : pageSize,
         totalItems: Number(count.rows[0]?.count) || 0,
         counts: {
           total: Number(summary.rows[0]?.total) || 0,
@@ -242,8 +248,12 @@ async function listWarranty(req: any, res: Response, coverageType: 'VENDOR' | 'S
   }
 
   // Demo mode: the coverage mirror is the source of truth.
-  const mirror = buildWarrantyMirrorPage(opts, page, pageSize);
-  return res.json({ ...mirror, page, pageSize });
+  const mirror = buildWarrantyMirrorPage(opts, wantsAll ? 1 : page, wantsAll ? Number.MAX_SAFE_INTEGER : pageSize);
+  return res.json({
+    ...mirror,
+    page: wantsAll ? 1 : page,
+    pageSize: wantsAll ? mirror.totalItems : pageSize,
+  });
 }
 
 /** GET /api/warranties/vendor */

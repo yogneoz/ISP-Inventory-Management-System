@@ -178,6 +178,27 @@ export function buildWarrantyPageQuery(
   };
 }
 
+/**
+ * Every filtered row, for the register's CSV export.
+ *
+ * Deliberately unpaged: exporting the page on screen would present a slice as
+ * the whole filtered population. This is the `?all=1` shape the other registers
+ * already use. Ordering matches the paged read, so the file and the screen
+ * agree row-for-row.
+ */
+export function buildWarrantyExportQuery(opts: WarrantyQueryOptions): { sql: string; params: unknown[] } {
+  const { whereSql, params } = buildWarrantyWhere(opts);
+  const status = normalizeStatus(opts.status);
+  const statusClause = status ? ` AND ${WARRANTY_STATE_SQL[status]}` : '';
+  return {
+    sql: `SELECT ${WARRANTY_SELECT_COLUMNS}
+      FROM warranty_coverages w
+      LEFT JOIN branches b ON b.id = w.branch_id${whereSql}${statusClause}
+      ORDER BY w.end_date_ad ASC, w.id ASC`,
+    params,
+  };
+}
+
 /** Filtered total for the footer (status filter included). */
 export function buildWarrantyCountQuery(opts: WarrantyQueryOptions): { sql: string; params: unknown[] } {
   const { whereSql, params } = buildWarrantyWhere(opts);

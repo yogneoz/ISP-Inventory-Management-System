@@ -32,7 +32,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
   - Consumables Issue Register: searchable ledger of consumable issues with branch/status filters, expandable line items, CSV export, and safeguarded reversal (mandatory reason, stock returned, audit-logged).
   - Fixed Asset Register with depreciation schedules (Straight Line, Declining Balance, Written Down Value) and automated Income Tax Act rates.
   - ERP-style asset dates: supplier invoice date, capitalization date, and placed-in-service date. Depreciation starts from the placed-in-service date and is persisted in PostgreSQL.
-- **Two-Sided Warranty Coverage**: every purchased serial and fixed asset can carry the supplier's promise, and every issued/sold unit the promise we give the customer. Each coverage stores its exact expiry date (the authoritative value), the term snapshot that produced it and the start basis; a correction supersedes the old period with an audit entry instead of overwriting history. Product terms (0 = no warranty) prefill every capture, a per-unit switch can explicitly record "no warranty", and the **Suppliers Warranty** / **Sellers Warranty** registers page, filter and show state from the stored expiry.
+- **Two-Sided Warranty Coverage**: every purchased serial and fixed asset can carry the supplier's promise, and every issued/sold unit the promise we give the customer. Each coverage stores its exact expiry date (the authoritative value), the term snapshot that produced it and the start basis; a correction supersedes the old period with an audit entry instead of overwriting history. Product terms (0 = no warranty) prefill every capture, a per-unit switch can explicitly record "no warranty", and the **Suppliers Warranty** / **Sellers Warranty** registers page, filter and show state from the stored expiry. Each register exports its whole filtered population as CSV with **both calendars** — coverage start and expiry in AD and BS — plus the state, the signed days remaining and, for a returned unit, the retirement reason and CN/DN that retired it.
 - **Serial, MAC, PON & Customer Device Tracking**:
   - Assign ONUs/routers to customers with PON serial number and MAC address.
   - Multi-tier approval workflows for device returns, disconnection refunds, and restock.
@@ -555,8 +555,8 @@ and pagination, so the client loads exactly one page of rows at a time.
 
 | Endpoint | Method | Purpose |
 | :--- | :--- | :--- |
-| `/api/warranties/vendor` | GET | Suppliers Warranty page: `status`, `query`, `category`, `startFrom`, `startTo`, `branchId`, `page`, `pageSize`; defaults to **all** statuses and returns the stored exact expiry, the server-computed `warrantyState`/`daysRemaining` and the all-status KPI counts |
-| `/api/warranties/seller` | GET | Sellers Warranty page with the same filters and envelope, over the promise given to the customer |
+| `/api/warranties/vendor` | GET | Suppliers Warranty page: `status`, `query`, `category`, `startFrom`, `startTo`, `branchId`, `page`, `pageSize`; defaults to **all** statuses and returns the stored exact expiry, the server-computed `warrantyState`/`daysRemaining` and the all-status KPI counts. `all=1` returns every filtered row (CSV export) in the same envelope |
+| `/api/warranties/seller` | GET | Sellers Warranty page with the same filters, `all=1` export shape and envelope, over the promise given to the customer |
 | `/api/warranties/:id` | PATCH | Corrects one coverage period: validates the start/end pair, supersedes the current row (history stays) and writes an audit entry; requires `warranty-edit`. Branch scope is resolved from the session, never the query string |
 
 ### `GET /api/bootstrap` refuses honestly when it cannot scope to a fiscal year
@@ -731,7 +731,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 1648-test suite against a PostgreSQL 16 service container (zero DB skips;
+  full 1661-test suite against a PostgreSQL 16 service container (zero DB skips;
   the two unconditional skips are Windows-only real-signal checks, which CI runs,
   and the live-drain check runs under `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1` so its
   preconditions cannot silently skip it) →

@@ -14,6 +14,7 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  Download,
   Edit2,
   ShieldAlert,
   ShieldCheck,
@@ -23,6 +24,9 @@ import {
 import type { User, WarrantyCoverageRow } from '../../../types';
 import { api } from '../../../services/api';
 import { formatDualDate } from '../../../utils/nepaliCalendar';
+import { exportToCSV } from '../../../utils/exportUtils';
+import { buildWarrantyExportRows, warrantyExportColumns, warrantySourceLabel } from '../../../utils/warrantyExport';
+import { utilityAlert } from '../../../components/common/DialogProvider';
 import { isOperationAllowed } from '../../../utils/permissions';
 import { useFilterPageReset } from '../../../utils/useFilterPageReset';
 import { useServerPageClamp, TablePagination } from '../../../components/common/TablePagination';
@@ -52,20 +56,6 @@ const STATUS_OPTIONS = [
   { value: 'EXPIRED', label: 'Expired' },
   { value: 'RETURNED', label: 'Returned (retired)' },
 ];
-
-const SOURCE_LABELS: Record<string, string> = {
-  PURCHASE_INVOICE: 'Purchase invoice',
-  FIXED_ASSET: 'Fixed asset',
-  CUSTOMER_ASSIGNMENT: 'Asset assignment',
-  CUSTOMER_DEVICE: 'Device issue',
-  CUSTOMER_EXCHANGE: 'Device exchange',
-  SALES_INVOICE: 'Sales invoice',
-  SALES_RETURN: 'Sales return',
-};
-
-function sourceLabel(row: WarrantyCoverageRow): string {
-  return SOURCE_LABELS[String(row.sourceType || '').toUpperCase()] || row.sourceType || '—';
-}
 
 const RETIRED_REASON_LABELS: Record<string, string> = {
   SALES_RETURN: 'Returned by customer',
@@ -131,6 +121,7 @@ export const WarrantyRegister: React.FC<WarrantyRegisterProps> = ({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(15);
   const [editing, setEditing] = useState<WarrantyCoverageRow | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   useFilterPageReset(
     `${coverageType}|${selectedBranchId}|${searchQuery}|${status}|${category}|${startFrom}|${startTo}`,
@@ -225,6 +216,56 @@ export const WarrantyRegister: React.FC<WarrantyRegisterProps> = ({
   ].join(' · ');
 
   const retry = () => setRetryKey((key) => key + 1);
+
+  /**
+   * Exports the whole filtered population, not the visible page — `all` reads
+   * the unpaged query. A failed full read aborts instead of writing a file that
+   * looks complete but is one page of rows.
+   */
+  const handleExport = async () => {
+    if (loadError) {
+      utilityAlert('Cannot export while the register is in an error state. Retry the page load first.');
+      return;
+    }
+    setExporting(true);
+    try {
+      const fetchAll = isVendor ? api.fetchVendorWarranties : api.fetchSellerWarranties;
+      const envelope = await fetchAll(
+        {
+          branchId: selectedBranchId,
+          query: searchQuery || undefined,
+          status: status !== 'ALL' ? status : undefined,
+          category: category !== 'ALL' ? category : undefined,
+          startFrom: startFrom || undefined,
+          startTo: startTo || undefined,
+          all: true,
+        },
+        1,
+        pageSize
+      );
+      const exportRows = Array.isArray(envelope?.data) ? envelope.data : [];
+      exportToCSV({
+        filename: isVendor ? 'Suppliers_Warranty_Register' : 'Sellers_Warranty_Register',
+        reportTitle: isVendor ? 'Suppliers Warranty Register' : 'Sellers Warranty Register',
+        branchName:
+          selectedBranchId === 'ALL'
+            ? 'All Branches'
+            : exportRows[0]?.branchName || selectedBranchId,
+        generatedBy: currentUser?.name
+          ? `${currentUser.name} (${currentUser.role})`
+          : currentUser?.email || 'System User',
+        data: buildWarrantyExportRows(exportRows, isVendor),
+        columns: warrantyExportColumns(isVendor),
+      });
+    } catch (err: any) {
+      utilityAlert(
+        `Export failed: ${err?.message || 'the full register could not be loaded'}. No file was written.`
+      );
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const closeEdit = () => setEditing(null);
   const afterSaved = () => {
     setEditing(null);
@@ -412,11 +453,23 @@ export const WarrantyRegister: React.FC<WarrantyRegisterProps> = ({
           </>
         }
         rightChildren={
-          <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
-            <strong className="text-slate-900 dark:text-white font-mono">{totalItems}</strong> of{' '}
-            <strong className="text-slate-900 dark:text-white font-mono">{counts.total}</strong> coverage
-            records
-          </span>
+          <>
+            <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
+              <strong className="text-slate-900 dark:text-white font-mono">{totalItems}</strong> of{' '}
+              <strong className="text-slate-900 dark:text-white font-mono">{counts.total}</strong> coverage
+              records
+            </span>
+            <button
+              type="button"
+              onClick={handleExport}
+              disabled={exporting || loading}
+              title="Export every row matching the current filters, with AD and BS dates"
+              className="flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold cursor-pointer border-slate-300 text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span>{exporting ? 'Exporting…' : 'Export CSV'}</span>
+            </button>
+          </>
         }
       />
 
@@ -519,7 +572,7 @@ export const WarrantyRegister: React.FC<WarrantyRegisterProps> = ({
                     )}
 
                     <td className="p-2.5 text-slate-600 dark:text-slate-400 break-words">
-                      <div className="font-semibold">{sourceLabel(row)}</div>
+                      <div className="font-semibold">{warrantySourceLabel(row.sourceType) || '—'}</div>
                       {row.sourceNumber && (
                         <div className="text-[10px] font-mono text-slate-400">{row.sourceNumber}</div>
                       )}

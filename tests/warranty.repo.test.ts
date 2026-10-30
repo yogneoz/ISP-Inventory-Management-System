@@ -14,11 +14,14 @@
  *      branch predicate", which would return the country.
  *   3. Page/pageSize are clamped and page 1 has no OFFSET.
  *   4. The write builders keep the one-current-row invariant in their text.
+ *   5. The export query is the page read with its LIMIT/OFFSET removed, so a
+ *      CSV is the whole filtered population rather than the page on screen.
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildWarrantyCountQuery,
+  buildWarrantyExportQuery,
   buildWarrantyPageQuery,
   buildWarrantySummaryQuery,
   validCoverageDates,
@@ -154,6 +157,28 @@ describe('warranty query builders', () => {
     assert.doesNotMatch(whereOf(summary.sql), /end_date_ad (?:[<>]=?|) ?CURRENT_DATE|CURRENT_DATE \+ 30/);
     assert.match(normalize(summary.sql), /COUNT\(\*\) FILTER \(WHERE .* AS valid/);
     assert.deepEqual(summary.params, count.params);
+  });
+
+  test('the export query drops only the paging, keeping the filtered set and order', () => {
+    const opts: WarrantyQueryOptions = {
+      coverageType: 'SELLER',
+      branchScope: ['BRH01'],
+      query: 'wrt',
+      status: 'RETURNED',
+      category: 'CPE',
+    };
+    const exported = buildWarrantyExportQuery(opts);
+    const page = buildWarrantyPageQuery(opts, 4, 15);
+    const flat = normalize(exported.sql);
+    const whereBeforeOrder = (sql: string) => whereOf(sql).split(/ ORDER BY /)[0];
+
+    assert.doesNotMatch(flat, /LIMIT|OFFSET/);
+    assert.match(flat, /ORDER BY w\.end_date_ad ASC, w\.id ASC$/);
+    assert.equal(whereBeforeOrder(exported.sql), whereBeforeOrder(page.sql));
+    assert.deepEqual(exported.params, page.params);
+    // The Returned filter is the retired population, exactly as on screen.
+    assert.match(flat, /w\.is_current = FALSE/);
+    assert.match(flat, /w\.item_category = \$\d/);
   });
 
   test('the write builders keep one current row per unit and statement guards', () => {

@@ -19,6 +19,8 @@ export interface WarrantyRegisterQuery {
   category?: string;
   startFrom?: string;
   startTo?: string;
+  /** `true` reads every filtered row (CSV export), ignoring page/pageSize. */
+  all?: boolean;
 }
 
 export interface WarrantyCorrectionInput {
@@ -43,6 +45,7 @@ function warrantyQueryString(
   if (params.category && params.category !== 'ALL') search.append('category', params.category);
   if (params.startFrom) search.append('startFrom', params.startFrom);
   if (params.startTo) search.append('startTo', params.startTo);
+  if (params.all) search.append('all', '1');
   search.append('page', String(page));
   search.append('pageSize', String(pageSize));
   const queryString = search.toString();

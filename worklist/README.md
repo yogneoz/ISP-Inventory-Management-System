@@ -98,6 +98,16 @@ is green on every step (7m18s). Detail and measurements:
 [2026 session note](../docs/session-notes/2026.md#-production-boot-paint-and-its-ci-gate-2026-10-29).
 No round was opened and the remaining UI/UX pass is not started.
 
+**Completed outside a round — warranty register CSV export (2026-10-30).**
+Both registers export their whole filtered population through the registers'
+existing `?all=1` shape (same WHERE and order as the page read, without
+`LIMIT/OFFSET`), so a CSV can no longer be one page of rows. Each file carries
+coverage start and expiry in AD **and** BS, the state in the register's words,
+the signed days remaining (blank for a retired row), the retirement reason and
+CN/DN, source, branch and notes. Pinned by `tests/warrantyExport.test.ts`
+(12 tests) and the export-query case in `tests/warranty.repo.test.ts`. Detail:
+[2026 session note](../docs/session-notes/2026.md#-warranty-register-csv-export-ad-and-bs-2026-10-30).
+
 **Round 9 closed on 2026-10-29** — the two-sided warranty build. Every slice
 (`WTY-1`…`WTY-8`) shipped with its own note and commit; the compact record is
 [done/2026-10-29-round-9.md](done/2026-10-29-round-9.md) and the per-slice
