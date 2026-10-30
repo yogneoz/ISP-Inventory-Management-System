@@ -126,7 +126,9 @@ _Date: 2026-10-30 · Branch: main · Tests: 1606/1606 green with a DB (all run i
 > writes `DevToolsActivePort` — the flake that reddened runs 214 and
 > 41012427181 — is now retried up to three times with a fresh browser profile
 > before the gate fails; `tests/bootTimingRetry.test.ts` pins the bounded retry
-> and its final error. Detail:
+> and its final error. CI [run 41022526555](https://github.com/yogneoz/ISP-Inventory-Management-System/actions/runs/41022526555)
+> is green on attempt 1 for `2246c20`, so the retry added no wait to a healthy
+> launch. Detail:
 > [2026.md](docs/session-notes/2026.md#-boot-timing-launch-retry-2026-10-30).
 > **No round is active.** The payload work
 > is finished — the remaining-array measurement found no item to open, and the
