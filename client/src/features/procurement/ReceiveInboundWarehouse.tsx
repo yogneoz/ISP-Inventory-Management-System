@@ -77,7 +77,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
         <ShieldAlert className="h-14 w-14 text-rose-500 mx-auto animate-bounce" />
         <h2 className="text-xl font-bold font-serif">Access Denied — Headquarters Warehouse Role Required</h2>
         <p className="text-xs leading-relaxed max-w-md mx-auto opacity-90">
-          Receiving inbound pullout stock and warehouse shipments is restricted exclusively to Headquarters Warehouse Managers and Inventory Controllers. As a branch user (<strong>{currentUser?.branchId}</strong>), you can manage incoming transfers sent to your branch under <strong>Branch Operations ➔ Receive Branch Stock Transfer</strong>.
+          Receiving inbound pullout stock and warehouse shipments is restricted exclusively to Headquarters Warehouse Managers and Inventory Controllers. As a branch user (<strong>{currentUser?.branchId}</strong>), you can manage incoming transfers sent to your branch under <strong>Warehouse & Transfers ➔ Receive Branch Stock Transfer</strong>.
         </p>
       </div>
     );

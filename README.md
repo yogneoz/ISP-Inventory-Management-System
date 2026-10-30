@@ -58,7 +58,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 │   ├── components/
 │   │   ├── layout/
 │   │   │   ├── Header.tsx            # Header with profile switching, notifications, date mode
-│   │   │   └── Sidebar.tsx           # Accordion sidebar: inline group expansion, global menu search, expand/collapse-all
+│   │   │   └── Sidebar.tsx           # Single-open accordion: 8 domain groups, Registers/Forms sections, menu search
 │   │   └── common/                   # LoginModal, GlobalSearchModal, ProfileSwitchModal,
 │   │                                 # BarcodeScannerModal, NotificationCenter, TablePagination, ...
 │   ├── features/
@@ -731,7 +731,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 1591-test suite against a PostgreSQL 16 service container (zero DB skips;
+  full 1598-test suite against a PostgreSQL 16 service container (zero DB skips;
   the two unconditional skips are Windows-only real-signal checks, which CI runs,
   and the live-drain check runs under `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1` so its
   preconditions cannot silently skip it) →

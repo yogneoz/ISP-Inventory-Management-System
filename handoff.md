@@ -227,7 +227,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 1591 tests; CI runs
+                                        #   drift/concurrency guards — 1598 tests; CI runs
                                         #   tsc + npm test + the source guards + the
                                         #   production build + the boot-timing gate +
                                         #   npm audit on every push/PR
@@ -777,13 +777,17 @@ a whole device table.
 
 ### 9.3 Tab-Based Navigation
 
-The `Sidebar` component defines `NAV_TABS` — navigation entries organized into groups (visibility filtered per role/permissions):
-- Dashboard
-- **Inventory**: Serial Log Register, Products, Stock, Reorder, Damage, Stock Operations, Ledger, Audit, Valuation, Import/Export, Categories, UOM, Suppliers Warranty, Sellers Warranty
-- **Procurement**: Suppliers, POs, Invoices, Inbound Receiving, Shipments
-- **Sales**: Customer Directory, Customer Devices, Import Customers
-- **Finance**: Fixed Assets, Financial Overview, VAT Register, Depreciation, Vendor Ledger, Vendor Opening Balances, Fiscal Years, Document Numbering, BS Calendar, Audit Trail, Opening Stock
-- **Settings/Admin**: Branches, Users, Permissions, Approvals, Company Setup, Locations, Data Recalculation, Clear Demo Data
+The `Sidebar` component defines `NAV_TABS` — navigation entries organized into eight domain groups (visibility filtered per role/permissions), each split into **Registers**, **Forms** and **Reports & exports** sections where the group has both reading and writing work:
+- **Overview**: Executive Dashboard, Workflow Approval Center
+- **Inventory & Stock**: stock registers (all/branch, ledger, serials, damage, consumables, asset deployments), stock forms (issue/return, damage labelling, asset assignment, count audit, reorder, import), valuation/export reports
+- **Procurement & Purchasing**: Create PO / Purchase Bill / Purchase Return; PO, bill, return and supplier-warranty registers
+- **Sales & Customers**: Product Sale, invoice and return forms, Device Exchange; invoice, return, customer-device and seller-warranty registers
+- **Warehouse & Transfers**: dispatch/transfer/pullout forms; inbound receiving, shipment register, pullout report
+- **Finance & Accounting**: statements and ledgers (financial overview, vendor/customer ledgers, vendor openings); VAT, fixed assets, depreciation
+- **Master Data & Setup**: products (master, categories, groups, UoM); parties (customers, import, suppliers); organisation (locations, branches)
+- **Administration & Governance**: company setup, users, permissions, document numbering, FY closing, BS calendar; audit trail, data repair, clear demo data
+
+The former **Branch Operations** group is gone: its counter sale lives under Sales Forms, and consumables, damage and asset assignment are inventory registers/forms. Purchase Returns is a section inside Procurement, not its own group.
 
 ### 9.4 Keyboard Shortcuts
 
@@ -1218,9 +1222,12 @@ When viewing historical fiscal years:
 ### 15.4 Sidebar Navigation Model (accordion)
 
 The sidebar is a single always-visible column (`client/src/components/layout/Sidebar.tsx`):
-- Menu groups expand **inline** (accordion) — sub-items render directly below their group. There is deliberately **no** flyout panel, back button, collapse button, or push-mode layout shift (all removed in Arc 17).
-- 8 consolidated groups; header row is an Expand-all/Collapse-all toggle ("EXPAND / COLLAPSE MENU"); global search (press `/`) filters items across all groups.
-- Width `w-72` (288px; 15.5rem ≤1366px); long labels wrap instead of truncating.
+- Menu groups expand **inline** — sub-items render directly below their group. There is deliberately **no** flyout panel, back button, collapse button, or push-mode layout shift (all removed in Arc 17).
+- **Single-open accordion**: at most one group is expanded. Opening another closes the previous one; clicking the open group collapses the rail; the active page's group opens automatically on navigation. The header control is **Collapse menu** when something is open and **Expand current page** when the rail is collapsed — there is no Expand-all.
+- Eight domain groups, ordered Overview → Inventory → Procurement → Sales → Warehouse → Finance → Master Data → Administration. Rows inside a group carry sticky `Registers` / `Forms` / `Reports & exports` headings (`<h3>`), emitted only before the first visible item so permission filtering never leaves an empty heading.
+- Group headers expose `aria-expanded` and `aria-controls` (only while expanded); the scrolling list is a labelled `<nav>`, and exactly one item carries `aria-current="page"`.
+- Global search (press `/`) filters items across all groups and labels each hit `Group · Section`.
+- Base width `w-72`; `.responsive-sidebar` narrows the rail at ≤1366 px and ≤1024 px. Labels ellipsize with their full text in `title` — they do not wrap.
 
 ### 15.5 Financial Overview — management view, NOT statutory (important)
 
@@ -1324,7 +1331,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 1591 tests against a real PostgreSQL 16 service container
+2. `npm test` — 1598 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM

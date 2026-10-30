@@ -240,7 +240,12 @@ interface NavChildDef {
   icon: React.ElementType;
   badge?: number;
   badgeColor?: string;
-  hasSeparatorAbove?: boolean;
+  /**
+   * In-group heading ("Forms", "Registers", …). The label renders before the
+   * first VISIBLE item of the section, so a permission-filtered section leaves
+   * no empty heading behind.
+   */
+  section?: string;
 }
 
 interface NavGroupDef {
@@ -276,17 +281,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isBranchUser = Boolean(currentUser?.branchId && currentUser.branchId !== 'ALL' && !isSuperAdmin);
 
   // Build filtered navigation groups based on role permissions.
-  // 8 consolidated groups (was 11): Serial & Device Tracking merged into
-  // Overview; Fixed Assets + Fiscal Year Opening Register merged into Finance;
-  // Import/Export Stock moved from Administration into Inventory & Stock.
-  // Help & Documentation became a footer link. Every item keeps its own
-  // permission gating, badges, and separators — only group placement changed.
+  //
+  // Eight domain groups, ordered by the work an operator does:
+  //   Overview -> Inventory -> Procurement -> Sales -> Warehouse ->
+  //   Finance -> Master Data -> Administration.
+  //
+  // Layout rules (keep them when adding a screen):
+  //   1. One home per tab. A tab in two groups would mark two rows as current.
+  //   2. Group by domain, not by physical place. Branch Operations used to be a
+  //      top-level group, but its sale belongs to Sales and its consumables,
+  //      damage and fixed assets are inventory states; a location-shaped group
+  //      becomes a dumping ground as the app grows.
+  //   3. Daily work first; setup and governance last.
+  //   4. Inside a group, split the list into sections ("Forms", "Registers",
+  //      "Reports & exports"). Registers come first where "what do I have?" is
+  //      the daily question; forms come first where creating precedes review.
+  //   5. Every item keeps its own permission gate, badge and screen.
   const groups: NavGroupDef[] = [];
 
-  // 1. Overview Group (dashboard + approvals + serial/device tracking)
+  // 1. Overview — the landing page and the one cross-module inbox.
+  const canApproveWorkflow =
+    isOperationAllowed('workflow-approval', currentUser?.role) ||
+    isOperationAllowed('workflow-approval-cancel', currentUser?.role);
   const dashboardChildren: NavChildDef[] = [
     { id: 'dashboard' as NavTab, label: 'Executive Dashboard', icon: LayoutDashboard },
-    ...(isOperationAllowed('workflow-approval', currentUser?.role) || isOperationAllowed('workflow-approval-cancel', currentUser?.role)
+    ...(canApproveWorkflow
       ? [
           {
             id: 'approvals' as NavTab,
@@ -297,17 +316,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           },
         ]
       : []),
-    ...(isOperationAllowed('prod-view', currentUser?.role)
-      ? [{ id: 'complete-serial-inventory' as NavTab, label: 'Serial Log Register', icon: Package, hasSeparatorAbove: true }]
-      : []),
-    { id: 'customer-devices' as NavTab, label: 'Customer Device Serials', icon: Smartphone },
-    ...(isOperationAllowed('warranty-view', currentUser?.role)
-      ? [
-          { id: 'supplier-warranty' as NavTab, label: 'Suppliers Warranty', icon: ShieldCheck },
-          { id: 'seller-warranty' as NavTab, label: 'Sellers Warranty', icon: ShieldAlert },
-        ]
-      : []),
-    { id: 'device-exchange' as NavTab, label: 'Device Exchange & Replacement', icon: RefreshCw },
   ];
   groups.push({
     id: 'dashboard',
@@ -316,19 +324,48 @@ export const Sidebar: React.FC<SidebarProps> = ({
     children: dashboardChildren,
   });
 
-  // 2. Inventory & Stock Group (incl. Import/Export moved from Administration)
-  const inventoryChildren = [
-    ...(!isBranchUser ? [{ id: 'all-stock' as NavTab, label: 'All Available Stock', icon: Package }] : []),
+  // 2. Inventory & Stock — every on-hand register and every stock action,
+  //    including consumables, damage labelling and fixed-asset assignment
+  //    that used to live in Branch Operations.
+  const canViewProducts = isOperationAllowed('prod-view', currentUser?.role);
+  const canAssignAssets = isOperationAllowed('branch-asset-assign', currentUser?.role);
+  const inventoryChildren: NavChildDef[] = [
+    ...(!isBranchUser
+      ? [{ id: 'all-stock' as NavTab, label: 'All Available Stock', icon: Package, section: 'Registers' }]
+      : []),
     {
       id: 'branch-stock' as NavTab,
       label: isBranchUser ? 'My Branch Stock' : 'Branch Stock Matrix',
       icon: Store,
+      section: 'Registers',
     },
-    { id: 'stock-ledger' as NavTab, label: 'Stock Movement Ledger', icon: BookOpen },
+    { id: 'stock-ledger' as NavTab, label: 'Stock Movement Ledger', icon: BookOpen, section: 'Registers' },
+    ...(canViewProducts
+      ? [{ id: 'complete-serial-inventory' as NavTab, label: 'Serial Log Register', icon: Package, section: 'Registers' }]
+      : []),
+    {
+      id: 'damaged-stock' as NavTab,
+      label: 'Damaged Stock Matrix',
+      icon: AlertTriangle,
+      section: 'Registers',
+    },
+    { id: 'consumables-register' as NavTab, label: 'Consumables Register', icon: ClipboardList, section: 'Registers' },
+    { id: 'damage-report' as NavTab, label: 'Damaged Stock Report', icon: ClipboardList, section: 'Registers' },
+    ...(canAssignAssets
+      ? [{ id: 'asset-deployments' as NavTab, label: 'Asset Deployments', icon: MapPin, section: 'Registers' }]
+      : []),
+    { id: 'consumable-issue' as NavTab, label: 'Issue Consumables', icon: Wrench, section: 'Forms' },
+    ...(isOperationAllowed('branch-damage-mark', currentUser?.role)
+      ? [{ id: 'damage' as NavTab, label: 'Label Local Damaged Stock', icon: HeartOff, section: 'Forms' }]
+      : []),
+    ...(canAssignAssets
+      ? [{ id: 'assign-asset' as NavTab, label: 'Assign Fixed Asset', icon: Wrench, section: 'Forms' }]
+      : []),
     {
       id: 'physical-stock-audit' as NavTab,
       label: 'Physical Stock Count Audit',
       icon: ClipboardCheck,
+      section: 'Forms',
     },
     {
       id: 'reorder-stock' as NavTab,
@@ -336,20 +373,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Bell,
       badge: lowStockCount,
       badgeColor: 'bg-rose-500 text-white',
+      section: 'Forms',
     },
-    {
-      id: 'damaged-stock' as NavTab,
-      label: 'Damaged Stock Matrix',
-      icon: AlertTriangle,
-    },
+    ...(isOperationAllowed('stock-import-export', currentUser?.role)
+      ? [{ id: 'import-stock' as NavTab, label: 'Import Stock Data', icon: UploadCloud, section: 'Forms' }]
+      : []),
     ...(isOperationAllowed('stock-valuation', currentUser?.role)
-      ? [{ id: 'stock-valuation' as NavTab, label: 'Stock Valuation & Insights', icon: DollarSign }]
+      ? [{ id: 'stock-valuation' as NavTab, label: 'Stock Valuation & Insights', icon: DollarSign, section: 'Reports & exports' }]
       : []),
     ...(isOperationAllowed('stock-import-export', currentUser?.role)
-      ? [
-          { id: 'import-stock' as NavTab, label: 'Import Stock Data', icon: UploadCloud, hasSeparatorAbove: true },
-          { id: 'export-stock' as NavTab, label: 'Export Stock Data & Reports', icon: DownloadCloud },
-        ]
+      ? [{ id: 'export-stock' as NavTab, label: 'Export Stock Data & Reports', icon: DownloadCloud, section: 'Reports & exports' }]
       : []),
   ];
   groups.push({
@@ -360,31 +393,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
     children: inventoryChildren,
   });
 
-  // 3. Procurement Group
-  // Each former in-page tab header is exposed as its own menu item;
-  // clicking a menu renders only that page (in-page tab bars are hidden).
+  // 3. Procurement & Purchasing — buy, book, return, supplier warranty.
   const canCreatePoAtRole = isOperationAllowed('po-create', currentUser?.role);
   const canCreateInvoiceAtRole = isOperationAllowed('inv-create', currentUser?.role);
-  // Create pages stay together, then the register pages stay together.
-  // Register pages include their own CSV export actions (no separate report menus).
+  const canCreatePurchaseReturn = isOperationAllowed('purchase-return-create', currentUser?.role);
+  const canViewWarranty = isOperationAllowed('warranty-view', currentUser?.role);
   const procurementChildren: NavChildDef[] = [
     ...(canCreatePoAtRole
-      ? [
-          {
-            id: 'create-po' as NavTab,
-            label: 'Create Purchase Order',
-            icon: FilePlus,
-          },
-        ]
+      ? [{ id: 'create-po' as NavTab, label: 'Create Purchase Order', icon: FilePlus, section: 'Forms' }]
       : []),
     ...(canCreateInvoiceAtRole
-      ? [
-          {
-            id: 'create-purchase' as NavTab,
-            label: 'Create Purchase Bill',
-            icon: PlusCircle,
-          },
-        ]
+      ? [{ id: 'create-purchase' as NavTab, label: 'Create Purchase Bill', icon: PlusCircle, section: 'Forms' }]
+      : []),
+    ...(canCreatePurchaseReturn
+      ? [{ id: 'create-purchase-return' as NavTab, label: 'Create Purchase Return', icon: PlusCircle, section: 'Forms' }]
       : []),
     {
       id: 'po-list' as NavTab,
@@ -392,7 +414,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: FileText,
       badge: pendingPoCount,
       badgeColor: 'bg-indigo-600 text-white',
-      hasSeparatorAbove: true,
+      section: 'Registers',
     },
     {
       id: 'purchase-list' as NavTab,
@@ -400,7 +422,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Receipt,
       badge: pendingBillCount,
       badgeColor: 'bg-amber-500 text-white',
+      section: 'Registers',
     },
+    ...(canCreatePurchaseReturn
+      ? [{ id: 'purchase-returns' as NavTab, label: 'Purchase Returns Register', icon: Undo2, section: 'Registers' }]
+      : []),
+    ...(canViewWarranty
+      ? [{ id: 'supplier-warranty' as NavTab, label: 'Suppliers Warranty', icon: ShieldCheck, section: 'Registers' }]
+      : []),
   ];
   groups.push({
     id: 'procurement',
@@ -410,57 +439,65 @@ export const Sidebar: React.FC<SidebarProps> = ({
     children: procurementChildren,
   });
 
-  // 3b. Purchase Returns (debit notes) — gated by its own permission.
-  if (isOperationAllowed('purchase-return-create', currentUser?.role)) {
-    groups.push({
-      id: 'purchase-returns',
-      title: 'Purchase Returns',
-      icon: Undo2,
-      children: [
-        {
-          id: 'create-purchase-return' as NavTab,
-          label: 'Create Purchase Return',
-          icon: PlusCircle,
-        },
-        {
-          id: 'purchase-returns' as NavTab,
-          label: 'Purchase Returns Register',
-          icon: Undo2,
-          hasSeparatorAbove: true,
-        },
-      ],
-    });
-  }
-
-  // 3c. Sales group — invoices + returns (lean sales module).
+  // 4. Sales & Customers — invoices, returns, the counter sale, device
+  //    exchange and the customer-side warranty register.
   const salesChildren: NavChildDef[] = [
-    ...(isOperationAllowed('sales-invoice-create', currentUser?.role)
-      ? [{ id: 'create-sale' as NavTab, label: 'Create Sales Invoice', icon: PlusCircle }]
+    ...(isOperationAllowed('stock-out', currentUser?.role)
+      ? [{ id: 'stock-out' as NavTab, label: 'Product Sale to Customer', icon: PackageMinus, section: 'Forms' }]
       : []),
+    ...(isOperationAllowed('sales-invoice-create', currentUser?.role)
+      ? [{ id: 'create-sale' as NavTab, label: 'Create Sales Invoice', icon: PlusCircle, section: 'Forms' }]
+      : []),
+    ...(isOperationAllowed('sales-return-create', currentUser?.role)
+      ? [{ id: 'create-sales-return' as NavTab, label: 'Create Sales Return', icon: PlusCircle, section: 'Forms' }]
+      : []),
+    { id: 'device-exchange' as NavTab, label: 'Device Exchange & Replacement', icon: RefreshCw, section: 'Forms' },
     {
       id: 'sales-list' as NavTab,
       label: 'Sales Invoices Register',
       icon: Receipt,
-      hasSeparatorAbove: true,
+      section: 'Registers',
     },
     ...(isOperationAllowed('sales-return-create', currentUser?.role)
-      ? [{ id: 'create-sales-return' as NavTab, label: 'Create Sales Return', icon: PlusCircle }]
+      ? [{ id: 'sales-returns' as NavTab, label: 'Sales Returns Register', icon: Undo2, section: 'Registers' }]
       : []),
-    ...(isOperationAllowed('sales-return-create', currentUser?.role)
-      ? [{ id: 'sales-returns' as NavTab, label: 'Sales Returns Register', icon: Undo2 }]
+    { id: 'customer-devices' as NavTab, label: 'Customer Device Serials', icon: Smartphone, section: 'Registers' },
+    ...(canViewWarranty
+      ? [{ id: 'seller-warranty' as NavTab, label: 'Sellers Warranty', icon: ShieldAlert, section: 'Registers' }]
       : []),
   ];
   groups.push({
     id: 'sales',
-    title: 'Sales & Returns',
+    title: 'Sales & Customers',
     icon: Receipt,
     children: salesChildren,
   });
 
-  // 4. Warehouse & Transfers Group (warehouse dispatch/receive + inter-branch transfers + pullouts)
+  // 5. Warehouse & Transfers — outbound dispatch first, then inbound/reporting.
   const warehouseChildren: NavChildDef[] = [];
   if (isOperationAllowed('shipment-create', currentUser?.role)) {
-    warehouseChildren.push({ id: 'create-shipment' as NavTab, label: 'Warehouse Shipment Dispatch', icon: Send });
+    warehouseChildren.push({
+      id: 'create-shipment' as NavTab,
+      label: 'Warehouse Shipment Dispatch',
+      icon: Send,
+      section: 'Dispatch & transfers',
+    });
+  }
+  if (isOperationAllowed('branch-transfer-create', currentUser?.role)) {
+    warehouseChildren.push({
+      id: 'create-transfer' as NavTab,
+      label: 'Create Inter-Branch Transfer',
+      icon: Send,
+      section: 'Dispatch & transfers',
+    });
+  }
+  if (isOperationAllowed('branch-pullout-dispatch', currentUser?.role)) {
+    warehouseChildren.push({
+      id: 'pullout' as NavTab,
+      label: 'Create Warehouse Pullout Bin',
+      icon: ArrowUpRight,
+      section: 'Dispatch & transfers',
+    });
   }
   if (isOperationAllowed('wh-receive-pullouts', currentUser?.role)) {
     warehouseChildren.push({
@@ -469,10 +506,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Inbox,
       badge: warehouseInboundCount ?? inTransitShipmentCount,
       badgeColor: 'bg-amber-500 text-white',
+      section: 'Receiving & reports',
     });
-  }
-  if (isOperationAllowed('branch-transfer-create', currentUser?.role)) {
-    warehouseChildren.push({ id: 'create-transfer' as NavTab, label: 'Create Inter-Branch Transfer', icon: Send });
   }
   if (isOperationAllowed('branch-transfer-receive', currentUser?.role)) {
     warehouseChildren.push({
@@ -481,6 +516,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Inbox,
       badge: branchInboundCount ?? inTransitShipmentCount,
       badgeColor: 'bg-amber-500 text-white',
+      section: 'Receiving & reports',
     });
   }
   if (isOperationAllowed('shipment-history', currentUser?.role)) {
@@ -488,17 +524,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'shipment-list' as NavTab,
       label: 'Shipment & Transfer Register',
       icon: ClipboardList,
+      section: 'Receiving & reports',
     });
-  }
-  if (isOperationAllowed('branch-pullout-dispatch', currentUser?.role)) {
-    warehouseChildren.push({ id: 'pullout' as NavTab, label: 'Create Warehouse Pullout Bin', icon: ArrowUpRight });
   }
   if (isOperationAllowed('pullout-report-view', currentUser?.role)) {
     warehouseChildren.push({
       id: 'pullout-report' as NavTab,
       label: 'Warehouse Pullout Report',
       icon: ClipboardList,
-      hasSeparatorAbove: true,
+      section: 'Receiving & reports',
     });
   }
   if (warehouseChildren.length > 0) {
@@ -514,59 +548,52 @@ export const Sidebar: React.FC<SidebarProps> = ({
     });
   }
 
-  // 5. Branch Operations Group (sales, consumables, damages, asset assignment)
-  const branchOpsChildren: NavChildDef[] = [
-    ...(isOperationAllowed('stock-out', currentUser?.role)
-      ? [{ id: 'stock-out' as NavTab, label: 'Product Sale to Customer', icon: PackageMinus }]
-      : []),
-    { id: 'consumable-issue' as NavTab, label: 'Issue Consumables', icon: Wrench },
-    { id: 'consumables-register' as NavTab, label: 'Consumables Register', icon: ClipboardList },
-    ...(isOperationAllowed('branch-damage-mark', currentUser?.role)
-      ? [{ id: 'damage' as NavTab, label: 'Label Local Damaged Stock', icon: HeartOff }]
-      : []),
-    ...(isOperationAllowed('branch-asset-assign', currentUser?.role)
-      ? [
-          { id: 'assign-asset' as NavTab, label: 'Assign Fixed Asset', icon: Wrench },
-          { id: 'asset-deployments' as NavTab, label: 'Asset Deployments', icon: MapPin },
-        ]
-      : []),
-  ];
-  if (branchOpsChildren.length > 0) {
-    branchOpsChildren.push({
-      id: 'damage-report' as NavTab,
-      label: 'Damaged Stock Report',
-      icon: ClipboardList,
-      hasSeparatorAbove: true,
-    });
-    groups.push({
-      id: 'stockops',
-      title: 'Branch Operations',
-      icon: Layers,
-      children: branchOpsChildren,
-    });
-  }
-
-  // 6. Finance & Accounting Group (incl. Fixed Assets + Fiscal Year Opening Register)
+  // 6. Finance & Accounting — statements first, then tax and the asset register.
   const financeChildren: NavChildDef[] = [];
   if (isOperationAllowed('fin-statements', currentUser?.role)) {
-    financeChildren.push({ id: 'financial-statements' as NavTab, label: 'Financial Overview', icon: Scale });
+    financeChildren.push({
+      id: 'financial-statements' as NavTab,
+      label: 'Financial Overview',
+      icon: Scale,
+      section: 'Statements & ledgers',
+    });
   }
   if (isOperationAllowed('inv-pay', currentUser?.role)) {
-    financeChildren.push({ id: 'vendor-ledger' as NavTab, label: 'Vendor Ledger & Payments', icon: Wallet });
+    financeChildren.push({
+      id: 'vendor-ledger' as NavTab,
+      label: 'Vendor Ledger & Payments',
+      icon: Wallet,
+      section: 'Statements & ledgers',
+    });
   }
   if (isOperationAllowed('fin-statements', currentUser?.role)) {
-    financeChildren.push({ id: 'customer-ledger' as NavTab, label: 'Customer Ledger & Receivables', icon: Wallet });
+    financeChildren.push({
+      id: 'customer-ledger' as NavTab,
+      label: 'Customer Ledger & Receivables',
+      icon: Wallet,
+      section: 'Statements & ledgers',
+    });
   }
   if (isOperationAllowed('opening-stock-view', currentUser?.role)) {
-    financeChildren.push({ id: 'vendor-opening-balances' as NavTab, label: 'Vendor Opening Balances', icon: Wallet });
+    financeChildren.push({
+      id: 'vendor-opening-balances' as NavTab,
+      label: 'Vendor Opening Balances',
+      icon: Wallet,
+      section: 'Statements & ledgers',
+    });
   }
   if (isOperationAllowed('vat-register', currentUser?.role)) {
-    financeChildren.push({ id: 'vat-register' as NavTab, label: 'VAT Sales & Purchase Register', icon: Receipt });
+    financeChildren.push({
+      id: 'vat-register' as NavTab,
+      label: 'VAT Sales & Purchase Register',
+      icon: Receipt,
+      section: 'Tax & assets',
+    });
   }
   if (isOperationAllowed('assets-manage', currentUser?.role)) {
     financeChildren.push(
-      { id: 'fixed-assets' as NavTab, label: 'Fixed Asset Register', icon: Building, hasSeparatorAbove: true },
-      { id: 'depreciation-register' as NavTab, label: 'Tax Depreciation Schedule', icon: Calculator }
+      { id: 'fixed-assets' as NavTab, label: 'Fixed Asset Register', icon: Building, section: 'Tax & assets' },
+      { id: 'depreciation-register' as NavTab, label: 'Tax Depreciation Schedule', icon: Calculator, section: 'Tax & assets' }
     );
   }
   if (financeChildren.length > 0) {
@@ -578,73 +605,80 @@ export const Sidebar: React.FC<SidebarProps> = ({
     });
   }
 
-  // 7. Master Data Group (Fiscal Year Opening Register moved to Finance)
-  const canViewProducts = isOperationAllowed('prod-view', currentUser?.role);
+  // 7. Master Data & Setup — products, parties, and the organisation tree.
   const inventorySetupChildren: NavChildDef[] = [
     ...(canViewProducts
-      ? [{ id: 'product-master' as NavTab, label: 'Product Master Catalog', icon: Package }]
+      ? [{ id: 'product-master' as NavTab, label: 'Product Master Catalog', icon: Package, section: 'Products' }]
       : []),
     ...(isOperationAllowed('category-manage', currentUser?.role)
-      ? [{ id: 'category-management' as NavTab, label: 'Category Management', icon: Grid }]
+      ? [{ id: 'category-management' as NavTab, label: 'Category Management', icon: Grid, section: 'Products' }]
       : []),
     ...(isOperationAllowed('product-group-manage', currentUser?.role)
-      ? [{ id: 'product-group-management' as NavTab, label: 'Product Group Management', icon: Layers }]
+      ? [{ id: 'product-group-management' as NavTab, label: 'Product Group Management', icon: Layers, section: 'Products' }]
       : []),
     ...(isOperationAllowed('uom-manage', currentUser?.role)
-      ? [{ id: 'uom-management' as NavTab, label: 'UoM Management', icon: Ruler }]
+      ? [{ id: 'uom-management' as NavTab, label: 'UoM Management', icon: Ruler, section: 'Products' }]
       : []),
     ...(isOperationAllowed('customers-manage', currentUser?.role)
-      ? [{ id: 'customers' as NavTab, label: 'Customer Master Directory', icon: Users }]
+      ? [{ id: 'customers' as NavTab, label: 'Customer Master Directory', icon: Users, section: 'Parties' }]
       : []),
-    ...(isSuperAdmin ? [{ id: 'import-customers' as NavTab, label: 'Import Customers (CSV)', icon: UserPlus }] : []),
+    ...(isSuperAdmin
+      ? [{ id: 'import-customers' as NavTab, label: 'Import Customers (CSV)', icon: UserPlus, section: 'Parties' }]
+      : []),
     ...(isOperationAllowed('suppliers-manage', currentUser?.role)
-      ? [{ id: 'suppliers' as NavTab, label: 'Suppliers Directory', icon: Users }]
+      ? [{ id: 'suppliers' as NavTab, label: 'Suppliers Directory', icon: Users, section: 'Parties' }]
       : []),
-    { id: 'locations' as NavTab, label: 'Location Management (POP/GPS)', icon: MapPin },
+    { id: 'locations' as NavTab, label: 'Location Management (POP/GPS)', icon: MapPin, section: 'Organisation' },
     ...(isOperationAllowed('admin-branches', currentUser?.role)
-      ? [{ id: 'branches' as NavTab, label: 'Branch Management', icon: Building2 }]
+      ? [{ id: 'branches' as NavTab, label: 'Branch Management', icon: Building2, section: 'Organisation' }]
       : []),
   ];
   groups.push({
     id: 'inventory-setup',
-    title: 'Master Data & Directories',
+    title: 'Master Data & Setup',
     icon: SlidersHorizontal,
     children: inventorySetupChildren,
   });
 
-  // 8. Administration Group (Import/Export Stock moved to Inventory & Stock)
+  // 8. Administration & Governance — configuration first, then the audit trail
+  //    and destructive maintenance tools.
   const adminChildren: NavChildDef[] = [];
   if (isSuperAdmin) {
-    adminChildren.push({ id: 'company-setup' as NavTab, label: 'Company Profile & Setup', icon: Building2 });
+    adminChildren.push({ id: 'company-setup' as NavTab, label: 'Company Profile & Setup', icon: Building2, section: 'Setup' });
   }
   if (isOperationAllowed('admin-users', currentUser?.role)) {
-    adminChildren.push({ id: 'users' as NavTab, label: 'Users & Staff Management', icon: UserCheck });
+    adminChildren.push({ id: 'users' as NavTab, label: 'Users & Staff Management', icon: UserCheck, section: 'Setup' });
   }
   if (isSuperAdmin) {
-    adminChildren.push({ id: 'permissions' as NavTab, label: 'Permission Management', icon: ShieldCheck });
+    adminChildren.push({ id: 'permissions' as NavTab, label: 'Permission Management', icon: ShieldCheck, section: 'Setup' });
   }
   if (isOperationAllowed('admin-fiscal', currentUser?.role)) {
     adminChildren.push(
-      { id: 'fiscal-year-management' as NavTab, label: 'Document Numbering Setup', icon: CalendarDays },
-      { id: 'fiscal-year-closing' as NavTab, label: 'Fiscal Year Closing Wizard', icon: CalendarDays }
+      { id: 'fiscal-year-management' as NavTab, label: 'Document Numbering Setup', icon: CalendarDays, section: 'Setup' },
+      { id: 'fiscal-year-closing' as NavTab, label: 'Fiscal Year Closing Wizard', icon: CalendarDays, section: 'Setup' }
     );
   }
   if (isSuperAdmin) {
-    adminChildren.push({ id: 'bs-calendar' as NavTab, label: 'BS Calendar Utility', icon: CalendarDays });
+    adminChildren.push({ id: 'bs-calendar' as NavTab, label: 'BS Calendar Utility', icon: CalendarDays, section: 'Setup' });
   } else if (currentUser?.role === 'HEAD_OFFICE_ADMIN') {
     // The BS Calendar Utility is Super-Admin-only, but a Head Office Admin may
     // seed the same calendar (see BS_SEEDING_TAB_BY_ROLE in services/api/http).
     // Without this entry the only way to reach the seeder was the action button
     // on a failure toast — a screen you can be sent to but can never find.
-    adminChildren.push({ id: 'nepali-fiscal' as NavTab, label: 'Nepali Fiscal & BS Calendar', icon: CalendarDays });
+    adminChildren.push({
+      id: 'nepali-fiscal' as NavTab,
+      label: 'Nepali Fiscal & BS Calendar',
+      icon: CalendarDays,
+      section: 'Setup',
+    });
   }
   if (isOperationAllowed('admin-audit', currentUser?.role)) {
-    adminChildren.push({ id: 'audit' as NavTab, label: 'Audit Activities Log', icon: ClipboardList });
+    adminChildren.push({ id: 'audit' as NavTab, label: 'Audit Activities Log', icon: ClipboardList, section: 'Governance' });
   }
   if (isSuperAdmin) {
     adminChildren.push(
-      { id: 'data-recalculation' as NavTab, label: 'Data Recalculation & Repair', icon: RefreshCw },
-      { id: 'clear-demo-data' as NavTab, label: 'Clear Demo / Dummy Data', icon: Trash2, hasSeparatorAbove: true }
+      { id: 'data-recalculation' as NavTab, label: 'Data Recalculation & Repair', icon: RefreshCw, section: 'Governance' },
+      { id: 'clear-demo-data' as NavTab, label: 'Clear Demo / Dummy Data', icon: Trash2, section: 'Governance' }
     );
   }
   // `?.` because `import.meta.env` only exists under Vite: the A2/A6 render
@@ -652,7 +686,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   if (isSuperAdmin && import.meta.env?.DEV) {
     // DEV-ONLY: design-review gallery. Also gated at build time so it never
     // appears in production builds (render block is inert there too).
-    adminChildren.push({ id: 'dev-statcard' as NavTab, label: 'Dev: StatCard Gallery', icon: Palette });
+    adminChildren.push({
+      id: 'dev-statcard' as NavTab,
+      label: 'Dev: StatCard Gallery',
+      icon: Palette,
+      section: 'Governance',
+    });
   }
   if (adminChildren.length > 0) {
     groups.push({
@@ -673,13 +712,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return 'dashboard';
   };
 
-  // Accordion state: which groups have their sub-items expanded inline.
-  // Multiple groups can be open at once; the group containing the active tab
-  // auto-expands so context is preserved on load and after navigation.
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => {
-    const parent = getParentGroupId(activeTab);
-    return new Set(parent === 'dashboard' ? [] : [parent]);
-  });
+  // Accordion state: at most ONE group is expanded. Single-open keeps the rail
+  // short even when Inventory holds sixteen rows, and the group containing the
+  // active tab always opens so the current page stays visible. Multi-open would
+  // need persisted expansion to survive a reload; single-open makes the state
+  // predictable without another localStorage key.
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
+    () => new Set([getParentGroupId(activeTab)])
+  );
   const [globalSearch, setGlobalSearch] = useState<string>('');
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -689,19 +729,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // so after the expansion we scroll the group header up toward the top of
   // the visible region (only when its content would overflow — expanding a
   // group that already fits never yanks the list around).
-  const navScrollRef = useRef<HTMLDivElement>(null);
+  const navScrollRef = useRef<HTMLElement>(null);
   const groupButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
 
-  // Keep the accordion in sync when the active tab changes from outside
-  // (e.g. Global Search modal, workflow navigation, search jump).
+  // Opening a different page moves the open group with it, so the active row is
+  // never hidden inside a collapsed group. Replacing (not adding) is what makes
+  // the accordion single-open.
   useEffect(() => {
     const parent = getParentGroupId(activeTab);
-    setExpandedGroups((prev) => {
-      if (prev.has(parent)) return prev;
-      const next = new Set(prev);
-      next.add(parent);
-      return next;
-    });
+    setExpandedGroups((prev) => (prev.size === 1 && prev.has(parent) ? prev : new Set([parent])));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, permissionsVersion]);
 
@@ -747,24 +783,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
     });
   };
 
+  // Single-open: opening a group closes the previous one; clicking the open
+  // group collapses it and leaves the rail as a compact list of headings.
   const toggleGroup = (groupId: string) => {
     const willExpand = !expandedGroups.has(groupId);
-    setExpandedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(groupId)) next.delete(groupId);
-      else next.add(groupId);
-      return next;
-    });
+    setExpandedGroups(willExpand ? new Set([groupId]) : new Set());
     if (willExpand) revealGroup(groupId);
   };
 
-  const allGroupIds = useMemo(() => groups.map((g) => g.id), [groups]);
-
-  // Smart expand/collapse-all: if any group is closed, expand all;
-  // otherwise collapse all.
-  const allExpanded = expandedGroups.size >= allGroupIds.length;
-  const toggleAllGroups = () => {
-    setExpandedGroups(allExpanded ? new Set() : new Set(allGroupIds));
+  const openGroupId = expandedGroups.values().next().value as string | undefined;
+  // The header control replaces the old Expand-all switch: it closes whatever
+  // is open, or re-opens the current page's group when the rail is collapsed.
+  const toggleMenu = () => {
+    if (openGroupId) {
+      setExpandedGroups(new Set());
+      return;
+    }
+    const parent = getParentGroupId(activeTab);
+    setExpandedGroups(new Set([parent]));
+    revealGroup(parent);
   };
 
   const handleSubItemClick = (tab: NavTab) => {
@@ -813,18 +850,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Shared item-row renderer (used by group view and global search results).
   const renderItemButton = (
     child: NavChildDef,
-    opts: { showGroupLabel?: boolean; groupTitle?: string; query?: string; separator?: boolean; idx?: number } = {}
+    opts: { showGroupLabel?: boolean; groupTitle?: string; query?: string; sectionLabel?: string } = {}
   ) => {
     const isActive = activeTab === child.id;
     const ItemIcon = child.icon;
     return (
       <React.Fragment key={child.id}>
-        {opts.separator && (opts.idx ?? 0) > 0 && (
-          <div className="my-2 px-1 flex items-center">
-            <div className="h-[1px] w-full bg-slate-200 dark:bg-slate-800/80" />
-          </div>
+        {opts.sectionLabel && (
+          <h3
+            data-nav-section={opts.sectionLabel}
+            className="sticky top-0 z-10 px-3 pt-2.5 pb-1 text-[0.5625rem] font-bold uppercase tracking-[0.14em] text-slate-400/90 bg-white dark:bg-[#0f1218] dark:text-slate-500"
+          >
+            {opts.sectionLabel}
+          </h3>
         )}
         <button
+          data-nav-item={child.id}
           onClick={() => handleSubItemClick(child.id)}
           aria-current={isActive ? 'page' : undefined}
           className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[0.8125rem] transition-all cursor-pointer font-medium ${
@@ -896,17 +937,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       )}
 
-      {/* HEADER: title row with expand/collapse-all control */}
+      {/* HEADER: one control that collapses the open group / restores the active one */}
       <div
         className={`px-2.5 py-1.5 border-b flex items-center border-slate-100 bg-slate-50/80 dark:border-slate-800/80 dark:bg-slate-900/50`}
       >
         <button
-          onClick={toggleAllGroups}
+          onClick={toggleMenu}
           className="flex-1 flex items-center justify-between gap-2 px-2 py-1 rounded-lg text-[0.625rem] font-semibold uppercase tracking-wide text-slate-500 hover:text-indigo-700 hover:bg-indigo-50 dark:text-slate-400 dark:hover:text-indigo-300 dark:hover:bg-indigo-600/20 transition-colors cursor-pointer min-w-0"
-          title={allExpanded ? 'Collapse all menu groups' : 'Expand all menu groups'}
+          title={openGroupId ? 'Collapse the open menu group' : 'Expand the menu group for the current page'}
+          aria-expanded={Boolean(openGroupId)}
+          aria-controls={openGroupId ? `nav-group-${openGroupId}` : undefined}
         >
-          <span className="truncate">Expand / Collapse Menu</span>
-          <ChevronsDownUp className={`h-3.5 w-3.5 flex-shrink-0 transition-transform duration-200 ${allExpanded ? '' : 'rotate-180'}`} />
+          <span className="truncate">{openGroupId ? 'Collapse menu' : 'Expand current page'}</span>
+          <ChevronsDownUp className={`h-3.5 w-3.5 flex-shrink-0 transition-transform duration-200 ${openGroupId ? '' : 'rotate-180'}`} />
         </button>
       </div>
 
@@ -937,8 +980,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* NAV CONTENT: accordion — groups expand inline below their header */}
-      <div
+      <nav
         ref={navScrollRef}
+        aria-label="Main navigation"
         className="py-2 px-2 flex-1 overflow-y-auto custom-scrollbar sidebar-hover-scrollbar"
       >
         {globalSearch.trim() ? (
@@ -947,7 +991,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div key={`${group.id}-${child.id}`}>
                 {renderItemButton(child, { query: globalSearch })}
                 <p className="pl-10 pr-3 pb-1 -mt-0.5 text-[0.625rem] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 truncate text-left">
-                  {group.title}
+                  {child.section ? `${group.title} · ${child.section}` : group.title}
                 </p>
               </div>
             ))
@@ -962,15 +1006,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
             const containsActive = group.children.some((c) => c.id === activeTab);
             const GroupIcon = group.icon;
             return (
-              <div key={group.id} className="mb-0.5">
+              <div key={group.id} data-nav-group={group.id} className="mb-0.5">
                 <button
                   ref={(el) => {
                     if (el) groupButtonRefs.current.set(group.id, el);
                     else groupButtonRefs.current.delete(group.id);
                   }}
+                  id={`nav-group-button-${group.id}`}
                   onClick={() => toggleGroup(group.id)}
                   title={group.title}
                   aria-expanded={isExpanded}
+                  aria-controls={isExpanded ? `nav-group-${group.id}` : undefined}
                   className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-[0.8125rem] font-semibold transition-all cursor-pointer ${
                     containsActive
                       ? 'text-indigo-900 bg-indigo-50/60 dark:text-indigo-300 dark:bg-indigo-600/10'
@@ -996,21 +1042,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </button>
 
                 {isExpanded && (
-                  <div className="mt-0.5 mb-1.5 ml-4 pl-2.5 border-l-2 border-slate-200 dark:border-slate-800 space-y-0.5">
-                    {group.children.map((child, idx) =>
-                      renderItemButton(child, {
-                        query: globalSearch,
-                        separator: child.hasSeparatorAbove,
-                        idx,
-                      })
-                    )}
+                  <div id={`nav-group-${group.id}`} className="mt-0.5 mb-1.5 ml-4 pl-2.5 border-l-2 border-slate-200 dark:border-slate-800 space-y-0.5">
+                    {group.children.map((child, idx) => {
+                      const previousSection = group.children[idx - 1]?.section;
+                      const sectionLabel =
+                        child.section && child.section !== previousSection
+                          ? child.section
+                          : undefined;
+                      return renderItemButton(child, { query: globalSearch, sectionLabel });
+                    })}
                   </div>
                 )}
               </div>
             );
           })
         )}
-      </div>
+      </nav>
           {/* FOOTER: Help link + Company card */}
           <div className="px-2 pb-2 space-y-1">
             <button
