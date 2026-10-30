@@ -37,7 +37,6 @@ import { CreateTransferPanel } from './stockops/CreateTransferPanel';
 import { AssignAssetPanel } from './stockops/AssignAssetPanel';
 import { ConsumableIssuePanel } from './stockops/ConsumableIssuePanel';
 import { ConsumablesRegisterPanel } from './stockops/ConsumablesRegisterPanel';
-import { ProductSalePanel } from './stockops/ProductSalePanel';
 import { DeviceExchangePanel } from './stockops/DeviceExchangePanel';
 import { CreatePulloutPanel } from './stockops/CreatePulloutPanel';
 import { LabelDamagePanel } from './stockops/LabelDamagePanel';
@@ -92,7 +91,7 @@ interface StockOperationsProps {
 // Local transfer form line: ShipmentItem plus form-only mirror fields (unit label, quantity)
 
 // Asset deployment bin line: one assignable row inside the multi-item
-// Assign Fixed Asset form (Product Sale pattern).
+// Assign Fixed Asset form (multi-line deployment-bin pattern).
 
 // Central warehouse / head-office detection used by the inter-branch transfer
 // flow. Matches the legacy inline predicates (WH001, isWarehouse, WH-* codes,
@@ -157,7 +156,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     (currentUser?.role as string) === 'INVENTORY_CONTROLLER';
 
   // Map initial tab
-  const getInitialTab = (): 'PULLOUT_BINS' | 'CREATE_PULLOUT' | 'DAMAGE_TRACKING' | 'LABEL_DAMAGE' | 'RECEIVE_TRANSFER' | 'CREATE_TRANSFER' | 'ASSIGN_ASSET' | 'CONSUMABLE_ISSUE' | 'CONSUMABLES_REGISTER' | 'PRODUCT_SALE' | 'DEVICE_EXCHANGE' | 'LOGS' => {
+  const getInitialTab = (): 'PULLOUT_BINS' | 'CREATE_PULLOUT' | 'DAMAGE_TRACKING' | 'LABEL_DAMAGE' | 'RECEIVE_TRANSFER' | 'CREATE_TRANSFER' | 'ASSIGN_ASSET' | 'CONSUMABLE_ISSUE' | 'CONSUMABLES_REGISTER' | 'DEVICE_EXCHANGE' | 'LOGS' => {
     if (initialType === 'DEVICE_EXCHANGE') return 'DEVICE_EXCHANGE';
     if (initialType === 'CONSUMABLES_REGISTER') return 'CONSUMABLES_REGISTER';
     if (initialType === 'CONSUMABLE_ISSUE') return 'CONSUMABLE_ISSUE';
@@ -167,13 +166,12 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     if (initialType === 'RECEIVE_TRANSFER' || initialType === 'RECEIVE') return 'RECEIVE_TRANSFER';
     if (initialType === 'CREATE_TRANSFER' || initialType === 'TRANSFER') return 'CREATE_TRANSFER';
     if (initialType === 'ASSIGN_ASSET' || initialType === 'ASSIGN') return 'ASSIGN_ASSET';
-    if (initialType === 'STOCK_OUT' || initialType === 'PRODUCT_SALE') return 'PRODUCT_SALE';
     if (initialType === 'LOGS') return 'LOGS';
     return 'CREATE_PULLOUT';
   };
 
   const [activeTab, setActiveTab] = useState<
-    'PULLOUT_BINS' | 'CREATE_PULLOUT' | 'DAMAGE_TRACKING' | 'LABEL_DAMAGE' | 'RECEIVE_TRANSFER' | 'CREATE_TRANSFER' | 'ASSIGN_ASSET' | 'CONSUMABLE_ISSUE' | 'CONSUMABLES_REGISTER' | 'PRODUCT_SALE' | 'DEVICE_EXCHANGE' | 'LOGS'
+    'PULLOUT_BINS' | 'CREATE_PULLOUT' | 'DAMAGE_TRACKING' | 'LABEL_DAMAGE' | 'RECEIVE_TRANSFER' | 'CREATE_TRANSFER' | 'ASSIGN_ASSET' | 'CONSUMABLE_ISSUE' | 'CONSUMABLES_REGISTER' | 'DEVICE_EXCHANGE' | 'LOGS'
   >(getInitialTab());
 
   useEffect(() => {
@@ -388,7 +386,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
   // Shared view derivations — tab-bar counts, the synthesized damage log and
   // the filtered register lists — live in stockops/stockOperationViews.ts.
-  const { damageOperations, pulloutOperations, consumableOperations, saleOperations, allCombinedOps, filteredOperations } =
+  const { damageOperations, pulloutOperations, consumableOperations, allCombinedOps, filteredOperations } =
     computeStockOperationViews({ operations, stock: operationStock.rows, products, canSeeAll, allowedBranchIds, branchFilter, activeTab });
 
   // ASSET-1: the Assign Fixed Asset picker reads the bounded ACTIVE/unassigned
@@ -459,7 +457,6 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     products,
     promptDialog,
     pulloutOperations,
-    saleOperations,
     selectedBranchId,
     setBranchFilter,
     shipments,
@@ -539,7 +536,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* Top Header — shared PageHeader (single h2 per screen rule) */}
       <PageHeader
         title="Stock Operations & Logistics Center"
-        description="Manage overstock pullouts, branch damage labeling, inter-branch transfers, fixed asset site assignments, and customer product sales."
+        description="Manage overstock pullouts, branch damage labeling, inter-branch transfers, and fixed asset site assignments. Customer sales are posted from Sales & Customers → Create Sales Invoice."
         icon={<AlertOctagon className="h-5 w-5 text-indigo-500 dark:text-indigo-400" />}
       />
 
@@ -558,7 +555,6 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
           case 'ASSIGN_ASSET': return <AssignAssetPanel />;
           case 'CONSUMABLE_ISSUE': return <ConsumableIssuePanel />;
           case 'CONSUMABLES_REGISTER': return <ConsumablesRegisterPanel />;
-          case 'PRODUCT_SALE': return <ProductSalePanel />;
           case 'DEVICE_EXCHANGE': return <DeviceExchangePanel />;
           case 'CREATE_PULLOUT': return <CreatePulloutPanel />;
           case 'LABEL_DAMAGE': return <LabelDamagePanel />;

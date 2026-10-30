@@ -1,6 +1,6 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-30 · Branch: main · Tests: 1598/1598 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-30 · Branch: main · Tests: 1603/1603 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
 > **Current state (2026-10-27, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1/VOL-2/BUDGET-1/BOOT-1/VOL-3/VOL-4a/VOL-4b/SN-1/ASSET-1/EXCH-1/READ-1/CDR-1/CDR-2).** All DF-01…DF-17
 > work, the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2, CPE-3,
@@ -112,6 +112,14 @@ _Date: 2026-10-30 · Branch: main · Tests: 1598/1598 green with a DB (all run i
 > is green on attempt 2 after the first attempt's headless-Chrome launch flake
 > (steps 1–14, including all 1598 tests, had already passed). Detail:
 > [2026.md](docs/session-notes/2026.md#-sidebar-restructure-and-green-ci-run-214-2026-10-30).
+> **Sales-form consolidation (2026-10-30):** Stock Operations' **Product Sale
+> to Customer** is retired (panel, route, tab, menu entry, type and pins);
+> **Create Sales Invoice** is the only counter-sale form, now with its own
+> in-card header, branch-scoped picker, readable payment labels and per-line
+> seller-warranty capture. The register and detail show the promise, and the
+> printable invoice + CSV export carry its coverage and AD/BS expiry. Proven by
+> the sales-form tests; detail:
+> [2026.md](docs/session-notes/2026.md#-sales-form-consolidation-2026-10-30).
 > **No round is active.** The payload work
 > is finished — the remaining-array measurement found no item to open, and the
 > `inventory_stock` trigger is recorded in [2026.md](docs/session-notes/2026.md). The

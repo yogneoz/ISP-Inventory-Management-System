@@ -20,7 +20,6 @@ import {
   Layers,
   ArrowUpRight,
   HeartOff,
-  PackageMinus,
   Wrench,
   Settings,
   Building2,
@@ -98,7 +97,6 @@ export type NavTab =
   | 'damage'
   | 'pullout-report'
   | 'damage-report'
-  | 'stock-out'
   | 'assign-asset'
   | 'asset-deployments'
   | 'consumable-issue'
@@ -172,7 +170,6 @@ export const NAV_TABS: NavTab[] = [
   'damage',
   'pullout-report',
   'damage-report',
-  'stock-out',
   'assign-asset',
   'asset-deployments',
   'consumable-issue',
@@ -439,12 +436,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
     children: procurementChildren,
   });
 
-  // 4. Sales & Customers — invoices, returns, the counter sale, device
-  //    exchange and the customer-side warranty register.
+  // 4. Sales & Customers — invoices, returns, device exchange and the
+  //    customer-side warranty register. Create Sales Invoice is the only
+  //    counter-sale form: the retired Product Sale screen posted a stock
+  //    operation with no invoice, VAT or receivable.
   const salesChildren: NavChildDef[] = [
-    ...(isOperationAllowed('stock-out', currentUser?.role)
-      ? [{ id: 'stock-out' as NavTab, label: 'Product Sale to Customer', icon: PackageMinus, section: 'Forms' }]
-      : []),
     ...(isOperationAllowed('sales-invoice-create', currentUser?.role)
       ? [{ id: 'create-sale' as NavTab, label: 'Create Sales Invoice', icon: PlusCircle, section: 'Forms' }]
       : []),

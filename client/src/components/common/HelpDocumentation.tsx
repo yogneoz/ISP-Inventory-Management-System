@@ -136,7 +136,7 @@ const USER_GUIDES: UserGuide[] = [
     goal: 'Sell stock over the counter and manage ISP hardware (ONU/router) assigned to customers.',
     requires: 'Sales & inventory permissions; ISP Field Tech for device assignment.',
     steps: [
-      'Sales & Customers → Product Sale to Customer: pick the customer (or quick-create one), add product lines, confirm. Stock is deducted at your branch and revenue/COGS feed the Financial Overview trading summary.',
+      'Sales & Customers → Create Sales Invoice: pick the customer and fulfilling branch, add product lines, verify each serial, then post. Stock is deducted, serials are claimed and VAT feeds the VAT register immediately.',
       'ISP hardware: Inventory & Stock → Serial Log Register records every ONU/router unit with its Device Serial, PON Serial and MAC address when it arrives.',
       'Sales & Customers → Customer Device Serials: assign a unit to a customer (status IN_STOCK → ACTIVE or RENTAL). The customer\'s device history stays attached to them.',
       'Defective unit? Log the return in Customer Device Serials — a manager must authorize the restock/exchange before the replacement goes out (Sales & Customers → Device Exchange & Replacement).',

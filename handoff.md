@@ -227,7 +227,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 1598 tests; CI runs
+                                        #   drift/concurrency guards — 1603 tests; CI runs
                                         #   tsc + npm test + the source guards + the
                                         #   production build + the boot-timing gate +
                                         #   npm audit on every push/PR
@@ -781,7 +781,7 @@ The `Sidebar` component defines `NAV_TABS` — navigation entries organized into
 - **Overview**: Executive Dashboard, Workflow Approval Center
 - **Inventory & Stock**: stock registers (all/branch, ledger, serials, damage, consumables, asset deployments), stock forms (issue/return, damage labelling, asset assignment, count audit, reorder, import), valuation/export reports
 - **Procurement & Purchasing**: Create PO / Purchase Bill / Purchase Return; PO, bill, return and supplier-warranty registers
-- **Sales & Customers**: Product Sale, invoice and return forms, Device Exchange; invoice, return, customer-device and seller-warranty registers
+- **Sales & Customers**: Create Sales Invoice (the only counter-sale form; seller warranty is captured per serialised line), Create Sales Return, Device Exchange; invoice, return, customer-device and seller-warranty registers
 - **Warehouse & Transfers**: dispatch/transfer/pullout forms; inbound receiving, shipment register, pullout report
 - **Finance & Accounting**: statements and ledgers (financial overview, vendor/customer ledgers, vendor openings); VAT, fixed assets, depreciation
 - **Master Data & Setup**: products (master, categories, groups, UoM); parties (customers, import, suppliers); organisation (locations, branches)
@@ -1331,7 +1331,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 1598 tests against a real PostgreSQL 16 service container
+2. `npm test` — 1603 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM
@@ -1416,10 +1416,10 @@ so any unwired new fetch fails the suite instead of shipping:
   remount refreshes it). Each test pins the effect deps carrying the refresh key and EVERY App.tsx render
   site passing it (2 PO, 2 PI, 1 SerialLogRegister, 11 StockOperations, 4 ReturnsRegister,
   2 SalesInvoices) — a newly added unwired mount fails.
-- **Feature-screen coverage (2026-10-03 audit, all 70 screens — the §G StockOperations
+- **Feature-screen coverage (2026-10-03 audit, all 69 screens — the §G StockOperations
   split added 12 tab panels plus the extracted tab-bar chrome, and the BS-calendar
   integrity work added the Calendar Health panel)** — a `SCREEN_SURFACE_PINS`
-  table pins the 59 screens not covered above (the other 11 are pinned by the dedicated
+  table pins the 58 screens not covered above (the other 11 are pinned by the dedicated
   tests); an unpinned new screen fails coverage, and each pinned screen must match its
   exact surface. Surfaces use `serverCallsIn` = `api.*` methods **plus named
   `services/api` imports** — the audit found FinancialStatements.tsx imports

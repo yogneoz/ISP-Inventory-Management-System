@@ -1094,7 +1094,6 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     // SER-1/D2: a product-sale stock-out can be reversed from the log; the
     // panel calls onRefreshData after the terminal reversal response.
     'inventory/stockops/LogsPanel.tsx': ['reverseStockOutOperation'],
-    'inventory/stockops/ProductSalePanel.tsx': ['searchCustomers'],
     // SER-1/D2: reverse an unreceived dispatch; onRefreshData re-reads stock,
     // the register and the operation list after the response.
     'inventory/stockops/PulloutBinsPanel.tsx': ['reversePulloutOperation'],

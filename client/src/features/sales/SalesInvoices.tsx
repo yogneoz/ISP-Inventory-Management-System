@@ -18,6 +18,8 @@ import {
   Plus,
   Trash2,
   PackageMinus,
+  Download,
+  Printer,
 } from 'lucide-react';
 import { PageHeader } from '../../components/common/PageHeader';
 import { formCardClass } from '../../components/common/FormCard';
@@ -26,9 +28,11 @@ import { CustomerPicker } from '../../components/common/CustomerPicker';
 import { FilterCard } from '../../components/common/FilterCard';
 import { TablePagination, useServerPageClamp } from '../../components/common/TablePagination';
 import { RegisterLoadError } from '../../components/common/RegisterLoadError';
+import { DocumentLetterhead } from '../../components/common/DocumentLetterhead';
 import { useDialog } from '../../components/common/DialogProvider';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 import { formatMoney } from '../../utils/nprFormat';
+import { exportToCSV } from '../../utils/exportUtils';
 import { getDefaultTaxRate } from '../../utils/taxConfig';
 import { isSellableProduct } from '../../utils/productGroupBehavior';
 import { inputClass, labelClass, btnPrimary, btnGhost } from '../../components/common/styleConstants';
@@ -42,6 +46,177 @@ import type {
 } from '../../types';
 import { localTodayAD } from '../../utils/localDate';
 import { clampLineQuantity } from '../../utils/lineQuantity';
+import { warrantyCoveredDefault, warrantyEndFieldError, warrantyEndFor } from '../../utils/warrantyCapture';
+import { isWarrantyBearingLine, salesWarrantyCoverageLabel, summarizeSalesWarranty } from '../../utils/salesWarranty';
+import { formatDualDate } from '../../utils/nepaliCalendar';
+import { getAllowedBranches } from '../../utils/permissions';
+
+/** Human labels for the stored payment-method codes (the values stay the API enums). */
+const SALES_PAYMENT_METHODS: Array<{ value: NonNullable<SalesInvoice['paymentMethod']>; label: string }> = [
+  { value: 'CASH', label: 'Cash' },
+  { value: 'BANK_TRANSFER', label: 'Bank transfer / Fonepay' },
+  { value: 'ONLINE', label: 'Online / eSewa / Khalti' },
+  { value: 'CARD', label: 'Card' },
+  { value: 'CHEQUE', label: 'Cheque' },
+  { value: 'CREDIT', label: 'Customer account credit' },
+  { value: 'OTHER', label: 'Other' },
+];
+
+/** Small, consistent chips for the two read-only warranty surfaces. */
+const WARRANTY_CHIP = {
+  covered:
+    'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300',
+  none:
+    'border-slate-300 bg-slate-100 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300',
+  missing:
+    'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300',
+};
+
+function WarrantyChip({ tone, children }: { tone: keyof typeof WARRANTY_CHIP; children: React.ReactNode }) {
+  return (
+    <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${WARRANTY_CHIP[tone]}`}>
+      {children}
+    </span>
+  );
+}
+
+/** One detail-table cell: the promise captured with this line (WTY-5). */
+function SellerWarrantyLine({ item, dateMode }: { item: SalesInvoiceItem; dateMode: 'BS' | 'AD' }) {
+  if (!isWarrantyBearingLine(item)) {
+    return (
+      <span className="text-slate-400" title="Quantity-only line — seller warranty applies to serialised units">
+        —
+      </span>
+    );
+  }
+  if (item.sellerWarrantyCovered === false) {
+    return <WarrantyChip tone="none">No warranty</WarrantyChip>;
+  }
+  if (item.sellerWarrantyEndDateAD) {
+    const date = formatDualDate(item.sellerWarrantyEndDateAD, dateMode);
+    return (
+      <div className="space-y-0.5">
+        <WarrantyChip tone="covered">Covered</WarrantyChip>
+        <div className="font-mono text-[10px] font-semibold text-slate-600 dark:text-slate-300" title={date}>
+          {date}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <span title="This serialised line has no captured seller warranty.">
+      <WarrantyChip tone="missing">Not recorded</WarrantyChip>
+    </span>
+  );
+}
+
+/** Register cell: one honest summary for the invoice's serialised lines. */
+function SellerWarrantySummary({ items, dateMode }: { items?: SalesInvoiceItem[]; dateMode: 'BS' | 'AD' }) {
+  const summary = summarizeSalesWarranty(items);
+  const compactDate = (adDate: string) => {
+    const full = formatDualDate(adDate, dateMode);
+    return <span title={full}>{full.split(' (')[0]}</span>;
+  };
+
+  if (summary.state === 'NONE') {
+    return (
+      <span className="text-slate-400" title="No serialised line — no seller warranty to show">
+        —
+      </span>
+    );
+  }
+  if (summary.state === 'NOT_COVERED') {
+    return <WarrantyChip tone="none">No warranty</WarrantyChip>;
+  }
+  if (summary.state === 'NOT_RECORDED') {
+    return (
+      <span title={`${summary.unrecordedCount} serialised line(s) without a captured warranty.`}>
+        <WarrantyChip tone="missing">Not recorded</WarrantyChip>
+      </span>
+    );
+  }
+  if (summary.state === 'MIXED') {
+    const parts = [
+      summary.coveredCount ? `${summary.coveredCount} covered` : '',
+      summary.uncoveredCount ? `${summary.uncoveredCount} none` : '',
+      summary.unrecordedCount ? `${summary.unrecordedCount} not recorded` : '',
+    ].filter(Boolean);
+    return (
+      <div className="space-y-0.5">
+        <WarrantyChip tone="missing">Mixed</WarrantyChip>
+        <div className="text-[10px] text-slate-500 dark:text-slate-400">{parts.join(' · ')}</div>
+        {summary.endDateAD && (
+          <div className="whitespace-nowrap font-mono text-[10px] font-semibold text-slate-600 dark:text-slate-300">
+            {summary.dateCount > 1 ? 'earliest to ' : 'covered to '}
+            {compactDate(summary.endDateAD)}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="space-y-0.5"
+      title={
+        summary.state === 'MULTIPLE'
+          ? `Earliest of ${summary.dateCount} covered expiry dates on this invoice.`
+          : undefined
+      }
+    >
+      <WarrantyChip tone="covered">Covered</WarrantyChip>
+      <div className="whitespace-nowrap font-mono text-[10px] font-semibold text-slate-600 dark:text-slate-300">
+        to {compactDate(summary.endDateAD!)}
+        {summary.state === 'MULTIPLE' && (
+          <span className="font-sans font-normal text-slate-400"> · {summary.dateCount} dates</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Flatten invoices to one row per line for CSV. Warranty travels with the
+ * line, so an invoice cannot be exported as "covered" without its date.
+ */
+export function buildSalesInvoiceExportRows(
+  source: SalesInvoice[],
+  branches: Branch[]
+): Array<Record<string, string | number>> {
+  return source.flatMap((invoice) => {
+    const branch = branches.find((b) => b.id === invoice.branchId || b.code === invoice.branchId);
+    const paymentMethod = SALES_PAYMENT_METHODS.find((m) => m.value === invoice.paymentMethod)?.label
+      || invoice.paymentMethod
+      || '';
+    const base = {
+      invoiceNumber: invoice.invoiceNumber,
+      invoiceDateAD: invoice.invoiceDateAD || '',
+      invoiceDateBS: invoice.invoiceDateBS || '',
+      customerName: invoice.customerName || '',
+      branchName: branch?.name || invoice.branchId || '',
+      documentStatus: invoice.status === 'CANCELLED' ? 'Cancelled' : 'Posted',
+      paymentStatus: invoice.paymentStatus || '',
+      paymentMethod,
+    };
+    const items: Array<SalesInvoiceItem | null> = invoice.items && invoice.items.length > 0
+      ? invoice.items
+      : [null];
+    return items.map((item) => ({
+      ...base,
+      productName: item?.productName || '',
+      sku: item?.sku || '',
+      quantity: item?.quantity ?? '',
+      unitPrice: item?.unitPrice ?? '',
+      taxAmount: item?.taxAmount ?? '',
+      lineTotal: item?.total ?? '',
+      sellerWarrantyCoverage: item ? salesWarrantyCoverageLabel(item) : '',
+      sellerWarrantyEndDateAD: item?.sellerWarrantyEndDateAD || '',
+      sellerWarrantyEndDateBS: item?.sellerWarrantyEndDateAD
+        ? formatDualDate(item.sellerWarrantyEndDateAD, 'BS').split(' (')[0]
+        : '',
+    }));
+  });
+}
 
 interface SalesInvoicesProps {
   companyProfile?: CompanyProfile | null;
@@ -86,6 +261,9 @@ interface FormLine {
   isTaxExempt: boolean;
   /** One slot per unit for serial-tracked products. */
   deviceSerials?: DeviceSerialPair[];
+  /** WTY-5: the customer promise captured with this serialised line. */
+  sellerWarrantyEndDateAD?: string;
+  sellerWarrantyCovered?: boolean;
 }
 
 export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
@@ -113,17 +291,21 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
   );
   const [viewing, setViewing] = useState<SalesInvoice | null>(null);
 
+  // Only branches this account may post from. A fixture that mounts the form
+  // without a session keeps the full list rather than an empty select.
+  const selectableBranches = useMemo(
+    () => (currentUser ? getAllowedBranches(currentUser, branches) : branches),
+    [currentUser, branches]
+  );
+
   // Create-form state. A sale must be fulfilled from ONE branch, so a global
   // "All Branches (Consolidated)" selection (branchId 'ALL') can never leak
   // into the form — it would zero every stock lookup and post to branch 'ALL'.
   const pickInitialBranch = () => {
-    if (selectedBranchId && selectedBranchId !== 'ALL' && branches.some((b) => b.id === selectedBranchId)) {
-      return selectedBranchId;
-    }
-    if (branches.some((b) => b.id === selectedBranchId || b.code === selectedBranchId)) {
-      return branches.find((b) => b.id === selectedBranchId || b.code === selectedBranchId)!.id;
-    }
-    return branches[0]?.id || '';
+    const match = selectableBranches.find(
+      (b) => b.id === selectedBranchId || b.code === selectedBranchId
+    );
+    return match?.id || selectableBranches[0]?.id || '';
   };
   const [branchId, setBranchId] = useState(pickInitialBranch);
   const [customerId, setCustomerId] = useState('');
@@ -145,11 +327,14 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
   const [branchFilter, setBranchFilter] = useState('ALL');
   const [query, setQuery] = useState('');
 
-  // Follow the global branch selector only while it points at a real branch.
+  // Follow the global branch selector only while it points at a branch this
+  // account may post from.
   useEffect(() => {
-    const match = branches.find((b) => b.id === selectedBranchId || b.code === selectedBranchId);
+    const match = selectableBranches.find(
+      (b) => b.id === selectedBranchId || b.code === selectedBranchId
+    );
     if (match) setBranchId(match.id);
-  }, [selectedBranchId, branches]);
+  }, [selectedBranchId, selectableBranches]);
 
   // Server-side paged fetch state: the register asks /api/sales-invoices for
   // one page of filtered rows instead of filtering the whole prop array.
@@ -160,6 +345,7 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
   const [siLoading, setSiLoading] = useState(true);
   const [siLoadError, setSiLoadError] = useState('');
   const [siRefreshKey, setSiRefreshKey] = useState(0);
+  const [exporting, setExporting] = useState(false);
 
   // One page of filtered invoice rows; the seq guard drops superseded responses.
   const siFetchSeq = useRef(0);
@@ -303,10 +489,27 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
     );
   };
 
+  const updateLineWarrantyEnd = (idx: number, value: string) => {
+    updateLine(idx, { sellerWarrantyEndDateAD: value });
+  };
+
   /**
-   * ProductSearchBar callback — the multi-item behaviour of the Product Sale
-   * to Customer form: re-scanning the same product increments its line (and
-   * opens one more serial slot), anything else starts a new line.
+   * WTY-5: turning seller coverage off is a declaration, not an empty field.
+   * The date is cleared so a hidden value can never be submitted; turning it
+   * back on re-derives the untouched prefill from the product's seller term.
+   */
+  const updateLineWarrantyCovered = (idx: number, covered: boolean) => {
+    const line = lines[idx];
+    const product = products.find((p) => p.id === line?.productId);
+    updateLine(idx, {
+      sellerWarrantyCovered: covered,
+      sellerWarrantyEndDateAD: covered ? warrantyEndFor(invDateAD, product?.sellerWarrantyMonths) : '',
+    });
+  };
+
+  /**
+   * ProductSearchBar callback — re-scanning the same product increments its
+   * line (and opens one more serial slot), anything else starts a new line.
    */
   const addOrIncrementProduct = (p: Product) => {
     const existing = lines.findIndex((l) => l.productId === p.id);
@@ -325,6 +528,12 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
         quantity: 1,
         unitPrice: Number(p.sellingPrice) || 0,
         isTaxExempt: (Number(p.taxRate) || 0) === 0,
+        sellerWarrantyEndDateAD: isSerializedProduct(p.id)
+          ? warrantyEndFor(todayAD, p.sellerWarrantyMonths)
+          : undefined,
+        sellerWarrantyCovered: isSerializedProduct(p.id)
+          ? warrantyCoveredDefault(p.sellerWarrantyMonths)
+          : undefined,
       },
     ]);
     setFormError('');
@@ -344,11 +553,18 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
       discount: 0,
       deviceSerials: undefined,
       isTaxExempt: (Number(p.taxRate) || 0) === 0,
+      sellerWarrantyEndDateAD: isSerializedProduct(productId)
+        ? warrantyEndFor(invDateAD, p.sellerWarrantyMonths)
+        : undefined,
+      sellerWarrantyCovered: isSerializedProduct(productId)
+        ? warrantyCoveredDefault(p.sellerWarrantyMonths)
+        : undefined,
     });
   };
 
   const resetForm = () => {
     setCustomerId(''); setCustomerName(''); setCustomerQuery(''); setNotes(''); setAmountPaid('0');
+    setPaymentMethod('CASH');
     setLines([emptyLine()]);
     setFormError('');
   };
@@ -474,6 +690,23 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
       }
     }
 
+    // WTY-5: every serialised line carries an explicit customer promise. Off
+    // is a declaration; on requires an expiry, so a cleared date can never
+    // silently become the product's default term.
+    for (const l of validLines) {
+      if (!isSerializedProduct(l.productId)) continue;
+      const warrantyError = warrantyEndFieldError(
+        invDateAD,
+        l.sellerWarrantyEndDateAD,
+        'Seller warranty expiry',
+        l.sellerWarrantyCovered
+      );
+      if (warrantyError) {
+        setFormError(`${l.productName}: ${warrantyError}`);
+        return;
+      }
+    }
+
     const ok = await confirmDialog(
       `Post sales invoice for ${customerName || 'Walk-in Customer'} — ${validLines.length} line(s), ` +
       `grand total ${formatMoney(lineTotals.grand)}? Stock is deducted immediately.`
@@ -501,6 +734,8 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
           taxAmount: l.isTaxExempt ? 0 : (net * getDefaultTaxRate()) / 100,
           total: l.isTaxExempt ? net : net * (1 + getDefaultTaxRate() / 100),
           deviceSerials: l.deviceSerials,
+          sellerWarrantyEndDateAD: l.sellerWarrantyEndDateAD || undefined,
+          sellerWarrantyCovered: l.sellerWarrantyCovered,
         };
       });
       await onCreateInvoice({
@@ -586,6 +821,74 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
 
   const branchName = (id: string) => branches.find((b) => b.id === id)?.name || id;
 
+  /**
+   * Exports the filtered register, or one invoice from the detail view, as one
+   * row per line — the seller warranty stays attached to the product it covers.
+   */
+  const handleExportCSV = async (invoices?: SalesInvoice[]) => {
+    if (!invoices && siLoadError) {
+      await alertDialog('Cannot export while the register is in an error state. Retry the page load first.');
+      return;
+    }
+    setExporting(true);
+    try {
+      let exported: SalesInvoice[];
+      if (invoices) {
+        exported = invoices;
+      } else {
+        const envelope = (await api.getSalesInvoices({
+          branchId: branchFilter !== 'ALL' ? branchFilter : undefined,
+          query: query.trim() || undefined,
+          all: true,
+        })) as SalesInvoice[] | { data: SalesInvoice[] };
+        exported = Array.isArray(envelope) ? envelope : envelope.data || [];
+      }
+      if (exported.length === 0) {
+        await alertDialog('No sales invoices available to export.');
+        return;
+      }
+
+      const rows = buildSalesInvoiceExportRows(exported, branches);
+      const scope = exported.length === 1
+        ? branchName(exported[0].branchId)
+        : branchFilter !== 'ALL' ? branchName(branchFilter) : 'All branches';
+      const single = exported.length === 1;
+      exportToCSV({
+        filename: single
+          ? `Sales_Invoice_${exported[0].invoiceNumber}`
+          : 'Inventory_Sales_Invoices',
+        data: rows,
+        columns: [
+          { label: 'System Invoice #', key: 'invoiceNumber' },
+          { label: 'Invoice Date (AD)', key: 'invoiceDateAD' },
+          { label: 'Invoice Date (BS)', key: 'invoiceDateBS' },
+          { label: 'Customer', key: 'customerName' },
+          { label: 'Branch', key: 'branchName' },
+          { label: 'Document Status', key: 'documentStatus' },
+          { label: 'Payment Status', key: 'paymentStatus' },
+          { label: 'Payment Method', key: 'paymentMethod' },
+          { label: 'Product', key: 'productName' },
+          { label: 'SKU', key: 'sku' },
+          { label: 'Qty', key: 'quantity' },
+          { label: 'Unit Price', key: 'unitPrice', formatter: (value) => Number(value || 0).toFixed(2) },
+          { label: 'Tax', key: 'taxAmount', formatter: (value) => Number(value || 0).toFixed(2) },
+          { label: 'Line Total', key: 'lineTotal', formatter: (value) => Number(value || 0).toFixed(2) },
+          { label: 'Seller Warranty Coverage', key: 'sellerWarrantyCoverage' },
+          { label: 'Seller Warranty Expiry (AD)', key: 'sellerWarrantyEndDateAD' },
+          { label: 'Seller Warranty Expiry (BS)', key: 'sellerWarrantyEndDateBS' },
+        ],
+        reportTitle: single ? `Sales Invoice ${exported[0].invoiceNumber}` : 'Sales Invoices',
+        branchName: scope,
+        generatedBy: currentUser?.name,
+        companyInfo: companyProfile,
+      });
+    } catch (err: any) {
+      await alertDialog(`Export failed: ${err?.message || 'the full register could not be loaded'}. No file was written.`);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <PageHeader
@@ -600,28 +903,69 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
         icon={internalTab === 'CREATE' ? <PlusCircle className="h-5 w-5" /> : <Receipt className="h-5 w-5" />}
         actions={
           viewing ? (
-            <button className={btnGhost} onClick={() => setViewing(null)}>
-              <ArrowLeft className="h-4 w-4" /> Back to Register
-            </button>
+            <>
+              <button className={btnGhost} onClick={() => window.print()}>
+                <Printer className="h-4 w-4" /> Print Invoice
+              </button>
+              <button
+                className={btnGhost}
+                onClick={() => { void handleExportCSV([viewing]); }}
+                disabled={exporting}
+              >
+                {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                {exporting ? 'Exporting…' : 'Export Invoice CSV'}
+              </button>
+              <button className={btnGhost} onClick={() => setViewing(null)}>
+                <ArrowLeft className="h-4 w-4" /> Back to Register
+              </button>
+            </>
           ) : internalTab === 'CREATE' ? (
             <button className={btnGhost} onClick={() => setInternalTab('LIST')}>
               <ArrowLeft className="h-4 w-4" /> Back to Register
             </button>
           ) : (
-            <button className={btnPrimary} onClick={() => setInternalTab('CREATE')}>
-              <PlusCircle className="h-4 w-4" /> New Sales Invoice
-            </button>
+            <>
+              <button
+                className={btnGhost}
+                onClick={() => { void handleExportCSV(); }}
+                disabled={exporting}
+              >
+                {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                {exporting ? 'Exporting…' : 'Export CSV'}
+              </button>
+              <button className={btnPrimary} onClick={() => setInternalTab('CREATE')}>
+                <PlusCircle className="h-4 w-4" /> New Sales Invoice
+              </button>
+            </>
           )
         }
       />
 
       {viewing ? (
-        <div className={`${formCardClass} space-y-4`}>
+        <div className={`${formCardClass} printable-document space-y-4`}>
+          {/* Company identity and document title appear in the print/PDF copy. */}
+          <DocumentLetterhead
+            companyProfile={companyProfile}
+            title="TAX INVOICE"
+            subtitle={`Invoice ${viewing.invoiceNumber} • ${viewing.customerName} • ${formatDualDate(viewing.invoiceDateAD, dateMode)}`}
+          />
           <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
             <div><div className={labelClass}>Invoice #</div><div className="font-medium">{viewing.invoiceNumber}</div></div>
             <div><div className={labelClass}>Customer</div><div className="font-medium">{viewing.customerName}</div></div>
             <div><div className={labelClass}>Branch</div><div className="font-medium">{branchName(viewing.branchId)}</div></div>
             <div><div className={labelClass}>Date</div><div className="font-medium">{dateMode === 'BS' && viewing.invoiceDateBS ? viewing.invoiceDateBS : viewing.invoiceDateAD}</div></div>
+            <div>
+              <div className={labelClass}>Document Status</div>
+              <div className="font-medium">
+                {viewing.status === 'CANCELLED' ? (
+                  <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
+                    Cancelled
+                  </span>
+                ) : (
+                  'Posted'
+                )}
+              </div>
+            </div>
             <div><div className={labelClass}>Payment Status</div><div className="font-medium">{viewing.paymentStatus}</div></div>
             <div><div className={labelClass}>Amount Paid</div><div className="font-medium">{formatMoney(viewing.amountPaid)}</div></div>
             <div><div className={labelClass}>VAT</div><div className="font-medium">{formatMoney(viewing.vatAmount)}</div></div>
@@ -632,7 +976,8 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
               <thead>
                 <tr className={`border-b ${isDarkMode ? 'border-slate-700' : 'border-slate-200'} text-left text-xs uppercase text-slate-500`}>
                   <th className="py-2">Product</th><th className="py-2">SKU</th><th className="py-2">Qty</th>
-                  <th className="py-2">Unit Price</th><th className="py-2">Tax</th><th className="py-2">Total</th>
+                  <th className="py-2">Unit Price</th><th className="py-2">Tax</th>
+                  <th className="py-2">Seller warranty</th><th className="py-2">Total</th>
                 </tr>
               </thead>
               <tbody>
@@ -643,6 +988,7 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
                     <td className="py-2">{it.quantity}</td>
                     <td className="py-2">{formatMoney(it.unitPrice)}</td>
                     <td className="py-2">{formatMoney(it.taxAmount || 0)}</td>
+                    <td className="py-2"><SellerWarrantyLine item={it} dateMode={dateMode} /></td>
                     <td className="py-2">{formatMoney(it.total || 0)}</td>
                   </tr>
                 ))}
@@ -652,6 +998,23 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
         </div>
       ) : internalTab === 'CREATE' ? (
         <div className={`${formCardClass} space-y-4`}>
+          {/* In-card form header — the page header names the screen; this names
+              the document being created and its posting side effects. */}
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="flex items-center gap-2 font-serif text-base font-bold text-slate-900 dark:text-white">
+                <Receipt className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                <span>Create Sales Invoice</span>
+              </h3>
+              <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                Issue a customer tax invoice — pick the fulfilling branch and customer, scan or add each product line, verify the serials, then post. Stock, serial claims and seller warranty are recorded together.
+              </p>
+            </div>
+            <span className="shrink-0 rounded-full border border-indigo-200 bg-indigo-100 px-2.5 py-1 text-[10px] font-extrabold text-indigo-800 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-200">
+              Tax Invoice
+            </span>
+          </div>
+
           {/* DF-17: the pre-post serial gate reads this list; a failure clears
               it (never the previous branch's units) and offers the retry here. */}
           <LoadStateNotice
@@ -666,7 +1029,7 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
             <div>
               <label className={labelClass}>Branch *</label>
               <select className={inputClass} value={branchId} onChange={(e) => setBranchId(e.target.value)}>
-                {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                {selectableBranches.map((b) => <option key={b.id} value={b.id}>{b.name} ({b.code})</option>)}
               </select>
             </div>
             <div className="md:col-span-2">
@@ -835,6 +1198,48 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
                                   ✓ Verify serials for {line.productName} — {serialQty} unit{serialQty > 1 ? 's' : ''}
                                   {' · '}every serial must be IN_STOCK in inventory at {branchName(branchId)}
                                 </div>
+                                <div className="mb-2 flex flex-wrap items-center gap-2">
+                                  <label
+                                    htmlFor={`sale-warranty-covered-${idx}`}
+                                    className="flex cursor-pointer items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400"
+                                  >
+                                    <input
+                                      id={`sale-warranty-covered-${idx}`}
+                                      type="checkbox"
+                                      checked={line.sellerWarrantyCovered !== false}
+                                      onChange={(e) => updateLineWarrantyCovered(idx, e.target.checked)}
+                                      className="h-3.5 w-3.5 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500"
+                                    />
+                                    Sellers warranty covered
+                                  </label>
+                                  {line.sellerWarrantyCovered !== false ? (
+                                    <>
+                                      <label
+                                        htmlFor={`sale-warranty-${idx}`}
+                                        className="text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400"
+                                      >
+                                        Expires
+                                      </label>
+                                      <input
+                                        id={`sale-warranty-${idx}`}
+                                        type="date"
+                                        min={invDateAD}
+                                        value={line.sellerWarrantyEndDateAD || ''}
+                                        onChange={(e) => updateLineWarrantyEnd(idx, e.target.value)}
+                                        className="rounded-lg border border-indigo-200 bg-white px-2 py-1 font-mono text-[11px] font-bold text-indigo-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-indigo-800 dark:bg-slate-900 dark:text-indigo-200"
+                                      />
+                                    </>
+                                  ) : (
+                                    <span className="rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                                      No seller warranty
+                                    </span>
+                                  )}
+                                  <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                                    {line.sellerWarrantyCovered !== false
+                                      ? "Prefilled from the invoice date + this product's seller term; an edited date is kept."
+                                      : 'No coverage will be recorded for these units.'}
+                                  </span>
+                                </div>
                                 <table className="w-full text-left">
                                   <thead>
                                     <tr className="text-[9px] uppercase tracking-wide text-slate-400">
@@ -918,7 +1323,7 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
             <div>
               <label className={labelClass}>Payment Method</label>
               <select className={inputClass} value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as any)}>
-                {['CASH', 'CREDIT', 'BANK_TRANSFER', 'CHEQUE', 'ONLINE', 'CARD', 'OTHER'].map((m) => <option key={m} value={m}>{m.replace('_', ' ')}</option>)}
+                {SALES_PAYMENT_METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
               </select>
             </div>
             <div>
@@ -978,6 +1383,7 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
                   <th className="px-4 py-3">Customer</th>
                   <th className="px-4 py-3">Branch</th>
                   <th className="px-4 py-3">Date</th>
+                  <th className="px-4 py-3">Seller warranty</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3 text-right">Grand Total</th>
                   <th className="px-4 py-3" />
@@ -990,6 +1396,7 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
                     <td className="px-4 py-2">{inv.customerName}</td>
                     <td className="px-4 py-2">{branchName(inv.branchId)}</td>
                     <td className="px-4 py-2">{dateMode === 'BS' && inv.invoiceDateBS ? inv.invoiceDateBS : inv.invoiceDateAD}</td>
+                    <td className="px-4 py-2"><SellerWarrantySummary items={inv.items} dateMode={dateMode} /></td>
                     <td className="px-4 py-2">
                       {inv.status === 'CANCELLED' ? (
                         <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
@@ -1021,7 +1428,7 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
                   </tr>
                 ))}
                 {pageRows.length === 0 && (
-                  <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-500">No sales invoices yet.</td></tr>
+                  <tr><td colSpan={8} className="px-4 py-8 text-center text-slate-500">No sales invoices yet.</td></tr>
                 )}
               </tbody>
             </table>
@@ -1056,7 +1463,7 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
             <div>
               <label className={labelClass}>Method</label>
               <select className={inputClass} value={payMethod} onChange={(e) => setPayMethod(e.target.value)}>
-                {['CASH', 'BANK_TRANSFER', 'CHEQUE', 'ONLINE', 'CARD', 'OTHER'].map((m) => <option key={m} value={m}>{m.replace('_', ' ')}</option>)}
+                {SALES_PAYMENT_METHODS.filter((m) => m.value !== 'CREDIT').map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
               </select>
             </div>
             {payError && (

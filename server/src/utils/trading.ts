@@ -8,8 +8,9 @@
 // TRADING SUMMARY HELPERS (Sales Revenue + Cost of Goods Sold)
 // ==========================================
 // A "customer sale" is a stock_operations row of type STOCK_OUT that carries
-// priced line items in its items JSONB (created by the Product Sale form in
-// Branch Operations). Asset-issue stock-outs (items JSONB = []) reclassify
+// priced line items in its items JSONB (legacy rows from the retired Product
+// Sale form; sales invoices no longer post through this path). Asset-issue
+// stock-outs (items JSONB = []) reclassify
 // inventory into Fixed Assets — they are NOT sales and are excluded here.
 //
 // Revenue and COGS are both derived from the same underlying sale lines so

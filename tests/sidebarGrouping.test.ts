@@ -5,8 +5,9 @@
  *   1. Eight domain groups, in work order, each with its own visible sections
  *      and items (Super Admin view).
  *   2. No tab has two homes: a duplicate would mark two rows current.
- *   3. Branch Operations is gone; its items are inventory registers/forms, the
- *      counter sale is a Sales form and Device Exchange sits under Sales Forms.
+ *   3. Branch Operations is gone; its items are inventory registers/forms,
+ *      Create Sales Invoice is the only counter-sale form and Device Exchange
+ *      sits under Sales Forms.
  *   4. Permission filtering never leaves an empty section heading (Auditor has
  *      no Procurement "Forms"; Front Desk has no Inventory "Reports").
  *   5. Single-open accordion: opening a group closes the previous one, clicking
@@ -108,7 +109,7 @@ const EXPECTED: Record<string, { sections: string[]; items: string[] }> = {
   sales: {
     sections: ['Forms', 'Registers'],
     items: [
-      'stock-out', 'create-sale', 'create-sales-return', 'device-exchange',
+      'create-sale', 'create-sales-return', 'device-exchange',
       'sales-list', 'sales-returns', 'customer-devices', 'seller-warranty',
     ],
   },
@@ -208,8 +209,13 @@ describe('sidebar grouping', () => {
       );
 
       const sales = readGroup(tree, 'sales');
-      assert.equal(sales.items.find((item) => item.id === 'stock-out')?.section, 'Forms');
+      assert.equal(sales.items.find((item) => item.id === 'create-sale')?.section, 'Forms');
       assert.equal(sales.items.find((item) => item.id === 'device-exchange')?.section, 'Forms');
+      assert.equal(
+        sales.items.some((item) => item.id === 'stock-out'),
+        false,
+        'the retired Product Sale screen must not keep a menu entry'
+      );
     } finally {
       tree.unmount();
     }

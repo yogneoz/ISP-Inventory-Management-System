@@ -44,7 +44,7 @@ export interface TransferFormLine extends ShipmentItem {
 }
 
 // Asset deployment bin line: one assignable row inside the multi-item
-// Assign Fixed Asset form (Product Sale pattern).
+// Assign Fixed Asset form (multi-line deployment-bin pattern).
 export interface AssignBinLine {
   id: string;
   kind: 'PRODUCT' | 'ASSET';
@@ -137,7 +137,6 @@ export interface StockOperationsCtx {
   products: Product[];
   promptDialog: any;
   pulloutOperations: StockOperation[];
-  saleOperations: StockOperation[];
   selectedBranchId: any;
   /**
    * The shared serial register (`serial_log`) snapshot: the authority for

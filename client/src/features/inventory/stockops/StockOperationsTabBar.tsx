@@ -8,7 +8,6 @@ import {
   Inbox,
   Send,
   Wrench,
-  PackageMinus,
   RefreshCw,
   Package,
   ClipboardList,
@@ -36,7 +35,6 @@ export const StockOperationsTabBar: React.FC<{ initialType?: string }> = ({ init
     exchangeDevicesTotal,
     operations,
     pulloutOperations,
-    saleOperations,
     shipments,
   } = useStockOperationsCtx();
   // Report screens are read-only registers: they mount their panel directly
@@ -202,33 +200,6 @@ export const StockOperationsTabBar: React.FC<{ initialType?: string }> = ({ init
             >
               <ClipboardList className="h-4 w-4 text-amber-300" />
               <span>Consumables Register</span>
-            </button>
-          );
-        })()}
-
-        {(() => {
-          const canSale = isOperationAllowed('stock-out', currentUser?.role);
-          return (
-            <button
-              disabled={!canSale}
-              title={!canSale ? 'Product sales operation is disabled for your role permissions' : 'Direct retail product item sale'}
-              onClick={() => {
-                if (!canSale) {
-                  alertDialog('Product sale operation is disabled for your role permissions.');
-                  return;
-                }
-                setActiveTab('PRODUCT_SALE');
-              }}
-              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap ${
-                !canSale
-                  ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-500'
-                  : activeTab === 'PRODUCT_SALE'
-                  ? 'bg-purple-600 text-white shadow-sm cursor-pointer'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200 cursor-pointer dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 dark:cursor-pointer'
-              }`}
-            >
-              {!canSale ? <Lock className="h-3.5 w-3.5 text-slate-400" /> : <PackageMinus className="h-4 w-4" />}
-              <span>Product Sale ({saleOperations.length})</span>
             </button>
           );
         })()}

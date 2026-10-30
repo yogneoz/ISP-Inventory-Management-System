@@ -94,7 +94,7 @@ export const AssignAssetPanel: React.FC = () => {
   }, [isAssignProductDropdownOpen]);
 
   // 4. Submit Assign Fixed Asset
-  // --- Asset deployment bin handlers (Product Sale pattern) ---
+  // --- Asset deployment bin handlers (multi-line form) ---
   const todaySellerStart = () => new Date().toISOString().split('T')[0];
 
   const handleAddAssignAssetToBin = (asset: Asset) => {
@@ -396,7 +396,7 @@ export const AssignAssetPanel: React.FC = () => {
           </div>
 
           <form onSubmit={handleSubmitAssignAsset} className="space-y-4 text-xs">
-            {/* Row 1: stock source + search-to-bin (Product Sale pattern) */}
+            {/* Row 1: stock source + search-to-bin (multi-line form) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3">
               <div className="lg:col-span-4">
                 <label className="block font-bold mb-1">Fulfilling Branch (stock source) *</label>

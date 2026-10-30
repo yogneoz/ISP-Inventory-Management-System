@@ -704,7 +704,8 @@ export interface StockOperation {
   fiscalYear: string;
   status?: 'DISPATCHED' | 'RECEIVED' | 'LOGGED' | 'CANCELLED';
   items?: (PulloutItem | ConsumableIssueItem | SaleItem)[];
-  // Customer Product Sale fields
+  // Historical customer stock-out sale fields (the retail screen is retired;
+  // customer sales are posted as Sales Invoices).
   customerId?: string;
   customerName?: string;
   paymentMethod?: string;
@@ -842,7 +843,7 @@ export interface FinancialSummary {
   totalInventoryAssetValue: number;
   totalFixedAssetValue: number;
   totalAccountsPayable: number;
-  /** Net sales revenue from customer product sales (Sales & Customers → Product Sale to Customer). */
+  /** Net sales revenue from legacy customer stock-outs (the retired Product Sale form). */
   totalSalesRevenue?: number;
   totalCostOfGoodsSold: number;
   totalDamageLossValue: number;
@@ -962,6 +963,10 @@ export interface SalesInvoiceItem {
   total?: number;
   /** Serial-tracked lines carry one pair per unit (validated by Sales Returns). */
   deviceSerials?: DeviceSerialPair[];
+  /** WTY-5: the seller warranty promised to the customer for this line. */
+  sellerWarrantyEndDateAD?: string;
+  /** WTY-5: false writes no seller coverage for the line. */
+  sellerWarrantyCovered?: boolean;
 }
 
 /** Sales invoice (INV-…) — lean sales module, prerequisite for Sales Returns. */

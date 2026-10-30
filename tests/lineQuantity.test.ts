@@ -86,11 +86,6 @@ describe('AUD-3 clamp wiring (source guards)', () => {
       clamps: [/const qty = clampLineQuantity\(newQty\)/],
     },
     {
-      file: 'client/src/features/inventory/stockops/ProductSalePanel.tsx',
-      importPath: '../../../utils/lineQuantity',
-      clamps: [/updated\.quantity = clampLineQuantity\(updates\.quantity\)/],
-    },
-    {
       file: 'client/src/features/inventory/stockops/CreateTransferPanel.tsx',
       importPath: '../../../utils/lineQuantity',
       clamps: [/updated\.quantitySent = clampLineQuantity\(updates\.quantitySent\)/],

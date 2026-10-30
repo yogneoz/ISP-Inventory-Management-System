@@ -2641,36 +2641,6 @@ export default function App() {
         onReverseOperation={handleReverseStockOperation}
       />
     )),
-    screenRoute('stock-out', (
-      <StockOperations
-        onRefreshData={refreshAllData}
-        operations={stockOperations}
-        products={products}
-        branches={branches}
-        stock={stock}
-        locations={locations}
-        selectedBranchId={selectedBranchId}
-        dateMode={dateMode}
-        initialType="STOCK_OUT"
-        autoOpenModal={false}
-        currentUser={currentUser}
-        shipments={shipments}
-        approvalRequests={approvalRequests}
-        sseRefreshKey={registerRefresh.consumableRegister}
-        onCreateOperation={handleCreateOperation}
-        onReceiveOperation={handleReceiveOperation}
-        onCreateShipment={async (sh) => {
-          await api.createShipment(sh);
-          refreshAllData();
-        }}
-        onReceiveShipment={handleReceiveShipment}
-        onCancelReceiveShipment={handleCancelReceiveShipment}
-        onRequestApproval={handleCreateApprovalRequest}
-        onCancelApproval={handleCancelApprovalRequest}
-        onReverseOperation={handleReverseStockOperation}
-        onUpdateAssetStatus={handleUpdateAssetStatus}
-      />
-    )),
     screenRoute('assign-asset', (
       <StockOperations
         onRefreshData={refreshAllData}

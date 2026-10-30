@@ -24,7 +24,7 @@ export const LogsPanel: React.FC = () => {
         `● Value: ${formatNPR(op.totalValue)}\n\n` +
         `Reversing returns this sale's units (and their serials) to available stock and marks the record CANCELLED.`,
       {
-        title: 'Reverse Product Sale — Safeguard',
+        title: 'Reverse Stock-Out — Safeguard',
         confirmLabel: 'Reverse & Return Stock',
         cancelLabel: 'Keep Sale',
         placeholder: 'Required: reason for reversal (audit trail)',

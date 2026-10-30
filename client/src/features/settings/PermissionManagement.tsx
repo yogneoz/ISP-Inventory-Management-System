@@ -195,8 +195,8 @@ const DEFAULT_GROUPS: PermissionGroup[] = [
       },
       {
         id: 'stock-out',
-        operationName: 'Product Sale / Stock Out to Customer',
-        description: 'Record customer sales, stock reduction, and counter dispatches',
+        operationName: 'Stock Issues & Stock-Out Reversal',
+        description: 'Issue consumables, post manual stock reductions, and reverse a posted stock-out',
         permissions: DEFAULT_PERMISSIONS_MATRIX['stock-out'],
       },
       {

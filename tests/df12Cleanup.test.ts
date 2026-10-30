@@ -108,7 +108,7 @@ describe('DF-12 wiring', () => {
     // callback: adding a host later without it would silently regress to a
     // stale screen.
     const hosts = app.split('<StockOperations').slice(1);
-    assert.equal(hosts.length, 11, 'the App mounts 11 StockOperations hosts');
+    assert.equal(hosts.length, 10, 'the App mounts 10 StockOperations hosts');
     hosts.forEach((block, i) => {
       const props = block.slice(0, block.indexOf('/>'));
       assert.ok(props.includes('onRefreshData={refreshAllData}'), `StockOperations host #${i + 1} must refresh`);

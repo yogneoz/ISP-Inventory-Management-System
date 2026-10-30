@@ -64,6 +64,14 @@ checklist here.
 
 ## Active work
 
+**Completed outside a round — sales-form consolidation (2026-10-30).** Stock
+Operations' Product Sale to Customer was a second counter-sale form that could
+only sell quantity-tracked stock; it is retired (panel, route, tab, menu entry,
+type and pins) and Create Sales Invoice is the one sale surface, now carrying
+the in-card header, branch-scoped picker, readable payment labels and per-line
+seller-warranty capture. Pinned by `tests/salesFormConsolidation.test.ts`;
+detail: [2026 session note](../docs/session-notes/2026.md#-sales-form-consolidation-2026-10-30).
+
 **Completed outside a round — production boot-paint gate (2026-10-29).**
 `eff9074` keeps the static splash until the saved screen commits, preloads that
 tab and applies the cached bootstrap before paint; CI now runs the

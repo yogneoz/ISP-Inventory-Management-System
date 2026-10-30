@@ -77,7 +77,6 @@ export function computeStockOperationViews({
   const damageOperations = [...existingDamageOps, ...synthesizedDamageOps];
   const pulloutOperations = operations.filter((op) => op.type === 'PULLOUT' && isOpInAllowedBranch(op));
   const consumableOperations = operations.filter((op) => op.type === 'CONSUMABLE_ISSUE' && isOpInAllowedBranch(op));
-  const saleOperations = operations.filter((op) => op.type === 'STOCK_OUT' && isOpInAllowedBranch(op));
 
   const allCombinedOps = [...operations, ...synthesizedDamageOps];
 
@@ -95,7 +94,6 @@ export function computeStockOperationViews({
     if (activeTab === 'PULLOUT_BINS') return op.type === 'PULLOUT';
     if (activeTab === 'DAMAGE_TRACKING') return op.type === 'DAMAGE' || op.type === 'DISPOSAL';
     if (activeTab === 'CONSUMABLE_ISSUE') return op.type === 'CONSUMABLE_ISSUE';
-    if (activeTab === 'PRODUCT_SALE') return op.type === 'STOCK_OUT';
     return true;
   });
 
@@ -103,7 +101,6 @@ export function computeStockOperationViews({
     damageOperations,
     pulloutOperations,
     consumableOperations,
-    saleOperations,
     allCombinedOps,
     filteredOperations,
   };
