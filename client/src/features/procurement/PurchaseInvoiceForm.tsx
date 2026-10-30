@@ -769,10 +769,10 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
                             }`}
                           >
                             <div className="min-w-0 pr-2">
-                              <div className={`font-semibold text-xs truncate text-slate-900 dark:text-white`}>
+                              <div className={`font-semibold text-xs leading-snug break-words text-slate-900 dark:text-white`}>
                                 {s.name}
                               </div>
-                              <div className={`flex items-center gap-2 text-[10px] font-mono mt-0.5 text-slate-500 dark:text-slate-400`}>
+                              <div className={`flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] font-mono mt-0.5 text-slate-500 dark:text-slate-400`}>
                                 {s.panVatNumber && <span>PAN: {s.panVatNumber}</span>}
                                 {s.phone && <span>• {s.phone}</span>}
                               </div>

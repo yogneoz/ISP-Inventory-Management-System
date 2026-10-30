@@ -59,7 +59,13 @@ import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { retryBrowserLaunch } from './bootTimingLaunchRetry.mjs';
+import {
+  BROWSER_LAUNCH_ATTEMPTS,
+  describeLaunchOutcome,
+  describeLaunchRetry,
+  launchRetryAnnotation,
+  retryBrowserLaunch,
+} from './bootTimingLaunchRetry.mjs';
 
 const ROOT = process.cwd();
 const DEFAULT_BUDGET_MS = 6000;
@@ -80,6 +86,7 @@ const ACTIVE_TAB = 'create-sale';
 const EXPECTED_SCREEN = 'Create Sales Invoice';
 
 let browserChild = null;
+let browserLaunchAttempts = 0;
 let serverChild = null;
 let serverLog = '';
 let profileDir = null;
@@ -90,6 +97,20 @@ const consoleErrors = [];
 
 function log(line = '') {
   console.log(line);
+}
+
+/** GitHub only promotes a `::warning` line to the run's annotation list. */
+const isGithubActions = process.env.GITHUB_ACTIONS === 'true';
+
+/** Append to the run summary when CI provides one; never fail a gate over it. */
+function appendStepSummary(lines) {
+  const summaryFile = process.env.GITHUB_STEP_SUMMARY;
+  if (!summaryFile) return;
+  try {
+    fs.appendFileSync(summaryFile, `${lines.join('\n')}\n`);
+  } catch {
+    // A summary write is reporting, not a measurement — it cannot redden CI.
+  }
 }
 
 function fail(message) {
@@ -471,15 +492,20 @@ async function launchBrowserOnce(executable) {
  */
 async function launchBrowser() {
   const executable = findBrowser();
-  return retryBrowserLaunch(() => launchBrowserOnce(executable), {
-    onRetry: (attempt, attempts, err) => {
-      resetBrowserProcess();
-      log(
-        `⚠ Headless browser launch attempt ${attempt}/${attempts} failed — ` +
-          `${err?.message || err}\n  Retrying with a fresh profile…`
-      );
+  browserLaunchAttempts = 0;
+  return retryBrowserLaunch(
+    () => {
+      browserLaunchAttempts += 1;
+      return launchBrowserOnce(executable);
     },
-  });
+    {
+      onRetry: (attempt, attempts, err) => {
+        resetBrowserProcess();
+        log(`⚠ ${describeLaunchRetry(attempt, attempts, err)}`);
+        if (isGithubActions) log(launchRetryAnnotation(attempt, attempts, err));
+      },
+    }
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -929,15 +955,30 @@ async function main() {
   ];
   if (problems.length) {
     for (const problem of problems) console.error(`\n✖ ${problem}`);
+    appendStepSummary([
+      '### Production boot timing — failed',
+      '',
+      `- ${describeLaunchOutcome(browserLaunchAttempts)}`,
+      ...problems.map((problem) => `- ${problem}`),
+    ]);
     process.exitCode = 1;
     return;
   }
 
+  const launchLine = describeLaunchOutcome(browserLaunchAttempts);
   log(
     `\n✔ Boot timing OK — no visible lazy fallback on either reload; ` +
       `splash lifted onto "${EXPECTED_SCREEN}" in ${cold.splashWindowMs} ms cold / ${warm.splashWindowMs} ms warm ` +
       `(budget ${BUDGET_MS} ms).`
   );
+  log(`  ${launchLine} (limit ${BROWSER_LAUNCH_ATTEMPTS}).`);
+  appendStepSummary([
+    '### Production boot timing',
+    '',
+    `- ${launchLine}`,
+    `- Splash lifted onto "${EXPECTED_SCREEN}" in ${cold.splashWindowMs} ms cold / ` +
+      `${warm.splashWindowMs} ms warm (budget ${BUDGET_MS} ms).`,
+  ]);
 }
 
 main()

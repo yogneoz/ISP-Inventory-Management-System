@@ -83,11 +83,16 @@ export const CustomerPicker: React.FC<CustomerPickerProps> = ({
     portal={portal}
     renderOption={(customer) => (
       <div className="min-w-0 pr-2">
-        <div className="truncate text-xs font-semibold text-slate-900 dark:text-white">
+        {/* The list is wider than the field (SearchPicker's panel), and the
+            name wraps instead of ellipsizing: the code, phone and address are
+            exactly what the operator searched for, so none may be clipped. */}
+        <div className="break-words text-xs font-semibold leading-snug text-slate-900 dark:text-white">
           {customer.customerName}{' '}
-          <span className="font-mono text-[10px] text-slate-500">({customer.customerId})</span>
+          <span className="whitespace-nowrap font-mono text-[10px] text-slate-500 dark:text-slate-400">
+            ({customer.customerId})
+          </span>
         </div>
-        <div className="mt-0.5 flex items-center gap-2 font-mono text-[10px] text-slate-500 dark:text-slate-400">
+        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[10px] text-slate-500 dark:text-slate-400">
           {customer.contactNumber && <span>{customer.contactNumber}</span>}
           {customer.address && <span>• {customer.address}</span>}
         </div>

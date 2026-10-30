@@ -1469,14 +1469,24 @@ CREATE INDEX IF NOT EXISTS idx_txn_type ON transaction_logs(change_type);
 CREATE INDEX IF NOT EXISTS idx_transaction_logs_fiscal_year_id ON transaction_logs(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_transaction_logs_demo ON transaction_logs(id) WHERE is_demo = TRUE;
 
--- Audit module enum: 'INVENTORY' is written by the serial-log upsert path
--- (server.ts SERIAL_LOG_UPSERT). Without it the insert is silently rejected
--- and serial-log audit events never reach the database.
+-- Audit module enum: every module a caller writes must be listed here, or
+-- PostgreSQL rejects the row. This is the ONE vocabulary: the value passed as
+-- `logAuditEvent(req, action, module, …)` (and the serial-log upsert path's
+-- 'INVENTORY') must appear below, and the client's `AuditLog['module']` union
+-- mirrors this list. Divergence is silent by default — the insert is either
+-- fire-and-forget (logged only) or, on a transactional caller, rejects the whole
+-- action — so `tests/auditModuleVocabulary.guard.test.ts` parses this block and
+-- fails when a caller uses a module that is missing.
+--
+-- Two modules were missing until 2026-10-30: 'SALES' (all eight sales-invoice /
+-- return / customer-payment events) and 'PERMISSIONS' (the permission-matrix
+-- save), so those audit rows never persisted.
 ALTER TABLE audit_logs DROP CONSTRAINT IF EXISTS audit_logs_module_check;
 ALTER TABLE audit_logs ADD CONSTRAINT audit_logs_module_check CHECK (module IN (
   'AUTH', 'MASTER_DATA', 'PRODUCTS', 'CATEGORIES', 'PROCUREMENT', 'LOGISTICS',
   'STOCK_OPERATIONS', 'FIXED_ASSETS', 'CPE_MANAGEMENT', 'INVENTORY', 'INVENTORY_AUDIT',
-  'OPERATIONS', 'BRANCH_OPERATIONS', 'FISCAL_YEAR', 'APPROVAL_WORKFLOW', 'SYSTEM'
+  'OPERATIONS', 'BRANCH_OPERATIONS', 'FISCAL_YEAR', 'APPROVAL_WORKFLOW', 'SYSTEM',
+  'SALES', 'PERMISSIONS'
 ));
 
 -- Customer Records indexes

@@ -117,15 +117,15 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
       portal={portal}
       renderOption={(location) => (
         <div className="min-w-0 pr-2">
-          <div className="truncate text-xs font-semibold text-slate-900 dark:text-white">
+          <div className="break-words text-xs font-semibold leading-snug text-slate-900 dark:text-white">
             {location.name}{' '}
-            <span className="font-mono text-[10px] font-normal text-slate-500">
+            <span className="whitespace-nowrap font-mono text-[10px] font-normal text-slate-500 dark:text-slate-400">
               ({typeLabel(location.type)})
             </span>
           </div>
           {(location.address || location.contactPerson) && (
-            <div className="mt-0.5 flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400">
-              {location.address && <span className="truncate">• {location.address}</span>}
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-slate-500 dark:text-slate-400">
+              {location.address && <span>• {location.address}</span>}
               {location.contactPerson && <span>{location.contactPerson}</span>}
             </div>
           )}

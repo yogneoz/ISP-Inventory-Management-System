@@ -815,7 +815,26 @@ export interface AuditLog {
   userEmail: string;
   userName: string;
   action: string;
-  module: 'AUTH' | 'PRODUCTS' | 'STOCK' | 'ASSETS' | 'PURCHASE_ORDERS' | 'INVOICES' | 'SHIPMENTS' | 'OPERATIONS' | 'BRANCH_OPERATIONS' | 'FISCAL_YEAR' | 'INVENTORY_AUDIT' | 'APPROVAL_WORKFLOW';
+  /** Exactly the values `audit_logs_module_check` accepts (scripts/schema.sql). */
+  module:
+    | 'AUTH'
+    | 'MASTER_DATA'
+    | 'PRODUCTS'
+    | 'CATEGORIES'
+    | 'PROCUREMENT'
+    | 'LOGISTICS'
+    | 'STOCK_OPERATIONS'
+    | 'FIXED_ASSETS'
+    | 'CPE_MANAGEMENT'
+    | 'INVENTORY'
+    | 'INVENTORY_AUDIT'
+    | 'OPERATIONS'
+    | 'BRANCH_OPERATIONS'
+    | 'FISCAL_YEAR'
+    | 'APPROVAL_WORKFLOW'
+    | 'SYSTEM'
+    | 'SALES'
+    | 'PERMISSIONS';
   details: string;
   timestampAD: string;
   timestampBS: string;

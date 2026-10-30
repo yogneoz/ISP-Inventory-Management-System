@@ -506,10 +506,10 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
                   itemLabel={(inv) => `${inv.invoiceNumber} · ${inv.customerName}`}
                   renderOption={(inv) => (
                     <div className="min-w-0 pr-2">
-                      <div className="truncate text-xs font-semibold text-slate-900 dark:text-white">
+                      <div className="break-words text-xs font-semibold leading-snug text-slate-900 dark:text-white">
                         {inv.invoiceNumber} · {inv.customerName}
                       </div>
-                      <div className="truncate text-[11px] text-slate-500 dark:text-slate-400">
+                      <div className="break-words text-[11px] text-slate-500 dark:text-slate-400">
                         {inv.invoiceDateAD} · {formatMoney(inv.grandTotal)} · {branchName(inv.branchId)}
                       </div>
                     </div>

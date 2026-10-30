@@ -15,10 +15,21 @@
  *   3. `onRetry` runs between attempts (the hook that tears down the profile)
  *      but not after the last failure.
  *   4. A non-positive attempt count is rejected instead of looping forever.
+ *   5. An absorbed retry is reported: one-line log text, a single-line
+ *      `::warning` annotation under GitHub Actions, and a step-summary outcome
+ *      row that says whether a flake was absorbed — so a saved run answers the
+ *      question without reading the step log.
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { retryBrowserLaunch } from '../scripts/bootTimingLaunchRetry.mjs';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import {
+  describeLaunchOutcome,
+  describeLaunchRetry,
+  launchRetryAnnotation,
+  retryBrowserLaunch,
+} from '../scripts/bootTimingLaunchRetry.mjs';
 
 describe('production boot-timing — browser launch retry', () => {
   test('retries a failed launch and returns the first success', async () => {
@@ -78,6 +89,71 @@ describe('production boot-timing — browser launch retry', () => {
     await assert.rejects(
       () => retryBrowserLaunch(async () => 'never called', { attempts: 0 }),
       /attempts must be a positive integer/
+    );
+  });
+});
+
+describe('production boot-timing — retry reporting', () => {
+  test('a failed attempt is one log line naming the next attempt', () => {
+    const line = describeLaunchRetry(
+      1,
+      3,
+      new Error(
+        'browser did not start (no DevToolsActivePort). Output:\n[1:ERROR] chrome crashed\n  second line'
+      )
+    );
+
+    assert.equal(
+      line,
+      'Headless browser launch attempt 1/3 failed — browser did not start ' +
+        '(no DevToolsActivePort). Output: [1:ERROR] chrome crashed second line; ' +
+        'retrying with a fresh profile (attempt 2/3).'
+    );
+    assert.ok(!line.includes('\n'), 'a log/annotation line must stay single-line');
+  });
+
+  test('the annotation is a single workflow command line with % escaped', () => {
+    const annotation = launchRetryAnnotation(
+      2,
+      3,
+      new Error('browser exited during startup (code 1)\n100% fatal')
+    );
+
+    assert.ok(annotation.startsWith('::warning title=Boot timing browser launch::'));
+    assert.ok(!annotation.includes('\n'), 'a workflow command must not span lines');
+    assert.ok(annotation.includes('100%25 fatal'), 'percent signs must be escaped');
+    assert.ok(annotation.includes('attempt 2/3'));
+  });
+
+  test('the outcome line says whether a runner flake was absorbed', () => {
+    assert.equal(describeLaunchOutcome(0), 'Headless browser: no launch recorded.');
+    assert.equal(
+      describeLaunchOutcome(1),
+      'Headless browser: launched on attempt 1, no retry needed.'
+    );
+    assert.equal(
+      describeLaunchOutcome(2),
+      'Headless browser: launched on attempt 2, absorbing 1 failed launch.'
+    );
+    assert.equal(
+      describeLaunchOutcome(3),
+      'Headless browser: launched on attempt 3, absorbing 2 failed launches.'
+    );
+  });
+
+  test('the gate emits both the annotation and the step-summary outcome', () => {
+    const source = fs.readFileSync(
+      path.resolve(process.cwd(), 'scripts/check_boot_timing.mjs'),
+      'utf8'
+    );
+    // The annotation only under GitHub Actions; the summary wherever CI offers one.
+    assert.match(source, /if \(isGithubActions\) log\(launchRetryAnnotation\(/);
+    assert.match(source, /process\.env\.GITHUB_STEP_SUMMARY/);
+    // Both the pass and the fail path must state the launch outcome.
+    assert.equal(
+      source.match(/describeLaunchOutcome\(browserLaunchAttempts\)/g)?.length,
+      2,
+      'the success and failure summaries must both report the launch outcome'
     );
   });
 });

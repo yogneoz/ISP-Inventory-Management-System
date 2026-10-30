@@ -7,6 +7,14 @@
  * clear/revert behaviour, and an optional fixed-position portal so a scroll
  * container cannot clip the list.
  *
+ * PANEL SIZE — a picker field is sized to its form grid (often 160-260 px), but
+ * a directory row carries a name, a code, a phone and an address. Tying the
+ * list to the field's width ellipsized exactly the data the operator searched
+ * for. The list therefore has its own width: at least `panelMinWidth`, wider
+ * than the field when the field is narrow, capped so it never runs off screen,
+ * and shifted left when the field sits near the right edge. Rows wrap instead
+ * of truncating — no font shrinking, so the text stays readable.
+ *
  * The caller owns the request and the row rendering; this file owns the
  * interaction. CustomerPicker and LocationPicker are thin wrappers so the
  * behaviour cannot drift between forms.
@@ -83,6 +91,10 @@ export interface SearchPickerProps<T> {
    */
   portal?: boolean;
   checkClassName?: string;
+  /** Readable floor for the open list (px); it may be wider than the field. */
+  panelMinWidth?: number;
+  /** Ceiling for the open list (px); also clamped to the viewport. */
+  panelMaxWidth?: number;
 }
 
 interface ListRect {
@@ -90,6 +102,39 @@ interface ListRect {
   bottom: number;
   left: number;
   width: number;
+}
+
+/** Default readable floor for a result list; a form field is often narrower. */
+export const SEARCH_PANEL_MIN_WIDTH = 320;
+/** Default ceiling: wide enough for a name + phone + address, not a page. */
+export const SEARCH_PANEL_MAX_WIDTH = 480;
+/** Keep this much space between the panel and the viewport edge. */
+const PANEL_GUTTER = 8;
+
+/**
+ * The open list's box in viewport coordinates.
+ *
+ * - width: the trigger's width, but never below `minWidth` and never above
+ *   `maxWidth` or the space between the gutters;
+ * - left: the trigger's left edge, shifted left only when the panel would run
+ *   off the right edge, and never past the left gutter.
+ *
+ * Pure so the arithmetic is testable without a browser layout.
+ */
+export function computeSearchPanelBox(
+  trigger: Pick<ListRect, 'left' | 'width'> | null,
+  viewport: { width: number; height: number },
+  { minWidth = SEARCH_PANEL_MIN_WIDTH, maxWidth = SEARCH_PANEL_MAX_WIDTH } = {}
+): { width: number; left: number } {
+  const gutter = PANEL_GUTTER;
+  const available = Math.max(0, viewport.width - gutter * 2);
+  const floor = Math.min(minWidth, maxWidth);
+  const width = Math.round(Math.min(Math.max(trigger?.width ?? 0, floor), maxWidth, available));
+  const triggerLeft = trigger?.left ?? gutter;
+  const left = Math.round(
+    Math.min(Math.max(triggerLeft, gutter), Math.max(gutter, viewport.width - width - gutter))
+  );
+  return { width, left };
 }
 
 export function SearchPicker<T>({
@@ -114,6 +159,8 @@ export function SearchPicker<T>({
   openTitle = 'Show search',
   portal = false,
   checkClassName = 'text-indigo-600 dark:text-indigo-400',
+  panelMinWidth = SEARCH_PANEL_MIN_WIDTH,
+  panelMaxWidth = SEARCH_PANEL_MAX_WIDTH,
 }: SearchPickerProps<T>) {
   const selectedLabel = value?.label || '';
   const [query, setQuery] = useState(selectedLabel);
@@ -230,10 +277,11 @@ export function SearchPicker<T>({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, selectedLabel]);
 
-  // A portal listbox is anchored to the input. Follow the input while the
-  // surrounding modal/table scrolls or the window resizes.
+  // The listbox is anchored to the input and has its own width, so it tracks
+  // the input on scroll/resize in both modes (the portal needs it to place
+  // `position: fixed`; the inline list needs it to stay inside the viewport).
   useLayoutEffect(() => {
-    if (!portal || !open) {
+    if (!open) {
       setRect(null);
       return;
     }
@@ -247,7 +295,9 @@ export function SearchPicker<T>({
     };
     update();
     window.addEventListener('resize', update);
-    window.addEventListener('scroll', update, true);
+    // A fixed-position portal must follow the page; an inline list is already
+    // laid out against its field and only needs re-clamping on a resize.
+    if (portal) window.addEventListener('scroll', update, true);
     return () => {
       window.removeEventListener('resize', update);
       window.removeEventListener('scroll', update, true);
@@ -328,6 +378,12 @@ export function SearchPicker<T>({
   const hint = labels.hint || `Type at least ${minChars} characters to search.`;
   const selectedHint = labels.selectedHint || `Selected: ${value?.label || ''}. Type to search for a replacement.`;
 
+  const panelBox = computeSearchPanelBox(
+    rect,
+    { width: window.innerWidth, height: window.innerHeight },
+    { minWidth: panelMinWidth, maxWidth: panelMaxWidth }
+  );
+
   const listbox = (
     <div
       ref={listRef}
@@ -336,20 +392,26 @@ export function SearchPicker<T>({
       aria-label={`${ariaLabel} results`}
       className={
         portal
-          ? 'fixed z-[80] max-h-64 divide-y divide-slate-100 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl dark:divide-slate-800 dark:border-slate-700 dark:bg-slate-900'
-          : 'absolute left-0 right-0 top-full z-50 mt-1 max-h-64 divide-y divide-slate-100 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl dark:divide-slate-800 dark:border-slate-700 dark:bg-slate-900'
+          ? 'fixed z-[80] max-h-80 divide-y divide-slate-100 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl dark:divide-slate-800 dark:border-slate-700 dark:bg-slate-900'
+          : 'absolute top-full z-50 mt-1 max-h-80 divide-y divide-slate-100 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl dark:divide-slate-800 dark:border-slate-700 dark:bg-slate-900'
       }
       style={
         portal && rect
           ? {
               position: 'fixed',
-              left: rect.left,
-              width: rect.width,
+              left: panelBox.left,
+              width: panelBox.width,
               ...(window.innerHeight - rect.bottom < 280 && rect.top > 280
                 ? { bottom: window.innerHeight - rect.top + 4 }
                 : { top: rect.bottom + 4 }),
             }
-          : undefined
+          : {
+              // Positioned against the field, but free to extend past it; the
+              // box was already clamped to the viewport, so the offset is the
+              // distance back from the field's left edge.
+              width: panelBox.width,
+              left: rect ? panelBox.left - rect.left : 0,
+            }
       }
     >
       {showHint ? (
@@ -407,7 +469,7 @@ export function SearchPicker<T>({
                 renderOption(item, isSelected)
               ) : (
                 <div className="min-w-0 pr-2">
-                  <div className="truncate text-xs font-semibold text-slate-900 dark:text-white">
+                  <div className="break-words text-xs font-semibold leading-snug text-slate-900 dark:text-white">
                     {itemLabel(item)}
                   </div>
                 </div>

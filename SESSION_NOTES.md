@@ -1,6 +1,6 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-30 · Branch: main · Tests: 1606/1606 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-30 · Branch: main · Tests: 1621/1621 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
 > **Current state (2026-10-27, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1/VOL-2/BUDGET-1/BOOT-1/VOL-3/VOL-4a/VOL-4b/SN-1/ASSET-1/EXCH-1/READ-1/CDR-1/CDR-2).** All DF-01…DF-17
 > work, the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2, CPE-3,
@@ -132,6 +132,25 @@ _Date: 2026-10-30 · Branch: main · Tests: 1606/1606 green with a DB (all run i
 > ([run 41025819587](https://github.com/yogneoz/ISP-Inventory-Management-System/actions/runs/41025819587)).
 > Detail:
 > [2026.md](docs/session-notes/2026.md#-boot-timing-launch-retry-2026-10-30).
+> **Audit-module vocabulary (2026-10-30):** the `audit_logs.module` constraint
+> was missing `SALES` and `PERMISSIONS`, so all eight sales-invoice / return /
+> customer-payment events and the permission-matrix save wrote audit rows
+> PostgreSQL rejected — console-only on the fire-and-forget path, action-aborting
+> on a transactional caller. Both modules are now allowed, the client
+> `AuditLog['module']` union is exactly the constraint's list, and
+> `tests/auditModuleVocabulary.guard.test.ts` (5 tests) parses the constraint and
+> fails when a caller writes a module it does not accept. The local database was
+> migrated in place; rows lost to the rejection were never stored. Detail:
+> [2026.md](docs/session-notes/2026.md#-audit-module-vocabulary-fix-2026-10-30).
+> **Search-result panels (2026-10-30):** every directory picker (customer,
+> location, sales-invoice) opens a list wider than its field — 320–480 px,
+> clamped to the viewport with 8 px gutters and shifted left near the right edge —
+> and rows wrap instead of ellipsizing, so name, code, phone, address and the
+> invoice's date/total/branch are all visible; the two forms with a bespoke
+> supplier dropdown wrap the vendor name the same way. No font shrinking; the
+> field's own layout is untouched. `tests/searchPickerPanel.test.ts` (6 tests)
+> pins the width policy and the non-truncating rows. Detail:
+> [2026.md](docs/session-notes/2026.md#-search-result-panels-show-the-whole-row-2026-10-30).
 > **No round is active.** The payload work
 > is finished — the remaining-array measurement found no item to open, and the
 > `inventory_stock` trigger is recorded in [2026.md](docs/session-notes/2026.md). The
