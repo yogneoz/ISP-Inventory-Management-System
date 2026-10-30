@@ -520,7 +520,7 @@ docker run -d \
 
 `npm run check:boot-timing` serves the built app from `dist/` on a free port and reloads the saved **Create Sales Invoice** tab twice in headless Chrome — once with an empty bootstrap cache, once warm. It samples every animation frame and fails if the lazy `Loading module…` fallback or the shell sync spinner is ever actually visible after the splash lifts, or if the app root is ever blank. It also asserts that the warm reload never mounts the shell spinner (the cached bootstrap paints immediately). It prints first paint, FCP, the splash window and any exposed-loading frames for both reloads.
 
-It needs a production build (`npm run build`, or pass `-- --build`), a reachable PostgreSQL and the demo account (`superadmin@example.com` / `Demo@123` by default; override with `BOOT_TRACE_EMAIL` / `BOOT_TRACE_PASSWORD`). Pass `-- --base-url http://host:port` to measure an already-running production server instead of starting one. Chrome/Edge/Chromium is auto-detected; set `BOOT_TRACE_BROWSER` if needed. It is not part of `npm test`, which must stay runnable without a browser, but CI runs it as a hard gate after the production build: `npm run setup:pg` seeds the demo account first, the CI budget is 12 s instead of the 6 s local default, and a missing browser fails the job rather than skipping the check.
+It needs a production build (`npm run build`, or pass `-- --build`), a reachable PostgreSQL and the demo account (`superadmin@example.com` / `Demo@123` by default; override with `BOOT_TRACE_EMAIL` / `BOOT_TRACE_PASSWORD`). Pass `-- --base-url http://host:port` to measure an already-running production server instead of starting one. Chrome/Edge/Chromium is auto-detected; set `BOOT_TRACE_BROWSER` if needed. It is not part of `npm test`, which must stay runnable without a browser, but CI runs it as a hard gate after the production build: `npm run setup:pg` seeds the demo account first, the CI budget is 12 s instead of the 6 s local default, and a missing browser fails the job rather than skipping the check. A launch that dies before writing `DevToolsActivePort` — a known GitHub-runner flake — is retried up to three times with a fresh profile before the gate fails.
 
 ---
 
@@ -731,7 +731,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 1603-test suite against a PostgreSQL 16 service container (zero DB skips;
+  full 1606-test suite against a PostgreSQL 16 service container (zero DB skips;
   the two unconditional skips are Windows-only real-signal checks, which CI runs,
   and the live-drain check runs under `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1` so its
   preconditions cannot silently skip it) →

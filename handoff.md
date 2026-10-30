@@ -227,7 +227,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 1603 tests; CI runs
+                                        #   drift/concurrency guards — 1606 tests; CI runs
                                         #   tsc + npm test + the source guards + the
                                         #   production build + the boot-timing gate +
                                         #   npm audit on every push/PR
@@ -1331,7 +1331,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 1603 tests against a real PostgreSQL 16 service container
+2. `npm test` — 1606 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM
@@ -1376,8 +1376,10 @@ fails with the old 503 body on the pre-fix code.
    asserts the settled screen and that the warm reload never mounts the shell
    spinner, and prints the splash window (measured 2026-10-29: ~0.93–1.12 s cold,
    ~0.30–0.39 s warm). A missing browser or a failed login fails the job — there
-   is no skip path — and the 12 s CI budget is generous because the gate is frame
-   visibility, not speed. Still not part of `npm test`, which must stay runnable
+   is no skip path. A launch that dies before writing `DevToolsActivePort` (a
+   known GitHub-runner flake) is retried up to three times with a fresh profile
+   before the gate fails, so a botched browser start cannot red the build. The
+   12 s CI budget is generous because the gate is frame visibility, not speed. Still not part of `npm test`, which must stay runnable
    without a browser. See README's Operational Commands Reference.
 8. `npm audit --omit=dev` — non-zero exit on any production-dependency
    advisory. Deliberately scoped: dev tooling advisories surface in local

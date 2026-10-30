@@ -59,6 +59,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { retryBrowserLaunch } from './bootTimingLaunchRetry.mjs';
 
 const ROOT = process.cwd();
 const DEFAULT_BUDGET_MS = 6000;
@@ -134,22 +135,33 @@ async function restorePreference() {
   }
 }
 
-function cleanup() {
+/**
+ * Drop one launch attempt: close its CDP socket, kill the browser and delete
+ * the temp profile, so a retry cannot reuse a half-started instance.
+ */
+function resetBrowserProcess() {
   try {
     cdp?.close();
   } catch {}
+  cdp = null;
   stopChild(browserChild, { tree: true });
-  if (serverChild) {
-    try {
-      serverChild.kill('SIGTERM');
-    } catch {}
-  }
+  browserChild = null;
   if (profileDir) {
     try {
       fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
     } catch {
       // Chrome may still hold a handle on Windows; the OS temp cleaner gets it.
     }
+    profileDir = null;
+  }
+}
+
+function cleanup() {
+  resetBrowserProcess();
+  if (serverChild) {
+    try {
+      serverChild.kill('SIGTERM');
+    } catch {}
   }
 }
 process.on('SIGINT', () => {
@@ -400,8 +412,7 @@ class Cdp {
   }
 }
 
-async function launchBrowser() {
-  const executable = findBrowser();
+async function launchBrowserOnce(executable) {
   profileDir = fs.mkdtempSync(path.join(os.tmpdir(), 'boot-timing-'));
   const browserArgs = [
     '--headless=new',
@@ -450,6 +461,25 @@ async function launchBrowser() {
   if (!target?.webSocketDebuggerUrl) throw new Error('new tab had no webSocketDebuggerUrl');
   cdp = await Cdp.connect(target.webSocketDebuggerUrl);
   return cdp;
+}
+
+/**
+ * Try the browser up to BROWSER_LAUNCH_ATTEMPTS times. The runner refuses a
+ * launch now and then without ever writing DevToolsActivePort; that is a
+ * runner flake, not a boot regression. Each failed attempt is torn down before
+ * the next one starts, so a stale profile cannot poison the retry.
+ */
+async function launchBrowser() {
+  const executable = findBrowser();
+  return retryBrowserLaunch(() => launchBrowserOnce(executable), {
+    onRetry: (attempt, attempts, err) => {
+      resetBrowserProcess();
+      log(
+        `⚠ Headless browser launch attempt ${attempt}/${attempts} failed — ` +
+          `${err?.message || err}\n  Retrying with a fresh profile…`
+      );
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------

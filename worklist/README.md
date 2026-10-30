@@ -64,6 +64,15 @@ checklist here.
 
 ## Active work
 
+**Completed outside a round — boot-timing launch retry (2026-10-30).** The
+GitHub runner intermittently starts headless Chrome without writing
+`DevToolsActivePort`, which reddened the boot-timing gate on runs 214 and
+41012427181 while every other step passed. The gate now retries the launch up
+to three times, tearing down the failed browser and its profile between
+attempts, and still fails with the real cause when all attempts are exhausted.
+`tests/bootTimingRetry.test.ts` pins the bounded behavior. Detail:
+[2026 session note](../docs/session-notes/2026.md#-boot-timing-launch-retry-2026-10-30).
+
 **Completed outside a round — sales-form consolidation (2026-10-30).** Stock
 Operations' Product Sale to Customer was a second counter-sale form that could
 only sell quantity-tracked stock; it is retired (panel, route, tab, menu entry,

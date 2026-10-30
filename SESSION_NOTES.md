@@ -1,6 +1,6 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-30 · Branch: main · Tests: 1603/1603 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-30 · Branch: main · Tests: 1606/1606 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
 > **Current state (2026-10-27, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1/VOL-2/BUDGET-1/BOOT-1/VOL-3/VOL-4a/VOL-4b/SN-1/ASSET-1/EXCH-1/READ-1/CDR-1/CDR-2).** All DF-01…DF-17
 > work, the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2, CPE-3,
@@ -122,6 +122,12 @@ _Date: 2026-10-30 · Branch: main · Tests: 1603/1603 green with a DB (all run i
 > is green on attempt 2 for `ed6e32c` (attempt 1 met the known headless-Chrome
 > launch flake; typecheck and all 1603 tests had passed). Detail:
 > [2026.md](docs/session-notes/2026.md#-sales-form-consolidation-2026-10-30).
+> **Boot-timing launch retry (2026-10-30):** a headless-Chrome launch that never
+> writes `DevToolsActivePort` — the flake that reddened runs 214 and
+> 41012427181 — is now retried up to three times with a fresh browser profile
+> before the gate fails; `tests/bootTimingRetry.test.ts` pins the bounded retry
+> and its final error. Detail:
+> [2026.md](docs/session-notes/2026.md#-boot-timing-launch-retry-2026-10-30).
 > **No round is active.** The payload work
 > is finished — the remaining-array measurement found no item to open, and the
 > `inventory_stock` trigger is recorded in [2026.md](docs/session-notes/2026.md). The
