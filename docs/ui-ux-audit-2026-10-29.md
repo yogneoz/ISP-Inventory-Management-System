@@ -27,6 +27,14 @@ paint.
 **Fixed 2026-10-29:** all high findings (UIX-1/2/3), all medium findings
 (UIX-4–9) and all low findings (UIX-10/11/12). No audit item remains open.
 
+**CI evidence.** [Run 212](https://github.com/yogneoz/ISP-Inventory-Management-System/actions/runs/40987214829)
+is green on `7634cc1` — typecheck, the full 1,591-test suite, both convention
+guards, the production build, the startup bundle budget and the boot-timing
+gate. The audit commit `cde6724` passed every step except the entry-chunk
+budget (17.1 kB gz against 17 kB); `7634cc1` records that measurement and raises
+only the entry limit to 18 kB, leaving the 320 kB startup total untouched at
+291.2 kB.
+
 ## High
 
 ### UIX-1 — Mobile loses the branch and fiscal-year scope

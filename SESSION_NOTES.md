@@ -100,7 +100,12 @@ _Date: 2026-10-29 · Branch: main · Tests: 1591/1591 green with a DB (all run i
 > findings: the dashboard hint wraps with a real gap, the warranty range is one
 > labelled group, and the fiscal-year trigger shows an active dot while global
 > search restores an unpicked launcher query (a picked one stays applied). No
-> audit item remains open. **No round is active.** The payload work
+> audit item remains open. CI [run 212](https://github.com/yogneoz/ISP-Inventory-Management-System/actions/runs/40987214829)
+> is green on `7634cc1` on every step — typecheck, all 1,591 tests, both
+> convention guards, the production build, the startup bundle budget and the
+> boot-timing gate; the audit commit `cde6724` had passed everything except the
+> entry budget, which `7634cc1` records at 17.1 kB and raises to 18 kB while the
+> 320 kB total stays at 291.2 kB. **No round is active.** The payload work
 > is finished — the remaining-array measurement found no item to open, and the
 > `inventory_stock` trigger is recorded in [2026.md](docs/session-notes/2026.md). The
 > notes are split by year (**SN-1**): entries live in
