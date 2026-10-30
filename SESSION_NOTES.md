@@ -118,7 +118,9 @@ _Date: 2026-10-30 · Branch: main · Tests: 1603/1603 green with a DB (all run i
 > in-card header, branch-scoped picker, readable payment labels and per-line
 > seller-warranty capture. The register and detail show the promise, and the
 > printable invoice + CSV export carry its coverage and AD/BS expiry. Proven by
-> the sales-form tests; detail:
+> the sales-form tests, and CI [run 41012427181](https://github.com/yogneoz/ISP-Inventory-Management-System/actions/runs/41012427181)
+> is green on attempt 2 for `ed6e32c` (attempt 1 met the known headless-Chrome
+> launch flake; typecheck and all 1603 tests had passed). Detail:
 > [2026.md](docs/session-notes/2026.md#-sales-form-consolidation-2026-10-30).
 > **No round is active.** The payload work
 > is finished — the remaining-array measurement found no item to open, and the
