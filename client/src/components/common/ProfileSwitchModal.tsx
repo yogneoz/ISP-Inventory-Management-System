@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { User, Branch } from '../../types';
 import { canUserSwitchProfiles } from '../../utils/permissions';
+import { useDialogA11y } from '../../utils/useDialogA11y';
 import {
   X,
   User as UserIcon,
@@ -52,6 +53,11 @@ export const ProfileSwitchModal: React.FC<ProfileSwitchModalProps> = ({
   const [editPassword, setEditPassword] = useState('');
   const [updateSuccess, setUpdateSuccess] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useDialogA11y<HTMLDivElement>({
+    isOpen,
+    initialFocusRef: closeButtonRef,
+  });
 
   // AppShell keeps this modal mounted and toggles `isOpen`, so the state
   // above is created once. After a profile switch that left the previous
@@ -137,11 +143,21 @@ export const ProfileSwitchModal: React.FC<ProfileSwitchModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-md p-4 animate-in fade-in duration-200">
-      <div className="w-full max-w-xl overflow-hidden rounded-3xl bg-white dark:bg-slate-900 shadow-2xl border border-slate-200/80 dark:border-slate-800 transition-all flex flex-col max-h-[88vh]">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="profile-dialog-title"
+        tabIndex={-1}
+        className="w-full max-w-xl overflow-hidden rounded-3xl bg-white dark:bg-slate-900 shadow-2xl border border-slate-200/80 dark:border-slate-800 transition-all flex flex-col max-h-[88vh]"
+      >
         {/* Header */}
         <div className="bg-gradient-to-r from-indigo-900 via-indigo-950 to-slate-950 p-6 text-white relative flex-shrink-0">
           <button
+            ref={closeButtonRef}
+            type="button"
             onClick={onClose}
+            aria-label="Close account settings"
             className="absolute top-4 right-4 rounded-full p-2 text-indigo-200 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
           >
             <X className="h-5 w-5" />
@@ -192,7 +208,10 @@ export const ProfileSwitchModal: React.FC<ProfileSwitchModalProps> = ({
 
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-lg font-bold tracking-tight text-white truncate font-serif">
+                <h2
+                  id="profile-dialog-title"
+                  className="text-lg font-bold tracking-tight text-white truncate font-serif"
+                >
                   {currentUser.name}
                 </h2>
                 <span

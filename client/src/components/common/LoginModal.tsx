@@ -218,23 +218,34 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         {mode === 'LOGIN' && (
           <form onSubmit={handleLoginSubmit} className="p-6 space-y-4">
             {error && (
-              <div className="flex items-center gap-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 p-3 text-xs text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900 animate-in slide-in-from-top-1">
+              <div
+                id="login-error"
+                role="alert"
+                className="flex items-center gap-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 p-3 text-xs text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900 animate-in slide-in-from-top-1"
+              >
                 <AlertCircle className="h-4 w-4 flex-shrink-0 text-rose-600 dark:text-rose-400" />
                 <span className="font-medium">{error}</span>
               </div>
             )}
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+              <label
+                htmlFor="login-email"
+                className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5"
+              >
                 Email Address / User ID
               </label>
               <div className="relative">
                 <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                 <input
+                  id="login-email"
                   type="email"
                   required
+                  autoComplete="username"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  aria-invalid={error ? true : undefined}
+                  aria-describedby={error ? 'login-error' : undefined}
                   placeholder="user@example.com"
                   className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 pl-10 pr-3.5 py-2.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-medium"
                 />
@@ -242,10 +253,38 @@ export const LoginModal: React.FC<LoginModalProps> = ({
             </div>
 
             <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-                  Password
-                </label>
+              <label
+                htmlFor="login-password"
+                className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5"
+              >
+                Password
+              </label>
+              <div className="relative">
+                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <input
+                  id="login-password"
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  aria-invalid={error ? true : undefined}
+                  aria-describedby={error ? 'login-error' : undefined}
+                  placeholder="••••••••••••"
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 pl-10 pr-10 py-2.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-medium"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-pressed={showPassword}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors p-1"
+                  title={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              <div className="mt-1.5 flex justify-end">
                 <button
                   type="button"
                   onClick={() => {
@@ -255,25 +294,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
                 >
                   Forgot Password?
-                </button>
-              </div>
-              <div className="relative">
-                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••••••"
-                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 pl-10 pr-10 py-2.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-medium"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors p-1"
-                  title={showPassword ? 'Hide password' : 'Show password'}
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
             </div>
@@ -335,7 +355,11 @@ export const LoginModal: React.FC<LoginModalProps> = ({
             </div>
 
             {error && (
-              <div className="flex items-center gap-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 p-3 text-xs text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900 animate-in slide-in-from-top-1">
+              <div
+                id="setup-error"
+                role="alert"
+                className="flex items-center gap-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 p-3 text-xs text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900 animate-in slide-in-from-top-1"
+              >
                 <AlertCircle className="h-4 w-4 flex-shrink-0 text-rose-600 dark:text-rose-400" />
                 <span className="font-medium">{error}</span>
               </div>
@@ -480,7 +504,11 @@ export const LoginModal: React.FC<LoginModalProps> = ({
             </div>
 
             {error && (
-              <div className="flex items-center gap-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 p-3 text-xs text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900 animate-in slide-in-from-top-1">
+              <div
+                id="forgot-error"
+                role="alert"
+                className="flex items-center gap-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 p-3 text-xs text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900 animate-in slide-in-from-top-1"
+              >
                 <AlertCircle className="h-4 w-4 flex-shrink-0 text-rose-600 dark:text-rose-400" />
                 <span className="font-medium">{error}</span>
               </div>

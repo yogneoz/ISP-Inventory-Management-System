@@ -7,6 +7,8 @@ import {
 import { api } from '../../services/api';
 import { NavTab } from '../layout/Sidebar';
 import { formatNPR } from '../../utils/nprFormat';
+import { useDialogA11y } from '../../utils/useDialogA11y';
+import { ClickableCard } from './ClickableCard';
 import {
   Search,
   Package,
@@ -50,6 +52,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
   onSelectResult,
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useDialogA11y<HTMLDivElement>({ isOpen, initialFocusRef: inputRef });
   const requestSeqRef = useRef(0);
   const [results, setResults] = useState<GlobalSearchResults>({
     products: [], purchaseOrders: [], invoices: [], shipments: [], assets: [], customerDevices: [],
@@ -57,14 +60,6 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [retryKey, setRetryKey] = useState(0);
-
-  useEffect(() => {
-    if (isOpen) {
-      setTimeout(() => {
-        inputRef.current?.focus();
-      }, 50);
-    }
-  }, [isOpen]);
 
   const trimmedQuery = (searchQuery || '').trim();
   const query = trimmedQuery.toLowerCase();
@@ -155,8 +150,16 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
 
       {/* Main Dialog Modal */}
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="global-search-title"
+        tabIndex={-1}
         className={`relative w-full max-w-3xl rounded-2xl shadow-2xl border overflow-hidden flex flex-col max-h-[85vh] z-10 transition-all bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-100`}
       >
+        <h2 id="global-search-title" className="sr-only">
+          Global search
+        </h2>
         {/* Search Header Input Bar */}
         <div
           className={`flex items-center gap-3 px-4 py-3.5 border-b border-slate-100 bg-slate-50/80 dark:border-slate-800 dark:bg-slate-900/50`}
@@ -165,6 +168,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
           <input
             ref={inputRef}
             type="text"
+            aria-label="Search products and records"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder="Scan Barcode or Search & Enter Product Name / SKU:"
@@ -172,14 +176,18 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
           />
           {searchQuery && (
             <button
+              type="button"
               onClick={() => onSearchChange('')}
+              aria-label="Clear search"
               className={`text-xs px-2 py-1 rounded-md transition-colors bg-slate-200 hover:bg-slate-300 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300`}
             >
               Clear
             </button>
           )}
           <button
+            type="button"
             onClick={onClose}
+            aria-label="Close global search"
             className={`p-1.5 rounded-lg transition-colors hover:bg-slate-200 text-slate-500 hover:text-slate-800 dark:hover:bg-slate-800 dark:text-slate-400 dark:hover:text-slate-200`}
           >
             <X className="h-5 w-5" />
@@ -259,10 +267,10 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                     {matchedProducts.map((p) => {
                       const totalQty = p.stockQty || 0;
                       return (
-                        <div
+                        <ClickableCard
                           key={p.id}
-                          onClick={() => handleItemClick('all-stock', p.sku)}
-                          className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer bg-white border-slate-200 hover:bg-indigo-50/50 hover:border-indigo-300 dark:bg-slate-900/60 dark:border-slate-800/80 dark:hover:bg-slate-800/80 dark:hover:border-indigo-500/50`}
+                          onActivate={() => handleItemClick('all-stock', p.sku)}
+                          className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all bg-white border-slate-200 hover:bg-indigo-50/50 hover:border-indigo-300 dark:bg-slate-900/60 dark:border-slate-800/80 dark:hover:bg-slate-800/80 dark:hover:border-indigo-500/50`}
                         >
                           <div className="flex items-center gap-3">
                             <div className={`p-2 rounded-lg bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300`}>
@@ -295,7 +303,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                               Stock: {totalQty} {p.unit || 'Pcs'}
                             </span>
                           </div>
-                        </div>
+                        </ClickableCard>
                       );
                     })}
                   </div>
@@ -318,10 +326,10 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                   </div>
                   <div className="grid grid-cols-1 gap-2">
                     {matchedOrders.map((po) => (
-                      <div
+                      <ClickableCard
                         key={po.id}
-                        onClick={() => handleItemClick('po-list', po.poNumber)}
-                        className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer bg-white border-slate-200 hover:bg-amber-50/50 hover:border-amber-300 dark:bg-slate-900/60 dark:border-slate-800/80 dark:hover:bg-slate-800/80 dark:hover:border-amber-500/50`}
+                        onActivate={() => handleItemClick('po-list', po.poNumber)}
+                        className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all bg-white border-slate-200 hover:bg-amber-50/50 hover:border-amber-300 dark:bg-slate-900/60 dark:border-slate-800/80 dark:hover:bg-slate-800/80 dark:hover:border-amber-500/50`}
                       >
                         <div className="flex items-center gap-3">
                           <div className={`p-2 rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300`}>
@@ -350,7 +358,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                             {po.status}
                           </span>
                         </div>
-                      </div>
+                      </ClickableCard>
                     ))}
                   </div>
                 </div>
@@ -372,10 +380,10 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                   </div>
                   <div className="grid grid-cols-1 gap-2">
                     {matchedInvoices.map((inv) => (
-                      <div
+                      <ClickableCard
                         key={inv.id}
-                        onClick={() => handleItemClick('purchase-list', inv.invoiceNumber)}
-                        className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer bg-white border-slate-200 hover:bg-emerald-50/50 hover:border-emerald-300 dark:bg-slate-900/60 dark:border-slate-800/80 dark:hover:bg-slate-800/80 dark:hover:border-emerald-500/50`}
+                        onActivate={() => handleItemClick('purchase-list', inv.invoiceNumber)}
+                        className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all bg-white border-slate-200 hover:bg-emerald-50/50 hover:border-emerald-300 dark:bg-slate-900/60 dark:border-slate-800/80 dark:hover:bg-slate-800/80 dark:hover:border-emerald-500/50`}
                       >
                         <div className="flex items-center gap-3">
                           <div className={`p-2 rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300`}>
@@ -406,7 +414,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                             {inv.paymentStatus}
                           </span>
                         </div>
-                      </div>
+                      </ClickableCard>
                     ))}
                   </div>
                 </div>
@@ -428,10 +436,10 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                   </div>
                   <div className="grid grid-cols-1 gap-2">
                     {matchedShipments.map((sh) => (
-                      <div
+                      <ClickableCard
                         key={sh.id}
-                        onClick={() => handleItemClick('shipment-list', sh.trackingCode)}
-                        className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer bg-white border-slate-200 hover:bg-purple-50/50 hover:border-purple-300 dark:bg-slate-900/60 dark:border-slate-800/80 dark:hover:bg-slate-800/80 dark:hover:border-purple-500/50`}
+                        onActivate={() => handleItemClick('shipment-list', sh.trackingCode)}
+                        className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all bg-white border-slate-200 hover:bg-purple-50/50 hover:border-purple-300 dark:bg-slate-900/60 dark:border-slate-800/80 dark:hover:bg-slate-800/80 dark:hover:border-purple-500/50`}
                       >
                         <div className="flex items-center gap-3">
                           <div className={`p-2 rounded-lg bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300`}>
@@ -457,7 +465,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                             {sh.status}
                           </span>
                         </div>
-                      </div>
+                      </ClickableCard>
                     ))}
                   </div>
                 </div>
@@ -479,10 +487,10 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                   </div>
                   <div className="grid grid-cols-1 gap-2">
                     {matchedAssets.map((ast) => (
-                      <div
+                      <ClickableCard
                         key={ast.id}
-                        onClick={() => handleItemClick('fixed-assets', ast.tagNumber)}
-                        className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer bg-white border-slate-200 hover:bg-cyan-50/50 hover:border-cyan-300 dark:bg-slate-900/60 dark:border-slate-800/80 dark:hover:bg-slate-800/80 dark:hover:border-cyan-500/50`}
+                        onActivate={() => handleItemClick('fixed-assets', ast.tagNumber)}
+                        className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all bg-white border-slate-200 hover:bg-cyan-50/50 hover:border-cyan-300 dark:bg-slate-900/60 dark:border-slate-800/80 dark:hover:bg-slate-800/80 dark:hover:border-cyan-500/50`}
                       >
                         <div className="flex items-center gap-3">
                           <div className={`p-2 rounded-lg bg-cyan-100 text-cyan-700 dark:bg-cyan-950/60 dark:text-cyan-300`}>
@@ -503,7 +511,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                             {ast.status}
                           </span>
                         </div>
-                      </div>
+                      </ClickableCard>
                     ))}
                   </div>
                 </div>
@@ -525,10 +533,10 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                   </div>
                   <div className="grid grid-cols-1 gap-2">
                     {matchedDevices.map((dev) => (
-                      <div
+                      <ClickableCard
                         key={dev.id}
-                        onClick={() => handleItemClick('customers', dev.customerCode)}
-                        className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer bg-white border-slate-200 hover:bg-rose-50/50 hover:border-rose-300 dark:bg-slate-900/60 dark:border-slate-800/80 dark:hover:bg-slate-800/80 dark:hover:border-rose-500/50`}
+                        onActivate={() => handleItemClick('customers', dev.customerCode)}
+                        className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all bg-white border-slate-200 hover:bg-rose-50/50 hover:border-rose-300 dark:bg-slate-900/60 dark:border-slate-800/80 dark:hover:bg-slate-800/80 dark:hover:border-rose-500/50`}
                       >
                         <div className="flex items-center gap-3">
                           <div className={`p-2 rounded-lg bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300`}>
@@ -549,7 +557,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                             {dev.status}
                           </span>
                         </div>
-                      </div>
+                      </ClickableCard>
                     ))}
                   </div>
                 </div>
@@ -571,10 +579,10 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                   </div>
                   <div className="grid grid-cols-1 gap-2">
                     {matchedSuppliers.map((s) => (
-                      <div
+                      <ClickableCard
                         key={s.id}
-                        onClick={() => handleItemClick('suppliers', s.name)}
-                        className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer bg-white border-slate-200 hover:bg-teal-50/50 hover:border-teal-300 dark:bg-slate-900/60 dark:border-slate-800/80 dark:hover:bg-slate-800/80 dark:hover:border-teal-500/50`}
+                        onActivate={() => handleItemClick('suppliers', s.name)}
+                        className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all bg-white border-slate-200 hover:bg-teal-50/50 hover:border-teal-300 dark:bg-slate-900/60 dark:border-slate-800/80 dark:hover:bg-slate-800/80 dark:hover:border-teal-500/50`}
                       >
                         <div className="flex items-center gap-3">
                           <div className={`p-2 rounded-lg bg-teal-100 text-teal-700 dark:bg-teal-950/60 dark:text-teal-300`}>
@@ -587,7 +595,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                             </div>
                           </div>
                         </div>
-                      </div>
+                      </ClickableCard>
                     ))}
                   </div>
                 </div>
@@ -609,10 +617,10 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                   </div>
                   <div className="grid grid-cols-1 gap-2">
                     {matchedBranches.map((b) => (
-                      <div
+                      <ClickableCard
                         key={b.id}
-                        onClick={() => handleItemClick('branches', b.name)}
-                        className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer bg-white border-slate-200 hover:bg-indigo-50/50 hover:border-indigo-300 dark:bg-slate-900/60 dark:border-slate-800/80 dark:hover:bg-slate-800/80 dark:hover:border-indigo-500/50`}
+                        onActivate={() => handleItemClick('branches', b.name)}
+                        className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all bg-white border-slate-200 hover:bg-indigo-50/50 hover:border-indigo-300 dark:bg-slate-900/60 dark:border-slate-800/80 dark:hover:bg-slate-800/80 dark:hover:border-indigo-500/50`}
                       >
                         <div className="flex items-center gap-3">
                           <div className={`p-2 rounded-lg bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300`}>
@@ -635,7 +643,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                             </span>
                           )}
                         </div>
-                      </div>
+                      </ClickableCard>
                     ))}
                   </div>
                 </div>

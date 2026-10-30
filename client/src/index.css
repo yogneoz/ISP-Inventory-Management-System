@@ -162,22 +162,22 @@
    root font-size zoom tiers above):
      - >= 1537px -> w-72 = calc(var(--spacing) * 72)
        (spacing-derived so it stays in sync with Tailwind's scale)
-     - <= 1366px -> 15.5rem (compact business displays like 1366x768;
-       ~217px rendered at 88% zoom, leaving ~1140px for content)
-     - <= 1024px -> 13.5rem (legacy 1024x768 displays; ~168px rendered
-       at 78% zoom, leaving ~790px for content — roughly the content
-       width of an FHD screen). Long labels wrap instead of truncating.
+     - <= 1366px -> 19.5rem (262px rendered at the 84% root tier: enough
+       for "Device Exchange & Replacement" and "Administration & Governance"
+       on one line; long labels still ellipsize with a title tooltip)
+     - <= 1024px -> 18rem (225px rendered at the 78% tier; the 768px
+       workspace keeps ~543px and labels no longer wrap to two lines).
    The collapsed state swaps the whole column for a slim toggle strip.
    ===================================================================== */
 @media screen and (max-width: 1366px) {
   .responsive-sidebar {
-    width: 15.5rem;
+    width: 19.5rem;
   }
 }
 
 @media screen and (max-width: 1024px) {
   .responsive-sidebar {
-    width: 13.5rem;
+    width: 18rem;
   }
 }
 

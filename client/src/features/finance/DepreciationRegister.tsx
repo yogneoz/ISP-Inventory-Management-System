@@ -24,6 +24,7 @@ import { StatCard } from '../../components/common/StatCard';
 import { useServerPageClamp, TablePagination } from '../../components/common/TablePagination';
 import { RegisterLoadError } from '../../components/common/RegisterLoadError';
 import { useDialog } from '../../components/common/DialogProvider';
+import { getRowActivationProps, ROW_FOCUS_CLASS } from '../../utils/interactiveRow';
 
 const ZERO_TOTALS: FixedAssetTotals = { acquisitionCost: 0, accumulatedDepreciation: 0, netBookValue: 0 };
 
@@ -384,11 +385,24 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                       <React.Fragment key={grp.key}>
                         {/* Parent Summary Row */}
                         <tr
+                          {...getRowActivationProps(
+                            () => toggleGroupExpand(grp),
+                            `${grp.masterName} — show depreciation lots`,
+                            isExpanded
+                          )}
                           onClick={() => toggleGroupExpand(grp)}
-                          className={`cursor-pointer transition-colors ${isExpanded ? 'bg-indigo-50/50 dark:bg-indigo-950/30' : 'hover:bg-slate-200 text-slate-800 dark:hover:bg-slate-800/40 dark:text-slate-200'}`}
+                          className={`cursor-pointer transition-colors ${ROW_FOCUS_CLASS} ${isExpanded ? 'bg-indigo-50/50 dark:bg-indigo-950/30' : 'hover:bg-slate-200 text-slate-800 dark:hover:bg-slate-800/40 dark:text-slate-200'}`}
                         >
                           <td className="px-2.5 py-1.5 text-center">
-                            <button className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400">
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                toggleGroupExpand(grp);
+                              }}
+                              aria-label={`Toggle depreciation lots for ${grp.masterName}`}
+                              className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400"
+                            >
                               {isExpanded ? (
                                 <ChevronDown className="h-4 w-4 text-indigo-500" />
                               ) : (

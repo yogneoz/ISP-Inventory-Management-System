@@ -1,8 +1,6 @@
-import React, { useMemo, useState } from 'react';
-import { Product, InventoryStock, ApprovalRequest, PurchaseOrder, Shipment, Branch } from '../../types';
-import { formatNPR } from '../../utils/nprFormat';
-import { indexStockByProductBranch, stockRowAt } from '../../utils/stockIndex';
-import { BS_SEEDING_MENU_PATH, type BsCalendarCoverageStatus } from '../../utils/nepaliCalendar';
+import React, { useRef, useState } from 'react';
+import type { NotificationAlert } from '../../utils/notificationAlerts';
+import { useDialogA11y } from '../../utils/useDialogA11y';
 import {
   Bell,
   AlertTriangle,
@@ -18,235 +16,41 @@ import {
 interface NotificationCenterProps {
   isOpen: boolean;
   onClose: () => void;
-  products: Product[];
-  stock: InventoryStock[];
-  approvalRequests: ApprovalRequest[];
-  /** Scoped open POs loaded for the KPI surfaces — not the whole bootstrap slice. */
-  pendingPurchaseOrders: PurchaseOrder[];
-  shipments: Shipment[];
-  branches: Branch[];
-  selectedBranchId: string;
+  /**
+   * The shell's already-dismissed-filtered alerts. AppShell builds these with
+   * `buildNotificationAlerts` and uses the SAME array for the bell badge and
+   * Clear All, so the drawer can never advertise a different count (UIX-4).
+   */
+  alerts: NotificationAlert[];
   onSelectTab: (tabId: string) => void;
-  /** Dismissed notification ids (lifted to App so badges stay in sync). */
-  dismissedIds?: string[];
   onDismiss?: (id: string) => void;
   onClearAll?: () => void;
-  /** BS calendar coverage countdown. App passes it only for roles that can seed
-   *  the calendar, and null while coverage is healthy. */
-  bsCalendarCoverage?: BsCalendarCoverageStatus | null;
-  /** Tab that seeds the calendar for this user's role. */
-  bsCalendarSeedTab?: string;
 }
 
 export const NotificationCenter: React.FC<NotificationCenterProps> = ({
   isOpen,
   onClose,
-  products = [],
-  stock = [],
-  approvalRequests = [],
-  pendingPurchaseOrders = [],
-  shipments = [],
-  branches = [],
-  selectedBranchId,
+  alerts,
   onSelectTab,
-  dismissedIds = [],
   onDismiss,
   onClearAll,
-  bsCalendarCoverage = null,
-  bsCalendarSeedTab = 'bs-calendar',
 }) => {
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'REORDER' | 'APPROVAL' | 'SHIPMENT' | 'PO'>('ALL');
-
-  // STOCK-1: one index per stock array; the alert derivation below is
-  // products × branches, so scanning the array per pair made it quadratic.
-  // Declared above the closed-panel early return so hook order never changes.
-  const stockIndex = useMemo(() => indexStockByProductBranch(stock), [stock]);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useDialogA11y<HTMLDivElement>({
+    isOpen,
+    initialFocusRef: closeButtonRef,
+  });
 
   if (!isOpen) return null;
 
-  // 1. Generate Low Stock / Reorder Alerts (matching Header badge & Consolidated Total logic accurately)
-  const lowStockAlerts: {
-    id: string;
-    type: 'REORDER';
-    title: string;
-    subtitle: string;
-    branchName: string;
-    date: string;
-    severity: 'CRITICAL' | 'WARNING';
-    actionLabel: string;
-    actionTab: string;
-  }[] = [];
-
-  const activeBr =
-    selectedBranchId === 'ALL'
-      ? branches
-      : branches.filter((b) => b.id === selectedBranchId);
-
-  products.forEach((prod) => {
-    let totalOnHand = 0;
-    let totalConsolidatedReorder = 0;
-    let totalDeficit = 0;
-    const lowBranchNames: string[] = [];
-
-    activeBr.forEach((b) => {
-      const item = stockRowAt(stockIndex, prod.id, b.id);
-      const onHand = item ? item.quantityOnHand : 0;
-      totalOnHand += onHand;
-
-      const threshold =
-        item?.minReorderLevel !== undefined && item?.minReorderLevel !== null
-          ? item.minReorderLevel
-          : prod.minReorderLevel;
-      totalConsolidatedReorder += threshold;
-
-      if (threshold > 0 && onHand <= threshold) {
-        lowBranchNames.push(b.name);
-        totalDeficit += Math.max(1, threshold - onHand);
-      } else if (threshold === 0 && onHand < 0) {
-        lowBranchNames.push(b.name);
-        totalDeficit += Math.abs(onHand);
-      }
-    });
-
-    const isLow =
-      lowBranchNames.length > 0 ||
-      (totalConsolidatedReorder > 0 && totalOnHand <= totalConsolidatedReorder);
-
-    if (isLow) {
-      if (
-        totalDeficit === 0 &&
-        totalConsolidatedReorder > 0 &&
-        totalOnHand <= totalConsolidatedReorder
-      ) {
-        totalDeficit = Math.max(1, totalConsolidatedReorder - totalOnHand);
-      }
-
-      const branchDisplay =
-        lowBranchNames.length > 0
-          ? lowBranchNames.join(', ')
-          : selectedBranchId === 'ALL'
-          ? 'Consolidated - All Branches'
-          : branches.find((b) => b.id === selectedBranchId)?.name || 'Branch';
-
-      lowStockAlerts.push({
-        id: `lowstock-${prod.id}`,
-        type: 'REORDER',
-        title: `Low Stock: ${prod.name}`,
-        subtitle: `Consolidated Stock: ${totalOnHand} ${prod.unit} | Deficit: ${totalDeficit} ${prod.unit} (Min Threshold: ${totalConsolidatedReorder || prod.minReorderLevel})`,
-        branchName: branchDisplay,
-        date: 'Action Required',
-        severity: totalOnHand === 0 ? 'CRITICAL' : 'WARNING',
-        actionLabel: 'Reorder / PO',
-        actionTab: 'reorder-stock',
-      });
-    }
-  });
-
-  // 2. Generate Pending Approval Requests
-  const approvalAlerts = approvalRequests
-    .filter(
-      (req) =>
-        req.status === 'PENDING' &&
-        (selectedBranchId === 'ALL' || req.branchId === selectedBranchId)
-    )
-    .map((req) => ({
-      id: `appr-${req.id}`,
-      type: 'APPROVAL' as const,
-      title: `Approval Request #${req.requestNumber}`,
-      subtitle: `${req.customerName} (${req.deviceSerial}) → Change status to "${req.requestedStatus}"`,
-      branchName: req.branchName || 'Branch',
-      date: req.requestedAtAD,
-      severity: 'HIGH' as const,
-      actionLabel: 'Review Request',
-      actionTab: 'workflow-approval',
-    }));
-
-  // 3. Generate In-Transit Shipment Alerts
-  const shipmentAlerts = shipments
-    .filter(
-      (sh) =>
-        (sh.status === 'IN_TRANSIT' || sh.status === 'DISPATCHED') &&
-        (selectedBranchId === 'ALL' ||
-          sh.destinationBranchId === selectedBranchId ||
-          sh.sourceBranchId === selectedBranchId)
-    )
-    .map((sh) => ({
-      id: `ship-${sh.id}`,
-      type: 'SHIPMENT' as const,
-      title: `Shipment ${sh.status}: ${sh.trackingCode}`,
-      subtitle: `${sh.sourceBranchName || 'Source'} → ${sh.destinationBranchName} (${sh.items?.length || 0} items)`,
-      branchName: sh.destinationBranchName,
-      date: sh.dispatchDateAD,
-      severity: 'INFO' as const,
-      actionLabel: 'Track Shipment',
-      actionTab: 'shipment-list',
-    }));
-
-  // 4. Generate Pending Purchase Orders
-  const poAlerts = pendingPurchaseOrders
-    .filter(
-      (po) =>
-        (po.status === 'SENT' || po.status === 'APPROVED' || po.status === 'DRAFT') &&
-        (selectedBranchId === 'ALL' || po.branchId === selectedBranchId)
-    )
-    .map((po) => ({
-      id: `po-${po.id}`,
-      type: 'PO' as const,
-      title: `Purchase Order #${po.poNumber} (${po.status})`,
-      subtitle: `Supplier: ${po.supplierName} • Total: ${formatNPR(po.totalAmount ?? 0)}`,
-      branchName: branches.find((b) => b.id === po.branchId)?.name || 'Branch',
-      date: po.orderDateAD,
-      severity: 'INFO' as const,
-      actionLabel: 'View Order',
-      actionTab: 'po-list',
-    }));
-
-  // 5. BS calendar coverage countdown. Ranked first among the alerts because,
-  //    unlike a reorder or a pending approval, expiry blocks EVERY dated
-  //    operation at once (invoices, receipts, payments, stock ops) until an
-  //    admin seeds the next BS year.
-  const calendarAlerts: {
-    id: string;
-    type: 'CALENDAR';
-    title: string;
-    subtitle: string;
-    branchName: string;
-    date: string;
-    severity: 'CRITICAL' | 'WARNING';
-    actionLabel: string;
-    actionTab: string;
-  }[] = [];
-
-  if (bsCalendarCoverage && bsCalendarCoverage.status !== 'OK') {
-    const { status, daysRemaining, minBS, maxBS, minAD, maxAD, mappedYearsCount } = bsCalendarCoverage;
-    const expired = status === 'EXPIRED';
-    calendarAlerts.push({
-      id: 'bs-calendar-coverage',
-      type: 'CALENDAR',
-      title: expired
-        ? 'BS calendar coverage has ended — dated operations are blocked'
-        : status === 'UNSEEDED'
-        ? 'No BS calendar days are seeded'
-        : `BS calendar coverage ends in ${daysRemaining} day${daysRemaining === 1 ? '' : 's'}`,
-      subtitle: expired
-        ? `The calendar ends at BS ${maxBS} (AD ${maxAD}). Every dated operation refuses until the next BS year is seeded.`
-        : `Seeded range: BS ${minBS} to ${maxBS} (AD ${minAD} to ${maxAD}, ${mappedYearsCount} years). Seed the next BS year from ${BS_SEEDING_MENU_PATH} before the last mapped day passes.`,
-      branchName: 'All Branches',
-      date: expired || status === 'CRITICAL' ? 'Action Required' : 'Before coverage ends',
-      severity: expired || status === 'CRITICAL' ? 'CRITICAL' : 'WARNING',
-      actionLabel: 'Seed BS Calendar',
-      actionTab: bsCalendarSeedTab,
-    });
-  }
-
-  // Combine all active alerts
-  const allNotifications = [
-    ...calendarAlerts,
-    ...lowStockAlerts,
-    ...approvalAlerts,
-    ...shipmentAlerts,
-    ...poAlerts,
-  ].filter((n) => !dismissedIds.includes(n.id));
+  // Counts for the filter tabs come from the same alert list the shell shows
+  // on the bell, so "All" always equals badge + (any newly dismissed ids).
+  const lowStockAlerts = alerts.filter((alert) => alert.type === 'REORDER');
+  const approvalAlerts = alerts.filter((alert) => alert.type === 'APPROVAL');
+  const shipmentAlerts = alerts.filter((alert) => alert.type === 'SHIPMENT');
+  const poAlerts = alerts.filter((alert) => alert.type === 'PO');
+  const allNotifications = alerts;
 
   const filteredNotifications = allNotifications.filter((n) => {
     if (activeFilter === 'ALL') return true;
@@ -264,6 +68,11 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
   return (
     <div className="fixed inset-0 z-[9999] flex justify-end bg-slate-900/60 backdrop-blur-xs animate-fade-in">
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="notification-center-title"
+        tabIndex={-1}
         className={`w-full max-w-md h-full flex flex-col border-l shadow-2xl transition-all duration-200 z-[10000] bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-100`}
       >
         {/* Header Bar */}
@@ -274,7 +83,9 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-extrabold text-sm tracking-wide">Notification Center</h3>
+                <h3 id="notification-center-title" className="font-extrabold text-sm tracking-wide">
+                  Notification Center
+                </h3>
                 {allNotifications.length > 0 && (
                   <span className="px-2 py-0.5 rounded-full bg-rose-500 text-white font-extrabold text-[10px]">
                     {allNotifications.length} Active
@@ -297,7 +108,10 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
               </button>
             )}
             <button
+              ref={closeButtonRef}
+              type="button"
               onClick={onClose}
+              aria-label="Close notifications"
               className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
             >
               <X className="h-5 w-5" />

@@ -121,14 +121,16 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
   const [billDiscountValue, setBillDiscountValue] = useState<number>(0);
 
   // Form State
-  const [supplierName, setSupplierName] = useState(availableSuppliers[0]?.name || '');
-  const [supplierId, setSupplierId] = useState<string>(availableSuppliers[0]?.id || '');
+  // UIX-6: a posting document must never start with a supplier the operator
+  // did not choose, or with a fabricated supplier bill number. Both begin
+  // empty; the supplier is required and the bill number is typed from the
+  // supplier's own document.
+  const [supplierName, setSupplierName] = useState('');
+  const [supplierId, setSupplierId] = useState<string>('');
   const [isSupplierDropdownOpen, setIsSupplierDropdownOpen] = useState(false);
   const supplierDropdownRef = useRef<HTMLDivElement>(null);
 
-  const [vendorBillNumber, setVendorBillNumber] = useState(
-    `BILL-${Math.floor(10000 + Math.random() * 90000)}`
-  );
+  const [vendorBillNumber, setVendorBillNumber] = useState('');
   // Purchase date (AD) — intentionally empty by default; the user must select it (never auto-filled to today)
   const [purchaseDateAD, setPurchaseDateAD] = useState('');
   const [vendorBillDateAD, setVendorBillDateAD] = useState(
@@ -161,13 +163,8 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
     }
   }, [selectedBranchId, branches, currentUser]);
 
-  // Automatically sync supplierName when availableSuppliers load
-  useEffect(() => {
-    if (availableSuppliers.length > 0 && (!supplierName || !availableSuppliers.some((s) => s.name === supplierName))) {
-      setSupplierName(availableSuppliers[0].name);
-      setSupplierId(availableSuppliers[0].id);
-    }
-  }, [availableSuppliers]);
+  // No supplier auto-fill effect on purpose: a late-arriving directory must not
+  // silently choose the first row of a posting document (UIX-6).
 
   // Filtered suppliers for searchable directory picker
   const filteredSuppliers = availableSuppliers.filter((s) => {
@@ -253,13 +250,13 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
   const handleResetForm = () => {
     setLines([]);
     setSelectedPoId('');
-    setSupplierName(availableSuppliers[0]?.name || '');
-    setSupplierId(availableSuppliers[0]?.id || '');
+    setSupplierName('');
+    setSupplierId('');
     setIsSupplierDropdownOpen(false);
     setBillDiscountValue(0);
     setTaxationType('TAXABLE_13');
     setNotes('');
-    setVendorBillNumber(`BILL-${Math.floor(10000 + Math.random() * 90000)}`);
+    setVendorBillNumber('');
     setVendorBillDateAD(new Date().toISOString().split('T')[0]);
     setPurchaseDateAD('');
   };
@@ -718,7 +715,8 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
                       setSupplierId(exact?.id || '');
                       setIsSupplierDropdownOpen(true);
                     }}
-                    placeholder="Search supplier name or PAN..."
+                    placeholder="Select supplier — search name or PAN..."
+                    autoComplete="off"
                     className={`w-full rounded-xl border pl-9 pr-8 h-9 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100`}
                   />
                   {supplierName ? (
@@ -798,7 +796,7 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
                   id="pi-vendor-bill-number"
                   value={vendorBillNumber}
                   onChange={(e) => setVendorBillNumber(e.target.value)}
-                  placeholder="e.g. BILL-99201"
+                  placeholder="Enter the supplier's bill / invoice #"
                   className={`w-full rounded-xl border px-2.5 py-1.5 h-9 text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100`}
                 />
               </div>

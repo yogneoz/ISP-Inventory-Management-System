@@ -219,22 +219,23 @@ describe('BS-seeding guidance — the countdown is visible before it bites', () 
     assert.ok(dashboard.includes('BS_SEEDING_MENU_PATH'), 'the card must name where to seed');
   });
 
-  test('the notification bell carries the same alert and can dismiss it', () => {
-    const center = read('client/src/components/common/NotificationCenter.tsx');
-    assert.ok(center.includes('bsCalendarCoverage'), 'the bell must take the coverage prop');
-    assert.ok(center.includes("id: 'bs-calendar-coverage'"), 'the alert needs a stable dismissible id');
-    assert.ok(center.includes('calendarAlerts'), 'the alert must be part of the notification list');
+  test('the notification alert list carries the same coverage warning and can dismiss it', () => {
+    // UIX-4 moved every alert derivation into one module so the bell, drawer
+    // and Clear All cannot disagree. The coverage warning lives there now.
+    const alerts = read('client/src/utils/notificationAlerts.ts');
+    assert.ok(alerts.includes('bsCalendarCoverage'), 'the alert builder must take the coverage prop');
+    assert.ok(alerts.includes("id: 'bs-calendar-coverage'"), 'the alert needs a stable dismissible id');
+    assert.ok(alerts.includes('calendarAlerts'), 'the alert must be part of the notification list');
 
-    // A2 moved the notification panel's Clear All into the app shell, together
-    // with the dismissed-id state that makes it work.
+    // AppShell builds one list and Clear All dismisses exactly those ids.
     const shell = read('client/src/components/layout/AppShell.tsx');
     assert.ok(
-      shell.includes("'bs-calendar-coverage'"),
-      'Clear All must dismiss the coverage alert too, or it reappears immediately'
+      shell.includes('notificationAlerts.map((notification) => notification.id)'),
+      'Clear All must dismiss the same coverage alert the bell counted, or it reappears immediately'
     );
     assert.ok(
-      shell.includes("getBsCalendarCoverage().status === 'OK' ? [] : ['bs-calendar-coverage']"),
-      'the shell must only dismiss the alert while coverage is unhealthy'
+      shell.includes('bsCalendarCoverage,'),
+      'the shell must feed the coverage status into the shared alert builder'
     );
   });
 

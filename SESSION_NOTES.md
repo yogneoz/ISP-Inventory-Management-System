@@ -1,6 +1,6 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-29 · Branch: main · Tests: 1577/1577 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-29 · Branch: main · Tests: 1591/1591 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
 > **Current state (2026-10-27, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1/VOL-2/BUDGET-1/BOOT-1/VOL-3/VOL-4a/VOL-4b/SN-1/ASSET-1/EXCH-1/READ-1/CDR-1/CDR-2).** All DF-01…DF-17
 > work, the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2, CPE-3,
@@ -86,8 +86,21 @@ _Date: 2026-10-29 · Branch: main · Tests: 1577/1577 green with a DB (all run i
 > saved screen commits, preloads that tab and applies cached bootstrap before
 > paint, and a headless-Chrome frame gate now runs in CI after the production
 > build — [run 209](https://github.com/yogneoz/ISP-Inventory-Management-System/actions/runs/40881397737)
-> is green on every step. The remaining UI/UX pass is not started.
-> **No round is active.** The payload work
+> is green on every step. **UI/UX audit (2026-10-29)**
+> ([doc](docs/ui-ux-audit-2026-10-29.md)): UIX-1/2/3 restored mobile
+> branch/FY scope, made all four shell overlays labelled modal dialogs with a
+> focus trap, and made search results/register rows keyboard-operable; UIX-4/5/6
+> then unified the bell/drawer/Clear All alert list, pinned the purchase-bill
+> action column at 1067 px with compact dates, and removed the fabricated
+> supplier/bill-number defaults. UIX-7/8/9 then widened the rail to 262 px at
+> 1067 px and 225 px at 768 px with truncating tooltips, put the password field
+> before Forgot Password and made a failed sign-in a live, described alert, and
+> exposed the current page with `aria-current` (groups with `aria-expanded`).
+> Suite **1591/1591** green. UIX-10/11/12 then closed the last three low
+> findings: the dashboard hint wraps with a real gap, the warranty range is one
+> labelled group, and the fiscal-year trigger shows an active dot while global
+> search restores an unpicked launcher query (a picked one stays applied). No
+> audit item remains open. **No round is active.** The payload work
 > is finished — the remaining-array measurement found no item to open, and the
 > `inventory_stock` trigger is recorded in [2026.md](docs/session-notes/2026.md). The
 > notes are split by year (**SN-1**): entries live in

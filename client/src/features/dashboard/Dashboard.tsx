@@ -15,6 +15,8 @@ import { getAllowedBranches, getAllowedBranchIds, canUserSeeAllBranches } from '
 import { indexStockByProductBranch, stockRowAt } from '../../utils/stockIndex';
 import { formatNPR } from '../../utils/nprFormat';
 import StatCard from '../../components/common/StatCard';
+import { ClickableCard } from '../../components/common/ClickableCard';
+import { getRowActivationProps, ROW_FOCUS_CLASS } from '../../utils/interactiveRow';
 import { api } from '../../services/api';
 import { useFixedAssetOverview } from '../../services/useFixedAssetOverview';
 import { useShipmentOverview } from '../../services/shipmentOverviewCache';
@@ -431,9 +433,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
           onClick={() => onNavigateTab('reorder-stock')}
           title="View reorder stock tracking"
           hint={
-            <span className="flex w-full items-center justify-between">
-              <span>Requires Action</span>
-              <span className="font-medium flex items-center gap-0.5 text-rose-600 dark:text-rose-400">
+            <span className="flex w-full flex-wrap items-center gap-x-2 gap-y-0.5">
+              <span className="truncate">Requires Action</span>
+              <span className="ml-auto whitespace-nowrap font-medium text-rose-600 dark:text-rose-400">
                 View Reorder
               </span>
             </span>
@@ -590,12 +592,22 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   return (
                     <React.Fragment key={prod.id}>
                       <tr
+                        {...getRowActivationProps(
+                          () => toggleLowStockExpand(prod.id),
+                          `${prod.name} — show branch stock breakdown`,
+                          isExpanded
+                        )}
                         onClick={() => toggleLowStockExpand(prod.id)}
-                        className={`transition-colors cursor-pointer ${isExpanded ? 'bg-rose-50/50 dark:bg-rose-950/30' : 'hover:bg-slate-200 dark:hover:bg-slate-800/40'}`}
+                        className={`transition-colors cursor-pointer ${ROW_FOCUS_CLASS} ${isExpanded ? 'bg-rose-50/50 dark:bg-rose-950/30' : 'hover:bg-slate-200 dark:hover:bg-slate-800/40'}`}
                       >
                         <td className="p-2.5 text-center">
                           <button
                             type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              toggleLowStockExpand(prod.id);
+                            }}
+                            aria-label={`Toggle branch stock breakdown for ${prod.name}`}
                             className={`p-1 cursor-pointer text-slate-400 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400`}
                           >
                             {isExpanded ? (
@@ -683,13 +695,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                       ? bb.quantityOnHand <= bb.minReorderLevel
                                       : bb.quantityOnHand <= 0;
                                   return (
-                                    <div
+                                    <ClickableCard
                                       key={bb.branchId}
-                                      onClick={() => {
+                                      onActivate={() => {
                                         if (onSelectBranch) onSelectBranch(bb.branchId);
                                         onNavigateTab('branch-stock');
                                       }}
-                                      className={`p-2.5 rounded-xl border text-xs flex flex-col justify-between transition-all cursor-pointer ${isBranchLow ? 'bg-rose-50/60 border-rose-200 hover:border-rose-400 hover:shadow-xs dark:bg-rose-950/40 dark:border-rose-800 dark:hover:border-rose-500' : 'bg-white border-slate-200 hover:border-emerald-400 hover:shadow-xs dark:bg-slate-800/80 dark:border-slate-700 dark:hover:border-emerald-500'}`}
+                                      ariaLabel={`View ${bb.branchName} stock matrix`}
+                                      className={`w-full p-2.5 rounded-xl border text-xs flex flex-col justify-between transition-all ${isBranchLow ? 'bg-rose-50/60 border-rose-200 hover:border-rose-400 hover:shadow-xs dark:bg-rose-950/40 dark:border-rose-800 dark:hover:border-rose-500' : 'bg-white border-slate-200 hover:border-emerald-400 hover:shadow-xs dark:bg-slate-800/80 dark:border-slate-700 dark:hover:border-emerald-500'}`}
                                       title={`Click to view matrix for ${bb.branchName}`}
                                     >
                                       <div className="flex items-center justify-between text-[11px]">
@@ -715,7 +728,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                           (Min: {bb.minReorderLevel})
                                         </span>
                                       </div>
-                                    </div>
+                                    </ClickableCard>
                                   );
                                 })}
                               </div>
@@ -854,12 +867,22 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   return (
                     <React.Fragment key={prod.id}>
                       <tr
+                        {...getRowActivationProps(
+                          () => toggleSpecialExpand(prod.id),
+                          `${prod.name} — show branch stock breakdown`,
+                          isExpanded
+                        )}
                         onClick={() => toggleSpecialExpand(prod.id)}
-                        className={`transition-colors cursor-pointer ${isExpanded ? 'bg-indigo-50/50 dark:bg-indigo-950/30' : 'hover:bg-slate-200 dark:hover:bg-slate-800/40'}`}
+                        className={`transition-colors cursor-pointer ${ROW_FOCUS_CLASS} ${isExpanded ? 'bg-indigo-50/50 dark:bg-indigo-950/30' : 'hover:bg-slate-200 dark:hover:bg-slate-800/40'}`}
                       >
                         <td className="p-2.5 text-center">
                           <button
                             type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              toggleSpecialExpand(prod.id);
+                            }}
+                            aria-label={`Toggle branch stock breakdown for ${prod.name}`}
                             className="p-1 text-slate-400 hover:text-indigo-600 cursor-pointer"
                           >
                             {isExpanded ? (
@@ -951,13 +974,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                 {branchStockBreakdown.map((b) => {
                                   const hasStock = b.quantityOnHand > 0;
                                   return (
-                                    <div
+                                    <ClickableCard
                                       key={b.branchId}
-                                      onClick={() => {
+                                      onActivate={() => {
                                         if (onSelectBranch) onSelectBranch(b.branchId);
                                         onNavigateTab('branch-stock');
                                       }}
-                                      className={`p-2.5 rounded-xl border text-xs flex flex-col justify-between transition-all cursor-pointer ${hasStock ? 'bg-white border-slate-200 hover:border-indigo-400 hover:shadow-xs dark:bg-slate-800/80 dark:border-slate-700 dark:hover:border-indigo-500' : 'bg-slate-100/60 border-slate-200 opacity-60 dark:bg-slate-900/40 dark:border-slate-800/80 dark:opacity-60'}`}
+                                      ariaLabel={`View ${b.branchName} stock matrix`}
+                                      className={`w-full p-2.5 rounded-xl border text-xs flex flex-col justify-between transition-all ${hasStock ? 'bg-white border-slate-200 hover:border-indigo-400 hover:shadow-xs dark:bg-slate-800/80 dark:border-slate-700 dark:hover:border-indigo-500' : 'bg-slate-100/60 border-slate-200 opacity-60 dark:bg-slate-900/40 dark:border-slate-800/80 dark:opacity-60'}`}
                                       title={`Click to view matrix for ${b.branchName}`}
                                     >
                                       <div className="flex items-center justify-between text-[11px]">
@@ -983,7 +1007,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                           View →
                                         </span>
                                       </div>
-                                    </div>
+                                    </ClickableCard>
                                   );
                                 })}
                               </div>
@@ -1057,13 +1081,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 const isSelected = selectedBranchId === b.id;
 
                 return (
-                  <div
+                  <ClickableCard
                     key={b.id}
-                    onClick={() => {
+                    onActivate={() => {
                       if (onSelectBranch) onSelectBranch(b.id);
                       onNavigateTab('branch-stock');
                     }}
-                    className={`group p-3 rounded-xl border transition-all cursor-pointer relative overflow-hidden flex flex-col justify-between ${isSelected ? 'border-indigo-500 bg-indigo-50/90 shadow-md ring-1 ring-indigo-500/50 dark:border-indigo-500 dark:bg-indigo-950/50 dark:shadow-md dark:ring-1 dark:ring-indigo-500/50' : 'border-slate-200 bg-slate-50/70 hover:bg-white hover:border-indigo-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-900/40 dark:hover:bg-slate-800/80 dark:hover:border-indigo-500/50 dark:hover:shadow-md'}`}
+                    ariaLabel={`View ${b.name} inventory matrix`}
+                    className={`group w-full p-3 rounded-xl border transition-all relative overflow-hidden flex flex-col justify-between ${isSelected ? 'border-indigo-500 bg-indigo-50/90 shadow-md ring-1 ring-indigo-500/50 dark:border-indigo-500 dark:bg-indigo-950/50 dark:shadow-md dark:ring-1 dark:ring-indigo-500/50' : 'border-slate-200 bg-slate-50/70 hover:bg-white hover:border-indigo-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-900/40 dark:hover:bg-slate-800/80 dark:hover:border-indigo-500/50 dark:hover:shadow-md'}`}
                     title={`Click to view ${b.name} inventory matrix`}
                   >
                     <div>
@@ -1089,7 +1114,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       <span>View Matrix</span>
                       <ArrowRight className="h-3 w-3" />
                     </div>
-                  </div>
+                  </ClickableCard>
                 );
               })}
             </div>

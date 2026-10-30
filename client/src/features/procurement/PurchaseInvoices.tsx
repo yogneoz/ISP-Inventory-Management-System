@@ -45,6 +45,21 @@ import { PageHeader } from '../../components/common/PageHeader';
 import { api } from '../../services/api';
 import { PurchaseInvoiceForm } from './PurchaseInvoiceForm';
 
+/**
+ * One-line date for the dense register. The full BS + AD pair stays in the
+ * tooltip, so the row stays scanable at 1067 px without losing the second
+ * calendar (UIX-5).
+ */
+function CompactDate({ adDate, mode }: { adDate: string; mode: 'BS' | 'AD' }) {
+  if (!adDate) return <span className="text-slate-400">—</span>;
+  const full = formatDualDate(adDate, mode);
+  return (
+    <span title={full} className="whitespace-nowrap">
+      {full.split(' (')[0]}
+    </span>
+  );
+}
+
 interface PurchaseInvoicesProps {
   companyProfile?: CompanyProfile | null;
   currentUser?: User | null;
@@ -747,7 +762,9 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                     <th className="px-2.5 py-1.5 text-right">{getDefaultTaxRate()}% VAT</th>
                     <th className="px-2.5 py-1.5 text-right">Total Amount (NPR)</th>
                     <th className="px-2.5 py-1.5 text-center">Payment Mode</th>
-                    <th className="px-2.5 py-1.5 text-center">Actions</th>
+                    <th className="sticky right-0 z-20 min-w-[11.5rem] border-l border-slate-200 bg-slate-100 px-2.5 py-1.5 text-center dark:border-slate-800 dark:bg-[#12161f]">
+                      Actions
+                    </th>
                   </tr>
                 </thead>
                 <tbody className={`divide-y divide-slate-200 dark:divide-slate-800/80`}>
@@ -764,7 +781,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                       return (
                         <tr
                           key={inv.id}
-                          className={`transition-colors hover:bg-slate-200 dark:hover:bg-slate-800/40`}
+                          className={`group transition-colors hover:bg-slate-200 dark:hover:bg-slate-800/40`}
                         >
                           <td className={`p-2.5 font-mono font-bold text-blue-600 dark:text-blue-400`}>
                             {inv.invoiceNumber}
@@ -775,17 +792,28 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                           <td className="p-2.5 font-bold text-slate-900 dark:text-white">
                             {inv.supplierName}
                           </td>
-                          <td className="p-2.5 text-slate-600 dark:text-slate-400">
+                          <td className="whitespace-nowrap p-2.5 text-slate-600 dark:text-slate-400">
                             {branch?.name || inv.branchId}
                           </td>
-                          <td className="p-2.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
-                            {linkedPO ? formatDualDate(linkedPO.orderDateAD, dateMode) : '—'}
+                          <td className="whitespace-nowrap p-2.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
+                            {linkedPO ? (
+                              <CompactDate adDate={linkedPO.orderDateAD} mode={dateMode} />
+                            ) : (
+                              '—'
+                            )}
                           </td>
-                          <td className="p-2.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
-                            {linkedPO ? formatDualDate(linkedPO.expectedDeliveryDateAD, dateMode) : '—'}
+                          <td className="whitespace-nowrap p-2.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
+                            {linkedPO ? (
+                              <CompactDate
+                                adDate={linkedPO.expectedDeliveryDateAD}
+                                mode={dateMode}
+                              />
+                            ) : (
+                              '—'
+                            )}
                           </td>
-                          <td className="p-2.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
-                            {formatDualDate(inv.invoiceDateAD, dateMode)}
+                          <td className="whitespace-nowrap p-2.5 text-slate-500 dark:text-slate-400 font-mono text-[11px] ">
+                            <CompactDate adDate={inv.invoiceDateAD} mode={dateMode} />
                           </td>
                           <td className="p-2.5 text-right font-mono font-medium text-slate-700 dark:text-slate-300">
                             {formatNPRPrecise(inv.taxableAmount)}
@@ -796,20 +824,21 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                           <td className="p-2.5 text-right font-mono font-extrabold text-slate-900 dark:text-white">
                             {formatNPRPrecise(inv.grandTotal)}
                           </td>
-                          <td className="p-2.5 text-center">
+                          <td className="whitespace-nowrap p-2.5 text-center">
                             {paymentStatusBadge(inv)}
                           </td>
-                          <td className="p-2.5 text-center">
-                            <div className="flex items-center justify-center gap-1.5">
+                          <td className="sticky right-0 z-10 min-w-[11.5rem] border-l border-slate-200 bg-white p-2.5 text-center shadow-[-6px_0_12px_-10px_rgba(15,23,42,0.35)] group-hover:bg-slate-200 dark:border-slate-800 dark:bg-[#0f1218] dark:group-hover:bg-slate-800/40">
+                            <div className="flex flex-nowrap items-center justify-center gap-1.5">
                               {unpaidAmount(inv) > 0 && (
                                 <button
                                   type="button"
                                   onClick={() => openPaymentModal(inv)}
                                   title={`Record Payment — ${formatNPR(unpaidAmount(inv))} outstanding`}
+                                  aria-label={`Record payment for ${inv.invoiceNumber}`}
                                   className="flex items-center gap-1 px-2 py-1 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/80 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold cursor-pointer transition-all shadow-2xs"
                                 >
                                   <Banknote className="h-3.5 w-3.5" />
-                                  <span className="hidden lg:inline">Pay</span>
+                                  <span className="hidden xl:inline">Pay</span>
                                 </button>
                               )}
 
@@ -818,10 +847,11 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                                   type="button"
                                   onClick={() => handleReverseInvoicePayments(inv)}
                                   title="Reverse all payments on this fully paid invoice (restore to UNPAID)"
+                                  aria-label={`Reverse payments on ${inv.invoiceNumber}`}
                                   className="flex items-center gap-1 px-2 py-1 rounded-lg border border-rose-300 dark:border-rose-700 bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 dark:hover:bg-rose-900/80 text-rose-700 dark:text-rose-300 text-[11px] font-bold cursor-pointer transition-all shadow-2xs"
                                 >
                                   <Undo2 className="h-3.5 w-3.5" />
-                                  <span className="hidden lg:inline">Reverse</span>
+                                  <span className="hidden xl:inline">Reverse</span>
                                 </button>
                               )}
 
@@ -829,10 +859,11 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                                 type="button"
                                 onClick={() => setProductsModalInvoice(inv)}
                                 title="View List of Products Purchased in this Invoice"
+                                aria-label={`View products on ${inv.invoiceNumber}`}
                                 className="flex items-center gap-1 px-2 py-1 rounded-lg border border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/80 text-indigo-700 dark:text-indigo-300 text-[11px] font-bold cursor-pointer transition-all shadow-2xs"
                               >
                                 <PackageCheck className={`h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400`} />
-                                <span className="hidden md:inline">Products ({inv.items?.length || 0})</span>
+                                <span className="hidden xl:inline">Products ({inv.items?.length || 0})</span>
                               </button>
 
                               <button
@@ -842,6 +873,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                                   setInternalTab('VIEW_INVOICE');
                                 }}
                                 title="View Bill Details & Print Voucher"
+                                aria-label={`View bill ${inv.invoiceNumber}`}
                                 className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer transition-colors"
                               >
                                 <Eye className="h-3.5 w-3.5" />
@@ -859,6 +891,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                                   }
                                 }}
                                 title="Delete Purchase Invoice"
+                                aria-label={`Delete purchase invoice ${inv.invoiceNumber}`}
                                 className={`p-1.5 rounded-lg border border-rose-200 hover:bg-rose-50 text-rose-600 dark:border-rose-800 dark:hover:bg-rose-950 dark:text-rose-400 cursor-pointer transition-colors`}
                               >
                                 <Trash2 className="h-3.5 w-3.5" />

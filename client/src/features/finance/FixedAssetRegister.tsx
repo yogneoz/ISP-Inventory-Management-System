@@ -22,6 +22,7 @@ import { PageHeader } from '../../components/common/PageHeader';
 import { RegisterLoadError } from '../../components/common/RegisterLoadError';
 import { useDialog } from '../../components/common/DialogProvider';
 import { warrantyEndFieldError, warrantyEndFor } from '../../utils/warrantyCapture';
+import { getRowActivationProps, ROW_FOCUS_CLASS } from '../../utils/interactiveRow';
 
 const ZERO_TOTALS: FixedAssetTotals = { acquisitionCost: 0, accumulatedDepreciation: 0, netBookValue: 0 };
 
@@ -346,8 +347,12 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                   return (
                     <tr
                       key={asset.id}
+                      {...getRowActivationProps(
+                        () => setSelectedAssetDetail(asset),
+                        `${asset.tagNumber} ${asset.name} — open asset details`
+                      )}
                       onClick={() => setSelectedAssetDetail(asset)}
-                      className="hover:bg-slate-100/80 dark:hover:bg-slate-800/50 transition-colors cursor-pointer group"
+                      className={`hover:bg-slate-100/80 dark:hover:bg-slate-800/50 transition-colors cursor-pointer group ${ROW_FOCUS_CLASS}`}
                     >
                       <td className={`p-2.5 font-mono font-bold text-blue-600 dark:text-blue-400 group-hover:underline`}>
                         {asset.tagNumber}

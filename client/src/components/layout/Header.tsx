@@ -1,12 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Branch, User, Product, InventoryStock, ApprovalRequest, PurchaseOrder, Shipment, CompanyProfile, FiscalYear } from '../../types';
+import { Branch, User, CompanyProfile, FiscalYear } from '../../types';
 import { convertADToBS } from '../../utils/nepaliCalendar';
-import { canUserSeeAllBranches, getAllowedBranches, canUserSwitchProfiles, filterFiscalYears } from '../../utils/permissions';
+import { canUserSwitchProfiles } from '../../utils/permissions';
 import { NavTab } from './Sidebar';
-import { FiscalYearSelect } from '../common/FiscalYearSelect';
+import { ViewScopeControls } from '../common/ViewScopeControls';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 import {
-  Building2,
   Calendar,
   LogOut,
   ShieldCheck,
@@ -48,16 +47,12 @@ interface HeaderProps {
   onRefreshData: () => void;
   searchQuery: string;
   onSearchChange: (q: string) => void;
-  lowStockCount: number;
+  /** Active alerts from the shell's single notification derivation (UIX-4). */
+  notificationCount: number;
   onToggleTheme: () => void;
   onToggleSidebar?: () => void;
   isSidebarOpen?: boolean;
 
-  products?: Product[];
-  stock?: InventoryStock[];
-  approvalRequests?: ApprovalRequest[];
-  purchaseOrders?: PurchaseOrder[];
-  shipments?: Shipment[];
   onSelectTab?: (tab: NavTab) => void;
   onOpenNotification?: () => void;
   onOpenProfileModal?: () => void;
@@ -88,16 +83,11 @@ export const Header: React.FC<HeaderProps> = ({
   onRefreshData,
   searchQuery,
   onSearchChange,
-  lowStockCount,
+  notificationCount,
   onToggleTheme,
   onToggleSidebar,
   isSidebarOpen = false,
 
-  products = [],
-  stock = [],
-  approvalRequests = [],
-  purchaseOrders = [],
-  shipments = [],
   onSelectTab = (_tab: string) => {},
   onOpenNotification = () => {},
   onOpenProfileModal = () => {},
@@ -145,28 +135,6 @@ export const Header: React.FC<HeaderProps> = ({
 
   const todayAD = new Date().toISOString().split('T')[0];
   const bsInfo = convertADToBS(todayAD);
-
-  // Total actionable notifications badge
-  const pendingApprovalsCount = approvalRequests.filter(
-    (r) => r.status === 'PENDING' && (selectedBranchId === 'ALL' || r.branchId === selectedBranchId)
-  ).length;
-
-  const userBranchContext =
-    selectedBranchId && selectedBranchId !== 'ALL'
-      ? selectedBranchId
-      : currentUser?.branchId && currentUser.branchId !== 'ALL'
-      ? currentUser.branchId
-      : 'ALL';
-
-  const inTransitShipmentsCount = shipments.filter(
-    (s) =>
-      (s.status === 'IN_TRANSIT' || s.status === 'DISPATCHED') &&
-      (userBranchContext === 'ALL' ||
-        s.destinationBranchId === userBranchContext ||
-        s.sourceBranchId === userBranchContext)
-  ).length;
-
-  const totalNotificationBadge = lowStockCount + pendingApprovalsCount + inTransitShipmentsCount;
 
   // True while the server session is impersonating another profile (rootUser is the real account)
   const isSwitchedSession = !!(rootUser && currentUser && rootUser.id !== currentUser.id);
@@ -234,69 +202,16 @@ export const Header: React.FC<HeaderProps> = ({
         </button>
 
         <div className="hidden md:flex items-center gap-1.5 border-l border-white/20 pl-3 ml-1">
-          <Building2 className="h-3.5 w-3.5 text-indigo-200" />
-          <label htmlFor="branch-select" className="sr-only">
-            Select Branch
-          </label>
-          {(() => {
-            const canSeeAll = canUserSeeAllBranches(currentUser);
-            const allowed = getAllowedBranches(currentUser, branches);
-
-            if (!canSeeAll && allowed.length === 1) {
-              return (
-                <div className="flex items-center gap-1 rounded-md border border-amber-300/40 bg-amber-950/60 px-2 py-1 font-bold text-[11px] text-amber-200">
-                  <span>📍 {allowed[0]?.name || 'Assigned Branch'}</span>
-                  <span className="text-[9px] bg-amber-800/80 text-amber-100 px-1 py-0.2 rounded font-normal uppercase">
-                    Assigned
-                  </span>
-                </div>
-              );
-            }
-
-            return (
-              <select
-                id="branch-select"
-                value={selectedBranchId}
-                onChange={(e) => onSelectBranch(e.target.value)}
-                className={`rounded-md px-2.5 py-1 font-medium text-[11px] focus:outline-none transition-all cursor-pointer border border-white/30 bg-white/10 text-white focus:bg-white/20 backdrop-blur-xs dark:border dark:border-slate-800 dark:bg-[#0f1218] dark:text-slate-300 dark:focus:border-indigo-500`}
-              >
-                {canSeeAll ? (
-                  <option value="ALL" className="bg-slate-900 text-white">
-                    🏢 All Branches (Consolidated)
-                  </option>
-                ) : (
-                  <option value="ALL" className="bg-slate-900 text-white">
-                    🏢 My Assigned Branches ({allowed.length})
-                  </option>
-                )}
-                {allowed.map((b) => (
-                  <option key={b.id} value={b.id} className="bg-slate-900 text-white">
-                    {b.isHeadquarters ? '⭐ ' : '📍 '}
-                    {b.name} ({b.code})
-                  </option>
-                ))}
-              </select>
-            );
-          })()}
-
-          {/* Fiscal-year scope (grouped with branch as view-scope controls, loaded from PostgreSQL) */}
-          <div
-            className={`flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium border-white/30 bg-white/10 text-white backdrop-blur-xs dark:border-slate-800 dark:bg-[#0f1218] dark:text-slate-300`}
-            title="Fiscal-year view"
-          >
-            <span className={`text-[9px] font-bold text-indigo-200 dark:text-slate-400`}>FY</span>
-            <FiscalYearSelect
-              fiscalYears={filterFiscalYears(fiscalYears)}
-              value={selectedFiscalYearId}
-              onChange={onSelectFiscalYear}
-              showFyPrefix={false}
-              pageSize={3}
-              title="Select fiscal-year view"
-              triggerClassName="max-w-28 text-white dark:text-slate-200"
-              panelClassName=""
-              align="left"
-            />
-          </div>
+          <ViewScopeControls
+            currentUser={currentUser}
+            branches={branches}
+            selectedBranchId={selectedBranchId}
+            onSelectBranch={onSelectBranch}
+            fiscalYears={fiscalYears}
+            selectedFiscalYearId={selectedFiscalYearId}
+            onSelectFiscalYear={onSelectFiscalYear}
+            variant="header"
+          />
         </div>
       </div>
 
@@ -351,8 +266,11 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Mobile Search Icon Button */}
         {onOpenSearchModal && (
           <button
+            type="button"
             onClick={onOpenSearchModal}
+            data-shell-trigger="search"
             title="Global Quick Search (Ctrl+K)"
+            aria-label="Global quick search"
             className={`lg:hidden p-1.5 rounded-lg transition-colors cursor-pointer text-white/90 hover:bg-white/20 dark:text-slate-300 dark:hover:bg-slate-800 dark:text-indigo-300`}
           >
             <Search className="h-4 w-4" />
@@ -407,12 +325,20 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={onOpenNotification}
             data-shell-trigger="notifications"
             title="Notifications & Reorder Alerts"
+            aria-label={
+              notificationCount > 0
+                ? `Notifications, ${notificationCount} active`
+                : 'Notifications, none active'
+            }
             className={`p-1.5 rounded-lg transition-colors relative cursor-pointer text-white/80 hover:text-white hover:bg-white/20 dark:text-slate-400 dark:hover:text-amber-400 dark:hover:bg-slate-800/60`}
           >
-            <Bell className="h-4 w-4" />
-            {totalNotificationBadge > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-rose-500 text-[9px] font-bold text-white">
-                {totalNotificationBadge}
+            <Bell className="h-4 w-4" aria-hidden="true" />
+            {notificationCount > 0 && (
+              <span
+                aria-hidden="true"
+                className="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-rose-500 text-[9px] font-bold text-white"
+              >
+                {notificationCount}
               </span>
             )}
           </button>

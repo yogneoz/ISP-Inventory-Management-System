@@ -348,36 +348,51 @@ export const WarrantyRegister: React.FC<WarrantyRegisterProps> = ({
                 ))}
               </select>
             </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                Start from
-              </label>
-              <div className="w-40">
-                <DateField
-                  id="warranty-filter-from"
-                  mode={dateMode}
-                  value={startFrom}
-                  onChange={setStartFrom}
-                  compact
-                  showHint={false}
-                  max={startTo || undefined}
-                />
+            {/* The two ends of the coverage-start range are ONE filter: wrap
+                them as a single unit so a narrow card cannot push “Start to”
+                onto another row away from “Start from” (UIX-11). */}
+            <div
+              role="group"
+              aria-label="Warranty start date range"
+              className="flex items-end gap-2"
+            >
+              <div>
+                <label
+                  htmlFor="warranty-filter-from"
+                  className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1"
+                >
+                  Start from
+                </label>
+                <div className="w-40">
+                  <DateField
+                    id="warranty-filter-from"
+                    mode={dateMode}
+                    value={startFrom}
+                    onChange={setStartFrom}
+                    compact
+                    showHint={false}
+                    max={startTo || undefined}
+                  />
+                </div>
               </div>
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                Start to
-              </label>
-              <div className="w-40">
-                <DateField
-                  id="warranty-filter-to"
-                  mode={dateMode}
-                  value={startTo}
-                  onChange={setStartTo}
-                  compact
-                  showHint={false}
-                  min={startFrom || undefined}
-                />
+              <div>
+                <label
+                  htmlFor="warranty-filter-to"
+                  className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1"
+                >
+                  Start to
+                </label>
+                <div className="w-40">
+                  <DateField
+                    id="warranty-filter-to"
+                    mode={dateMode}
+                    value={startTo}
+                    onChange={setStartTo}
+                    compact
+                    showHint={false}
+                    min={startFrom || undefined}
+                  />
+                </div>
               </div>
             </div>
           </>

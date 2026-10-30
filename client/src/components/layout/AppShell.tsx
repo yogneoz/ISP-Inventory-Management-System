@@ -15,8 +15,8 @@ import type {
   Supplier,
   User,
 } from '../../types';
-import { getBsCalendarCoverage, type BsCalendarCoverageStatus } from '../../utils/nepaliCalendar';
-import { indexStockByProductBranch, stockRowAt } from '../../utils/stockIndex';
+import { type BsCalendarCoverageStatus } from '../../utils/nepaliCalendar';
+import { buildNotificationAlerts } from '../../utils/notificationAlerts';
 import {
   ShellOverlayProvider,
   type ShellOverlayActions,
@@ -120,6 +120,8 @@ export function AppShell(props: AppShellProps) {
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([]);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const shellHeaderRef = useRef<HTMLDivElement>(null);
+  const shellWorkspaceRef = useRef<HTMLDivElement>(null);
 
   // Escape closes the overlay that was opened LAST (the one on top), not a
   // fixed one: with the search dialog open over the notification drawer, Esc
@@ -150,11 +152,16 @@ export function AppShell(props: AppShellProps) {
     focusOriginRef.current[id] = null;
     // The origin can be gone by now: the profile modal is opened from a menu
     // item that unmounts when the menu closes. Those fall back to the header
-    // control that represents the overlay.
+    // control that represents the overlay, preferring a VISIBLE trigger —
+    // search has both a desktop input and a compact mobile button, and the
+    // hidden one cannot take focus.
+    const candidates = Array.from(
+      document.querySelectorAll<HTMLElement>(`[data-shell-trigger="${id}"]`)
+    );
     const target =
       origin && origin.isConnected
         ? origin
-        : document.querySelector<HTMLElement>(`[data-shell-trigger="${id}"]`);
+        : candidates.find((element) => element.getClientRects().length > 0) ?? candidates[0];
     target?.focus();
   }, []);
 
@@ -170,6 +177,21 @@ export function AppShell(props: AppShellProps) {
       if (open[id] && !stillOpen.includes(id)) stillOpen.push(id);
     }
     overlayOrderRef.current = stillOpen;
+  }, [isBarcodeModalOpen, isGlobalSearchOpen, isNotificationOpen, isProfileModalOpen]);
+
+  // Modal semantics for assistive technology and for the browser itself: the
+  // header and workspace cannot be clicked or reached while a shell overlay is
+  // on top. The overlays are siblings of these two blocks, so they stay live.
+  //
+  // This effect MUST run before the focus-restore effect below. On close it
+  // removes `inert` first; focusing a control inside an inert subtree is refused
+  // by the browser, which used to leave focus on <body> after Escape.
+  useEffect(() => {
+    const anyOverlayOpen =
+      isBarcodeModalOpen || isGlobalSearchOpen || isNotificationOpen || isProfileModalOpen;
+    for (const node of [shellHeaderRef.current, shellWorkspaceRef.current]) {
+      if (node) node.inert = anyOverlayOpen;
+    }
   }, [isBarcodeModalOpen, isGlobalSearchOpen, isNotificationOpen, isProfileModalOpen]);
 
   // Restore focus on every open→closed transition, whichever path closed it
@@ -277,50 +299,77 @@ export function AppShell(props: AppShellProps) {
     children,
   } = props;
 
-  // STOCK-1: the low-stock badge below reads one quantity per (product, branch)
-  // pair; without an index that is a products × branches × stock scan on every
-  // shell render.
-  const stockIndex = useMemo(() => indexStockByProductBranch(stock), [stock]);
+  // UIX-12 — the header input and the global-search dialog share App's
+  // `searchQuery`. Text typed there is a launcher draft until a result is
+  // picked; closing the dialog without a pick restores the text that was
+  // applied while it was closed, so a dismissed search does not linger in the
+  // header as if it were an active register filter. Picking a result commits
+  // the text (onSelectResult marks it below). The session effect deliberately
+  // runs on open/close transitions: while the dialog is open, typing must not
+  // move the baseline.
+  const searchSessionRef = useRef<{ open: boolean; committed: boolean; applied: string }>({
+    open: false,
+    committed: false,
+    applied: searchQuery,
+  });
+  useEffect(() => {
+    const session = searchSessionRef.current;
+    if (isGlobalSearchOpen) {
+      if (!session.open) {
+        session.open = true;
+        session.committed = false;
+      }
+      return;
+    }
+    if (session.open) {
+      session.open = false;
+      if (!session.committed) {
+        const restore = session.applied;
+        session.committed = false;
+        if (restore !== searchQuery) onSearchChange(restore);
+        return;
+      }
+      session.committed = false;
+    }
+    session.applied = searchQuery;
+  }, [isGlobalSearchOpen, searchQuery, onSearchChange]);
 
   // --- badge + notification derivations (moved with the dismissed ids) -----
-  // Consolidated low-stock SKU count respecting the selected branch context and
-  // per-branch thresholds.
-  const lowStockProducts = products.filter((prod) => {
-    const activeBr =
-      selectedBranchId === 'ALL'
-        ? branches
-        : branches.filter((b) => b.id === selectedBranchId);
-
-    let totalOnHand = 0;
-    let totalConsolidatedReorder = 0;
-    let isAnyBranchLow = false;
-
-    activeBr.forEach((b) => {
-      const item = stockRowAt(stockIndex, prod.id, b.id);
-      const onHand = item ? item.quantityOnHand : 0;
-      totalOnHand += onHand;
-
-      const threshold =
-        item?.minReorderLevel !== undefined && item?.minReorderLevel !== null
-          ? item.minReorderLevel
-          : prod.minReorderLevel;
-      totalConsolidatedReorder += threshold;
-
-      if (threshold > 0 && onHand <= threshold) {
-        isAnyBranchLow = true;
-      } else if (threshold === 0 && onHand < 0) {
-        isAnyBranchLow = true;
-      }
-    });
-
-    return isAnyBranchLow || (totalConsolidatedReorder > 0 && totalOnHand <= totalConsolidatedReorder);
-  });
+  // One alert list feeds the bell, the drawer, the sidebar badges and Clear All.
+  // The bell and the panel therefore cannot disagree about low stock, approvals,
+  // shipments, orders or BS-calendar coverage (UIX-4).
+  const notificationAlerts = useMemo(
+    () =>
+      buildNotificationAlerts({
+        products,
+        stock,
+        approvalRequests,
+        pendingPurchaseOrders,
+        shipments,
+        branches,
+        selectedBranchId,
+        dismissedIds: dismissedNotificationIds,
+        bsCalendarCoverage,
+        bsCalendarSeedTab,
+      }),
+    [
+      products,
+      stock,
+      approvalRequests,
+      pendingPurchaseOrders,
+      shipments,
+      branches,
+      selectedBranchId,
+      dismissedNotificationIds,
+      bsCalendarCoverage,
+      bsCalendarSeedTab,
+    ]
+  );
 
   // Dismissed notification ids are shared across the header badge, the sidebar
   // badges and the Notification Center panel, so clearing notifications in the
   // panel also clears the matching badges/menus elsewhere in the app.
   const dismissedSet = new Set(dismissedNotificationIds);
-
   // KPI counts come from the scoped pending-procurement read, not the whole
   // purchase slices: dismissed PO notifications still subtract by id, while
   // the unpaid bill count is the server-aggregated total for this branch/FY.
@@ -381,11 +430,9 @@ export function AppShell(props: AppShellProps) {
       (activeBranchContext === 'ALL' || sh.destinationBranchId === activeBranchContext)
   ).length;
 
-  const lowStockCount = lowStockProducts.filter(
-    (p) => !dismissedSet.has(`lowstock-${p.id}`)
-  ).length;
-  const pendingApprovalCount = approvalRequests.filter(
-    (r) => r.status === 'PENDING' && !dismissedSet.has(`appr-${r.id}`)
+  const lowStockCount = notificationAlerts.filter((alert) => alert.type === 'REORDER').length;
+  const pendingApprovalCount = notificationAlerts.filter(
+    (alert) => alert.type === 'APPROVAL'
   ).length;
 
   // Stable overlay actions for screens inside the tab tree (A2). Memoised on the
@@ -474,23 +521,9 @@ export function AppShell(props: AppShellProps) {
   };
 
   const handleClearAllNotifications = () => {
-    // Collect every currently active notification id (same ids the
-    // Notification Center generates) and mark them all dismissed.
-    const activeIds: string[] = [
-      ...lowStockProducts.map((prod) => `lowstock-${prod.id}`),
-      ...approvalRequests
-        .filter((r) => r.status === 'PENDING')
-        .map((r) => `appr-${r.id}`),
-      ...shipments
-        .filter((sh) => sh.status === 'IN_TRANSIT' || sh.status === 'DISPATCHED')
-        .map((sh) => `ship-${sh.id}`),
-      ...pendingPurchaseOrders
-        .filter((po) => po.status === 'SENT' || po.status === 'APPROVED')
-        .map((po) => `po-${po.id}`),
-      // The BS calendar coverage warning is a notification too, so "Clear All"
-      // must dismiss it (otherwise it reappears on the next render).
-      ...(getBsCalendarCoverage().status === 'OK' ? [] : ['bs-calendar-coverage']),
-    ];
+    // Same ids the bell counted and the drawer listed — including the BS
+    // calendar warning, so "Clear All" cannot leave a stale badge behind.
+    const activeIds = notificationAlerts.map((notification) => notification.id);
     setDismissedNotificationIds((prev) => Array.from(new Set([...prev, ...activeIds])));
   };
 
@@ -502,7 +535,7 @@ export function AppShell(props: AppShellProps) {
           positioned below the header, so arriving/leaving never changes the
           workspace's height (the old flex child pushed every screen down and
           back up twice per launch). */}
-      <div className="relative z-30 flex-shrink-0">
+      <div ref={shellHeaderRef} className="relative z-30 flex-shrink-0">
         {/* Top App Header (Fixed at top) */}
         <Header
           companyProfile={companyProfile}
@@ -529,15 +562,10 @@ export function AppShell(props: AppShellProps) {
           onRefreshData={refreshAllData}
           searchQuery={searchQuery}
           onSearchChange={onSearchChange}
-          lowStockCount={lowStockCount}
+          notificationCount={notificationAlerts.length}
           onToggleTheme={onToggleTheme}
           onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
           isSidebarOpen={isSidebarOpen}
-          products={products}
-          stock={stock}
-          approvalRequests={approvalRequests}
-          purchaseOrders={purchaseOrders}
-          shipments={shipments}
           onSelectTab={onSelectTab}
           onOpenNotification={() => toggleShellOverlay('notifications')}
           onOpenProfileModal={() => openShellOverlay('profile')}
@@ -556,7 +584,7 @@ export function AppShell(props: AppShellProps) {
       </div>
 
       {/* Main Workspace Layout */}
-      <div className="flex flex-1 min-h-0 overflow-hidden relative">
+      <div ref={shellWorkspaceRef} className="flex flex-1 min-h-0 overflow-hidden relative">
         {/* Mobile Backdrop */}
         {isSidebarOpen && (
           <div
@@ -574,6 +602,12 @@ export function AppShell(props: AppShellProps) {
           <Sidebar
             companyProfile={companyProfile}
             currentUser={currentUser}
+            branches={branches}
+            selectedBranchId={selectedBranchId}
+            onSelectBranch={onSelectBranch}
+            fiscalYears={fiscalYears}
+            selectedFiscalYearId={selectedFiscalYearId}
+            onSelectFiscalYear={onSelectFiscalYear}
             activeTab={activeTab}
             onSelectTab={(tab) => {
               onSelectTab(tab);
@@ -617,6 +651,9 @@ export function AppShell(props: AppShellProps) {
         branches={branches}
         selectedBranchId={selectedBranchId}
         onSelectResult={(tab, filterText) => {
+          // A picked result is an applied filter, not a launcher draft: keep
+          // the text when the dialog closes (UIX-12).
+          searchSessionRef.current.committed = true;
           onSelectTab(tab);
           if (filterText !== undefined) {
             onSearchChange(filterText);
@@ -629,22 +666,13 @@ export function AppShell(props: AppShellProps) {
       <NotificationCenter
         isOpen={isNotificationOpen}
         onClose={() => setIsNotificationOpen(false)}
-        products={products}
-        stock={stock}
-        approvalRequests={approvalRequests}
-        pendingPurchaseOrders={pendingPurchaseOrders}
-        shipments={shipments}
-        branches={branches}
-        selectedBranchId={selectedBranchId}
+        alerts={notificationAlerts}
         onSelectTab={(tab) => {
           onSelectTab(tab as NavTab);
           setIsNotificationOpen(false);
         }}
-        dismissedIds={dismissedNotificationIds}
         onDismiss={handleDismissNotification}
         onClearAll={handleClearAllNotifications}
-        bsCalendarCoverage={bsCalendarCoverage}
-        bsCalendarSeedTab={bsCalendarSeedTab}
       />
 
       {/* User Profile Info & Profile Switching Modal */}

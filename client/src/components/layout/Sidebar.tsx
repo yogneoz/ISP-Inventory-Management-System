@@ -51,9 +51,10 @@ import {
   Wallet,
   Undo2,
 } from 'lucide-react';
-import { User, CompanyProfile } from '../../types';
+import { User, CompanyProfile, Branch, FiscalYear } from '../../types';
 import { getCompanyLocation } from '../../utils/companyProfile';
 import { isOperationAllowed } from '../../utils/permissions';
+import { ViewScopeControls } from '../common/ViewScopeControls';
 
 export type NavTab =
   | 'dashboard'
@@ -205,6 +206,14 @@ export const NAV_TABS: NavTab[] = [
 interface SidebarProps {
   companyProfile?: CompanyProfile | null;
   currentUser?: User | null;
+  /** Company-wide view scope. The mobile drawer renders these because the
+   *  header controls are hidden below `md`. */
+  branches?: Branch[];
+  selectedBranchId?: string;
+  onSelectBranch?: (branchId: string) => void;
+  fiscalYears?: FiscalYear[];
+  selectedFiscalYearId?: string;
+  onSelectFiscalYear?: (fiscalYearId: string) => void;
   activeTab: NavTab;
   onSelectTab: (tab: NavTab) => void;
   lowStockCount: number;
@@ -245,6 +254,12 @@ interface NavGroupDef {
 export const Sidebar: React.FC<SidebarProps> = ({
   companyProfile,
   currentUser,
+  branches = [],
+  selectedBranchId = 'ALL',
+  onSelectBranch = () => {},
+  fiscalYears = [],
+  selectedFiscalYearId = '',
+  onSelectFiscalYear = () => {},
   activeTab,
   onSelectTab,
   lowStockCount,
@@ -811,6 +826,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
         <button
           onClick={() => handleSubItemClick(child.id)}
+          aria-current={isActive ? 'page' : undefined}
           className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[0.8125rem] transition-all cursor-pointer font-medium ${
             isActive
               ? 'bg-indigo-50 text-indigo-900 font-semibold border-l-3 border-indigo-700 shadow-xs dark:bg-indigo-600/20 dark:text-indigo-300 dark:font-semibold dark:border-l-3 dark:border-indigo-500 dark:shadow-xs'
@@ -819,7 +835,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         >
           <div className="flex items-center gap-2.5 min-w-0">
             <ItemIcon className={`h-4 w-4 flex-shrink-0 ${isActive ? 'text-indigo-500' : 'text-slate-400'}`} />
-            <span className="text-left leading-snug">{highlightMatch(child.label, opts.query || '')}</span>
+            <span className="text-left leading-snug truncate" title={child.label}>
+              {highlightMatch(child.label, opts.query || '')}
+            </span>
           </div>
 
           {child.badge !== undefined && child.badge > 0 && (
@@ -857,6 +875,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             <X className="h-4 w-4" />
           </button>
+        </div>
+      )}
+
+      {/* Mobile view scope: the header hides branch/FY below md, so the drawer
+          owns the same company-wide controls instead of leaving phones with no
+          way to change what the whole app is showing. */}
+      {onCloseMobile && branches.length > 0 && (
+        <div className="md:hidden px-3 py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/40">
+          <ViewScopeControls
+            currentUser={currentUser || null}
+            branches={branches}
+            selectedBranchId={selectedBranchId}
+            onSelectBranch={onSelectBranch}
+            fiscalYears={fiscalYears}
+            selectedFiscalYearId={selectedFiscalYearId}
+            onSelectFiscalYear={onSelectFiscalYear}
+            variant="drawer"
+          />
         </div>
       )}
 
@@ -934,6 +970,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   }}
                   onClick={() => toggleGroup(group.id)}
                   title={group.title}
+                  aria-expanded={isExpanded}
                   className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-[0.8125rem] font-semibold transition-all cursor-pointer ${
                     containsActive
                       ? 'text-indigo-900 bg-indigo-50/60 dark:text-indigo-300 dark:bg-indigo-600/10'
@@ -942,7 +979,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 >
                   <div className="flex items-center gap-2.5 min-w-0">
                     <GroupIcon className={`h-5 w-5 flex-shrink-0 ${containsActive ? 'text-indigo-500' : 'text-slate-400'}`} />
-                    <span className="text-left leading-snug">{group.title}</span>
+                    <span className="text-left leading-snug truncate" title={group.title}>
+                      {group.title}
+                    </span>
                   </div>
                   <div className="flex items-center gap-1.5 flex-shrink-0">
                     {group.badgeCount !== undefined && group.badgeCount > 0 && (
@@ -976,6 +1015,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="px-2 pb-2 space-y-1">
             <button
               onClick={() => handleSubItemClick('help-documentation')}
+              aria-current={activeTab === 'help-documentation' ? 'page' : undefined}
               className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[0.8125rem] font-medium transition-all cursor-pointer ${
                 activeTab === 'help-documentation'
                   ? 'bg-indigo-50 text-indigo-900 dark:bg-indigo-600/20 dark:text-indigo-300'
@@ -983,13 +1023,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
               }`}
             >
               <HelpCircle className={`h-4 w-4 ${activeTab === 'help-documentation' ? 'text-indigo-500' : 'text-slate-400'}`} />
-              <span className="text-left leading-snug">Help Center & Manual</span>
+              <span className="text-left leading-snug truncate" title="Help Center & Manual">
+                Help Center & Manual
+              </span>
             </button>
           </div>
 
           <button
             type="button"
             onClick={() => onSelectTab('company-setup')}
+            aria-current={activeTab === 'company-setup' ? 'page' : undefined}
             title={`Company Setup Database: ${companyProfile?.name || 'Inventory'} - Click to manage setup`}
             className={`p-3 m-2 mt-0 rounded-2xl border flex items-center gap-2.5 transition-all text-left cursor-pointer group hover:shadow-sm bg-slate-50 border-slate-200/80 text-slate-700 hover:border-indigo-300 dark:bg-slate-900/90 dark:border-slate-800/80 dark:text-slate-300 dark:hover:border-indigo-500/50`}
           >

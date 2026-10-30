@@ -120,7 +120,18 @@ export const FiscalYearSelect: React.FC<FiscalYearSelectProps> = ({
           {selected ? (
             <>
               {selected.code}
-              {selected.isCurrent && <span className="ml-1">(Active)</span>}
+              {/* The trigger is width-capped, so the status is a dot instead of
+                  the old “(Active)” suffix that rendered as “2083-84 (Acti…”.
+                  Screen readers still hear which year is active (UIX-12). */}
+              {selected.isCurrent && (
+                <span className="ml-1.5 inline-flex items-center" title="Active fiscal year">
+                  <span
+                    aria-hidden="true"
+                    className="h-1.5 w-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400"
+                  />
+                  <span className="sr-only"> active</span>
+                </span>
+              )}
             </>
           ) : (
             placeholder

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   QrCode,
@@ -14,6 +14,7 @@ import {
   Package,
 } from 'lucide-react';
 import { Product, CompanyProfile } from '../../types';
+import { useDialogA11y } from '../../utils/useDialogA11y';
 
 interface BarcodeScannerModalProps {
   isOpen: boolean;
@@ -46,6 +47,11 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const [showCompany, setShowCompany] = useState<boolean>(true);
 
   const [, setCopied] = useState(false);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useDialogA11y<HTMLDivElement>({
+    isOpen,
+    initialFocusRef: closeButtonRef,
+  });
   const [scanHistory, setScanHistory] = useState<
     { code: string; type: string; timestamp: string; matchedName?: string }[]
   >([
@@ -126,7 +132,14 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md">
-      <div className="w-full max-w-3xl rounded-3xl bg-slate-900 border border-slate-800 shadow-2xl overflow-hidden text-slate-100 flex flex-col max-h-[92vh]">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="barcode-scanner-title"
+        tabIndex={-1}
+        className="w-full max-w-3xl rounded-3xl bg-slate-900 border border-slate-800 shadow-2xl overflow-hidden text-slate-100 flex flex-col max-h-[92vh]"
+      >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-800 px-6 py-4 bg-slate-950/80">
           <div className="flex items-center gap-3">
@@ -134,7 +147,10 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
               <QrCode className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="text-base font-extrabold text-white flex items-center gap-2">
+              <h3
+                id="barcode-scanner-title"
+                className="text-base font-extrabold text-white flex items-center gap-2"
+              >
                 <span>Mobile Barcode & QR Scanner Studio</span>
                 <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-[10px] font-mono font-bold">
                   LIVE READY
@@ -146,7 +162,10 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             </div>
           </div>
           <button
+            ref={closeButtonRef}
+            type="button"
             onClick={onClose}
+            aria-label="Close barcode scanner"
             className="rounded-xl p-2 text-slate-400 hover:bg-slate-800 hover:text-white transition-colors cursor-pointer"
           >
             <X className="h-5 w-5" />
