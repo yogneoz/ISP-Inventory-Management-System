@@ -1,6 +1,6 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-29 · Branch: main · Tests: 1598/1598 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-30 · Branch: main · Tests: 1598/1598 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
 > **Current state (2026-10-27, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1/VOL-2/BUDGET-1/BOOT-1/VOL-3/VOL-4a/VOL-4b/SN-1/ASSET-1/EXCH-1/READ-1/CDR-1/CDR-2).** All DF-01…DF-17
 > work, the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2, CPE-3,
@@ -105,7 +105,14 @@ _Date: 2026-10-29 · Branch: main · Tests: 1598/1598 green with a DB (all run i
 > convention guards, the production build, the startup bundle budget and the
 > boot-timing gate; the audit commit `cde6724` had passed everything except the
 > entry budget, which `7634cc1` records at 17.1 kB and raises to 18 kB while the
-> 320 kB total stays at 291.2 kB. **No round is active.** The payload work
+> 320 kB total stays at 291.2 kB. **Sidebar restructure (2026-10-30):**
+> `5761540` regrouped the rail into eight domain groups with Registers/Forms
+> sections and a single-open accordion, retiring Branch Operations; seven new
+> render tests pin it, and CI [run 214](https://github.com/yogneoz/ISP-Inventory-Management-System/actions/runs/40997098757)
+> is green on attempt 2 after the first attempt's headless-Chrome launch flake
+> (steps 1–14, including all 1598 tests, had already passed). Detail:
+> [2026.md](docs/session-notes/2026.md#-sidebar-restructure-and-green-ci-run-214-2026-10-30).
+> **No round is active.** The payload work
 > is finished — the remaining-array measurement found no item to open, and the
 > `inventory_stock` trigger is recorded in [2026.md](docs/session-notes/2026.md). The
 > notes are split by year (**SN-1**): entries live in
