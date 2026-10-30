@@ -73,7 +73,9 @@ attempts, and still fails with the real cause when all attempts are exhausted.
 `tests/bootTimingRetry.test.ts` pins the bounded behavior, and CI
 [run 41022526555](https://github.com/yogneoz/ISP-Inventory-Management-System/actions/runs/41022526555)
 is green on `2246c20` (attempt 1, so the retry added no wait to a healthy
-launch). Detail:
+launch; the record commit `29aa797` is green on attempt 1 as well,
+[run 41025819587](https://github.com/yogneoz/ISP-Inventory-Management-System/actions/runs/41025819587)).
+Detail:
 [2026 session note](../docs/session-notes/2026.md#-boot-timing-launch-retry-2026-10-30).
 
 **Completed outside a round — sales-form consolidation (2026-10-30).** Stock
