@@ -513,6 +513,10 @@ export interface WarrantyCoverageRecord {
   notes?: string | null;
   isCurrent: boolean;
   supersededAt?: string | null;
+  /** Why the row left the active register (SALES_RETURN, PURCHASE_RETURN, …). */
+  retiredReason?: string | null;
+  /** The credit/debit note that retired it, when a return did. */
+  retiredRef?: string | null;
   isDemo?: boolean;
 }
 
@@ -538,9 +542,13 @@ export interface WarrantyCoverageRow {
   endDateAD: string;
   termMonths?: number | null;
   startBasis: WarrantyStartBasis;
-  warrantyState: 'VALID' | 'EXPIRING_SOON' | 'EXPIRED';
+  /** RETURNED marks a retired row shown under the register's Returned filter. */
+  warrantyState: 'VALID' | 'EXPIRING_SOON' | 'EXPIRED' | 'RETURNED';
   daysRemaining: number;
   notes?: string | null;
+  /** Why the row was retired, and the document that did it. */
+  retiredReason?: string | null;
+  retiredRef?: string | null;
   isDemo?: boolean;
 }
 

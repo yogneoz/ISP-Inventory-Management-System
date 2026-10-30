@@ -18,6 +18,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Timer,
+  Undo2,
 } from 'lucide-react';
 import type { User, WarrantyCoverageRow } from '../../../types';
 import { api } from '../../../services/api';
@@ -49,6 +50,7 @@ const STATUS_OPTIONS = [
   { value: 'VALID', label: 'Valid' },
   { value: 'EXPIRING_SOON', label: 'Expiring within 30 days' },
   { value: 'EXPIRED', label: 'Expired' },
+  { value: 'RETURNED', label: 'Returned (retired)' },
 ];
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -65,7 +67,16 @@ function sourceLabel(row: WarrantyCoverageRow): string {
   return SOURCE_LABELS[String(row.sourceType || '').toUpperCase()] || row.sourceType || '—';
 }
 
+const RETIRED_REASON_LABELS: Record<string, string> = {
+  SALES_RETURN: 'Returned by customer',
+  PURCHASE_RETURN: 'Returned to supplier',
+};
+
 function stateLabel(row: WarrantyCoverageRow): string {
+  if (row.warrantyState === 'RETURNED') {
+    const reason = RETIRED_REASON_LABELS[String(row.retiredReason || '').toUpperCase()] || 'Retired';
+    return row.retiredRef ? `${reason} · ${row.retiredRef}` : reason;
+  }
   const days = Number.isFinite(row.daysRemaining) ? row.daysRemaining : 0;
   if (row.warrantyState === 'EXPIRED') {
     const late = Math.max(0, -days);
@@ -84,11 +95,14 @@ const STATE_PILL: Record<WarrantyCoverageRow['warrantyState'], string> = {
     'bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800',
   EXPIRED:
     'bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-800',
+  RETURNED:
+    'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700',
 };
 
 function stateIcon(state: WarrantyCoverageRow['warrantyState']) {
   if (state === 'VALID') return <ShieldCheck className="h-3.5 w-3.5 shrink-0" />;
   if (state === 'EXPIRING_SOON') return <Timer className="h-3.5 w-3.5 shrink-0" />;
+  if (state === 'RETURNED') return <Undo2 className="h-3.5 w-3.5 shrink-0" />;
   return <ShieldAlert className="h-3.5 w-3.5 shrink-0" />;
 }
 
@@ -535,7 +549,7 @@ export const WarrantyRegister: React.FC<WarrantyRegisterProps> = ({
                     </td>
 
                     <td className="p-2.5 text-center">
-                      {canEdit ? (
+                      {canEdit && row.warrantyState !== 'RETURNED' ? (
                         <button
                           type="button"
                           onClick={() => setEditing(row)}

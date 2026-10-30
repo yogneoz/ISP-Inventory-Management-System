@@ -92,8 +92,11 @@ interface MirrorRow {
   startBasis: string;
   notes?: string | null;
   isDemo?: boolean;
-  warrantyState: 'VALID' | 'EXPIRING_SOON' | 'EXPIRED';
+  /** RETURNED marks a retired row (return/correction), not a date state. */
+  warrantyState: 'VALID' | 'EXPIRING_SOON' | 'EXPIRED' | 'RETURNED';
   daysRemaining: number;
+  retiredReason?: string | null;
+  retiredRef?: string | null;
 }
 
 function mirrorRows(opts: WarrantyQueryOptions, branchNames: Map<string, string>): MirrorRow[] {
@@ -103,8 +106,11 @@ function mirrorRows(opts: WarrantyQueryOptions, branchNames: Map<string, string>
   const from = typeof opts.startFrom === 'string' ? opts.startFrom : '';
   const to = typeof opts.startTo === 'string' ? opts.startTo : '';
   const scope = Array.isArray(opts.branchScope) ? new Set(opts.branchScope) : null;
+  // The Returned filter reads the retired population; every other view reads
+  // current coverage. Same split as the SQL builder.
+  const retired = status === 'RETURNED';
   return warrantyCoverages
-    .filter((row) => row.isCurrent && row.coverageType === opts.coverageType)
+    .filter((row) => (retired ? !row.isCurrent : row.isCurrent) && row.coverageType === opts.coverageType)
     .filter((row) => {
       if (scope) {
         if (scope.size === 0 || !scope.has(String(row.branchId || ''))) return false;
@@ -123,7 +129,7 @@ function mirrorRows(opts: WarrantyQueryOptions, branchNames: Map<string, string>
       return true;
     })
     .map((row) => {
-      const state = warrantyStateForMirror(row.endDateAD);
+      const state = row.isCurrent ? warrantyStateForMirror(row.endDateAD) : 'RETURNED';
       const end = Date.parse(`${row.endDateAD}T00:00:00Z`);
       const today = new Date();
       const todayUTC = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
@@ -148,10 +154,14 @@ function mirrorRows(opts: WarrantyQueryOptions, branchNames: Map<string, string>
         isDemo: row.isDemo,
         warrantyState: state,
         daysRemaining: Math.round((end - todayUTC) / 86_400_000),
+        retiredReason: row.retiredReason ?? null,
+        retiredRef: row.retiredRef ?? null,
       };
     })
     .filter((row) => {
-      if (status === 'VALID' || status === 'EXPIRING_SOON' || status === 'EXPIRED') return row.warrantyState === status;
+      if (status === 'VALID' || status === 'EXPIRING_SOON' || status === 'EXPIRED' || status === 'RETURNED') {
+        return row.warrantyState === status;
+      }
       return true;
     })
     .sort((a, b) => (a.endDateAD === b.endDateAD ? a.id.localeCompare(b.id) : a.endDateAD.localeCompare(b.endDateAD)));
@@ -181,7 +191,7 @@ export function buildWarrantyMirrorPage(
     expired: all.filter((row) => row.warrantyState === 'EXPIRED').length,
   };
   const status = typeof opts.status === 'string' ? opts.status.trim().toUpperCase() : '';
-  const filtered = ['VALID', 'EXPIRING_SOON', 'EXPIRED'].includes(status)
+  const filtered = ['VALID', 'EXPIRING_SOON', 'EXPIRED', 'RETURNED'].includes(status)
     ? all.filter((row) => row.warrantyState === status)
     : all;
   const start = (page - 1) * pageSize;

@@ -538,13 +538,22 @@ export const LEDGER_CUSTOMER_RETURNS_SQL =
  * JSON array; the append keeps the {status, sourceType, sourceId, dateAD,
  * notes} entry shape used by serials.service.ts.
  */
+/**
+ * Flips the returned units back, but only the ones whose current state is what
+ * the return reverses ($4). A serial that another transaction already returned,
+ * sold or damaged makes rowCount miss, which the caller turns into a rollback
+ * instead of silently rewriting an unrelated unit. Comparison is
+ * case-insensitive because the scan that named it was (SI claim matches
+ * lower(trim(...))).
+ */
 export const SR_SERIAL_FLIP_SQL = `UPDATE serial_log
  SET status = $2,
      customer_id = NULL,
      customer_name = NULL,
      updated_at = CURRENT_TIMESTAMP,
      history_json = (COALESCE(NULLIF(history_json, ''), '[]')::jsonb || $3::jsonb)::text
- WHERE device_serial = ANY($1::text[])`;
+ WHERE lower(trim(device_serial)) = ANY($1::text[])
+   AND status = ANY($4::text[])`;
 
 /**
  * Non-restockable sales returns route their units into the damage register

@@ -49,9 +49,19 @@ import {
   buildPurchaseWarrantyCaptures,
   recordWarrantyCoverage,
   recordWarrantyCoverageMirror,
-  supersedeCoverageBySource,
-  supersedeCoverageBySourceMirror,
+  retireCoverageForSerials,
+  retireCoverageForSerialsMirror,
 } from '../services/warranty.service';
+import {
+  collectReturnSerials,
+  hydrateReturnSerialEntries,
+  loadReturnSerialRows,
+  returnLineSerials,
+  serialRowsFromInvoiceItems,
+  validateReturnSerialCounts,
+  validateReturnSerialsAgainstRegister,
+  type SerialLogRow,
+} from '../services/returnSerials.service';
 /** Forwarded from procurement.routes.ts (get_purchaseOrders). */
 export async function get_purchaseOrders(req: any, res: Response): Promise<any> {
 const { branchId, status, supplier, query, dateFromAD, dateToAD, page, pageSize, all } = req.query;
@@ -1570,29 +1580,9 @@ export async function get_purchaseReturns(req: any, res: Response): Promise<any>
  */
 const RETURNS_APPROVAL_THRESHOLD_NPR = intFromEnv('RETURNS_APPROVAL_THRESHOLD_NPR', 200000, { min: 0 });
 
-/** Extracts device serials from a return item (accepts strings or pairs). */
-function returnItemSerials(item: any): string[] {
-  return (item.deviceSerials || [])
-    .map((s: any) => (typeof s === 'string' ? s : s?.deviceSerial))
-    .filter((s: any) => typeof s === 'string' && s.trim())
-    .map((s: string) => s.trim());
-}
-
-/**
- * Serial-tracked products must return with exactly one serial per unit
- * (plan Milestone B §7). Validated before the return row is inserted.
- */
-function validateReturnSerials(items: any[]): string | null {
-  for (const item of items) {
-    const product = products.find((p) => p.id === item.productId);
-    if (!product?.requiresSerialTracking) continue;
-    const qty = Math.abs(Number(item.quantity)) || 0;
-    const serials = returnItemSerials(item);
-    if (serials.length !== qty) {
-      return `${item.productName || item.productId} is serial-tracked: ${qty} serial(s) required, ${serials.length} provided.`;
-    }
-  }
-  return null;
+/** The product rule both return flows share (quantity-only lines carry none). */
+function isSerialTrackedProduct(productId?: string): boolean {
+  return Boolean(products.find((p) => p.id === productId)?.requiresSerialTracking);
 }
 
 /**
@@ -1601,9 +1591,6 @@ function validateReturnSerials(items: any[]): string | null {
  * RETURNED_TO_VENDOR with a history entry.
  */
 async function applyPurchaseReturnEffects(client: any, ret: any, items: any[], branchId: string): Promise<void> {
-  // WTY-4: a return retires what that bill captured. One statement for the
-  // invoice's VENDOR rows; other purchases keep their current coverage.
-  await supersedeCoverageBySource(client, 'VENDOR', 'PURCHASE_INVOICE', ret.originalInvoiceId);
   for (let itemIdx = 0; itemIdx < items.length; itemIdx++) {
     const item = items[itemIdx];
     const qty = Math.abs(Number(item.quantity)) || 0;
@@ -1616,10 +1603,17 @@ async function applyPurchaseReturnEffects(client: any, ret: any, items: any[], b
     const after = Number(deducted.rows?.[0]?.quantity_on_hand);
     const stockBefore = Number.isFinite(after) ? after + qty : undefined;
     await client.query(PR_TXN_LOG_SQL, prTxnLogParams(ret, item, branchId, itemIdx, stockBefore));
-    const serials = returnItemSerials(item);
+    const serials = returnLineSerials(item).map((entry) => entry.deviceSerial);
+    // WTY-4: only the units this return actually took back lose their VENDOR
+    // coverage — a partial return must not retire the rest of the bill. The row
+    // is kept and marked, so the register can show why it ended.
+    await retireCoverageForSerials(client, 'VENDOR', serials, {
+      reason: 'PURCHASE_RETURN',
+      ref: ret.returnNumber,
+    });
     if (serials.length > 0) {
-      await client.query(PR_SERIAL_FLIP_SQL, [
-        serials,
+      const flipped = await client.query(PR_SERIAL_FLIP_SQL, [
+        serials.map((serial) => serial.toLowerCase()),
         'RETURNED_TO_VENDOR',
         JSON.stringify([{
           status: 'RETURNED_TO_VENDOR',
@@ -1628,7 +1622,14 @@ async function applyPurchaseReturnEffects(client: any, ret: any, items: any[], b
           dateAD: String(ret.returnDateAD || '').split('T')[0],
           notes: `Returned to vendor via ${ret.returnNumber}`,
         }]),
+        ['IN_STOCK'],
       ]);
+      if (flipped.rowCount !== serials.length) {
+        throw new Error(
+          `Could not claim all ${serials.length} returned serial(s) — one or more are no longer ` +
+            `IN_STOCK at ${branchId}. Nothing was posted.`
+        );
+      }
     }
   }
 }
@@ -1702,8 +1703,27 @@ export async function post_purchaseReturns(req: any, res: Response): Promise<any
       items,
     };
 
-    const serialViolation = validateReturnSerials(items);
+    // Return serials: shape first (count per unit, no duplicates), then the
+    // register (exists, product, original bill, IN_STOCK at this branch) and
+    // hydrate MAC/PON from it. The browser names units; the register defines
+    // their identity.
+    const serialViolation = validateReturnSerialCounts(items, isSerialTrackedProduct);
     if (serialViolation) return res.status(400).json({ message: serialViolation });
+    const returnSerialList = collectReturnSerials(items);
+    if (returnSerialList.length > 0) {
+      const serialRows: Map<string, SerialLogRow> = getPgConnected()
+        ? await loadReturnSerialRows(pgPool, returnSerialList)
+        : serialRowsFromInvoiceItems(invoiceRow.items || []);
+      if (getPgConnected()) {
+        const registerViolation = validateReturnSerialsAgainstRegister(items, serialRows, {
+          kind: 'PURCHASE',
+          invoiceItems: invoiceRow.items || [],
+          branchId: targetBranchId,
+        });
+        if (registerViolation) return res.status(400).json({ message: registerViolation });
+      }
+      hydrateReturnSerialEntries(items, serialRows);
+    }
 
     if (getPgConnected()) {
       // Over-return guard: per (invoice, product) already-returned quantity,
@@ -1751,8 +1771,11 @@ export async function post_purchaseReturns(req: any, res: Response): Promise<any
           }));
         });
         if (demoTxns.length > 0) setTransactionLogs([...demoTxns, ...transactionLogs]);
-        // Demo-mode twin of the coverage supersede in applyPurchaseReturnEffects.
-        supersedeCoverageBySourceMirror('VENDOR', 'PURCHASE_INVOICE', newRet.originalInvoiceId);
+        // Demo twin of the per-unit retirement in applyPurchaseReturnEffects.
+        retireCoverageForSerialsMirror('VENDOR', collectReturnSerials(items), {
+          reason: 'PURCHASE_RETURN',
+          ref: returnNumber,
+        });
       }
     }
 
@@ -1813,10 +1836,10 @@ export async function post_purchaseReturnCancel(req: any, res: Response): Promis
               PR_CANCEL_TXN_LOG_SQL,
               prCancelTxnLogParams(ret, item, ret.branchId, cancelLineIdx++, stockBefore, { ad: prCancelAD, bs: prCancelBS })
             );
-            const serials = returnItemSerials(item);
+            const serials = returnLineSerials(item).map((entry) => entry.deviceSerial);
             if (serials.length > 0) {
-              await client.query(PR_SERIAL_FLIP_SQL, [
-                serials,
+              const flipped = await client.query(PR_SERIAL_FLIP_SQL, [
+                serials.map((serial) => serial.toLowerCase()),
                 'IN_STOCK',
                 JSON.stringify([{
                   status: 'IN_STOCK',
@@ -1825,7 +1848,14 @@ export async function post_purchaseReturnCancel(req: any, res: Response): Promis
                   dateAD: new Date().toISOString().split('T')[0],
                   notes: `Purchase return ${ret.returnNumber} cancelled`,
                 }]),
+                ['RETURNED_TO_VENDOR'],
               ]);
+              if (flipped.rowCount !== serials.length) {
+                throw new Error(
+                  `Could not restore the returned serial(s) for ${ret.returnNumber} — one or more ` +
+                    `are no longer RETURNED_TO_VENDOR. Nothing was cancelled.`
+                );
+              }
             }
           }
         }
@@ -1902,7 +1932,10 @@ export async function post_purchaseReturnApprove(req: any, res: Response): Promi
       const violation = prValidateAgainstInvoice(invoiceRow.items || [], items, perProductReturned);
       if (violation) return res.status(400).json({ message: violation });
 
-      const serialViolation = validateReturnSerials(items);
+      // The stored serials were validated at creation; approving later still
+      // needs the shape check, and the guarded flip inside the transaction
+      // refuses any unit that moved in the meantime.
+      const serialViolation = validateReturnSerialCounts(items, isSerialTrackedProduct);
       if (serialViolation) return res.status(400).json({ message: serialViolation });
 
       await withTransaction(async (client) => {

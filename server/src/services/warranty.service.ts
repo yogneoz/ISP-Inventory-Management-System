@@ -20,6 +20,7 @@ import {
   WARRANTY_SUPERSEDE_BY_SOURCE_SQL,
   WARRANTY_SUPERSEDE_BY_ID_SQL,
   WARRANTY_SUPERSEDE_SELLER_BY_SERIALS_SQL,
+  WARRANTY_RETIRE_BY_SERIALS_SQL,
   warrantyInsertParams,
   type WarrantyInsertInput,
 } from '../models/warranty.repo';
@@ -289,6 +290,50 @@ export async function supersedeSellerCoverageForSerials(
   const normalized = [...new Set(serials.map(normalizeWarrantySerial).filter(Boolean))];
   if (normalized.length === 0) return;
   await executor.query(WARRANTY_SUPERSEDE_SELLER_BY_SERIALS_SQL, [normalized]);
+}
+
+/**
+ * Retire coverage for exactly the units a return took back, recording the
+ * reason and the credit/debit note. Deleting the row would erase the coverage
+ * history the serial's audit trail depends on, so this keeps it and flips
+ * `is_current`; the registers list it under Returned.
+ */
+export async function retireCoverageForSerials(
+  executor: { query: (sql: string, params?: any[]) => Promise<any> },
+  coverageType: WarrantyCoverageType,
+  serials: string[],
+  opts: { reason: string; ref?: string | null }
+): Promise<void> {
+  const normalized = [...new Set(serials.map(normalizeWarrantySerial).filter(Boolean))];
+  if (normalized.length === 0) return;
+  await executor.query(WARRANTY_RETIRE_BY_SERIALS_SQL, [
+    coverageType,
+    normalized,
+    opts.reason,
+    opts.ref || null,
+  ]);
+}
+
+/** Demo-mode twin of retireCoverageForSerials (PostgreSQL down). */
+export function retireCoverageForSerialsMirror(
+  coverageType: WarrantyCoverageType,
+  serials: string[],
+  opts: { reason: string; ref?: string | null }
+): void {
+  const keys = new Set(serials.map(normalizeWarrantySerial).filter(Boolean));
+  if (keys.size === 0) return;
+  const now = new Date().toISOString();
+  setWarrantyCoverages(warrantyCoverages.map((row) =>
+    row.coverageType === coverageType && keys.has(row.serialNumber) && row.isCurrent
+      ? {
+          ...row,
+          isCurrent: false,
+          supersededAt: now,
+          retiredReason: opts.reason,
+          retiredRef: opts.ref || null,
+        }
+      : row
+  ));
 }
 
 export function supersedeSellerCoverageForSerialsMirror(serials: string[]): void {

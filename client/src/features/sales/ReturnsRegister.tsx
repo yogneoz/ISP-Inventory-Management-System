@@ -19,7 +19,19 @@ import {
   CheckCircle2,
   PackageCheck,
   PackageX,
+  Barcode,
 } from 'lucide-react';
+import { normalizeMacAddress } from '../../../../shared/macAddress';
+import {
+  duplicateSerialSlotIndex,
+  findInvoiceSerialUnit,
+  fitReturnSerialSlots,
+  invoiceSerialUnits,
+  returnSerialKey,
+  returnSerialProblems,
+  seedReturnSerialSlots,
+  type ReturnSerialSlot,
+} from '../../utils/returnSerials';
 import { PageHeader } from '../../components/common/PageHeader';
 import { formCardClass } from '../../components/common/FormCard';
 import { FilterCard } from '../../components/common/FilterCard';
@@ -65,6 +77,29 @@ interface ReturnsRegisterProps {
 
 const REASONS = ['DEFECTIVE', 'WRONG_ITEM', 'SHORT_SUPPLY', 'OTHER'] as const;
 
+/** One unit per line: the identity a return document carries for that unit. */
+function ReturnSerialsCell({ item }: { item: any }) {
+  const entries = (Array.isArray(item?.deviceSerials) ? item.deviceSerials : [])
+    .map((serial: any) => (typeof serial === 'string' ? { deviceSerial: serial } : serial))
+    .filter((serial: any) => serial?.deviceSerial);
+  if (entries.length === 0) return <span className="text-slate-400">—</span>;
+  return (
+    <div className="space-y-0.5">
+      {entries.map((serial: any, index: number) => (
+        <div key={index} className="whitespace-normal break-words">
+          <span className="font-semibold">{serial.deviceSerial}</span>
+          {serial.ponSerial ? (
+            <span className="text-slate-500 dark:text-slate-400"> · PON {serial.ponSerial}</span>
+          ) : null}
+          {serial.macAddress ? (
+            <span className="text-slate-500 dark:text-slate-400"> · MAC {serial.macAddress}</span>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 interface RetLine {
   productId: string;
   productName: string;
@@ -75,7 +110,12 @@ interface RetLine {
   isTaxExempt: boolean;
   maxQty: number;
   requiresSerials: boolean;
-  serialsText: string;
+  /**
+   * One identity per returned unit, sized to the quantity. Scanned, not typed
+   * as a comma-separated list: a barcode reader ends each read with Enter and
+   * the form moves to the next field, exactly like the purchase bill.
+   */
+  deviceSerials: ReturnSerialSlot[];
 }
 
 export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
@@ -186,6 +226,18 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
       .reduce((s: number, it: any) => s + (Math.abs(Number(it.quantity)) || 0), 0);
   };
 
+  /** Serials a posted return already took back for one invoice line. */
+  const returnedSerialsFor = (invoiceId: string | undefined, productId: string): string[] => {
+    if (!invoiceId) return [];
+    return returns
+      .filter((r: any) => r.originalInvoiceId === invoiceId && r.status === 'POSTED')
+      .flatMap((r: any) => r.items || [])
+      .filter((it: any) => it.productId === productId)
+      .flatMap((it: any) => it.deviceSerials || [])
+      .map((s: any) => (typeof s === 'string' ? s : s?.deviceSerial))
+      .filter(Boolean);
+  };
+
   /**
    * Sales-invoice search for the returns picker. Server-side (invoice number
    * or customer name) over the paged endpoint, so a return can target an
@@ -207,25 +259,47 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
     setLines([]);
     setFormError('');
     setBranchId(inv.branchId);
-    setLines(
-      (inv.items || []).map((it: any) => {
+    const nextLines = (inv.items || []).map((it: any) => {
         const invoiced = Math.abs(Number(it.quantity)) || 0;
         const already = returnedQtyFor(inv.id, it.productId);
+        const returnable = Math.max(0, invoiced - already);
         const p = products.find((pr) => pr.id === it.productId);
         return {
           productId: it.productId,
           productName: it.productName,
           sku: it.sku || '',
           unit: it.unit || '',
-          quantity: Math.max(0, invoiced - already),
+          quantity: returnable,
           unitPrice: Number(it.unitPrice) || 0,
           isTaxExempt: (Number(it.taxRate) || 0) === 0,
-          maxQty: Math.max(0, invoiced - already),
+          maxQty: returnable,
           requiresSerials: Boolean(p?.requiresSerialTracking),
-          serialsText: '',
+          // Seeded from the invoice's own units, minus those already returned,
+          // so scanning the first unit lands on the right slot and no serial is
+          // offered twice.
+          deviceSerials: seedReturnSerialSlots({
+            invoiceItems: inv.items,
+            productId: it.productId,
+            quantity: returnable,
+            alreadyReturned: returnedSerialsFor(inv.id, it.productId),
+          }),
         };
-      })
+      });
+    setLines(nextLines);
+    // Put the caret in the first unit that still needs an identity, so a
+    // barcode reader's next read lands there instead of nowhere. Lines the
+    // invoice fully seeded have nothing to scan and keep the focus untouched.
+    const firstLine = nextLines.findIndex((line) =>
+      line.deviceSerials.some((slot) => !slot.deviceSerial.trim())
     );
+    if (firstLine >= 0) {
+      const firstSlot = nextLines[firstLine].deviceSerials.findIndex(
+        (slot) => !slot.deviceSerial.trim()
+      );
+      requestAnimationFrame(() =>
+        focusReturnField(`ret-serial-device-${firstLine}-${firstSlot}`)
+      );
+    }
   };
 
   const lineTotals = useMemo(() => {
@@ -247,8 +321,71 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
     setLines((prev) => prev.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
   };
 
-  const parseSerials = (text: string): string[] =>
-    text.split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean);
+  /**
+   * Quantity drives the serial slots: one row per returned unit, like the
+   * purchase bill. Lowering the quantity drops the tail (a unit no longer being
+   * returned must not keep its identity); raising it adds empty units.
+   */
+  const updateLineQuantity = (idx: number, quantity: number) => {
+    setLines((prev) =>
+      prev.map((l, i) =>
+        i === idx
+          ? { ...l, quantity, deviceSerials: fitReturnSerialSlots(l.deviceSerials, quantity) }
+          : l
+      )
+    );
+  };
+
+  const updateLineSerial = (lineIdx: number, serialIdx: number, patch: Partial<ReturnSerialSlot>) => {
+    setLines((prev) =>
+      prev.map((line, i) => {
+        if (i !== lineIdx) return line;
+        const deviceSerials = line.deviceSerials.map((slot, s) =>
+          s === serialIdx ? { ...slot, ...patch } : slot
+        );
+        return { ...line, deviceSerials };
+      })
+    );
+  };
+
+  /** Scanned/typed device serial: MAC and PON come from the invoice's unit. */
+  const updateLineDeviceSerial = (lineIdx: number, serialIdx: number, raw: string) => {
+    const line = lines[lineIdx];
+    const units = selectedInvoice ? invoiceSerialUnits(selectedInvoice.items, line.productId) : [];
+    const unit = findInvoiceSerialUnit(units, raw);
+    updateLineSerial(lineIdx, serialIdx, {
+      deviceSerial: raw,
+      ...(unit ? { macAddress: unit.macAddress, ponSerial: unit.ponSerial } : {}),
+    });
+  };
+
+  /** A barcode often carries the MAC without separators; canonicalise on blur/Enter. */
+  const normalizeLineMac = (lineIdx: number, serialIdx: number) => {
+    const current = lines[lineIdx]?.deviceSerials?.[serialIdx]?.macAddress;
+    const normalized = normalizeMacAddress(current);
+    if (normalized !== current) updateLineSerial(lineIdx, serialIdx, { macAddress: normalized });
+  };
+
+  const focusReturnField = (id: string) => {
+    const el = document.getElementById(id) as HTMLInputElement | null;
+    if (!el) return;
+    el.focus();
+    if ('select' in el) el.select();
+  };
+
+  /** The next unit still missing its device serial, across later lines. */
+  const focusNextDeviceSlot = (lineIdx: number, serialIdx: number) => {
+    for (let li = lineIdx; li < lines.length; li += 1) {
+      const start = li === lineIdx ? serialIdx + 1 : 0;
+      for (let si = start; si < lines[li].deviceSerials.length; si += 1) {
+        if (!lines[li].deviceSerials[si].deviceSerial.trim()) {
+          focusReturnField(`ret-serial-device-${li}-${si}`);
+          return;
+        }
+      }
+    }
+    focusReturnField('return-notes');
+  };
 
   const resetForm = () => {
     setInvoiceRef(''); setSelectedSalesInvoice(null); setLines([]); setNotes(''); setReason('DEFECTIVE'); setRestockable(true);
@@ -265,16 +402,25 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
       setFormError(`Cannot return more than ${over.maxQty} × ${over.productName} (invoiced minus already returned).`);
       return;
     }
-    const serialMissing = validLines.find((l) => l.requiresSerials && parseSerials(l.serialsText).length !== (Number(l.quantity) || 0));
-    if (serialMissing) {
-      setFormError(`${serialMissing.productName} is serial-tracked: enter exactly ${serialMissing.quantity} serial(s), comma-separated.`);
+    // Per-unit identity: one scanned device serial per unit, no duplicates.
+    // The server then checks the register (existence, product, original
+    // invoice, expected state) and fills MAC/PON from it.
+    const serialProblem = returnSerialProblems(validLines);
+    if (serialProblem) {
+      setFormError(serialProblem);
       return;
     }
     setSubmitting(true);
     try {
       const items = validLines.map((l, i) => {
         const gross = (Number(l.quantity) || 0) * (Number(l.unitPrice) || 0);
-        const serials = parseSerials(l.serialsText);
+        const serials = l.deviceSerials
+          .filter((slot) => returnSerialKey(slot.deviceSerial))
+          .map((slot) => ({
+            deviceSerial: slot.deviceSerial.trim(),
+            macAddress: slot.macAddress.trim() || undefined,
+            ponSerial: slot.ponSerial.trim() || undefined,
+          }));
         return {
           id: `ret-${Date.now()}-${i}`,
           productId: l.productId,
@@ -288,7 +434,7 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
           subtotal: gross,
           taxAmount: l.isTaxExempt ? 0 : (gross * getDefaultTaxRate()) / 100,
           total: l.isTaxExempt ? gross : gross * (1 + getDefaultTaxRate() / 100),
-          ...(l.requiresSerials ? { deviceSerials: serials.map((s) => ({ deviceSerial: s })) } : {}),
+          ...(l.requiresSerials ? { deviceSerials: serials } : {}),
         };
       });
       const partyFields = isPurchase
@@ -442,6 +588,7 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
                 <tr className={`border-b ${isDarkMode ? 'border-slate-700' : 'border-slate-200'} text-left text-xs uppercase text-slate-500`}>
                   <th className="py-2">Product</th><th className="py-2">SKU</th><th className="py-2">Qty</th>
                   <th className="py-2">Unit Price</th><th className="py-2">Total</th>
+                  <th className="py-2">Serials (Device / PON / MAC)</th>
                 </tr>
               </thead>
               <tbody>
@@ -452,6 +599,7 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
                     <td className="py-2">{it.quantity}</td>
                     <td className="py-2">{formatMoney(it.unitPrice)}</td>
                     <td className="py-2">{formatMoney(it.total || it.quantity * it.unitPrice)}</td>
+                    <td className="py-2 font-mono text-[11px]"><ReturnSerialsCell item={it} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -559,7 +707,12 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
             )}
             <div>
               <label className={labelClass}>Notes</label>
-              <input className={inputClass} value={notes} onChange={(e) => setNotes(e.target.value)} />
+              <input
+                id="return-notes"
+                className={inputClass}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+              />
             </div>
           </div>
 
@@ -575,7 +728,7 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
                   </div>
                   <div className="col-span-2">
                     <input type="number" min="0" max={line.maxQty} className={inputClass} value={line.quantity}
-                      onChange={(e) => updateLine(idx, { quantity: parseLineQuantity(e.target.value, 0) })} placeholder="Qty" />
+                      onChange={(e) => updateLineQuantity(idx, parseLineQuantity(e.target.value, 0))} placeholder="Qty" />
                   </div>
                   <div className="col-span-2">
                     <div className={`rounded-lg border px-3 py-2 text-sm ${isDarkMode ? 'border-slate-700 bg-slate-800/60' : 'border-slate-200 bg-slate-50'}`}>
@@ -590,13 +743,109 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
                       onClick={() => setLines((prev) => prev.filter((_, i) => i !== idx))}>✕</button>
                   </div>
                   {line.requiresSerials && (
-                    <div className="col-span-12">
-                      <input
-                        className={`${inputClass} text-xs`}
-                        value={line.serialsText}
-                        onChange={(e) => updateLine(idx, { serialsText: e.target.value })}
-                        placeholder={`Serial-tracked product — enter exactly ${line.quantity} serial(s), comma-separated`}
-                      />
+                    <div className="col-span-12 rounded-xl border border-indigo-200 bg-indigo-50/40 p-2.5 dark:border-indigo-900 dark:bg-indigo-950/30">
+                      <div className="mb-2 flex flex-wrap items-center gap-1.5 text-[11px] font-bold text-indigo-800 dark:text-indigo-300">
+                        <Barcode className="h-3.5 w-3.5" />
+                        <span>
+                          Serial numbers — scan Device, MAC and PON per unit ({line.deviceSerials.length}{' '}
+                          unit{line.deviceSerials.length === 1 ? '' : 's'})
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        {line.deviceSerials.map((slot, sIdx) => {
+                          const units = selectedInvoice
+                            ? invoiceSerialUnits(selectedInvoice.items, line.productId)
+                            : [];
+                          const matched = Boolean(findInvoiceSerialUnit(units, slot.deviceSerial));
+                          const duplicateIdx = duplicateSerialSlotIndex(
+                            line.deviceSerials,
+                            slot.deviceSerial,
+                            sIdx
+                          );
+                          return (
+                            <div
+                              key={sIdx}
+                              className="rounded-xl border border-indigo-200 bg-white p-2.5 text-xs shadow-xs dark:border-indigo-900 dark:bg-slate-900"
+                            >
+                              <div className="mb-1.5 flex flex-wrap items-center justify-between gap-1">
+                                <span className="font-mono text-[10px] font-bold text-slate-400">Unit #{sIdx + 1}</span>
+                                <span className="text-[9px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                  Device required · MAC/PON from invoice
+                                </span>
+                              </div>
+                              <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
+                                <input
+                                  id={`ret-serial-device-${idx}-${sIdx}`}
+                                  type="text"
+                                  placeholder="Device Serial #"
+                                  value={slot.deviceSerial}
+                                  onChange={(e) => updateLineDeviceSerial(idx, sIdx, e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key !== 'Enter') return;
+                                    e.preventDefault();
+                                    // A scan of the unit that the invoice already identifies
+                                    // has its MAC/PON filled, so Enter goes straight to the
+                                    // next unit; otherwise it walks the identity fields.
+                                    if (slot.macAddress || slot.ponSerial) {
+                                      focusNextDeviceSlot(idx, sIdx);
+                                    } else {
+                                      focusReturnField(`ret-serial-mac-${idx}-${sIdx}`);
+                                    }
+                                  }}
+                                  className="w-full rounded-lg border border-blue-200 bg-blue-50/50 px-2.5 py-1 text-[11px] font-mono font-bold text-blue-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-200 dark:focus:bg-slate-900"
+                                />
+                                <input
+                                  id={`ret-serial-mac-${idx}-${sIdx}`}
+                                  type="text"
+                                  placeholder="MAC Address"
+                                  value={slot.macAddress}
+                                  onChange={(e) =>
+                                    updateLineSerial(idx, sIdx, { macAddress: e.target.value })
+                                  }
+                                  onBlur={() => normalizeLineMac(idx, sIdx)}
+                                  onKeyDown={(e) => {
+                                    if (e.key !== 'Enter') return;
+                                    e.preventDefault();
+                                    normalizeLineMac(idx, sIdx);
+                                    focusReturnField(`ret-serial-pon-${idx}-${sIdx}`);
+                                  }}
+                                  className="w-full rounded-lg border border-emerald-200 bg-emerald-50/50 px-2.5 py-1 text-[11px] font-mono font-bold text-emerald-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200 dark:focus:bg-slate-900"
+                                />
+                                <input
+                                  id={`ret-serial-pon-${idx}-${sIdx}`}
+                                  type="text"
+                                  placeholder="PON Serial # (optional)"
+                                  value={slot.ponSerial}
+                                  onChange={(e) =>
+                                    updateLineSerial(idx, sIdx, { ponSerial: e.target.value })
+                                  }
+                                  onKeyDown={(e) => {
+                                    if (e.key !== 'Enter') return;
+                                    e.preventDefault();
+                                    focusNextDeviceSlot(idx, sIdx);
+                                  }}
+                                  className="w-full rounded-lg border border-indigo-200 bg-indigo-50/50 px-2.5 py-1 text-[11px] font-mono font-bold text-indigo-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-200 dark:focus:bg-slate-900"
+                                />
+                              </div>
+                              {slot.deviceSerial.trim() && duplicateIdx >= 0 && (
+                                <div className="mt-1 text-[10px] font-semibold text-rose-600 dark:text-rose-400">
+                                  Already used on unit #{duplicateIdx + 1}.
+                                </div>
+                              )}
+                              {slot.deviceSerial.trim() && duplicateIdx < 0 && matched && (
+                                <div className="mt-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                                  On the original invoice — MAC/PON filled from it.
+                                </div>
+                              )}
+                              {slot.deviceSerial.trim() && duplicateIdx < 0 && !matched && (
+                                <div className="mt-1 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                                  Not recorded on the original invoice line — check the serial.
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
                 </div>

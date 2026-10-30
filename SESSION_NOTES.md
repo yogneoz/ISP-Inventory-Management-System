@@ -1,6 +1,6 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-30 · Branch: main · Tests: 1621/1621 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-30 · Branch: main · Tests: 1648/1648 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
 > **Current state (2026-10-27, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1/VOL-2/BUDGET-1/BOOT-1/VOL-3/VOL-4a/VOL-4b/SN-1/ASSET-1/EXCH-1/READ-1/CDR-1/CDR-2).** All DF-01…DF-17
 > work, the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2, CPE-3,
@@ -151,6 +151,27 @@ _Date: 2026-10-30 · Branch: main · Tests: 1621/1621 green with a DB (all run i
 > field's own layout is untouched. `tests/searchPickerPanel.test.ts` (6 tests)
 > pins the width policy and the non-truncating rows. Detail:
 > [2026.md](docs/session-notes/2026.md#-search-result-panels-show-the-whole-row-2026-10-30).
+> **Return serial capture + warranty retirement (2026-10-30):** both returns
+> (purchase DN and sales CN) now use the purchase bill's per-unit identity
+> pattern instead of one comma-separated box: quantity-sized Device / MAC / PON
+> rows, and Enter — a barcode reader's terminator — walks the identity fields
+> and then the next unit. The device serial resolves against the original
+> invoice's units, so MAC/PON fill in without re-scanning;
+> `client/src/utils/returnSerials.ts` owns the slot arithmetic and
+> `tests/returnSerials.capture.test.ts` (11 tests) pins it. Server-side,
+> `returnSerials.service.ts` refuses a serial that is missing, belongs to
+> another product, is not on the original invoice, sits at another branch, or is
+> in the wrong state (CUSTOMER_ASSIGNED for a sales return, IN_STOCK for a
+> purchase return), hydrates MAC/PON from `serial_log`, and both flips are now
+> status-guarded with rowCount checked, so a unit that moved on rolls the
+> transaction back instead of being overwritten. Warranty coverage is
+> **retained, not deleted**: the returned unit's SELLER (sales return) or VENDOR
+> (purchase return) row is retired with `retired_reason` and the note number,
+> only for the units actually returned (a partial purchase return no longer
+> retires the whole bill), and the registers gain a **Returned (retired)**
+> filter that shows the reason and document while the active KPIs stay
+> active-only. Detail:
+> [2026.md](docs/session-notes/2026.md#-returns-per-unit-serial-capture-2026-10-30).
 > **No round is active.** The payload work
 > is finished — the remaining-array measurement found no item to open, and the
 > `inventory_stock` trigger is recorded in [2026.md](docs/session-notes/2026.md). The

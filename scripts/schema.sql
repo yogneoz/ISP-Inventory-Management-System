@@ -850,6 +850,11 @@ CREATE TABLE IF NOT EXISTS warranty_coverages (
     notes TEXT,
     is_current BOOLEAN NOT NULL DEFAULT TRUE,
     superseded_at TIMESTAMP WITH TIME ZONE,
+    -- Why a row left the active register, and the document that did it.
+    -- Returned units keep their row (audit trail + the serial's coverage
+    -- history); the registers show them as RETURNED instead of deleting them.
+    retired_reason VARCHAR(40),
+    retired_ref VARCHAR(120),
     is_demo BOOLEAN NOT NULL DEFAULT FALSE,
     created_by VARCHAR(150),
     updated_by VARCHAR(150),
@@ -866,6 +871,12 @@ CREATE INDEX IF NOT EXISTS idx_warranty_branch_type_end
   ON warranty_coverages (branch_id, coverage_type, is_current, end_date_ad);
 CREATE INDEX IF NOT EXISTS idx_warranty_source
   ON warranty_coverages (source_type, source_id);
+
+-- Existing databases: the retirement columns arrived with the returns rework
+-- (2026-10-30). A bare table declaration does not add columns to an existing
+-- database.
+ALTER TABLE warranty_coverages ADD COLUMN IF NOT EXISTS retired_reason VARCHAR(40);
+ALTER TABLE warranty_coverages ADD COLUMN IF NOT EXISTS retired_ref VARCHAR(120);
 
 -- ==========================================
 -- 17b. Serial Log (one row per unique serial — consolidated register)

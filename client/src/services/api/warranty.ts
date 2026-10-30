@@ -13,7 +13,7 @@ export interface WarrantyRegisterQuery {
   /** 'ALL' / empty means the account's whole scope, resolved server-side. */
   branchId?: string;
   query?: string;
-  /** VALID | EXPIRING_SOON | EXPIRED; omit or ALL for every state. */
+  /** VALID | EXPIRING_SOON | EXPIRED | RETURNED; omit or ALL for every current state. */
   status?: string;
   /** VENDOR: CPE | FIXED_ASSET. SELLER: CPE | SOLD_PRODUCT. */
   category?: string;

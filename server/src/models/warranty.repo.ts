@@ -9,7 +9,7 @@
 import type { WarrantyCoverageType } from '../../../client/src/types';
 import { warrantyStateFor } from '../../../shared/warrantyTerm';
 
-export type WarrantyStatus = 'VALID' | 'EXPIRING_SOON' | 'EXPIRED';
+export type WarrantyStatus = 'VALID' | 'EXPIRING_SOON' | 'EXPIRED' | 'RETURNED';
 
 export interface WarrantyQueryOptions {
   coverageType: WarrantyCoverageType;
@@ -28,9 +28,12 @@ export const WARRANTY_STATE_SQL = {
   VALID: 'w.end_date_ad > CURRENT_DATE + 30',
   EXPIRING_SOON: 'w.end_date_ad >= CURRENT_DATE AND w.end_date_ad <= CURRENT_DATE + 30',
   EXPIRED: 'w.end_date_ad < CURRENT_DATE',
+  /** Not a date state: a retired row (returned unit, correction, reversal). */
+  RETURNED: 'w.is_current = FALSE',
 } as const;
 
 export const WARRANTY_STATE_CASE_SQL = `CASE
+  WHEN w.is_current = FALSE THEN 'RETURNED'
   WHEN w.end_date_ad < CURRENT_DATE THEN 'EXPIRED'
   WHEN w.end_date_ad <= CURRENT_DATE + 30 THEN 'EXPIRING_SOON'
   ELSE 'VALID' END`;
@@ -52,6 +55,10 @@ export const WARRANTY_SELECT_COLUMNS = `w.id,
   w.term_months AS "termMonths",
   w.start_basis AS "startBasis",
   w.notes,
+  w.is_current AS "isCurrent",
+  w.superseded_at AS "supersededAt",
+  w.retired_reason AS "retiredReason",
+  w.retired_ref AS "retiredRef",
   w.is_demo AS "isDemo",
   ${WARRANTY_STATE_CASE_SQL} AS "warrantyState",
   (w.end_date_ad - CURRENT_DATE)::int AS "daysRemaining"`;
@@ -77,9 +84,11 @@ export const WARRANTY_RECORD_COLUMNS = `id,
   notes,
   is_current AS "isCurrent",
   superseded_at AS "supersededAt",
+  retired_reason AS "retiredReason",
+  retired_ref AS "retiredRef",
   is_demo AS "isDemo"`;
 
-const STATUSES = new Set<WarrantyStatus>(['VALID', 'EXPIRING_SOON', 'EXPIRED']);
+const STATUSES = new Set<WarrantyStatus>(['VALID', 'EXPIRING_SOON', 'EXPIRED', 'RETURNED']);
 
 function normalizeStatus(value: unknown): WarrantyStatus | undefined {
   const normalized = typeof value === 'string' ? value.trim().toUpperCase() : '';
@@ -101,7 +110,13 @@ function dateBound(value: unknown): string | undefined {
 /** Filters shared by the page, the filtered count and the status summary. */
 function buildWarrantyWhere(opts: WarrantyQueryOptions): { whereSql: string; params: unknown[] } {
   const params: unknown[] = [opts.coverageType];
-  const conditions: string[] = ['w.is_current = TRUE', 'w.coverage_type = $1'];
+  // The Returned filter is a second population, not a date state: it reads the
+  // rows a return/correction retired, while every other view reads current rows.
+  const retired = normalizeStatus(opts.status) === 'RETURNED';
+  const conditions: string[] = [
+    retired ? 'w.is_current = FALSE' : 'w.is_current = TRUE',
+    'w.coverage_type = $1',
+  ];
 
   if (Array.isArray(opts.branchScope)) {
     if (opts.branchScope.length === 0) {
@@ -180,11 +195,13 @@ export function buildWarrantyCountQuery(opts: WarrantyQueryOptions): { sql: stri
 export function buildWarrantySummaryQuery(opts: WarrantyQueryOptions): { sql: string; params: unknown[] } {
   const { whereSql, params } = buildWarrantyWhere(opts);
   return {
+    // The three date states are about active coverage. A retired row shown
+    // under the Returned filter belongs to `total` only, never "valid".
     sql: `SELECT
         COUNT(*)::int AS total,
-        COUNT(*) FILTER (WHERE ${WARRANTY_STATE_SQL.VALID})::int AS valid,
-        COUNT(*) FILTER (WHERE ${WARRANTY_STATE_SQL.EXPIRING_SOON})::int AS expiring,
-        COUNT(*) FILTER (WHERE ${WARRANTY_STATE_SQL.EXPIRED})::int AS expired
+        COUNT(*) FILTER (WHERE w.is_current = TRUE AND ${WARRANTY_STATE_SQL.VALID})::int AS valid,
+        COUNT(*) FILTER (WHERE w.is_current = TRUE AND ${WARRANTY_STATE_SQL.EXPIRING_SOON})::int AS expiring,
+        COUNT(*) FILTER (WHERE w.is_current = TRUE AND ${WARRANTY_STATE_SQL.EXPIRED})::int AS expired
       FROM warranty_coverages w
       LEFT JOIN branches b ON b.id = w.branch_id${whereSql}`,
     params,
@@ -288,6 +305,20 @@ WHERE coverage_type = 'SELLER' AND device_record_id = $1 AND is_current = TRUE`;
 export const WARRANTY_SUPERSEDE_SELLER_BY_SERIALS_SQL = `UPDATE warranty_coverages SET
   is_current = FALSE, superseded_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
 WHERE coverage_type = 'SELLER' AND serial_number = ANY($1) AND is_current = TRUE`;
+
+/**
+ * Retire coverage for exactly the units a return took back, recording why and
+ * which document did it. The row is kept (never deleted): the register shows it
+ * as RETURNED, and a unit that is later re-received can still show that its
+ * previous coverage ended in a purchase return rather than expiring.
+ */
+export const WARRANTY_RETIRE_BY_SERIALS_SQL = `UPDATE warranty_coverages SET
+  is_current = FALSE,
+  superseded_at = CURRENT_TIMESTAMP,
+  retired_reason = $3,
+  retired_ref = $4,
+  updated_at = CURRENT_TIMESTAMP
+WHERE coverage_type = $1 AND serial_number = ANY($2) AND is_current = TRUE`;
 
 /**
  * Retire exactly the row being corrected. A correction is a NEW period, not an

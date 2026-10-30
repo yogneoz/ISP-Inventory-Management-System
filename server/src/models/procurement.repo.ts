@@ -848,11 +848,18 @@ export const LEDGER_RETURNS_SQL =
  * TEXT JSON array; the append keeps the {status, sourceType, sourceId, dateAD,
  * notes} entry shape used by serials.service.ts.
  */
+/**
+ * Flips returned-to-vendor units, but only those still in the state the return
+ * reverses ($4). A serial already returned, damaged or consumed makes rowCount
+ * miss, so the caller rolls back rather than overwriting a unit that moved on.
+ * Case-insensitive for the same reason as the scan that named it.
+ */
 export const PR_SERIAL_FLIP_SQL = `UPDATE serial_log
  SET status = $2,
      updated_at = CURRENT_TIMESTAMP,
      history_json = (COALESCE(NULLIF(history_json, ''), '[]')::jsonb || $3::jsonb)::text
- WHERE device_serial = ANY($1::text[])`;
+ WHERE lower(trim(device_serial)) = ANY($1::text[])
+   AND status = ANY($4::text[])`;
 
 /** Approves a DRAFT return: flips status only while still DRAFT (race-safe). */
 export const PR_POST_DRAFT_SQL = `UPDATE purchase_returns SET status = 'POSTED', updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND status = 'DRAFT'`;

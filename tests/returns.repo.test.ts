@@ -164,7 +164,8 @@ describe('purchase returns repo', () => {
 
   test('serial flips target RETURNED_TO_VENDOR and append history entries', () => {
     assert.match(PR_SERIAL_FLIP_SQL, /status = \$2/);
-    assert.match(PR_SERIAL_FLIP_SQL, /device_serial = ANY\(\$1::text\[\]\)/);
+    assert.match(PR_SERIAL_FLIP_SQL, /lower\(trim\(device_serial\)\) = ANY\(\$1::text\[\]\)/);
+    assert.match(PR_SERIAL_FLIP_SQL, /status = ANY\(\$4::text\[\]\)/);
     assert.match(PR_SERIAL_FLIP_SQL, /history_json/);
     assert.match(PR_SERIAL_FLIP_SQL, /jsonb/);
   });
@@ -399,8 +400,10 @@ describe('sales returns repo', () => {
 
   test('serial flips: sales returns restock units to IN_STOCK and clear the customer', () => {
     assert.match(SR_SERIAL_FLIP_SQL, /status = \$2/);
+    assert.match(SR_SERIAL_FLIP_SQL, /lower\(trim\(device_serial\)\) = ANY\(\$1::text\[\]\)/);
     assert.match(SR_SERIAL_FLIP_SQL, /customer_id = NULL/);
     assert.match(SR_SERIAL_FLIP_SQL, /history_json/);
+    assert.match(SR_SERIAL_FLIP_SQL, /status = ANY\(\$4::text\[\]\)/);
   });
 
   test('non-restockable returns route units to the damage register (RETURN_DAMAGE)', () => {

@@ -297,7 +297,7 @@ describe('line-quantity wiring (source guards, QTY-1)', () => {
   test('each screen that can type a quantity clamps at the entry', () => {
     const read = (rel: string) => fs.readFileSync(path.join(root, rel), 'utf8');
     const cases: Array<[string, RegExp]> = [
-      ['client/src/features/sales/ReturnsRegister.tsx', /quantity: parseLineQuantity\(e\.target\.value, 0\)/],
+      ['client/src/features/sales/ReturnsRegister.tsx', /updateLineQuantity\(idx, parseLineQuantity\(e\.target\.value, 0\)\)/],
       ['client/src/features/procurement/PurchaseOrderForm.tsx', /field === 'quantity' \? clampLineQuantity\(value\) : value/],
       ['client/src/features/inventory/stockops/ConsumableIssuePanel.tsx', /updates\.quantity !== undefined\) updated\.quantity = clampLineQuantity\(updates\.quantity\)/],
       ['client/src/features/inventory/DamagedStockTracking.tsx', /parseLineQuantity\(e\.target\.value, 1, disposalStock\.stockItem\.damagedQty \|\| 1\)/],

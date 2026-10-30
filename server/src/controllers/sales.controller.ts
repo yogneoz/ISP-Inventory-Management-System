@@ -43,8 +43,20 @@ import {
   supersedeCoverageBySource,
   supersedeCoverageBySourceMirror,
   supersedeSellerCoverageForSerials,
+  retireCoverageForSerials,
+  retireCoverageForSerialsMirror,
   writeSellerCoveragePlan,
 } from '../services/warranty.service';
+import {
+  collectReturnSerials,
+  hydrateReturnSerialEntries,
+  loadReturnSerialRows,
+  returnLineSerials,
+  serialRowsFromInvoiceItems,
+  validateReturnSerialCounts,
+  validateReturnSerialsAgainstRegister,
+  type SerialLogRow,
+} from '../services/returnSerials.service';
 import { intFromEnv } from '../utils/envGuard';
 import { firstLineQuantityRefusal } from '../utils/lineQuantity';
 
@@ -56,29 +68,9 @@ import { firstLineQuantityRefusal } from '../utils/lineQuantity';
  */
 const RETURNS_APPROVAL_THRESHOLD_NPR = intFromEnv('RETURNS_APPROVAL_THRESHOLD_NPR', 200000, { min: 0 });
 
-/** Extracts device serials from a return item (accepts strings or pairs). */
-function returnItemSerials(item: any): string[] {
-  return (item.deviceSerials || [])
-    .map((s: any) => (typeof s === 'string' ? s : s?.deviceSerial))
-    .filter((s: any) => typeof s === 'string' && s.trim())
-    .map((s: string) => s.trim());
-}
-
-/**
- * Serial-tracked products must return with exactly one serial per unit
- * (plan Milestone B §7). Validated before the return row is inserted.
- */
-function validateReturnSerials(items: any[]): string | null {
-  for (const item of items) {
-    const product = products.find((p) => p.id === item.productId);
-    if (!product?.requiresSerialTracking) continue;
-    const qty = Math.abs(Number(item.quantity)) || 0;
-    const serials = returnItemSerials(item);
-    if (serials.length !== qty) {
-      return `${item.productName || item.productId} is serial-tracked: ${qty} serial(s) required, ${serials.length} provided.`;
-    }
-  }
-  return null;
+/** The product rule both return flows share (quantity-only lines carry none). */
+function isSerialTrackedProduct(productId?: string): boolean {
+  return Boolean(products.find((p) => p.id === productId)?.requiresSerialTracking);
 }
 
 /**
@@ -109,12 +101,17 @@ async function applySalesReturnEffects(client: any, ret: any, items: any[], bran
         srDamageInsertParams(ret, item, branchId, `${ret.returnNumber}-SR-${itemIdx}`, createdBy)
       );
     }
-    const serials = returnItemSerials(item);
-    // A returned unit is no longer covered by the promise the sale made.
-    await supersedeSellerCoverageForSerials(client, serials);
+    const serials = returnLineSerials(item).map((entry) => entry.deviceSerial);
+    // A returned unit is no longer covered by the promise the sale made. The
+    // row is retired (not deleted) with the credit note that did it, so the
+    // register can show it under Returned and the serial keeps its history.
+    await retireCoverageForSerials(client, 'SELLER', serials, {
+      reason: 'SALES_RETURN',
+      ref: ret.returnNumber,
+    });
     if (serials.length > 0) {
-      await client.query(SR_SERIAL_FLIP_SQL, [
-        serials,
+      const flipped = await client.query(SR_SERIAL_FLIP_SQL, [
+        serials.map((serial) => serial.toLowerCase()),
         'IN_STOCK',
         JSON.stringify([{
           status: 'IN_STOCK',
@@ -123,7 +120,14 @@ async function applySalesReturnEffects(client: any, ret: any, items: any[], bran
           dateAD: String(ret.returnDateAD || '').split('T')[0],
           notes: `Returned by customer via ${ret.returnNumber}`,
         }]),
+        ['CUSTOMER_ASSIGNED'],
       ]);
+      if (flipped.rowCount !== serials.length) {
+        throw new Error(
+          `Could not claim all ${serials.length} returned serial(s) — one or more are no longer ` +
+            `sold/CUSTOMER_ASSIGNED. Nothing was posted.`
+        );
+      }
     }
   }
 }
@@ -620,6 +624,27 @@ export async function post_salesReturns(req: any, res: Response): Promise<any> {
       if (invoiceRow.items && typeof invoiceRow.items === 'string') invoiceRow.items = JSON.parse(invoiceRow.items);
     }
 
+    // Return serials: shape first (count per unit, no duplicates), then the
+    // register (exists, product, original invoice, expected state) and hydrate
+    // MAC/PON from it. The browser names units; it never defines their identity.
+    const serialViolation = validateReturnSerialCounts(items, isSerialTrackedProduct);
+    if (serialViolation) return res.status(400).json({ message: serialViolation });
+    const returnSerialList = collectReturnSerials(items);
+    if (returnSerialList.length > 0) {
+      const serialRows: Map<string, SerialLogRow> = getPgConnected()
+        ? await loadReturnSerialRows(pgPool, returnSerialList)
+        : serialRowsFromInvoiceItems(invoiceRow.items || []);
+      if (getPgConnected()) {
+        const registerViolation = validateReturnSerialsAgainstRegister(items, serialRows, {
+          kind: 'SALES',
+          invoiceItems: invoiceRow.items || [],
+          branchId: targetBranchId,
+        });
+        if (registerViolation) return res.status(400).json({ message: registerViolation });
+      }
+      hydrateReturnSerialEntries(items, serialRows);
+    }
+
     const newRet: any = {
       id: req.body.id || `sr-${Date.now()}`,
       returnNumber,
@@ -642,9 +667,6 @@ export async function post_salesReturns(req: any, res: Response): Promise<any> {
       status: totals.grandTotal > RETURNS_APPROVAL_THRESHOLD_NPR ? 'DRAFT' : 'POSTED',
       items,
     };
-
-    const serialViolation = validateReturnSerials(items);
-    if (serialViolation) return res.status(400).json({ message: serialViolation });
 
     if (getPgConnected()) {
       // Over-return guard: per (invoice, product) already-returned quantity,
@@ -695,6 +717,13 @@ export async function post_salesReturns(req: any, res: Response): Promise<any> {
           }));
         });
         if (demoTxns.length > 0) setTransactionLogs([...demoTxns, ...transactionLogs]);
+      }
+      // Demo twin of the coverage retirement in applySalesReturnEffects.
+      if (newRet.status === 'POSTED') {
+        retireCoverageForSerialsMirror('SELLER', collectReturnSerials(items), {
+          reason: 'SALES_RETURN',
+          ref: returnNumber,
+        });
       }
     }
 
@@ -765,10 +794,10 @@ export async function post_salesReturnCancel(req: any, res: Response): Promise<a
             await client.query(SR_DAMAGE_CANCEL_SQL, [`${ret.returnNumber}-SR-%`]);
           }
           for (const item of ret.items || []) {
-            const serials = returnItemSerials(item);
+            const serials = returnLineSerials(item).map((entry) => entry.deviceSerial);
             if (serials.length > 0) {
-              await client.query(SR_SERIAL_FLIP_SQL, [
-                serials,
+              const flipped = await client.query(SR_SERIAL_FLIP_SQL, [
+                serials.map((serial) => serial.toLowerCase()),
                 'SOLD',
                 JSON.stringify([{
                   status: 'SOLD',
@@ -777,7 +806,14 @@ export async function post_salesReturnCancel(req: any, res: Response): Promise<a
                   dateAD: new Date().toISOString().split('T')[0],
                   notes: `Sales return ${ret.returnNumber} cancelled`,
                 }]),
+                ['IN_STOCK'],
               ]);
+              if (flipped.rowCount !== serials.length) {
+                throw new Error(
+                  `Could not release the returned serial(s) for ${ret.returnNumber} — one or more ` +
+                    `are no longer IN_STOCK. Nothing was cancelled.`
+                );
+              }
             }
           }
         }
@@ -854,7 +890,10 @@ export async function post_salesReturnApprove(req: any, res: Response): Promise<
       const violation = srValidateAgainstInvoice(invoiceRow.items || [], items, perProductReturned);
       if (violation) return res.status(400).json({ message: violation });
 
-      const serialViolation = validateReturnSerials(items);
+      // The stored serials were validated at creation; approving later still
+      // needs the shape check, and the guarded flip inside the transaction
+      // refuses any unit that moved in the meantime.
+      const serialViolation = validateReturnSerialCounts(items, isSerialTrackedProduct);
       if (serialViolation) return res.status(400).json({ message: serialViolation });
 
       await withTransaction(async (client) => {
