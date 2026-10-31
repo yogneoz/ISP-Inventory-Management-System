@@ -199,8 +199,13 @@ _Date: 2026-10-30 · Branch: main · Tests: 1665/1665 green with a DB (all run i
 > targets to 0/0/0. Only the phone tier's effective 9.36 px text (12 px source)
 > is left outside the pass/fail flag. Report
 > [docs/ui-ux-audit-2026-10-30.md](docs/ui-ux-audit-2026-10-30.md), pinned by
-> `tests/uiUxSweep20261030.test.ts`. Modals, dark mode, axe/contrast, screen
-> readers and non-Chromium browsers remain out of scope.
+> `tests/uiUxSweep20261030.test.ts`. CI
+> [run 41165375789](https://github.com/yogneoz/ISP-Inventory-Management-System/actions/runs/41165375789)
+> is green on `9571d74`; the audit commit's first attempt failed only at
+> `npm audit --omit=dev` (a new minimatch advisory via exceljs → archiver →
+> glob), cleared by scoping the `minimatch@^11.0.1` override to exceljs.
+> Modals, dark mode, axe/contrast, screen readers and non-Chromium browsers
+> remain out of scope.
 > **No round is active.** The payload work
 > is finished — the remaining-array measurement found no item to open, and the
 > `inventory_stock` trigger is recorded in [2026.md](docs/session-notes/2026.md). The

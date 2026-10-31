@@ -88,6 +88,10 @@ outside the pass/fail flag. Guarded by
 covered there: modals, dark mode, axe/contrast, screen readers, print,
 Firefox/Safari. Detail:
 [2026 session note](../docs/session-notes/2026.md#-all-screen-uiux-sweep--68-screens-three-widths-2026-10-30).
+CI [run 41165375789](https://github.com/yogneoz/ISP-Inventory-Management-System/actions/runs/41165375789)
+is green on `9571d74` across every step; the audit commit's first attempt
+died only at `npm audit`, cleared by scoping the `minimatch` override to
+exceljs.
 
 **Completed outside a round — boot-timing launch retry (2026-10-30).** The
 GitHub runner intermittently starts headless Chrome without writing
