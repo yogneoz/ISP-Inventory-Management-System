@@ -750,7 +750,21 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
                 <div
                   className={`p-4 ${group.bgColor} border-b ${group.borderColor} flex flex-col md:flex-row md:items-center justify-between gap-3`}
                 >
-                  <div className="flex items-center gap-3 cursor-pointer" onClick={() => toggleGroupCollapse(group.id)}>
+                  {/* The whole heading is a collapse toggle; give it the same
+                      keyboard contract the Collapse button already has. */}
+                  <div
+                    className="flex items-center gap-3 cursor-pointer rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60"
+                    role="button"
+                    tabIndex={0}
+                    aria-expanded={!isCollapsed}
+                    onClick={() => toggleGroupCollapse(group.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        toggleGroupCollapse(group.id);
+                      }
+                    }}
+                  >
                     <div className={`p-2.5 rounded-xl shadow-xs ${group.color} bg-white dark:bg-slate-800`}>
                       <GroupIcon className="h-5 w-5" />
                     </div>
@@ -768,7 +782,7 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
                   <div className="flex items-center justify-between md:justify-end gap-3 pt-2 md:pt-0 border-t md:border-t-0 border-slate-200/60 dark:border-slate-800">
                     <button
                       onClick={() => toggleGroupCollapse(group.id)}
-                      className="flex items-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 cursor-pointer"
+                      className="flex items-center gap-1 py-1 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 cursor-pointer"
                     >
                       {isCollapsed ? (
                         <>
@@ -797,13 +811,13 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
                             return (
                               <th key={role.key} className="px-2.5 py-1.5 text-center">
                                 <div className="flex flex-col items-center gap-1">
-                                  <span className={`inline-block px-2 py-0.5 rounded-full text-[9px] font-extrabold ${role.badgeColor}`}>
+                                  <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-extrabold ${role.badgeColor}`}>
                                     {role.title}
                                   </span>
                                   <button
                                     onClick={() => toggleGroupRolePermissions(group.id, role.key)}
                                     title={`Toggle all ${group.category} operations for ${role.title}`}
-                                    className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 font-medium cursor-pointer"
+                                    className="inline-flex items-center gap-1 py-1 text-[10px] text-blue-600 dark:text-blue-400 hover:underline font-medium cursor-pointer"
                                   >
                                     {allChecked ? <CheckSquare className="h-3 w-3" /> : <Square className="h-3 w-3" />}
                                     <span>{allChecked ? 'Disable All' : 'Enable All'}</span>

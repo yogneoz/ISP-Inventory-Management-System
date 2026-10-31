@@ -5,6 +5,7 @@ import {
   PulloutItem,
 } from '../../../types';
 import { FormCard } from '../../../components/common/FormCard';
+import { iconButton } from '../../../components/common/styleConstants';
 import { ProductSearchBar } from '../ProductSearchBar';
 import { DeviceSerialInput } from '../../../components/common/DeviceSerialInput';
 import { formatNPR } from '../../../utils/nprFormat';
@@ -260,7 +261,12 @@ export const CreatePulloutPanel: React.FC = () => {
                 <Truck className={`h-5 w-5 text-indigo-500 dark:text-indigo-400`} />
                 <span>Create Overstock / Damaged Stock Pullout Bin</span>
               </h3>
-              <button onClick={() => { setIsPulloutModalOpen(false); setActiveTab('PULLOUT_BINS'); }} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+              <button
+                type="button"
+                aria-label="Close pullout form"
+                onClick={() => { setIsPulloutModalOpen(false); setActiveTab('PULLOUT_BINS'); }}
+                className={`${iconButton} rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer`}
+              >
                 ✕
               </button>
             </div>
@@ -347,7 +353,7 @@ export const CreatePulloutPanel: React.FC = () => {
 
                           <div className="flex items-center gap-3">
                             <div>
-                              <span className="text-[9px] text-slate-400 block text-right">Pullout Qty</span>
+                              <span className="text-[10px] text-slate-400 block text-right">Pullout Qty</span>
                               <input
                                 type="number"
                                 min={1}
@@ -358,7 +364,7 @@ export const CreatePulloutPanel: React.FC = () => {
                             </div>
 
                             <div className="text-right">
-                              <span className="text-[9px] text-slate-400 block">Total Val</span>
+                              <span className="text-[10px] text-slate-400 block">Total Val</span>
                               <span className={`font-mono font-bold text-xs text-indigo-600 dark:text-indigo-400`}>
                                 {formatNPR(item.totalValue)}
                               </span>

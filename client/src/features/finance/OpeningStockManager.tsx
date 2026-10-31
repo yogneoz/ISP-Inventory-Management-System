@@ -413,10 +413,10 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
             <Scale className={`h-6 w-6 text-indigo-600 dark:text-indigo-400`} />
           </div>
           <div className="min-w-0">
-            <h2 className={`text-base font-bold truncate text-slate-900 dark:text-white`}>
+            <h2 className={`text-base font-bold break-words text-slate-900 dark:text-white`}>
               Fiscal Year Opening Register
             </h2>
-            <p className={`text-xs mt-0.5 truncate text-slate-500 dark:text-slate-400`}>
+            <p className={`text-xs mt-0.5 leading-snug break-words text-slate-500 dark:text-slate-400`}>
               Branch-wise product opening stock levels (product × branch) that all historical period calculations are
               based on. Every product must have an opening entry.
             </p>
@@ -478,10 +478,10 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
               <Layers className={`h-6 w-6 text-indigo-600 dark:text-indigo-400`} />
             </div>
             <div className="min-w-0">
-              <h3 className={`text-base font-bold truncate text-slate-900 dark:text-white`}>
+              <h3 className={`text-base font-bold break-words text-slate-900 dark:text-white`}>
                 Stock Opening Adjustment
               </h3>
-              <p className={`text-xs mt-0.5 truncate text-slate-500 dark:text-slate-400`}>
+              <p className={`text-xs mt-0.5 leading-snug break-words text-slate-500 dark:text-slate-400`}>
                 Branch-wise product opening stock levels for FY {fy?.code || '—'}. Every product must have an opening
                 entry in each branch.
               </p>

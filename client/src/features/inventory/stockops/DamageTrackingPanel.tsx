@@ -123,7 +123,7 @@ export const DamageTrackingPanel: React.FC = () => {
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className={`font-bold text-[9px] tracking-wider border-b bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900/80 dark:text-slate-400 dark:border-slate-800`}>
+                <thead className={`font-bold text-[10px] tracking-wider border-b bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900/80 dark:text-slate-400 dark:border-slate-800`}>
                   <tr>
                     <th className="px-2.5 py-1.5">Reference #</th>
                     <th className="px-2.5 py-1.5">Op Type</th>
@@ -171,7 +171,7 @@ export const DamageTrackingPanel: React.FC = () => {
                       <td className="p-2.5 font-medium text-slate-600 dark:text-slate-400">{op.inspectorName}</td>
                       <td className="p-2.5">
                         {op.status === 'CANCELLED' ? (
-                          <div className="text-[9px] font-semibold text-slate-400 leading-tight">
+                          <div className="text-[10px] font-semibold text-slate-400 leading-tight">
                             <div>Reversed by {op.reversedBy || 'Admin'}</div>
                             {op.reversedAtAD && <div>{op.reversedAtAD}</div>}
                           </div>

@@ -1409,7 +1409,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                       {item.deviceSerials?.length ? (
                         <div className="flex flex-wrap gap-1">
                           {item.deviceSerials.map((serial, serialIndex) => (
-                            <span key={serialIndex} className="rounded bg-purple-100 dark:bg-purple-950 px-1.5 py-1 text-[9px] font-mono">
+                            <span key={serialIndex} className="rounded bg-purple-100 dark:bg-purple-950 px-1.5 py-1 text-[10px] font-mono">
                               {serial.deviceSerial}{serial.ponSerial ? ` | ${serial.ponSerial}` : ''}
                             </span>
                           ))}
@@ -1465,7 +1465,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                                 </span>
                                 <div className="max-h-16 overflow-y-auto space-y-0.5">
                                   {item.deviceSerials?.map((s, sIdx) => (
-                                    <div key={sIdx} className="text-[9px] font-mono bg-slate-100 dark:bg-slate-900 px-1 py-0.2 rounded border border-slate-200 dark:border-slate-800">
+                                    <div key={sIdx} className="text-[10px] font-mono bg-slate-100 dark:bg-slate-900 px-1 py-0.2 rounded border border-slate-200 dark:border-slate-800">
                                       SN: {s.deviceSerial || '—'} {s.ponSerial ? `| PON: ${s.ponSerial}` : ''} {s.macAddress ? `| MAC: ${s.macAddress}` : ''}
                                     </div>
                                   ))}

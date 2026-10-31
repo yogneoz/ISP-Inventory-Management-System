@@ -424,12 +424,12 @@ export const ReceiveTransferPanel: React.FC = () => {
                               <div className={`font-mono font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5`}>
                                 <span>{sh.trackingCode}</span>
                                 {isSenderBranch && (
-                                  <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30`}>
+                                  <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30`}>
                                     OUTBOUND
                                   </span>
                                 )}
                                 {isRecipientBranch && (
-                                  <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/30`}>
+                                  <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/30`}>
                                     INBOUND
                                   </span>
                                 )}
@@ -632,7 +632,7 @@ export const ReceiveTransferPanel: React.FC = () => {
                                                           <div key={sIdx} className={`p-1.5 rounded-lg border font-mono text-[10px] space-y-0.5 bg-slate-50 border-slate-200 dark:bg-slate-800 dark:border-slate-700`}>
                                                             <div className="text-slate-800 dark:text-slate-200 font-bold flex items-center justify-between">
                                                               <span>SN: {ser.deviceSerial}</span>
-                                                              <span className="text-[9px] px-1 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 font-extrabold">VERIFIED</span>
+                                                              <span className="text-[10px] px-1 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 font-extrabold">VERIFIED</span>
                                                             </div>
                                                             {ser.ponSerial && <div className="text-slate-500 dark:text-slate-400 text-[9.5px]">PON: {ser.ponSerial}</div>}
                                                           </div>

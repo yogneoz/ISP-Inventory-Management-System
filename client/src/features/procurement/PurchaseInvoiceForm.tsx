@@ -1136,7 +1136,7 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
                                       >
                                         <div className="flex items-center justify-between mb-1.5">
                                           <span className="font-mono text-[10px] font-bold text-slate-400">Unit #{sIdx + 1}</span>
-                                          <span className="text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                                          <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
                                             MAC required · PON optional
                                           </span>
                                         </div>

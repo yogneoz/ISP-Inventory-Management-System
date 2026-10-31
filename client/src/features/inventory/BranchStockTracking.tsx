@@ -239,7 +239,7 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
                 {activeBranches.map((b) => (
                   <th key={b.id} className={`px-3 py-2 text-center border-b border-r sticky top-0 bg-inherit min-w-[140px] border-slate-200 dark:border-slate-800`}>
                     <div className={`font-bold text-slate-900 dark:text-white`}>{b.name}</div>
-                    <div className="text-[9px] font-normal text-slate-500 font-mono">
+                    <div className="text-[10px] font-normal text-slate-500 font-mono">
                       {b.code} {b.isHeadquarters && '⭐ HQ'}
                     </div>
                   </th>
@@ -290,7 +290,7 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
                             {systemTotalUsable} <span className="text-[10px] font-normal opacity-75">{prod.unit}</span>
                           </span>
                           {systemTotalDamaged > 0 && (
-                            <span className={`text-[9px] text-amber-600 dark:text-amber-400 font-semibold mt-0.5`}>
+                            <span className={`text-[10px] text-amber-600 dark:text-amber-400 font-semibold mt-0.5`}>
                               ({systemTotalDamaged} damaged)
                             </span>
                           )}
@@ -325,7 +325,7 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
                             )}
                           </div>
                           {isLow && (
-                            <div className={`flex items-center justify-center gap-1 text-[9px] text-rose-600 dark:text-rose-400 font-semibold mt-0.5`}>
+                            <div className={`flex items-center justify-center gap-1 text-[10px] text-rose-600 dark:text-rose-400 font-semibold mt-0.5`}>
                               <AlertTriangle className="h-2.5 w-2.5" />
                               <span>Low Stock</span>
                             </div>

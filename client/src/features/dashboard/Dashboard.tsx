@@ -15,6 +15,7 @@ import { getAllowedBranches, getAllowedBranchIds, canUserSeeAllBranches } from '
 import { indexStockByProductBranch, stockRowAt } from '../../utils/stockIndex';
 import { formatNPR } from '../../utils/nprFormat';
 import StatCard from '../../components/common/StatCard';
+import { linkButton } from '../../components/common/styleConstants';
 import { ClickableCard } from '../../components/common/ClickableCard';
 import { getRowActivationProps, ROW_FOCUS_CLASS } from '../../utils/interactiveRow';
 import { api } from '../../services/api';
@@ -332,7 +333,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-2.5">
           <div>
             <div className="flex items-center gap-2 mb-0.5">
-              <span className="rounded-full bg-emerald-500/20 text-emerald-300 text-[9px] font-bold px-2 py-0.2 border border-emerald-400/30">
+              <span className="rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold px-2 py-0.2 border border-emerald-400/30">
                 ● Live Realtime Sync
               </span>
               <span className="text-indigo-100/80 text-[11px] font-medium">
@@ -705,11 +706,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                       className={`w-full p-2.5 rounded-xl border text-xs flex flex-col justify-between transition-all ${isBranchLow ? 'bg-rose-50/60 border-rose-200 hover:border-rose-400 hover:shadow-xs dark:bg-rose-950/40 dark:border-rose-800 dark:hover:border-rose-500' : 'bg-white border-slate-200 hover:border-emerald-400 hover:shadow-xs dark:bg-slate-800/80 dark:border-slate-700 dark:hover:border-emerald-500'}`}
                                       title={`Click to view matrix for ${bb.branchName}`}
                                     >
-                                      <div className="flex items-center justify-between text-[11px]">
-                                        <span className="font-bold truncate text-slate-800 dark:text-slate-200">
+                                      <div className="flex items-start justify-between gap-1 text-[11px]">
+                                        <span className="min-w-0 font-bold leading-tight break-words text-slate-800 dark:text-slate-200">
                                           {bb.branchName}
                                         </span>
-                                        <span className="text-[9px] font-mono px-1 bg-slate-200 dark:bg-slate-800 rounded font-bold text-slate-600 dark:text-slate-300">
+                                        <span className="shrink-0 text-[10px] font-mono px-1 bg-slate-200 dark:bg-slate-800 rounded font-bold text-slate-600 dark:text-slate-300">
                                           {bb.branchCode}
                                         </span>
                                       </div>
@@ -724,7 +725,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                         >
                                           {bb.quantityOnHand} {prod.unit}
                                         </span>
-                                        <span className="text-[9px] text-slate-500 font-mono">
+                                        <span className="text-[10px] text-slate-500 font-mono">
                                           (Min: {bb.minReorderLevel})
                                         </span>
                                       </div>
@@ -984,11 +985,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                       className={`w-full p-2.5 rounded-xl border text-xs flex flex-col justify-between transition-all ${hasStock ? 'bg-white border-slate-200 hover:border-indigo-400 hover:shadow-xs dark:bg-slate-800/80 dark:border-slate-700 dark:hover:border-indigo-500' : 'bg-slate-100/60 border-slate-200 opacity-60 dark:bg-slate-900/40 dark:border-slate-800/80 dark:opacity-60'}`}
                                       title={`Click to view matrix for ${b.branchName}`}
                                     >
-                                      <div className="flex items-center justify-between text-[11px]">
-                                        <span className="font-bold truncate text-slate-800 dark:text-slate-200">
+                                      <div className="flex items-start justify-between gap-1 text-[11px]">
+                                        <span className="min-w-0 font-bold leading-tight break-words text-slate-800 dark:text-slate-200">
                                           {b.branchName}
                                         </span>
-                                        <span className="text-[9px] font-mono px-1 bg-slate-200 dark:bg-slate-800 rounded font-bold text-slate-600 dark:text-slate-300">
+                                        <span className="shrink-0 text-[10px] font-mono px-1 bg-slate-200 dark:bg-slate-800 rounded font-bold text-slate-600 dark:text-slate-300">
                                           {b.branchCode}
                                         </span>
                                       </div>
@@ -1062,7 +1063,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </div>
               <button
                 onClick={() => onNavigateTab('branch-stock')}
-                className={`text-xs font-bold hover:underline flex items-center gap-1 cursor-pointer self-start sm:self-auto text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300`}
+                className={`${linkButton} text-xs font-bold hover:underline cursor-pointer self-start sm:self-auto text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300`}
               >
                 <span>Full Matrix View</span>
                 <ArrowUpRight className="h-3.5 w-3.5" />
@@ -1093,11 +1094,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   >
                     <div>
                       <div className="flex items-center justify-between text-xs font-bold mb-1">
-                        <span className={`truncate pr-1 ${cardTitleText} group-hover:text-indigo-600 transition-colors`}>
+                        <span className={`min-w-0 pr-1 leading-tight break-words ${cardTitleText} group-hover:text-indigo-600 transition-colors`}>
                           {b.name}
                         </span>
                         <span
-                          className={`text-[9px] px-1.5 py-0.2 rounded border font-mono font-bold shrink-0 text-indigo-700 bg-indigo-100/80 border-indigo-200 dark:text-indigo-300 dark:bg-indigo-950/80 dark:border-indigo-500/30`}
+                          className={`text-[10px] px-1.5 py-0.2 rounded border font-mono font-bold shrink-0 text-indigo-700 bg-indigo-100/80 border-indigo-200 dark:text-indigo-300 dark:bg-indigo-950/80 dark:border-indigo-500/30`}
                         >
                           {b.code}
                         </span>
@@ -1168,7 +1169,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </h3>
           <button
             onClick={() => onNavigateTab('stock-ledger')}
-            className={`text-xs font-medium hover:underline cursor-pointer text-indigo-600 dark:text-indigo-400`}
+            className={`${linkButton} text-xs font-medium hover:underline cursor-pointer text-indigo-600 dark:text-indigo-400`}
           >
             View Full Ledger →
           </button>
@@ -1203,7 +1204,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   className={`p-3 rounded-xl border text-xs space-y-1 transition-colors bg-slate-50 border-slate-200 hover:border-slate-300 dark:bg-slate-900/50 dark:border-slate-800 dark:hover:border-slate-700`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className={`font-semibold truncate max-w-[140px] ${cardTitleText}`}>
+                    <span className={`min-w-0 font-semibold leading-snug break-words ${cardTitleText}`}>
                       {log.productName}
                     </span>
                     <span

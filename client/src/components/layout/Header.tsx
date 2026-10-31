@@ -254,7 +254,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <QrCode className="h-3 w-3" />
               </button>
             )}
-            <kbd className="hidden xl:inline-block px-1 py-0.2 text-[9px] font-mono text-indigo-200 bg-white/10 rounded border border-white/20 pointer-events-none">
+            <kbd className="hidden xl:inline-block px-1 py-0.2 text-[10px] font-mono text-indigo-200 bg-white/10 rounded border border-white/20 pointer-events-none">
               ⌘K
             </kbd>
           </div>
@@ -305,7 +305,7 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="font-mono">
             {dateMode === 'BS' ? (bsInfo.formattedBSShort ? bsInfo.formattedBSShort.replace(' BS', '') : `${bsInfo.yearBS}-${String(bsInfo.monthBS).padStart(2, '0')}-${String(bsInfo.dayBS).padStart(2, '0')}`) : todayAD}
           </span>
-          <span className="ml-0.5 rounded bg-indigo-950/80 px-1 py-0.2 font-bold text-[9px] text-indigo-300 border border-indigo-400/20 uppercase">
+          <span className="ml-0.5 rounded bg-indigo-950/80 px-1 py-0.2 font-bold text-[10px] text-indigo-300 border border-indigo-400/20 uppercase">
             {dateMode}
           </span>
         </button>
@@ -336,7 +336,7 @@ export const Header: React.FC<HeaderProps> = ({
             {notificationCount > 0 && (
               <span
                 aria-hidden="true"
-                className="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-rose-500 text-[9px] font-bold text-white"
+                className="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white"
               >
                 {notificationCount}
               </span>
@@ -367,7 +367,7 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
               <div className="hidden lg:flex flex-col text-left">
                 <span className="text-[11px] font-bold leading-tight truncate max-w-[110px]">{currentUser.name}</span>
-                <span className="text-[9px] text-indigo-200/90 font-normal leading-none uppercase tracking-wider">
+                <span className="text-[10px] text-indigo-200/90 font-normal leading-none uppercase tracking-wider">
                   {currentUser.role.replace('_', ' ')}
                 </span>
               </div>
@@ -388,7 +388,7 @@ export const Header: React.FC<HeaderProps> = ({
                       <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono truncate">{currentUser.email}</div>
                     </div>
                   </div>
-                  <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 uppercase flex-shrink-0">
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 uppercase flex-shrink-0">
                     {currentUser.role.replace('_', ' ')}
                   </span>
                 </div>
@@ -497,14 +497,14 @@ export const Header: React.FC<HeaderProps> = ({
                                   </div>
                                   <div className="min-w-0 flex-1">
                                     <div className="text-[11px] font-bold truncate leading-tight">{u.name}</div>
-                                    <div className="text-[9px] text-slate-500 dark:text-slate-400 truncate font-mono">
+                                    <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate font-mono">
                                       {u.role.replace('_', ' ')} • {bName}
                                     </div>
                                   </div>
                                 </div>
 
                                 {isCurrent ? (
-                                  <span className="text-[9px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-950 px-2 py-0.5 rounded-md">
+                                  <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-950 px-2 py-0.5 rounded-md">
                                     Active
                                   </span>
                                 ) : isSwitching ? (

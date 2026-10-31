@@ -459,7 +459,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                                   </p>
                                 )}
                                 <table className="w-full text-left text-[11px] border rounded-xl overflow-hidden bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800">
-                                  <thead className="bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 font-bold text-[9px] tracking-wider">
+                                  <thead className="bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 font-bold text-[10px] tracking-wider">
                                     <tr>
                                       <th className="px-2.5 py-1.5">Party Invoice Date (AD / BS)</th>
                                       <th className="px-2.5 py-1.5">Party Invoice Ref #</th>

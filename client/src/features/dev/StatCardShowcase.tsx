@@ -281,7 +281,6 @@ export const StatCardShowcase: React.FC = () => {
               title="Stock Movement Ledger"
               description="All in/out movements with filters and CSV export."
               icon={<Truck className="h-5 w-5 text-sky-600 dark:text-sky-400" />}
-              truncate={false}
               actions={
                 <>
                   <button className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800 cursor-pointer">Filter 1</button>

@@ -1,6 +1,6 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-30 · Branch: main · Tests: 1661/1661 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-30 · Branch: main · Tests: 1665/1665 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
 > **Current state (2026-10-27, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1/VOL-2/BUDGET-1/BOOT-1/VOL-3/VOL-4a/VOL-4b/SN-1/ASSET-1/EXCH-1/READ-1/CDR-1/CDR-2).** All DF-01…DF-17
 > work, the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2, CPE-3,
@@ -184,6 +184,23 @@ _Date: 2026-10-30 · Branch: main · Tests: 1661/1661 green with a DB (all run i
 > `tests/warrantyExport.test.ts` (12 tests) and the export-query case in
 > `tests/warranty.repo.test.ts`. Detail:
 > [2026.md](docs/session-notes/2026.md#-warranty-register-csv-export-ad-and-bs-2026-10-30).
+> **All-screen UI/UX sweep (2026-10-30):** the previous audit's ~60 uncovered
+> screens are covered — all 68 registered routes at 390/1067/1440 px, 204
+> readings. Fixed the three systemic causes (PageHeader title/description
+> truncation, StatCard KPI-label truncation, 102 labels below the 10 px floor)
+> plus the Fiscal Year Closing steps, Consumable Issue's phone grid, the
+> Approvals centre's missing `<h2>`/mouse-only KPI filters, permission group
+> headers, In-App Help nav, Company Setup presets/preview and dashboard
+> branch/product names. The re-run has zero clipped text, overflow, off-screen
+> or mouse-only controls and console/HTTP errors. Every click target now meets
+> the 24 px floor — `button` gets a px-based min size (a rem floor renders
+> 18.7 px at the 78% tier) and link/icon actions use the shared
+> `linkButton`/`iconButton` tokens — taking the measured 26/45/60 sub-22 px
+> targets to 0/0/0. Only the phone tier's effective 9.36 px text (12 px source)
+> is left outside the pass/fail flag. Report
+> [docs/ui-ux-audit-2026-10-30.md](docs/ui-ux-audit-2026-10-30.md), pinned by
+> `tests/uiUxSweep20261030.test.ts`. Modals, dark mode, axe/contrast, screen
+> readers and non-Chromium browsers remain out of scope.
 > **No round is active.** The payload work
 > is finished — the remaining-array measurement found no item to open, and the
 > `inventory_stock` trigger is recorded in [2026.md](docs/session-notes/2026.md). The

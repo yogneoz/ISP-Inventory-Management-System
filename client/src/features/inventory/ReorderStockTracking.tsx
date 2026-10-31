@@ -437,7 +437,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
                         <Building2 className="h-3 w-3 text-indigo-500" />
                         <span className="truncate">{b.name}</span>
                       </div>
-                      <span className="text-[9px] font-mono text-slate-400 font-normal">
+                      <span className="text-[10px] font-mono text-slate-400 font-normal">
                         {b.isHeadquarters ? 'HQ Main' : 'Branch'}
                       </span>
                     </div>
@@ -468,7 +468,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
                     </td>
 
                     <td className="px-2.5 py-1.5 text-center">
-                      <span className={`rounded px-1.5 py-0.5 text-[9px] font-semibold border bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-800`}>
+                      <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold border bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-800`}>
                         {prod.category}
                       </span>
                     </td>
@@ -495,7 +495,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
                           {totalDeficit > 0 ? `+${totalDeficit}` : '0'} <span className="text-[10px] font-normal">{prod.unit}</span>
                         </span>
                         {totalDeficit > 0 && (
-                          <span className="text-[9px] text-rose-500 font-semibold">
+                          <span className="text-[10px] text-rose-500 font-semibold">
                             Deficit
                           </span>
                         )}
@@ -535,16 +535,16 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
                               </div>
 
                               <div className="flex items-center gap-1 mt-0.5">
-                                <span className="text-[9px] font-mono font-medium text-slate-400">
+                                <span className="text-[10px] font-mono font-medium text-slate-400">
                                   Min: <span className={`text-indigo-600 dark:text-indigo-400 font-bold`}>{branchMin}</span>
                                 </span>
 
                                 {branchDeficit > 0 ? (
-                                  <span className={`text-[9px] text-rose-500 dark:text-rose-400 font-bold font-mono`}>
+                                  <span className={`text-[10px] text-rose-500 dark:text-rose-400 font-bold font-mono`}>
                                     (-{branchDeficit})
                                   </span>
                                 ) : (
-                                  <span className={`text-[9px] text-emerald-600 dark:text-emerald-400 font-medium`}>
+                                  <span className={`text-[10px] text-emerald-600 dark:text-emerald-400 font-medium`}>
                                     OK
                                   </span>
                                 )}

@@ -724,7 +724,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
                           : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/60'
                       }`}
                     >
-                      <span className="truncate">{g.title}</span>
+                      <span className="min-w-0 flex-1 break-words leading-snug">{g.title}</span>
                       <ChevronRight className={`h-3.5 w-3.5 flex-shrink-0 ${isActive ? 'text-indigo-500' : 'text-slate-400'}`} />
                     </button>
                   );
@@ -817,9 +817,9 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
                       onClick={() => setActiveChapter(ch.id)}
                       className={`w-full flex items-center justify-between p-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer text-left ${isActive ? 'bg-indigo-50 text-indigo-900 border border-indigo-200 dark:bg-indigo-600/30 dark:text-indigo-300 dark:border dark:border-indigo-500/40' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/60'}`}
                     >
-                      <div className="flex items-center gap-2.5 truncate">
+                      <div className="flex min-w-0 flex-1 items-center gap-2.5">
                         <IconComp className={`h-4 w-4 flex-shrink-0 ${isActive ? 'text-indigo-500' : 'text-slate-400'}`} />
-                        <span className="truncate">{ch.title}</span>
+                        <span className="min-w-0 break-words leading-snug">{ch.title}</span>
                       </div>
                       <ChevronRight className={`h-3.5 w-3.5 flex-shrink-0 ${isActive ? 'text-indigo-500' : 'text-slate-400'}`} />
                     </button>

@@ -637,7 +637,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
               {showZeroStock ? 'All Stock List' : 'Available Stock (>0)'}
             </span>
             {!showZeroStock && (filteredProducts.length === 0 ? catalog.length : 0) > 0 && (
-              <span className="rounded-full bg-emerald-200 dark:bg-emerald-900/90 text-emerald-800 dark:text-emerald-200 px-1.5 py-0.2 text-[9px] font-bold">
+              <span className="rounded-full bg-emerald-200 dark:bg-emerald-900/90 text-emerald-800 dark:text-emerald-200 px-1.5 py-0.2 text-[10px] font-bold">
                 {catalog.filter((p) => getProductStockQty(p.id) === 0).length} Zero-Qty Hidden
               </span>
             )}
@@ -764,7 +764,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                                   : 'SLM'}{' '}
                               @ {p.depreciationRate ?? 15}%/yr
                             </span>
-                            <span className="text-slate-500 text-[9px]">
+                            <span className="text-slate-500 text-[10px]">
                               {p.usefulLifeYears ?? 5} yrs life • {p.salvageValuePercent ?? 10}% salvage
                             </span>
                           </div>
@@ -1017,7 +1017,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                     className={`w-full rounded-lg border px-2.5 py-1.5 font-mono text-xs focus:outline-none focus:border-indigo-500 ${editingProduct ? 'border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed opacity-80 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400 dark:cursor-not-allowed dark:opacity-80' : 'border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200'}`}
                   />
                   {editingProduct && (
-                    <p className="text-[9px] text-slate-400 mt-0.5">
+                    <p className="text-[10px] text-slate-400 mt-0.5">
                       SKU Code is permanent and cannot be modified.
                     </p>
                   )}
@@ -1049,7 +1049,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                     className={`w-full rounded-lg border px-2.5 py-1.5 font-mono text-xs focus:outline-none focus:border-indigo-500 ${editingProduct ? 'border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed opacity-80 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400 dark:cursor-not-allowed dark:opacity-80' : 'border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200'}`}
                   />
                   {editingProduct && (
-                    <p className="text-[9px] text-slate-400 mt-0.5">
+                    <p className="text-[10px] text-slate-400 mt-0.5">
                       Barcode matches product SKU identifier.
                     </p>
                   )}
@@ -1131,7 +1131,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                       <option value={category}>{category} (not in category list)</option>
                     ) : null}
                   </select>
-                  <p className="text-[9px] text-slate-400 mt-0.5">
+                  <p className="text-[10px] text-slate-400 mt-0.5">
                     Categories are managed under Category Management.
                   </p>
                 </div>
@@ -1319,7 +1319,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                     onChange={(e) => setTaxRate(Number(e.target.value))}
                     className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
                   />
-                  <p className="text-[9px] text-slate-400 mt-0.5">
+                  <p className="text-[10px] text-slate-400 mt-0.5">
                     Company default: {getDefaultTaxRate()}% (Company Profile). Enter 0 for a VAT-exempt item.
                   </p>
                 </div>
@@ -1350,7 +1350,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                     <option value="true">Yes</option>
                     <option value="false">No</option>
                   </select>
-                  <p className="text-[9px] text-slate-400 mt-0.5">
+                  <p className="text-[10px] text-slate-400 mt-0.5">
                     Serial/MAC/PON units are tracked individually; quantity-only units are not.
                   </p>
                 </div>
@@ -1515,7 +1515,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                           className="barcode-card-item p-2.5 bg-white text-slate-900 border border-slate-300 rounded flex flex-col items-center text-center justify-between min-h-[110px] select-none print:shadow-none print:border-black"
                         >
                           {bulkShowCategory && (
-                            <div className="w-full text-[9px] font-extrabold uppercase tracking-wider text-slate-500 truncate">
+                            <div className="w-full text-[10px] font-extrabold uppercase tracking-wider text-slate-500 truncate">
                               {lbl.product.category} • {lbl.product.productGroup || '—'}
                             </div>
                           )}

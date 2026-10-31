@@ -1108,7 +1108,7 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
             ) : (
               <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
                 <table className="w-full text-left text-xs">
-                  <thead className="border-b border-slate-200 bg-slate-100 text-[9px] tracking-wider text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+                  <thead className="border-b border-slate-200 bg-slate-100 text-[10px] tracking-wider text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
                     <tr>
                       <th className="px-2.5 py-1.5">Product Name</th>
                       <th className="px-2.5 py-1.5 text-center">Branch Stock</th>
@@ -1242,7 +1242,7 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
                                 </div>
                                 <table className="w-full text-left">
                                   <thead>
-                                    <tr className="text-[9px] uppercase tracking-wide text-slate-400">
+                                    <tr className="text-[10px] uppercase tracking-wide text-slate-400">
                                       <th className="w-8 pb-1">#</th>
                                       <th className="pb-1">Device Serial *</th>
                                       <th className="pb-1">PON / MAC (from register)</th>

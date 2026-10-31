@@ -394,7 +394,7 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
 
           <div className="flex-1 min-h-0 overflow-auto">
             <table className="w-full text-left text-xs border-collapse">
-              <thead className={`sticky top-0 z-20 font-bold text-[9px] tracking-wider border-b bg-slate-100 text-slate-700 border-slate-200 dark:bg-[#12161f] dark:text-slate-400 dark:border-slate-800`}>
+              <thead className={`sticky top-0 z-20 font-bold text-[10px] tracking-wider border-b bg-slate-100 text-slate-700 border-slate-200 dark:bg-[#12161f] dark:text-slate-400 dark:border-slate-800`}>
                 <tr>
                   <th className="px-2.5 py-1.5">Cus. Code / Name</th>
                   <th className="px-2.5 py-1.5">Username & Mobile</th>

@@ -769,7 +769,7 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
                             >
                               <div className="mb-1.5 flex flex-wrap items-center justify-between gap-1">
                                 <span className="font-mono text-[10px] font-bold text-slate-400">Unit #{sIdx + 1}</span>
-                                <span className="text-[9px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                                   Device required · MAC/PON from invoice
                                 </span>
                               </div>

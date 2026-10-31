@@ -12,6 +12,7 @@ import { useClientPagination, TablePagination } from '../../components/common/Ta
 import StatCard from '../../components/common/StatCard';
 import { FilterCard } from '../../components/common/FilterCard';
 import { PageHeader } from '../../components/common/PageHeader';
+import { linkButton } from '../../components/common/styleConstants';
 import { api } from '../../services/api';
 import { indexStockByProductBranch, stockOnHandAt } from '../../utils/stockIndex';
 
@@ -558,19 +559,19 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
         }}
         rightChildren={
           <div className="flex items-center gap-1.5 text-[11px]">
-            <button onClick={() => applyPreset('THIS_MONTH')} className="font-semibold hover:underline cursor-pointer text-indigo-500 dark:text-indigo-400">
+            <button onClick={() => applyPreset('THIS_MONTH')} className={`${linkButton} font-semibold hover:underline cursor-pointer text-indigo-500 dark:text-indigo-400`}>
               This Month
             </button>
             <span className="text-slate-400">•</span>
-            <button onClick={() => applyPreset('LAST_30_DAYS')} className="font-semibold hover:underline cursor-pointer text-indigo-500 dark:text-indigo-400">
+            <button onClick={() => applyPreset('LAST_30_DAYS')} className={`${linkButton} font-semibold hover:underline cursor-pointer text-indigo-500 dark:text-indigo-400`}>
               Last 30 Days
             </button>
             <span className="text-slate-400">•</span>
-            <button onClick={() => applyPreset('THIS_YEAR')} className="font-semibold hover:underline cursor-pointer text-indigo-500 dark:text-indigo-400">
+            <button onClick={() => applyPreset('THIS_YEAR')} className={`${linkButton} font-semibold hover:underline cursor-pointer text-indigo-500 dark:text-indigo-400`}>
               This Year
             </button>
             <span className="text-slate-400">•</span>
-            <button onClick={() => applyPreset('ALL_TIME')} className="font-semibold hover:underline cursor-pointer text-rose-500 dark:text-rose-400">
+            <button onClick={() => applyPreset('ALL_TIME')} className={`${linkButton} font-semibold hover:underline cursor-pointer text-rose-500 dark:text-rose-400`}>
               All Time
             </button>
             <span className="text-slate-300 dark:text-slate-700">|</span>

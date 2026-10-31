@@ -6,6 +6,7 @@ import { useBsCalendarRefresh } from '../../utils/bsCalendarRefresh';
 import { bsRangeSpanRefusal } from '../../utils/bsRangeSpan';
 import { useDialog } from '../../components/common/DialogProvider';
 import { PageHeader } from '../../components/common/PageHeader';
+import { linkButton } from '../../components/common/styleConstants';
 import {
   convertADToBS,
   getBsCalendarData,
@@ -553,7 +554,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
                 ) : (
                   <button
                     onClick={() => onSetCurrentFiscalYear(fy.id)}
-                    className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                    className={`${linkButton} text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer`}
                   >
                     Set Active
                   </button>

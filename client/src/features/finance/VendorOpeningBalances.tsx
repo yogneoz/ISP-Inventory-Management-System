@@ -304,10 +304,10 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
             <Wallet className={`h-6 w-6 text-emerald-600 dark:text-emerald-400`} />
           </div>
           <div className="min-w-0">
-            <h2 className={`text-base font-bold truncate text-slate-900 dark:text-white`}>
+            <h2 className={`text-base font-bold break-words text-slate-900 dark:text-white`}>
               Vendor Opening Balances
             </h2>
-            <p className={`text-xs mt-0.5 truncate text-slate-500 dark:text-slate-400`}>
+            <p className={`text-xs mt-0.5 leading-snug break-words text-slate-500 dark:text-slate-400`}>
               Supplier × branch opening payables (Accounts Payable) rolled forward from the Vendor Ledger close step in
               the Fiscal Year Closing Wizard. Editable while the fiscal year is open.
             </p>
@@ -371,10 +371,10 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
               <Wallet className={`h-6 w-6 text-emerald-600 dark:text-emerald-400`} />
             </div>
             <div className="min-w-0">
-              <h3 className={`text-base font-bold truncate text-slate-900 dark:text-white`}>
+              <h3 className={`text-base font-bold break-words text-slate-900 dark:text-white`}>
                 Vendor Opening Balances (Accounts Payable)
               </h3>
-              <p className={`text-xs mt-0.5 truncate text-slate-500 dark:text-slate-400`}>
+              <p className={`text-xs mt-0.5 leading-snug break-words text-slate-500 dark:text-slate-400`}>
                 Supplier × branch opening payables rolled forward from the Vendor Ledger close step in the
                 Fiscal Year Closing Wizard. Editable while the fiscal year is open.
               </p>

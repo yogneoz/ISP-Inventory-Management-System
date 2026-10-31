@@ -85,7 +85,7 @@ export function NepaliCalendarGrid({
         {WEEKDAY_LETTERS.map((w, i) => (
           <div
             key={`${w}-${i}`}
-            className={`flex h-5 items-center justify-center text-[9px] font-bold uppercase text-slate-400 dark:text-slate-500`}
+            className={`flex h-5 items-center justify-center text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500`}
           >
             {w}
           </div>
@@ -127,7 +127,7 @@ export function NepaliCalendarGrid({
         })}
       </div>
 
-      <div className={`mt-1.5 border-t pt-1.5 text-[9px] leading-snug border-slate-100 text-slate-400 dark:border-slate-800 dark:text-slate-500`}>
+      <div className={`mt-1.5 border-t pt-1.5 text-[10px] leading-snug border-slate-100 text-slate-400 dark:border-slate-800 dark:text-slate-500`}>
         Faded days are outside the mapped BS calendar or the allowed range.
       </div>
     </div>

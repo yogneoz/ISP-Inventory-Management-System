@@ -1299,7 +1299,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                   Branch Blind Count: {isCompanyWideBlindCount ? 'ON (Enforced)' : isBlindAuditMode ? 'ON (Hidden)' : 'OFF'}
                 </span>
                 {!canToggleBlindCount && (
-                  <span className={`text-[9px] uppercase px-1 py-0.5 rounded font-extrabold bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300`}>
+                  <span className={`text-[10px] uppercase px-1 py-0.5 rounded font-extrabold bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300`}>
                     Locked
                   </span>
                 )}
@@ -1599,7 +1599,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                         <div className={`font-semibold flex items-center gap-1.5 text-slate-800 dark:text-slate-200`}>
                           <span>{row.productName}</span>
                           {row.requiresSerialTracking && (
-                            <span className="px-1.5 py-0.2 rounded bg-indigo-500/10 text-indigo-500 text-[9px] font-bold border border-indigo-500/20">
+                            <span className="px-1.5 py-0.2 rounded bg-indigo-500/10 text-indigo-500 text-[10px] font-bold border border-indigo-500/20">
                               Serial/MAC
                             </span>
                           )}
@@ -1932,7 +1932,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                               <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" title="Pending Approval" />
                             )}
                           </div>
-                          <div className={`text-[9px] font-normal truncate max-w-[90px] text-slate-500 dark:text-slate-400`}>{b.name}</div>
+                          <div className={`text-[10px] font-normal truncate max-w-[90px] text-slate-500 dark:text-slate-400`}>{b.name}</div>
                         </th>
                       );
                     })}
@@ -2496,7 +2496,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                     <th className="px-2.5 py-1.5 text-center font-extrabold">Net Variance</th>
                     <th className="px-2.5 py-1.5 text-right font-extrabold">Net Value (NPR)</th>
                   </tr>
-                  <tr className={`text-[9px] bg-slate-200/70 text-slate-500 dark:bg-slate-800/90 dark:text-slate-400`}>
+                  <tr className={`text-[10px] bg-slate-200/70 text-slate-500 dark:bg-slate-800/90 dark:text-slate-400`}>
                     <th className={`p-1 border-r border-slate-200 dark:border-slate-700`} />
                     <th className={`p-1 border-r border-slate-200 dark:border-slate-700`} />
                     {branches.map((b) => (

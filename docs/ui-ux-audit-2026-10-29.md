@@ -268,6 +268,10 @@ typed `ONU`, closed, header back to empty), while a picked result commits it
   inference; the scope-loss finding follows from the `hidden md:flex` rule, not
   from a separate zoom run.
 
+**Follow-up:** the ~60 uncovered screens were swept on 2026-10-30 at 390, 1067
+and 1440 px — see [ui-ux-audit-2026-10-30.md](ui-ux-audit-2026-10-30.md).
+Modals, dark mode, axe/contrast, screen readers and print remain open there too.
+
 ## Suggested order
 
 1. **UIX-1** — restore branch/FY scope on mobile; this blocks real work.

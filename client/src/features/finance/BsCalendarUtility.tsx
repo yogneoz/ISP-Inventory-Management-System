@@ -726,7 +726,7 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({ currentUse
                   <p className={`text-xs font-bold text-slate-800 dark:text-slate-200`}>
                     Bulk Import Multiple Years from Excel / CSV
                   </p>
-                  <p className={`text-[11px] text-slate-500 dark:text-slate-400 truncate`}>
+                  <p className={`text-[11px] text-slate-500 dark:text-slate-400 leading-snug break-words`}>
                     Columns: <code className="font-mono">BS Year</code> + 12 month columns (Baisakh → Chaitra) + optional <code className="font-mono">Start AD</code>.
                   </p>
                 </div>

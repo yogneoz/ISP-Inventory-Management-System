@@ -53,7 +53,7 @@ export const LogsPanel: React.FC = () => {
           </h3>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
-              <thead className={`font-bold text-[9px] tracking-wider border-b bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900/80 dark:text-slate-400 dark:border-slate-800`}>
+              <thead className={`font-bold text-[10px] tracking-wider border-b bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900/80 dark:text-slate-400 dark:border-slate-800`}>
                 <tr>
                   <th className="px-2.5 py-1.5">Ref #</th>
                   <th className="px-2.5 py-1.5">Type</th>

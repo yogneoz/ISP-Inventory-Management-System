@@ -64,6 +64,31 @@ checklist here.
 
 ## Active work
 
+**Completed outside a round — all-screen UI/UX sweep (2026-10-30).** The
+2026-10-29 audit covered 9 screens and left ~60 unknown; this pass drove all 68
+registered routes at 390/1067/1440 px (204 readings) with a temporary CDP
+sweep. The first pass flagged 19 readings on 8 screens. Three systemic causes
+covered most of them: `PageHeader` truncated titles and descriptions
+("Damaged Stock Matri…" at 1440), `StatCard` truncated KPI labels
+("TOTAL INVENTORY …" at 1067), and 102 labels sat at `text-[9px]` below the
+10 px floor. All three are fixed at the shared component (or the whole source,
+for the type floor), plus screen-specific fixes: Fiscal Year Closing step
+titles, Consumable Issue's three-column phone grid, the Approvals centre's
+missing `<h2>` and mouse-only KPI filters, keyboard-operable permission group
+headers, In-App Help nav labels, Company Setup presets/preview, and dashboard
+branch/product names. The re-run has zero clipped text, overflow, off-screen or
+mouse-only controls and console/HTTP errors. A follow-up raised every click
+target to the 24 px floor — enforced on `button` in px so the density tiers
+cannot shrink it — and moved the text-link/icon-only actions onto the shared
+`linkButton`/`iconButton` tokens: the measured 26/45/60 sub-22 px targets are
+0/0/0. Only the phone zoom tier's effective 9.36 px text (12 px source) stays
+outside the pass/fail flag. Guarded by
+`tests/uiUxSweep20261030.test.ts` (4 tests); report
+[docs/ui-ux-audit-2026-10-30.md](../docs/ui-ux-audit-2026-10-30.md). Not
+covered there: modals, dark mode, axe/contrast, screen readers, print,
+Firefox/Safari. Detail:
+[2026 session note](../docs/session-notes/2026.md#-all-screen-uiux-sweep--68-screens-three-widths-2026-10-30).
+
 **Completed outside a round — boot-timing launch retry (2026-10-30).** The
 GitHub runner intermittently starts headless Chrome without writing
 `DevToolsActivePort`, which reddened the boot-timing gate on runs 214 and

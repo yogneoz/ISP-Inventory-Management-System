@@ -261,7 +261,7 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
             <Building2 className="h-5 w-5 text-indigo-400" />
             Company Profile & Identity Setup
           </h1>
-          <p className="text-xs text-slate-300 truncate max-w-2xl">
+          <p className="text-xs text-slate-300 max-w-2xl leading-snug break-words">
             Configure official corporate details, registered address, tax PAN/VAT IDs, logo graphics,
             and header settings. Updates apply dynamically across all POs, Invoices, Barcode Labels,
             and Reports.
@@ -773,7 +773,7 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
                         <div className={`p-1 rounded-md text-white ${preset.color}`}>
                           <PresetIcon className="h-3.5 w-3.5" />
                         </div>
-                        <span className="truncate">{preset.label}</span>
+                        <span className="min-w-0 break-words text-left leading-tight">{preset.label}</span>
                       </button>
                     );
                   })}
@@ -829,15 +829,15 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
                     </div>
                   )}
                   <div className="flex-1 min-w-0">
-                    <h4 className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
+                    <h4 className="font-extrabold text-sm leading-snug break-words text-slate-900 dark:text-white">
                       {name || 'COMPANY NAME HERE'}
                     </h4>
                     {tagline && (
-                      <p className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 truncate">
+                      <p className="text-[11px] font-semibold leading-snug break-words text-indigo-600 dark:text-indigo-400">
                         {tagline}
                       </p>
                     )}
-                    <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                    <p className="text-[10px] leading-snug break-words text-slate-500 dark:text-slate-400">
                       {address || 'Company Address line will appear here'}
                     </p>
                   </div>
@@ -845,13 +845,13 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
 
                 <div className="pt-2 border-t border-slate-100 dark:border-slate-800 grid grid-cols-2 gap-2 text-[10px] font-mono">
                   <div>
-                    <span className="text-slate-400 block font-sans text-[9px]">PAN / VAT ID</span>
+                    <span className="text-slate-400 block font-sans text-[10px]">PAN / VAT ID</span>
                     <span className="font-bold text-indigo-600 dark:text-indigo-400">
                       {panVatNumber || 'REQUIRED'}
                     </span>
                   </div>
                   <div>
-                    <span className="text-slate-400 block font-sans text-[9px]">REG. NUMBER</span>
+                    <span className="text-slate-400 block font-sans text-[10px]">REG. NUMBER</span>
                     <span className="font-bold text-slate-700 dark:text-slate-300">
                       {registrationNumber || 'N/A'}
                     </span>
@@ -950,7 +950,7 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
                 <h4 className="text-xs font-black tracking-tight uppercase border-b border-slate-900 pb-1">
                   {name || 'COMPANY NAME'}
                 </h4>
-                <p className="text-[9px] font-bold text-slate-600">
+                <p className="text-[10px] font-bold text-slate-600">
                   ONU ROUTER 2.4G DUAL BAND
                 </p>
                 <div className="py-1 font-mono text-xs font-black tracking-widest bg-slate-100 rounded">

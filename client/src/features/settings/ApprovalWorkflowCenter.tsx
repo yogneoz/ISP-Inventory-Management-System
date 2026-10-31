@@ -214,14 +214,14 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
               <ShieldCheck className="h-6 w-6" />
             </div>
             <div>
-              <h3 className="font-extrabold text-base sm:text-lg flex items-center gap-2">
+              <h2 className="font-extrabold text-base sm:text-lg flex flex-wrap items-center gap-2">
                 <span>Workflow Approval & Authorization Center</span>
                 {pendingCount > 0 && (
                   <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-500 text-white animate-pulse">
                     {pendingCount} Pending Review
                   </span>
                 )}
-              </h3>
+              </h2>
               <p className={`text-xs mt-0.5 ${subTextColor}`}>
                 <strong>Request Flow:</strong> Branch Manager / Front Desk ➔ Inventory Manager / Super Admin. Formal authorization center for Suspend, Disconnect & Refund/Restock actions.
               </p>
@@ -247,9 +247,11 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
 
       {/* Top Metrics Row */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-        <div
+        <button
+          type="button"
           onClick={() => setFilterStatus('PENDING')}
-          className={`p-3.5 rounded-xl border transition-all cursor-pointer ${filterStatus === 'PENDING' ? 'ring-2 ring-amber-500 bg-amber-500/10 border-amber-500/50' : 'bg-amber-50/50 border-amber-200/80 hover:bg-amber-50 dark:bg-slate-800/40 dark:border-slate-700 dark:hover:bg-slate-800'}`}
+          aria-pressed={filterStatus === 'PENDING'}
+          className={`w-full text-left p-3.5 rounded-xl border transition-all cursor-pointer ${filterStatus === 'PENDING' ? 'ring-2 ring-amber-500 bg-amber-500/10 border-amber-500/50' : 'bg-amber-50/50 border-amber-200/80 hover:bg-amber-50 dark:bg-slate-800/40 dark:border-slate-700 dark:hover:bg-slate-800'}`}
         >
           <div className="flex items-center justify-between text-xs font-bold text-amber-700 dark:text-amber-400">
             <span>Pending</span>
@@ -261,11 +263,13 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
           <p className="text-[10px] text-amber-700/80 dark:text-amber-400 mt-0.5">
             Awaiting Super Admin review
           </p>
-        </div>
+        </button>
 
-        <div
+        <button
+          type="button"
           onClick={() => setFilterStatus('APPROVED')}
-          className={`p-3.5 rounded-xl border transition-all cursor-pointer ${filterStatus === 'APPROVED' ? 'ring-2 ring-emerald-500 bg-emerald-500/10 border-emerald-500/50' : 'bg-emerald-50/50 border-emerald-200/80 hover:bg-emerald-50 dark:bg-slate-800/40 dark:border-slate-700 dark:hover:bg-slate-800'}`}
+          aria-pressed={filterStatus === 'APPROVED'}
+          className={`w-full text-left p-3.5 rounded-xl border transition-all cursor-pointer ${filterStatus === 'APPROVED' ? 'ring-2 ring-emerald-500 bg-emerald-500/10 border-emerald-500/50' : 'bg-emerald-50/50 border-emerald-200/80 hover:bg-emerald-50 dark:bg-slate-800/40 dark:border-slate-700 dark:hover:bg-slate-800'}`}
         >
           <div className="flex items-center justify-between text-xs font-bold text-emerald-700 dark:text-emerald-400">
             <span>Approved</span>
@@ -277,11 +281,13 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
           <p className="text-[10px] text-emerald-700/80 dark:text-emerald-400 mt-0.5">
             Executed & synchronized
           </p>
-        </div>
+        </button>
 
-        <div
+        <button
+          type="button"
           onClick={() => setFilterStatus('REJECTED')}
-          className={`p-3.5 rounded-xl border transition-all cursor-pointer ${filterStatus === 'REJECTED' ? 'ring-2 ring-rose-500 bg-rose-500/10 border-rose-500/50' : 'bg-rose-50/50 border-rose-200/80 hover:bg-rose-50 dark:bg-slate-800/40 dark:border-slate-700 dark:hover:bg-slate-800'}`}
+          aria-pressed={filterStatus === 'REJECTED'}
+          className={`w-full text-left p-3.5 rounded-xl border transition-all cursor-pointer ${filterStatus === 'REJECTED' ? 'ring-2 ring-rose-500 bg-rose-500/10 border-rose-500/50' : 'bg-rose-50/50 border-rose-200/80 hover:bg-rose-50 dark:bg-slate-800/40 dark:border-slate-700 dark:hover:bg-slate-800'}`}
         >
           <div className="flex items-center justify-between text-xs font-bold text-rose-700 dark:text-rose-400">
             <span>Rejected</span>
@@ -293,11 +299,13 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
           <p className="text-[10px] text-rose-700/80 dark:text-rose-400 mt-0.5">
             Declined with reason
           </p>
-        </div>
+        </button>
 
-        <div
+        <button
+          type="button"
           onClick={() => setFilterStatus('CANCELLED')}
-          className={`p-3.5 rounded-xl border transition-all cursor-pointer ${filterStatus === 'CANCELLED' ? 'ring-2 ring-slate-500 bg-slate-500/10 border-slate-500/50' : 'bg-slate-100/70 border-slate-300 hover:bg-slate-200/60 dark:bg-slate-800/40 dark:border-slate-700 dark:hover:bg-slate-800'}`}
+          aria-pressed={filterStatus === 'CANCELLED'}
+          className={`w-full text-left p-3.5 rounded-xl border transition-all cursor-pointer ${filterStatus === 'CANCELLED' ? 'ring-2 ring-slate-500 bg-slate-500/10 border-slate-500/50' : 'bg-slate-100/70 border-slate-300 hover:bg-slate-200/60 dark:bg-slate-800/40 dark:border-slate-700 dark:hover:bg-slate-800'}`}
         >
           <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
             <span>Cancelled</span>
@@ -309,11 +317,13 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
           <p className="text-[10px] text-slate-600 dark:text-slate-400 mt-0.5">
             Withdrawn by requester
           </p>
-        </div>
+        </button>
 
-        <div
+        <button
+          type="button"
           onClick={() => setFilterStatus('ALL')}
-          className={`p-3.5 rounded-xl border transition-all cursor-pointer ${filterStatus === 'ALL' ? 'ring-2 ring-indigo-500 bg-indigo-500/10 border-indigo-500/50' : 'bg-indigo-50/50 border-indigo-200/80 hover:bg-indigo-50 dark:bg-slate-800/40 dark:border-slate-700 dark:hover:bg-slate-800'}`}
+          aria-pressed={filterStatus === 'ALL'}
+          className={`w-full text-left p-3.5 rounded-xl border transition-all cursor-pointer ${filterStatus === 'ALL' ? 'ring-2 ring-indigo-500 bg-indigo-500/10 border-indigo-500/50' : 'bg-indigo-50/50 border-indigo-200/80 hover:bg-indigo-50 dark:bg-slate-800/40 dark:border-slate-700 dark:hover:bg-slate-800'}`}
         >
           <div className="flex items-center justify-between text-xs font-bold text-indigo-700 dark:text-indigo-400">
             <span>Total</span>
@@ -325,7 +335,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
           <p className="text-[10px] text-indigo-700/80 dark:text-indigo-400 mt-0.5">
             Full audit log trace
           </p>
-        </div>
+        </button>
       </div>
 
       {/* Category / Type Tabs & Branch Search */}
@@ -551,7 +561,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                               <span>ADJUST & RECONCILE</span>
                             </span>
                           </div>
-                          <div className="mt-1 text-[9px] font-mono font-bold text-purple-600 dark:text-purple-400 flex items-center gap-0.5">
+                          <div className="mt-1 text-[10px] font-mono font-bold text-purple-600 dark:text-purple-400 flex items-center gap-0.5">
                             <span>Net Impact: {req.auditData?.netValueVariance && req.auditData.netValueVariance >= 0 ? '+' : ''}NPR {(req.auditData?.netValueVariance || 0).toLocaleString()}</span>
                           </div>
                         </div>
@@ -567,7 +577,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                               <span>CANCELLED</span>
                             </span>
                           </div>
-                          <div className="mt-1 text-[9px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-0.5">
+                          <div className="mt-1 text-[10px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-0.5">
                             <RefreshCw className="h-2.5 w-2.5 shrink-0" />
                             <span>Restores stock back to source branch</span>
                           </div>
@@ -584,7 +594,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                               <span>IN_TRANSIT (REVERT)</span>
                             </span>
                           </div>
-                          <div className="mt-1 text-[9px] text-rose-600 dark:text-rose-400 font-bold flex items-center gap-0.5">
+                          <div className="mt-1 text-[10px] text-rose-600 dark:text-rose-400 font-bold flex items-center gap-0.5">
                             <span>Reverts destination stock & serialized logs</span>
                           </div>
                         </div>
@@ -608,7 +618,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                             </span>
                           </div>
                           {req.restockQtyOnApproval && (
-                            <div className="mt-1 text-[9px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-0.5">
+                            <div className="mt-1 text-[10px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-0.5">
                               <RefreshCw className="h-2.5 w-2.5" />
                               <span>Restock +1 unit on approval</span>
                             </div>

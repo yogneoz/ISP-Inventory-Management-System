@@ -666,7 +666,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                           {isVar ? 'Variance' : c.fy ? c.fy.code : curFyLabel || 'Current'}
                         </span>
                         {isVar && (
-                          <span className="block text-[9px] font-normal mt-0.5">
+                          <span className="block text-[10px] font-normal mt-0.5">
                             {priorFyLabel} → {curFyLabel}
                           </span>
                         )}
@@ -819,7 +819,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                       <span className="block text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
                         {k.label}
                       </span>
-                      <span className="block text-[9px] font-mono text-slate-400 mt-0.5">{curFyLabel || 'Current'}</span>
+                      <span className="block text-[10px] font-mono text-slate-400 mt-0.5">{curFyLabel || 'Current'}</span>
                     </th>
                   ))}
                   {comparativeMode && priorFy && (
@@ -827,7 +827,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                       <span className="block text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
                         Total Assets {priorFyLabel}
                       </span>
-                      <span className="block text-[9px] font-mono text-slate-400 mt-0.5">prior-year close</span>
+                      <span className="block text-[10px] font-mono text-slate-400 mt-0.5">prior-year close</span>
                     </th>
                   )}
                 </tr>
@@ -846,7 +846,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                           {branch.name}
                           {branch.isHeadquarters ? ' (HQ)' : ''}
                           {branch.code && (
-                            <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-400">
+                            <span className="text-[10px] font-mono px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-400">
                               {branch.code}
                             </span>
                           )}

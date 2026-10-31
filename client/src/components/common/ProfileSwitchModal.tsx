@@ -344,7 +344,7 @@ export const ProfileSwitchModal: React.FC<ProfileSwitchModalProps> = ({
                                   {u.name}
                                 </span>
                                 <span
-                                  className={`text-[9px] font-bold px-2 py-0.5 rounded-md border ${getRoleBadgeColor(
+                                  className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${getRoleBadgeColor(
                                     u.role
                                   )}`}
                                 >

@@ -5,6 +5,7 @@ import {
   PulloutItem,
 } from '../../../types';
 import { FormCard } from '../../../components/common/FormCard';
+import { iconButton } from '../../../components/common/styleConstants';
 import { ProductSearchBar } from '../ProductSearchBar';
 import { DeviceSerialInput } from '../../../components/common/DeviceSerialInput';
 import { clampLineQuantity } from '../../../utils/lineQuantity';
@@ -148,7 +149,12 @@ export const LabelDamagePanel: React.FC = () => {
                 <AlertTriangle className={`h-5 w-5 text-rose-500 dark:text-rose-400`} />
                 <span>Label Local Damaged Stock</span>
               </h3>
-              <button onClick={() => { setIsDamageModalOpen(false); setActiveTab('DAMAGE_TRACKING'); }} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+              <button
+                type="button"
+                aria-label="Close damage form"
+                onClick={() => { setIsDamageModalOpen(false); setActiveTab('DAMAGE_TRACKING'); }}
+                className={`${iconButton} rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer`}
+              >
                 ✕
               </button>
             </div>

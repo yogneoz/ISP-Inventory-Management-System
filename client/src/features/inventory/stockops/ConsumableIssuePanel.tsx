@@ -216,7 +216,9 @@ export const ConsumableIssuePanel: React.FC = () => {
               </div>
             )}
 
-            <div className="grid grid-cols-3 gap-3">
+            {/* One column on a phone: three 108 px fields clipped the input's
+                own placeholder (2026-10-30 sweep, consumable issue @390). */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="block font-bold mb-1">Source Store Branch *</label>
                 <select
@@ -293,7 +295,7 @@ export const ConsumableIssuePanel: React.FC = () => {
               ) : (
                 <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
                   <table className="w-full text-left text-xs">
-                    <thead className={`font-bold text-[9px] tracking-wider border-b bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:border-slate-800`}>
+                    <thead className={`font-bold text-[10px] tracking-wider border-b bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:border-slate-800`}>
                       <tr>
                         <th className="px-2.5 py-1.5">Consumable Material</th>
                         <th className="px-2.5 py-1.5 text-center">Store Stock</th>

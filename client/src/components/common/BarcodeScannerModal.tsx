@@ -487,7 +487,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                       <span className="text-xs font-black tracking-wider text-rose-700 uppercase">
                         {companyProfile?.name || 'INVENTORY DIGITAL NETWORK PVT. LTD.'}
                       </span>
-                      <span className="text-[9px] font-bold text-slate-700 uppercase">
+                      <span className="text-[10px] font-bold text-slate-700 uppercase">
                         NEPAL IRD COMPLIANT
                       </span>
                     </div>
@@ -530,7 +530,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                               />
                             ))}
                           </div>
-                          <span className="text-[9px] font-mono font-bold text-slate-950 mt-1">
+                          <span className="text-[10px] font-mono font-bold text-slate-950 mt-1">
                             *{selectedProduct?.barcode || selectedProduct?.sku || serialNumber}*
                           </span>
                         </div>

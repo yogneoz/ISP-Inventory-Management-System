@@ -1078,7 +1078,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                           <div className="flex items-center gap-2">
                             <span>{p.name}</span>
                             {p.requiresSerialTracking && (
-                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-400">
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-400">
                                 SERIALIZED
                               </span>
                             )}
@@ -1209,7 +1209,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                         <div className="flex items-center gap-2">
                           <span>{p.name}</span>
                           {p.requiresSerialTracking && (
-                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-400">
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-400">
                               SERIALIZED
                             </span>
                           )}

@@ -46,6 +46,7 @@ import {
 } from 'lucide-react';
 import { TablePagination, useClientPagination } from '../../components/common/TablePagination';
 import { StatCard } from '../../components/common/StatCard';
+import { linkButton } from '../../components/common/styleConstants';
 
 interface FiscalYearClosingWizardProps {
   fiscalYears: FiscalYear[];
@@ -856,7 +857,9 @@ filing. Consult a professional accountant for IRD submission.
                   {step.number}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[11px] font-semibold truncate leading-tight">{step.title}</p>
+                  {/* Wrap, never clip: these six titles ARE the wizard's
+                      navigation, and at 1440 they were ending in "…". */}
+                  <p className="text-[11px] font-semibold leading-snug break-words">{step.title}</p>
                 </div>
               </button>
             );
@@ -954,7 +957,7 @@ filing. Consult a professional accountant for IRD submission.
                       <button
                         type="button"
                         onClick={() => onNavigateTab(navTarget)}
-                        className="mt-2 inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                        className={`mt-2 ${linkButton} text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer`}
                       >
                         <ArrowRight className="h-3 w-3" />
                         Go to {navTarget.replace(/-/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())}
@@ -1435,7 +1438,7 @@ filing. Consult a professional accountant for IRD submission.
                     <td className="p-3 font-bold font-mono text-slate-900 dark:text-white">
                       FY {fy.code}
                       {fy.id === activePeriodFyId && (
-                        <span className={`ml-2 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300`}>
+                        <span className={`ml-2 text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300`}>
                           Viewing
                         </span>
                       )}
@@ -1470,7 +1473,7 @@ filing. Consult a professional accountant for IRD submission.
                               }
                             }}
                             disabled={isProcessingStep}
-                            className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                            className={`${linkButton} text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed`}
                           >
                             <CheckCircle2 className="h-3.5 w-3.5" /> Set Active
                           </button>

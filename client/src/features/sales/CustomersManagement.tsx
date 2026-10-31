@@ -904,11 +904,11 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
 
                           {pendingDisconnect && (
                             <div className="inline-flex flex-col items-center gap-0.5">
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-amber-100 dark:bg-amber-950/90 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700 animate-pulse">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 dark:bg-amber-950/90 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700 animate-pulse">
                                 <Clock className="h-2.5 w-2.5 shrink-0" />
                                 <span>Disconnect Pending</span>
                               </span>
-                              <span className="text-[9px] font-mono font-bold text-amber-600 dark:text-amber-400">
+                              <span className="text-[10px] font-mono font-bold text-amber-600 dark:text-amber-400">
                                 {pendingDisconnect.requestNumber}
                               </span>
                             </div>

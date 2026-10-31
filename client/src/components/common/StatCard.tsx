@@ -127,7 +127,10 @@ export function StatCard({
   const inner = (
     <>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">
+        {/* Labels wrap instead of ellipsizing: at 1067 px a four-up row cut
+            "TOTAL INVENTORY COST VALUE" to "TOTAL INVENTORY …", which hides the
+            metric's name. The row's grid stretches cards to a common height. */}
+        <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider leading-tight break-words">
           {label}
         </span>
         {icon != null && (
@@ -142,7 +145,7 @@ export function StatCard({
         {value}
       </div>
       {hint != null && (
-        <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium truncate">
+        <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium leading-snug break-words">
           {hint}
         </div>
       )}

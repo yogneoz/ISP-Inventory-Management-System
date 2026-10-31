@@ -57,6 +57,27 @@
   }
 }
 
+/* =====================================================================
+   MINIMUM CLICK TARGET — WCAG 2.5.8 (24 x 24 CSS px)
+   ---------------------------------------------------------------------
+   Several compact actions are authored at text height (a `text-xs` link
+   action is ~15 px tall) or as a bare 12 px glyph (the ✕ on a damage
+   chip). The 2026-10-30 sweep found 26 such buttons at 1440 px and more
+   at the denser tiers. The floor lives here, in px, so a `button` can
+   never fall below the target no matter which density tier or compact
+   variant a screen uses.
+
+   px is deliberate: the density tiers scale the root font-size, so
+   `min-h-6` (1.5rem) would render 18.7 px at the 78% tier.
+
+   Link-style and icon-only actions can also opt into the shared tokens
+   in client/src/components/common/styleConstants.ts.
+   ===================================================================== */
+button {
+  min-height: 24px;
+  min-width: 24px;
+}
+
 @media print {
 	@page { margin: 0; }
 	body * { visibility: hidden !important; }

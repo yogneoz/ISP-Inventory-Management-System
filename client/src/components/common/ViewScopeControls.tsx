@@ -64,8 +64,8 @@ export const ViewScopeControls: React.FC<ViewScopeControlsProps> = ({
             <span
               className={
                 isHeader
-                  ? 'text-[9px] bg-amber-800/80 text-amber-100 px-1 py-0.2 rounded font-normal uppercase'
-                  : 'rounded bg-amber-200 px-1 py-0.5 text-[9px] font-normal uppercase text-amber-900 dark:bg-amber-900 dark:text-amber-100'
+                  ? 'text-[10px] bg-amber-800/80 text-amber-100 px-1 py-0.2 rounded font-normal uppercase'
+                  : 'rounded bg-amber-200 px-1 py-0.5 text-[10px] font-normal uppercase text-amber-900 dark:bg-amber-900 dark:text-amber-100'
               }
             >
               Assigned
@@ -108,8 +108,8 @@ export const ViewScopeControls: React.FC<ViewScopeControlsProps> = ({
         <span
           className={
             isHeader
-              ? 'text-[9px] font-bold text-indigo-200 dark:text-slate-400'
-              : 'text-[9px] font-bold text-slate-500 dark:text-slate-400'
+              ? 'text-[10px] font-bold text-indigo-200 dark:text-slate-400'
+              : 'text-[10px] font-bold text-slate-500 dark:text-slate-400'
           }
         >
           FY

@@ -190,11 +190,11 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 relative z-10">
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 mb-1">
-              <span className="px-2 py-0.5 rounded-md text-[9px] font-extrabold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-400/30 flex items-center gap-1">
+              <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-400/30 flex items-center gap-1">
                 <Building className="h-2.5 w-2.5" />
                 HQ Intake
               </span>
-              <span className="px-2 py-0.5 rounded-md text-[9px] font-extrabold uppercase tracking-wider bg-indigo-500/20 text-indigo-200 border border-indigo-400/30">
+              <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wider bg-indigo-500/20 text-indigo-200 border border-indigo-400/30">
                 WH001 Central Hub
               </span>
             </div>
@@ -202,7 +202,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
               <Inbox className="h-4.5 w-4.5 text-indigo-400 shrink-0" />
               <span>Receive Inbound Stock & Branch Pullouts</span>
             </h1>
-            <p className="text-[11px] text-indigo-200/80 mt-0.5 max-w-xl truncate">
+            <p className="text-[11px] text-indigo-200/80 mt-0.5 max-w-xl leading-snug break-words">
               Inspect incoming branch returns, overstock pullouts, and shipments to credit directly into Central Warehouse inventory.
             </p>
           </div>
@@ -212,14 +212,14 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
             <div className="px-3 py-1.5 rounded-xl bg-white/10 backdrop-blur-md border border-white/10 flex items-center gap-2.5">
               <Truck className="h-4 w-4 text-amber-400" />
               <div>
-                <div className="text-[9px] font-bold text-indigo-200 uppercase tracking-wider">Pending Pullouts</div>
+                <div className="text-[10px] font-bold text-indigo-200 uppercase tracking-wider">Pending Pullouts</div>
                 <div className="text-sm font-bold font-mono text-amber-300 leading-tight">{pendingPulloutCount} Bins</div>
               </div>
             </div>
             <div className="px-3 py-1.5 rounded-xl bg-white/10 backdrop-blur-md border border-white/10 flex items-center gap-2.5">
               <Package className="h-4 w-4 text-sky-400" />
               <div>
-                <div className="text-[9px] font-bold text-indigo-200 uppercase tracking-wider">Inbound Shipments</div>
+                <div className="text-[10px] font-bold text-indigo-200 uppercase tracking-wider">Inbound Shipments</div>
                 <div className="text-sm font-bold font-mono text-sky-300 leading-tight">{pendingShipmentCount} Consignments</div>
               </div>
             </div>
@@ -344,12 +344,12 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
                             {op.referenceNumber}
                           </span>
                           {isReceived ? (
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1">
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1">
                               <CheckCircle2 className="h-2.5 w-2.5 text-emerald-600 dark:text-emerald-400" />
                               <span>RECEIVED AT WH001</span>
                             </span>
                           ) : (
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 flex items-center gap-1">
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 flex items-center gap-1">
                               <Clock className="h-2.5 w-2.5 text-amber-600 dark:text-amber-400" />
                               <span>PENDING INTAKE</span>
                             </span>
@@ -367,7 +367,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
 
                       <div className="flex items-center gap-2.5">
                         <div className="text-right">
-                          <div className="text-[9px] text-slate-400 font-mono">Date</div>
+                          <div className="text-[10px] text-slate-400 font-mono">Date</div>
                           <div className="text-[11px] font-mono font-bold text-slate-700 dark:text-slate-300">{op.dateAD}</div>
                         </div>
 
@@ -404,7 +404,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
                     {op.items && op.items.length > 0 && (
                       <div className="mt-1.5 overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
                         <table className="w-full text-left text-xs">
-                          <thead className="font-bold text-[9px] tracking-wider border-b bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800/80 dark:text-slate-400 dark:border-slate-800">
+                          <thead className="font-bold text-[10px] tracking-wider border-b bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800/80 dark:text-slate-400 dark:border-slate-800">
                             <tr>
                               <th className="px-2 py-1">Product SKU & Name</th>
                               <th className="px-2 py-1 text-center">Condition</th>
@@ -426,11 +426,11 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
 
                                 <td className="p-2 text-center">
                                   {item.condition === 'DAMAGED_STOCK' ? (
-                                    <span className="px-1.5 py-0.2 rounded bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 font-extrabold text-[9px] border border-rose-200 dark:border-rose-800">
+                                    <span className="px-1.5 py-0.2 rounded bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 font-extrabold text-[10px] border border-rose-200 dark:border-rose-800">
                                       ⚠️ DAMAGED
                                     </span>
                                   ) : (
-                                    <span className="px-1.5 py-0.2 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-extrabold text-[9px] border border-emerald-200 dark:border-emerald-800">
+                                    <span className="px-1.5 py-0.2 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-extrabold text-[10px] border border-emerald-200 dark:border-emerald-800">
                                       ✓ USABLE
                                     </span>
                                   )}
@@ -452,14 +452,14 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
                                   {item.deviceSerials && item.deviceSerials.length > 0 ? (
                                     <div className="space-y-0.5">
                                       {item.deviceSerials.map((s, sIdx) => (
-                                        <div key={sIdx} className="text-[9px] font-mono bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                                        <div key={sIdx} className="text-[10px] font-mono bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700 flex items-center justify-between">
                                           <span>SN: {s.deviceSerial}</span>
                                           {s.ponSerial && <span className="text-indigo-500">PON: {s.ponSerial}</span>}
                                         </div>
                                       ))}
                                     </div>
                                   ) : (
-                                    <span className="text-slate-400 italic text-[9px]">Bulk product</span>
+                                    <span className="text-slate-400 italic text-[10px]">Bulk product</span>
                                   )}
                                 </td>
                               </tr>
@@ -533,7 +533,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
                         <span className="font-mono text-xs font-bold text-sky-600 dark:text-sky-400">
                           {sh.trackingCode}
                         </span>
-                        <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded border ${
+                        <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border ${
                           isReceived
                             ? 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-400 dark:border-emerald-800'
                             : 'bg-sky-50 text-sky-700 border-sky-300 dark:bg-sky-950/60 dark:text-sky-400 dark:border-sky-800'
@@ -609,11 +609,11 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
               {/* Source & Details */}
               <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px]">
                 <div>
-                  <span className="text-[9px] text-slate-400 font-bold block">SOURCE BRANCH</span>
+                  <span className="text-[10px] text-slate-400 font-bold block">SOURCE BRANCH</span>
                   <span className="font-bold text-slate-800 dark:text-slate-200">{selectedPulloutToReceive.branchName || selectedPulloutToReceive.branchId}</span>
                 </div>
                 <div>
-                  <span className="text-[9px] text-slate-400 font-bold block">INSPECTOR / OFFICER</span>
+                  <span className="text-[10px] text-slate-400 font-bold block">INSPECTOR / OFFICER</span>
                   <span className="font-bold text-slate-800 dark:text-slate-200">{selectedPulloutToReceive.inspectorName}</span>
                 </div>
               </div>
@@ -625,9 +625,9 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
                   {selectedPulloutToReceive.items?.map((item) => (
                     <div key={item.id} className="p-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 flex items-center justify-between text-[11px]">
                       <div>
-                        <span className="font-mono text-[9px] text-indigo-500 font-bold">[{item.sku}] </span>
+                        <span className="font-mono text-[10px] text-indigo-500 font-bold">[{item.sku}] </span>
                         <span className="font-bold">{item.productName}</span>
-                        <div className="text-[9px] text-slate-400">
+                        <div className="text-[10px] text-slate-400">
                           Condition: <strong className={item.condition === 'DAMAGED_STOCK' ? 'text-rose-500' : 'text-emerald-500'}>{item.condition}</strong>
                         </div>
                       </div>

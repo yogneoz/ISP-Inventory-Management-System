@@ -551,7 +551,7 @@ export const AssignAssetPanel: React.FC = () => {
                             <span className="text-slate-400">{idx + 1}.</span>
                             <span className="truncate">{item.productName}</span>
                             <span className="font-mono text-[10px] font-semibold text-slate-500">[{item.sku}]</span>
-                            <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md shrink-0 ${item.kind === 'PRODUCT' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'}`}>
+                            <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-md shrink-0 ${item.kind === 'PRODUCT' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'}`}>
                               {item.kind === 'PRODUCT' ? 'NEW FROM STOCK' : 'LEDGER ASSET'}
                             </span>
                             {item.kind === 'PRODUCT' && onHand !== null && (
