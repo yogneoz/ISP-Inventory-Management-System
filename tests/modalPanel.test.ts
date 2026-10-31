@@ -104,6 +104,10 @@ const ADOPTED_DIALOGS = [
   'client/src/features/settings/ApprovalWorkflowCenter.tsx',
   'client/src/components/common/ReceiveVerificationModal.tsx',
   'client/src/features/finance/OpeningStockManager.tsx',
+  // Feature dialogs that were still on their own wrappers.
+  'client/src/features/inventory/DamagedStockTracking.tsx',
+  'client/src/features/inventory/PhysicalStockAudit.tsx',
+  'client/src/features/inventory/SerialLogRegister.tsx',
 ];
 
 describe('2026-10-31 overlay sweep — shared modal panel', () => {

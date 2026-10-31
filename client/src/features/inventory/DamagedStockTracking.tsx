@@ -12,6 +12,7 @@ import { localTodayAD } from '../../utils/localDate';
 import { parseLineQuantity } from '../../utils/lineQuantity';
 import StatCard from '../../components/common/StatCard';
 import { DateField } from '../../components/DateField';
+import { ModalPanel } from '../../components/common/ModalPanel';
 import {
   AlertTriangle,
   Building2,
@@ -918,7 +919,11 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
       {/* MODAL 1: EDIT LOCAL DAMAGED STOCK COUNT */}
       {editingStock && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className={`w-full max-w-md rounded-2xl shadow-2xl border p-6 bg-white border-slate-200 text-slate-800 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-200`}>
+          <ModalPanel
+            label="Adjust Damaged Stock Count"
+            onClose={() => setEditingStock(null)}
+            className={`w-full max-w-md rounded-2xl shadow-2xl border p-6 bg-white border-slate-200 text-slate-800 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-200`}
+          >
             <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="h-5 w-5 text-amber-500" />
@@ -1007,14 +1012,18 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                 </button>
               </div>
             </form>
-          </div>
+          </ModalPanel>
         </div>
       )}
 
       {/* MODAL 2: DAMAGED STOCK DISPOSAL & ACCOUNTING WRITE-OFF */}
       {disposalStock && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4">
-          <div className={`w-full max-w-xl rounded-2xl shadow-2xl border p-6 max-h-[90vh] overflow-y-auto bg-white border-slate-200 text-slate-800 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-200`}>
+          <ModalPanel
+            label="Damaged Stock Disposal & Accounting Write-Off"
+            onClose={() => setDisposalStock(null)}
+            className={`w-full max-w-xl rounded-2xl shadow-2xl border p-6 max-h-[90vh] overflow-y-auto bg-white border-slate-200 text-slate-800 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-200`}
+          >
             <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
               <div className="flex items-center gap-2.5">
                 <div className={`p-2 rounded-xl text-white shadow-xs bg-rose-600 dark:bg-rose-500`}>
@@ -1237,7 +1246,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                 </button>
               </div>
             </form>
-          </div>
+          </ModalPanel>
         </div>
       )}
 
@@ -1246,7 +1255,11 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
         const ops = activeDamageOpsFor(reversalCell.product.id, reversalCell.branch.id);
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-            <div className={`w-full max-w-lg rounded-2xl shadow-2xl border p-6 bg-white border-slate-200 text-slate-800 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-200`}>
+            <ModalPanel
+              label="Reverse Wrong Damage Entry"
+              onClose={() => { if (!isReversing) setReversalCell(null); }}
+              className={`w-full max-w-lg rounded-2xl shadow-2xl border p-6 bg-white border-slate-200 text-slate-800 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-200`}
+            >
               <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
                 <div className="flex items-center gap-2">
                   <Undo2 className="h-5 w-5 text-amber-500" />
@@ -1274,7 +1287,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                   {ops.map((rec) => (
                     <div key={rec.damageReference} className={`p-3 rounded-xl border flex items-center justify-between gap-2 ${isDarkMode ? 'border-slate-800 bg-slate-900/60' : 'border-slate-200 bg-slate-50'}`}>
                       <div className="min-w-0">
-                        <div className="font-mono font-bold text-[11px] text-rose-600 dark:text-rose-400 truncate">{rec.damageReference}</div>
+                        <div className="font-mono font-bold text-[11px] text-rose-600 dark:text-rose-400 break-all">{rec.damageReference}</div>
                         <div className="text-[10px] text-slate-500 mt-0.5">
                           {rec.quantityDamaged} unit(s) · {formatNPR(rec.totalCost)} · {rec.damageDateAD}
                           {rec.approvedBy ? ` · by ${rec.approvedBy}` : ''}
@@ -1298,7 +1311,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                   ledger. A reason is required and kept on the audit trail.
                 </p>
               </div>
-            </div>
+            </ModalPanel>
           </div>
         );
       })()}

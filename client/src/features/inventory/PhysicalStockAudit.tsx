@@ -32,6 +32,7 @@ import { formatDualDate } from '../../utils/nepaliCalendar';
 import { DateField } from '../../components/DateField';
 import { FilterCard } from '../../components/common/FilterCard';
 import { TablePagination } from '../../components/common/TablePagination';
+import { ModalPanel } from '../../components/common/ModalPanel';
 import { getAllowedBranches, canUserSeeAllBranches, isOperationAllowed } from '../../utils/permissions';
 import { exportToCSV } from '../../utils/exportUtils';
 import { useDarkMode } from '../../contexts/DarkModeContext';
@@ -2007,7 +2008,9 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
       {/* MODAL 1: SUBMIT STOCK AUDIT FOR APPROVAL (Workflow: Count Stock > Send Request for approval) */}
       {showApprovalModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
-          <div
+          <ModalPanel
+            label="Submit Physical Stock Audit for Authorization"
+            onClose={() => setShowApprovalModal(false)}
             className={`w-full max-w-2xl rounded-3xl p-6 border shadow-2xl space-y-5 bg-white border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-100`}
           >
             <div className={`flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3`}>
@@ -2064,7 +2067,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
             </div>
 
             {/* Discrepancy Breakdown Table */}
-            <div className={`rounded-2xl overflow-hidden max-h-48 overflow-y-auto border-slate-200 dark:border-slate-800`}>
+            <div className={`rounded-2xl max-h-48 overflow-x-auto overflow-y-auto border-slate-200 dark:border-slate-800`}>
               <table className="w-full text-left text-xs">
                 <thead className={`text-[10px] font-bold bg-slate-100 text-slate-600 dark:bg-slate-800/80 dark:text-slate-400`}>
                   <tr>
@@ -2089,7 +2092,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                       <tr key={r.productId}>
                         <td className="p-2.5 font-sans">
                           <div className={`font-bold font-mono text-slate-900 dark:text-slate-100`}>{r.sku}</div>
-                          <div className="text-[10px] text-slate-500 truncate max-w-[140px]">{r.productName}</div>
+                          <div className="text-[10px] text-slate-500 break-words">{r.productName}</div>
                         </td>
                         <td className={`p-2.5 text-center text-slate-600 dark:text-slate-400`}>{r.bookQty}</td>
                         <td className={`p-2.5 text-center font-bold text-slate-900 dark:text-slate-100`}>{c}</td>
@@ -2107,7 +2110,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                         >
                           {(val ?? 0).toLocaleString()}
                         </td>
-                        <td className={`p-2.5 text-[11px] font-sans truncate max-w-[150px] text-slate-600 dark:text-slate-300`}>
+                        <td className={`p-2.5 text-[11px] font-sans break-words text-slate-600 dark:text-slate-300`}>
                           {reason}
                         </td>
                       </tr>
@@ -2165,14 +2168,16 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                 )}
               </button>
             </div>
-          </div>
+          </ModalPanel>
         </div>
       )}
 
       {/* MODAL 2: DEDICATED APPROVE AND RECONCILE CONFIRMATION (For Super Admin / Stock Manager) */}
       {showApproveReconcileModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
-          <div
+          <ModalPanel
+            label="Approve & Reconcile Physical Stock"
+            onClose={() => setShowApproveReconcileModal(false)}
             className={`w-full max-w-2xl rounded-3xl p-6 border shadow-2xl space-y-5 bg-white border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-100`}
           >
             <div className={`flex items-center justify-between pb-3 border-b border-slate-200 dark:border-b dark:border-slate-800`}>
@@ -2209,7 +2214,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
             </div>
 
             {/* List of items to be adjusted */}
-            <div className={`rounded-2xl overflow-hidden max-h-52 overflow-y-auto border-slate-200 dark:border-slate-800`}>
+            <div className={`rounded-2xl max-h-52 overflow-x-auto overflow-y-auto border-slate-200 dark:border-slate-800`}>
               <table className="w-full text-left text-xs">
                 <thead className={`text-[10px] font-bold bg-slate-100 text-slate-600 dark:bg-slate-800/80 dark:text-slate-400`}>
                   <tr>
@@ -2290,14 +2295,16 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                 )}
               </button>
             </div>
-          </div>
+          </ModalPanel>
         </div>
       )}
 
       {/* MODAL 3: REJECT AUDIT REQUEST MODAL */}
       {showRejectModal && pendingAuditRequest && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
-          <div
+          <ModalPanel
+            label="Reject Stock Audit Request"
+            onClose={() => setShowRejectModal(false)}
             className={`w-full max-w-md rounded-3xl p-6 border shadow-2xl space-y-4 bg-white border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-100`}
           >
             <div className="flex items-center gap-2.5 text-rose-600 font-extrabold text-base">
@@ -2339,14 +2346,16 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                 {isSubmitting ? 'Rejecting...' : 'Confirm Rejection'}
               </button>
             </div>
-          </div>
+          </ModalPanel>
         </div>
       )}
 
       {/* MODAL 4: DIRECT RECONCILE (ADMIN DIRECT OVERRIDE) */}
       {showDirectReconcileModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
-          <div
+          <ModalPanel
+            label="Direct Stock Reconcile (Admin Direct Override)"
+            onClose={() => setShowDirectReconcileModal(false)}
             className={`w-full max-w-xl rounded-3xl p-6 border shadow-2xl space-y-5 bg-white border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-100`}
           >
             <div className={`flex items-center justify-between pb-3 border-b border-slate-200 dark:border-b dark:border-slate-800`}>
@@ -2397,14 +2406,16 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                 )}
               </button>
             </div>
-          </div>
+          </ModalPanel>
         </div>
       )}
 
       {/* MODAL 5: CONSOLIDATED MULTI-BRANCH STOCK AUDIT REPORT MATRIX */}
       {showConsolidatedModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
-          <div
+          <ModalPanel
+            label="Consolidated Multi-Branch Stock Audit Report"
+            onClose={() => setShowConsolidatedModal(false)}
             className={`w-full max-w-6xl max-h-[90vh] flex flex-col rounded-3xl border shadow-2xl overflow-hidden bg-white border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-100`}
           >
             {/* Modal Header */}
@@ -2528,7 +2539,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                         {/* SKU & Name */}
                         <td className={`p-2.5 border-r font-sans border-slate-200 dark:border-slate-700`}>
                           <div className={`font-bold font-mono text-slate-900 dark:text-slate-100`}>{item.sku}</div>
-                          <div className="text-[11px] text-slate-500 truncate max-w-[160px]">{item.productName}</div>
+                          <div className="text-[11px] text-slate-500 break-words">{item.productName}</div>
                         </td>
 
                         {/* Unit Cost */}
@@ -2598,7 +2609,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                 Close Matrix View
               </button>
             </div>
-          </div>
+          </ModalPanel>
         </div>
       )}
     </div>

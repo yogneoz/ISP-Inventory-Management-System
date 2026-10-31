@@ -95,11 +95,12 @@ exceljs.
 
 **Completed outside a round — overlay UI/UX sweep (2026-10-31).** The screen
 sweep above measured the routed screen behind every modal and drawer, never the
-overlay. This pass opened 24 overlays through their real triggers — the four
+overlay. This pass opened 32 overlays through their real triggers — the four
 shell overlays, the shared confirm dialog, the ten record dialogs, both payment
-dialogs, the warranty editor and six data-gated dialogs seeded with dummy
-fixtures — and probed each at 390/1067/1440 px (72 readings), adding an
-unreachable-panel check and recording dialog semantics separately. Content is clean everywhere: no clipped/ellipsized text, overflow,
+dialogs, the warranty editor, six data-gated dialogs seeded with dummy fixtures
+and eight feature dialogs — and probed each at 390/1067/1440 px (96 readings),
+adding an unreachable-panel check and recording dialog semantics separately.
+Content is clean everywhere: no clipped/ellipsized text, overflow,
 off-screen or unreachable controls, mouse-only rows, over-wide tables,
 console/HTTP errors or sub-22 px targets. The one finding — the profile
 picker's `email • branch` line cut 12 px at 1067 and up to 102 px at 390 — is
@@ -110,7 +111,13 @@ with `DialogProvider` joining the trap stack; pinned by
 `tests/modalPanel.test.ts`. The three data-gated surfaces — the four approval
 dialogs, receive verification and opening-stock Add Row — were then seeded and
 measured: all six were plain divs too, now on the same panel (UIX-26), with
-18/18 follow-up readings clean on semantics and content. Report
+18/18 follow-up readings clean on semantics and content. The last nine feature
+panels — damage adjust/dispose/reverse, audit submit/approve/reject/consolidated
+and serial correction — were then migrated too (UIX-27); that pass found and
+fixed three content losses (truncated product names, truncated damage
+references, a clipped audit table at 390), and 96/96 readings are clean on the
+reachable surfaces. The direct-reconcile panel has no trigger and is noted as
+such. Report
 [docs/ui-ux-audit-2026-10-31-overlays.md](../docs/ui-ux-audit-2026-10-31-overlays.md);
 detail:
 [2026 session note](../docs/session-notes/2026.md#-overlay-uiux-sweep--modals-and-drawers-three-widths-2026-10-31).

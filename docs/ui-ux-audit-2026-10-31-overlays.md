@@ -1,10 +1,10 @@
 # UI/UX audit — 2026-10-31 (modals and drawers)
 
 Scope: the live Vite app at `http://127.0.0.1:3000`, signed in as the demo
-`superadmin@example.com`, opening **24 overlay surfaces** (shell dialogs, record
-dialogs, payment dialogs, the warranty editor and six data-gated dialogs seeded
-for the follow-up pass) at **390×844, 1067×800 and 1440×900** — 72 readings.
-This closes the modal/drawer gap that
+`superadmin@example.com`, opening **32 overlay surfaces** (shell dialogs, record
+dialogs, payment dialogs, the warranty editor, six data-gated dialogs seeded
+for the follow-up pass and eight feature dialogs) at **390×844, 1067×800 and
+1440×900** — 96 readings. This closes the modal/drawer gap that
 [the 2026-10-30 all-screen sweep](ui-ux-audit-2026-10-30.md#not-covered) left
 open; that pass measured the routed screen behind an overlay, never the overlay.
 
@@ -27,17 +27,17 @@ plus two overlay-specific ones:
 
 | Severity | Findings | Status |
 |---|---|---|
-| Content loss | 1 | fixed |
-| Dialog semantics | 2 | fixed (12 + 6 dialogs) |
+| Content loss | 2 | fixed |
+| Dialog semantics | 3 | fixed (12 flagged dialogs plus siblings; 33 panels total) |
 
-After the fixes, all **72 readings are clean**: zero ellipsized or clipped text,
+After the fixes, all **96 readings are clean**: zero ellipsized or clipped text,
 zero overflow, zero off-viewport or unreachable controls, zero mouse-only rows,
 zero tables wider than their scroller, zero console/page/HTTP errors — and zero
 sub-22 px targets, so the 24 px floor holds inside overlays too.
 
-The semantic gaps are fixed too: all **72 readings** now expose
+The semantic gaps are fixed too: all **96 readings** now expose
 `role="dialog"`, `aria-modal="true"` and an accessible name, and the focus trap
-is shared rather than per-dialog (UIX-25, UIX-26).
+is shared rather than per-dialog (UIX-25, UIX-26, UIX-27).
 
 ## Medium
 
@@ -88,7 +88,8 @@ customer delete, payment breakdown, barcode print, user reset). Pinned by
 `tests/modalPanel.test.ts` (4 tests: adoption, semantics + trap + Escape, stacked
 confirm, focus restore). Re-swept: 54/54 readings report dialog + modal + a name,
 with no content change. The six data-gated dialogs joined in the follow-up pass
-(UIX-26), bringing the total to 24 panels across 15 files.
+(UIX-26) and nine feature dialogs in the last pass (UIX-27), bringing the total
+to 33 panels across 18 files.
 
 ### UIX-26 — The data-gated dialogs were not dialogs either
 
@@ -114,6 +115,38 @@ receive panel) and the opening-stock Add Row dialog. Pinned by the same
 name, with zero content findings. The 390 px readings report the app's known
 `text-xs` residual (9.36 px at the 78% density tier); no overlay introduces a
 smaller source size.
+
+### UIX-27 — The last feature dialogs had no semantics, and three hid content
+
+**Observed.** The three remaining feature areas still rendered their overlays as
+plain divs: damage tracking (adjust count, dispose/write-off, reverse entry),
+physical stock audit (submit, approve & reconcile, reject, consolidated matrix)
+and serial-log correction. That is nine panels with no `role="dialog"`, no
+`aria-modal`, no accessible name and no focus trap, and none had been measured.
+
+Once opened, three of them also lost content: the damage reference ellipsized at
+1067 and 390 px (7 px and 66 px cut); the audit-submit table hid 16 px of a
+product name at every width and clipped 162 px of its six-column table at 390;
+the consolidated matrix ellipsized **eight** product names by up to 85 px even
+at 1440; and the variance-reason cell cut 4-5 px.
+
+**Fixed.** All nine panels render inside `ModalPanel`; the direct-reconcile
+panel is included even though it has no live trigger (see below). Identity cells
+now wrap (`break-words` / `break-all`) instead of truncating, and both audit
+discrepancy tables scroll horizontally (`overflow-x-auto`) instead of clipping at
+390 px. Pinned by `tests/modalPanel.test.ts` (18 files) and the three static
+checks in `tests/uiUxOverlaySweep20261031.test.ts`.
+
+**Re-measured.** 8 reachable surfaces × 3 widths: every reading reports dialog +
+modal + a name and zero clipped/ellipsized/overflow/off-viewport/mouse-only/
+small-target/error findings. The full 32-surface sweep reports the same across
+all 96 readings.
+
+**Unreachable panel.** The "Direct Stock Reconcile (Admin Direct Override)"
+overlay's `showDirectReconcileModal` state is only ever set to `false`; no
+control sets it to `true`. It could therefore not be measured through a real
+trigger. It is converted for consistency, but the dead panel should either get
+its trigger back or be deleted.
 
 ## What was verified
 
@@ -143,10 +176,19 @@ smaller source size.
 | Cancel approval request | row "Cancel" | ok | ok | ok |
 | Receive stock verification | row "Receive Stock" | ok | ok | ok |
 | Opening-stock Add Row | "Add Row" | ok | ok | ok |
+| Adjust damaged stock | row "Adjust local damaged stock" | ok | ok | ok |
+| Dispose / write off damaged stock | row "Dispose & Write-Off" | ok | ok | ok |
+| Reverse wrong damage entry | row "Reverse a wrong damage entry" | ok | ok | ok |
+| Submit stock audit | count edit → "Submit for Approval Report" | ok | ok | ok |
+| Approve & reconcile audit | "Approve & Reconcile Stock" (review mode) | ok | ok | ok |
+| Reject stock audit | "Reject Audit" (review mode) | ok | ok | ok |
+| Consolidated audit matrix | "Consolidated Matrix" | ok | ok | ok |
+| Correct serial numbers | row "Correct serial numbers" | ok | ok | ok |
 
 - Every measured overlay exposes `role="dialog"`, `aria-modal="true"` and a
   name — the four shell overlays, the shared confirm dialog, all thirteen
-  record/payment/warranty dialogs and the six data-gated dialogs.
+  record/payment/warranty dialogs, the six data-gated dialogs and the eight
+  reachable feature dialogs.
 - Tall panels (product 740 px at 844 viewport, purchase payment 596 px at 390)
   stay reachable: either the overlay or the panel scrolls. No panel was cut off
   with its buttons outside the viewport.
@@ -168,15 +210,18 @@ fixtures:
 | Approval details / approve / reject / cancel | One pending `CUSTOMER_DEVICE_STATUS` request (APR-2083-001) | dialog + modal + name at 390/1067/1440; zero content findings |
 | Receive stock verification | One `SUPPLIER_INBOUND` shipment in transit (AUDIT-RCV-001) | dialog + modal + name at all widths; zero content findings |
 | Opening stock "Add Row" | One row in the open current fiscal year (2083-84) | dialog + modal + name at all widths; zero content findings |
+| Stock-audit review dialogs | One pending `STOCK_AUDIT_RECONCILIATION` request for WH001, cancelled after measuring | approve/reject: dialog + modal + name; zero content findings |
+| Stock-audit submit dialog | One live count edit on the unlocked table | dialog + modal + name; zero content findings |
 
-All six were plain divs before the follow-up; see UIX-26.
+All six data-gated dialogs were plain divs before the follow-up (UIX-26); the
+feature dialogs were the same until UIX-27.
 
 The Fiscal Year Closing wizard has no overlay of its own — its confirmations go
 through the shared `DialogProvider`, which is covered above.
 
 ## Residual measurements
 
-- **Sub-22 px targets: 0 in all 72 readings.** The 24 px `button` floor and the
+- **Sub-22 px targets: 0 in all 96 readings.** The 24 px `button` floor and the
   `linkButton`/`iconButton` tokens apply inside overlays as well as screens.
 - **Effective type below 10 px: only at 390, and only 9.36 px** — `text-xs`
   (12 px) under the app's 0.78 phone tier, the same residual the screen sweep
@@ -184,11 +229,9 @@ through the shared `DialogProvider`, which is covered above.
 
 ## Not covered
 
-- Dark mode inside overlays; focus traversal beyond the shell and record
-  dialogs adopted here (other feature dialogs — damage tracking, physical audit,
-  serial-log correction — still use their own wrappers); native select popups
-  (browser UI); axe/contrast, screen readers, Firefox/Safari, touch gestures,
-  print/PDF.
+- Dark mode inside overlays; the direct-reconcile panel has no trigger to
+  measure; native select popups (browser UI); axe/contrast, screen readers,
+  Firefox/Safari, touch gestures, print/PDF.
 - Browser zoom other than the app's own responsive tiers.
 
 ## Detector notes

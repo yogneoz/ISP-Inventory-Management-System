@@ -28,6 +28,7 @@ import {
 import { TablePagination, useServerPageClamp } from '../../components/common/TablePagination';
 import { FilterCard } from '../../components/common/FilterCard';
 import { PageHeader } from '../../components/common/PageHeader';
+import { ModalPanel } from '../../components/common/ModalPanel';
 import StatCard from '../../components/common/StatCard';
 
 interface SerialLogRegisterProps {
@@ -737,9 +738,13 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
 
       {editingRow && (
         <div className="fixed inset-0 z-50 bg-black/50 dark:bg-black/70 flex items-center justify-center p-4">
-          <div className={`bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full border border-slate-200 dark:border-slate-700 overflow-hidden max-h-[92vh] flex flex-col ${
-            conflictDevice ? 'max-w-4xl' : 'max-w-lg'
-          }`}>
+          <ModalPanel
+            label="Correct Serial Numbers"
+            onClose={() => { if (!editLoading) handleEditCancel(); }}
+            className={`bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full border border-slate-200 dark:border-slate-700 overflow-hidden max-h-[92vh] flex flex-col ${
+              conflictDevice ? 'max-w-4xl' : 'max-w-lg'
+            }`}
+          >
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
               <div>
                 <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2 flex-wrap">
@@ -1040,7 +1045,7 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
                 {editLoading ? 'Saving...' : conflictDevice && bChanged ? 'Save Both Corrections' : 'Save Correction'}
               </button>
             </div>
-          </div>
+          </ModalPanel>
         </div>
       )}
 

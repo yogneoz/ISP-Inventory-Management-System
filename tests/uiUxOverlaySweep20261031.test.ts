@@ -18,6 +18,8 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import React, { createElement } from 'react';
 import { mountTree } from './harness/mount';
 import { ProfileSwitchModal } from '../client/src/components/common/ProfileSwitchModal';
@@ -88,5 +90,35 @@ describe('2026-10-31 overlay sweep — profile picker identity is never ellipsiz
     } finally {
       tree.unmount();
     }
+  });
+});
+
+describe('2026-10-31 overlay sweep — audit and damage dialogs keep identity and tables intact', () => {
+  const root = path.resolve(import.meta.dirname, '..');
+  const audit = fs.readFileSync(
+    path.join(root, 'client/src/features/inventory/PhysicalStockAudit.tsx'),
+    'utf8'
+  );
+  const damaged = fs.readFileSync(
+    path.join(root, 'client/src/features/inventory/DamagedStockTracking.tsx'),
+    'utf8'
+  );
+
+  test('product names and variance reasons wrap instead of ending in an ellipsis', () => {
+    // The submit, approve and consolidated tables used fixed max widths plus
+    // truncate; the CDP sweep measured 16-85 px of hidden product name.
+    assert.doesNotMatch(audit, /truncate max-w-\[1[46]0px\]/);
+    assert.match(audit, /text-\[10px\] text-slate-500 break-words">\{r\.productName\}/);
+    assert.match(audit, /text-\[11px\] text-slate-500 break-words">\{item\.productName\}/);
+  });
+
+  test('narrow audit tables scroll horizontally instead of clipping', () => {
+    assert.match(audit, /max-h-48 overflow-x-auto overflow-y-auto/);
+    assert.match(audit, /max-h-52 overflow-x-auto overflow-y-auto/);
+  });
+
+  test('damage references wrap so the distinguishing suffix stays visible', () => {
+    assert.doesNotMatch(damaged, /text-rose-600 dark:text-rose-400 truncate\">\{rec\.damageReference\}/);
+    assert.match(damaged, /text-rose-600 dark:text-rose-400 break-all">\{rec\.damageReference\}/);
   });
 });
