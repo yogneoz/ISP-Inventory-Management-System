@@ -26,6 +26,7 @@ import { formCardClass } from '../../components/common/FormCard';
 import { LoadStateNotice } from '../../components/common/LoadStateNotice';
 import { CustomerPicker } from '../../components/common/CustomerPicker';
 import { FilterCard } from '../../components/common/FilterCard';
+import { ModalPanel } from '../../components/common/ModalPanel';
 import { TablePagination, useServerPageClamp } from '../../components/common/TablePagination';
 import { RegisterLoadError } from '../../components/common/RegisterLoadError';
 import { DocumentLetterhead } from '../../components/common/DocumentLetterhead';
@@ -1448,7 +1449,14 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
 
       {payInvoice && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !paySubmitting && setPayInvoice(null)}>
-          <div className={`${formCardClass} w-full max-w-md space-y-4`} onClick={(e) => e.stopPropagation()}>
+          <ModalPanel
+            label="Record Customer Payment"
+            onClose={() => {
+              if (!paySubmitting) setPayInvoice(null);
+            }}
+            className={`${formCardClass} w-full max-w-md space-y-4`}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="text-lg font-semibold">Record Customer Payment</div>
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div><div className={labelClass}>Invoice</div><div className="font-medium">{payInvoice.invoiceNumber}</div></div>
@@ -1476,7 +1484,7 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
                 Record Payment
               </button>
             </div>
-          </div>
+          </ModalPanel>
         </div>
       )}
     </div>

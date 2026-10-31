@@ -7,6 +7,7 @@ import StatCard from '../../components/common/StatCard';
 import { FilterCard } from '../../components/common/FilterCard';
 import { PageHeader } from '../../components/common/PageHeader';
 import { LoadStateNotice } from '../../components/common/LoadStateNotice';
+import { ModalPanel } from '../../components/common/ModalPanel';
 
 interface LocationsManagementProps {
   branches: Branch[];
@@ -353,7 +354,11 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
       {/* Add Location Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
-          <div className={`w-full max-w-lg rounded-3xl border shadow-2xl overflow-hidden p-6 bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-white`}>
+          <ModalPanel
+            label="Add Network Location / POP"
+            onClose={() => setIsModalOpen(false)}
+            className={`w-full max-w-lg rounded-3xl border shadow-2xl overflow-hidden p-6 bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-white`}
+          >
             <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
               <h3 className="text-base font-serif font-bold flex items-center gap-2">
                 <MapPin className="h-5 w-5 text-indigo-500" />
@@ -514,7 +519,7 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
                 </button>
               </div>
             </form>
-          </div>
+          </ModalPanel>
         </div>
       )}
     </div>

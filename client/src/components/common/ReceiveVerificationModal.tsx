@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Shipment } from '../../types';
 import { AlertCircle, ArrowRight, Barcode, CheckCircle2, PackageCheck, X } from 'lucide-react';
+import { ModalPanel } from './ModalPanel';
 
 /**
  * Shared receive-verification workflow (de-duplication, 2026-10-09).
@@ -191,7 +192,11 @@ export const ReceiveVerificationModal: React.FC<{ receive: ReceiveVerificationCo
   return (
     <>
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 overflow-y-auto">
-                <div className={`w-full max-w-4xl rounded-2xl shadow-2xl border overflow-hidden my-6 bg-white border-slate-200 text-slate-800 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-200`}>
+                <ModalPanel
+                  label={`Inbound Stock Physical Verification — ${receivingShipmentModal.trackingCode}`}
+                  onClose={() => setReceivingShipmentModal(null)}
+                  className={`w-full max-w-4xl rounded-2xl shadow-2xl border overflow-hidden my-6 bg-white border-slate-200 text-slate-800 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-200`}
+                >
                   <div className={`p-4 border-b flex items-center justify-between border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/60`}>
                     <div className="flex items-center gap-2">
                       <PackageCheck className={`h-5 w-5 text-emerald-500 dark:text-emerald-400`} />
@@ -390,7 +395,7 @@ export const ReceiveVerificationModal: React.FC<{ receive: ReceiveVerificationCo
                       <span>Confirm Physical Receiving & Add to Branch Stock</span>
                     </button>
                   </div>
-                </div>
+                </ModalPanel>
               </div>
     </>
   );

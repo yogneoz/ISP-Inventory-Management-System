@@ -22,6 +22,7 @@ import { useClientPagination, TablePagination } from '../../components/common/Ta
 import { PageHeader } from '../../components/common/PageHeader';
 import { api } from '../../services/api';
 import { useDialog } from '../../components/common/DialogProvider';
+import { ModalPanel } from '../../components/common/ModalPanel';
 import { isOperationAllowed } from '../../utils/permissions';
 import { APP_ROLES, APP_ROLE_LABELS } from '../../utils/permissionMatrixData';
 
@@ -399,7 +400,9 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
       {/* Modal Add / Edit User */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div
+          <ModalPanel
+            label={editingUser ? 'Edit User & Credentials' : 'Add System User'}
+            onClose={() => setIsModalOpen(false)}
             className={`w-full max-w-md rounded-2xl border p-6 shadow-2xl bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-white`}
           >
             <h3 className="text-base font-bold mb-4 flex items-center gap-2">
@@ -550,14 +553,16 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                 </button>
               </div>
             </form>
-          </div>
+          </ModalPanel>
         </div>
       )}
 
       {/* Dedicated Reset Password Modal */}
       {resetModalUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-          <div
+          <ModalPanel
+            label="Reset Password for Staff"
+            onClose={() => setResetModalUser(null)}
             className={`w-full max-w-md rounded-2xl border p-6 shadow-2xl bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-white`}
           >
             <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800 mb-4">
@@ -693,7 +698,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                 </div>
               </form>
             )}
-          </div>
+          </ModalPanel>
         </div>
       )}
     </div>

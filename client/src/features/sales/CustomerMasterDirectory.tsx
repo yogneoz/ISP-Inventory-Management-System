@@ -33,6 +33,7 @@ import {
 import { TablePagination } from '../../components/common/TablePagination';
 import { useDialog } from '../../components/common/DialogProvider';
 import { FilterCard } from '../../components/common/FilterCard';
+import { ModalPanel } from '../../components/common/ModalPanel';
 import StatCard from '../../components/common/StatCard';
 
 interface CustomerMasterDirectoryProps {
@@ -896,7 +897,14 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
       {/* Add / Edit Customer Modal */}
       {(isAddModalOpen || editingCustomer) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
-          <div className={`w-full max-w-xl rounded-2xl shadow-2xl border p-5 overflow-hidden bg-white border-slate-200 text-slate-900 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}>
+          <ModalPanel
+            label={editingCustomer ? 'Edit Customer Master Record' : 'Add New Customer Record'}
+            onClose={() => {
+              setIsAddModalOpen(false);
+              setEditingCustomer(null);
+            }}
+            className={`w-full max-w-xl rounded-2xl shadow-2xl border p-5 overflow-hidden bg-white border-slate-200 text-slate-900 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
+          >
             <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
@@ -1084,14 +1092,18 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                 </button>
               </div>
             </form>
-          </div>
+          </ModalPanel>
         </div>
       )}
 
       {/* Delete Confirmation Modal */}
       {deletingCustomer && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
-          <div className={`w-full max-w-md rounded-2xl shadow-2xl border p-5 bg-white border-slate-200 text-slate-900 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}>
+          <ModalPanel
+            label="Confirm Delete Customer"
+            onClose={() => setDeletingCustomer(null)}
+            className={`w-full max-w-md rounded-2xl shadow-2xl border p-5 bg-white border-slate-200 text-slate-900 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
+          >
             <div className="flex items-center gap-3 text-rose-600 dark:text-rose-400 mb-3">
               <div className="p-2 rounded-xl bg-rose-500/10">
                 <Trash2 className="h-6 w-6" />
@@ -1118,7 +1130,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                 {isSubmitting ? 'Deleting...' : 'Delete Customer Record'}
               </button>
             </div>
-          </div>
+          </ModalPanel>
         </div>
       )}
     </div>

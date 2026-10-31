@@ -21,6 +21,7 @@ import {
   ClipboardCheck,
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { ModalPanel } from '../../components/common/ModalPanel';
 
 interface ApprovalWorkflowCenterProps {
   approvalRequests: ApprovalRequest[];
@@ -758,7 +759,11 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
       {/* Modal for Approval Confirmation */}
       {approvingReq && (
         <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4">
+          <ModalPanel
+            label={`Authorize Approval for Request #${approvingReq.requestNumber}`}
+            onClose={() => setApprovingReq(null)}
+            className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4"
+          >
             <div className="flex items-center gap-2.5 text-emerald-600 font-extrabold text-base pb-2 border-b border-slate-200 dark:border-slate-800">
               <ShieldCheck className="h-6 w-6 text-emerald-600" />
               <span>Authorize Approval for Request #{approvingReq.requestNumber}</span>
@@ -965,14 +970,18 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                 )}
               </button>
             </div>
-          </div>
+          </ModalPanel>
         </div>
       )}
 
       {/* Modal for Rejection Reason */}
       {rejectingReq && (
         <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4">
+          <ModalPanel
+            label={`Reject Request #${rejectingReq.requestNumber}`}
+            onClose={() => setRejectingReq(null)}
+            className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4"
+          >
             <div className="flex items-center gap-2 text-rose-600 font-extrabold text-base">
               <XCircle className="h-5 w-5" />
               <span>Reject Request #{rejectingReq.requestNumber}</span>
@@ -1009,14 +1018,18 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                 </button>
               </div>
             </form>
-          </div>
+          </ModalPanel>
         </div>
       )}
 
       {/* Modal for Request Details */}
       {viewingReq && (
         <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden p-6 space-y-4">
+          <ModalPanel
+            label="Authorization Request Trace"
+            onClose={() => setViewingReq(null)}
+            className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden p-6 space-y-4"
+          >
             <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
               <div>
                 <span className="font-mono text-xs font-bold text-indigo-600 dark:text-indigo-400">
@@ -1282,14 +1295,18 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                 Close
               </button>
             </div>
-          </div>
+          </ModalPanel>
         </div>
       )}
 
       {/* Modal for Request Cancellation Confirmation */}
       {cancellingReq && (
         <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4">
+          <ModalPanel
+            label={`Cancel Request #${cancellingReq.requestNumber}`}
+            onClose={() => setCancellingReq(null)}
+            className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4"
+          >
             <div className="flex items-center gap-2.5 text-amber-600 dark:text-amber-400 font-extrabold text-base">
               <AlertTriangle className="h-5 w-5" />
               <span>Cancel Request #{cancellingReq.requestNumber}</span>
@@ -1349,7 +1366,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                 </button>
               </div>
             </form>
-          </div>
+          </ModalPanel>
         </div>
       )}
     </div>

@@ -16,6 +16,7 @@ import {
 import { PageHeader } from '../../components/common/PageHeader';
 import { useDialog } from '../../components/common/DialogProvider';
 import { useActivationKey } from '../../components/common/KeepMounted';
+import { ModalPanel } from '../../components/common/ModalPanel';
 import { api } from '../../services/api';
 import {
   Package,
@@ -858,7 +859,11 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
       {/* Print Barcode Modal */}
       {printingProduct && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-xs overflow-y-auto">
-          <div className={`w-full max-w-lg rounded-2xl shadow-2xl border overflow-hidden my-8 bg-white border-slate-200 text-slate-800 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-200`}>
+          <ModalPanel
+            label="Print Product Code Barcode Label"
+            onClose={() => setPrintingProduct(null)}
+            className={`w-full max-w-lg rounded-2xl shadow-2xl border overflow-hidden my-8 bg-white border-slate-200 text-slate-800 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-200`}
+          >
             <div id="barcode-print-area">
               <div className={`p-4 border-b flex items-center justify-between border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/60 print:hidden`}>
                 <div className="flex items-center gap-2">
@@ -965,14 +970,18 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                 </button>
               </div>
             </div>
-          </div>
+          </ModalPanel>
         </div>
       )}
 
       {/* Product Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className={`w-full max-w-lg rounded-2xl shadow-2xl border overflow-hidden my-8 bg-white border-slate-200 text-slate-700 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-300`}>
+          <ModalPanel
+            label={editingProduct ? 'Edit Product SKU Specification' : 'Create New Product SKU'}
+            onClose={() => setIsModalOpen(false)}
+            className={`w-full max-w-lg rounded-2xl shadow-2xl border overflow-hidden my-8 bg-white border-slate-200 text-slate-700 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-300`}
+          >
             <div className={`flex items-center justify-between border-b p-4 border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/50`}>
               <h3 className={`font-bold text-sm text-slate-900 dark:text-white`}>
                 {editingProduct ? 'Edit Product SKU Specification' : 'Create New Product SKU'}
@@ -1385,13 +1394,17 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                 </button>
               </div>
             </form>
-          </div>
+          </ModalPanel>
         </div>
       )}
       {/* Bulk A4 Barcode Printing Modal */}
       {isBulkBarcodeModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-xs overflow-y-auto">
-          <div className={`w-full max-w-5xl rounded-2xl shadow-2xl border overflow-hidden my-6 bg-white border-slate-200 text-slate-800 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-200`}>
+          <ModalPanel
+            label="Print Item Barcodes (A4 Sheet PDF Format — Code 39)"
+            onClose={() => setIsBulkBarcodeModalOpen(false)}
+            className={`w-full max-w-5xl rounded-2xl shadow-2xl border overflow-hidden my-6 bg-white border-slate-200 text-slate-800 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-200`}
+          >
             <div id="bulk-barcode-a4-area">
               {/* Modal Header */}
               <div className={`p-4 border-b flex items-center justify-between border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/60 print:hidden`}>
@@ -1575,7 +1588,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                 </div>
               </div>
             </div>
-          </div>
+          </ModalPanel>
         </div>
       )}
     </div>

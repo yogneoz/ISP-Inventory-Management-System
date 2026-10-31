@@ -340,7 +340,7 @@ export const ProfileSwitchModal: React.FC<ProfileSwitchModalProps> = ({
 
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                                <span className="text-xs font-bold text-slate-900 dark:text-white break-words">
                                   {u.name}
                                 </span>
                                 <span
@@ -351,11 +351,16 @@ export const ProfileSwitchModal: React.FC<ProfileSwitchModalProps> = ({
                                   {u.role.replace('_', ' ')}
                                 </span>
                               </div>
-                              <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono truncate flex items-center gap-2 mt-0.5">
-                                <span>{u.email}</span>
+                              {/* Identity, not decoration: a profile picker that cuts the
+                                  branch cannot be used to tell two people with the same
+                                  name apart. Wrap instead of ellipsizing (the 2026-10-31
+                                  overlay sweep measured the line 12 px too wide at 1067 and
+                                  102 px too wide at 390). */}
+                              <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
+                                <span className="break-all">{u.email}</span>
                                 <span>•</span>
-                                <span className="flex items-center gap-1 font-sans">
-                                  <Building2 className="h-3 w-3 text-slate-400" />
+                                <span className="flex min-w-0 items-center gap-1 font-sans break-words">
+                                  <Building2 className="h-3 w-3 shrink-0 text-slate-400" />
                                   {bName}
                                 </span>
                               </div>

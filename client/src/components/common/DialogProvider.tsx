@@ -1,5 +1,6 @@
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, HelpCircle, Info, X } from 'lucide-react';
+import { useDialogA11y } from '../../utils/useDialogA11y';
 
 type DialogKind = 'confirm' | 'alert' | 'prompt';
 
@@ -51,6 +52,16 @@ export function utilityAlert(message: string): void {
 export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [dialog, setDialog] = useState<PendingDialog | null>(null);
   const [inputValue, setInputValue] = useState('');
+
+  // Join the same focus-trap stack as the shell overlays and the record
+  // dialogs. Without this, a confirm opened over a ModalPanel would be the
+  // visible top layer while the panel underneath kept ownership of Tab.
+  const promptInputRef = useRef<HTMLInputElement>(null);
+  const confirmButtonRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useDialogA11y<HTMLDivElement>({
+    isOpen: Boolean(dialog),
+    initialFocusRef: dialog?.kind === 'prompt' ? promptInputRef : confirmButtonRef,
+  });
 
   const settle = useCallback((value: boolean | string | null) => {
     setDialog((current) => {
@@ -138,6 +149,7 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     <DialogContext.Provider value={{ confirm, alert, prompt }}>
       {children}
       <div
+        ref={dialogRef}
         className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4 animate-in fade-in duration-200"
         role="dialog"
         aria-modal="true"
@@ -170,6 +182,7 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           {dialog.kind === 'prompt' && (
             <div className="px-5 py-4">
               <input
+                ref={promptInputRef}
                 autoFocus
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
@@ -193,6 +206,7 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               </button>
             )}
             <button
+              ref={confirmButtonRef}
               type="button"
               autoFocus={dialog.kind !== 'prompt'}
               onClick={handleConfirm}

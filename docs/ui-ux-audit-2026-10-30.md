@@ -223,9 +223,11 @@ without redesigning the responsive zoom). Their final state:
 
 ## Not covered
 
-- **Modals and drawers** (global search, scanner, notification center, approval
-  review/reject dialogs, wizard dialogs). The sweep measures the routed screen
-  behind them only.
+- **Modals and drawers.** Covered by the
+  [2026-10-31 overlay sweep](ui-ux-audit-2026-10-31-overlays.md): 24 surfaces ×
+  390/1067/1440 px, including the six approval, receive-verification and
+  opening-stock dialogs that were data-gated in the first pass (UIX-26). The
+  record dialogs now share a labelled, focus-trapped modal panel (UIX-25).
 - **Dark mode.** The 2026-10-29 pass checked it on its 9 screens; this sweep ran
   light mode only.
 - Keyboard traversal beyond the components changed here; no axe/contrast

@@ -6,6 +6,7 @@ import { isOperationAllowed } from '../../utils/permissions';
 import { api } from '../../services/api';
 import { useDialog } from '../../components/common/DialogProvider';
 import { FilterCard } from '../../components/common/FilterCard';
+import { ModalPanel } from '../../components/common/ModalPanel';
 import { PageHeader } from '../../components/common/PageHeader';
 import { LoadStateNotice } from '../../components/common/LoadStateNotice';
 
@@ -228,7 +229,11 @@ export const UomManagement: React.FC<UomManagementProps> = ({ currentUser }) => 
       {/* Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className={`w-full max-w-md rounded-2xl shadow-2xl border overflow-hidden bg-white border-slate-200 text-slate-700 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-300`}>
+          <ModalPanel
+            label={editingUom ? 'Edit Unit of Measure' : 'Create Unit of Measure'}
+            onClose={() => setIsModalOpen(false)}
+            className={`w-full max-w-md rounded-2xl shadow-2xl border overflow-hidden bg-white border-slate-200 text-slate-700 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-300`}
+          >
             <div className={`flex items-center justify-between border-b p-4 border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/50`}>
               <h3 className={`font-bold text-sm text-slate-900 dark:text-white`}>
                 {editingUom ? 'Edit Unit of Measure' : 'Create Unit of Measure'}
@@ -312,7 +317,7 @@ export const UomManagement: React.FC<UomManagementProps> = ({ currentUser }) => 
                 </button>
               </div>
             </form>
-          </div>
+          </ModalPanel>
         </div>
       )}
     </div>

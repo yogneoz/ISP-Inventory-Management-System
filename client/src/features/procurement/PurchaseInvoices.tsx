@@ -16,6 +16,7 @@ import { DateField } from '../../components/DateField';
 import { exportToCSV } from '../../utils/exportUtils';
 import { isOperationAllowed } from '../../utils/permissions';
 import { useDialog } from '../../components/common/DialogProvider';
+import { ModalPanel } from '../../components/common/ModalPanel';
 import { formatNPR, formatNPRPrecise } from '../../utils/nprFormat';
 import { getDefaultTaxRate } from '../../utils/taxConfig';
 import {
@@ -1089,7 +1090,9 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
       {/* Payment Modal: Record Vendor Payment */}
       {payInvoice && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-          <div
+          <ModalPanel
+            label="Record Vendor Payment — Sub-ledger"
+            onClose={closePaymentModal}
             className={`w-full max-w-2xl rounded-2xl shadow-2xl border overflow-hidden bg-white border-slate-200 text-slate-800 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-200`}
           >
             <div className={`flex items-center justify-between border-b p-4 bg-slate-50 border-slate-200 dark:bg-slate-900/80 dark:border-slate-800`}>
@@ -1334,7 +1337,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                 </button>
               </div>
             </form>
-          </div>
+          </ModalPanel>
         </div>
       )}
 
@@ -1342,7 +1345,9 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
       {/* Purchased Products Breakdown Modal */}
       {productsModalInvoice && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div
+          <ModalPanel
+            label={`Purchased Products List — Ref #${productsModalInvoice.invoiceNumber}`}
+            onClose={() => setProductsModalInvoice(null)}
             className={`w-full max-w-6xl max-h-[92vh] flex flex-col rounded-2xl shadow-2xl border overflow-hidden bg-white border-slate-200 text-slate-800 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-200`}
           >
             {/* Modal Header */}
@@ -1518,7 +1523,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                 </button>
               </div>
             </div>
-          </div>
+          </ModalPanel>
         </div>
       )}
     </div>

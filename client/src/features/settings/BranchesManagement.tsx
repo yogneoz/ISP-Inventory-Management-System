@@ -5,6 +5,7 @@ import { isOperationAllowed } from '../../utils/permissions';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { PageHeader } from '../../components/common/PageHeader';
 import { useDialog } from '../../components/common/DialogProvider';
+import { ModalPanel } from '../../components/common/ModalPanel';
 
 interface BranchesManagementProps {
   branches: Branch[];
@@ -261,7 +262,9 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
       {/* Modal Add / Edit Branch */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div
+          <ModalPanel
+            label={editingBranch ? 'Edit Branch Details' : 'Add New Branch'}
+            onClose={() => setIsModalOpen(false)}
             className={`w-full max-w-md rounded-2xl border p-6 shadow-2xl bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-white`}
           >
             <h3 className="text-base font-bold mb-4">
@@ -386,7 +389,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
                 </button>
               </div>
             </form>
-          </div>
+          </ModalPanel>
         </div>
       )}
     </div>

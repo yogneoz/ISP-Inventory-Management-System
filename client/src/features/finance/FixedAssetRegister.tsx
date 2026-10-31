@@ -21,6 +21,7 @@ import { useServerPageClamp, TablePagination } from '../../components/common/Tab
 import { PageHeader } from '../../components/common/PageHeader';
 import { RegisterLoadError } from '../../components/common/RegisterLoadError';
 import { useDialog } from '../../components/common/DialogProvider';
+import { ModalPanel } from '../../components/common/ModalPanel';
 import { warrantyEndFieldError, warrantyEndFor } from '../../utils/warrantyCapture';
 import { getRowActivationProps, ROW_FOCUS_CLASS } from '../../utils/interactiveRow';
 
@@ -419,7 +420,11 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
       {/* Asset Location & Quantity Details Modal */}
       {selectedAssetDetail && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-          <div className={`w-full max-w-lg rounded-2xl shadow-2xl border overflow-hidden text-sm bg-white border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}>
+          <ModalPanel
+            label="Fixed Asset Branch Allocation & Deployment Details"
+            onClose={() => setSelectedAssetDetail(null)}
+            className={`w-full max-w-lg rounded-2xl shadow-2xl border overflow-hidden text-sm bg-white border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
+          >
             <div className={`flex items-center justify-between border-b p-4 border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-800/60`}>
               <h3 className={`font-bold text-sm flex items-center gap-2 text-slate-900 dark:text-slate-100`}>
                 <Info className={`h-4 w-4 text-blue-600 dark:text-blue-400`} />
@@ -527,14 +532,18 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                 );
               })()}
             </div>
-          </div>
+          </ModalPanel>
         </div>
       )}
 
       {/* Asset Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className={`w-full max-w-lg rounded-2xl shadow-2xl border overflow-hidden my-8 text-sm bg-white border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}>
+          <ModalPanel
+            label="Register New Fixed Asset"
+            onClose={() => setIsModalOpen(false)}
+            className={`w-full max-w-lg rounded-2xl shadow-2xl border overflow-hidden my-8 text-sm bg-white border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
+          >
             <div className={`flex items-center justify-between border-b p-4 border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-800/60`}>
               <h3 className={`font-bold text-sm text-slate-900 dark:text-slate-100`}>
                 Register New Fixed Asset
@@ -727,7 +736,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                 </button>
               </div>
             </form>
-          </div>
+          </ModalPanel>
         </div>
       )}
     </div>

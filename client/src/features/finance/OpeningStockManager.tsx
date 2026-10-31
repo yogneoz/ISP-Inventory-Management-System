@@ -19,6 +19,7 @@ import { createLatestOnly } from '../../utils/latestOnly';
 import { exportToCSV, CSVColumn } from '../../utils/exportUtils';
 import { filterFiscalYears, getScopedBranches, isOperationAllowed } from '../../utils/permissions';
 import { FiscalYearSelect } from '../../components/common/FiscalYearSelect';
+import { ModalPanel } from '../../components/common/ModalPanel';
 import { formatNPR } from '../../utils/nprFormat';
 import {
   Branch,
@@ -789,7 +790,9 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
       {/* ===== Add Opening-Stock Row Modal ===== */}
       {showAddRow && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setShowAddRow(false)}>
-          <div
+          <ModalPanel
+            label={`Add Opening-Stock Row — FY ${fy?.code || '—'}`}
+            onClose={() => setShowAddRow(false)}
             className={`w-full max-w-md rounded-2xl border shadow-2xl bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}
             onClick={(e) => e.stopPropagation()}
           >
@@ -889,7 +892,7 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
                 <Save className="h-3.5 w-3.5" /> {adding ? 'Saving…' : 'Save Row'}
               </button>
             </div>
-          </div>
+          </ModalPanel>
         </div>
       )}
     </div>

@@ -93,6 +93,28 @@ is green on `9571d74` across every step; the audit commit's first attempt
 died only at `npm audit`, cleared by scoping the `minimatch` override to
 exceljs.
 
+**Completed outside a round — overlay UI/UX sweep (2026-10-31).** The screen
+sweep above measured the routed screen behind every modal and drawer, never the
+overlay. This pass opened 24 overlays through their real triggers — the four
+shell overlays, the shared confirm dialog, the ten record dialogs, both payment
+dialogs, the warranty editor and six data-gated dialogs seeded with dummy
+fixtures — and probed each at 390/1067/1440 px (72 readings), adding an
+unreachable-panel check and recording dialog semantics separately. Content is clean everywhere: no clipped/ellipsized text, overflow,
+off-screen or unreachable controls, mouse-only rows, over-wide tables,
+console/HTTP errors or sub-22 px targets. The one finding — the profile
+picker's `email • branch` line cut 12 px at 1067 and up to 102 px at 390 — is
+fixed by wrapping; pinned by `tests/uiUxOverlaySweep20261031.test.ts`. The 12
+record/payment dialogs then got the semantic half: a shared `ModalPanel` with
+role, aria-modal, a name, a focus trap, Escape and focus restore (UIX-25),
+with `DialogProvider` joining the trap stack; pinned by
+`tests/modalPanel.test.ts`. The three data-gated surfaces — the four approval
+dialogs, receive verification and opening-stock Add Row — were then seeded and
+measured: all six were plain divs too, now on the same panel (UIX-26), with
+18/18 follow-up readings clean on semantics and content. Report
+[docs/ui-ux-audit-2026-10-31-overlays.md](../docs/ui-ux-audit-2026-10-31-overlays.md);
+detail:
+[2026 session note](../docs/session-notes/2026.md#-overlay-uiux-sweep--modals-and-drawers-three-widths-2026-10-31).
+
 **Completed outside a round — boot-timing launch retry (2026-10-30).** The
 GitHub runner intermittently starts headless Chrome without writing
 `DevToolsActivePort`, which reddened the boot-timing gate on runs 214 and

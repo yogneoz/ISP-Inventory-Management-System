@@ -1,6 +1,6 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-30 · Branch: main · Tests: 1665/1665 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-31 · Branch: main · Tests: 1670/1670 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
 > **Current state (2026-10-27, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1/SUM-1/VOL-1/VOL-2/BUDGET-1/BOOT-1/VOL-3/VOL-4a/VOL-4b/SN-1/ASSET-1/EXCH-1/READ-1/CDR-1/CDR-2).** All DF-01…DF-17
 > work, the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2, CPE-3,
@@ -204,8 +204,19 @@ _Date: 2026-10-30 · Branch: main · Tests: 1665/1665 green with a DB (all run i
 > is green on `9571d74`; the audit commit's first attempt failed only at
 > `npm audit --omit=dev` (a new minimatch advisory via exceljs → archiver →
 > glob), cleared by scoping the `minimatch@^11.0.1` override to exceljs.
-> Modals, dark mode, axe/contrast, screen readers and non-Chromium browsers
-> remain out of scope.
+> Dark mode, axe/contrast, screen readers and non-Chromium browsers remain
+> out of scope.
+> **Overlay UI/UX sweep (2026-10-31):** modals and drawers are covered — 24
+> surfaces (shell search/notifications/scanner/profile, the shared confirm, ten
+> record dialogs, both payment dialogs, the warranty editor and six data-gated
+> dialogs seeded with dummy fixtures) at 390/1067/1440 px, 72 readings. Content
+> is clean at every width; the one content finding, the profile picker's clipped
+> `email • branch` line (12 px at 1067, up to 102 px at 390), now wraps and is
+> pinned by `tests/uiUxOverlaySweep20261031.test.ts`. The 18 record/payment/
+> approval dialogs now share a labelled, focus-trapped `ModalPanel` (UIX-25 and
+> UIX-26, pinned by `tests/modalPanel.test.ts`, with `DialogProvider` on the
+> same trap stack).
+> Report [docs/ui-ux-audit-2026-10-31-overlays.md](docs/ui-ux-audit-2026-10-31-overlays.md).
 > **No round is active.** The payload work
 > is finished — the remaining-array measurement found no item to open, and the
 > `inventory_stock` trigger is recorded in [2026.md](docs/session-notes/2026.md). The

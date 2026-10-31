@@ -5,6 +5,7 @@ import { useClientPagination, TablePagination } from '../../components/common/Ta
 import { PageHeader } from '../../components/common/PageHeader';
 import { isOperationAllowed } from '../../utils/permissions';
 import { useDialog } from '../../components/common/DialogProvider';
+import { ModalPanel } from '../../components/common/ModalPanel';
 
 interface SuppliersManagementProps {
   suppliers: Supplier[];
@@ -227,7 +228,9 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
       {/* Modal Add/Edit Supplier */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div
+          <ModalPanel
+            label={editingSupplier ? 'Edit Supplier Details' : 'Register New Supplier'}
+            onClose={() => setIsModalOpen(false)}
             className={`w-full max-w-md rounded-2xl border p-6 shadow-2xl bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-white`}
           >
             <h3 className="text-base font-bold mb-4">
@@ -320,7 +323,7 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
                 </button>
               </div>
             </form>
-          </div>
+          </ModalPanel>
         </div>
       )}
     </div>
