@@ -55,7 +55,7 @@ function setInputValue(input: HTMLInputElement, value: string) {
 }
 
 describe('UIX-7/9 — the rail fits its labels and names the active page', () => {
-  test('long labels truncate with a tooltip and the active item exposes aria-current', () => {
+  test('long labels wrap with a tooltip and the active item exposes aria-current', () => {
     const baseProps = {
       companyProfile: null,
       currentUser: user,
@@ -86,7 +86,10 @@ describe('UIX-7/9 — the rail fits its labels and names the active page', () =>
       assert.match(active.textContent || '', /Purchase Bills Register/);
 
       const label = active.querySelector('span') as HTMLSpanElement;
-      assert.match(label.className, /\btruncate\b/, 'a long menu label must not wrap the rail');
+      // The rail is user-resizable now (240px minimum), so a long label wraps
+      // instead of disappearing behind an ellipsis.
+      assert.match(label.className, /\bbreak-words\b/, 'a long menu label wraps inside the rail');
+      assert.doesNotMatch(label.className, /\btruncate\b/, 'the label tail must stay readable');
       assert.equal(label.getAttribute('title'), 'Purchase Bills Register');
 
       // The group holding the current page is expanded and says so.

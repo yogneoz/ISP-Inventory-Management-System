@@ -3,6 +3,7 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import {AppProviders} from './contexts/AppProviders';
 import {ACTIVE_TAB_STORAGE_KEY, preloadScreenModule} from './screenPreload';
+import {resolveInitialTab} from './routes/appPaths';
 import './index.css';
 
 /**
@@ -22,14 +23,32 @@ function savedTab(): string | null {
 }
 
 /**
- * Start the saved tab's chunk while the static splash is on screen. This is
+ * The screen this page load will show: a canonical deep link or legacy `?tab=`
+ * first, then the saved tab. Preloading the deep-linked screen avoids asking a
+ * shared link to wait for a chunk it will never render.
+ */
+function initialTab(): string | null {
+  try {
+    return resolveInitialTab(
+      window.location.pathname,
+      window.location.search,
+      savedTab()
+    ).tab;
+  } catch {
+    // URL unavailable (embedded/sandboxed contexts): fall back to the saved tab.
+    return savedTab();
+  }
+}
+
+/**
+ * Start the first screen's chunk while the static splash is on screen. This is
  * deliberately not awaited: boot must not wait for a network download, and the
  * splash/dismissal below already hides React.lazy's fallback until the screen
  * has committed. A failure simply leaves React.lazy to own the wait.
  */
-async function preloadSavedScreen(): Promise<void> {
+async function preloadInitialScreen(): Promise<void> {
   try {
-    const loading = preloadScreenModule(savedTab());
+    const loading = preloadScreenModule(initialTab());
     if (loading) await loading.catch(() => undefined);
   } catch {
     // Not a boot failure.
@@ -84,5 +103,5 @@ function renderApp(): void {
 }
 
 dismissBootSplashWhenReady();
-void preloadSavedScreen();
+void preloadInitialScreen();
 renderApp();

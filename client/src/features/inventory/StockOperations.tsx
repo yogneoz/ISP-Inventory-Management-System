@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { isOperationAllowed, canUserSeeAllBranches, getAllowedBranches, getAllowedBranchIds } from '../../utils/permissions';
 import { StockOperationsProvider, type StockOperationsCtx } from './stockops/StockOperationsContext';
+import type { RecordRoute } from '../../routes/appPaths';
 import { computeStockOperationViews } from './stockops/stockOperationViews';
 import { StockOperationsTabBar } from './stockops/StockOperationsTabBar';
 import { PulloutBinsPanel } from './stockops/PulloutBinsPanel';
@@ -85,6 +86,11 @@ interface StockOperationsProps {
   onRefreshData?: () => Promise<void> | void;
   /** Bumped by App's SSE handler when stock-operation events arrive — re-runs the consumable register's paged fetch. */
   sseRefreshKey?: number;
+  /** `/inventory/transfers/receive/:trackingCode`, passed only to the receive panel. */
+  recordRoute?: RecordRoute | null;
+  onRecordRouteChange?: (record: RecordRoute | null) => void;
+  /** Root-owned bounded lookup for a transfer outside the overview window. */
+  onFindShipment?: (key: string, branchId?: string) => Promise<Shipment | null>;
 }
 
 
@@ -133,6 +139,9 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   onUpdateAssetStatus,
   onRefreshData,
   sseRefreshKey,
+  recordRoute = null,
+  onRecordRouteChange,
+  onFindShipment,
 }) => {
   const { confirm: confirmDialog, prompt: promptDialog, alert: alertDialog } = useDialog();
 
@@ -550,7 +559,13 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
         switch (activeTab) {
           case 'PULLOUT_BINS': return <PulloutBinsPanel />;
           case 'DAMAGE_TRACKING': return <DamageTrackingPanel />;
-          case 'RECEIVE_TRANSFER': return <ReceiveTransferPanel />;
+          case 'RECEIVE_TRANSFER': return (
+            <ReceiveTransferPanel
+              recordRoute={recordRoute}
+              onRecordRouteChange={onRecordRouteChange}
+              onFindShipment={onFindShipment}
+            />
+          );
           case 'CREATE_TRANSFER': return <CreateTransferPanel />;
           case 'ASSIGN_ASSET': return <AssignAssetPanel />;
           case 'CONSUMABLE_ISSUE': return <ConsumableIssuePanel />;

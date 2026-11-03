@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { User, Branch } from '../../types';
 import {
   Users,
   Plus,
   Search,
   Shield,
+  ShieldCheck,
   Building2,
   CheckCircle2,
   Edit,
@@ -17,14 +18,92 @@ import {
   Wand2,
   Lock,
   RotateCcw,
+  ChevronDown,
+  ChevronUp,
+  Link2,
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { PageHeader } from '../../components/common/PageHeader';
 import { api } from '../../services/api';
+import type { UserAccessSummary, UserPermissionOverridesResponse } from '../../services/api';
 import { useDialog } from '../../components/common/DialogProvider';
 import { ModalPanel } from '../../components/common/ModalPanel';
+import { useActivationKey } from '../../components/common/KeepMounted';
 import { isOperationAllowed } from '../../utils/permissions';
-import { APP_ROLES, APP_ROLE_LABELS } from '../../utils/permissionMatrixData';
+import {
+  APP_ROLES,
+  APP_ROLE_LABELS,
+  DEFAULT_PERMISSIONS_MATRIX,
+} from '../../utils/permissionMatrixData';
+import { DEFAULT_GROUPS } from './PermissionManagement';
+import {
+  readAccessFilterUrl,
+  syncAccessFilterUrl,
+  type AccessFilterScope,
+} from '../../utils/accessFilterUrl';
+import type { RecordRoute } from '../../routes/appPaths';
+
+/** operation id → the same label the two permission screens use. */
+const OPERATION_NAMES: Record<string, string> = (() => {
+  const names: Record<string, string> = {};
+  for (const group of DEFAULT_GROUPS) {
+    for (const operation of group.operations) names[operation.id] = operation.operationName;
+  }
+  return names;
+})();
+
+/**
+ * Operation choices for the register's access filter. The matrix screen's
+ * groups cover 46 operations; the catalogue also enforces four ids it does not
+ * render. They still appear in every user's effective list, so the filter must
+ * offer them too or those accounts could not be found by what they can do.
+ */
+const UNGROUPED_OPERATION_LABELS: Record<string, string> = {
+  'purchase-return-create': 'Create Purchase Returns',
+  'sales-invoice-create': 'Create Sales Invoices',
+  'sales-return-create': 'Create Sales Returns',
+  'shipment-cancel': 'Cancel Outbound Shipment',
+};
+const GROUPED_OPERATION_IDS = new Set(
+  DEFAULT_GROUPS.flatMap((group) => group.operations.map((operation) => operation.id))
+);
+const UNGROUPED_OPERATIONS = Object.keys(DEFAULT_PERMISSIONS_MATRIX)
+  .filter((operationId) => !GROUPED_OPERATION_IDS.has(operationId))
+  .map((operationId) => ({
+    id: operationId,
+    name:
+      OPERATION_NAMES[operationId] ||
+      UNGROUPED_OPERATION_LABELS[operationId] ||
+      operationId.replace(/-/g, ' '),
+  }));
+const OPERATION_FILTER_GROUPS = [
+  ...DEFAULT_GROUPS.map((group) => ({
+    category: group.category,
+    operations: group.operations.map((operation) => ({
+      id: operation.id,
+      name: operation.operationName,
+    })),
+  })),
+  ...(UNGROUPED_OPERATIONS.length > 0
+    ? [{ category: 'Other operations', operations: UNGROUPED_OPERATIONS }]
+    : []),
+];
+
+/** Reads a shared filter link, dropping an operation this build cannot render. */
+function readInitialAccessFilters(): {
+  accessFilter: AccessFilterScope;
+  operationFilter: string;
+} {
+  const parsed = readAccessFilterUrl(window.location.search);
+  return {
+    accessFilter: parsed.accessFilter,
+    operationFilter:
+      parsed.operationFilter &&
+      Object.prototype.hasOwnProperty.call(DEFAULT_PERMISSIONS_MATRIX, parsed.operationFilter)
+        ? parsed.operationFilter
+        : '',
+  };
+}
 
 interface UsersManagementProps {
   currentUser: User | null;
@@ -34,6 +113,11 @@ interface UsersManagementProps {
   onUpdateUser?: (id: string, user: Partial<User> & { password?: string }) => Promise<void>;
   onResetPassword?: (userId: string, newPassword: string) => Promise<void>;
   onDeleteUser?: (id: string) => Promise<void>;
+  /** Opens the per-person access editor for this account. */
+  onManageAccess?: (userId: string) => void;
+  /** `/settings/users/new` or `/:id/edit`, when the URL names the editor. */
+  recordRoute?: RecordRoute | null;
+  onRecordRouteChange?: (record: RecordRoute | null) => void;
 }
 
 export const UsersManagement: React.FC<UsersManagementProps> = ({
@@ -44,11 +128,41 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
   onUpdateUser,
   onResetPassword,
   onDeleteUser,
+  onManageAccess,
+  recordRoute = null,
+  onRecordRouteChange,
 }) => {
   const { confirm: confirmDialog, alert: alertDialog } = useDialog();
+  const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
+  const activationKey = useActivationKey('users');
   const [search, setSearch] = useState('');
+  // A shared link may already name an access scope and/or operation.
+  const [accessFilter, setAccessFilter] = useState<AccessFilterScope>(() =>
+    isSuperAdmin ? readInitialAccessFilters().accessFilter : 'all'
+  );
+  const [operationFilter, setOperationFilter] = useState(() =>
+    isSuperAdmin ? readInitialAccessFilters().operationFilter : ''
+  );
+  const [accessLinkCopied, setAccessLinkCopied] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [accessSummary, setAccessSummary] = useState<UserPermissionOverridesResponse | null>(null);
+  const [accessSummaryLoading, setAccessSummaryLoading] = useState(false);
+  const [accessSummaryError, setAccessSummaryError] = useState('');
+  const [accessSummaryRetry, setAccessSummaryRetry] = useState(0);
+  const recordRouteChangeRef = useRef(onRecordRouteChange);
+  recordRouteChangeRef.current = onRecordRouteChange;
+
+  // Users-register summary. One bulk read feeds every card; expanding one
+  // card is the only thing that loads that account's exception rows.
+  const [cardSummaries, setCardSummaries] = useState<Record<string, UserAccessSummary>>({});
+  const [cardSummaryLoading, setCardSummaryLoading] = useState(false);
+  const [cardSummaryError, setCardSummaryError] = useState('');
+  const [cardSummaryRetry, setCardSummaryRetry] = useState(0);
+  const [expandedAccessUserId, setExpandedAccessUserId] = useState<string | null>(null);
+  const [accessDetails, setAccessDetails] = useState<Record<string, UserPermissionOverridesResponse>>({});
+  const [accessDetailLoadingId, setAccessDetailLoadingId] = useState('');
+  const [accessDetailError, setAccessDetailError] = useState<{ userId: string; message: string } | null>(null);
 
   // Add / Edit Modal State
   const [name, setName] = useState('');
@@ -87,16 +201,62 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
   const [resetSuccessMsg, setResetSuccessMsg] = useState('');
   const [isResetting, setIsResetting] = useState(false);
 
-  const filtered = users.filter(
-    (u) =>
-      (u?.name || '').toLowerCase().includes((search || '').toLowerCase()) ||
-      (u?.email || '').toLowerCase().includes((search || '').toLowerCase()) ||
-      (u?.role || '').toLowerCase().includes((search || '').toLowerCase())
-  );
+  const filtered = users.filter((u) => {
+    const searchText = (search || '').toLowerCase();
+    const matchesSearch =
+      (u?.name || '').toLowerCase().includes(searchText) ||
+      (u?.email || '').toLowerCase().includes(searchText) ||
+      (u?.role || '').toLowerCase().includes(searchText);
+    if (!matchesSearch) return false;
 
-  const usersPagination = useClientPagination(filtered, 12, [search]);
+    // Access filtering is a Super-Admin read. A Summary row that is absent or
+    // still loading cannot prove either condition, so it fails closed rather
+    // than showing an account the filter was meant to exclude.
+    if (!isSuperAdmin) return true;
+    const summary = cardSummaries[u.id];
+    if (accessFilter === 'exceptions') {
+      if (!summary || summary.grants + summary.denies === 0) return false;
+    }
+    if (operationFilter) {
+      if (!summary || !summary.operations.includes(operationFilter)) return false;
+    }
+    return true;
+  });
 
-  const handleOpenAddModal = () => {
+  const accessFilterActive = isSuperAdmin && (accessFilter !== 'all' || operationFilter !== '');
+  const filtersActive = accessFilterActive || Boolean(search.trim());
+
+  // Keep the address bar shareable. `activationKey` re-applies the params when
+  // the user returns to this tab after App cleared them while it was hidden.
+  useEffect(() => {
+    if (!isSuperAdmin) {
+      syncAccessFilterUrl('all', '');
+      return;
+    }
+    syncAccessFilterUrl(accessFilter, operationFilter);
+  }, [isSuperAdmin, accessFilter, operationFilter, activationKey]);
+
+  const clearAccessFilters = () => {
+    setAccessFilter('all');
+    setOperationFilter('');
+  };
+
+  const handleCopyAccessLink = () => {
+    // Write the current controls first so the clipboard cannot receive a URL
+    // from before the last select change committed.
+    syncAccessFilterUrl(accessFilter, operationFilter);
+    navigator.clipboard.writeText(window.location.href);
+    setAccessLinkCopied(true);
+    window.setTimeout(() => setAccessLinkCopied(false), 2000);
+  };
+
+  const usersPagination = useClientPagination(filtered, 12, [
+    search,
+    accessFilter,
+    operationFilter,
+  ]);
+
+  const openAddModal = () => {
     setEditingUser(null);
     setName('');
     setEmail('');
@@ -108,7 +268,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
     setIsModalOpen(true);
   };
 
-  const handleOpenEditModal = (u: User) => {
+  const openEditModal = (u: User) => {
     setEditingUser(u);
     setName(u.name);
     setEmail(u.email);
@@ -124,12 +284,156 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
     setIsModalOpen(true);
   };
 
+  const closeUserModal = () => {
+    setIsModalOpen(false);
+    setEditingUser(null);
+    recordRouteChangeRef.current?.(null);
+  };
+
+  const handleOpenAddModal = () => {
+    if (onRecordRouteChange) {
+      recordRouteChangeRef.current?.({ kind: 'create' });
+      return;
+    }
+    openAddModal();
+  };
+
+  const handleOpenEditModal = (u: User) => {
+    if (onRecordRouteChange) {
+      recordRouteChangeRef.current?.({ kind: 'edit', id: u.id });
+      return;
+    }
+    openEditModal(u);
+  };
+
+  // The URL owns the open editor: a refresh on `/settings/users/:id/edit`
+  // reopens the same account instead of dropping back to the card grid.
+  const recordKind = recordRoute?.kind === 'create' ? 'create' : recordRoute?.kind === 'edit' ? 'edit' : '';
+  const recordId = recordRoute?.kind === 'edit' ? recordRoute.id : '';
+  useEffect(() => {
+    if (!recordKind) {
+      if (isModalOpen || editingUser) {
+        setIsModalOpen(false);
+        setEditingUser(null);
+      }
+      return;
+    }
+    if (recordKind === 'create' && (!isModalOpen || editingUser)) openAddModal();
+  }, [recordKind]);
+
+  useEffect(() => {
+    if (recordKind !== 'edit' || users.length === 0) return;
+    const wanted = recordId.toLowerCase();
+    const user = users.find(
+      (row) => row.id?.toLowerCase() === wanted || row.email?.toLowerCase() === wanted
+    );
+    if (!user) {
+      recordRouteChangeRef.current?.(null);
+      return;
+    }
+    if (editingUser?.id !== user.id) openEditModal(user);
+  }, [recordKind, recordId, users]);
+
   const handleOpenResetModal = (u: User) => {
     setResetModalUser(u);
     setNewPasswordValue(generateRandomPassword());
     setShowResetPassword(true);
     setCopied(false);
     setResetSuccessMsg('');
+  };
+
+  // The modal summary is a read, never a second editor. It is only offered to
+  // a Super Admin for an account whose access can actually change.
+  useEffect(() => {
+    if (!isModalOpen || !editingUser || !isSuperAdmin || editingUser.role === 'SUPER_ADMIN') {
+      setAccessSummary(null);
+      setAccessSummaryError('');
+      setAccessSummaryLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setAccessSummary(null);
+    setAccessSummaryError('');
+    setAccessSummaryLoading(true);
+    api.getUserPermissionOverrides(editingUser.id)
+      .then((summary) => {
+        if (!cancelled) setAccessSummary(summary);
+      })
+      .catch((err: any) => {
+        if (!cancelled) {
+          setAccessSummaryError(err?.message || 'The access summary could not be read.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setAccessSummaryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isModalOpen, editingUser, isSuperAdmin, accessSummaryRetry]);
+
+  // One bulk read for the register. The keep-mounted tab can be hidden for a
+  // long time while access is edited on another screen, so the activation key
+  // re-reads the counts on every return instead of trusting the first mount.
+  useEffect(() => {
+    if (!isSuperAdmin) {
+      setCardSummaries({});
+      setCardSummaryError('');
+      setCardSummaryLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setCardSummaryLoading(true);
+    setCardSummaryError('');
+    api.getUserAccessSummaries()
+      .then((response) => {
+        if (cancelled) return;
+        const next: Record<string, UserAccessSummary> = {};
+        for (const row of response.users) next[row.userId] = row;
+        setCardSummaries(next);
+        setExpandedAccessUserId(null);
+        setAccessDetails({});
+      })
+      .catch((err: any) => {
+        if (!cancelled) {
+          setCardSummaryError(err?.message || 'The access summaries could not be read.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setCardSummaryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isSuperAdmin, activationKey, users.length, cardSummaryRetry]);
+
+  const loadAccessDetails = (userId: string, force = false) => {
+    if (!force && (accessDetails[userId] || accessDetailLoadingId === userId)) return;
+    setAccessDetailLoadingId(userId);
+    setAccessDetailError(null);
+    api.getUserPermissionOverrides(userId)
+      .then((detail) => {
+        setAccessDetails((current) => ({ ...current, [userId]: detail }));
+      })
+      .catch((err: any) => {
+        setAccessDetailError({
+          userId,
+          message: err?.message || 'The access details could not be read.',
+        });
+      })
+      .finally(() => {
+        setAccessDetailLoadingId((current) => (current === userId ? '' : current));
+      });
+  };
+
+  const toggleAccessDetails = (userId: string) => {
+    if (expandedAccessUserId === userId) {
+      setExpandedAccessUserId(null);
+      return;
+    }
+    setExpandedAccessUserId(userId);
+    setAccessDetailError(null);
+    loadAccessDetails(userId);
   };
 
   const generateRandomPassword = () => {
@@ -227,8 +531,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
     setName('');
     setEmail('');
     setPassword('');
-    setEditingUser(null);
-    setIsModalOpen(false);
+    closeUserModal();
   };
 
   const getRoleBadge = (_r: string) => {
@@ -257,6 +560,49 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
   };
 
   const cardBg = 'bg-white border-slate-200 text-slate-800 shadow-xs dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-300';
+
+  const accessBase = accessSummary?.base || {};
+  const accessTotal = Object.keys(accessBase).length;
+  const accessRoleAllowed = Object.values(accessBase).filter(Boolean).length;
+  const activeOverrides = (accessSummary?.overrides || []).filter((row) => !row.expired);
+  const extraPermissions = activeOverrides.filter(
+    (row) => row.effect === 'grant' && accessBase[row.operationId] === false
+  ).length;
+  const personalDenies = activeOverrides.filter((row) => row.effect === 'deny').length;
+  const accessSetCount = accessSummary?.setIds?.length || 0;
+  const accessEffective = accessSummary?.operations.length || 0;
+
+  // Compare against the same normalised baseline handleOpenEditModal seeds:
+  // an older account with no allowedBranchIds opens with its primary branch
+  // ticked, so that must not look like an unsaved change.
+  const editingPrimaryBranchId =
+    editingUser?.branchId || branches.find((b) => b.isHeadquarters)?.id || branches[0]?.id || '';
+  const editingAllowedBranchIds =
+    editingUser?.allowedBranchIds && editingUser.allowedBranchIds.length > 0
+      ? editingUser.allowedBranchIds
+      : [editingPrimaryBranchId];
+  const sortedAllowedBranchIds = [...allowedBranchIds].sort().join('|');
+  const sortedEditingBranchIds = [...editingAllowedBranchIds].sort().join('|');
+  const userFormDirty = Boolean(
+    editingUser &&
+      (name !== editingUser.name ||
+        email !== editingUser.email ||
+        role !== editingUser.role ||
+        branchId !== editingPrimaryBranchId ||
+        sortedAllowedBranchIds !== sortedEditingBranchIds ||
+        password.length > 0)
+  );
+  const canShowAccess = Boolean(
+    editingUser && isSuperAdmin && editingUser.role !== 'SUPER_ADMIN' && onManageAccess
+  );
+
+  const handleManageAccess = () => {
+    if (!editingUser || !onManageAccess || userFormDirty) return;
+    const userId = editingUser.id;
+    setIsModalOpen(false);
+    setEditingUser(null);
+    onManageAccess(userId);
+  };
 
   if (!isOperationAllowed('admin-users', currentUser?.role)) {
     return (
@@ -287,24 +633,149 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
         }
       />
 
-      {/* Search Bar */}
+      {/* Search + access filter */}
       <div className={`p-4 rounded-xl border ${cardBg}`}>
- <div className="relative w-full md:w-80 lg:w-96 shrink-0 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="🔍 Search user by name, email, or role..."
-            className={`w-full rounded-lg pl-9 pr-4 py-2 text-xs focus:outline-none border border-slate-200 bg-slate-50 text-slate-800 placeholder-slate-400 dark:border dark:border-slate-800 dark:bg-slate-900 dark:text-white dark:placeholder-slate-500`}
-          />
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div className="relative w-full md:w-80 lg:w-96 shrink-0 max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="🔍 Search user by name, email, or role..."
+              className={`w-full rounded-lg pl-9 pr-4 py-2 text-xs focus:outline-none border border-slate-200 bg-slate-50 text-slate-800 placeholder-slate-400 dark:border dark:border-slate-800 dark:bg-slate-900 dark:text-white dark:placeholder-slate-500`}
+            />
+          </div>
+
+          {isSuperAdmin && (
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="block">
+                <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Access
+                </span>
+                <select
+                  aria-label="Access filter"
+                  value={accessFilter}
+                  onChange={(e) => setAccessFilter(e.target.value as 'all' | 'exceptions')}
+                  className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs text-slate-800 focus:outline-none dark:border-slate-800 dark:bg-slate-900 dark:text-white"
+                >
+                  <option value="all">All accounts</option>
+                  <option value="exceptions">With personal exceptions</option>
+                </select>
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Can perform
+                </span>
+                <select
+                  aria-label="Effective operation filter"
+                  value={operationFilter}
+                  onChange={(e) => setOperationFilter(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs text-slate-800 focus:outline-none sm:w-64 dark:border-slate-800 dark:bg-slate-900 dark:text-white"
+                >
+                  <option value="">Any operation</option>
+                  {OPERATION_FILTER_GROUPS.map((group) => (
+                    <optgroup key={group.category} label={group.category}>
+                      {group.operations.map((operation) => (
+                        <option key={operation.id} value={operation.id}>
+                          {operation.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </label>
+
+              <button
+                type="button"
+                onClick={handleCopyAccessLink}
+                title="Copy a link to this filtered view"
+                className="flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50/60 px-2.5 py-2 text-[11px] font-bold text-indigo-700 hover:bg-indigo-100 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-300 dark:hover:bg-indigo-950/60"
+              >
+                {accessLinkCopied ? (
+                  <Check className="h-3.5 w-3.5" />
+                ) : (
+                  <Link2 className="h-3.5 w-3.5" />
+                )}
+                <span>{accessLinkCopied ? 'Copied' : 'Copy link'}</span>
+              </button>
+
+              {accessFilterActive && (
+                <button
+                  type="button"
+                  onClick={clearAccessFilters}
+                  className="rounded-lg border border-slate-200 px-2.5 py-2 text-[11px] font-bold text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                >
+                  Clear access filters
+                </button>
+              )}
+            </div>
+          )}
         </div>
+
+        {filtersActive && (
+          <p className="mt-2 text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+            {accessFilterActive && cardSummaryLoading && Object.keys(cardSummaries).length === 0
+              ? 'Reading access data to apply the filter…'
+              : `Showing ${filtered.length} of ${users.length} staff account${users.length === 1 ? '' : 's'}.`}
+          </p>
+        )}
       </div>
+
+      {isSuperAdmin && cardSummaryError && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
+        >
+          <span>Access summaries could not be read: {cardSummaryError}</span>
+          <button
+            type="button"
+            onClick={() => setCardSummaryRetry((current) => current + 1)}
+            className="font-bold underline underline-offset-2"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {filtered.length === 0 && (
+        <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-xs dark:border-slate-700">
+          <p className="font-semibold text-slate-600 dark:text-slate-300">
+            {users.length === 0
+              ? 'No staff accounts have been created yet.'
+              : 'No staff accounts match the current search and access filters.'}
+          </p>
+          {users.length > 0 && filtersActive && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearch('');
+                clearAccessFilters();
+              }}
+              className="mt-2 text-[11px] font-bold text-indigo-600 hover:underline dark:text-indigo-400"
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Grid of Users */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {usersPagination.pagedItems.map((u) => {
           const userBranch = branches.find((b) => b.id === u.branchId);
+          const summary = cardSummaries[u.id];
+          const summaryExpanded = expandedAccessUserId === u.id;
+          const detail = accessDetails[u.id];
+          const detailBase = detail?.base || {};
+          const activeDetailOverrides = detail
+            ? detail.overrides.filter((row) => !row.expired)
+            : [];
+          const expiredDetailOverrides = detail
+            ? detail.overrides.length - activeDetailOverrides.length
+            : 0;
+          const detailError = accessDetailError?.userId === u.id ? accessDetailError.message : '';
 
           return (
             <div key={u.id} className={`p-4 rounded-2xl border transition-all ${cardBg}`}>
@@ -375,6 +846,143 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                 </div>
               </div>
 
+              {isSuperAdmin && (
+                <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2 dark:border-slate-800 dark:bg-slate-900/40">
+                  {u.role === 'SUPER_ADMIN' ? (
+                    <p className="flex items-center gap-1.5 text-[10px] font-semibold text-purple-700 dark:text-purple-300">
+                      <ShieldCheck className="h-3.5 w-3.5" />
+                      Full access by role · exceptions do not apply
+                    </p>
+                  ) : summary ? (
+                    <>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                          Access
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => toggleAccessDetails(u.id)}
+                          aria-expanded={summaryExpanded}
+                          aria-controls={`access-details-${u.id}`}
+                          className="flex items-center gap-0.5 text-[10px] font-bold text-indigo-600 hover:underline dark:text-indigo-400"
+                        >
+                          {summaryExpanded ? 'Hide details' : 'Details'}
+                          {summaryExpanded ? (
+                            <ChevronUp className="h-3 w-3" />
+                          ) : (
+                            <ChevronDown className="h-3 w-3" />
+                          )}
+                        </button>
+                      </div>
+                      <p className="mt-1 text-[11px] font-bold text-slate-800 dark:text-slate-200">
+                        Effective {summary.effective} of {summary.total} operations
+                      </p>
+                      <div className="mt-1 flex flex-wrap items-center gap-1 text-[10px] font-semibold">
+                        <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300">
+                          +{summary.grants} grant{summary.grants === 1 ? '' : 's'}
+                        </span>
+                        <span className="rounded-full bg-rose-100 px-1.5 py-0.5 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300">
+                          −{summary.denies} den{summary.denies === 1 ? 'y' : 'ies'}
+                        </span>
+                        <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                          {summary.setCount} set{summary.setCount === 1 ? '' : 's'}
+                        </span>
+                      </div>
+                      {summary.nextExpiry && (
+                        <p className="mt-1 text-[10px] font-semibold text-amber-700 dark:text-amber-300">
+                          Next exception expiry: {new Date(summary.nextExpiry).toLocaleDateString()}
+                        </p>
+                      )}
+                      {summaryExpanded && (
+                        <div
+                          id={`access-details-${u.id}`}
+                          className="mt-2 border-t border-slate-200 pt-2 dark:border-slate-700"
+                        >
+                          {accessDetailLoadingId === u.id ? (
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                              Reading exceptions…
+                            </p>
+                          ) : detailError ? (
+                            <div
+                              role="alert"
+                              className="flex flex-wrap items-center gap-2 text-[10px] font-semibold text-rose-700 dark:text-rose-300"
+                            >
+                              <span>{detailError}</span>
+                              <button
+                                type="button"
+                                onClick={() => loadAccessDetails(u.id, true)}
+                                className="font-bold underline underline-offset-2"
+                              >
+                                Retry
+                              </button>
+                            </div>
+                          ) : detail ? (
+                            activeDetailOverrides.length === 0 ? (
+                              <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                                Role defaults only; no active personal exceptions.
+                              </p>
+                            ) : (
+                              <>
+                                <ul className="space-y-1.5">
+                                  {activeDetailOverrides.map((row) => (
+                                    <li key={row.operationId} className="text-[10px] leading-4">
+                                      <div className="flex flex-wrap items-center gap-1">
+                                        <span
+                                          className={
+                                            row.effect === 'grant'
+                                              ? 'font-bold text-emerald-700 dark:text-emerald-300'
+                                              : 'font-bold text-rose-700 dark:text-rose-300'
+                                          }
+                                        >
+                                          {row.effect === 'grant' ? '+' : '−'}
+                                        </span>
+                                        <span className="font-bold text-slate-800 dark:text-slate-200">
+                                          {OPERATION_NAMES[row.operationId] || row.operationId}
+                                        </span>
+                                        <span className="text-slate-500 dark:text-slate-400">
+                                          Role: {detailBase[row.operationId] ? 'allowed' : 'denied'}
+                                        </span>
+                                      </div>
+                                      <p className="text-slate-600 dark:text-slate-400">{row.reason}</p>
+                                      <p className="text-slate-400">
+                                        {row.expiresAt
+                                          ? `Expires ${new Date(row.expiresAt).toLocaleDateString()}`
+                                          : 'No expiry'}
+                                      </p>
+                                    </li>
+                                  ))}
+                                </ul>
+                                {expiredDetailOverrides > 0 && (
+                                  <p className="mt-1 text-[10px] text-slate-400">
+                                    {expiredDetailOverrides} expired exception
+                                    {expiredDetailOverrides === 1 ? '' : 's'} ignored.
+                                  </p>
+                                )}
+                              </>
+                            )
+                          ) : null}
+                        </div>
+                      )}
+                    </>
+                  ) : cardSummaryLoading ? (
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                      Reading access summary…
+                    </p>
+                  ) : null}
+                </div>
+              )}
+
+              {onManageAccess && isSuperAdmin && u.role !== 'SUPER_ADMIN' && (
+                <button
+                  type="button"
+                  onClick={() => onManageAccess(u.id)}
+                  className="mt-3 flex w-full items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/60 px-3 py-2 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-300 dark:hover:bg-indigo-950/60"
+                >
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  Access &amp; permissions
+                </button>
+              )}
+
               <div className="mt-4 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[10px]">
                 <span className={`text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1`}>
                   <CheckCircle2 className="h-3 w-3" /> Active Account
@@ -402,7 +1010,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
           <ModalPanel
             label={editingUser ? 'Edit User & Credentials' : 'Add System User'}
-            onClose={() => setIsModalOpen(false)}
+            onClose={closeUserModal}
             className={`w-full max-w-md rounded-2xl border p-6 shadow-2xl bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-white`}
           >
             <h3 className="text-base font-bold mb-4 flex items-center gap-2">
@@ -537,10 +1145,86 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                 )}
               </div>
 
+              {canShowAccess && (
+                <div className="space-y-2 rounded-xl border border-indigo-200 bg-indigo-50/40 p-3 dark:border-indigo-900 dark:bg-indigo-950/20">
+                  <div className="flex items-center justify-between gap-2">
+                    <h4 className="flex items-center gap-1.5 text-xs font-bold text-indigo-900 dark:text-indigo-200">
+                      <ShieldCheck className="h-4 w-4" />
+                      Access &amp; permissions
+                    </h4>
+                    <button
+                      type="button"
+                      onClick={handleManageAccess}
+                      disabled={userFormDirty}
+                      title={userFormDirty ? 'Save or cancel your changes first' : 'Open the access editor'}
+                      className="text-[10px] font-bold text-indigo-700 hover:underline disabled:cursor-not-allowed disabled:opacity-40 dark:text-indigo-300"
+                    >
+                      Manage access →
+                    </button>
+                  </div>
+
+                  {accessSummaryLoading && !accessSummary ? (
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">Reading access summary…</p>
+                  ) : accessSummaryError ? (
+                    <div
+                      role="alert"
+                      className="flex flex-wrap items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[10px] font-semibold text-rose-800 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300"
+                    >
+                      <span>{accessSummaryError}</span>
+                      <button
+                        type="button"
+                        onClick={() => setAccessSummaryRetry((current) => current + 1)}
+                        className="font-bold underline underline-offset-2"
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  ) : accessSummary ? (
+                    <>
+                      <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+                        <div className="rounded-lg bg-white px-2 py-1.5 dark:bg-slate-900">
+                          <span className="block text-slate-500 dark:text-slate-400">Role default</span>
+                          <strong className="text-slate-800 dark:text-slate-200">
+                            {accessRoleAllowed} of {accessTotal} operations
+                          </strong>
+                        </div>
+                        <div className="rounded-lg bg-white px-2 py-1.5 dark:bg-slate-900">
+                          <span className="block text-slate-500 dark:text-slate-400">Extra permissions</span>
+                          <strong className="text-emerald-700 dark:text-emerald-300">
+                            {extraPermissions} extra permission{extraPermissions === 1 ? '' : 's'}
+                          </strong>
+                        </div>
+                        <div className="rounded-lg bg-white px-2 py-1.5 dark:bg-slate-900">
+                          <span className="block text-slate-500 dark:text-slate-400">Personal denies</span>
+                          <strong className="text-rose-700 dark:text-rose-300">
+                            {personalDenies} personal den{personalDenies === 1 ? 'y' : 'ies'}
+                          </strong>
+                        </div>
+                        <div className="rounded-lg bg-white px-2 py-1.5 dark:bg-slate-900">
+                          <span className="block text-slate-500 dark:text-slate-400">Permission sets</span>
+                          <strong className="text-slate-800 dark:text-slate-200">
+                            {accessSetCount} permission set{accessSetCount === 1 ? '' : 's'}
+                          </strong>
+                        </div>
+                      </div>
+                      <p className="text-[10px] font-semibold text-slate-700 dark:text-slate-300">
+                        Effective: {accessEffective} of {accessTotal} operations
+                      </p>
+                    </>
+                  ) : null}
+
+                  <p className="text-[10px] leading-4 text-slate-500 dark:text-slate-400">
+                    Changing the role changes inherited defaults. This form never edits personal exceptions or
+                    sets.
+                    {userFormDirty && ' Save or cancel your changes to manage access.'}
+                  </p>
+                </div>
+              )}
+
               <div className="flex justify-end gap-2 pt-4 border-t border-slate-200 dark:border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setIsModalOpen(false)}
+                  onClick={closeUserModal}
                   className="px-4 py-2 rounded-lg bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold cursor-pointer"
                 >
                   Cancel

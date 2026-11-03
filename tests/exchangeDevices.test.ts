@@ -208,7 +208,7 @@ describe('exchange device cache', () => {
     );
   });
 
-  test('reset (sign-out) drops every branch and refetches on the next host', async () => {
+  test('reset (sign-out / profile switch) drops every branch and refetches on the next host', async () => {
     const calls: ExchangeDevicesQuery[] = [];
     const store = createExchangeDevicesStore(async (request) => {
       calls.push(request);
@@ -219,9 +219,11 @@ describe('exchange device cache', () => {
     store.ensureLoaded('WH001', { branchId: 'WH001' });
     await flush();
     assert.equal(store.getEntry('WH001').rows.length, 1);
+    assert.equal(store.getSnapshot().generation, 0);
 
     store.reset();
     assert.deepEqual(store.getEntry('WH001').rows, [], 'a new user must not inherit the previous branch rows');
+    assert.equal(store.getSnapshot().generation, 1, 'a reset is observable to a mounted host');
 
     store.ensureLoaded('BRH02', { branchId: 'BRH02' });
     await flush();
@@ -332,6 +334,26 @@ describe('DF-16 + EXCH-1 — wiring', () => {
       'a full refresh must re-read the exchange list too'
     );
     assert.ok(app.includes('resetExchangeDevices();'), 'sign-out must drop the cached branches');
+
+    // A profile switch is a new session too: the next user may see fewer
+    // branches, and the shared exchange list must not carry the old rows.
+    const handler = (name: string, next: string) => {
+      const start = app.indexOf(`const ${name} = async`);
+      const end = app.indexOf(`const ${next} = async`, start);
+      assert.ok(start >= 0 && end > start, `${name} must exist`);
+      return app.slice(start, end);
+    };
+    for (const [name, next] of [
+      ['handleSwitchProfile', 'handleSwitchBackToRoot'],
+      ['handleSwitchBackToRoot', 'handleUpdateProfile'],
+    ]) {
+      const body = handler(name, next);
+      assert.ok(body.includes('resetExchangeDevices();'), `${name} must reset the exchange cache`);
+      assert.ok(
+        body.includes('resetAvailableFixedAssets();'),
+        `${name} must reset the assignable-asset cache`
+      );
+    }
   });
 
   test('the host reads the cache and no longer fetches the device list itself', () => {

@@ -17,7 +17,8 @@ import { PERMISSION_MATRIX_SELECT_SQL, rowsToPermissionMatrix } from '../models/
 import { fetchBootstrapSlice } from '../models/bootstrap.repo';
 import { BOOTSTRAP_TABLES } from '../models/columnMappings';
 import { fetchFinancialSummaryFromDb } from '../services/financialSummary.service';
-import { getPgConnected, fetchFiscalYears, pgPool, pickCurrentFiscalYear, selectBootstrapFiscalYear, toCalendarDate, fetchOperationalData, fetchOpeningStock, products, approvalRequests, branches, fiscalYears, suppliers, users, categories, companyProfile, getDataVersion, setPgConnected, setIsPgConnected, assetRegister, auditTrail, locationRecords, getUserFromReq, permissionMatrix } from '../app';
+import { getPgConnected, fetchFiscalYears, pgPool, pickCurrentFiscalYear, selectBootstrapFiscalYear, toCalendarDate, fetchOperationalData, fetchOpeningStock, products, approvalRequests, branches, fiscalYears, suppliers, users, categories, companyProfile, getDataVersion, setPgConnected, setIsPgConnected, assetRegister, auditTrail, locationRecords, getUserFromReq, permissionMatrix, userPermissionOverrides, userPermissionSetGrants } from '../app';
+import { effectivePermission } from '../services/permissionOverrides.service';
 
 /**
  * AUTHZ-11: the Activities Log screen is gated on `admin-audit`, but the
@@ -29,8 +30,9 @@ import { getPgConnected, fetchFiscalYears, pgPool, pickCurrentFiscalYear, select
  */
 function canReadAuditLogs(user: any): boolean {
   if (!user?.email) return false;
-  if (user.role === 'SUPER_ADMIN') return true;
-  return Boolean((permissionMatrix as any)?.['admin-audit']?.[user.role]);
+  // Resolver, not the raw role row: a per-user grant of `admin-audit` must
+  // reveal the trail, and a deny must hide it even for a role that has it.
+  return effectivePermission(user, 'admin-audit', permissionMatrix, userPermissionOverrides, userPermissionSetGrants);
 }
 /** Forwarded from bootstrap.routes.ts (get_bootstrap). */
 export async function get_bootstrap(req: any, res: Response): Promise<any> {

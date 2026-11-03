@@ -118,6 +118,7 @@ const DOC_TYPE_CODE_MAP: Record<string, string> = {
   'BP': 'BP',
   'BR': 'BR',
   'DC': 'DC',
+  'PAYROLL_RUN': 'PR',
 };
 
 export function normalizeDocTypeCode(docType: string): string {

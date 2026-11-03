@@ -129,11 +129,15 @@ export const SI_FIND_ONE_SQL =
  * Deducts sold stock from the branch. The WHERE quantity_on_hand >= qty guard
  * makes the UPDATE affect 0 rows when stock is insufficient — the controller
  * must check rowCount and abort the transaction (no negative stock).
+ *
+ * `average_cost` is returned in the SAME locked read so COGS is valued at the
+ * moving weighted-average cost that was in force when the units left, not at
+ * the product master's standard cost or a later price change.
  */
 export const SI_DEDUCT_STOCK_SQL = `UPDATE inventory_stock
  SET quantity_on_hand = quantity_on_hand - $1, last_updated = CURRENT_TIMESTAMP
  WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $1
- RETURNING quantity_on_hand`;
+ RETURNING quantity_on_hand, average_cost`;
 
 /** Restores stock when a sales invoice is cancelled/deleted. */
 export const SI_RESTORE_STOCK_SQL = `UPDATE inventory_stock
@@ -422,24 +426,66 @@ export const SR_RETURNED_QTY_SQL =
    WHERE original_invoice_id = $1 AND item->>'productId' = $2 AND status = 'POSTED'`;
 
 /**
- * Restocks a returned unit (sales return posts stock back into the branch).
- * Non-restockable returns skip this and the unit is presumed damaged.
+ * Restocks a returned unit at the cost the original sale relieved. The moving
+ * average is re-weighted by that value in the same statement, so the stock
+ * row's book value and the inventory account stay on one cost basis even when
+ * purchases moved the average since the sale. Non-restockable returns skip
+ * this and the unit is presumed damaged.
  */
-export const SR_RESTOCK_SQL = `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, min_reorder_level)
- VALUES ($1, $2, $3, $4, 5)
+export const SR_RESTOCK_SQL = `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, average_cost, min_reorder_level)
+ VALUES ($1, $2, $3, $4, $5, 5)
  ON CONFLICT (product_id, branch_id) DO UPDATE SET
+   average_cost = CASE
+     WHEN inventory_stock.quantity_on_hand + EXCLUDED.quantity_on_hand > 0
+     THEN ROUND((
+       inventory_stock.quantity_on_hand * inventory_stock.average_cost +
+       EXCLUDED.quantity_on_hand * EXCLUDED.average_cost
+     ) / (inventory_stock.quantity_on_hand + EXCLUDED.quantity_on_hand), 4)
+     ELSE inventory_stock.average_cost
+   END,
    quantity_on_hand = inventory_stock.quantity_on_hand + $4,
    last_updated = CURRENT_TIMESTAMP
  RETURNING quantity_on_hand`;
 
-export function srRestockParams(branchId: string, item: Record<string, any>): unknown[] {
-  return [`stk-${branchId.toLowerCase()}-${item.productId}`, item.productId, branchId, Math.abs(Number(item.quantity)) || 0];
+export function srRestockParams(branchId: string, item: Record<string, any>, unitCost = 0): unknown[] {
+  return [
+    `stk-${branchId.toLowerCase()}-${item.productId}`,
+    item.productId,
+    branchId,
+    Math.abs(Number(item.quantity)) || 0,
+    Math.max(0, Number(unitCost) || 0),
+  ];
 }
 
-/** Deducts stock again when a posted sales return is cancelled. */
+/**
+ * The cost each unit of an invoice was issued at, recovered from the invoice's
+ * own SALES_INVOICE movement rows (quantity_changed × unit_cost). A return must
+ * relieve the same value the sale did; a legacy invoice with no movement row
+ * has nothing to reuse, so the caller refuses instead of guessing.
+ */
+export const SR_ISSUE_COSTS_SQL = `SELECT product_id AS "productId",
+  COALESCE(SUM(-quantity_changed), 0)::float AS "quantity",
+  COALESCE(SUM(-quantity_changed * unit_cost), 0)::float AS "value"
+FROM transaction_logs
+WHERE reference_doc_id = $1
+  AND change_type = 'SALES_INVOICE'
+  AND product_id = ANY($2::text[])
+GROUP BY product_id`;
+
+/**
+ * Deducts stock again when a posted sales return is cancelled. The return's
+ * issue cost is removed from the row's value too, so cancelling the credit note
+ * restores the pre-return weighted average instead of leaving its value behind.
+ */
 export const SR_REDEDUCT_STOCK_SQL = `UPDATE inventory_stock
- SET quantity_on_hand = quantity_on_hand - $1, last_updated = CURRENT_TIMESTAMP
- WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $1
+ SET average_cost = CASE
+       WHEN quantity_on_hand - $1 > 0
+       THEN GREATEST(0, ROUND((quantity_on_hand * average_cost - $1 * $2) / (quantity_on_hand - $1), 4))
+       ELSE 0
+     END,
+     quantity_on_hand = quantity_on_hand - $1,
+     last_updated = CURRENT_TIMESTAMP
+ WHERE product_id = $3 AND branch_id = $4 AND quantity_on_hand >= $1
  RETURNING quantity_on_hand`;
 
 /** Cancels a return only while it is still POSTED (idempotent no-op otherwise). */
@@ -638,6 +684,39 @@ export function cpInsertParams(p: Record<string, any>): unknown[] {
 
 /** Locks a payment row (FOR UPDATE) before a status transition. */
 export const CP_LOCK_STATUS_SQL = 'SELECT status FROM customer_payments WHERE id = $1 FOR UPDATE';
+
+/** Full payment row, so a reversal works from PostgreSQL, not just the mirror. */
+export const CP_FIND_BY_ID_SQL = `SELECT id,
+  payment_number AS "paymentNumber",
+  customer_id AS "customerId",
+  customer_name AS "customerName",
+  branch_id AS "branchId",
+  invoice_id AS "invoiceId",
+  invoice_number AS "invoiceNumber",
+  payment_date_ad::text AS "paymentDateAD",
+  payment_date_bs AS "paymentDateBS",
+  amount::numeric AS amount,
+  payment_method AS "paymentMethod",
+  bank_name AS "bankName",
+  bank_branch AS "bankBranch",
+  account_number AS "accountNumber",
+  cheque_number AS "chequeNumber",
+  cheque_date_ad::text AS "chequeDateAD",
+  cheque_date_bs AS "chequeDateBS",
+  transaction_reference AS "transactionReference",
+  notes,
+  status,
+  reversal_reason AS "reversalReason",
+  reversed_by AS "reversedBy",
+  reversed_at_ad AS "reversedAtAD",
+  original_payment_id AS "originalPaymentId",
+  fiscal_year_id AS "fiscalYearId",
+  is_demo AS "isDemo",
+  created_by AS "createdBy",
+  created_at AS "createdAt",
+  updated_at AS "updatedAt"
+FROM customer_payments
+WHERE id = $1`;
 
 /** Reverses a payment (mirrors VP_REVERSE_SQL). */
 export const CP_REVERSE_SQL = `UPDATE customer_payments SET

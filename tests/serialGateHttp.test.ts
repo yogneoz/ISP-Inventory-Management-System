@@ -39,7 +39,7 @@ import {
   setInventoryStock,
 } from '../server/src/app';
 import { issueAuthToken } from '../server/src/middleware/auth';
-import { ensureBsDayRecords, todayAd } from './fixtures/referenceData';
+import { ensureReferenceData, todayAd } from './fixtures/referenceData';
 
 dotenv.config();
 
@@ -96,7 +96,9 @@ describe('shared serial gate (HTTP layer)', () => {
     // collection, before this hook runs), so the latch was always undefined and
     // the suite failed with ECONNREFUSED on port 0 instead of skipping — a
     // fixture that always resolves removes the need for it.
-    await ensureBsDayRecords(pool!, [todayAd()]);
+    // Stock operations now post their value, so the chart and fiscal year are
+    // part of the reference data this suite needs, exactly like the BS day row.
+    await ensureReferenceData(pool!, todayAd());
     opDateAD = todayAd();
 
     await pool!.query(
@@ -174,6 +176,8 @@ describe('shared serial gate (HTTP layer)', () => {
     await pool.query("DELETE FROM fixed_assets WHERE id LIKE 'sg-%' OR tag_number LIKE 'SG-%'");
     await pool.query("DELETE FROM transaction_logs WHERE reference_doc_id LIKE 'SG-%'");
     await pool.query("DELETE FROM inventory_stock WHERE id LIKE 'sg-%'");
+    // Journals carry a RESTRICT branch FK; clear them before the branches.
+    await pool.query("DELETE FROM gl_journals WHERE branch_id LIKE 'sg-branch%'");
     await pool.query("DELETE FROM products WHERE id = 'sg-prod'");
     await pool.query("DELETE FROM branches WHERE id LIKE 'sg-branch%'");
   }

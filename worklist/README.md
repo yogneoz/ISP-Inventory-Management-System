@@ -64,6 +64,70 @@ checklist here.
 
 ## Active work
 
+**Completed outside a round — rail storage healing, purchase-return scan, profile-switch stock cache (2026-10-31).**
+The persisted open-group set is now intersected with the groups the current menu
+renders: an id for a removed or role-hidden group is ignored and the mount-time
+persist rewrites storage without it; an all-stale set falls back to the active
+page's group. A purchase return keeps a single **Device Serial** scan field per
+unit — MAC and PON are retrieved from the invoice unit and shown read-only, and
+are cleared when a corrected serial stops matching; the sales return keeps all
+three editable fields. The shared branch-stock cache is reset on both profile
+switch paths (it previously survived a switch, refetched the Super Admin's
+branches with the Branch 2 manager's token and showed the 403 "Branch stock
+could not be refreshed" banner). The store's reset `generation` makes
+`useBranchStock` re-register the new user's branches, and a branch-restricted
+switch selects its branch in the same batch so the first bootstrap/shipment
+read already carries the authorized scope. The other session-scoped caches reset
+on both switch paths too: exchange devices and assignable fixed assets now drop
+the previous profile's rows, and each store's reset `generation` makes a mounted
+host refetch (an unchanged branch or search term would otherwise keep the empty
+list). The asset picker also stops retrying a failed read automatically —
+watching the store version had turned one outage into a request storm that
+wedged the route-tree test. Pinned by `tests/sidebarGrouping.test.ts` (12),
+`tests/returnSerials.capture.test.ts` (12), `tests/branchStock.test.ts` (9),
+`tests/exchangeDeviceLoadSchedule.test.ts`, `tests/exchangeDevices.test.ts` and
+`tests/availableAssetsReset.test.ts` (2); verified live on the profile switch.
+Per-user permission overrides are planned in
+[docs/permission-overrides-plan.md](../docs/permission-overrides-plan.md). Full
+suite 1694. Detail:
+[2026 session note](../docs/session-notes/2026.md#-self-healing-rail-storage-one-scan-purchase-returns-profile-switch-stock-cache-2026-10-31).
+
+**Completed outside a round — menu controls + direct reconcile (2026-10-31).**
+The fixed header's single Collapse-current / Expand-current switch duplicated a
+click the user could already make on the group header, and made bulk work one
+group at a time. It is replaced by **Expand all** / **Collapse all** actions,
+with each group header toggling only itself (multi-open). Navigation adds the
+destination group and never closes the others; both header actions disable when
+there is nothing to do. The open-group set persists in
+`inventory_sidebar_open_groups`, including the empty set written by Collapse
+all, so an expanded or collapsed rail survives a refresh; the navigation effect
+is StrictMode-safe and ignores the post-bootstrap permission refresh, which
+otherwise reopened the active group over the saved empty set.
+`tests/sidebarGrouping.test.ts` was rewritten for the contract
+and now covers the expanded-set and empty-set remounts plus the StrictMode /
+malformed-storage fallback. Separately, the unreachable "Direct Stock Reconcile (Admin Direct
+Override)" panel and its dead state were deleted: the live confirmation already
+branched to the direct handler with no pending request, and now names that mode
+with a "No approval request" badge and the confirm "Authorize & Update
+Balances". Its adjustment table no longer truncates product names. Pinned by
+`tests/physicalAuditDirectReconcile.test.ts` (2 tests, including the pending
+approval path). Full suite 1687. Detail:
+[2026 session note](../docs/session-notes/2026.md#-expand-all--collapse-all-menu-controls--direct-reconcile-cleanup-2026-10-31).
+
+**Completed outside a round — resizable navigation rail (2026-10-31).** The
+sidebar's fixed viewport tiers left long menu labels wrapping onto extra lines,
+pushing lower items below the fold. The rail now has a visible right-edge
+splitter: drag between 240–520 px (pointer capture keeps the drag alive),
+ArrowLeft/ArrowRight step 16 px, Home/End jump to the bounds, and double-click
+restores the 288 px default. The width persists in
+`inventory_sidebar_width_px`, is applied on mount, and is capped at `85vw` so
+the workspace never disappears; the mobile drawer stays an overlay under the
+same cap. Labels wrap
+rather than ellipsize, so the minimum width stays readable and a wider rail
+keeps items on one line. The dead CSS width tiers were removed. Pinned by
+`tests/sidebarResize.test.ts` (9 tests); full suite 1682. Detail:
+[2026 session note](../docs/session-notes/2026.md#-resizable-navigation-rail--drag-keyboard-persisted-2026-10-31).
+
 **Completed outside a round — all-screen UI/UX sweep (2026-10-30).** The
 2026-10-29 audit covered 9 screens and left ~60 unknown; this pass drove all 68
 registered routes at 390/1067/1440 px (204 readings) with a temporary CDP
@@ -116,8 +180,9 @@ panels — damage adjust/dispose/reverse, audit submit/approve/reject/consolidat
 and serial correction — were then migrated too (UIX-27); that pass found and
 fixed three content losses (truncated product names, truncated damage
 references, a clipped audit table at 390), and 96/96 readings are clean on the
-reachable surfaces. The direct-reconcile panel has no trigger and is noted as
-such. Report
+reachable surfaces. The unreachable direct-reconcile panel was deleted in the
+follow-up above; the live confirmation now covers both approval and direct
+override. Report
 [docs/ui-ux-audit-2026-10-31-overlays.md](../docs/ui-ux-audit-2026-10-31-overlays.md);
 detail:
 [2026 session note](../docs/session-notes/2026.md#-overlay-uiux-sweep--modals-and-drawers-three-widths-2026-10-31).

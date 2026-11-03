@@ -42,6 +42,13 @@ export const TAB_PERMISSIONS: Record<string, string | string[]> = {
   'depreciation-register': 'assets-manage',
   approvals: ['workflow-approval', 'workflow-approval-cancel'],
   'workflow-approval': ['workflow-approval', 'workflow-approval-cancel'],
+  accounting: 'gl-view',
+  'accounting-profit-loss': 'gl-view',
+  'accounting-balance-sheet': 'gl-view',
+  'accounting-cash-book': 'gl-view',
+  'accounting-aging': 'gl-view',
+  'accounting-chart': 'gl-view',
+  'cash-position': 'gl-view',
   'financial-statements': 'fin-statements',
   'vendor-ledger': 'inv-pay',
   'vendor-opening-balances': 'opening-stock-view',
@@ -57,6 +64,7 @@ export const TAB_PERMISSIONS: Record<string, string | string[]> = {
 /** Administrative tabs with no matrix operation: Super Admin only. */
 export const SUPER_ADMIN_ONLY_TABS: readonly string[] = [
   'permissions',
+  'user-permissions',
   'import-customers',
   'data-recalculation',
   'clear-demo-data',

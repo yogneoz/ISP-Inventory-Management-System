@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { User } from '../../types';
 import { api } from '../../services/api';
+import type { OperationPermissionOverrideUser } from '../../services/api';
 import { getPermissionsMatrix, applyServerMatrix, DEFAULT_PERMISSIONS_MATRIX } from '../../utils/permissions';
 import { PageHeader } from '../../components/common/PageHeader';
 import { LoadStateNotice } from '../../components/common/LoadStateNotice';
+import { ModalPanel } from '../../components/common/ModalPanel';
 import {
   ShieldCheck,
+  Users,
+  Info,
   Check,
   Save,
   RotateCcw,
@@ -21,16 +25,18 @@ import {
   CheckSquare,
   Square,
   Filter,
+  Pencil,
 } from 'lucide-react';
 
-interface PermissionOperation {
+/** Shared with the per-user exception editor so both screens name operations identically. */
+export interface PermissionOperation {
   id: string;
   operationName: string;
   description: string;
   permissions: Record<string, boolean>;
 }
 
-interface PermissionGroup {
+export interface PermissionGroup {
   id: string;
   category: string;
   icon: React.ElementType;
@@ -41,7 +47,7 @@ interface PermissionGroup {
   operations: PermissionOperation[];
 }
 
-const DEFAULT_GROUPS: PermissionGroup[] = [
+export const DEFAULT_GROUPS: PermissionGroup[] = [
   {
     id: 'procurement',
     category: 'Procurement & Purchasing',
@@ -317,6 +323,30 @@ const DEFAULT_GROUPS: PermissionGroup[] = [
         description: 'Inspect FIFO/Weighted Average stock valuations and transaction ledgers',
         permissions: DEFAULT_PERMISSIONS_MATRIX['stock-valuation'],
       },
+      {
+        id: 'gl-view',
+        operationName: 'View General Ledger',
+        description: 'Read the accounting workspace: trial balance, P&L, balance sheet, cash book, chart of accounts, posting defaults and control-account reconciliations',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['gl-view'],
+      },
+      {
+        id: 'gl-post',
+        operationName: 'Post Manual Journals',
+        description: 'Post a balanced manual journal into an open accounting period',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['gl-post'],
+      },
+      {
+        id: 'gl-manage',
+        operationName: 'Maintain Chart of Accounts',
+        description: 'Create account groups and ledger accounts, set posting defaults and retire accounts',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['gl-manage'],
+      },
+      {
+        id: 'gl-close',
+        operationName: 'Close & Reopen Accounting Periods',
+        description: 'Open monthly accounting periods, close them to block postings, and reopen with an audit trail',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['gl-close'],
+      },
     ],
   },
   {
@@ -412,9 +442,19 @@ const ROLES: { key: string; title: string; badgeColor: string }[] = [
 interface PermissionManagementProps {
   currentUser?: User | null;
   permissionsMatrix?: Record<string, Record<string, boolean>> | null;
+  /**
+   * Opens the per-person editor; the role matrix above only edits defaults.
+   * A drill-down row passes the account and its operation so the editor can
+   * land on the exception instead of making the admin find it again.
+   */
+  onOpenUserAccess?: (target?: { userId: string; operationId?: string }) => void;
 }
 
-export const PermissionManagement: React.FC<PermissionManagementProps> = ({ currentUser, permissionsMatrix }) => {
+export const PermissionManagement: React.FC<PermissionManagementProps> = ({
+  currentUser,
+  permissionsMatrix,
+  onOpenUserAccess,
+}) => {
   const [groups, setGroups] = useState<PermissionGroup[]>(() => {
     const savedMatrix = permissionsMatrix || getPermissionsMatrix();
     return DEFAULT_GROUPS.map((group) => ({
@@ -439,6 +479,19 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
   const saveBlocked = isSaving || isResyncing || Boolean(matrixResyncError);
   const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
 
+  // Matrix-cell drill-down: one operation + one role, loaded only on demand.
+  const [drilldown, setDrilldown] = useState<{
+    operationId: string;
+    operationName: string;
+    role: string;
+    roleLabel: string;
+  } | null>(null);
+  const [drilldownUsers, setDrilldownUsers] = useState<OperationPermissionOverrideUser[]>([]);
+  const [drilldownRoleAllowed, setDrilldownRoleAllowed] = useState(false);
+  const [drilldownLoading, setDrilldownLoading] = useState(false);
+  const [drilldownError, setDrilldownError] = useState('');
+  const [drilldownRetry, setDrilldownRetry] = useState(0);
+
   // Re-sync the editor when the server-side matrix arrives from the bootstrap
   // payload after mount (otherwise the initializer would never see it).
   useEffect(() => {
@@ -453,6 +506,31 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
       }))
     );
   }, [permissionsMatrix]);
+
+  useEffect(() => {
+    if (!drilldown || !isSuperAdmin) return;
+    let cancelled = false;
+    setDrilldownUsers([]);
+    setDrilldownError('');
+    setDrilldownLoading(true);
+    api.getOperationPermissionOverrides(drilldown.operationId, drilldown.role)
+      .then((result) => {
+        if (cancelled) return;
+        setDrilldownUsers(result.users);
+        setDrilldownRoleAllowed(result.roleAllowed);
+      })
+      .catch((err: any) => {
+        if (!cancelled) {
+          setDrilldownError(err?.message || 'The personal exceptions could not be read.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setDrilldownLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [drilldown, drilldownRetry, isSuperAdmin]);
 
   // Toggle individual operation permission
   const togglePermission = (groupId: string, opId: string, role: string) => {
@@ -601,8 +679,8 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
     <div className="space-y-3">
       {/* Header — shared PageHeader (single h2 per screen rule) */}
       <PageHeader
-        title="Group-Wise Operations & Role Permission Control"
-        description={`Configure system privileges and operations enable/disable matrix grouped logically by department. Total operations: ${totalOpsCount}`}
+        title="Role Permission Defaults"
+        description={`The baseline every user with a role inherits. Personal grants, denies and sets live in User Access & Exceptions. Total operations: ${totalOpsCount}`}
         icon={<ShieldCheck className="h-5 w-5 text-blue-600 dark:text-blue-400" />}
         actions={
           <>
@@ -630,6 +708,23 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
           </>
         }
       />
+
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2.5 text-[11px] leading-5 text-blue-900 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
+        <Info className="h-4 w-4 shrink-0" />
+        <p className="min-w-0 flex-1">
+          These toggles apply to every account with the selected role. They do not include one person&apos;s
+          exceptions or assigned sets.
+        </p>
+        {onOpenUserAccess && (
+          <button
+            type="button"
+            onClick={() => onOpenUserAccess()}
+            className="rounded-lg border border-blue-300 bg-white px-2.5 py-1 text-[10px] font-bold text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900"
+          >
+            Open User Access &amp; Exceptions
+          </button>
+        )}
+      </div>
 
       {saveError && (
         <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-300 text-xs font-semibold flex items-center gap-2.5 shadow-xs">
@@ -854,6 +949,26 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
                                       className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-blue-500 cursor-pointer"
                                     />
                                   </label>
+                                  {isSuperAdmin && role.key !== 'SUPER_ADMIN' && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setDrilldownRetry(0);
+                                        setDrilldown({
+                                          operationId: op.id,
+                                          operationName: op.operationName,
+                                          role: role.key,
+                                          roleLabel: role.title,
+                                        });
+                                      }}
+                                      title={`Show users whose personal access differs from ${role.title} for this operation`}
+                                      aria-label={`Show personal exceptions for ${op.operationName} and ${role.title}`}
+                                      className="mx-auto mt-0.5 flex items-center gap-1 rounded px-1 py-0.5 text-[10px] font-semibold text-slate-500 transition-colors hover:bg-indigo-50 hover:text-indigo-700 dark:text-slate-400 dark:hover:bg-indigo-950/40 dark:hover:text-indigo-300"
+                                    >
+                                      <Users className="h-3 w-3" />
+                                      Users
+                                    </button>
+                                  )}
                                 </td>
                               );
                             })}
@@ -868,6 +983,142 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
           })
         )}
       </div>
+
+      {drilldown && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+          <ModalPanel
+            label={`Personal exceptions for ${drilldown.operationName}`}
+            onClose={() => setDrilldown(null)}
+            className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-5 text-slate-900 shadow-2xl dark:border-slate-800 dark:bg-[#0f1218] dark:text-white"
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-slate-200 pb-3 dark:border-slate-800">
+              <div className="min-w-0">
+                <h3 className="flex items-center gap-2 text-base font-bold">
+                  <Users className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                  Personal exceptions
+                </h3>
+                <p className="mt-0.5 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  {drilldown.operationName}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDrilldown(null)}
+                className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[10px] font-bold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px]">
+              <span className="rounded-full bg-slate-200 px-2 py-0.5 font-extrabold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                {drilldown.roleLabel}
+              </span>
+              {!drilldownLoading && !drilldownError && (
+                <>
+                  <span
+                    className={
+                      drilldownRoleAllowed
+                        ? 'rounded-full bg-emerald-100 px-2 py-0.5 font-bold text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300'
+                        : 'rounded-full bg-slate-200 px-2 py-0.5 font-bold text-slate-700 dark:bg-slate-700 dark:text-slate-200'
+                    }
+                  >
+                    Role default: {drilldownRoleAllowed ? 'allowed' : 'denied'}
+                  </span>
+                  <span className="font-semibold text-slate-500 dark:text-slate-400">
+                    {drilldownUsers.length} differing account{drilldownUsers.length === 1 ? '' : 's'}
+                  </span>
+                </>
+              )}
+            </div>
+
+            <p className="mt-2 text-[10px] leading-4 text-slate-500 dark:text-slate-400">
+              Active direct grants or denies that change this role&apos;s answer. Based on the last saved role
+              matrix. Permission-set grants and branch scope are separate.
+            </p>
+
+            <div className="mt-3 max-h-[55vh] space-y-2 overflow-y-auto">
+              {drilldownLoading ? (
+                <p className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-center text-[11px] text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
+                  Reading personal exceptions…
+                </p>
+              ) : drilldownError ? (
+                <div
+                  role="alert"
+                  className="flex flex-wrap items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-[11px] font-semibold text-rose-800 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300"
+                >
+                  <span>{drilldownError}</span>
+                  <button
+                    type="button"
+                    onClick={() => setDrilldownRetry((current) => current + 1)}
+                    className="font-bold underline underline-offset-2"
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : drilldownUsers.length === 0 ? (
+                <p className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-center text-[11px] text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
+                  No active personal exception changes the {drilldown.roleLabel} default for this operation.
+                </p>
+              ) : (
+                drilldownUsers.map((user) => (
+                  <div
+                    key={user.userId}
+                    className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-800/40"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-bold text-slate-900 dark:text-slate-100">
+                          {user.name}
+                        </p>
+                        <p className="truncate text-[10px] text-slate-500 dark:text-slate-400">
+                          {user.email}
+                        </p>
+                      </div>
+                      <span
+                        className={
+                          user.effect === 'grant'
+                            ? 'rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300'
+                            : 'rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-800 dark:bg-rose-950/50 dark:text-rose-300'
+                        }
+                      >
+                        {user.effect === 'grant' ? 'Personal grant' : 'Personal deny'}
+                      </span>
+                    </div>
+                    <p className="mt-1.5 text-[11px] leading-4 text-slate-700 dark:text-slate-300">
+                      {user.reason}
+                    </p>
+                    <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
+                      {user.expiresAt
+                        ? `Expires ${new Date(user.expiresAt).toLocaleDateString()}`
+                        : 'No expiry'}
+                    </p>
+                    {onOpenUserAccess && (
+                      <div className="mt-2 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onOpenUserAccess({
+                              userId: user.userId,
+                              operationId: drilldown.operationId,
+                            });
+                            setDrilldown(null);
+                          }}
+                          aria-label={`Edit access for ${user.name} at ${drilldown.operationName}`}
+                          className="inline-flex items-center gap-1 rounded-lg border border-indigo-300 bg-white px-2 py-1 text-[10px] font-bold text-indigo-700 transition-colors hover:bg-indigo-50 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300 dark:hover:bg-indigo-900/40"
+                        >
+                          <Pencil className="h-3 w-3" />
+                          Edit access
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </ModalPanel>
+        </div>
+      )}
     </div>
   );
 };

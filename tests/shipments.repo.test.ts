@@ -63,9 +63,15 @@ describe('stock param builders', () => {
   });
 
   test('shipmentReceiveStockParams uses quantityReceived with sent/1 fallbacks', () => {
+    // The fifth param is the transfer issue cost the receipt values stock at;
+    // a missing cost settles to 0 rather than an invented average.
+    assert.deepEqual(
+      shipmentReceiveStockParams('BR01', { productId: 'p2', quantityReceived: 7 }, 120.5),
+      ['stk-br01-p2', 'p2', 'BR01', 7, 120.5]
+    );
     assert.deepEqual(
       shipmentReceiveStockParams('BR01', { productId: 'p2', quantityReceived: 7 }),
-      ['stk-br01-p2', 'p2', 'BR01', 7]
+      ['stk-br01-p2', 'p2', 'BR01', 7, 0]
     );
     assert.equal(shipmentReceiveStockParams('BR01', { productId: 'p2', quantitySent: 3 })[3], 3);
     assert.equal(shipmentReceiveStockParams('BR01', { productId: 'p2' })[3], 1);
@@ -122,7 +128,9 @@ describe('undo-receive SQL', () => {
     assert.ok(SHIPMENT_UNDO_RECEIVE_STOCK_SQL.includes('quantity_on_hand = quantity_on_hand - $1'));
     assert.ok(SHIPMENT_UNDO_RECEIVE_STOCK_SQL.includes('incoming_qty = incoming_qty + $1'));
     assert.ok(SHIPMENT_UNDO_RECEIVE_STOCK_SQL.includes('AND quantity_on_hand >= $1'));
-    assert.ok(SHIPMENT_UNDO_RECEIVE_STOCK_SQL.includes('WHERE product_id = $2 AND branch_id = $3'));
+    // $2 is the issue value removed from the average, so the stock key shifts.
+    assert.ok(SHIPMENT_UNDO_RECEIVE_STOCK_SQL.includes('WHERE product_id = $3 AND branch_id = $4'));
+    assert.ok(SHIPMENT_UNDO_RECEIVE_STOCK_SQL.includes('quantity_on_hand * average_cost - $1 * $2'));
   });
 
   test('reverts the shipment row to IN_TRANSIT and clears receive bookkeeping', () => {

@@ -165,7 +165,7 @@ ISP-Inventory-Management-System/
 │       │                              #   facade re-exporting every historical symbol
 │       ├── state/runtimeState.ts      # Shared runtime state as ESM live bindings + accessors,
 │       │                              #   CACHE_LOADS + hydrateOperationalData/refresh
-│       ├── boot/dbBoot.ts             # syncDatabaseAndIndexes: full schema DDL sync (38 tables),
+│       ├── boot/dbBoot.ts             # syncDatabaseAndIndexes: full schema DDL sync (54 tables),
 │       │                              #   seedInitialPostgresData, permission matrix load,
 │       │                              #   serial-log backfill
 │       ├── realtime/sse.ts            # sseClients Set + broadcastChange (SSE fan-out)
@@ -227,7 +227,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 1673 tests; CI runs
+                                        #   drift/concurrency guards — 1899 tests; CI runs
                                         #   tsc + npm test + the source guards + the
                                         #   production build + the boot-timing gate +
                                         #   npm audit on every push/PR
@@ -369,12 +369,14 @@ ISP-Inventory-Management-System/
 │           ├── CompanySetupManagement.tsx    # Company profile (logo, PAN, address)
 │           ├── UsersManagement.tsx           # User CRUD with role assignment
 │           ├── PermissionManagement.tsx      # Permissions matrix editor (persisted to PostgreSQL)
+│           ├── UserPermissions.tsx           # Per-user grants/denies above the role matrix (Super Admin)
+│           ├── PermissionSetsPanel.tsx       # Reusable grant bundles: create/edit/delete + members (Super Admin)
 │           ├── ApprovalWorkflowCenter.tsx    # Multi-tier approval workflow
 │           ├── LocationsManagement.tsx       # Physical locations CRUD
 │           └── DataRecalculationMaintenance.tsx # Admin: recalculate stock, assets, calendar, FY links
 │
 ├── scripts/
-│   ├── schema.sql                     # Full PostgreSQL schema (38 tables, idempotent)
+│   ├── schema.sql                     # Full PostgreSQL schema (48 tables, idempotent)
 │   ├── setup_db.js                    # Node.js database setup & seed runner
 │   ├── setup_postgres.sh              # Shell: auto-install & configure PostgreSQL
 │   ├── demo_dataset.js                # Demo data seeder (is_demo=TRUE, all-IN_STOCK serials)
@@ -394,7 +396,7 @@ ISP-Inventory-Management-System/
 
 ## 5. Database Schema & Relationships
 
-### 5.1 Tables Overview (38 tables)
+### 5.1 Tables Overview (48 tables)
 
 | # | Table | Purpose | Key Columns |
 |---|---|---|---|
@@ -436,6 +438,16 @@ ISP-Inventory-Management-System/
 | 36 | `user_preferences` | Per-user UI preferences (key/value) — theme, date mode, last active tab | (user_id, pref_key) PK, pref_value, updated_at |
 | 37 | `product_groups` | Product-group master data (customer-editable names; behaviour is fixed) | id (PK), code (UNIQUE), name (UNIQUE), behavior (STOCK_ITEM/CONSUMABLE/FIXED_ASSET), sort_order, active, is_system |
 | 38 | `warranty_coverages` | Supplier and seller coverage periods (one current row per type + serial) | id (PK), coverage_type (VENDOR/SELLER), item_category, product_id, asset_id, device_record_id, branch_id, serial_number, start_date_ad, end_date_ad, term_months, start_basis, is_current, superseded_at, is_demo |
+| 39 | `user_permission_overrides` | Per-user exceptions above the role matrix (grant or deny one operation) | (user_id, operation_id) PK, effect (grant/deny), reason, expires_at, created_by |
+| 40 | `permission_sets` | Reusable named bundles of grants shared by several users (phase 2) | id (PK), name (unique lower), description, timestamps |
+| 41 | `permission_set_grants` | Operations a reusable set grants | (set_id, operation_id) PK, set_id FK cascade |
+| 42 | `permission_set_members` | Users assigned to a reusable set | (user_id, set_id) PK, both FKs cascade |
+| 43 | `gl_account_groups` | Chart-of-accounts groups with statement mapping | id (PK), code (UNIQUE), account_type, statement_group, normal_balance, sort_order |
+| 44 | `gl_accounts` | Ledger accounts, control/subledger type and posting default | id (PK), code (UNIQUE), group_id (FK→gl_account_groups), is_control, subledger_type, posting_role (UNIQUE partial) |
+| 45 | `gl_periods` | Monthly accounting periods with close/reopen | id (PK), fiscal_year_id (FK), period_key, start/end_date_ad, status (OPEN/CLOSED), closed_at/by; UNIQUE (fiscal_year_id, period_key) |
+| 46 | `gl_journals` | Balanced journal headers with branch dimension | id (PK), journal_no (UNIQUE), journal_date_ad, fiscal_year_id, period_id (FK→gl_periods), branch_id (FK→branches), source_type/id, status, posted_by |
+| 47 | `gl_journal_lines` | Debit/credit journal lines | id (PK), journal_id (FK cascade), line_no, account_id (FK), branch_id (FK), debit/credit (one-sided), UNIQUE (journal_id, line_no) |
+| 48 | `gl_subledger_entries` | Generic party subledger for every control account | id (PK), journal_id/line_id (FK cascade), account_id (FK), subledger_type, party_id/name, branch_id, entry_date_ad, debit/credit |
 
 ### 5.2 Serial Log Uniqueness
 
@@ -570,6 +582,18 @@ The server registers ~130 routes. The most important ones:
 | `/api/damage-records` | GET, POST, PUT `:id` | Damage lifecycle |
 | `/api/approval-requests` | GET, POST, `:id/process`, `:id/cancel` | Approval workflow |
 | `/api/serial-log` | GET, POST | Serial register read (role-guarded, branch-scoped) & manual entry |
+| `/api/accounting/groups`, `/api/accounting/accounts` | GET, POST, PATCH/DELETE `:id` | Chart maintenance: statement-mapped groups with one optional sub-group level, control/subledger accounts and one posting default per role (`gl-view` read, `gl-manage` write). A sub-group inherits its parent's type and statement mapping; a group's code/type/mapping is fixed, only an empty group may move or be deleted, and an account's code/control nature is fixed, its group only changes before its first posting, retiring it clears its posting role, and an account with posted lines cannot be deleted |
+| `/api/accounting/posting-defaults` | GET | Posting role → account mapping that invoice postings resolve; a missing role refuses the document instead of skipping its journal |
+| `/api/accounting/periods`, `:id/close`, `:id/reopen` | GET, POST | Monthly periods; a closed period refuses postings until reopened (`gl-close`) |
+| `/api/accounting/journals`, `:id` | GET, POST | Branch-scoped journal list / detail and balanced manual posting; a control-account line must carry its subledger party (`gl-post`) |
+| `/api/accounting/reconciliations?accountId=` | GET | Control-account GL balance vs subledger total, with per-party balances and `RECONCILED`/`DIFFERENCE` (`gl-view`) |
+| `/api/accounting/statements/trial-balance` | GET | Posted-line trial balance: opening, turnover and closing with debit = credit, a `groups` tree of group → sub-group → account with rolled-up subtotals, statement-group → account-group nesting, and every control account's GL vs subledger agreement as of the same date (`gl-view`) |
+| `/api/accounting/statements/profit-and-loss` | GET | Period revenue, cost of sales and expenses from posted lines, nested by statement group → group → sub-group with a rolled-up subtotal at each level; `asOf` or `from`/`to` (`gl-view`) |
+| `/api/accounting/statements/balance-sheet` | GET | As-of assets, liabilities, equity, current earnings and due to/from head office, with each section nested by group → sub-group and rolled-up subtotals; one branch or `ALL` (`gl-view`) |
+| `/api/accounting/statements/group-lines` | GET | The POSTED journal lines behind one statement group subtotal, including every sub-group. `statement=TRIAL_BALANCE|PROFIT_AND_LOSS|BALANCE_SHEET`, `groupId`, `asOf`/`to` or `from`/`to`, `branchId`, `limit` (500 default, 2,000 max). The trial-balance variant returns opening lines (before `from`) and period lines (`from`..`to`), nets opening/closing per account like the trial-balance columns, and applies the page limit per window; totals always cover every matching line. The other statements return each line's natural-side amount and a group `amount` equal to the statement subtotal. An unknown group is 404, a group from the other statement side is 400, and branch scope plus `gl-view` are enforced (`gl-view`) |
+| `/api/accounting/statements/account-lines?accountId=` | GET | The POSTED journal lines behind one trial-balance account row, split into opening lines (before `from`) and period lines (`from`..`to`). The account summary and independent line totals use the trial balance's net-per-account rule, and each line carries a debit-positive running balance: opening lines run from zero, and period lines carry the opening balance forward. `asOf`/`to` or `from`/`to`, `branchId`, `limit` (500 default, 2,000 max, applied per window); totals always cover every matching line. An unknown account is 404, and branch scope plus `gl-view` are enforced (`gl-view`) |
+| `/api/accounting/cash-book` | GET | Branch cash/bank book from posted lines on the `CASH`/`BANK` accounts: opening, receipts, payments and closing per account plus the movement detail. `asOf` or `from`/`to`; its closing total ties to the balance sheet's cash and bank figure (`gl-view`) |
+| `/api/fixed-assets/depreciation` | POST | Post one branch's depreciation for a `YYYY-MM` period (`fin-statements`). Each asset gets a journal keyed `<assetId>:<periodKey>`; a second run for the same month is **409** and writes nothing, and the branch+period advisory lock closes the concurrent-run race |
 
 ### 6.5 Serial Correction Endpoints (permission: `edit-device-serials`)
 
@@ -603,6 +627,8 @@ The server registers ~130 routes. The most important ones:
 | `/api/admin/recalculate/bs-day-records` | POST | Rebuild BS calendar day records (SUPER_ADMIN) |
 | `/api/admin/repair/fiscal-year-links` | POST | Re-link missing fiscal_year_id references (SUPER_ADMIN) |
 | `/api/permissions` | GET, PUT | Read / persist the permission matrix (PostgreSQL-backed) |
+| `/api/permissions/me` | GET | Effective operations for the signed-in account (role matrix + per-user exceptions) |
+| `/api/users/:id/permission-overrides` | GET, PUT | Read / replace one user's grants and denies (SUPER_ADMIN only) |
 
 ### 6.8 Request Headers
 
@@ -683,12 +709,27 @@ Defined in `src/utils/permissionMatrixData.ts` (`INVENTORY_OPERATIONS`, `APP_ROL
 - **Financials**: `assets-manage`, `fin-statements`, `vat-register`, `stock-valuation`
 - **Master/Settings**: `suppliers-manage`, plus admin operations (`admin-users`, `admin-branches`, `admin-audit`, `admin-fiscal`, `auth-switch-user`, `workflow-approval`)
 
-**Storage (three layers, in precedence order):**
+**Storage (two layers, in precedence order):**
 1. **PostgreSQL `permission_matrix` table** — authoritative, seeded at server startup, editable via the Permission Management UI (`PUT /api/permissions`)
-2. **Server matrix delivered via bootstrap** — cached client-side via `setServerMatrix()`
-3. **localStorage (`inventory_permissions_matrix`)** — offline fallback / last-saved local edit
+2. **Server matrix delivered via bootstrap** — cached client-side via `applyServerMatrix()`; the compiled defaults cover the first paint only
 
-`isOperationAllowed()` resolves in that order, so server-side changes take effect on all clients after the next bootstrap.
+Browser storage is never a permission source: older builds' `inventory_permissions_matrix` key is purged on start-up. `isOperationAllowed()` resolves the server matrix (then the signed-in account's resolved effective set, plan §10–§11), so server-side changes take effect on all clients after the next bootstrap or PERMISSIONS broadcast.
+
+**Per-user exceptions (server-enforced, 2026-11-01):** `user_permission_overrides`
+stores one `grant` or `deny` per (user, operation), each with a required reason
+and an optional future expiry. Resolution is Super Admin → user row → role
+matrix; an expired or unknown-operation row is ignored (fail closed).
+`requirePermissionAny`, the bootstrap audit-log gate, the approval-cancel check
+and the shipment receiving-lane check all call the same resolver. The admin
+read/write API is SUPER_ADMIN-only, and every write is audited as
+`UPDATE_USER_PERMISSIONS`. The Super Admin-only `Settings → User Permissions`
+screen (`client/src/features/settings/UserPermissions.tsx`) edits one account's
+exceptions with a tri-state Inherit/Grant/Deny, the role's base answer always
+visible, a required reason, optional AD/BS expiry and an effective preview. The
+client reads `/api/permissions/me` on sign-in, profile switch and matrix
+republish; `isOperationAllowed` uses that resolved set only for the role it was
+resolved for, and clears it at every session boundary (plan §10–§11). Reusable
+permission sets remain future work.
 
 ---
 
@@ -788,6 +829,10 @@ The `Sidebar` component defines `NAV_TABS` — navigation entries organized into
 - **Administration & Governance**: company setup, users, permissions, document numbering, FY closing, BS calendar; audit trail, data repair, clear demo data
 
 The former **Branch Operations** group is gone: its counter sale lives under Sales Forms, and consumables, damage and asset assignment are inventory registers/forms. Purchase Returns is a section inside Procurement, not its own group.
+
+**Canonical URL routing (phase 1, 2026-11-01).** The address bar now names the screen: `client/src/routes/appPaths.ts` holds one stable, lowercase path per rendered tab (`/sales/invoices`, `/purchasing/orders/new`, `/settings/users`, …). Sidebar/header/toast navigation pushes a history entry; Browser Back/Forward resolves the entry to a tab and re-runs the normal permission guard, so a URL never becomes an access grant. `?tab=<id>` is still read as a legacy input and is replaced in place with the canonical path (the Users register keeps its `access`/`operation` filters). `workflow-approval` is a retired id aliased to `approvals`. At boot, `main.tsx` preloads the deep-linked screen (not merely the saved tab), and the root protects a shared link from the one-shot server preference hydration. The server's SPA fallback already serves `index.html` for unknown paths.
+
+**Canonical URL routing (phase 2, 2026-11-01).** Record screens now own child paths: `/sales/invoices/:invoiceNumber`, `/purchasing/invoices/:invoiceNumber`, `/purchasing/orders/:poNumber` and `/:poNumber/edit`, `/sales/returns/:returnNumber`, `/purchasing/returns/:returnNumber`, `/purchasing/shipments/:trackingCode`, `/inventory/transfers/receive/:trackingCode`, `/sales/customers/:customerId`, `/settings/users/new` and `/:id/edit`, `/inventory/assets/new` and `/:tagNumber`. `App.tsx` carries the open `RecordRoute` beside the active tab, writes it through `canonicalLocationUrl`, and restores it on `popstate`; closing a record is its own Back entry. Static child screens (`/inventory/assets/assign`, `/deployments`, `/sales/invoices/new`, `/purchasing/orders/new`, `/purchasing/shipments/receive`, `/inventory/transfers/receive`, `/sales/customers/import`, `/sales/returns/new`, `/purchasing/returns/new`) still win over a record id. Each screen resolves its existing detail/editor against the loaded page first, then the bounded list/lookup endpoint, so a shared link opens a record that is not on page 1; customer and transfer-receipt rows are pinned above the page when the record lies outside the current window. Permissions are unchanged: the record only renders after the tab passes `isTabAccessible`, and an unresolvable or unauthorized record falls back to the register/dashboard instead of inventing access. Posted invoices and fixed assets have no edit path; Users has no read-only detail screen, so only the paths its UI owns are exposed.
 
 ### 9.4 Keyboard Shortcuts
 
@@ -1219,22 +1264,22 @@ When viewing historical fiscal years:
 - Stock, transactions, and audit logs are filtered by the fiscal year's AD date range
 - Fixed assets are NOT filtered by fiscal year (they persist across years)
 
-### 15.4 Sidebar Navigation Model (accordion)
+### 15.4 Sidebar Navigation Model (multi-open groups)
 
 The sidebar is a single always-visible column (`client/src/components/layout/Sidebar.tsx`):
 - Menu groups expand **inline** — sub-items render directly below their group. There is deliberately **no** flyout panel, back button, collapse button, or push-mode layout shift (all removed in Arc 17).
-- **Single-open accordion**: at most one group is expanded. Opening another closes the previous one; clicking the open group collapses the rail; the active page's group opens automatically on navigation. The header control is **Collapse menu** when something is open and **Expand current page** when the rail is collapsed — there is no Expand-all.
+- **Multi-open groups**: each group header toggles only itself, so several domain groups can stay open while the user moves between them. The fixed header carries **Expand all** and **Collapse all** actions (disabled when there is nothing to do), which is the only bulk control — there is no expand/collapse-current action. The active page's group opens automatically on navigation, and navigating never closes groups the user opened. The open-group set persists in `localStorage` (`inventory_sidebar_open_groups`): a first visit opens the active page's group, a stored empty array (Collapse all) stays collapsed, and a stored set survives a reload. Stored ids are intersected with the groups the current menu renders — a removed group or one this role cannot see is ignored, the mount-time persist rewrites storage without it, and an all-stale set falls back to the active page's group rather than opening nothing. The navigation effect is guarded against StrictMode's double mount and keys only on `activeTab`, so neither the second mount nor a permission-matrix refresh re-opens the active group over the saved state.
 - Eight domain groups, ordered Overview → Inventory → Procurement → Sales → Warehouse → Finance → Master Data → Administration. Rows inside a group carry sticky `Registers` / `Forms` / `Reports & exports` headings (`<h3>`), emitted only before the first visible item so permission filtering never leaves an empty heading.
 - Group headers expose `aria-expanded` and `aria-controls` (only while expanded); the scrolling list is a labelled `<nav>`, and exactly one item carries `aria-current="page"`.
 - Global search (press `/`) filters items across all groups and labels each hit `Group · Section`.
-- Base width `w-72`; `.responsive-sidebar` narrows the rail at ≤1366 px and ≤1024 px. Labels ellipsize with their full text in `title` — they do not wrap.
+- Base width 288 px. A visible splitter on the right edge resizes the rail between 240–520 px (pointer drag, ArrowLeft/Right in 16 px steps, Home/End to the bounds, double-click resets); the width persists in `localStorage` (`inventory_sidebar_width_px`) and the rail is capped at `85vw`. Labels wrap (`break-words`) with their full text in `title` — they never ellipsize, so the minimum width stays readable.
 
 ### 15.5 Financial Overview — management view, NOT statutory (important)
 
-The `financial-statements` tab (menu label: **Financial Overview**, permission key `fin-statements`) is compiled from **operational registers** (stock × cost, asset register NBV, vendor openings/invoices/payments, posted sales). There is **no general ledger** — equity is a balancing figure, there are no cash/receivables/capital accounts, and the P&L stops at gross surplus.
+The `financial-statements` tab (menu label: **Financial Overview**, permission key `fin-statements`) is still compiled from **operational registers** (stock × cost, asset register NBV, vendor openings/invoices/payments, posted sales). The statutory statements live elsewhere: `GET /api/accounting/statements/*` read the posted journal lines, and every value document now posts — sales/purchase invoices, customer receipts and supplier payments, stock adjustments/damage/pullouts/consumables/exchanges/audit counts, returns, inter-branch shipments, CPE deployment/collection, and fixed-asset capitalisation/depreciation/disposal. This management screen has **not** switched to the ledger: equity is still a balancing figure, there are no cash/receivables/capital lines derived from the GL here, and the P&L stops at gross surplus.
 
 Deliberate decisions (do not revert):
-- Wording is management-honest: "Statement of Financial Position" / "Trading Summary" with an amber "Management View — not a statutory balance sheet" tag; line items say "Net Asset Position", "Vendor Payables", "SOURCES OF FUNDS". Never rename back to "Balance Sheet"/"Net Equity" unless a real GL is built first.
+- Keep the wording management-honest until the statements read the ledger: "Statement of Financial Position" / "Trading Summary" with an amber "Management View — not a statutory balance sheet" tag; line items say "Net Asset Position", "Vendor Payables", "SOURCES OF FUNDS". Never rename back to "Balance Sheet"/"Net Equity" before the GL-backed statements land.
 - ERP-standard layout: **Statement view** = one entity (branch or consolidated) via dropdown, columns are fiscal PERIODS (current | prior | variance; prior-FY NBV evaluated at the prior FY's end date). **Branch Comparison view** = rows are branches (scales downward), KPI columns, consolidated row. Table width never grows with branch count.
 - Tab id and permission key unchanged from the original `financial-statements`/`fin-statements`.
 
@@ -1331,7 +1376,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 1673 tests against a real PostgreSQL 16 service container
+2. `npm test` — 1899 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM
@@ -1418,10 +1463,12 @@ so any unwired new fetch fails the suite instead of shipping:
   remount refreshes it). Each test pins the effect deps carrying the refresh key and EVERY App.tsx render
   site passing it (2 PO, 2 PI, 1 SerialLogRegister, 11 StockOperations, 4 ReturnsRegister,
   2 SalesInvoices) — a newly added unwired mount fails.
-- **Feature-screen coverage (2026-10-03 audit, all 69 screens — the §G StockOperations
-  split added 12 tab panels plus the extracted tab-bar chrome, and the BS-calendar
-  integrity work added the Calendar Health panel)** — a `SCREEN_SURFACE_PINS`
-  table pins the 58 screens not covered above (the other 11 are pinned by the dedicated
+- **Feature-screen coverage (2026-10-03 audit, all 78 screens — the §G StockOperations
+  split added 12 tab panels plus the extracted tab-bar chrome, the BS-calendar
+  integrity work added the Calendar Health panel, the permission-sets editor
+  added its own panel, the daily cash close added its own screen, and the accounting
+  workspace split into six statement registers)** — a `SCREEN_SURFACE_PINS`
+  table pins the 67 screens not covered above (the other 11 are pinned by the dedicated
   tests); an unpinned new screen fails coverage, and each pinned screen must match its
   exact surface. Surfaces use `serverCallsIn` = `api.*` methods **plus named
   `services/api` imports** — the audit found FinancialStatements.tsx imports
@@ -1514,7 +1561,7 @@ All demo users share password: `Demo@123`
 | Order | File | Why |
 |---|---|---|
 | 1 | `src/types/index.ts` | All data structures — the vocabulary of the system |
-| 2 | `scripts/schema.sql` | Full database schema (38 tables) — the data model |
+| 2 | `scripts/schema.sql` | Full database schema (48 tables) — the data model |
 | 3 | `server/src/app.ts` (top section) | Composition root: middleware chain, helmet config, body limit |
 | 3b | `server/src/state/runtimeState.ts` | Shared runtime state (ESM live bindings), CACHE_LOADS, cache refresh |
 | 3c | `server/src/boot/dbBoot.ts` | Schema sync, seeding, permission-matrix load |

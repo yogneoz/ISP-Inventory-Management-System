@@ -29,10 +29,15 @@ import {
   ShieldCheck,
   ClipboardList,
   ChevronDown,
-  ChevronsDownUp,
+  ChevronsDown,
+  ChevronsUp,
   X,
   Search,
   Scale,
+  TrendingUp,
+  Landmark,
+  Clock,
+  ListTree,
   Calculator,
   SlidersHorizontal,
   Grid,
@@ -107,6 +112,14 @@ export type NavTab =
   | 'users'
   | 'import-customers'
   | 'permissions'
+  | 'user-permissions'
+  | 'accounting'
+  | 'accounting-profit-loss'
+  | 'accounting-balance-sheet'
+  | 'accounting-cash-book'
+  | 'accounting-aging'
+  | 'accounting-chart'
+  | 'cash-position'
   | 'financial-statements'
   | 'vendor-ledger'
   | 'customer-ledger'
@@ -180,6 +193,14 @@ export const NAV_TABS: NavTab[] = [
   'users',
   'import-customers',
   'permissions',
+  'user-permissions',
+  'accounting',
+  'accounting-profit-loss',
+  'accounting-balance-sheet',
+  'accounting-cash-book',
+  'accounting-aging',
+  'accounting-chart',
+  'cash-position',
   'financial-statements',
   'vendor-ledger',
   'customer-ledger',
@@ -199,6 +220,80 @@ export const NAV_TABS: NavTab[] = [
   'clear-demo-data',
   'dev-statcard',
 ];
+
+export const SIDEBAR_WIDTH_STORAGE_KEY = 'inventory_sidebar_width_px';
+export const SIDEBAR_OPEN_GROUPS_STORAGE_KEY = 'inventory_sidebar_open_groups';
+export const SIDEBAR_DEFAULT_WIDTH = 288;
+export const SIDEBAR_MIN_WIDTH = 240;
+export const SIDEBAR_MAX_WIDTH = 520;
+
+export const clampSidebarWidth = (width: number): number => {
+  if (!Number.isFinite(width)) return SIDEBAR_DEFAULT_WIDTH;
+  return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(width)));
+};
+
+function readStoredSidebarWidth(): number {
+  if (typeof window === 'undefined') return SIDEBAR_DEFAULT_WIDTH;
+  try {
+    const raw = window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
+    return raw ? clampSidebarWidth(Number(raw)) : SIDEBAR_DEFAULT_WIDTH;
+  } catch {
+    return SIDEBAR_DEFAULT_WIDTH;
+  }
+}
+
+function persistSidebarWidth(width: number): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(width));
+  } catch {
+    // Private mode / storage full: resizing still works for this session.
+  }
+}
+
+/**
+ * The expanded group ids survive a reload, like the rail width. A missing key
+ * means "first visit" and opens the active page's group; a stored empty array
+ * is a deliberate Collapse all and stays collapsed. Malformed storage falls
+ * back to the first-visit default rather than hiding the whole menu.
+ *
+ * Stored ids are intersected with the groups this render can actually show.
+ * A group removed or renamed in a later release — or hidden from this role —
+ * must not occupy the set: the effect that persists the initial read then
+ * rewrites storage, so stale ids heal on the next mount instead of lingering.
+ * If every stored id is stale, the rail falls back to the active page's group
+ * rather than opening nothing.
+ */
+function readStoredOpenGroups(
+  fallbackGroupId: string,
+  validGroupIds: readonly string[]
+): Set<string> {
+  const valid = new Set(validGroupIds);
+  const fallback = valid.has(fallbackGroupId) ? new Set([fallbackGroupId]) : new Set<string>();
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const raw = window.localStorage.getItem(SIDEBAR_OPEN_GROUPS_STORAGE_KEY);
+    if (raw === null) return fallback;
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return fallback;
+    const restored = parsed.filter(
+      (id): id is string => typeof id === 'string' && valid.has(id)
+    );
+    if (restored.length === 0 && parsed.length > 0) return fallback;
+    return new Set(restored);
+  } catch {
+    return fallback;
+  }
+}
+
+function persistOpenGroups(groups: Set<string>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(SIDEBAR_OPEN_GROUPS_STORAGE_KEY, JSON.stringify([...groups]));
+  } catch {
+    // Private mode / storage full: expansion still works for this session.
+  }
+}
 
 interface SidebarProps {
   companyProfile?: CompanyProfile | null;
@@ -544,8 +639,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
     });
   }
 
-  // 6. Finance & Accounting — statements first, then tax and the asset register.
+  // 6. Finance & Accounting — the accounting registers first (each statement
+  //    is its own register since the workspace split), then the management
+  //    overview, ledgers, tax and the asset register.
   const financeChildren: NavChildDef[] = [];
+  if (isOperationAllowed('gl-view', currentUser?.role)) {
+    financeChildren.push(
+      { id: 'accounting' as NavTab, label: 'Trial Balance', icon: Scale, section: 'Statements & ledgers' },
+      { id: 'accounting-profit-loss' as NavTab, label: 'Profit & Loss', icon: TrendingUp, section: 'Statements & ledgers' },
+      { id: 'accounting-balance-sheet' as NavTab, label: 'Balance Sheet', icon: Landmark, section: 'Statements & ledgers' },
+      { id: 'accounting-cash-book' as NavTab, label: 'Cash & Bank Book', icon: Wallet, section: 'Statements & ledgers' },
+      { id: 'accounting-aging' as NavTab, label: 'AR / AP Aging', icon: Clock, section: 'Statements & ledgers' },
+      { id: 'accounting-chart' as NavTab, label: 'Chart & Defaults', icon: ListTree, section: 'Statements & ledgers' }
+    );
+  }
+  if (isOperationAllowed('gl-view', currentUser?.role)) {
+    financeChildren.push({
+      id: 'cash-position' as NavTab,
+      label: 'Daily Cash Close',
+      icon: Wallet,
+      section: 'Statements & ledgers',
+    });
+  }
   if (isOperationAllowed('fin-statements', currentUser?.role)) {
     financeChildren.push({
       id: 'financial-statements' as NavTab,
@@ -646,7 +761,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     adminChildren.push({ id: 'users' as NavTab, label: 'Users & Staff Management', icon: UserCheck, section: 'Setup' });
   }
   if (isSuperAdmin) {
-    adminChildren.push({ id: 'permissions' as NavTab, label: 'Permission Management', icon: ShieldCheck, section: 'Setup' });
+    adminChildren.push(
+      { id: 'permissions' as NavTab, label: 'Role Permission Defaults', icon: ShieldCheck, section: 'Setup' },
+      // The role matrix above sets role-wide defaults; this screen edits one
+      // person's grants and denies, so the two must sit side by side.
+      { id: 'user-permissions' as NavTab, label: 'User Access & Exceptions', icon: UserCheck, section: 'Setup' }
+    );
   }
   if (isOperationAllowed('admin-fiscal', currentUser?.role)) {
     adminChildren.push(
@@ -708,16 +828,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return 'dashboard';
   };
 
-  // Accordion state: at most ONE group is expanded. Single-open keeps the rail
-  // short even when Inventory holds sixteen rows, and the group containing the
-  // active tab always opens so the current page stays visible. Multi-open would
-  // need persisted expansion to survive a reload; single-open makes the state
-  // predictable without another localStorage key.
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
-    () => new Set([getParentGroupId(activeTab)])
+  // Group expansion is multi-open: the header offers Expand all / Collapse all,
+  // and each group header toggles only itself. The group containing the active
+  // tab opens on arrival so the current page is never hidden, but navigating
+  // never closes groups the user opened deliberately.
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() =>
+    readStoredOpenGroups(
+      getParentGroupId(activeTab),
+      groups.map((group) => group.id)
+    )
   );
   const [globalSearch, setGlobalSearch] = useState<string>('');
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Resizable rail. The width is px, not rem: the density tiers already shrink
+  // the type, and a rem width would shrink with it exactly when the labels
+  // need more room. 288 px is the old w-72 at the 100% tier.
+  const [sidebarWidth, setSidebarWidth] = useState<number>(readStoredSidebarWidth);
+  const sidebarWidthRef = useRef<number>(sidebarWidth);
+  const resizeStartRef = useRef<{ x: number; width: number } | null>(null);
+  const [isResizingSidebar, setIsResizingSidebar] = useState(false);
 
   // Scroll container of the nav column + registered group header buttons.
   // Used to reveal a newly expanded group inside the VISIBLE area: expanding
@@ -728,14 +858,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navScrollRef = useRef<HTMLElement>(null);
   const groupButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
 
-  // Opening a different page moves the open group with it, so the active row is
-  // never hidden inside a collapsed group. Replacing (not adding) is what makes
-  // the accordion single-open.
+  // Opening a different page opens its group but leaves the others as they
+  // were: replacing the set here would turn navigation into collapse-all.
+  // The previous-value guard makes the mount run a no-op (a stored set, even
+  // an empty Collapse-all one, wins) and is StrictMode-safe: the double-invoked
+  // mount effect sees the same values and returns instead of opening the group.
+  const lastActiveTabRef = useRef<NavTab | null>(null);
   useEffect(() => {
+    const previous = lastActiveTabRef.current;
+    lastActiveTabRef.current = activeTab;
+    // Mount (including StrictMode's second invocation) is not navigation.
+    // A permission-matrix refresh is not navigation either: forcing the active
+    // group open there would undo a persisted Collapse all after every reload.
+    if (previous === null || previous === activeTab) return;
     const parent = getParentGroupId(activeTab);
-    setExpandedGroups((prev) => (prev.size === 1 && prev.has(parent) ? prev : new Set([parent])));
+    setExpandedGroups((prev) => (prev.has(parent) ? prev : new Set([...prev, parent])));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, permissionsVersion]);
+  }, [activeTab]);
+
+  // Persist the open set after every change, including the initial read.
+  useEffect(() => {
+    persistOpenGroups(expandedGroups);
+  }, [expandedGroups]);
 
   // Escape clears the global search. '/' focuses it.
   useEffect(() => {
@@ -779,26 +923,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
     });
   };
 
-  // Single-open: opening a group closes the previous one; clicking the open
-  // group collapses it and leaves the rail as a compact list of headings.
+  // Toggling one group leaves every other group exactly as it was.
   const toggleGroup = (groupId: string) => {
     const willExpand = !expandedGroups.has(groupId);
-    setExpandedGroups(willExpand ? new Set([groupId]) : new Set());
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (willExpand) next.add(groupId);
+      else next.delete(groupId);
+      return next;
+    });
     if (willExpand) revealGroup(groupId);
   };
 
-  const openGroupId = expandedGroups.values().next().value as string | undefined;
-  // The header control replaces the old Expand-all switch: it closes whatever
-  // is open, or re-opens the current page's group when the rail is collapsed.
-  const toggleMenu = () => {
-    if (openGroupId) {
-      setExpandedGroups(new Set());
-      return;
-    }
-    const parent = getParentGroupId(activeTab);
-    setExpandedGroups(new Set([parent]));
-    revealGroup(parent);
-  };
+  const visibleGroupIds = groups.map((group) => group.id);
+  const allGroupsExpanded =
+    visibleGroupIds.length > 0 && visibleGroupIds.every((id) => expandedGroups.has(id));
+  const anyGroupExpanded = visibleGroupIds.some((id) => expandedGroups.has(id));
+  const expandAllGroups = () => setExpandedGroups(new Set(visibleGroupIds));
+  const collapseAllGroups = () => setExpandedGroups(new Set());
 
   const handleSubItemClick = (tab: NavTab) => {
     onSelectTab(tab);
@@ -806,6 +948,65 @@ export const Sidebar: React.FC<SidebarProps> = ({
       onCloseMobile();
     }
   };
+
+  // ----- Resizable rail --------------------------------------------------
+  // Pointer capture keeps the drag alive when the cursor leaves the 10 px
+  // handle; keyboard support makes the same width reachable without a mouse.
+  const commitSidebarWidth = (next: number): number => {
+    const clamped = clampSidebarWidth(next);
+    sidebarWidthRef.current = clamped;
+    setSidebarWidth(clamped);
+    return clamped;
+  };
+
+  const handleSidebarResizeStart = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    resizeStartRef.current = { x: event.clientX, width: sidebarWidthRef.current };
+    setIsResizingSidebar(true);
+    try { event.currentTarget.setPointerCapture?.(event.pointerId); } catch { /* jsdom / unsupported */ }
+    event.preventDefault();
+  };
+
+  const handleSidebarResizeMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const start = resizeStartRef.current;
+    if (!start) return;
+    commitSidebarWidth(start.width + (event.clientX - start.x));
+  };
+
+  const handleSidebarResizeEnd = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!resizeStartRef.current) return;
+    resizeStartRef.current = null;
+    setIsResizingSidebar(false);
+    persistSidebarWidth(sidebarWidthRef.current);
+    try { event.currentTarget.releasePointerCapture?.(event.pointerId); } catch { /* jsdom / unsupported */ }
+  };
+
+  const handleSidebarResizeKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    let next: number | null = null;
+    if (event.key === 'ArrowLeft') next = sidebarWidthRef.current - 16;
+    else if (event.key === 'ArrowRight') next = sidebarWidthRef.current + 16;
+    else if (event.key === 'Home') next = SIDEBAR_MIN_WIDTH;
+    else if (event.key === 'End') next = SIDEBAR_MAX_WIDTH;
+    if (next === null) return;
+    event.preventDefault();
+    persistSidebarWidth(commitSidebarWidth(next));
+  };
+
+  const resetSidebarWidth = () => {
+    persistSidebarWidth(commitSidebarWidth(SIDEBAR_DEFAULT_WIDTH));
+  };
+
+  useEffect(() => {
+    if (!isResizingSidebar) return;
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    return () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+    };
+  }, [isResizingSidebar]);
 
 
   // Global search: flatten every group's items and match on label + group
@@ -872,7 +1073,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         >
           <div className="flex items-center gap-2.5 min-w-0">
             <ItemIcon className={`h-4 w-4 flex-shrink-0 ${isActive ? 'text-indigo-500' : 'text-slate-400'}`} />
-            <span className="text-left leading-snug truncate" title={child.label}>
+            <span className="text-left leading-snug break-words" title={child.label}>
               {highlightMatch(child.label, opts.query || '')}
             </span>
           </div>
@@ -899,8 +1100,38 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <aside
+      data-sidebar-width={sidebarWidth}
+      style={{ width: `${sidebarWidth}px`, maxWidth: '85vw' }}
       className={`responsive-sidebar w-72 h-full flex flex-col flex-shrink-0 select-none relative bg-white text-slate-800 border-r border-slate-200 dark:bg-[#0f1218] dark:text-slate-300 dark:border-slate-800/80`}
     >
+      {/* Drag the rail wider when a menu label needs more room. Hidden on the
+          mobile drawer, where the drawer is already 85vw at most. */}
+      <div
+        data-sidebar-resize-handle
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize navigation sidebar"
+        aria-valuemin={SIDEBAR_MIN_WIDTH}
+        aria-valuemax={SIDEBAR_MAX_WIDTH}
+        aria-valuenow={sidebarWidth}
+        tabIndex={0}
+        title="Drag to resize the menu. Double-click to reset."
+        onPointerDown={handleSidebarResizeStart}
+        onPointerMove={handleSidebarResizeMove}
+        onPointerUp={handleSidebarResizeEnd}
+        onPointerCancel={handleSidebarResizeEnd}
+        onKeyDown={handleSidebarResizeKeyDown}
+        onDoubleClick={resetSidebarWidth}
+        className="group hidden md:flex absolute inset-y-0 -right-1 z-30 w-2.5 cursor-col-resize touch-none items-center justify-center rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/70"
+      >
+        <span
+          className={`h-10 w-1 rounded-full transition-colors ${
+            isResizingSidebar
+              ? 'bg-indigo-500'
+              : 'bg-slate-400/70 group-hover:bg-indigo-500/80 dark:bg-slate-500/70 dark:group-hover:bg-indigo-400/80'
+          }`}
+        />
+      </div>
       {/* Mobile Header bar with close button */}
       {onCloseMobile && (
         <div className="flex md:hidden items-center justify-between px-3.5 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900/80">
@@ -933,19 +1164,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       )}
 
-      {/* HEADER: one control that collapses the open group / restores the active one */}
+      {/* MENU CONTROLS: expand or collapse every group at once. Individual
+          group headers still toggle only themselves. */}
       <div
-        className={`px-2.5 py-1.5 border-b flex items-center border-slate-100 bg-slate-50/80 dark:border-slate-800/80 dark:bg-slate-900/50`}
+        className={`px-2.5 py-1.5 border-b flex items-center gap-1 border-slate-100 bg-slate-50/80 dark:border-slate-800/80 dark:bg-slate-900/50`}
       >
         <button
-          onClick={toggleMenu}
-          className="flex-1 flex items-center justify-between gap-2 px-2 py-1 rounded-lg text-[0.625rem] font-semibold uppercase tracking-wide text-slate-500 hover:text-indigo-700 hover:bg-indigo-50 dark:text-slate-400 dark:hover:text-indigo-300 dark:hover:bg-indigo-600/20 transition-colors cursor-pointer min-w-0"
-          title={openGroupId ? 'Collapse the open menu group' : 'Expand the menu group for the current page'}
-          aria-expanded={Boolean(openGroupId)}
-          aria-controls={openGroupId ? `nav-group-${openGroupId}` : undefined}
+          type="button"
+          onClick={expandAllGroups}
+          disabled={allGroupsExpanded}
+          title="Expand every menu group"
+          aria-label="Expand all menu groups"
+          className="flex-1 min-w-0 flex items-center justify-center gap-1 px-1.5 py-1 rounded-lg text-[0.625rem] font-semibold uppercase tracking-wide text-slate-500 hover:text-indigo-700 hover:bg-indigo-50 dark:text-slate-400 dark:hover:text-indigo-300 dark:hover:bg-indigo-600/20 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-slate-500 dark:disabled:hover:text-slate-400"
         >
-          <span className="truncate">{openGroupId ? 'Collapse menu' : 'Expand current page'}</span>
-          <ChevronsDownUp className={`h-3.5 w-3.5 flex-shrink-0 transition-transform duration-200 ${openGroupId ? '' : 'rotate-180'}`} />
+          <ChevronsDown className="h-3.5 w-3.5 flex-shrink-0" />
+          <span className="whitespace-nowrap">Expand all</span>
+        </button>
+        <button
+          type="button"
+          onClick={collapseAllGroups}
+          disabled={!anyGroupExpanded}
+          title="Collapse every menu group"
+          aria-label="Collapse all menu groups"
+          className="flex-1 min-w-0 flex items-center justify-center gap-1 px-1.5 py-1 rounded-lg text-[0.625rem] font-semibold uppercase tracking-wide text-slate-500 hover:text-indigo-700 hover:bg-indigo-50 dark:text-slate-400 dark:hover:text-indigo-300 dark:hover:bg-indigo-600/20 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-slate-500 dark:disabled:hover:text-slate-400"
+        >
+          <ChevronsUp className="h-3.5 w-3.5 flex-shrink-0" />
+          <span className="whitespace-nowrap">Collapse all</span>
         </button>
       </div>
 
@@ -975,7 +1219,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      {/* NAV CONTENT: accordion — groups expand inline below their header */}
+      {/* NAV CONTENT: groups expand inline below their header, independently */}
       <nav
         ref={navScrollRef}
         aria-label="Main navigation"
@@ -1021,7 +1265,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 >
                   <div className="flex items-center gap-2.5 min-w-0">
                     <GroupIcon className={`h-5 w-5 flex-shrink-0 ${containsActive ? 'text-indigo-500' : 'text-slate-400'}`} />
-                    <span className="text-left leading-snug truncate" title={group.title}>
+                    <span className="text-left leading-snug break-words" title={group.title}>
                       {group.title}
                     </span>
                   </div>

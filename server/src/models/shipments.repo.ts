@@ -294,7 +294,7 @@ export function shipmentQtySent(item: Record<string, any>): number {
  * TRANSFER_CANCELLED / TRANSFER_RECEIPT_CANCELLED rows).
  */
 export const SHIPMENT_STOCK_LOCK_SQL =
-  'SELECT quantity_on_hand AS "quantityOnHand", incoming_qty AS "incomingQty" FROM inventory_stock WHERE product_id = $1 AND branch_id = $2 FOR UPDATE';
+  'SELECT quantity_on_hand AS "quantityOnHand", incoming_qty AS "incomingQty", average_cost::numeric AS "averageCost" FROM inventory_stock WHERE product_id = $1 AND branch_id = $2 FOR UPDATE';
 
 /** Deducts shipped quantity from the source branch, guarding on stock level. */
 export const SHIPMENT_DEDUCT_SOURCE_SQL = `UPDATE inventory_stock SET quantity_on_hand = quantity_on_hand - $1, last_updated = CURRENT_TIMESTAMP
@@ -343,15 +343,31 @@ export const SERIAL_LOG_TRANSFER_FLIP_SQL = `UPDATE serial_log
 export const SHIPMENT_RECEIVE_UPDATE_SQL =
   'UPDATE shipments SET status = $1, received_by_notes = $2, received_date_ad = CURRENT_DATE, received_date_bs = $3, has_discrepancy = $4, items = $5 WHERE id = $6';
 
-/** Settles incoming stock into on-hand at the destination branch. */
-export const SHIPMENT_RECEIVE_STOCK_SQL = `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, incoming_qty)
- VALUES ($1, $2, $3, $4, 0)
+/**
+ * Settles incoming stock into on-hand at the destination branch at the value
+ * the source issued. The destination's moving average is re-weighted by that
+ * value, so goods received from another branch keep their issue cost instead of
+ * silently adopting the destination's own purchasing history.
+ */
+export const SHIPMENT_RECEIVE_STOCK_SQL = `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, incoming_qty, average_cost)
+ VALUES ($1, $2, $3, $4, 0, $5)
  ON CONFLICT (product_id, branch_id) DO UPDATE SET
+   average_cost = CASE
+     WHEN inventory_stock.quantity_on_hand + $4 > 0
+     THEN ROUND((
+       inventory_stock.quantity_on_hand * inventory_stock.average_cost + $4 * $5
+     ) / (inventory_stock.quantity_on_hand + $4), 4)
+     ELSE inventory_stock.average_cost
+   END,
    incoming_qty = GREATEST(0, inventory_stock.incoming_qty - $4),
    quantity_on_hand = inventory_stock.quantity_on_hand + $4,
    last_updated = CURRENT_TIMESTAMP;`;
 
-export function shipmentReceiveStockParams(destBranchId: string, item: Record<string, any>): unknown[] {
+export function shipmentReceiveStockParams(
+  destBranchId: string,
+  item: Record<string, any>,
+  unitCost = 0
+): unknown[] {
   // quantityReceived = 0 must stay 0 (full-loss receipt); only fall back when
   // the field is nullish or non-numeric.
   const received = item.quantityReceived;
@@ -359,7 +375,13 @@ export function shipmentReceiveStockParams(destBranchId: string, item: Record<st
     received !== undefined && received !== null && received !== '' && !Number.isNaN(Number(received))
       ? Number(received)
       : Number(item.quantitySent) || 1;
-  return [`stk-${destBranchId.toLowerCase()}-${item.productId}`, item.productId, destBranchId, qty];
+  return [
+    `stk-${destBranchId.toLowerCase()}-${item.productId}`,
+    item.productId,
+    destBranchId,
+    qty,
+    Math.max(0, Number(unitCost) || 0),
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -373,9 +395,19 @@ export const SHIPMENT_FIND_FOR_CANCEL_SQL =
 export const SHIPMENT_CANCEL_SQL =
   'UPDATE shipments SET status = $1, notes = $2 WHERE id = $3 OR tracking_code = $3';
 
-/** Returns shipped quantity to the source branch on cancellation. */
-export const SHIPMENT_CANCEL_RESTORE_SOURCE_SQL =
-  'UPDATE inventory_stock SET quantity_on_hand = inventory_stock.quantity_on_hand + $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3;';
+/**
+ * Returns shipped quantity to the source branch at its dispatch value on
+ * cancellation, re-weighting the source average by that same value.
+ */
+export const SHIPMENT_CANCEL_RESTORE_SOURCE_SQL = `UPDATE inventory_stock SET
+  average_cost = CASE
+    WHEN quantity_on_hand + $1 > 0
+    THEN ROUND((quantity_on_hand * average_cost + $1 * $2) / (quantity_on_hand + $1), 4)
+    ELSE average_cost
+  END,
+  quantity_on_hand = quantity_on_hand + $1,
+  last_updated = CURRENT_TIMESTAMP
+ WHERE product_id = $3 AND branch_id = $4;`;
 
 /** Releases reserved incoming stock at the destination on cancellation. */
 export const SHIPMENT_CANCEL_RELEASE_DEST_SQL =
@@ -412,11 +444,36 @@ export function shipmentReceivedQty(item: Record<string, any>): number {
 
 /**
  * Reverses the receive settlement at the destination branch: on-hand down by
- * the received quantity and the in-transit reservation restored. Guards on
- * available stock so an undo can never overdraw the destination branch.
+ * the received quantity at the recorded issue value, and the in-transit
+ * reservation restored. Guards on available stock so an undo can never overdraw
+ * the destination branch.
  */
-export const SHIPMENT_UNDO_RECEIVE_STOCK_SQL = `UPDATE inventory_stock SET quantity_on_hand = quantity_on_hand - $1, incoming_qty = incoming_qty + $1, last_updated = CURRENT_TIMESTAMP
- WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $1;`;
+export const SHIPMENT_UNDO_RECEIVE_STOCK_SQL = `UPDATE inventory_stock SET
+  average_cost = CASE
+    WHEN quantity_on_hand - $1 > 0
+    THEN GREATEST(0, ROUND((quantity_on_hand * average_cost - $1 * $2) / (quantity_on_hand - $1), 4))
+    ELSE 0
+  END,
+  quantity_on_hand = quantity_on_hand - $1,
+  incoming_qty = incoming_qty + $1,
+  last_updated = CURRENT_TIMESTAMP
+ WHERE product_id = $3 AND branch_id = $4 AND quantity_on_hand >= $1;`;
+
+/**
+ * Records the dispatch value of a transfer line: the stock value the source
+ * relieved, used to receive the same units at the same cost. Legacy shipments
+ * that predate the item.unitCost stamp are valued from these rows; no row means
+ * the schema never recorded an issue cost and the receipt must refuse.
+ */
+export const SHIPMENT_ISSUE_COST_SQL = `SELECT product_id AS "productId",
+  COALESCE(SUM(-quantity_changed), 0)::float AS "quantity",
+  COALESCE(SUM(-quantity_changed * unit_cost), 0)::float AS "value"
+FROM transaction_logs
+WHERE reference_doc_id = $1
+  AND change_type = 'TRANSFER_OUT'
+  AND branch_id = $2
+  AND product_id = ANY($3::text[])
+GROUP BY product_id`;
 
 /** Reverts the shipment row to In-Transit and clears the receive bookkeeping. */
 export const SHIPMENT_UNDO_RECEIVE_UPDATE_SQL =

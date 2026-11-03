@@ -95,6 +95,9 @@ describe('seller warranty capture (real HTTP + PostgreSQL)', { skip: skipNoDb },
     await pool!.query("DELETE FROM customer_device_records WHERE device_serial LIKE 'W5-%'");
     await pool!.query("DELETE FROM fixed_assets WHERE id LIKE 'w5-asset-%'");
     await pool!.query("DELETE FROM sales_invoices WHERE id LIKE 'w5-si-%'");
+    // Invoice posting now creates journals keyed to this test branch; the
+    // branch FK is RESTRICT, so the ledger rows must leave first.
+    await pool!.query('DELETE FROM gl_journals WHERE branch_id = $1', [BRANCH]);
     await pool!.query("DELETE FROM stock_operations WHERE id LIKE 'w5-op-%'");
     await pool!.query("DELETE FROM serial_log WHERE device_serial LIKE 'W5-%'");
     await pool!.query('DELETE FROM transaction_logs WHERE product_id IN ($1, $2)', [PRODUCT, ZERO]);

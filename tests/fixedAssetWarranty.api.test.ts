@@ -79,6 +79,9 @@ describe('fixed-asset supplier warranty (real HTTP + PostgreSQL)', { skip: skipN
   const originalProducts = [...products];
 
   async function cleanup() {
+    // Registering an asset now capitalises it, so its journal must go before
+    // the branch (the FK is RESTRICT, which is what keeps ledger history).
+    await pool!.query('DELETE FROM gl_journals WHERE branch_id = $1', [BRANCH]);
     await pool!.query("DELETE FROM warranty_coverages WHERE serial_number LIKE 'W4A-TAG-%'");
     await pool!.query("DELETE FROM fixed_assets WHERE id LIKE 'w4a-asset-%'");
     await pool!.query("DELETE FROM audit_logs WHERE details LIKE '%W4A-TAG-%'");

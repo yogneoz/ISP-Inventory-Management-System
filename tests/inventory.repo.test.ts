@@ -488,10 +488,12 @@ describe('customer devices (CPE)', () => {
     assert.match(CDR_ASSIGNMENT_DAMAGED_RETURN_SQL, /RETURNING damaged_qty$/);
     assert.equal(maxPlaceholder(CDR_ASSIGNMENT_DAMAGED_RETURN_SQL), 4);
     assert.ok(!CDR_ASSIGNMENT_DAMAGED_RETURN_SQL.includes('quantity_on_hand'));
-    // Same $1/$2/$3/$4 ordering as the usable-stock release builder, so both
-    // call sites can share cdrAssignmentReturnParams.
-    assert.deepEqual(cdrAssignmentReturnParams(1, 'p1', 'WH001'), [1, 'p1', 'WH001', 'stk-wh001-p1']);
-    assert.match(CDR_ASSIGNMENT_STOCK_RETURN_SQL, /VALUES \(\$4, \$2, \$3, \$1\)/);
+    // The damaged pool carries no value, so it keeps the four-param shape.
+    // The usable release adds the recorded issue cost as $5 so quantity and
+    // value return together, and both still share $1/$2/$3/$4 ordering.
+    assert.deepEqual(cdrAssignmentReturnParams(1, 'p1', 'WH001'), [1, 'p1', 'WH001', 'stk-wh001-p1', 0]);
+    assert.deepEqual(cdrAssignmentReturnParams(1, 'p1', 'WH001', 120), [1, 'p1', 'WH001', 'stk-wh001-p1', 120]);
+    assert.match(CDR_ASSIGNMENT_STOCK_RETURN_SQL, /VALUES \(\$4, \$2, \$3, \$1, \$5\)/);
     assert.match(CDR_ASSIGNMENT_DAMAGED_RETURN_SQL, /VALUES \(\$4, \$2, \$3, \$1\)/);
   });
 

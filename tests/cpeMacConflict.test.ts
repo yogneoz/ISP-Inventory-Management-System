@@ -34,7 +34,7 @@ import {
   setProducts,
 } from '../server/src/app';
 import { issueAuthToken } from '../server/src/middleware/auth';
-import { ensureBsDayRecords, todayAd } from './fixtures/referenceData';
+import { ensureReferenceData } from './fixtures/referenceData';
 
 dotenv.config();
 
@@ -81,7 +81,10 @@ describe('CPE MAC conflicts and legacy status vocabulary', () => {
     if (!dbReachable) return;
 
     await cleanup();
-    await ensureBsDayRecords(pool, [todayAd()]);
+    // Exchange now posts the replacement's stock value. The chart and fiscal
+    // year are reference data a booted install already has; a schema-only test
+    // database must provision them exactly as it does the BS calendar.
+    await ensureReferenceData(pool);
 
     await pool.query(
       'INSERT INTO branches (id, code, name, location) VALUES ($1, $2, $3, $4)',
@@ -162,6 +165,9 @@ describe('CPE MAC conflicts and legacy status vocabulary', () => {
     await pool.query('DELETE FROM inventory_stock WHERE id = $1', [STOCK_ID]);
     await pool.query('DELETE FROM products WHERE id = $1', [PRODUCT_ID]);
     await pool.query("DELETE FROM audit_logs WHERE user_email LIKE 'cmc-%'");
+    // The successful exchange posts a journal in this branch; its RESTRICT FK
+    // blocks deleting the branch until the ledger rows are gone.
+    await pool.query('DELETE FROM gl_journals WHERE branch_id = $1', [BRANCH]);
     await pool.query('DELETE FROM branches WHERE id = $1', [BRANCH]);
   }
 
@@ -309,5 +315,31 @@ describe('CPE MAC conflicts and legacy status vocabulary', () => {
       stockBeforeExchange - 1,
       'KEEP adds no disposition credit, but the replacement still leaves branch stock (CPE-3)'
     );
+
+    // The exchange is the other place inventory can silently diverge from the
+    // ledger. Pin the value journal itself: one balanced CPE_EXCHANGE journal,
+    // inventory credited and stock expense debited for the unit that left.
+    const { rows: journals } = await pool.query(
+      `SELECT id, status FROM gl_journals
+        WHERE branch_id = $1 AND source_type = 'CPE_EXCHANGE'`,
+      [BRANCH]
+    );
+    assert.equal(journals.length, 1, 'one successful exchange must post exactly one journal');
+    assert.equal(journals[0].status, 'POSTED');
+    const { rows: lines } = await pool.query(
+      `SELECT a.posting_role AS role, l.debit::numeric AS debit, l.credit::numeric AS credit
+         FROM gl_journal_lines l
+         JOIN gl_accounts a ON a.id = l.account_id
+        WHERE l.journal_id = $1`,
+      [journals[0].id]
+    );
+    const inventory = lines.find((line: any) => line.role === 'INVENTORY');
+    const expense = lines.find((line: any) => line.role === 'STOCK_EXPENSE');
+    assert.ok(inventory, 'the exchange journal must credit inventory');
+    assert.ok(expense, 'the exchange journal must debit stock expense');
+    assert.equal(Number(inventory.credit), 100, 'the replacement leaves at its weighted-average cost');
+    assert.equal(Number(inventory.debit), 0);
+    assert.equal(Number(expense.debit), 100);
+    assert.equal(Number(expense.credit), 0);
   });
 });

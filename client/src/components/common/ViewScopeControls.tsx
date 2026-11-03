@@ -1,7 +1,7 @@
 import React from 'react';
 import { Building2 } from 'lucide-react';
 import type { Branch, FiscalYear, User } from '../../types';
-import { canUserSeeAllBranches, filterFiscalYears, getAllowedBranches } from '../../utils/permissions';
+import { filterFiscalYears, getScopedBranches, hasGlobalBranchScope } from '../../utils/permissions';
 import { FiscalYearSelect } from './FiscalYearSelect';
 
 interface ViewScopeControlsProps {
@@ -34,9 +34,12 @@ export const ViewScopeControls: React.FC<ViewScopeControlsProps> = ({
   variant,
 }) => {
   const isHeader = variant === 'header';
-  const canSeeAll = canUserSeeAllBranches(currentUser);
-  const allowed = getAllowedBranches(currentUser, branches);
-  const onlyAssignedBranch = !canSeeAll && allowed.length === 1;
+  // Mirror the server's branch contract, not the display-oriented "sees all"
+  // role list: only a global account may select EVERY branch, and a branch
+  // account is offered exactly its own plus the explicitly assigned branches.
+  const scoped = getScopedBranches(currentUser, branches);
+  const canSelectAll = hasGlobalBranchScope(currentUser);
+  const onlyAssignedBranch = !canSelectAll && scoped.length <= 1;
   const branchSelectId = `${variant}-branch-scope`;
 
   return (
@@ -60,7 +63,7 @@ export const ViewScopeControls: React.FC<ViewScopeControlsProps> = ({
                 : 'flex w-full items-center justify-between gap-1 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-2 font-bold text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-200'
             }
           >
-            <span>📍 {allowed[0]?.name || 'Assigned Branch'}</span>
+            <span>📍 {scoped[0]?.name || 'Assigned Branch'}</span>
             <span
               className={
                 isHeader
@@ -82,12 +85,12 @@ export const ViewScopeControls: React.FC<ViewScopeControlsProps> = ({
                 : 'w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-medium text-slate-800 focus:border-indigo-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200'
             }
           >
-            <option value="ALL" className="bg-slate-900 text-white">
-              {canSeeAll
-                ? '🏢 All Branches (Consolidated)'
-                : `🏢 My Assigned Branches (${allowed.length})`}
-            </option>
-            {allowed.map((branch) => (
+            {canSelectAll && (
+              <option value="ALL" className="bg-slate-900 text-white">
+                🏢 All Branches (Consolidated)
+              </option>
+            )}
+            {scoped.map((branch) => (
               <option key={branch.id} value={branch.id} className="bg-slate-900 text-white">
                 {branch.isHeadquarters ? '⭐ ' : '📍 '}
                 {branch.name} ({branch.code})

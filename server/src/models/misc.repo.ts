@@ -317,6 +317,12 @@ export function miscPulloutTxnParams(txn: TransactionLog): unknown[] {
 // Stock-audit reconciliation (executed on approval)
 // ---------------------------------------------------------------------------
 
+/** Locks the row an approved audit is about to overwrite and reads the cost
+ * basis in the same statement, so its value journal uses the same weighted
+ * average as the quantity change. */
+export const AUDIT_RECONCILE_LOCK_STOCK_SQL = `SELECT id, quantity_on_hand AS "quantityOnHand", average_cost::numeric AS "averageCost"
+ FROM inventory_stock WHERE product_id = $1 AND branch_id = $2 FOR UPDATE`;
+
 /** Sets the absolute counted quantity per variance item; id = stk-<branch>-<product>. */
 export const AUDIT_RECONCILE_STOCK_SQL = `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand)
  VALUES ($1, $2, $3, $4)

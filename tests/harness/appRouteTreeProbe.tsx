@@ -100,7 +100,7 @@ export const bootstrapFixture = {
   userPreferences: { activeTab: 'assign-asset', dateMode: 'AD', theme: 'light' },
 };
 
-const smokeUser = {
+export const smokeUser = {
   id: 'u-smoke',
   name: 'Smoke Admin',
   email: 'smoke@example.com',
@@ -113,6 +113,10 @@ type AnyApi = Record<string, (...args: unknown[]) => Promise<unknown>>;
 
 const API_STUBS: AnyApi = {
   getBootstrapState: async () => bootstrapFixture,
+  // App resolves the signed-in account's effective set right after bootstrap;
+  // keep the probe offline and deterministic (a real SUPER_ADMIN bypasses it).
+  getMyPermissions: async () => ({ role: 'SUPER_ADMIN', operations: [], version: 1 }),
+  getUserAccessSummaries: async () => ({ users: [], total: 46, version: 1 }),
   getLocalFor: async () => ({ slice: undefined }),
   getSettings: async () => ({ settings: {}, preferences: {} }),
   getBsCalendarYears: async () => [],
@@ -124,17 +128,17 @@ const API_STUBS: AnyApi = {
   saveAppSettings: async () => ({}),
 };
 
-/** Seeds the signed-in SUPER_ADMIN session and the last tab, as a browser would have. */
-export function seedSession(tab = 'assign-asset'): void {
-  saveUserSession(smokeUser, smokeUser, 'smoke-token');
+/** Seeds a signed-in session and the last tab, as a browser would have. */
+export function seedSession(tab = 'assign-asset', user: User = smokeUser): void {
+  saveUserSession(user, user, 'smoke-token');
   localStorage.setItem('inventory_active_tab', tab);
 }
 
 /** Replaces the api methods the mounted tree calls; returns the restore function. */
-export function installApiStubs(): () => void {
+export function installApiStubs(overrides: AnyApi = {}): () => void {
   const target = api as unknown as Record<string, unknown>;
   const originals = new Map<string, unknown>();
-  for (const [name, stub] of Object.entries(API_STUBS)) {
+  for (const [name, stub] of Object.entries({ ...API_STUBS, ...overrides })) {
     originals.set(name, target[name]);
     target[name] = stub;
   }

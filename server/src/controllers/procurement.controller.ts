@@ -8,11 +8,21 @@
 import type { Request, Response } from 'express';
 import { getPgConnected, pgPool, purchaseOrders, issueNextDocNumber, setPurchaseOrders, withReplaced, withPrepended, inventoryStock, logAuditEvent, purchaseInvoices, withTransaction, branches, products, companyProfile, setPurchaseInvoices, suppliers, setInventoryStock, withAppended, customerDeviceRecords, setCustomerDeviceRecords, vendorPayments, getUserFromReq, broadcastChange, VENDOR_PAYMENT_SELECT, providerSupplierIdFromName, findBsDayRecordForAdDate, setVendorPayments, purchaseReturns, setPurchaseReturns, transactionLogs, setTransactionLogs, serialLogs, setSerialLogs, productGroups } from '../app';
 import { VendorPayment, VendorPaymentMethod, TransactionLog } from '../../../client/src/types';
-import { computeBillTotals, defaultVatRateFor, resolveLedgerUnitCost } from '../utils/money';
+import { billLineNetAmounts, computeBillTotals, defaultVatRateFor, resolveLedgerUnitCost } from '../utils/money';
 import { demoPurchaseInvoiceTxn, demoPurchaseReturnTxn, demoPurchaseReturnCancelTxn, findOrCreateDemoStock } from '../models/txnLogRows';
 import { bsDateOr400 } from '../utils/bsDate';
 import { intFromEnv } from '../utils/envGuard';
 import { firstLineQuantityRefusal } from '../utils/lineQuantity';
+import { ApiError } from '../errors/ApiError';
+import { postPurchaseInvoiceLedger, reverseInvoiceJournal } from '../services/invoicePosting.service';
+import { postVendorPaymentLedger, reverseVendorPaymentJournal } from '../services/paymentPosting.service';
+import { postPurchaseReturnJournal, reverseReturnJournal } from '../services/returnPosting.service';
+
+/** Audit actor for document postings (email, falling back to the display name). */
+function actorOf(req: any): string | null {
+  const user = getUserFromReq(req);
+  return user.email || user.name || null;
+}
 import {
    PO_UPSERT_SQL, poUpsertParams, PO_UPDATE_SQL, poUpdateParams, PO_FIND_FOR_DELETE_SQL, PO_DELETE_SQL,
   PO_FIND_BY_REF_SQL, PO_MARK_STATUS_SQL, PO_INCOMING_STOCK_SQL, poIncomingStockParams, PO_RELEASE_INCOMING_SQL,
@@ -505,6 +515,9 @@ try {
     // price) and is kept, but clamped to [0, gross subtotal]. Client-supplied
     // taxableAmount / vatAmount / nonTaxableAmount / grandTotal are ignored.
     const piTotals = computeBillTotals(items, newInv.totalDiscount, defaultVatRateFor(companyProfile));
+    // The receipt's moving average must use the NET line cost (after the same
+    // discount allocation) so stock value ties to the inventory debit.
+    const lineNetAmounts = billLineNetAmounts(items, newInv.totalDiscount);
     newInv.subtotalAmount = piTotals.netSubtotal;
     newInv.taxableAmount = piTotals.taxableAmount;
     newInv.nonTaxableAmount = piTotals.nonTaxableAmount;
@@ -626,12 +639,18 @@ try {
 
         if (!invoiceAlreadyExists) for (let itemIdx = 0; itemIdx < items.length; itemIdx++) {
           const item = items[itemIdx];
-          const received = await client.query(PI_RECEIVE_STOCK_SQL, piReceiveStockParams(targetBranchId, item));
+          // $5 completes the receive: it lets the same statement recompute the
+          // moving weighted-average cost from the bill's actual unit price.
+          const qty = Number(item.quantity) || 0;
+          const netUnitCost = qty > 0 ? (lineNetAmounts[itemIdx] || 0) / qty : 0;
+          const received = await client.query(PI_RECEIVE_STOCK_SQL, [
+            ...piReceiveStockParams(targetBranchId, item),
+            netUnitCost,
+          ]);
 
           // Real ledger balance: the upsert RETURNING gives the post-receipt
           // QOH, so the PURCHASE_INVOICE row records the TRUE before/after.
           const after = Number(received.rows?.[0]?.quantity_on_hand);
-          const qty = Number(item.quantity) || 0;
           const stockBefore = Number.isFinite(after) ? after - qty : undefined;
           await client.query(PI_TXN_LOG_SQL, piTxnLogParams(newInv, item, targetBranchId, itemIdx, stockBefore));
         }
@@ -650,6 +669,30 @@ try {
             await recordWarrantyCoverage(client, capture);
           }
         }
+
+        // Debit inventory + input VAT / credit AP, in the same transaction as
+        // the receipt. A missing posting default refuses the whole bill.
+        if (!invoiceAlreadyExists) {
+          await postPurchaseInvoiceLedger(client, {
+            invoice: {
+              ...newInv,
+              branchId: targetBranchId,
+              supplierId: resolvedSupplierId,
+            },
+            actor: actorOf(req),
+          });
+        }
+
+        // The audit row commits with the bill it records; a rolled-back bill
+        // never leaves an audit entry claiming it was created.
+        await logAuditEvent(
+          req,
+          'CREATE_PURCHASE_INVOICE',
+          'PROCUREMENT',
+          `Created Purchase Invoice #${newInv.invoiceNumber}`,
+          targetBranchId,
+          client
+        );
 
         const poRef = newInv.poReferenceId || req.body.poId;
         if (poRef) {
@@ -729,9 +772,18 @@ try {
       });
       if (demoTxns.length > 0) setTransactionLogs([...demoTxns, ...transactionLogs]);
     }
-    logAuditEvent(req, 'CREATE_PURCHASE_INVOICE', 'PROCUREMENT', `Created Purchase Invoice #${newInv.invoiceNumber}`);
+    // Demo mode has no transaction to join, so the audit row is written here.
+    if (!getPgConnected()) {
+      logAuditEvent(req, 'CREATE_PURCHASE_INVOICE', 'PROCUREMENT', `Created Purchase Invoice #${newInv.invoiceNumber}`);
+    }
     res.status(201).json(newInv);
   } catch (err: any) {
+    // A missing posting default or rejected journal is a configuration/business
+    // refusal with its own status, never a generic database fault.
+    if (err instanceof ApiError) {
+      res.status(err.status).json({ message: err.message });
+      return;
+    }
     // A refused serial is a caller error, not a server fault: report the exact
     // reason with its own status instead of a generic 500.
     if (err instanceof SerialRegisterError) {
@@ -766,8 +818,21 @@ try {
 
     const items = typeof invoice.items === 'string' ? JSON.parse(invoice.items) : (invoice.items || []);
     const quantities = new Map<string, number>();
+    // The value each product's receipt actually capitalised. The stored
+    // grand total less VAT is the exact net inventory value; allocating it by
+    // the same per-line net split the receipt used rewinds the moving average
+    // even when the bill carried a bill-level or per-line discount.
+    const costValues = new Map<string, number>();
     const serials = items.flatMap((item: any) => (item.deviceSerials || []).map((serial: any) => serial.deviceSerial).filter(Boolean));
-    items.forEach((item: any) => quantities.set(item.productId, (quantities.get(item.productId) || 0) + (Number(item.quantity) || 0)));
+    const lineNets = billLineNetAmounts(items);
+    const netLineSum = lineNets.reduce((sum: number, value: number) => sum + value, 0);
+    const netInventoryValue = (Number(invoice.grandTotal) || 0) - (Number(invoice.vatAmount) || 0);
+    const netFactor = netLineSum > 0 ? netInventoryValue / netLineSum : 0;
+    items.forEach((item: any, index: number) => {
+      const qty = Number(item.quantity) || 0;
+      quantities.set(item.productId, (quantities.get(item.productId) || 0) + qty);
+      costValues.set(item.productId, (costValues.get(item.productId) || 0) + (lineNets[index] || 0) * netFactor);
+    });
 
     const purchaseRefs = [invoice.vendorBillNumber, invoice.invoiceNumber].filter(Boolean);
     const localAssignedSerial = customerDeviceRecords.some(
@@ -794,7 +859,8 @@ try {
         const cancelBS = cancelBsRec.found ? `${cancelBsRec.record.bsDate} BS` : '';
         let lineIdx = 0;
         for (const [productId, quantity] of quantities) {
-          const updated = await client.query(PI_REVERSE_STOCK_SQL, [quantity, productId, invoice.branchId]);
+          const unitCost = quantity > 0 ? (costValues.get(productId) || 0) / quantity : 0;
+          const updated = await client.query(PI_REVERSE_STOCK_SQL, [quantity, productId, invoice.branchId, unitCost]);
           if (updated.rowCount !== 1) throw new Error(`Insufficient stock to reverse invoice item ${productId}.`);
           const after = Number(updated.rows?.[0]?.quantity_on_hand);
           const stockBefore = Number.isFinite(after) ? after + quantity : 0;
@@ -819,6 +885,15 @@ try {
           await client.query(SERIAL_LOG_DELETE_BY_INVOICE_SERIALS_SQL, [serials]);
         }
         await client.query(PI_DELETE_SQL, [id]);
+        // The bill's ledger entry is reversed in the same transaction, so a
+        // deleted bill never leaves inventory/VAT/AP balances behind.
+        await reverseInvoiceJournal(client, {
+          sourceType: 'PURCHASE_INVOICE',
+          sourceId: String(id),
+          dateAD: cancelAD,
+          reason: 'Purchase invoice deleted',
+          actor: actorOf(req),
+        });
         if (invoice.poReferenceId) {
           await client.query(PO_MARK_STATUS_SQL, ['APPROVED', invoice.poReferenceId]);
         }
@@ -896,6 +971,10 @@ try {
       return;
     }
 
+    // Balance-only legacy endpoint: the vendor payment DOCUMENT (with its
+    // payment method, bank/cheque detail and ledger entry) is
+    // POST /api/vendor-payments. Posting a journal here as well would
+    // double-count the pair the payment screen used to send.
     // Read-modify-write against the authoritative row inside a transaction so
     // concurrent payments cannot interleave and corrupt the balance (the
     // UPDATE itself re-derives payment_status from the final amount_paid).
@@ -985,6 +1064,11 @@ try {
             throw new Error(`Payment #${payment.paymentNumber} is no longer POSTED and cannot be reversed.`);
           }
           await client.query(VP_REVERSE_SQL, [reason, getUserFromReq(req).email || 'system', payment.id]);
+          await reverseVendorPaymentJournal(client, {
+            paymentId: payment.id,
+            reason,
+            actor: actorOf(req),
+          });
         }
         // Reset the invoice amount_paid and payment_status
         await client.query(PI_RESET_PAYMENT_SQL, [id]);
@@ -1028,8 +1112,10 @@ try {
       invoiceId: inv.id,
     });
   } catch (err: any) {
-    console.error('Error reversing invoice payments:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    if (!(err instanceof ApiError)) console.error('Error reversing invoice payments:', err);
+    res.status(err instanceof ApiError ? err.status : err.statusCode || 500).json({
+      message: err instanceof ApiError ? err.message : `Database error: ${err.message}`,
+    });
   }
 
 }
@@ -1182,22 +1268,47 @@ try {
     };
 
     if (getPgConnected()) {
-      await pgPool.query(VP_INSERT_SQL, vpInsertParams(newPayment));
+      // Payment row, linked invoice balance, AP settlement, journal and audit
+      // commit atomically. The document owns the invoice update because the
+      // payment screen no longer calls the balance-only /pay endpoint first.
+      await withTransaction(async (client) => {
+        await client.query(VP_INSERT_SQL, vpInsertParams(newPayment));
+        if (linkedInvoice) {
+          const locked = await client.query(PI_LOCK_FOR_UPDATE_SQL, [linkedInvoice.id]);
+          if (!locked.rows[0]) {
+            throw new ApiError(404, 'Purchase invoice not found.');
+          }
+          await client.query(PI_RECORD_PAYMENT_SQL, [amount, linkedInvoice.id]);
+        }
+        await postVendorPaymentLedger(client, { payment: newPayment, actor: actorOf(req) });
+        await logAuditEvent(
+          req,
+          'RECORD_VENDOR_PAYMENT',
+          'PROCUREMENT',
+          `Recorded vendor payment #${paymentNumber} of NPR ${amount.toLocaleString()} to ${supplierName} via ${paymentMethod}`,
+          branchId,
+          client
+        );
+      });
     } else {
       setVendorPayments(withPrepended(vendorPayments, newPayment));
+      logAuditEvent(
+        req,
+        'RECORD_VENDOR_PAYMENT',
+        'PROCUREMENT',
+        `Recorded vendor payment #${paymentNumber} of NPR ${amount.toLocaleString()} to ${supplierName} via ${paymentMethod}`,
+        branchId
+      );
     }
-    logAuditEvent(
-      req,
-      'RECORD_VENDOR_PAYMENT',
-      'PROCUREMENT',
-      `Recorded vendor payment #${paymentNumber} of NPR ${amount.toLocaleString()} to ${supplierName} via ${paymentMethod}`,
-      branchId
-    );
     broadcastChange({ type: 'VENDOR_PAYMENT', entity: 'purchase-invoices', branchId });
     res.status(201).json(newPayment);
   } catch (err: any) {
-    console.error('Error creating vendor payment:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    // A missing posting default or a closed period is expected input, not a
+    // server fault: surface its 400/409 instead of a generic database 500.
+    if (!(err instanceof ApiError)) console.error('Error creating vendor payment:', err);
+    res.status(err instanceof ApiError ? err.status : 500).json({
+      message: err instanceof ApiError ? err.message : `Database error: ${err.message}`,
+    });
   }
 
 }
@@ -1249,6 +1360,13 @@ try {
         if (payment.invoiceId) {
           await client.query(PI_UNDO_PAYMENT_SQL, [Number(payment.amount) || 0, payment.invoiceId]);
         }
+        // The contra journal joins the same transaction, so a reversed payment
+        // cannot leave its original cash/AP entry standing alone.
+        await reverseVendorPaymentJournal(client, {
+          paymentId: id,
+          reason,
+          actor: actorOf(req),
+        });
         // Audit entry joins the transaction (committed reversal never unlogged).
         await logAuditEvent(
           req,
@@ -1293,8 +1411,10 @@ try {
       paymentId: payment.id,
     });
   } catch (err: any) {
-    console.error('Error reversing vendor payment:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    if (!(err instanceof ApiError)) console.error('Error reversing vendor payment:', err);
+    res.status(err instanceof ApiError ? err.status : err.statusCode || 500).json({
+      message: err instanceof ApiError ? err.message : `Database error: ${err.message}`,
+    });
   }
 
 }
@@ -1590,11 +1710,22 @@ function isSerialTrackedProduct(productId?: string): boolean {
  * stock deduction, PURCHASE_RETURN ledger rows, and serial_log flips to
  * RETURNED_TO_VENDOR with a history entry.
  */
-async function applyPurchaseReturnEffects(client: any, ret: any, items: any[], branchId: string): Promise<void> {
+async function applyPurchaseReturnEffects(
+  client: any,
+  ret: any,
+  items: any[],
+  branchId: string,
+  actor?: string | null
+): Promise<void> {
+  // The return's net bill value is allocated across lines by the same discount
+  // rule the totals used, so inventory is relieved at what the bill capitalised
+  // — not at a list price the supplier never charged.
+  const netLines = billLineNetAmounts(items);
   for (let itemIdx = 0; itemIdx < items.length; itemIdx++) {
     const item = items[itemIdx];
     const qty = Math.abs(Number(item.quantity)) || 0;
-    const deducted = await client.query(PR_DEDUCT_STOCK_SQL, [qty, item.productId, branchId]);
+    const unitCost = qty > 0 ? Math.max(0, Number(netLines[itemIdx]) || 0) / qty : 0;
+    const deducted = await client.query(PR_DEDUCT_STOCK_SQL, [qty, unitCost, item.productId, branchId]);
     if (deducted.rowCount !== 1) {
       throw new Error(`Insufficient stock to return ${qty} × ${item.productName || item.productId} at branch ${branchId}.`);
     }
@@ -1602,7 +1733,7 @@ async function applyPurchaseReturnEffects(client: any, ret: any, items: any[], b
     // post-deduction QOH, so before = after + qty.
     const after = Number(deducted.rows?.[0]?.quantity_on_hand);
     const stockBefore = Number.isFinite(after) ? after + qty : undefined;
-    await client.query(PR_TXN_LOG_SQL, prTxnLogParams(ret, item, branchId, itemIdx, stockBefore));
+    await client.query(PR_TXN_LOG_SQL, prTxnLogParams(ret, item, branchId, itemIdx, stockBefore, unitCost));
     const serials = returnLineSerials(item).map((entry) => entry.deviceSerial);
     // WTY-4: only the units this return actually took back lose their VENDOR
     // coverage — a partial return must not retire the rest of the bill. The row
@@ -1632,6 +1763,9 @@ async function applyPurchaseReturnEffects(client: any, ret: any, items: any[], b
       }
     }
   }
+
+  // AP, inventory and input VAT reverse with the deduction in one transaction.
+  await postPurchaseReturnJournal(client, { ret, actor: actor || null });
 }
 
 /** Forwarded from procurement.routes.ts (post_purchaseReturns). */
@@ -1748,7 +1882,7 @@ export async function post_purchaseReturns(req: any, res: Response): Promise<any
       await withTransaction(async (client) => {
         await client.query(PR_INSERT_SQL, prInsertParams(newRet, JSON.stringify(items)));
         if (newRet.status === 'POSTED') {
-          await applyPurchaseReturnEffects(client, newRet, items, targetBranchId);
+          await applyPurchaseReturnEffects(client, newRet, items, targetBranchId, actorOf(req));
         }
       });
     } else {
@@ -1824,9 +1958,11 @@ export async function post_purchaseReturnCancel(req: any, res: Response): Promis
         if (cancelled.rowCount !== 1) throw new Error('Return was already cancelled by another user.');
         if (ret.status === 'POSTED') {
           let cancelLineIdx = 0;
+          const cancelNetLines = billLineNetAmounts(ret.items || []);
           for (const item of ret.items || []) {
             const restoreQty = Math.abs(Number(item.quantity)) || 0;
-            const restored = await client.query(PR_RESTORE_STOCK_SQL, [restoreQty, item.productId, ret.branchId]);
+            const unitCost = restoreQty > 0 ? Math.max(0, Number(cancelNetLines[cancelLineIdx]) || 0) / restoreQty : 0;
+            const restored = await client.query(PR_RESTORE_STOCK_SQL, [restoreQty, unitCost, item.productId, ret.branchId]);
             // Compensating PURCHASE_RETURN_CANCELLED ledger row: the original
             // deduction row stays, so a positive mirror nets the return back
             // to zero with the TRUE balance from the restore's RETURNING.
@@ -1834,7 +1970,7 @@ export async function post_purchaseReturnCancel(req: any, res: Response): Promis
             const stockBefore = Number.isFinite(after) ? after - restoreQty : 0;
             await client.query(
               PR_CANCEL_TXN_LOG_SQL,
-              prCancelTxnLogParams(ret, item, ret.branchId, cancelLineIdx++, stockBefore, { ad: prCancelAD, bs: prCancelBS })
+              prCancelTxnLogParams(ret, item, ret.branchId, cancelLineIdx++, stockBefore, { ad: prCancelAD, bs: prCancelBS }, unitCost)
             );
             const serials = returnLineSerials(item).map((entry) => entry.deviceSerial);
             if (serials.length > 0) {
@@ -1858,6 +1994,16 @@ export async function post_purchaseReturnCancel(req: any, res: Response): Promis
               }
             }
           }
+
+          // The return's journal is reversed, not deleted: AP, inventory and
+          // input VAT return to their pre-return positions with the stock.
+          await reverseReturnJournal(client, {
+            kind: 'PURCHASE_RETURN',
+            returnId: String(ret.id),
+            dateAD: prCancelAD,
+            reason: reason || 'Purchase return cancelled',
+            actor: actorOf(req),
+          });
         }
       });
     } else if (ret.status === 'POSTED') {
@@ -1941,7 +2087,7 @@ export async function post_purchaseReturnApprove(req: any, res: Response): Promi
       await withTransaction(async (client) => {
         const posted = await client.query(PR_POST_DRAFT_SQL, [ret.id]);
         if (posted.rowCount !== 1) throw new Error('Return was already approved or cancelled by another user.');
-        await applyPurchaseReturnEffects(client, ret, items, ret.branchId);
+        await applyPurchaseReturnEffects(client, ret, items, ret.branchId, actorOf(req));
       });
     }
 

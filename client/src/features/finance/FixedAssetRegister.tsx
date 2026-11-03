@@ -24,6 +24,7 @@ import { useDialog } from '../../components/common/DialogProvider';
 import { ModalPanel } from '../../components/common/ModalPanel';
 import { warrantyEndFieldError, warrantyEndFor } from '../../utils/warrantyCapture';
 import { getRowActivationProps, ROW_FOCUS_CLASS } from '../../utils/interactiveRow';
+import type { RecordRoute } from '../../routes/appPaths';
 
 const ZERO_TOTALS: FixedAssetTotals = { acquisitionCost: 0, accumulatedDepreciation: 0, netBookValue: 0 };
 
@@ -49,6 +50,9 @@ interface FixedAssetRegisterProps {
     }
   ) => Promise<void>;
   onUpdateAssetStatus: (id: string, status: Asset['status']) => Promise<void>;
+  /** `/inventory/assets/new` or `/:tagNumber`, when the URL names one. */
+  recordRoute?: RecordRoute | null;
+  onRecordRouteChange?: (record: RecordRoute | null) => void;
 }
 
 export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
@@ -61,6 +65,8 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
   currentUser,
   onCreateAsset,
   onUpdateAssetStatus,
+  recordRoute = null,
+  onRecordRouteChange,
 }) => {
   const { alert: alertDialog } = useDialog();
   const canManageAssets = isOperationAllowed('assets-manage', currentUser?.role);
@@ -68,6 +74,8 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(autoOpenModal);
   const [bsError, setBsError] = useState<string | null>(null);
   const [selectedAssetDetail, setSelectedAssetDetail] = useState<Asset | null>(null);
+  const recordRouteChangeRef = useRef(onRecordRouteChange);
+  recordRouteChangeRef.current = onRecordRouteChange;
 
   // Server-paged register (ASSET-1). The page and the KPI totals answer the
   // same branch + search scope; the totals are formula sums over the whole
@@ -143,6 +151,76 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
       });
   }, [selectedBranchId, search, page, pageSize, asOfDateAD, refreshToken, retryToken]);
 
+  const openCreateModal = () => {
+    setTagNumber(`AST-${Math.floor(1000 + Math.random() * 9000)}`);
+    setName('');
+    setSupplierWarrantyEndDateAD(warrantyEndFor(acquisitionDateAD, 12));
+    setWarrantyTouched(false);
+    setSupplierWarrantyCovered(true);
+    setBsError(null);
+    setIsModalOpen(true);
+    recordRouteChangeRef.current?.({ kind: 'create' });
+  };
+  const closeCreateModal = () => {
+    setIsModalOpen(false);
+    recordRouteChangeRef.current?.(null);
+  };
+  const openAssetDetail = (asset: Asset) => {
+    setSelectedAssetDetail(asset);
+    recordRouteChangeRef.current?.({ kind: 'detail', id: asset.tagNumber || asset.id });
+  };
+  const closeAssetDetail = () => {
+    setSelectedAssetDetail(null);
+    recordRouteChangeRef.current?.(null);
+  };
+
+  // URL-owned overlays: `/inventory/assets/new` opens the register form and
+  // `/:tagNumber` reopens the asset card even when it is not on this page.
+  const recordKind = recordRoute?.kind === 'create' ? 'create' : recordRoute?.kind === 'detail' ? 'detail' : '';
+  const recordId = recordRoute?.kind === 'detail' ? recordRoute.id : '';
+  useEffect(() => {
+    if (!recordKind) {
+      setSelectedAssetDetail(null);
+      if (!autoOpenModal) setIsModalOpen(false);
+      return;
+    }
+    if (recordKind === 'create' && !isModalOpen) openCreateModal();
+  }, [recordKind]);
+
+  useEffect(() => {
+    if (recordKind !== 'detail') return;
+    const wanted = recordId.toLowerCase();
+    const matches = (asset: Asset) =>
+      asset.tagNumber?.toLowerCase() === wanted || asset.id?.toLowerCase() === wanted;
+    const inPage = rows.find(matches);
+    if (inPage) {
+      setSelectedAssetDetail(inPage);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      const branchId = selectedBranchId !== 'ALL' ? selectedBranchId : undefined;
+      try {
+        let asset: Asset;
+        try {
+          asset = await api.lookupFixedAsset({ tagNumber: recordId }, branchId);
+        } catch {
+          asset = await api.lookupFixedAsset({ id: recordId }, branchId);
+        }
+        if (cancelled) return;
+        setSelectedAssetDetail(asset);
+      } catch {
+        if (cancelled) return;
+        setSelectedAssetDetail(null);
+        recordRouteChangeRef.current?.(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [recordKind, recordId, rows, selectedBranchId]);
+
   const safePage = useServerPageClamp(page, pageSize, totalItems, setPage);
   const pageCount = Math.max(1, Math.ceil(totalItems / pageSize));
   const rangeStart = totalItems === 0 ? 0 : (safePage - 1) * pageSize + 1;
@@ -194,6 +272,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
     });
 
     setIsModalOpen(false);
+    recordRouteChangeRef.current?.(null);
   };
 
   const selectedBranchObj = branches.find((b) => b.id === selectedAssetDetail?.branchId);
@@ -253,15 +332,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
 
             {canManageAssets && (
               <button
-                onClick={() => {
-                  setTagNumber(`AST-${Math.floor(1000 + Math.random() * 9000)}`);
-                  setName('');
-                  setSupplierWarrantyEndDateAD(warrantyEndFor(acquisitionDateAD, 12));
-                  setWarrantyTouched(false);
-                  setSupplierWarrantyCovered(true);
-                  setBsError(null);
-                  setIsModalOpen(true);
-                }}
+                onClick={openCreateModal}
                 className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-blue-700 shadow-md shadow-blue-600/20 transition-all cursor-pointer"
               >
                 <Plus className="h-4 w-4" />
@@ -349,10 +420,10 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                     <tr
                       key={asset.id}
                       {...getRowActivationProps(
-                        () => setSelectedAssetDetail(asset),
+                        () => openAssetDetail(asset),
                         `${asset.tagNumber} ${asset.name} — open asset details`
                       )}
-                      onClick={() => setSelectedAssetDetail(asset)}
+                      onClick={() => openAssetDetail(asset)}
                       className={`hover:bg-slate-100/80 dark:hover:bg-slate-800/50 transition-colors cursor-pointer group ${ROW_FOCUS_CLASS}`}
                     >
                       <td className={`p-2.5 font-mono font-bold text-blue-600 dark:text-blue-400 group-hover:underline`}>
@@ -422,7 +493,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
           <ModalPanel
             label="Fixed Asset Branch Allocation & Deployment Details"
-            onClose={() => setSelectedAssetDetail(null)}
+            onClose={closeAssetDetail}
             className={`w-full max-w-lg rounded-2xl shadow-2xl border overflow-hidden text-sm bg-white border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
           >
             <div className={`flex items-center justify-between border-b p-4 border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-800/60`}>
@@ -431,7 +502,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                 <span>Fixed Asset Branch Allocation & Deployment Details</span>
               </h3>
               <button
-                onClick={() => setSelectedAssetDetail(null)}
+                onClick={closeAssetDetail}
                 className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
               >
                 <X className="h-4 w-4" />
@@ -522,7 +593,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
               <div className="pt-2 flex justify-end">
                 <button
                   type="button"
-                  onClick={() => setSelectedAssetDetail(null)}
+                  onClick={closeAssetDetail}
                   className="rounded-xl bg-blue-600 text-white px-4 py-2 text-xs font-bold hover:bg-blue-700 cursor-pointer shadow-xs"
                 >
                   Close Window
@@ -541,7 +612,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto">
           <ModalPanel
             label="Register New Fixed Asset"
-            onClose={() => setIsModalOpen(false)}
+            onClose={closeCreateModal}
             className={`w-full max-w-lg rounded-2xl shadow-2xl border overflow-hidden my-8 text-sm bg-white border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
           >
             <div className={`flex items-center justify-between border-b p-4 border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-800/60`}>
@@ -549,7 +620,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                 Register New Fixed Asset
               </h3>
               <button
-                onClick={() => setIsModalOpen(false)}
+                onClick={closeCreateModal}
                 className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
               >
                 <X className="h-4 w-4" />
@@ -723,7 +794,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
               <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setIsModalOpen(false)}
+                  onClick={closeCreateModal}
                   className="rounded-lg border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
                 >
                   Cancel

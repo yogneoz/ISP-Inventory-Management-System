@@ -37,7 +37,7 @@ import {
 } from './utils/sessionCache';
 import { AppShell } from './components/layout/AppShell';
 import { NavTab, NAV_TABS } from './components/layout/Sidebar';
-import { isOperationAllowed } from './utils/permissions';
+import { isOperationAllowed, resolveBranchSelection } from './utils/permissions';
 import { indexStockByProductBranch, stockRowAt } from './utils/stockIndex';
 import {
   DOMAIN_REGISTER_KEYS,
@@ -144,6 +144,27 @@ const ImportStock = React.lazy(() =>
 const ExportStock = React.lazy(() =>
   import('./features/inventory/ExportStock').then((m) => ({ default: m.ExportStock }))
 );
+const TrialBalanceRegister = React.lazy(() =>
+  import('./features/finance/TrialBalanceRegister').then((m) => ({ default: m.TrialBalanceRegister }))
+);
+const ProfitAndLossRegister = React.lazy(() =>
+  import('./features/finance/ProfitAndLossRegister').then((m) => ({ default: m.ProfitAndLossRegister }))
+);
+const BalanceSheetRegister = React.lazy(() =>
+  import('./features/finance/BalanceSheetRegister').then((m) => ({ default: m.BalanceSheetRegister }))
+);
+const CashBookRegister = React.lazy(() =>
+  import('./features/finance/CashBookRegister').then((m) => ({ default: m.CashBookRegister }))
+);
+const AgingRegister = React.lazy(() =>
+  import('./features/finance/AgingRegister').then((m) => ({ default: m.AgingRegister }))
+);
+const ChartOfAccountsRegister = React.lazy(() =>
+  import('./features/finance/ChartOfAccountsRegister').then((m) => ({ default: m.ChartOfAccountsRegister }))
+);
+const DailyCashClose = React.lazy(() =>
+  import('./features/finance/DailyCashClose').then((m) => ({ default: m.DailyCashClose }))
+);
 const FinancialStatements = React.lazy(() =>
   import('./features/finance/FinancialStatements').then((m) => ({ default: m.FinancialStatements }))
 );
@@ -209,6 +230,7 @@ import { CompanySetupManagement } from './features/settings/CompanySetupManageme
 import { SuppliersManagement } from './features/procurement/SuppliersManagement';
 import { UsersManagement } from './features/settings/UsersManagement';
 import { PermissionManagement } from './features/settings/PermissionManagement';
+import { UserPermissions, type UserAccessFocusRequest } from './features/settings/UserPermissions';
 const ApprovalWorkflowCenter = React.lazy(() =>
   import('./features/settings/ApprovalWorkflowCenter').then((m) => ({ default: m.ApprovalWorkflowCenter }))
 );
@@ -226,9 +248,31 @@ import { useScope } from './contexts/ScopeContext';
 import { useDialog } from './components/common/DialogProvider';
 import { AppRoutes, screenRoute, type AppRoute } from './routes/appRoutes';
 import { ACTIVE_TAB_STORAGE_KEY } from './screenPreload';
+import {
+  ACCESS_FILTER_URL_PARAM,
+  OPERATION_FILTER_URL_PARAM,
+} from './utils/accessFilterUrl';
+import {
+  canonicalLocationUrl,
+  canonicalTab,
+  isNavTab,
+  isRecordRouteForTab,
+  resolveInitialTab,
+  type InitialTabRoute,
+  type RecordRoute,
+} from './routes/appPaths';
 import { isTabAccessible } from './routes/tabPermissions';
 import { broadcastBsCalendarUpdated } from './utils/bsCalendarRefresh';
 import { Loader2 } from 'lucide-react';
+
+/** Saved-tab mirror. Storage can be blocked; a deep link must still work then. */
+function readSavedTab(): string | null {
+  try {
+    return localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
 
 /** Suspense fallback matching the boot-loading spinner (used by all lazy tabs). */
 function TabLoadingFallback() {
@@ -257,7 +301,7 @@ import {
 } from './services/bootstrapSlices';
 import { BootstrapSliceNotice } from './components/common/BootstrapSliceNotice';
 import { LoadStateNotice } from './components/common/LoadStateNotice';
-import { applyServerMatrix, getPermissionsMatrix } from './utils/permissions';
+import { applyEffectivePermissions, applyServerMatrix, getPermissionsMatrix } from './utils/permissions';
 import { setExportCompanyProfile } from './utils/exportUtils';
 
 // Chooses the fiscal year to show by default: the year flagged current whose
@@ -305,17 +349,46 @@ export default function App() {
     setFiscalYears,
   } = useScope();
 
-  const [activeTab, setActiveTab] = useState<NavTab>(() => {
-    const savedTab = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
-    // Only restore the saved tab if it is still a valid menu id (guards against removed/renamed tabs)
-    return savedTab && (NAV_TABS as string[]).includes(savedTab) ? (savedTab as NavTab) : 'dashboard';
+  // A canonical path (or a legacy `?tab=` link) wins once over the saved tab.
+  // `urlTabPendingRef` keeps the first server-preference hydration from
+  // replacing a shared deep link before the user sees it.
+  const [initialRoute] = useState<InitialTabRoute>(() => {
+    try {
+      return resolveInitialTab(
+        window.location.pathname,
+        window.location.search,
+        readSavedTab()
+      );
+    } catch {
+      // URL unavailable (embedded/sandboxed contexts): start home.
+      return { tab: 'dashboard', fromUrl: false, source: 'default' };
+    }
   });
+  const [activeTab, setActiveTab] = useState<NavTab>(initialRoute.tab);
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
+  // The open record below the active register. The path (not React state) is
+  // the address; this state exists only to render the screen and write the URL.
+  const [recordRoute, setRecordRoute] = useState<RecordRoute | null>(
+    initialRoute.record ?? null
+  );
+  const recordRouteRef = useRef(recordRoute);
+  recordRouteRef.current = recordRoute;
+  // The first URL write replaces whatever was in the address bar; navigation
+  // after it pushes a new history entry. Redirects (permission guard, legacy
+  // URL cleanup) opt back into `replace` so Back does not bounce indefinitely.
+  const urlHistoryModeRef = useRef<'replace' | 'push'>('replace');
+  // Users → Access & permissions asks this screen to open one person. The
+  // incrementing token makes a second click for the same person re-focus it.
+  const [userAccessFocus, setUserAccessFocus] = useState<UserAccessFocusRequest | null>(null);
+  const userAccessFocusSeq = useRef(0);
   // Server-backed user preferences. `prefsHydratedRef` gates every write so a
   // default rendered during start-up can never overwrite the real saved
   // preference, and `persistedPrefsRef` de-duplicates writes against the last
   // value the server returned.
   const prefsHydratedRef = useRef(false);
   const persistedPrefsRef = useRef<Record<string, string>>({});
+  const urlTabPendingRef = useRef(initialRoute.fromUrl);
 
   // Patches one preference on the server (PATCH semantics: only this key).
   const persistPreference = (key: 'theme' | 'dateMode' | 'activeTab', value: string) => {
@@ -346,6 +419,22 @@ export default function App() {
   // tab's declaration and its permission cannot drift apart (A4).
   const canAccessTab = (tab: NavTab): boolean => isTabAccessible(tab, currentUser);
 
+  // Sidebar/header navigation. Normalise retired ids (workflow-approval) and
+  // push a history entry so Back returns to the screen the user left. A tab
+  // click always closes any record child of the previous screen.
+  const handleSelectTab = (tab: NavTab) => {
+    urlHistoryModeRef.current = 'push';
+    setRecordRoute(null);
+    setActiveTab(canonicalTab(tab));
+  };
+
+  // A screen asking to open/close one record. Same-tab, so it is a history
+  // entry of its own: Back returns from a record to its register.
+  const handleRecordRouteChange = React.useCallback((record: RecordRoute | null) => {
+    urlHistoryModeRef.current = 'push';
+    setRecordRoute(record);
+  }, []);
+
   // Bumped once the server-seeded calendar lands in the client mirror, so the
   // coverage memo below recomputes against the authoritative data instead of
   // the bundled defaults.
@@ -369,6 +458,11 @@ export default function App() {
 
   const [loading, setLoading] = useState<boolean>(true);
   const [permissionsVersion, setPermissionsVersion] = useState<number>(0);
+  // Always-fresh identity for the stable permission-refresh callback below.
+  const currentUserRef = useRef<User | null>(currentUser);
+  useEffect(() => {
+    currentUserRef.current = currentUser;
+  }, [currentUser]);
   /** One-line context shown on the login screen (e.g. the session was ended by
    *  a demo-data clear because the signed-in account was demo data). */
   const [loginNotice, setLoginNotice] = useState<string | null>(null);
@@ -406,11 +500,62 @@ export default function App() {
   useEffect(() => {
     const handleNavigateTab = (e: Event) => {
       const tab = (e as CustomEvent<{ tab?: string }>).detail?.tab;
-      if (!tab || !canAccessTabRef.current(tab as NavTab)) return;
-      setActiveTab(tab as NavTab);
+      if (!tab) return;
+      const nextTab = canonicalTab(tab as NavTab);
+      if (!canAccessTabRef.current(nextTab)) return;
+      urlHistoryModeRef.current = 'push';
+      setRecordRoute(null);
+      setActiveTab(nextTab);
     };
     window.addEventListener(NAVIGATE_TAB_EVENT, handleNavigateTab);
     return () => window.removeEventListener(NAVIGATE_TAB_EVENT, handleNavigateTab);
+  }, []);
+
+  // Back/Forward is a first-class navigation path: resolve the entry to a tab
+  // and record, then let the permission guard below decide whether that tab may
+  // stay. A legacy or malformed entry is rewritten in place instead of creating
+  // a new history entry.
+  useEffect(() => {
+    const handlePopState = () => {
+      let nextTab: NavTab = 'dashboard';
+      let nextRecord: RecordRoute | null = null;
+      try {
+        const route = resolveInitialTab(
+          window.location.pathname,
+          window.location.search,
+          readSavedTab()
+        );
+        nextTab = route.tab;
+        nextRecord = route.record ?? null;
+      } catch {
+        // Keep the safe default.
+      }
+
+      const sameScreen =
+        nextTab === activeTabRef.current &&
+        JSON.stringify(nextRecord) === JSON.stringify(recordRouteRef.current);
+      if (sameScreen) {
+        // Same screen/record, different spelling/legacy params: canonicalise
+        // in place because a state update would not re-run the URL effect.
+        try {
+          const target = canonicalLocationUrl(nextTab, nextRecord, window.location.href);
+          const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+          if (target !== current) window.history.replaceState(null, '', target);
+        } catch {
+          // History unavailable; the screen is still correct.
+        }
+        urlHistoryModeRef.current = 'push';
+        return;
+      }
+
+      // A history entry is already a navigation: the effect must not push a
+      // second entry for the same screen.
+      urlHistoryModeRef.current = 'replace';
+      setRecordRoute(nextRecord);
+      setActiveTab(nextTab);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
   useEffect(() => {
@@ -442,12 +587,84 @@ export default function App() {
     persistPreference('activeTab', activeTab);
   }, [activeTab]);
 
+  // Keep the address bar in step with the workspace. The canonical path names
+  // the screen and, when open, its record; the Users register owns its two
+  // filter params and every other screen drops them. A legacy `?tab=` is
+  // removed on the first write.
+  //
+  // Layout effect so the URL changes in the same commit as the screen: a
+  // shared link never paints one screen under another screen's path.
+  useLayoutEffect(() => {
+    try {
+      const next = canonicalLocationUrl(activeTab, recordRoute, window.location.href);
+      const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      if (next !== current) {
+        if (urlHistoryModeRef.current === 'push') window.history.pushState(null, '', next);
+        else window.history.replaceState(null, '', next);
+      }
+    } catch {
+      // History can be unavailable in an embedded/sandboxed context; tab
+      // navigation itself still works.
+    } finally {
+      urlHistoryModeRef.current = 'push';
+    }
+  }, [activeTab, recordRoute]);
+
+  // Internal navigation still calls setActiveTab directly in places. A record
+  // belongs to exactly one register, so leaving that register closes it rather
+  // than letting a later return resurrect a stale detail page.
+  useEffect(() => {
+    if (recordRoute && !isRecordRouteForTab(activeTab, recordRoute)) {
+      setRecordRoute(null);
+    }
+  }, [activeTab, recordRoute]);
+
+  /**
+   * The signed-in account's resolved operation set. Re-read on sign-in, profile
+   * switch, session restore and whenever the server matrix is republished (an
+   * SSE PERMISSIONS slice or a successful matrix save): a role change can move
+   * the base under an existing exception.
+   *
+   * A failed read clears the cache and falls back to the role matrix — the
+   * display fails closed, and the server still enforces the real answer.
+   */
+  const refreshEffectivePermissions = React.useCallback(async () => {
+    const user = currentUserRef.current;
+    if (!user) {
+      applyEffectivePermissions(null);
+      return;
+    }
+    try {
+      const resolved = await api.getMyPermissions();
+      // A slow response for a profile the user already left must never
+      // overwrite the new profile's resolved set.
+      if (currentUserRef.current?.id !== user.id) return;
+      applyEffectivePermissions(resolved.operations, resolved.role || user.role);
+    } catch {
+      if (currentUserRef.current?.id !== user.id) return;
+      applyEffectivePermissions(null);
+    } finally {
+      if (currentUserRef.current?.id === user.id) {
+        setPermissionsVersion((v) => v + 1);
+      }
+    }
+  }, []);
+  const refreshEffectivePermissionsRef = useRef(refreshEffectivePermissions);
+  refreshEffectivePermissionsRef.current = refreshEffectivePermissions;
+
+  useEffect(() => {
+    void refreshEffectivePermissions();
+  }, [currentUser?.id, refreshEffectivePermissions]);
+
   useEffect(() => {
     const handlePermissionsUpdated = () => {
       // The matrix is server data: re-read it from the module cache that only
       // applyServerMatrix() (bootstrap / successful PUT) is allowed to fill.
       setPermissionsMatrix(getPermissionsMatrix());
       setPermissionsVersion((v) => v + 1);
+      // The effective set is the matrix plus this account's exceptions; the
+      // matrix changing can change it, so resolve it again.
+      void refreshEffectivePermissionsRef.current();
     };
     window.addEventListener('inventory_permissions_updated', handlePermissionsUpdated);
     return () => window.removeEventListener('inventory_permissions_updated', handlePermissionsUpdated);
@@ -470,9 +687,21 @@ export default function App() {
     prefsHydratedRef.current = true;
     persistedPrefsRef.current = { ...(prefs || {}) };
     if (prefs?.dateMode === 'BS' || prefs?.dateMode === 'AD') setDateMode(prefs.dateMode);
-    if (prefs?.activeTab && (NAV_TABS as string[]).includes(prefs.activeTab)) {
-      setActiveTab(prefs.activeTab as NavTab);
+    if (
+      !urlTabPendingRef.current &&
+      prefs?.activeTab &&
+      NAV_TABS.includes(prefs.activeTab as NavTab)
+    ) {
+      const nextTab = canonicalTab(prefs.activeTab as NavTab);
+      if (nextTab !== activeTabRef.current) {
+        // A server preference is restoration, not a click: replace the URL's
+        // starting entry instead of inventing a Back destination.
+        urlHistoryModeRef.current = 'replace';
+        setRecordRoute(null);
+        setActiveTab(nextTab);
+      }
     }
+    urlTabPendingRef.current = false;
     if (prefs?.theme === 'dark' || prefs?.theme === 'light') applyServerTheme(prefs.theme === 'dark');
   };
 
@@ -1331,32 +1560,35 @@ export default function App() {
 
   // React to currentUser state changes & enforce branch/tab restrictions
   useEffect(() => {
-    if (currentUser) {
-      if (currentUser.branchId && currentUser.branchId !== 'ALL' && currentUser.role !== 'SUPER_ADMIN') {
-        setSelectedBranchId(currentUser.branchId);
-      } else if (currentUser.branchId === 'ALL' || currentUser.role === 'SUPER_ADMIN') {
-        // Keep or allow branch selection
-      }
+    if (!currentUser) return;
+    // Keep whatever valid view scope the user picked — including an assigned
+    // secondary branch — and repair only a scope this account cannot read
+    // (the previous profile's branch, or ALL for a branch account). Forcing
+    // currentUser.branchId here made a multi-branch assignment unusable.
+    const nextBranchId = resolveBranchSelection(currentUser, branches, selectedBranchId);
+    if (nextBranchId !== selectedBranchId) setSelectedBranchId(nextBranchId);
 
-      // Check for restricted tabs (permission matrix + super-admin-only tabs).
-      // Re-check on every tab change and after the matrix is edited/saved.
-      if (!canAccessTab(activeTab)) {
-        setActiveTab('dashboard');
-      }
+    // Check for restricted tabs (permission matrix + super-admin-only tabs).
+    // Re-check on every tab change and after the matrix is edited/saved. The
+    // path is only a request: an unreadable one is replaced by Dashboard, never
+    // left in the address bar as if the screen had opened.
+    if (!canAccessTab(activeTab)) {
+      urlHistoryModeRef.current = 'replace';
+      setRecordRoute(null);
+      setActiveTab('dashboard');
     }
-  }, [currentUser, activeTab, permissionsVersion]);
+  }, [currentUser, activeTab, permissionsVersion, branches, selectedBranchId]);
 
-  // Handle Branch Selection with restriction for branch users
+  // Branch selections are validated against the account's real branch scope:
+  // assigned secondary branches pass, everything else falls back to the primary.
   const handleSelectBranch = (bId: string) => {
-    if (currentUser?.branchId && currentUser.branchId !== 'ALL' && currentUser.role !== 'SUPER_ADMIN') {
-      setSelectedBranchId(currentUser.branchId);
-    } else {
-      setSelectedBranchId(bId);
-    }
+    setSelectedBranchId(resolveBranchSelection(currentUser, branches, bId));
   };
 
   // Auth actions
   const handleLogin = async (e: string, p: string) => {
+    // Never carry the previous session's resolved set into a new sign-in.
+    applyEffectivePermissions(null);
     const res = await api.login(e, p);
     setAuthToken(res.token);
     setCurrentUser(res.user);
@@ -1372,6 +1604,7 @@ export default function App() {
     setRootUser(null);
     setAuthToken(null);
     setUserContext(null);
+    applyEffectivePermissions(null);
     clearUserSession();
     clearRecentBootstrapCache();
     // Branch stock rows are cached per branch, not per user: the next sign-in
@@ -1397,8 +1630,30 @@ export default function App() {
       const res = await api.switchProfile(targetUserId);
       setAuthToken(res.token);
       setCurrentUser(res.user);
+      // The previous profile's grants must not reveal its tabs for even one
+      // frame under the new identity; the id-change effect resolves the new set.
+      applyEffectivePermissions(null);
+      // Branch-scoped caches are shared per branch, not per user. The previous
+      // profile may have loaded branches this one cannot read; refetching them
+      // with the new token is a 403 (the "branch stock could not be refreshed"
+      // banner) and would also leave another profile's rows on screen. The
+      // exchange and assignable-asset lists are session-scoped in the same way.
+      resetBranchStock();
+      resetExchangeDevices();
+      resetAvailableFixedAssets();
       saveUserSession(res.user, nextRoot, res.token);
-      await refreshAllData();
+      // A branch-restricted profile cannot read the previous scope (often
+      // ALL), but it CAN keep a secondary branch it is assigned. Switch the
+      // scope in the SAME batch as the identity: otherwise bootstrap and the
+      // shipment overview fire with the old branch filter and the new token,
+      // and the server correctly answers 403.
+      const nextBranchId = resolveBranchSelection(res.user, branches, selectedBranchId);
+      if (nextBranchId !== selectedBranchId) {
+        // The selectedBranchId effect performs the refresh with the new scope.
+        setSelectedBranchId(nextBranchId);
+      } else {
+        await refreshAllData();
+      }
     } catch (err: any) {
       // Never fail silently. If the server session is gone (e.g. after a
       // server restart) drop the stale local session so the user can log
@@ -1424,6 +1679,12 @@ export default function App() {
       const res = await api.switchProfile(rootUser.id, { targetEmail: rootUser.email });
       setAuthToken(res.token);
       setCurrentUser(res.user);
+      applyEffectivePermissions(null);
+      // These caches are session-scoped: drop the switched profile's rows
+      // before the root profile's refresh asks for every branch again.
+      resetBranchStock();
+      resetExchangeDevices();
+      resetAvailableFixedAssets();
       // Re-sync the root profile from the server response (freshest data,
       // including the current id) so future switch-backs are always valid.
       setRootUser(res.user);
@@ -1657,28 +1918,25 @@ export default function App() {
       paymentDateAD?: string;
     }
   ) => {
-    await api.recordInvoicePayment(id, amount, paymentMethod);
-    // Also write the sub-ledger row (bank details, dated, full history) so the
-    // Vendor Ledger report and the invoice payment history stay authoritative.
-    try {
-      const linkedInv = purchaseInvoices.find((inv) => inv.id === id);
-      await api.createVendorPayment({
-        supplierId: linkedInv?.supplierId,
-        supplierName: linkedInv?.supplierName || '',
-        invoiceId: id,
-        invoiceNumber: linkedInv?.invoiceNumber,
-        amount,
-        paymentMethod: paymentMethod || 'CASH',
-        paymentDateAD: details?.paymentDateAD || new Date().toISOString().split('T')[0],
-        bankName: details?.bankName,
-        bankBranch: details?.bankBranch,
-        accountNumber: details?.accountNumber,
-        chequeNumber: details?.chequeNumber,
-        transactionReference: details?.transactionReference,
-      });
-    } catch (err: any) {
-      console.warn('Sub-ledger sync notice:', err?.message || err);
-    }
+    // One payment document, one atomic write: the server records the payment
+    // row, applies it to the invoice and posts the AP/cash journal together.
+    // Calling the balance-only /pay endpoint first would make that split
+    // non-atomic and post the same cash movement twice.
+    const linkedInv = purchaseInvoices.find((inv) => inv.id === id);
+    await api.createVendorPayment({
+      supplierId: linkedInv?.supplierId,
+      supplierName: linkedInv?.supplierName || '',
+      invoiceId: id,
+      invoiceNumber: linkedInv?.invoiceNumber,
+      amount,
+      paymentMethod: paymentMethod || 'CASH',
+      paymentDateAD: details?.paymentDateAD || new Date().toISOString().split('T')[0],
+      bankName: details?.bankName,
+      bankBranch: details?.bankBranch,
+      accountNumber: details?.accountNumber,
+      chequeNumber: details?.chequeNumber,
+      transactionReference: details?.transactionReference,
+    });
     refreshAllData();
   };
 
@@ -1714,6 +1972,33 @@ export default function App() {
     await api.cancelReceiveShipment(id, currentUser, reason);
     refreshAllData();
   };
+
+  /** Resolve a manifest child path against the transfer register endpoint.
+   *  The thin Shipments host and the receive panel stay server-call-free; the
+   *  root owns this one bounded lookup for their deep links. */
+  const handleFindShipment = React.useCallback(
+    async (key: string, branchId?: string): Promise<Shipment | null> => {
+      try {
+        const page = await api.getShipmentPage({
+          branchId,
+          search: key,
+          page: 1,
+          pageSize: 25,
+        });
+        const wanted = key.toLowerCase();
+        return (
+          (page?.data || []).find((sh) =>
+            [sh.trackingCode, sh.id].some(
+              (value) => typeof value === 'string' && value.toLowerCase() === wanted
+            )
+          ) || null
+        );
+      } catch {
+        return null;
+      }
+    },
+    []
+  );
 
   // Stock Operations Actions
   const handleCreateOperation = async (op: Partial<StockOperation>) => {
@@ -1876,10 +2161,17 @@ export default function App() {
   // longer opens the overlays itself — it asks the shell (A2).
   const handleHelpNavigateTab = (tab: string) => {
     if (tab === 'users-management' || tab === 'login') {
-      setActiveTab('users');
-    } else {
-      setActiveTab(tab as NavTab);
+      handleSelectTab('users');
+    } else if (isNavTab(tab)) {
+      // A stale help link must not leave the workspace on an unnamed path.
+      handleSelectTab(tab);
     }
+  };
+
+  const openUserAccess = (userId: string, operationId?: string) => {
+    userAccessFocusSeq.current += 1;
+    setUserAccessFocus({ userId, requestId: userAccessFocusSeq.current, operationId });
+    setActiveTab('user-permissions');
   };
 
   // A4: the route table — every tab declared once, in render order. The
@@ -2126,6 +2418,8 @@ export default function App() {
           dateMode={dateMode}
           onCreateAsset={handleCreateAsset}
           onUpdateAssetStatus={handleUpdateAssetStatus}
+          recordRoute={activeTab === 'fixed-assets' ? recordRoute : null}
+          onRecordRouteChange={handleRecordRouteChange}
         />
       </React.Suspense>
     )),
@@ -2146,6 +2440,8 @@ export default function App() {
             setActiveTab(tab as any);
             if (filter) setSearchQuery(filter);
           }}
+          recordRoute={activeTab === 'customers' ? recordRoute : null}
+          onRecordRouteChange={handleRecordRouteChange}
         />
       </React.Suspense>
     )),
@@ -2224,6 +2520,7 @@ export default function App() {
         onUpdatePOStatus={handleUpdatePOStatus}
         onDeletePO={handleDeletePO}
         sseRefreshKey={registerRefresh.purchaseOrders}
+        onNavigateTab={handleSelectTab}
       />
     )),
     screenRoute('po-list', (
@@ -2245,6 +2542,9 @@ export default function App() {
         onUpdatePOStatus={handleUpdatePOStatus}
         onDeletePO={handleDeletePO}
         sseRefreshKey={registerRefresh.purchaseOrders}
+        recordRoute={activeTab === 'po-list' ? recordRoute : null}
+        onRecordRouteChange={handleRecordRouteChange}
+        onNavigateTab={handleSelectTab}
       />
     )),
     screenRoute('create-purchase', (
@@ -2269,6 +2569,7 @@ export default function App() {
           onReverseInvoicePayments={handleReverseInvoicePayments}
           onDeleteInvoice={handleDeleteInvoice}
           sseRefreshKey={registerRefresh.purchaseInvoices}
+          onNavigateTab={handleSelectTab}
         />
       </React.Suspense>
     )),
@@ -2294,6 +2595,9 @@ export default function App() {
           onReverseInvoicePayments={handleReverseInvoicePayments}
           onDeleteInvoice={handleDeleteInvoice}
           sseRefreshKey={registerRefresh.purchaseInvoices}
+          recordRoute={activeTab === 'purchase-list' ? recordRoute : null}
+          onRecordRouteChange={handleRecordRouteChange}
+          onNavigateTab={handleSelectTab}
         />
       </React.Suspense>
     )),
@@ -2316,6 +2620,7 @@ export default function App() {
           onCreateInvoice={handleCreateSalesInvoice}
           onRecordPayment={handleRecordCustomerPayment}
           onCancelInvoice={handleCancelSalesInvoice}
+          onNavigateTab={handleSelectTab}
         />
       </React.Suspense>
     )),
@@ -2338,6 +2643,9 @@ export default function App() {
           onCreateInvoice={handleCreateSalesInvoice}
           onRecordPayment={handleRecordCustomerPayment}
           onCancelInvoice={handleCancelSalesInvoice}
+          recordRoute={activeTab === 'sales-list' ? recordRoute : null}
+          onRecordRouteChange={handleRecordRouteChange}
+          onNavigateTab={handleSelectTab}
         />
       </React.Suspense>
     )),
@@ -2357,6 +2665,8 @@ export default function App() {
           onCreateReturn={handleCreatePurchaseReturn}
           onCancelReturn={handleCancelPurchaseReturn}
           onApproveReturn={handleApprovePurchaseReturn}
+          recordRoute={activeTab === 'purchase-returns' ? recordRoute : null}
+          onRecordRouteChange={handleRecordRouteChange}
         />
       </React.Suspense>
     )),
@@ -2396,6 +2706,8 @@ export default function App() {
           onCreateReturn={handleCreateSalesReturn}
           onCancelReturn={handleCancelSalesReturn}
           onApproveReturn={handleApproveSalesReturn}
+          recordRoute={activeTab === 'sales-returns' ? recordRoute : null}
+          onRecordRouteChange={handleRecordRouteChange}
         />
       </React.Suspense>
     )),
@@ -2515,6 +2827,9 @@ export default function App() {
         onCancelApproval={handleCancelApprovalRequest}
         onReverseOperation={handleReverseStockOperation}
         onUpdateAssetStatus={handleUpdateAssetStatus}
+        recordRoute={activeTab === 'receive-branch-transfer' ? recordRoute : null}
+        onRecordRouteChange={handleRecordRouteChange}
+        onFindShipment={handleFindShipment}
       />
     )),
     screenRoute('shipment-list', (
@@ -2537,6 +2852,9 @@ export default function App() {
           onRequestApproval={handleCreateApprovalRequest}
           onCancelApproval={handleCancelApprovalRequest}
           shipmentsRefresh={registerRefresh.shipments}
+          recordRoute={activeTab === 'shipment-list' ? recordRoute : null}
+          onRecordRouteChange={handleRecordRouteChange}
+          onFindShipment={handleFindShipment}
         />
       </React.Suspense>
     )),
@@ -2854,9 +3172,31 @@ export default function App() {
           await api.deleteUser(id);
           refreshAllData();
         }}
+        onManageAccess={openUserAccess}
+        recordRoute={activeTab === 'users' ? recordRoute : null}
+        onRecordRouteChange={handleRecordRouteChange}
       />
     )),
-    screenRoute('permissions', <PermissionManagement currentUser={currentUser} permissionsMatrix={permissionsMatrix} />),
+    screenRoute('permissions', (
+      <PermissionManagement
+        currentUser={currentUser}
+        permissionsMatrix={permissionsMatrix}
+        onOpenUserAccess={(target) => {
+          if (target) openUserAccess(target.userId, target.operationId);
+          else setActiveTab('user-permissions');
+        }}
+      />
+    )),
+    screenRoute('user-permissions',
+      <UserPermissions
+        currentUser={currentUser}
+        users={users}
+        branches={branches}
+        dateMode={dateMode}
+        focusRequest={userAccessFocus}
+        onOpenRoleDefaults={() => setActiveTab('permissions')}
+      />
+    ),
     screenRoute('company-setup', (
       <CompanySetupManagement
         currentUser={currentUser}
@@ -2904,6 +3244,41 @@ export default function App() {
           onSignedOut={handleLogout}
           onNavigateDashboard={() => setActiveTab('dashboard')}
         />
+      </React.Suspense>
+    )),
+    screenRoute('accounting', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <TrialBalanceRegister branches={branches} dateMode={dateMode} currentUser={currentUser} />
+      </React.Suspense>
+    )),
+    screenRoute('accounting-profit-loss', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <ProfitAndLossRegister branches={branches} dateMode={dateMode} currentUser={currentUser} />
+      </React.Suspense>
+    )),
+    screenRoute('accounting-balance-sheet', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <BalanceSheetRegister branches={branches} dateMode={dateMode} currentUser={currentUser} />
+      </React.Suspense>
+    )),
+    screenRoute('accounting-cash-book', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <CashBookRegister branches={branches} dateMode={dateMode} currentUser={currentUser} />
+      </React.Suspense>
+    )),
+    screenRoute('accounting-aging', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <AgingRegister branches={branches} dateMode={dateMode} currentUser={currentUser} />
+      </React.Suspense>
+    )),
+    screenRoute('accounting-chart', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <ChartOfAccountsRegister branches={branches} dateMode={dateMode} currentUser={currentUser} />
+      </React.Suspense>
+    )),
+    screenRoute('cash-position', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <DailyCashClose branches={branches} dateMode={dateMode} currentUser={currentUser} />
       </React.Suspense>
     )),
     screenRoute('financial-statements', (
@@ -3084,7 +3459,7 @@ export default function App() {
       selectedFiscalYearId={selectedFiscalYearId}
       onSelectFiscalYear={setSelectedFiscalYearId}
       activeTab={activeTab}
-      onSelectTab={setActiveTab}
+      onSelectTab={handleSelectTab}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
       products={products}

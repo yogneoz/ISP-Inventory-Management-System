@@ -130,8 +130,7 @@ product name at every width and clipped 162 px of its six-column table at 390;
 the consolidated matrix ellipsized **eight** product names by up to 85 px even
 at 1440; and the variance-reason cell cut 4-5 px.
 
-**Fixed.** All nine panels render inside `ModalPanel`; the direct-reconcile
-panel is included even though it has no live trigger (see below). Identity cells
+**Fixed.** The eight reachable panels render inside `ModalPanel`. Identity cells
 now wrap (`break-words` / `break-all`) instead of truncating, and both audit
 discrepancy tables scroll horizontally (`overflow-x-auto`) instead of clipping at
 390 px. Pinned by `tests/modalPanel.test.ts` (18 files) and the three static
@@ -142,11 +141,17 @@ modal + a name and zero clipped/ellipsized/overflow/off-viewport/mouse-only/
 small-target/error findings. The full 32-surface sweep reports the same across
 all 96 readings.
 
-**Unreachable panel.** The "Direct Stock Reconcile (Admin Direct Override)"
-overlay's `showDirectReconcileModal` state is only ever set to `false`; no
-control sets it to `true`. It could therefore not be measured through a real
-trigger. It is converted for consistency, but the dead panel should either get
-its trigger back or be deleted.
+**Unreachable panel — resolved by deletion.** The separate "Direct Stock
+Reconcile (Admin Direct Override)" overlay's `showDirectReconcileModal` state
+was only ever set to `false`; no control set it to `true`. The live
+approve/reconcile confirmation already handled the no-pending-request case by
+posting the adjustment directly, so the orphan panel was deleted and that live
+dialog now names the mode explicitly — "Direct Stock Reconcile (Admin Override)"
+with a "No approval request" badge — and its confirm action calls
+`onReconcileStockAudit`. Pinned by
+`tests/physicalAuditDirectReconcile.test.ts`, which also proves the pending
+request still goes through `onProcessApproval`. The adjustment table's product
+name was still truncated at 150 px; it now wraps in full.
 
 ## What was verified
 
@@ -229,9 +234,8 @@ through the shared `DialogProvider`, which is covered above.
 
 ## Not covered
 
-- Dark mode inside overlays; the direct-reconcile panel has no trigger to
-  measure; native select popups (browser UI); axe/contrast, screen readers,
-  Firefox/Safari, touch gestures, print/PDF.
+- Dark mode inside overlays; native select popups (browser UI); axe/contrast,
+  screen readers, Firefox/Safari, touch gestures, print/PDF.
 - Browser zoom other than the app's own responsive tiers.
 
 ## Detector notes

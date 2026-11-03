@@ -45,6 +45,7 @@ import { parseLineQuantity } from '../../utils/lineQuantity';
 import { getDefaultTaxRate } from '../../utils/taxConfig';
 import { inputClass, labelClass, btnPrimary, btnGhost } from '../../components/common/styleConstants';
 import { api } from '../../services/api';
+import type { RecordRoute } from '../../routes/appPaths';
 import type {
   PurchaseInvoice, SalesInvoice, PurchaseReturn, SalesReturn, Product, Branch, CompanyProfile, User,
 } from '../../types';
@@ -71,6 +72,9 @@ interface ReturnsRegisterProps {
   onApproveReturn?: (id: string) => Promise<void>;
   /** Bumped by App's SSE handler when procurement/sales return events arrive. */
   sseRefreshKey?: number;
+  /** `/sales/returns/:returnNumber` or `/purchasing/returns/:returnNumber`. */
+  recordRoute?: RecordRoute | null;
+  onRecordRouteChange?: (record: RecordRoute | null) => void;
 }
 
 
@@ -132,11 +136,15 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
   onCancelReturn,
   onApproveReturn,
   sseRefreshKey,
+  recordRoute = null,
+  onRecordRouteChange,
 }) => {
   const { isDarkMode } = useDarkMode();
   const { confirm: confirmDialog, alert: alertDialog } = useDialog();
   const [internalTab, setInternalTab] = useState<'LIST' | 'CREATE' | 'VIEW'>(autoOpenCreate ? 'CREATE' : 'LIST');
   const [viewing, setViewing] = useState<PurchaseReturn | SalesReturn | null>(null);
+  const recordRouteChangeRef = useRef(onRecordRouteChange);
+  recordRouteChangeRef.current = onRecordRouteChange;
 
   // Create-form state
   const [branchId, setBranchId] = useState(selectedBranchId || branches[0]?.id || '');
@@ -201,6 +209,57 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
   useEffect(() => {
     loadRetPage();
   }, [loadRetPage, retRefreshKey, sseRefreshKey]);
+
+  // The URL owns the open return: a shared `/:returnNumber` link resolves the
+  // record from the loaded slices first, then the filtered server page. The
+  // register itself stays on screen underneath the detail view.
+  const returnRecordKey = recordRoute?.kind === 'detail' ? recordRoute.id : '';
+  const returnMatchesKey = (ret: PurchaseReturn | SalesReturn) =>
+    [ret.returnNumber, ret.id].some(
+      (value) => typeof value === 'string' && value.toLowerCase() === returnRecordKey.toLowerCase()
+    );
+
+  const openReturnDetail = (ret: PurchaseReturn | SalesReturn) => {
+    setViewing(ret);
+    recordRouteChangeRef.current?.({ kind: 'detail', id: ret.returnNumber });
+  };
+  const closeReturnDetail = () => {
+    setViewing(null);
+    recordRouteChangeRef.current?.(null);
+  };
+
+  useEffect(() => {
+    if (!returnRecordKey) {
+      setViewing((current) => (current ? null : current));
+      return;
+    }
+
+    const local = [...returns, ...retRows].find(returnMatchesKey);
+    if (local) {
+      setViewing((current) => (current && returnMatchesKey(current) ? current : local));
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const params = { query: returnRecordKey, page: 1, pageSize: 25 };
+        const envelope: any = isPurchase
+          ? await api.getPurchaseReturns(params)
+          : await api.getSalesReturns(params);
+        const rows: (PurchaseReturn | SalesReturn)[] = Array.isArray(envelope) ? envelope : envelope.data || [];
+        const match = rows.find(returnMatchesKey);
+        if (cancelled) return;
+        if (match) setViewing(match);
+        else recordRouteChangeRef.current?.(null);
+      } catch {
+        if (!cancelled) recordRouteChangeRef.current?.(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [returnRecordKey, isPurchase, returns, retRows]);
 
   // A filter change snaps the page back to 1 in the same render, so one
   // change costs one request for page 1 instead of two (DF-12).
@@ -348,14 +407,21 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
     );
   };
 
-  /** Scanned/typed device serial: MAC and PON come from the invoice's unit. */
+  /**
+   * Scanned/typed device serial resolves the unit on the original invoice.
+   * MAC and PON are copied from that unit and cleared as soon as the value
+   * stops matching, so a corrected scan never submits the previous unit's
+   * identity. A purchase return shows only this field; a sales return also
+   * lets the operator edit the three identities by hand.
+   */
   const updateLineDeviceSerial = (lineIdx: number, serialIdx: number, raw: string) => {
     const line = lines[lineIdx];
     const units = selectedInvoice ? invoiceSerialUnits(selectedInvoice.items, line.productId) : [];
     const unit = findInvoiceSerialUnit(units, raw);
     updateLineSerial(lineIdx, serialIdx, {
       deviceSerial: raw,
-      ...(unit ? { macAddress: unit.macAddress, ponSerial: unit.ponSerial } : {}),
+      macAddress: unit?.macAddress ?? '',
+      ponSerial: unit?.ponSerial ?? '',
     });
   };
 
@@ -552,7 +618,7 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
         icon={internalTab === 'CREATE' ? <PlusCircle className="h-5 w-5" /> : <Undo2 className="h-5 w-5" />}
         actions={
           viewing ? (
-            <button className={btnGhost} onClick={() => setViewing(null)}>
+            <button className={btnGhost} onClick={closeReturnDetail}>
               <ArrowLeft className="h-4 w-4" /> Back to Register
             </button>
           ) : internalTab === 'CREATE' ? (
@@ -747,8 +813,9 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
                       <div className="mb-2 flex flex-wrap items-center gap-1.5 text-[11px] font-bold text-indigo-800 dark:text-indigo-300">
                         <Barcode className="h-3.5 w-3.5" />
                         <span>
-                          Serial numbers — scan Device, MAC and PON per unit ({line.deviceSerials.length}{' '}
-                          unit{line.deviceSerials.length === 1 ? '' : 's'})
+                          {isPurchase
+                            ? `Serial numbers — scan the Device serial per unit (${line.deviceSerials.length} unit${line.deviceSerials.length === 1 ? '' : 's'}); MAC and PON come from the invoice.`
+                            : `Serial numbers — scan Device, MAC and PON per unit (${line.deviceSerials.length} unit${line.deviceSerials.length === 1 ? '' : 's'})`}
                         </span>
                       </div>
                       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -770,10 +837,14 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
                               <div className="mb-1.5 flex flex-wrap items-center justify-between gap-1">
                                 <span className="font-mono text-[10px] font-bold text-slate-400">Unit #{sIdx + 1}</span>
                                 <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                  Device required · MAC/PON from invoice
+                                  {isPurchase
+                                    ? 'Device scan only · MAC/PON from invoice'
+                                    : 'Device required · MAC/PON from invoice'}
                                 </span>
                               </div>
-                              <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
+                              <div
+                                className={`grid grid-cols-1 gap-1.5 ${isPurchase ? '' : 'sm:grid-cols-3'}`}
+                              >
                                 <input
                                   id={`ret-serial-device-${idx}-${sIdx}`}
                                   type="text"
@@ -786,7 +857,7 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
                                     // A scan of the unit that the invoice already identifies
                                     // has its MAC/PON filled, so Enter goes straight to the
                                     // next unit; otherwise it walks the identity fields.
-                                    if (slot.macAddress || slot.ponSerial) {
+                                    if (isPurchase || slot.macAddress || slot.ponSerial) {
                                       focusNextDeviceSlot(idx, sIdx);
                                     } else {
                                       focusReturnField(`ret-serial-mac-${idx}-${sIdx}`);
@@ -794,39 +865,55 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
                                   }}
                                   className="w-full rounded-lg border border-blue-200 bg-blue-50/50 px-2.5 py-1 text-[11px] font-mono font-bold text-blue-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-200 dark:focus:bg-slate-900"
                                 />
-                                <input
-                                  id={`ret-serial-mac-${idx}-${sIdx}`}
-                                  type="text"
-                                  placeholder="MAC Address"
-                                  value={slot.macAddress}
-                                  onChange={(e) =>
-                                    updateLineSerial(idx, sIdx, { macAddress: e.target.value })
-                                  }
-                                  onBlur={() => normalizeLineMac(idx, sIdx)}
-                                  onKeyDown={(e) => {
-                                    if (e.key !== 'Enter') return;
-                                    e.preventDefault();
-                                    normalizeLineMac(idx, sIdx);
-                                    focusReturnField(`ret-serial-pon-${idx}-${sIdx}`);
-                                  }}
-                                  className="w-full rounded-lg border border-emerald-200 bg-emerald-50/50 px-2.5 py-1 text-[11px] font-mono font-bold text-emerald-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200 dark:focus:bg-slate-900"
-                                />
-                                <input
-                                  id={`ret-serial-pon-${idx}-${sIdx}`}
-                                  type="text"
-                                  placeholder="PON Serial # (optional)"
-                                  value={slot.ponSerial}
-                                  onChange={(e) =>
-                                    updateLineSerial(idx, sIdx, { ponSerial: e.target.value })
-                                  }
-                                  onKeyDown={(e) => {
-                                    if (e.key !== 'Enter') return;
-                                    e.preventDefault();
-                                    focusNextDeviceSlot(idx, sIdx);
-                                  }}
-                                  className="w-full rounded-lg border border-indigo-200 bg-indigo-50/50 px-2.5 py-1 text-[11px] font-mono font-bold text-indigo-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-200 dark:focus:bg-slate-900"
-                                />
+                                {/* Purchase returns keep a single scan field: the
+                                    invoice already names the unit, so MAC/PON are
+                                    retrieved and shown read-only below. */}
+                                {!isPurchase && (
+                                  <>
+                                    <input
+                                      id={`ret-serial-mac-${idx}-${sIdx}`}
+                                      type="text"
+                                      placeholder="MAC Address"
+                                      value={slot.macAddress}
+                                      onChange={(e) =>
+                                        updateLineSerial(idx, sIdx, { macAddress: e.target.value })
+                                      }
+                                      onBlur={() => normalizeLineMac(idx, sIdx)}
+                                      onKeyDown={(e) => {
+                                        if (e.key !== 'Enter') return;
+                                        e.preventDefault();
+                                        normalizeLineMac(idx, sIdx);
+                                        focusReturnField(`ret-serial-pon-${idx}-${sIdx}`);
+                                      }}
+                                      className="w-full rounded-lg border border-emerald-200 bg-emerald-50/50 px-2.5 py-1 text-[11px] font-mono font-bold text-emerald-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200 dark:focus:bg-slate-900"
+                                    />
+                                    <input
+                                      id={`ret-serial-pon-${idx}-${sIdx}`}
+                                      type="text"
+                                      placeholder="PON Serial # (optional)"
+                                      value={slot.ponSerial}
+                                      onChange={(e) =>
+                                        updateLineSerial(idx, sIdx, { ponSerial: e.target.value })
+                                      }
+                                      onKeyDown={(e) => {
+                                        if (e.key !== 'Enter') return;
+                                        e.preventDefault();
+                                        focusNextDeviceSlot(idx, sIdx);
+                                      }}
+                                      className="w-full rounded-lg border border-indigo-200 bg-indigo-50/50 px-2.5 py-1 text-[11px] font-mono font-bold text-indigo-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-200 dark:focus:bg-slate-900"
+                                    />
+                                  </>
+                                )}
                               </div>
+                              {isPurchase && (slot.macAddress || slot.ponSerial) && (
+                                <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[10px] text-slate-500 dark:text-slate-400">
+                                  {slot.macAddress ? <span>MAC {slot.macAddress}</span> : null}
+                                  {slot.ponSerial ? <span>PON {slot.ponSerial}</span> : null}
+                                  <span className="font-sans font-semibold text-emerald-600 dark:text-emerald-400">
+                                    from invoice
+                                  </span>
+                                </div>
+                              )}
                               {slot.deviceSerial.trim() && duplicateIdx >= 0 && (
                                 <div className="mt-1 text-[10px] font-semibold text-rose-600 dark:text-rose-400">
                                   Already used on unit #{duplicateIdx + 1}.
@@ -943,7 +1030,7 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
                     <td className="px-4 py-2 text-right">{formatMoney(ret.grandTotal)}</td>
                     <td className="whitespace-nowrap px-4 py-2 text-right">
                       <button className="mr-2 text-indigo-600 hover:text-indigo-700 dark:text-indigo-400" title="View"
-                        onClick={() => { setViewing(ret); }}>
+                        onClick={() => openReturnDetail(ret)}>
                         <Eye className="h-4 w-4" />
                       </button>
                       {ret.status === 'DRAFT' && onApproveReturn && (

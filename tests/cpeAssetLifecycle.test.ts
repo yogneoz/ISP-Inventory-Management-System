@@ -31,6 +31,7 @@ import {
   type LifecycleProduct,
 } from '../server/src/services/cpeAssetLifecycle.service';
 import { OperationError } from '../server/src/utils/operationError';
+import { ensureDefaultChart } from '../server/src/services/accountingSeed.service';
 
 dotenv.config();
 
@@ -147,6 +148,10 @@ async function ledgerRows(prefix: string): Promise<any[]> {
 describe('CPE fixed-asset lifecycle (CPE-3)', () => {
   before(async () => {
     if (!dbReachable) return;
+    // Collection/release now writes a journal against the branch, so the
+    // journal rows must go before the fixture branches can be re-created.
+    await pool!.query("DELETE FROM gl_journals WHERE branch_id LIKE 'cpa-%'");
+    await ensureDefaultChart(pool!);
     await pool!.query("DELETE FROM transaction_logs WHERE id LIKE 'cpa-%' OR reference_doc_id LIKE 'CPA-%' OR reference_doc_id LIKE 'cpa-%'");
     await pool!.query("DELETE FROM fixed_assets WHERE id LIKE 'cpa-%' OR tag_number LIKE 'CPA-%'");
     await pool!.query("DELETE FROM customer_device_records WHERE id LIKE 'cpa-%' OR device_serial LIKE 'CPA-%'");
@@ -161,6 +166,7 @@ describe('CPE fixed-asset lifecycle (CPE-3)', () => {
 
   after(async () => {
     if (!dbReachable) return;
+    await pool!.query("DELETE FROM gl_journals WHERE branch_id LIKE 'cpa-%'");
     await pool!.query("DELETE FROM transaction_logs WHERE id LIKE 'cpa-%' OR reference_doc_id LIKE 'CPA-%' OR reference_doc_id LIKE 'cpa-%'");
     await pool!.query("DELETE FROM fixed_assets WHERE id LIKE 'cpa-%' OR tag_number LIKE 'CPA-%'");
     await pool!.query("DELETE FROM customer_device_records WHERE id LIKE 'cpa-%' OR device_serial LIKE 'CPA-%'");

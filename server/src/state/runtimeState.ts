@@ -25,6 +25,10 @@ import type {
   WarrantyCoverageRecord,
 } from '../../../client/src/types';
 import { INITIAL_PRODUCT_GROUPS } from '../config/seedData';
+import type {
+  UserPermissionOverrideMap,
+  UserPermissionSetGrantMap,
+} from '../models/permissions.repo';
 
 // ---------------------------------------------------------------------------
 // Runtime state seeded from config/seedData.ts constants:
@@ -73,6 +77,14 @@ export let activeUser: User | null = null;
 
 // In-memory permission matrix (populated at startup from PostgreSQL).
 export let permissionMatrix: Record<string, Record<string, boolean>> = {};
+// Per-user permission overrides layered on top of the role matrix. Indexed by
+// user and operation at boot and after every committed write; the resolver
+// treats a missing user or operation as "inherit the role's matrix row".
+export let userPermissionOverrides: UserPermissionOverrideMap = new Map();
+// Grants contributed by reusable permission sets, folded to userId -> operations
+// at boot and after every committed set/membership write. Kept separate from
+// the explicit overrides so the resolver can apply "user deny wins over a set".
+export let userPermissionSetGrants: UserPermissionSetGrantMap = new Map();
 
 let isPgConnected = false;
 let dataVersion = Date.now();
@@ -111,6 +123,8 @@ export function setDamageRecords(value: readonly DamageRecord[]): void { damageR
 export function setSerialLogs(value: readonly SerialLog[]): void { serialLogs = value; }
 export function setWarrantyCoverages(value: readonly WarrantyCoverageRecord[]): void { warrantyCoverages = value; }
 export function setPermissionMatrix(value: Record<string, Record<string, boolean>>): void { permissionMatrix = value; }
+export function setUserPermissionOverrides(value: UserPermissionOverrideMap): void { userPermissionOverrides = value; }
+export function setUserPermissionSetGrants(value: UserPermissionSetGrantMap): void { userPermissionSetGrants = value; }
 export function setActiveUser(value: User): void { activeUser = value; }
 export function setPgConnected(v: boolean): void { isPgConnected = v; }
 export function getPgConnected(): boolean { return isPgConnected; }
@@ -169,7 +183,29 @@ export const CACHE_LOADS: Array<{ name: string; query: string; apply: (rows: any
   // The old hand-written list was missing these two: their caches were never
   // hydrated at boot and only grew through runtime appends. Generated from
   // the mappings, they hydrate like every other table.
-  { name: 'approval_requests', query: buildCacheSelectSql(BOOTSTRAP_TABLES.approvalRequests), apply: (rows) => { if (rows.length > 0) approvalRequests = rows as any; } },
+  {
+    name: 'approval_requests',
+    query: buildCacheSelectSql(BOOTSTRAP_TABLES.approvalRequests),
+    apply: (rows) => {
+      if (rows.length === 0) return;
+      // `audit_data` and `shipment_data` are request payloads the schema does
+      // not persist; they live only in the in-memory request. The cache hook
+      // re-reads this table after every write, so merge by id instead of
+      // replacing the row and silently dropping the payload an approval needs
+      // to execute (variance items, the shipment a cancel refers to).
+      const previous = new Map(approvalRequests.map((entry) => [entry.id, entry]));
+      approvalRequests = rows.map((row: any) => {
+        const old = previous.get(row.id);
+        if (!old) return row;
+        return {
+          ...old,
+          ...row,
+          auditData: row.auditData ?? old.auditData,
+          shipmentData: row.shipmentData ?? old.shipmentData,
+        };
+      }) as any;
+    },
+  },
   { name: 'damage_records', query: buildCacheSelectSql(BOOTSTRAP_TABLES.damageRecords), apply: (rows) => { if (rows.length > 0) damageRecords = rows as any; } },
   { name: 'customer_records', query: buildCacheSelectSql(BOOTSTRAP_TABLES.customers), apply: (rows) => { customerMasterRecords = rows as any; } },
   // CDR-2: customer_device_records is cache-only — its slice was retired

@@ -27,11 +27,20 @@ EXAMPLE_USER_PASSWORD,
 INITIAL_EXAMPLE_USERS,
 } from '../config/seedData';
 import { DEFAULT_PERMISSIONS_MATRIX } from '../../../client/src/utils/permissionMatrixData';
+import {
+  PERMISSION_SET_USER_GRANTS_SELECT_SQL,
+  USER_PERMISSION_OVERRIDES_SELECT_SQL,
+  rowsToUserPermissionOverrideMap,
+  rowsToUserPermissionSetGrantMap,
+} from '../models/permissions.repo';
 import { hashPassword } from '../middleware/auth';
+import { ensureDefaultChart } from '../services/accountingSeed.service';
 
 import {
   setDocNumberConfigs,
   setPermissionMatrix,
+  setUserPermissionOverrides,
+  setUserPermissionSetGrants,
   hydrateOperationalData,
 } from '../state/runtimeState';
 
@@ -114,12 +123,18 @@ export async function syncDatabaseAndIndexes() {
     setPgConnectedFlag(true);
     setIsPgConnected(true);
     await seedInitialPostgresData(client);
+    // A fresh install must be able to post its first invoice without a manual
+    // chart setup: seed the minimum posting defaults idempotently. Existing
+    // codes are never changed, so operator edits survive every boot.
+    await ensureDefaultChart(client);
     await hydrateOperationalData(client);
     // SER-2 / D3: the serial register is no longer converged on boot. A silent
     // pass hid unregistered legacy units and rewrote the register behind the
     // operator's back; it is now an explicit SUPER_ADMIN action.
     console.log('ℹ️  Serial register: boot does not backfill. Reconcile on demand at Administration & Governance → Data Recalculation & Repair → Reconcile Serial Register.');
     await loadPermissionMatrixFromDb(client);
+    await loadUserPermissionOverridesFromDb(client);
+    await loadUserPermissionSetGrantsFromDb(client);
     await hydrateBsCalendarFromDb(client);
 
     // Read-only calendar integrity check. The API, the CLI and the BS Calendar
@@ -289,5 +304,34 @@ async function loadPermissionMatrixFromDb(client: pg.PoolClient): Promise<void> 
   }
   setPermissionMatrix(matrix);
   console.log(`✅ Server-side permission matrix loaded: ${Object.keys(matrix).length} operations mapped.`);
+}
+
+// Load the per-user exception layer. Absent rows mean "inherit the role", so
+// an installation that never uses overrides hydrates an empty map and behaves
+// exactly as before.
+async function loadUserPermissionOverridesFromDb(client: pg.PoolClient): Promise<void> {
+  const result = await client.query(USER_PERMISSION_OVERRIDES_SELECT_SQL);
+  const overrides = rowsToUserPermissionOverrideMap(result.rows as any);
+  setUserPermissionOverrides(overrides);
+  let entries = 0;
+  for (const operations of overrides.values()) entries += operations.size;
+  console.log(
+    `✅ Per-user permission overrides loaded: ${entries} exception(s) across ${overrides.size} user(s).`
+  );
+}
+
+// Load the grants contributed by reusable permission sets. The table stores
+// definitions and memberships; the authz path only needs the derived
+// userId -> operations map, so it is folded once at boot and after every
+// committed write. An empty table keeps the map empty and behaviour identical.
+async function loadUserPermissionSetGrantsFromDb(client: pg.PoolClient): Promise<void> {
+  const result = await client.query(PERMISSION_SET_USER_GRANTS_SELECT_SQL);
+  const grants = rowsToUserPermissionSetGrantMap(result.rows as any);
+  setUserPermissionSetGrants(grants);
+  let entries = 0;
+  for (const operations of grants.values()) entries += operations.size;
+  console.log(
+    `✅ Permission-set grants loaded: ${entries} operation(s) across ${grants.size} member(s).`
+  );
 }
 

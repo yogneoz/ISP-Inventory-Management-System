@@ -28,6 +28,7 @@ import { api } from '../../services/api';
 import { TablePagination, useServerPageClamp } from '../../components/common/TablePagination';
 import { RegisterLoadError } from '../../components/common/RegisterLoadError';
 import { PurchaseOrderForm, type OrderFormLine } from './PurchaseOrderForm';
+import type { RecordRoute } from '../../routes/appPaths';
 
 // Re-exported for App.tsx, which seeds the dashboard's low-stock reorder flow.
 export type { OrderFormLine };
@@ -46,6 +47,11 @@ interface PurchaseOrdersProps {
   /** Sidebar menu that opened this page: 'create-po' opens the inline create form, 'po-list' opens the register. */
   activeTab?: 'create-po' | 'po-list';
   autoOpenModal?: boolean;
+  /** Child record path this screen is currently showing, if any. */
+  recordRoute?: RecordRoute | null;
+  onRecordRouteChange?: (record: RecordRoute | null) => void;
+  /** Switch between this register and the shared create form. */
+  onNavigateTab?: (tab: 'create-po' | 'po-list') => void;
   prepopulatedLines?: OrderFormLine[];
   onCreatePO: (
     po: Omit<
@@ -73,6 +79,9 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
   dateMode,
   activeTab = 'po-list',
   autoOpenModal = false,
+  recordRoute = null,
+  onRecordRouteChange,
+  onNavigateTab,
   prepopulatedLines,
   onCreatePO,
   onUpdatePO,
@@ -91,6 +100,8 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
 
   const [viewingPO, setViewingPO] = useState<PurchaseOrder | null>(null);
   const [editingPO, setEditingPO] = useState<PurchaseOrder | null>(null);
+  const recordRouteChangeRef = useRef(onRecordRouteChange);
+  recordRouteChangeRef.current = onRecordRouteChange;
   // Register search: the input uses a debounced draft (FilterCard); the table
   // only re-filters when the user pauses typing or presses Enter.
   const [searchQuery, setSearchQuery] = useState('');
@@ -111,14 +122,19 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
   const [poLoadError, setPoLoadError] = useState('');
   const [poRefreshKey, setPoRefreshKey] = useState(0);
 
-  // Sync the internal page with the sidebar menu that opened this component
+  // Sync the internal page with the sidebar menu that opened this component.
+  // View/edit records are overlays on the register and own their internal tab.
   useEffect(() => {
     if (autoOpenModal || (activeTab === 'create-po' && canCreatePoByRole)) {
       setInternalTab('CREATE_PO');
-    } else if (activeTab === 'po-list' || (activeTab === 'create-po' && !canCreatePoByRole)) {
+    } else if (
+      activeTab === 'po-list' &&
+      recordRoute?.kind !== 'detail' &&
+      recordRoute?.kind !== 'edit'
+    ) {
       setInternalTab('PO_LIST');
     }
-  }, [autoOpenModal, activeTab, canCreatePoByRole]);
+  }, [autoOpenModal, activeTab, canCreatePoByRole, recordRoute?.kind]);
 
   // Suppliers list strictly sourced from parent master directory
   const availableSuppliers = suppliers && suppliers.length > 0 ? suppliers : [];
@@ -193,6 +209,72 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
         return matchesBranchLocal(po) && matchesSupplierLocal(po) && matchesSearch && matchesDate;
       }).sort((a, b) => (b.orderDateAD || '').localeCompare(a.orderDateAD || ''))
     : poRows;
+
+  // Resolve `/purchasing/orders/:po` and `/:po/edit` against the loaded page,
+  // then the filtered list endpoint when the order is elsewhere in the ledger.
+  const recordKey = recordRoute?.kind === 'detail' || recordRoute?.kind === 'edit'
+    ? recordRoute.id
+    : '';
+  const recordKind = recordRoute?.kind === 'edit' ? 'edit' : recordRoute?.kind === 'detail' ? 'detail' : '';
+  useEffect(() => {
+    if (!recordKey || !recordKind) {
+      if (activeTab !== 'create-po') {
+        setViewingPO(null);
+        setEditingPO(null);
+        setInternalTab('PO_LIST');
+      }
+      return;
+    }
+    const wanted = recordKey.toLowerCase();
+    const matches = (po: PurchaseOrder) =>
+      po.poNumber?.toLowerCase() === wanted || po.id?.toLowerCase() === wanted;
+
+    const apply = (po: PurchaseOrder) => {
+      if (recordKind === 'detail') {
+        setEditingPO(null);
+        setViewingPO(po);
+        setInternalTab('VIEW_PO');
+        return;
+      }
+      if (!canEditPo(po)) {
+        setEditingPO(null);
+        setViewingPO(null);
+        setInternalTab('PO_LIST');
+        recordRouteChangeRef.current?.(null);
+        return;
+      }
+      setViewingPO(null);
+      setEditingPO(po);
+      setInternalTab('CREATE_PO');
+    };
+
+    const inPage = poRows.find(matches) || purchaseOrders.find(matches);
+    if (inPage) {
+      apply(inPage);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const envelope = (await api.getPurchaseOrders({
+          query: recordKey,
+          page: 1,
+          pageSize: 10,
+        })) as PurchaseOrder[] | { data: PurchaseOrder[] };
+        if (cancelled) return;
+        const rows = Array.isArray(envelope) ? envelope : envelope.data || [];
+        const match = rows.find(matches);
+        if (match) apply(match);
+        else recordRouteChangeRef.current?.(null);
+      } catch {
+        if (!cancelled) recordRouteChangeRef.current?.(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [recordKey, recordKind, activeTab, poRows, purchaseOrders]);
 
   // A delete can shrink the filtered set under the current page; snap back to
   // the new last page instead of asking the server for one that is gone (DF-09).
@@ -276,25 +358,59 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
     });
   };
 
+  const openPoDetail = (po: PurchaseOrder) => {
+    setEditingPO(null);
+    setViewingPO(po);
+    setInternalTab('VIEW_PO');
+    recordRouteChangeRef.current?.({ kind: 'detail', id: po.poNumber });
+  };
+  const closePoDetail = () => {
+    setViewingPO(null);
+    setEditingPO(null);
+    setInternalTab('PO_LIST');
+    recordRouteChangeRef.current?.(null);
+  };
+  const canEditPo = (po: PurchaseOrder) =>
+    po.status !== 'IN_PROGRESS' &&
+    (po.status as string) !== 'INPROGRESS' &&
+    po.status !== 'CANCELLED' &&
+    po.status !== 'RECEIVED';
+  const openPoEditor = (po: PurchaseOrder) => {
+    if (!canEditPo(po)) {
+      alertDialog(`Cannot edit PO #${po.poNumber} because its status is ${po.status}.`);
+      return;
+    }
+    setViewingPO(null);
+    setEditingPO(po);
+    setInternalTab('CREATE_PO');
+    recordRouteChangeRef.current?.({ kind: 'edit', id: po.poNumber });
+  };
   const handleOpenCreateTab = () => {
     setEditingPO(null);
+    if (onNavigateTab) {
+      onNavigateTab('create-po');
+      return;
+    }
     setInternalTab('CREATE_PO');
+    recordRouteChangeRef.current?.(null);
   };
 
   // Edit mode: seed the shared form with the PO being edited. The form
   // component derives supplier/branch/tax/lines from editingPO itself.
-  const handleOpenEditTab = (po: PurchaseOrder) => {
-    if (
-      po.status === 'IN_PROGRESS' ||
-      (po.status as string) === 'INPROGRESS' ||
-      po.status === 'CANCELLED' ||
-      po.status === 'RECEIVED'
-    ) {
-      alertDialog(`Cannot edit PO #${po.poNumber} because its status is ${po.status}.`);
+  const handleOpenEditTab = openPoEditor;
+
+  const closeCreateForm = () => {
+    setEditingPO(null);
+    if (activeTab === 'create-po' && onNavigateTab) {
+      onNavigateTab('po-list');
       return;
     }
-    setEditingPO(po);
-    setInternalTab('CREATE_PO');
+    setInternalTab('PO_LIST');
+    recordRouteChangeRef.current?.(null);
+  };
+  const closeInternalTab = () => {
+    if (internalTab === 'VIEW_PO') closePoDetail();
+    else closeCreateForm();
   };
 
   return (
@@ -309,7 +425,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
             {internalTab !== 'PO_LIST' && (
               <button
                 type="button"
-                onClick={() => setInternalTab('PO_LIST')}
+                onClick={closeInternalTab}
                 className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold shadow-xs transition-all cursor-pointer bg-white border-slate-300 text-slate-700 hover:bg-slate-200 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800`}
               >
                 <ArrowLeft className="h-4 w-4" />
@@ -364,7 +480,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
         <button
           type="button"
           id="tab-po-register"
-          onClick={() => setInternalTab('PO_LIST')}
+          onClick={closeInternalTab}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${internalTab === 'PO_LIST' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800'}`}
         >
           <FileText className="h-4 w-4" />
@@ -642,10 +758,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                               {/* View Action */}
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setViewingPO(po);
-                                  setInternalTab('VIEW_PO');
-                                }}
+                                onClick={() => openPoDetail(po)}
                                 title="View Purchase Order Details"
                                 className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer transition-colors"
                               >
@@ -766,11 +879,10 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
           onCreatePO={onCreatePO}
           onUpdatePO={onUpdatePO}
           onSaved={() => {
-            setEditingPO(null);
-            setInternalTab('PO_LIST');
+            closeCreateForm();
             setPoRefreshKey((k) => k + 1);
           }}
-          onCancel={() => setEditingPO(null)}
+          onCancel={closeCreateForm}
         />
       )}
 
@@ -920,7 +1032,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => setInternalTab('PO_LIST')}
+                onClick={closePoDetail}
                 className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold cursor-pointer border-slate-300 text-slate-700 hover:bg-slate-200 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800`}
               >
                 <ArrowLeft className="h-4 w-4" />

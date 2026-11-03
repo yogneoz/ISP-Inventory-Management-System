@@ -27,6 +27,13 @@ export interface BranchStockSnapshot {
   error: string;
   /** Every requested branch was fetched successfully since the last invalidation. */
   loaded: boolean;
+  /**
+   * Increments on reset (sign-out or a profile switch). Consumers key their
+   * "load the branches I am allowed to see" effect on it: after a reset the
+   * requested set is empty, so a hook whose allowed-branch list happens to be
+   * unchanged must still re-register and refetch.
+   */
+  generation: number;
 }
 
 export type BranchStockFetcher = (
@@ -78,6 +85,7 @@ export function createBranchStockStore(fetchStock: BranchStockFetcher): BranchSt
     loading: false,
     error: '',
     loaded: false,
+    generation: 0,
   };
   const rowsByBranch = new Map<string, InventoryStock[]>();
   const requested = new Set<string>();
@@ -127,6 +135,7 @@ export function createBranchStockStore(fetchStock: BranchStockFetcher): BranchSt
         // currentRows() still holds the last successful rows for any branch
         // that failed — a failed refresh must never read as "0 in stock".
         publish({
+          ...snapshot,
           rows: currentRows(),
           loading: false,
           loaded: failed.length === 0,
@@ -209,7 +218,13 @@ export function createBranchStockStore(fetchStock: BranchStockFetcher): BranchSt
       rowsByBranch.clear();
       requested.clear();
       dirty.clear();
-      publish({ rows: [], loading: false, error: '', loaded: false });
+      publish({
+        rows: [],
+        loading: false,
+        error: '',
+        loaded: false,
+        generation: snapshot.generation + 1,
+      });
     },
   };
 }

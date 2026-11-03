@@ -85,6 +85,9 @@ describe('cancel sales invoice (POST /api/sales-invoices/:id/cancel)', () => {
     await pool!.query("DELETE FROM customer_payments WHERE id LIKE 'sivtest-%' OR invoice_id LIKE 'sivtest-%'");
     await pool!.query("DELETE FROM sales_returns WHERE id LIKE 'sivtest-%'");
     await pool!.query("DELETE FROM sales_invoices WHERE id LIKE 'sivtest-%'");
+    // Invoice posting now creates journals keyed to this test branch; the
+    // branch FK is RESTRICT, so the ledger rows must leave first.
+    await pool!.query("DELETE FROM gl_journals WHERE branch_id LIKE 'sivtest-%'");
     await pool!.query(`DELETE FROM transaction_logs WHERE product_id = '${PROD}'`);
     await pool!.query("DELETE FROM audit_logs WHERE user_email LIKE 'sivtest-%@example.com'");
     await pool!.query(`DELETE FROM serial_log WHERE device_serial = '${SERIAL}'`);
@@ -128,6 +131,7 @@ describe('cancel sales invoice (POST /api/sales-invoices/:id/cancel)', () => {
       await pool.query("DELETE FROM customer_payments WHERE id LIKE 'sivtest-%' OR invoice_id LIKE 'sivtest-%'");
       await pool.query("DELETE FROM sales_returns WHERE id LIKE 'sivtest-%'");
       await pool.query("DELETE FROM sales_invoices WHERE id LIKE 'sivtest-%'");
+      await pool.query("DELETE FROM gl_journals WHERE branch_id LIKE 'sivtest-%'");
       await pool.query(`DELETE FROM transaction_logs WHERE product_id = '${PROD}'`);
       await pool.query("DELETE FROM audit_logs WHERE user_email LIKE 'sivtest-%@example.com'");
       await pool.query(`DELETE FROM serial_log WHERE device_serial = '${SERIAL}'`);

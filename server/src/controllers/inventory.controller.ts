@@ -42,14 +42,18 @@ import { isActiveCdrStatus, isLegacyCdrStatus, upsertCdrMirror } from '../servic
 import { cdrDuplicateFromRow, cdrDuplicateMessage, findCdrDuplicate } from '../services/cdrDuplicates';
 import { macKey } from '../../../shared/macAddress';
 import { computeOperationTotalValue, computeLegacyOperationTotalValue } from '../utils/money';
+import { loadStockAverageCosts, postStockValueJournal, reverseStockOperationJournal } from '../services/stockPosting.service';
+import { applyStockLevelAdjustment, computeStockLevelAdjustment } from '../services/stockLevelAdjustment.service';
+import { postCpeIssueJournal, postCpeReleaseJournal, postFixedAssetAcquisitionJournal, postFixedAssetDisposalJournal } from '../services/cpePosting.service';
+import { TXN_ISSUE_COST_SQL } from '../models/inventory.repo';
 import { PI_FIND_BY_ID_SQL } from '../models/procurement.repo';
+import { JOURNAL_FIND_BY_SOURCE_SQL } from '../models/accounting.repo';
+import { FIXED_ASSET_ACCOUNTING_ROW_SQL } from '../models/fixedAssets.repo';
+import { isAccountingDate } from '../services/accounting.service';
 import { firstLineQuantityRefusal } from '../utils/lineQuantity';
 import { resolveBsDateForLedger, todayBs } from '../utils/bsDate';
 import {
   buildStockListQuery,
-  STOCK_FIND_BY_ID_SQL,
-  STOCK_UPSERT_LEVELS_SQL,
-  stockUpsertLevelsParams,
   STOCK_UPSERT_REORDER_SQL,
   stockUpsertReorderParams,
   STOCK_RECONCILE_UPSERT_SQL,
@@ -63,6 +67,7 @@ import {
   STOCK_REVERSE_DAMAGE_BATCH_SQL,
   stockReverseDamageBatchParams,
   STOCK_LOCK_FOR_UPDATE_SQL,
+  STOCK_LOCK_ONE_SQL,
   stockLockForUpdateParams,
   LockedStockRow,
   STOCK_RETURN_QOH_BATCH_SQL,
@@ -71,8 +76,6 @@ import {
   damageRecordCancelBatchParams,
   buildTxnMultiRowInsertSql,
   flattenTxnParams,
-  DAMAGE_RECORD_ADJUSTMENT_SQL,
-  damageAdjustmentParams,
   DAMAGE_RECORD_AUDIT_SHORTAGE_SQL,
   damageAuditShortageParams,
   ASSET_UPSERT_SQL,
@@ -160,6 +163,12 @@ function branchLabelFor(branchId: string): string {
   return branches.find((b) => b.id === branchId)?.name || branchId;
 }
 
+/** Audit actor for ledger writes (email, falling back to the display name). */
+function stockActor(req: any): string | null {
+  const user = getUserFromReq(req);
+  return user?.email || user?.name || null;
+}
+
 async function registerCustomerDeviceRow(
   client: any,
   row: CustomerDeviceRecord
@@ -197,181 +206,106 @@ const { branchId } = req.query;
 
 /** Forwarded from inventory.routes.ts (patch_Id). */
 export async function patch_Id(req: any, res: Response): Promise<any> {
-try {
-    // C4: BS dates for ledger/audit rows come from the seeded bs_day_records
-    // for "today", never from hardcoded strings.
-    const todayBsForLedger = await resolveBsDateForLedger();
-    const { id } = req.params;
-    const { quantityOnHand, minReorderLevel, damagedQty, reason, changeType } = req.body;
-    for (const [field, value] of Object.entries({ quantityOnHand, minReorderLevel, damagedQty })) {
-      if (value !== undefined && (!Number.isInteger(Number(value)) || Number(value) < 0)) {
-        res.status(400).json({ message: `${field} must be a non-negative integer.` });
-        return;
-      }
+  // C4: BS dates for ledger/audit rows come from the seeded bs_day_records
+  // for "today", never from hardcoded strings.
+  const todayBsForLedger = await resolveBsDateForLedger();
+  const todayAD = new Date().toISOString().split('T')[0];
+  const { id } = req.params;
+  const { quantityOnHand, minReorderLevel, damagedQty, reason, changeType } = req.body || {};
+  for (const [field, value] of Object.entries({ quantityOnHand, minReorderLevel, damagedQty })) {
+    if (value !== undefined && (!Number.isInteger(Number(value)) || Number(value) < 0)) {
+      res.status(400).json({ message: `${field} must be a non-negative integer.` });
+      return;
     }
-    let stk = inventoryStock.find((s) => s.id === id);
+  }
 
-    if (getPgConnected() && !stk) {
-      const r = await pgPool.query(STOCK_FIND_BY_ID_SQL, [id]);
-      if (r.rows.length > 0) stk = r.rows[0];
-    }
-    if (!stk) return res.status(404).json({ message: 'Stock record not found' });
+  const mirror = inventoryStock.find((s) => s.id === id);
+  const product = mirror ? products.find((p) => p.id === mirror.productId) : undefined;
 
-    let qtyBefore = stk.quantityOnHand || 0;
-    let oldDamaged = stk.damagedQty || 0;
+  if (!getPgConnected()) {
+    if (!mirror) return res.status(404).json({ message: 'Stock record not found' });
+    const before = {
+      quantityOnHand: Number(mirror.quantityOnHand) || 0,
+      damagedQty: Number(mirror.damagedQty) || 0,
+    };
+    const next = computeStockLevelAdjustment(before, { quantityOnHand, damagedQty });
+    mirror.quantityOnHand = next.quantityOnHand;
+    mirror.damagedQty = next.damagedQty;
+    if (minReorderLevel !== undefined) mirror.minReorderLevel = Number(minReorderLevel);
+    mirror.lastUpdated = new Date().toISOString();
 
-    if (damagedQty !== undefined) {
-      const newDam = Math.max(0, Number(damagedQty));
-      const damDiff = newDam - oldDamaged;
-      stk.damagedQty = newDam;
-
-      if (quantityOnHand === undefined) {
-        stk.quantityOnHand = Math.max(0, (stk.quantityOnHand || 0) - damDiff);
-      } else {
-        stk.quantityOnHand = Number(quantityOnHand);
-      }
-    } else if (quantityOnHand !== undefined) {
-      stk.quantityOnHand = Number(quantityOnHand);
-    }
-    if (minReorderLevel !== undefined) {
-      stk.minReorderLevel = Number(minReorderLevel);
-    }
-    stk.lastUpdated = new Date().toISOString();
-
-    const prod = products.find((p) => p.id === stk.productId);
-
-    if (getPgConnected()) {
-      await pgPool.query(STOCK_UPSERT_LEVELS_SQL, stockUpsertLevelsParams(stk));
-    }
-
-    const isDamageChange = changeType === 'DAMAGE' || (damagedQty !== undefined && stk.damagedQty !== oldDamaged);
-
-    if (isDamageChange) {
-      const damDiff = (stk.damagedQty || 0) - oldDamaged;
-      const newTxn = {
-        id: `txn-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
-        transactionNumber: `TXN-DMG-${Math.floor(10000 + Math.random() * 90000)}`,
-        productId: stk.productId,
-        productSku: prod?.sku || '',
-        productName: prod?.name || '',
-        branchId: stk.branchId,
-        changeType: 'DAMAGE' as const,
-        quantityBefore: oldDamaged,
-        // Damaged-pool ledger: before + changed = after (pool semantics —
-        // an increase in damaged units is negative, a decrease positive).
-        quantityChanged: buildDamagePoolLedgerChange(oldDamaged, stk.damagedQty || 0).quantityChanged,
-        quantityAfter: stk.damagedQty || 0,
-        unitCost: prod?.costPrice || 0,
-        referenceDocId: reason || 'DMG-VERIFICATION',
-        timestampAD: new Date().toISOString(),
-        timestampBS: todayBsForLedger,
-      };
-      setTransactionLogs(withPrepended(transactionLogs, newTxn));
-
-      if (getPgConnected()) {
-        await pgPool.query(TXN_INSERT_NOW_SQL, miscPulloutTxnParams(newTxn as TransactionLog));
-      }
-    }
-
-    // Manual damage adjustments (PATCH /api/stock/:id with a damagedQty
-    // delta) also create/update a damage_records lifecycle entry so the
-    // damage register stays in sync with the stock level.
-    if (damagedQty !== undefined && Number(damagedQty) !== oldDamaged) {
-      const affectedQty = isDamageChange && Number(damagedQty) > oldDamaged
-        ? Number(damagedQty) - oldDamaged
-        : oldDamaged - Number(damagedQty);
-      const absAffected = Math.abs(affectedQty || 0);
-      if (absAffected > 0) {
-        const todayAD = new Date().toISOString().split('T')[0];
-        const damageRef = `DMR-ADJ-${stk.id}-${Date.now()}`;
-        const damageRecordId = `dmr-adj-${stk.id}-${Date.now()}`;
-        const knownReason = (reason || 'Damaged stock balance verification').toUpperCase();
-        const damageReason = ['PHYSICAL_DAMAGE', 'TRANSIT_DAMAGE', 'STORAGE_DAMAGE', 'EXPIRED', 'RETURN_DAMAGE', 'QUALITY_DEFECT', 'OTHER'].find((r) => knownReason.includes(r)) || 'OTHER';
-        try {
-          if (getPgConnected()) {
-            await pgPool.query(
-              DAMAGE_RECORD_ADJUSTMENT_SQL,
-              damageAdjustmentParams({
-                id: damageRecordId,
-                damageReference: damageRef,
-                productId: stk.productId,
-                branchId: stk.branchId,
-                quantityDamaged: absAffected,
-                unitCost: prod?.costPrice || 0,
-                totalCost: (prod?.costPrice || 0) * absAffected,
-                damageDateAD: todayAD,
-                damageDateBS: todayBsForLedger,
-                damageReason,
-                approvedBy: getUserFromReq(req).name || 'Stock Manager',
-                notes: reason || 'Damaged stock balance verification',
-                createdBy: getUserFromReq(req).email || 'system',
-              })
-            );
-          }
-          const existingIdx = damageRecords.findIndex((dr) => dr.id === damageRecordId || dr.damageReference === damageRef);
-          if (existingIdx >= 0) {
-            setDamageRecords(withReplaced(damageRecords, existingIdx, {
-              ...damageRecords[existingIdx],
-              quantityDamaged: absAffected,
-              status: 'IDENTIFIED',
-              damageReason: damageReason as DamageRecord['damageReason'],
-            }));
-          } else {
-            setDamageRecords(withPrepended(damageRecords, {
-              id: damageRecordId,
-              damageReference: damageRef,
-              productId: stk.productId,
-              branchId: stk.branchId,
-              quantityDamaged: absAffected,
-              unitCost: prod?.costPrice || 0,
-              totalCost: (prod?.costPrice || 0) * absAffected,
-              damageDateAD: todayAD,
-              damageDateBS: todayBsForLedger,
-              damageReason: damageReason as DamageRecord['damageReason'],
-              status: 'IDENTIFIED',
-              salvageValue: 0,
-              glAccountCode: 'GL-5120 (Loss on Inventory Scrap & Write-off)',
-              writeOffLoss: 0,
-              approvedBy: getUserFromReq(req).name || 'Stock Manager',
-              notes: reason || 'Damaged stock balance verification',
-              isDemo: false,
-              createdBy: getUserFromReq(req).email || 'system',
-            } as DamageRecord));
-          }
-        } catch (drErr: any) {
-          console.warn('Damage record sync notice:', drErr?.message || drErr);
-        }
-      }
-    }
-
-    if (!isDamageChange && quantityOnHand !== undefined && (stk.quantityOnHand - qtyBefore !== 0)) {
-      const newTxn: TransactionLog = {
-        id: `txn-${Date.now()}`,
-        transactionNumber: `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
-        productId: stk.productId,
-        productSku: prod?.sku || '',
-        productName: prod?.name || '',
-        branchId: stk.branchId,
-        changeType: 'MANUAL_ADJUSTMENT' as const,
-        quantityBefore: qtyBefore,
-        quantityChanged: stk.quantityOnHand - qtyBefore,
-        quantityAfter: stk.quantityOnHand,
-        unitCost: prod?.costPrice || 0,
+    const isDamageChange = changeType === 'DAMAGE' || next.damagedQty !== before.damagedQty;
+    if (isDamageChange || next.quantityOnHand !== before.quantityOnHand) {
+      const txn: TransactionLog = {
+        id: `txn-stock-adjustment-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+        transactionNumber: `TXN-ADJ-${Math.floor(10000 + Math.random() * 90000)}`,
+        productId: mirror.productId,
+        productSku: product?.sku || '',
+        productName: product?.name || '',
+        branchId: mirror.branchId,
+        changeType: isDamageChange ? 'DAMAGE' : 'MANUAL_ADJUSTMENT',
+        quantityBefore: isDamageChange ? before.damagedQty : before.quantityOnHand,
+        quantityChanged: isDamageChange
+          ? buildDamagePoolLedgerChange(before.damagedQty, next.damagedQty).quantityChanged
+          : next.quantityOnHand - before.quantityOnHand,
+        quantityAfter: isDamageChange ? next.damagedQty : next.quantityOnHand,
+        unitCost: Number(product?.costPrice) || 0,
         referenceDocId: reason || 'STOCK_ADJUSTMENT',
         timestampAD: new Date().toISOString(),
         timestampBS: todayBsForLedger,
       };
-      setTransactionLogs(withPrepended(transactionLogs, newTxn));
-
-      if (getPgConnected()) {
-        await pgPool.query(TXN_INSERT_NOW_SQL, miscPulloutTxnParams(newTxn as TransactionLog));
-      }
+      setTransactionLogs(withPrepended(transactionLogs, txn));
     }
-  } catch (err: any) {
-    console.error('Error updating stock level:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    res.json(mirror);
+    return;
   }
 
+  const result = await withTransaction(async (client) => {
+    const adjustment = await applyStockLevelAdjustment(client, {
+      stockId: id,
+      quantityOnHand: quantityOnHand === undefined ? undefined : Number(quantityOnHand),
+      damagedQty: damagedQty === undefined ? undefined : Number(damagedQty),
+      minReorderLevel: minReorderLevel === undefined ? undefined : Number(minReorderLevel),
+      reason,
+      changeType,
+      actor: stockActor(req),
+      actorName: getUserFromReq(req).name || '',
+      journalDateAD: todayAD,
+      timestampBS: todayBsForLedger,
+      product: {
+        id: product?.id,
+        sku: product?.sku,
+        name: product?.name,
+        costPrice: Number(product?.costPrice) || 0,
+      },
+    });
+    await logAuditEvent(
+      req,
+      'ADJUST_STOCK_LEVEL',
+      'INVENTORY',
+      `Stock level corrected for ${product?.name || adjustment.stock.productId} at ${adjustment.stock.branchId}: ` +
+        `qty ${adjustment.previous.quantityOnHand} → ${adjustment.stock.quantityOnHand}, ` +
+        `damaged ${adjustment.previous.damagedQty} → ${adjustment.stock.damagedQty}` +
+        (reason ? ` — ${reason}` : ''),
+      adjustment.stock.branchId,
+      client
+    );
+    return adjustment;
+  });
+
+  const idx = inventoryStock.findIndex((s) => s.id === result.stock.id);
+  if (idx >= 0) {
+    setInventoryStock(withReplaced(inventoryStock, idx, result.stock as any));
+  } else {
+    setInventoryStock(withAppended(inventoryStock, result.stock as any));
+  }
+  if (result.transactionLog) {
+    setTransactionLogs(withPrepended(transactionLogs, result.transactionLog));
+  }
+  if (result.damageRecord) {
+    setDamageRecords(withPrepended(damageRecords, result.damageRecord));
+  }
+  res.json(result.stock);
 }
 
 /** Forwarded from inventory.routes.ts (patch_reorderLevel). */
@@ -517,9 +451,23 @@ try {
 
     let totalAdjusted = 0;
     let netFinancialImpact = 0;
+    // One audit document id for both the movement ledger and the journal, so a
+    // reversal or reconciliation report can find all of its rows by source.
+    const auditRef = String(auditRefNumber || `AUDIT-${Date.now()}`);
+    const auditDateAD = new Date().toISOString().split('T')[0];
 
     if (getPgConnected()) {
       await withTransaction(async (client) => {
+        // WAC under the audit's own transaction. The reconciliation writes the
+        // physical count, so its value movement must use the same cost basis
+        // the stock row and the rest of the ledger use.
+        const auditValueCosts = await loadStockAverageCosts(
+          client,
+          String(branchId),
+          varianceItems.map((item: any) => String(item.productId || ''))
+        );
+        const auditMovements: Array<{ productId: string; quantity: number; unitCost: number }> = [];
+
         for (const item of varianceItems) {
           let stk = inventoryStock.find(
             (s) => s.productId === item.productId && s.branchId === branchId
@@ -539,17 +487,33 @@ try {
             setInventoryStock(withAppended(inventoryStock, stk));
           }
 
-          const qtyBefore = stk.quantityOnHand || 0;
+          // The mirror can lag a concurrent movement; the count's delta must
+          // come from the row this transaction is about to overwrite.
+          const lockedRow = await client.query(STOCK_LOCK_ONE_SQL, [item.productId, branchId]);
+          const qtyBefore = lockedRow.rows[0]
+            ? Number(lockedRow.rows[0].quantity_on_hand) || 0
+            : stk.quantityOnHand || 0;
           const targetCounted = Number(item.countedQty) || 0;
           const delta = targetCounted - qtyBefore;
-          const unitCost = item.unitCost || 0;
+          const prod = products.find((p) => p.id === item.productId);
+          const average = auditValueCosts.get(String(item.productId));
+          // One cost basis for the journal, the movement row, the damage
+          // register and the response: the branch's weighted average, with
+          // the entered/product cost only as a legacy-row fallback.
+          const movementCost =
+            average && average > 0 ? average : Number(item.unitCost) || prod?.costPrice || 0;
+          if (delta !== 0) {
+            auditMovements.push({
+              productId: String(item.productId),
+              quantity: delta,
+              unitCost: movementCost,
+            });
+          }
 
           stk.quantityOnHand = targetCounted;
           stk.lastUpdated = new Date().toISOString();
           totalAdjusted += 1;
-          netFinancialImpact += delta * unitCost;
-
-          const prod = products.find((p) => p.id === item.productId);
+          netFinancialImpact += delta * movementCost;
 
           await client.query(STOCK_RECONCILE_UPSERT_SQL, stockReconcileUpsertParams(stk));
 
@@ -564,8 +528,8 @@ try {
             quantityBefore: qtyBefore,
             quantityChanged: delta,
             quantityAfter: stk.quantityOnHand,
-            unitCost: unitCost || prod?.costPrice || 0,
-            referenceDocId: auditRefNumber || `AUDIT-${Date.now()}`,
+            unitCost: movementCost,
+            referenceDocId: auditRef,
             timestampAD: new Date().toISOString(),
             timestampBS: auditBsDate,
           };
@@ -592,8 +556,8 @@ try {
                 productId: item.productId,
                 branchId,
                 quantityDamaged: writtenOff,
-                unitCost: unitCost || prod?.costPrice || 0,
-                totalCost: (unitCost || prod?.costPrice || 0) * writtenOff,
+                unitCost: movementCost,
+                totalCost: movementCost * writtenOff,
                 damageDateAD: new Date().toISOString().split('T')[0],
                 damageDateBS: auditBsDate,
                 approvedBy: auditorName || userEmail || 'AUDITOR',
@@ -607,6 +571,22 @@ try {
             );
             stk.damagedQty = Math.max(0, (stk.damagedQty || 0) - writtenOff);
           }
+        }
+
+        // Inventory count differences are a stock-value movement, not a free
+        // edit: an excess debits inventory and credits the branch's stock
+        // expense, a shortage does the reverse. Same transaction as the count,
+        // so a closed period or missing default rolls the whole audit back.
+        if (auditMovements.length > 0) {
+          await postStockValueJournal(client, {
+            branchId: String(branchId),
+            journalDateAD: auditDateAD,
+            sourceType: 'STOCK_AUDIT',
+            sourceId: auditRef,
+            memo: `Physical stock audit ${auditRef}`,
+            movements: auditMovements,
+            actor: getUserFromReq(req).email || getUserFromReq(req).name || null,
+          });
         }
       });
     } else {
@@ -678,8 +658,9 @@ try {
       message: `Physical stock reconciled successfully for ${branch?.name || branchId}`,
     });
   } catch (err: any) {
-    console.error('Error reconciling stock audit:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    const { status, message } = errorResponse(err);
+    if (status >= 500) console.error('Error reconciling stock audit:', err);
+    res.status(status).json({ message });
   }
 
 }
@@ -746,6 +727,16 @@ try {
     if (linkedInvoice && !req.body.purchaseInvoiceDateAD && !req.body.purchaseInvoiceDateAd) {
       newAsset.purchaseInvoiceDateAD = linkedInvoice.invoiceDateAD;
       newAsset.purchaseInvoiceDateBS = linkedInvoice.invoiceDateBS;
+    }
+    // A linked bill is what decides whether capitalisation reclassifies an
+    // inventory cost or recognises a payable. An unknown id cannot be guessed:
+    // refuse before anything is written rather than post against a bill that
+    // does not exist.
+    if (newAsset.purchaseInvoiceId && !linkedInvoice) {
+      res.status(400).json({
+        message: `Linked purchase invoice ${newAsset.purchaseInvoiceId} was not found. Register the bill first, then capitalise the asset.`,
+      });
+      return;
     }
 
     // BS dates are mandatory on asset writes: derive any missing BS date
@@ -895,7 +886,29 @@ try {
           if (result.rowCount !== 1) {
             throw new Error(`Stock changed before this asset could be registered. Please retry.`);
           }
+          // The unit leaves inventory at the row's moving weighted average, and
+          // the asset it becomes carries exactly that value.
+          const averages = await loadStockAverageCosts(client, branchId, [String(newAsset.productId)]);
+          const issueCost = Math.max(
+            0,
+            Number(averages.get(String(newAsset.productId))) ||
+              Number(newAsset.acquisitionCost) ||
+              Number(product?.costPrice) ||
+              0
+          );
+          txn.unitCost = issueCost;
           await client.query(TXN_INSERT_ON_CONFLICT_SQL, txnInsertOnConflictParams(txn));
+          await postCpeIssueJournal(client, {
+            branchId,
+            productId: String(newAsset.productId),
+            quantity: qty,
+            unitCost: issueCost,
+            dateAD: String(newAsset.acquisitionDateAD).split('T')[0],
+            sourceType: 'CPE_ASSET',
+            sourceId: String(newAsset.id),
+            memo: `Fixed asset deployment ${newAsset.tagNumber}`,
+            actor: getUserFromReq(req)?.email || null,
+          });
 
           // Slice 2: the SHARED gate resolves the unit before any of it moves.
           // This used to be a bare lookup whose `if (rowCount)` silently
@@ -1069,11 +1082,39 @@ try {
     if (!getPgConnected() && assetWarranty) recordWarrantyCoverageMirror(assetWarranty);
 
     if (getPgConnected()) {
-      // The asset and the supplier coverage it creates commit together, so a
-      // failed coverage insert cannot leave an asset the register never saw.
+      // The asset, its supplier coverage and its ledger entry commit together,
+      // so neither a failed coverage insert nor an unmapped posting default can
+      // leave a register row that the ledger never capitalised.
       await withTransaction(async (client) => {
         await client.query(ASSET_UPSERT_SQL, assetUpsertParams(newAsset));
         if (assetWarranty) await recordWarrantyCoverage(client, assetWarranty);
+        // A unit consumed from branch stock already moved Inventory → Deployed
+        // CPE Assets inside the deploy transaction above; capitalising it again
+        // would double the asset. Every other acquisition posts here.
+        if (!deployFromStock && Number(newAsset.acquisitionCost) > 0) {
+          const invoiceId = newAsset.purchaseInvoiceId ? String(newAsset.purchaseInvoiceId) : '';
+          const invoicePosted = invoiceId
+            ? Boolean(
+                (
+                  await client.query(JOURNAL_FIND_BY_SOURCE_SQL, ['PURCHASE_INVOICE', invoiceId])
+                ).rows[0]
+              )
+            : false;
+          await postFixedAssetAcquisitionJournal(client, {
+            assetId: String(newAsset.id),
+            tagNumber: String(newAsset.tagNumber),
+            branchId: String(newAsset.branchId),
+            dateAD: String(newAsset.acquisitionDateAD).split('T')[0],
+            cost: Number(newAsset.acquisitionCost),
+            purchaseInvoiceId: invoiceId || null,
+            purchaseInvoiceNumber: linkedInvoice?.invoiceNumber || null,
+            invoicePosted,
+            supplierId: linkedInvoice?.supplierId || null,
+            supplierName: newAsset.supplierName || linkedInvoice?.supplierName || null,
+            paymentMethod: req.body?.paymentMethod || null,
+            actor: getUserFromReq(req)?.email || null,
+          });
+        }
       });
     }
     logAuditEvent(req, 'ASSIGN_FIXED_ASSET', 'FIXED_ASSETS', `Assigned / Registered Fixed Asset Tag #${newAsset.tagNumber} (${newAsset.name}) at branch ${newAsset.branchId}${deployFromStock ? ` — deducted ${1} unit of ${newAsset.productId} from branch stock` : ''}`);
@@ -1135,6 +1176,7 @@ try {
             branchId,
             products,
             changeType: 'MANUAL_ADJUSTMENT',
+            actor: getUserFromReq(req)?.email || null,
           });
           restockTxn = collected.ledger;
 
@@ -1230,6 +1272,28 @@ try {
           b.assignmentNotes || null,
           id,
         ]);
+        // Disposal is the one status change that removes value from the
+        // ledger, so it posts in the same transaction as the status row: a
+        // failed journal leaves the asset ACTIVE rather than half-disposed.
+        // Repeating the same disposal is a no-op; a second *journal* is
+        // refused by the posting service.
+        if (isDisposal && prevStatus !== 'DISPOSED') {
+          const row = asset || (await client.query(FIXED_ASSET_ACCOUNTING_ROW_SQL, [id])).rows[0];
+          if (!row) throw new OperationError(404, 'Fixed asset not found.');
+          const disposalDateAD = String(b.disposalDateAD || todayAD).split('T')[0];
+          if (!isAccountingDate(disposalDateAD)) {
+            throw new OperationError(400, 'Disposal date must be a real date in YYYY-MM-DD form.');
+          }
+          await postFixedAssetDisposalJournal(client, {
+            assetId: String(row.id),
+            tagNumber: String(row.tagNumber || id),
+            branchId: String(row.branchId || ''),
+            dateAD: disposalDateAD,
+            proceeds: Number(b.disposalProceeds) || 0,
+            paymentMethod: b.disposalPaymentMethod || b.paymentMethod || null,
+            actor: getUserFromReq(req)?.email || null,
+          });
+        }
         if (isDisposal) await supersedeVendorCoverageForAsset(client, id);
       });
     }
@@ -1607,6 +1671,14 @@ try {
           }
         }
 
+        // WAC for this document, read under the row lock before any quantity
+        // moves. The same cost feeds the journal and the movement ledger.
+        const stockValueCosts = await loadStockAverageCosts(
+          client,
+          newOp.branchId,
+          operationItems.map((item: any) => String(item.productId || ''))
+        );
+
         // Slice 2: resolve every unit this operation consumes against the
         // register, inside the same transaction that moves the stock. Locks the
         // register rows, so a serial sold/assigned/damaged since the mirror was
@@ -1656,6 +1728,42 @@ try {
           if (stockConsumingType && result && result.rowCount !== 1) {
             throw new Error(`Stock changed before this operation could be posted for ${item.productName || item.productId}. Please retry.`);
           }
+        }
+
+        // Stock-value journal. Damage, pullouts (usable lines), consumables and
+        // signed manual adjustments move inventory value; a pullout from the
+        // damaged pool does not (those units left inventory when damaged), and
+        // stock-out/disposal are valued by their own document path.
+        if (['DAMAGE', 'PULLOUT', 'CONSUMABLE_ISSUE', 'MANUAL_ADJUSTMENT'].includes(opType)) {
+          const valueMovements = operationItems.flatMap((item: any) => {
+            const qty = Number(item.quantity) || 0;
+            const signedQty = opType === 'DAMAGE'
+              ? -qty
+              : opType === 'PULLOUT'
+                ? (item.condition === 'DAMAGED_STOCK' ? 0 : -qty)
+                : opType === 'CONSUMABLE_ISSUE'
+                  ? -qty
+                  : qty;
+            if (signedQty === 0) return [];
+            const product = products.find((entry) => entry.id === item.productId);
+            const average = stockValueCosts.get(String(item.productId));
+            const explicitCost = Number(item.unitCost ?? item.costPerUnit ?? newOp.costPerUnit) || 0;
+            const fallback = explicitCost > 0 ? explicitCost : Number(product?.costPrice) || 0;
+            return [{
+              productId: String(item.productId),
+              quantity: signedQty,
+              unitCost: average && average > 0 ? average : fallback,
+            }];
+          });
+          await postStockValueJournal(client, {
+            branchId: newOp.branchId,
+            journalDateAD: newOp.dateAD,
+            sourceType: 'STOCK_OPERATION',
+            sourceId: newOp.id,
+            memo: `${opType} ${newOp.referenceNumber}`,
+            movements: valueMovements,
+            actor: stockActor(req),
+          });
         }
 
         // SER-1/D2: issue every unit this operation draws. The shared gate
@@ -1914,6 +2022,16 @@ try {
           )
         );
 
+        // Restoring damaged units puts their WAC back into inventory; the
+        // contra journal is in this same transaction, so stock and ledger
+        // cannot disagree after a reversal.
+        await reverseStockOperationJournal(client, {
+          operationId: String(op.id),
+          dateAD: reversalDateAD,
+          reason,
+          actor: stockActor(req),
+        });
+
         // Serial restore keeps its per-item loop by design — each item has
         // genuinely different serial payloads and history entries.
         for (const item of operationItems) {
@@ -1987,8 +2105,9 @@ try {
     logAuditEvent(req, 'REVERSE_STOCK_DAMAGE', 'STOCK_OPERATIONS', `Reversed damage record ${op.referenceNumber} — ${reason}`);
     res.json({ message: 'Damage record reversed successfully. Units restored to available stock.', operation: updatedOp });
   } catch (err: any) {
-    console.error('Error reversing stock operation:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    const { status, message } = errorResponse(err);
+    if (status >= 500) console.error('Error reversing stock operation:', err);
+    res.status(status).json({ message });
   }
 
 }
@@ -2099,6 +2218,12 @@ export async function post_reverseConsumable(req: any, res: Response): Promise<a
         // SER-1/D2: units this issue marked CONSUMED return to the branch's
         // IN_STOCK register. Only rows still attributed to this operation move.
         await restoreOperationSerialsInDb(client, op as any, reason, reversedBy, reversalDateAD);
+        await reverseStockOperationJournal(client, {
+          operationId: String(op.id),
+          dateAD: reversalDateAD,
+          reason,
+          actor: stockActor(req),
+        });
         // Batched ledger insert: one multi-row statement instead of one per
         // reversal entry.
         if (reversalLedger.length > 0) {
@@ -2141,8 +2266,9 @@ export async function post_reverseConsumable(req: any, res: Response): Promise<a
     logAuditEvent(req, 'REVERSE_CONSUMABLE_ISSUE', 'STOCK_OPERATIONS', `Reversed consumable issue ${op.referenceNumber} — ${reason}`);
     res.json({ message: 'Consumable issue reversed successfully. Units returned to available stock.', operation: updatedOp });
   } catch (err: any) {
-    console.error('Error reversing consumable issue:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    const { status, message } = errorResponse(err);
+    if (status >= 500) console.error('Error reversing consumable issue:', err);
+    res.status(status).json({ message });
   }
 
 }
@@ -2288,6 +2414,13 @@ async function reverseIssuedOperation(
             flattenTxnParams(reversalLedger.map((txn) => txnInsertOnConflictParams(txn)))
           );
         }
+        // The stock credit and its contra journal commit together.
+        await reverseStockOperationJournal(client, {
+          operationId: String(op.id),
+          dateAD: reversalDateAD,
+          reason,
+          actor: stockActor(req),
+        });
       });
     } else {
       reversalLedger = buildLedger();
@@ -2433,12 +2566,51 @@ try {
         const beforeByProduct = new Map<string, number>(
           (lockedRows.rows || []).map((row: any) => [String(row.product_id), Number(row.quantity_on_hand) || 0])
         );
+        const sourceBranchId = String(current.rows[0].branchId || op?.branchId || '');
+        const valuedItems = items.filter(
+          (item: any) => item.condition !== 'DAMAGED_STOCK' && (Number(item.quantity) || 0) > 0
+        );
+        const sourceCosts = await loadStockAverageCosts(
+          client,
+          sourceBranchId,
+          valuedItems.map((item: any) => String(item.productId || ''))
+        );
+        const receiveValueMovements: Array<{ productId: string; quantity: number; unitCost: number }> = [];
         let lineIdx = 0;
         for (const item of items) {
           const qty = Number(item.quantity) || 1;
           const before = beforeByProduct.get(String(item.productId)) || 0;
           await client.query(PULLOUT_RECEIVE_STOCK_SQL, pulloutReceiveStockParams(whId, item));
           receiveTxns.push(buildReceiveTxn(current.rows[0], item, lineIdx++, whId, qty, before));
+          if (item.condition !== 'DAMAGED_STOCK') {
+            const product = products.find((entry) => entry.id === item.productId);
+            const sourceAverage = sourceCosts.get(String(item.productId));
+            const fallback = Number(item.unitCost ?? item.costPerUnit) || Number(product?.costPrice) || 0;
+            receiveValueMovements.push({
+              productId: String(item.productId),
+              quantity: qty,
+              unitCost: sourceAverage && sourceAverage > 0 ? sourceAverage : fallback,
+            });
+          }
+        }
+        // The dispatch relieved the source branch's inventory at weighted
+        // average; the receipt restores the same value at the destination. A
+        // damaged-pool pullout carried no value when it left, so it carries
+        // none back. Same transaction as the TRANSFER_IN row and status flip.
+        if (String(current.rows[0].type) === 'PULLOUT' && receiveValueMovements.length > 0) {
+          const rawDate = current.rows[0].dateAD || op?.dateAD || new Date().toISOString().split('T')[0];
+          const journalDateAD = rawDate instanceof Date
+            ? rawDate.toISOString().slice(0, 10)
+            : String(rawDate).slice(0, 10);
+          await postStockValueJournal(client, {
+            branchId: whId,
+            journalDateAD,
+            sourceType: 'STOCK_OPERATION_RECEIPT',
+            sourceId: id,
+            memo: `Pullout receipt ${op?.referenceNumber || id}`,
+            movements: receiveValueMovements,
+            actor: stockActor(req),
+          });
         }
         if (receiveTxns.length > 0) {
           await client.query(
@@ -2840,6 +3012,17 @@ try {
         }
         if (applyStockChange && product) {
           const stockChange = assignmentDelta < 0 ? 1 : -1;
+          // A release restores the unit at the cost its assignment recorded;
+          // an issue relieves the row's current weighted average. Both flows
+          // carry that value into the stock row and the journal together.
+          let releaseCost = 0;
+          if (stockChange > 0) {
+            const prior = await client.query(TXN_ISSUE_COST_SQL, [`txn-cdr-${newRecord.id}-assign`]);
+            releaseCost = Math.max(
+              0,
+              Number(prior.rows[0]?.unitCost) || Number(product.costPrice) || 0
+            );
+          }
           // Both directions return the true post-update balance so the ledger
           // row records database-accurate before/after quantities.
           const stockResult = stockChange < 0
@@ -2849,14 +3032,37 @@ try {
               )
             : await client.query(
                 CDR_ASSIGNMENT_STOCK_RETURN_SQL,
-                cdrAssignmentReturnParams(stockChange, product.id, branchId)
+                cdrAssignmentReturnParams(stockChange, product.id, branchId, releaseCost)
               );
           if (stockResult.rowCount !== 1) throw new Error(`Insufficient available stock for ${newRecord.productName}.`);
           const quantityAfter = Number(stockResult.rows[0]?.quantity_on_hand);
-          await client.query(
-            TXN_INSERT_ON_CONFLICT_SQL,
-            txnInsertOnConflictParams(buildAssignmentTxn(quantityAfter - stockChange, quantityAfter))
-          );
+          const issueCost = stockChange < 0
+            ? Math.max(
+                0,
+                Number((await loadStockAverageCosts(client, branchId, [product.id])).get(product.id)) ||
+                  Number(product.costPrice) ||
+                  0
+              )
+            : releaseCost;
+          const assignmentTxn = buildAssignmentTxn(quantityAfter - stockChange, quantityAfter);
+          assignmentTxn.unitCost = issueCost;
+          await client.query(TXN_INSERT_ON_CONFLICT_SQL, txnInsertOnConflictParams(assignmentTxn));
+          const cpeInput = {
+            branchId,
+            productId: product.id,
+            quantity: 1,
+            unitCost: issueCost,
+            dateAD: issuedDateAD,
+            sourceType: 'CPE_DEVICE' as const,
+            sourceId: String(newRecord.id),
+            memo: `Customer device ${stockChange < 0 ? 'assignment' : 'release'} ${newRecord.deviceSerial || newRecord.id}`,
+            actor: getUserFromReq(req)?.email || null,
+          };
+          if (stockChange < 0) {
+            await postCpeIssueJournal(client, cpeInput);
+          } else {
+            await postCpeReleaseJournal(client, cpeInput);
+          }
         }
         await client.query(
           CDR_UPSERT_SQL,
@@ -3084,6 +3290,7 @@ try {
             ),
             allowUnlinkedRestock: true,
             changeType: 'PULLOUT',
+            actor: getUserFromReq(req)?.email || null,
           });
           collectionLedger = collected.ledger;
         }
@@ -3643,7 +3850,7 @@ try {
         // counting a unit the customer now holds in the same transaction that
         // credits the old unit's disposition. A registered asset can never
         // name the serial that just left.
-        await exchangeCpeFixedAsset({
+        const exchangeAsset = await exchangeCpeFixedAsset({
           client,
           cpeId: oldDeviceId,
           oldSerial: oldRecord.deviceSerial,
@@ -3655,6 +3862,47 @@ try {
           newProductName: newRecord.productName,
           products,
         });
+
+        // Stock value follows the units: a restocked old unit comes back at
+        // its weighted average, and the replacement leaves at its own. When
+        // both are the same model the two movements net to zero and the
+        // service correctly posts nothing; a model change posts the net at
+        // stock expense. Same transaction as the register flips and stock.
+        const exchangeMovements: Array<{ productId: string; quantity: number; unitCost: number }> = [];
+        const exchangeProductIds = [
+          exchAction === 'RESTOCK' ? exchProd?.id : null,
+          exchangeAsset.replacementStockDeducted ? exchangeAsset.replacementProductId : null,
+        ].filter((id): id is string => Boolean(id));
+        if (exchangeProductIds.length > 0) {
+          const exchangeCosts = await loadStockAverageCosts(client, exchBranchId, exchangeProductIds);
+          if (exchAction === 'RESTOCK' && exchProd) {
+            const average = exchangeCosts.get(String(exchProd.id));
+            exchangeMovements.push({
+              productId: String(exchProd.id),
+              quantity: 1,
+              unitCost: average && average > 0 ? average : Number(exchProd.costPrice) || 0,
+            });
+          }
+          if (exchangeAsset.replacementStockDeducted && exchangeAsset.replacementProductId) {
+            const replacementId = String(exchangeAsset.replacementProductId);
+            const average = exchangeCosts.get(replacementId);
+            const replacement = products.find((entry) => entry.id === replacementId);
+            exchangeMovements.push({
+              productId: replacementId,
+              quantity: -1,
+              unitCost: average && average > 0 ? average : Number(replacement?.costPrice) || 0,
+            });
+          }
+          await postStockValueJournal(client, {
+            branchId: exchBranchId,
+            journalDateAD: exchangeDateAD,
+            sourceType: 'CPE_EXCHANGE',
+            sourceId: newRecord.id,
+            memo: `CPE exchange ${oldRecord.deviceSerial} → ${newRecord.deviceSerial}`,
+            movements: exchangeMovements,
+            actor: stockActor(req),
+          });
+        }
       });
     } else {
       // Demo mode: mirror both register flips.

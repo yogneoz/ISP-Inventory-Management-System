@@ -14,7 +14,6 @@ import {
   Minus,
   Download,
   ArrowRight,
-  ShieldAlert,
   Building,
   Check,
   X,
@@ -221,7 +220,6 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
   const [showApprovalModal, setShowApprovalModal] = useState<boolean>(false);
   const [showApproveReconcileModal, setShowApproveReconcileModal] = useState<boolean>(false);
   const [showRejectModal, setShowRejectModal] = useState<boolean>(false);
-  const [showDirectReconcileModal, setShowDirectReconcileModal] = useState<boolean>(false);
   const [showConsolidatedModal, setShowConsolidatedModal] = useState<boolean>(false);
   const [approvalNotes, setApprovalNotes] = useState<string>('');
   const [rejectReason, setRejectReason] = useState<string>('');
@@ -759,7 +757,6 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
         }
       }
 
-      setShowDirectReconcileModal(false);
       setShowApproveReconcileModal(false);
       setIsLocallySubmitted(false);
       setToastMessage(`Stock Audit #${auditRefNumber} reconciled successfully! Branch on-hand balances updated.`);
@@ -1351,19 +1348,17 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               {isManagerOrAdmin && (
                 <button
                   type="button"
-                  onClick={() => {
-                    if (pendingAuditRequest) {
-                      setShowApproveReconcileModal(true);
-                    } else {
-                      setShowApproveReconcileModal(true);
-                    }
-                  }}
+                  onClick={() => setShowApproveReconcileModal(true)}
                   disabled={stats.discrepancyCount === 0 && !pendingAuditRequest}
-                  className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-white font-extrabold text-xs shadow-md cursor-pointer transition-all stats.discrepancyCount > ${0 || pendingAuditRequest ? 'bg-emerald-600 hover:bg-emerald-700 ring-2 ring-emerald-500/20 active:scale-95' : 'bg-slate-400 text-slate-200 cursor-not-allowed opacity-60 dark:bg-slate-800 dark:text-slate-200 dark:cursor-not-allowed dark:opacity-60'}`}
-                  title="Super Admin / Stock Manager: Authorize & Reconcile Physical Counts with Ledger"
+                  className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-white font-extrabold text-xs shadow-md transition-all ${stats.discrepancyCount > 0 || pendingAuditRequest ? 'bg-emerald-600 hover:bg-emerald-700 ring-2 ring-emerald-500/20 active:scale-95 cursor-pointer' : 'bg-slate-400 text-slate-200 cursor-not-allowed opacity-60 dark:bg-slate-800 dark:text-slate-200 dark:cursor-not-allowed dark:opacity-60'}`}
+                  title={
+                    pendingAuditRequest
+                      ? 'Super Admin / Stock Manager: Approve the pending audit and reconcile physical counts'
+                      : 'Super Admin / Stock Manager: directly post this audit batch and update on-hand balances'
+                  }
                 >
                   <CheckCircle2 className="h-4 w-4" />
-                  <span>Approve & Reconcile Stock</span>
+                  <span>{pendingAuditRequest ? 'Approve & Reconcile Stock' : 'Direct Reconcile Stock'}</span>
                 </button>
               )}
             </div>
@@ -2172,11 +2167,13 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
         </div>
       )}
 
-      {/* MODAL 2: DEDICATED APPROVE AND RECONCILE CONFIRMATION (For Super Admin / Stock Manager) */}
+      {/* MODAL 2: APPROVAL OR DIRECT-RECONCILE CONFIRMATION (Super Admin / Stock Manager).
+          With a pending request it approves through the workflow; without one it
+          is the explicit admin direct-override path (no second, duplicate dialog). */}
       {showApproveReconcileModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
           <ModalPanel
-            label="Approve & Reconcile Physical Stock"
+            label={pendingAuditRequest ? 'Approve & Reconcile Physical Stock' : 'Direct Stock Reconcile (Admin Override)'}
             onClose={() => setShowApproveReconcileModal(false)}
             className={`w-full max-w-2xl rounded-3xl p-6 border shadow-2xl space-y-5 bg-white border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-100`}
           >
@@ -2186,8 +2183,13 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                   <CheckCircle2 className="h-6 w-6" />
                 </div>
                 <div>
-                  <h3 className={`font-extrabold text-base text-slate-900 dark:text-slate-100`}>
-                    Approve & Reconcile Physical Stock
+                  <h3 className={`font-extrabold text-base text-slate-900 dark:text-slate-100 flex flex-wrap items-center gap-2`}>
+                    <span>{pendingAuditRequest ? 'Approve & Reconcile Physical Stock' : 'Direct Stock Reconcile (Admin Override)'}</span>
+                    {!pendingAuditRequest && (
+                      <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 text-[10px] font-mono font-bold uppercase tracking-wider">
+                        No approval request
+                      </span>
+                    )}
                   </h3>
                   <p className={`text-xs text-slate-500 dark:text-slate-400`}>
                     Audit Batch <span className={`font-mono font-bold text-purple-600 dark:text-purple-400`}>#{pendingAuditRequest?.auditData?.auditRefNumber || auditRefNumber}</span> for <strong>{activeBranch?.name}</strong>
@@ -2235,7 +2237,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                       <tr key={r.productId}>
                         <td className="p-2.5 font-sans">
                           <div className={`font-bold font-mono text-slate-900 dark:text-slate-100`}>{r.sku}</div>
-                          <div className="text-[10px] text-slate-500 truncate max-w-[150px]">{r.productName}</div>
+                          <div className="text-[10px] text-slate-500 break-words max-w-[220px]">{r.productName}</div>
                         </td>
                         <td className={`p-2.5 text-center text-slate-600 dark:text-slate-400`}>{r.bookQty}</td>
                         <td className={`p-2.5 text-center font-bold text-slate-900 dark:text-slate-100`}>{c}</td>
@@ -2290,7 +2292,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                 ) : (
                   <>
                     <CheckCircle2 className="h-4 w-4" />
-                    <span>Confirm Approve & Reconcile</span>
+                    <span>{pendingAuditRequest ? 'Confirm Approve & Reconcile' : 'Authorize & Update Balances'}</span>
                   </>
                 )}
               </button>
@@ -2350,67 +2352,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
         </div>
       )}
 
-      {/* MODAL 4: DIRECT RECONCILE (ADMIN DIRECT OVERRIDE) */}
-      {showDirectReconcileModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
-          <ModalPanel
-            label="Direct Stock Reconcile (Admin Direct Override)"
-            onClose={() => setShowDirectReconcileModal(false)}
-            className={`w-full max-w-xl rounded-3xl p-6 border shadow-2xl space-y-5 bg-white border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-100`}
-          >
-            <div className={`flex items-center justify-between pb-3 border-b border-slate-200 dark:border-b dark:border-slate-800`}>
-              <div className="flex items-center gap-2">
-                <ShieldAlert className="h-5 w-5 text-amber-500" />
-                <h3 className="font-bold text-base">Direct Stock Reconcile (Admin Direct Override)</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowDirectReconcileModal(false)}
-                className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 cursor-pointer"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <p className={`text-xs text-slate-500 dark:text-slate-400`}>
-              As an Administrator, you can directly post stock adjustments for batch <strong className="text-indigo-500 font-mono">{auditRefNumber}</strong> at <strong>{activeBranch?.name}</strong>.
-              This will update on-hand stock quantities immediately.
-            </p>
-
-            <div className={`flex items-center justify-between p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-700 dark:text-amber-300`}>
-              <span>Total Discrepancies: <strong>{stats.discrepancyCount} items</strong></span>
-              <span>Net Financial Impact: <strong>NPR {(stats.netValueVariance ?? 0).toLocaleString()}</strong></span>
-            </div>
-
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowDirectReconcileModal(false)}
-                className={`px-4 py-2 rounded-xl text-xs font-semibold border transition-colors cursor-pointer border-slate-300 hover:bg-slate-200 dark:border-slate-700 dark:hover:bg-slate-800`}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleDirectReconcile}
-                disabled={isSubmitting}
-                className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 shadow-md transition-all cursor-pointer flex items-center gap-1.5"
-              >
-                {isSubmitting ? (
-                  <span>Posting Stock Adjustments...</span>
-                ) : (
-                  <>
-                    <Check className="h-4 w-4" />
-                    <span>Authorize & Update Balances</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </ModalPanel>
-        </div>
-      )}
-
-      {/* MODAL 5: CONSOLIDATED MULTI-BRANCH STOCK AUDIT REPORT MATRIX */}
+      {/* MODAL 4: CONSOLIDATED MULTI-BRANCH STOCK AUDIT REPORT MATRIX */}
       {showConsolidatedModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
           <ModalPanel

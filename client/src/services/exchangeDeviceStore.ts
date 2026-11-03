@@ -61,6 +61,12 @@ export type ExchangeDevicesFetcher = (
 export interface ExchangeDevicesSnapshot {
   /** Bumps whenever any scope changes; the value useSyncExternalStore watches. */
   version: number;
+  /**
+   * Bumps on reset (sign-out / profile switch). A mounted host keys its read
+   * effect on it, because reset clears the requested scopes and a host whose
+   * branch and term are unchanged would otherwise keep showing an empty list.
+   */
+  generation: number;
 }
 
 export interface ExchangeDevicesStore {
@@ -163,14 +169,15 @@ export function createExchangeDevicesStore(
   // belongs to a superseded request and must never overwrite newer rows.
   const tokens = new Map<string, number>();
   let version = 0;
-  let snapshot: ExchangeDevicesSnapshot = { version: 0 };
+  let generation = 0;
+  let snapshot: ExchangeDevicesSnapshot = { version: 0, generation: 0 };
   const listeners = new Set<() => void>();
   let subscriberCount = 0;
   let invalidateQueued = false;
 
   const publish = (): void => {
     version += 1;
-    snapshot = { version };
+    snapshot = { version, generation };
     for (const listener of listeners) listener();
   };
 
@@ -293,6 +300,7 @@ export function createExchangeDevicesStore(
       entries.clear();
       queries.clear();
       requested.clear();
+      generation += 1;
       publish();
     },
   };

@@ -110,4 +110,32 @@ describe('EXCH-1 — the exchange picker read schedule', () => {
 
     tree.unmount();
   });
+
+  test('a reset (profile switch) refetches the mounted scope at once', async () => {
+    calls.length = 0;
+    pending = [];
+    const handles = {} as Handles;
+    const tree = mountTree(h(Root, { handles }));
+    try {
+      assert.equal(calls.length, 1, 'the mounted scope reads on mount');
+      await act(async () => {
+        pending.splice(0).forEach((resolve) => resolve());
+        await sleep(0);
+      });
+
+      // The next profile may see fewer branches; reset drops the rows and the
+      // store generation must make this unchanged host re-register its scope.
+      await act(async () => {
+        resetExchangeDevices();
+        await sleep(0);
+        pending.splice(0).forEach((resolve) => resolve());
+        await sleep(0);
+      });
+
+      assert.equal(calls.length, 2, 'reset must refetch without waiting for a remount');
+      assert.match(calls[1], /branchId=WH001/, 'the mounted branch is re-read');
+    } finally {
+      tree.unmount();
+    }
+  });
 });

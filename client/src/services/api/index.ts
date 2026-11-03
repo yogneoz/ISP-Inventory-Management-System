@@ -31,6 +31,7 @@ import * as inventory from './inventory';
 import * as procurement from './procurement';
 import * as sales from './sales';
 import * as finance from './finance';
+import * as accounting from './accounting';
 import * as admin from './admin';
 import * as search from './search';
 import * as settings from './settings';
@@ -39,8 +40,60 @@ import * as warranty from './warranty';
 export { API_BASE, fetchJson, setAuthToken, setUserContext, setFiscalYearContext, setActiveBranchContext, getActiveBranchId } from './http';
 export { subscribeToSyncStream, getSyncVersion, broadcastLogoutToOtherTabs } from './sync';
 export type { SyncRelayMessage } from './sync';
+export type {
+  EffectivePermissionsResponse,
+  OperationPermissionOverrideUser,
+  OperationPermissionOverridesResponse,
+  PermissionOverrideEffect,
+  PermissionSetInput,
+  PermissionSetSummary,
+  UserAccessSummariesResponse,
+  UserAccessSummary,
+  UserPermissionOverrideInput,
+  UserPermissionOverrideRow,
+  UserPermissionOverridesResponse,
+  UserPermissionSetsResponse,
+} from './admin';
 export { safeParseHistory } from './inventory';
 export type { WarrantyRegisterQuery, WarrantyCorrectionInput } from './warranty';
+export type {
+  AccountingAccount,
+  AccountingAccountInput,
+  AccountingAccountPatch,
+  AccountingGroup,
+  AccountingGroupInput,
+  AccountingGroupPatch,
+  AgingBucketKey,
+  AgingParty,
+  AgingResponse,
+  AgingType,
+  BalanceSheetResponse,
+  CashBookAccount,
+  CashBookEntry,
+  CashBookResponse,
+  CashCloseBranch,
+  CashCloseBranchResponse,
+  CashCloseRecord,
+  CashPositionResponse,
+  CashPositionTotals,
+  ControlAgreement,
+  ControlReconciliationResponse,
+  PostingDefault,
+  PostingDefaultsResponse,
+  ProfitAndLossResponse,
+  StatementQuery,
+  StatementSection,
+  TrialBalanceAccount,
+  TrialBalanceAccountLine,
+  TrialBalanceAccountLinesQuery,
+  TrialBalanceAccountLinesResponse,
+  TrialBalanceGroup,
+  TrialBalanceGroupLine,
+  TrialBalanceGroupLinesQuery,
+  TrialBalanceGroupLinesResponse,
+  TrialBalanceGroupSummary,
+  TrialBalanceResponse,
+} from './accounting';
 
 export const api = {
   // Bootstrap
@@ -166,6 +219,30 @@ export const api = {
   // Financial Summary
   getFinancialSummary: finance.getFinancialSummary,
 
+  // Accounting ledger (statements, cash book, chart and posting defaults)
+  getAccountingGroups: accounting.getAccountingGroups,
+  createAccountingGroup: accounting.createAccountingGroup,
+  updateAccountingGroup: accounting.updateAccountingGroup,
+  deleteAccountingGroup: accounting.deleteAccountingGroup,
+  getAccountingAccounts: accounting.getAccountingAccounts,
+  createAccountingAccount: accounting.createAccountingAccount,
+  updateAccountingAccount: accounting.updateAccountingAccount,
+  deleteAccountingAccount: accounting.deleteAccountingAccount,
+  getPostingDefaults: accounting.getPostingDefaults,
+  getTrialBalance: accounting.getTrialBalance,
+  getProfitAndLoss: accounting.getProfitAndLoss,
+  getBalanceSheet: accounting.getBalanceSheet,
+  getStatementGroupLines: accounting.getStatementGroupLines,
+  getTrialBalanceGroupLines: accounting.getTrialBalanceGroupLines,
+  getTrialBalanceAccountLines: accounting.getTrialBalanceAccountLines,
+  getCashBook: accounting.getCashBook,
+  getAging: accounting.getAging,
+  getDailyCashClose: accounting.getDailyCashClose,
+  getDailyCashCloseConsolidated: accounting.getDailyCashCloseConsolidated,
+  closeDailyCash: accounting.closeDailyCash,
+  reopenDailyCashClose: accounting.reopenDailyCashClose,
+  getControlReconciliation: accounting.getControlReconciliation,
+
   // Audit Trail (serial-scoped history)
   getAuditTrail: inventory.getAuditTrail,
   getTransactionLogs: inventory.getTransactionLogs,
@@ -249,6 +326,16 @@ export const api = {
   // Permissions
   getPermissionsMatrix: admin.getPermissionsMatrix,
   savePermissionsMatrix: admin.savePermissionsMatrix,
+  getMyPermissions: admin.getMyPermissions,
+  getOperationPermissionOverrides: admin.getOperationPermissionOverrides,
+  getUserAccessSummaries: admin.getUserAccessSummaries,
+  getUserPermissionOverrides: admin.getUserPermissionOverrides,
+  saveUserPermissionOverrides: admin.saveUserPermissionOverrides,
+  getPermissionSets: admin.getPermissionSets,
+  createPermissionSet: admin.createPermissionSet,
+  updatePermissionSet: admin.updatePermissionSet,
+  deletePermissionSet: admin.deletePermissionSet,
+  saveUserPermissionSets: admin.saveUserPermissionSets,
 
   // Server-side settings & user preferences (replaces browser localStorage)
   getSettings: settings.getSettings,

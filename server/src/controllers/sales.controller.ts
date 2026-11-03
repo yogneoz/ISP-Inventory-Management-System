@@ -29,7 +29,7 @@ import {
   LEDGER_CUSTOMER_INVOICES_SQL, LEDGER_CUSTOMER_RETURNS_SQL,
   SR_SERIAL_FLIP_SQL, SR_DAMAGE_INSERT_SQL, srDamageInsertParams, SR_DAMAGE_CANCEL_SQL,
   SR_POST_DRAFT_SQL, SR_CANCEL_DRAFT_SQL,
-  CP_INSERT_SQL, cpInsertParams, CP_LOCK_STATUS_SQL, CP_REVERSE_SQL,
+  CP_INSERT_SQL, cpInsertParams, CP_LOCK_STATUS_SQL, CP_REVERSE_SQL, CP_FIND_BY_ID_SQL,
   SI_RECORD_PAYMENT_SQL, SI_UNDO_PAYMENT_SQL, LEDGER_CUSTOMER_PAYMENTS_SQL,
   SI_CLAIM_SERIAL_SQL, siClaimSerialParams,
   SI_FIND_ONE_SQL, SI_LOCK_FOR_CANCEL_SQL, SI_CANCEL_SQL,
@@ -59,6 +59,21 @@ import {
 } from '../services/returnSerials.service';
 import { intFromEnv } from '../utils/envGuard';
 import { firstLineQuantityRefusal } from '../utils/lineQuantity';
+import { ApiError } from '../errors/ApiError';
+import { postSalesInvoiceLedger, reverseInvoiceJournal } from '../services/invoicePosting.service';
+import { postCustomerReceiptLedger, reverseCustomerReceiptJournal } from '../services/paymentPosting.service';
+import {
+  loadSalesIssueCosts,
+  postSalesReturnJournal,
+  reverseReturnJournal,
+  type ReturnCogsEntry,
+} from '../services/returnPosting.service';
+
+/** Audit actor for document postings (email, falling back to the display name). */
+function actorOf(req: any): string | null {
+  const user = getUserFromReq(req);
+  return user.email || user.name || null;
+}
 
 /**
  * Approval threshold for returns: a return whose recomputed grand total
@@ -79,16 +94,43 @@ function isSerialTrackedProduct(productId?: string): boolean {
  * ledger rows, and serial_log flips back to IN_STOCK with a history entry.
  */
 async function applySalesReturnEffects(client: any, ret: any, items: any[], branchId: string, createdBy?: string): Promise<void> {
+  // A restockable return puts value back into inventory at the exact cost the
+  // original sale relieved. The invoice's own movement rows record that cost;
+  // a line with no record is refused before anything is written, rather than
+  // valued at the product's standard cost and silently drifting from COGS.
+  const restockable = ret.restockable !== false;
+  const issueCosts = restockable
+    ? await loadSalesIssueCosts(
+        client,
+        String(ret.originalInvoiceNumber || ''),
+        items.map((item) => String(item.productId || ''))
+      )
+    : new Map<string, number>();
+  if (restockable) {
+    for (const item of items) {
+      const qty = Math.abs(Number(item.quantity)) || 0;
+      if (qty > 0 && !issueCosts.has(String(item.productId))) {
+        throw new ApiError(
+          400,
+          `Sales return ${ret.returnNumber}: the original sale records no issue cost for ${item.productName || item.productId}. ` +
+            'The return cannot be valued — nothing was posted.'
+        );
+      }
+    }
+  }
+  const cogs: ReturnCogsEntry[] = [];
   for (let itemIdx = 0; itemIdx < items.length; itemIdx++) {
     const item = items[itemIdx];
+    const qty = Math.abs(Number(item.quantity)) || 0;
+    const unitCost = Number(issueCosts.get(String(item.productId))) || 0;
     if (ret.restockable !== false) {
-      const restocked = await client.query(SR_RESTOCK_SQL, srRestockParams(branchId, item));
+      const restocked = await client.query(SR_RESTOCK_SQL, srRestockParams(branchId, item, unitCost));
       // Real ledger balance: RETURNING gives the post-restock QOH, so the
       // SALES_RETURN row records the TRUE before/after instead of 0/changed.
       const after = Number(restocked.rows?.[0]?.quantity_on_hand);
-      const qty = Math.abs(Number(item.quantity)) || 0;
       const stockBefore = Number.isFinite(after) ? after - qty : undefined;
-      await client.query(SR_TXN_LOG_SQL, srTxnLogParams(ret, item, branchId, itemIdx, stockBefore, resolveLedgerUnitCost(products, item)));
+      await client.query(SR_TXN_LOG_SQL, srTxnLogParams(ret, item, branchId, itemIdx, stockBefore, unitCost));
+      if (qty > 0 && unitCost > 0) cogs.push({ productId: String(item.productId), quantity: qty, unitCost });
     } else {
       // Non-restockable: route the units into the damage register (plan extras
       // — returned-but-damaged units never pollute sellable stock). No QOH
@@ -130,6 +172,9 @@ async function applySalesReturnEffects(client: any, ret: any, items: any[], bran
       }
     }
   }
+
+  // Revenue/VAT/AR and the inventory/COGS mirror all commit with the restock.
+  await postSalesReturnJournal(client, { ret, cogs, actor: createdBy });
 }
 
 /** Over-return validation shared by post_salesReturns: returnable = sold − posted-returned. */
@@ -333,11 +378,15 @@ export async function post_salesInvoices(req: any, res: Response): Promise<any> 
     if (sellerWarrantyPlan.error) return res.status(400).json({ message: sellerWarrantyPlan.error });
 
     if (getPgConnected()) {
-      // All-or-nothing: invoice insert + per-item guarded stock deduction + ledger.
+      // All-or-nothing: invoice insert + per-item guarded stock deduction +
+      // movement ledger + accounting journal + audit row. A missing posting
+      // default, a closed period or a rejected journal rolls the WHOLE invoice
+      // back — there is no document without its ledger entry.
       await withTransaction(async (client) => {
         await client.query(SI_INSERT_SQL, siInsertParams(newInv, JSON.stringify(items)));
         await claimInvoiceSerials(client, items, newInv, targetBranchId, invDate);
         await writeSellerCoveragePlan(client, sellerWarrantyPlan.captures);
+        const cogs: Array<{ productId: string; quantity: number; unitCost: number }> = [];
         for (let itemIdx = 0; itemIdx < items.length; itemIdx++) {
           const item = items[itemIdx];
           const qty = Math.abs(Number(item.quantity)) || 0;
@@ -349,8 +398,27 @@ export async function post_salesInvoices(req: any, res: Response): Promise<any> 
           // post-deduction QOH, so before = after + qty.
           const after = Number(deducted.rows?.[0]?.quantity_on_hand);
           const stockBefore = Number.isFinite(after) ? after + qty : undefined;
-          await client.query(SI_TXN_LOG_SQL, siTxnLogParams(newInv, item, targetBranchId, itemIdx, stockBefore, resolveLedgerUnitCost(products, item)));
+          const averageCost = Number(deducted.rows?.[0]?.average_cost);
+          const issueCost =
+            Number.isFinite(averageCost) && averageCost > 0
+              ? averageCost
+              : resolveLedgerUnitCost(products, item);
+          if (issueCost > 0 && qty > 0) {
+            cogs.push({ productId: item.productId, quantity: qty, unitCost: issueCost });
+          }
+          // The movement row records the same weighted cost the journal used,
+          // so a later return can relieve exactly what the sale relieved.
+          await client.query(SI_TXN_LOG_SQL, siTxnLogParams(newInv, item, targetBranchId, itemIdx, stockBefore, issueCost));
         }
+        await postSalesInvoiceLedger(client, { invoice: newInv, cogs, actor: actorOf(req) });
+        await logAuditEvent(
+          req,
+          'CREATE_SALES_INVOICE',
+          'SALES',
+          `Created Sales Invoice #${newInv.invoiceNumber} for customer ${newInv.customerName}`,
+          targetBranchId,
+          client
+        );
       });
     } else {
       // Demo mode (no PG): mirror the same effects in memory so the finance
@@ -376,11 +444,16 @@ export async function post_salesInvoices(req: any, res: Response): Promise<any> 
       for (const capture of sellerWarrantyPlan.captures) recordWarrantyCoverageMirror(capture);
     }
 
-    logAuditEvent(req, 'CREATE_SALES_INVOICE', 'SALES', `Created Sales Invoice #${newInv.invoiceNumber} for customer ${newInv.customerName}`);
+    // Demo mode has no transaction to join, so the audit row is written here.
+    if (!getPgConnected()) {
+      logAuditEvent(req, 'CREATE_SALES_INVOICE', 'SALES', `Created Sales Invoice #${newInv.invoiceNumber} for customer ${newInv.customerName}`);
+    }
     res.status(201).json(newInv);
   } catch (err: any) {
-    console.error('Error creating sales invoice:', err);
-    res.status(400).json({ message: err.message || 'Failed to create sales invoice.' });
+    // A business refusal (missing posting default, closed period) is expected
+    // input, not a server fault, and should not print a stack trace.
+    if (!(err instanceof ApiError)) console.error('Error creating sales invoice:', err);
+    res.status(err instanceof ApiError ? err.status : 400).json({ message: err.message || 'Failed to create sales invoice.' });
   }
 }
 
@@ -512,6 +585,16 @@ export async function post_salesInvoiceCancel(req: any, res: Response): Promise<
       // A cancelled invoice whose serials went back to stock also ends any
       // promise keyed by the unit (covers rows from other capture paths).
       if (serials.length > 0) await supersedeSellerCoverageForSerials(client, serials);
+      // Reverse the sale's ledger entry in the SAME transaction: the contra
+      // journal nets AR, revenue, VAT and COGS to zero, and a failure here
+      // undoes the cancellation rather than leaving stock and ledger apart.
+      await reverseInvoiceJournal(client, {
+        sourceType: 'SALES_INVOICE',
+        sourceId: String(inv.id),
+        dateAD: cancelAD,
+        reason,
+        actor: actorOf(req),
+      });
     });
 
     // Keep the in-memory bootstrap mirror in step so the register does not
@@ -528,8 +611,8 @@ export async function post_salesInvoiceCancel(req: any, res: Response): Promise<
     logAuditEvent(req, 'CANCEL_SALES_INVOICE', 'SALES', `Cancelled Sales Invoice #${existing.invoiceNumber}${reason ? ` — ${reason}` : ''}`);
     res.json({ ...existing, status: 'CANCELLED' });
   } catch (err: any) {
-    console.error('Error cancelling sales invoice:', err);
-    res.status(400).json({ message: err.message || 'Failed to cancel sales invoice.' });
+    if (!(err instanceof ApiError)) console.error('Error cancelling sales invoice:', err);
+    res.status(err instanceof ApiError ? err.status : 400).json({ message: err.message || 'Failed to cancel sales invoice.' });
   }
 }
 
@@ -771,11 +854,27 @@ export async function post_salesReturnCancel(req: any, res: Response): Promise<a
           : await client.query(SR_CANCEL_SQL, [ret.id]);
         if (cancelled.rowCount !== 1) throw new Error('Return was already cancelled by another user.');
         if (ret.status === 'POSTED') {
+          // The return's own issue costs drive the re-deduction, so cancelling
+          // the credit note removes exactly the value it added.
+          const cancelCosts = ret.restockable !== false
+            ? await loadSalesIssueCosts(
+                client,
+                String(ret.originalInvoiceNumber || ''),
+                (ret.items || []).map((item: any) => String(item.productId || ''))
+              )
+            : new Map<string, number>();
           if (ret.restockable !== false) {
             let cancelLineIdx = 0;
             for (const item of ret.items || []) {
               const redeductQty = Math.abs(Number(item.quantity)) || 0;
-              const rededucted = await client.query(SR_REDEDUCT_STOCK_SQL, [redeductQty, item.productId, ret.branchId]);
+              const unitCost = Number(cancelCosts.get(String(item.productId))) || 0;
+              if (redeductQty > 0 && unitCost <= 0) {
+                throw new ApiError(
+                  400,
+                  `Sales return ${ret.returnNumber}: the original sale records no issue cost for ${item.productName || item.productId}; the cancellation was refused.`
+                );
+              }
+              const rededucted = await client.query(SR_REDEDUCT_STOCK_SQL, [redeductQty, unitCost, item.productId, ret.branchId]);
               if (rededucted.rowCount !== 1) {
                 throw new Error(`Could not reverse restocked stock for ${item.productName || item.productId} at branch ${ret.branchId} — nothing was cancelled.`);
               }
@@ -786,13 +885,20 @@ export async function post_salesReturnCancel(req: any, res: Response): Promise<a
               const stockBefore = Number.isFinite(after) ? after + redeductQty : 0;
               await client.query(
                 SR_CANCEL_TXN_LOG_SQL,
-                srCancelTxnLogParams(ret, item, ret.branchId, cancelLineIdx++, stockBefore, { ad: srCancelAD, bs: srCancelBS }, resolveLedgerUnitCost(products, item))
+                srCancelTxnLogParams(ret, item, ret.branchId, cancelLineIdx++, stockBefore, { ad: srCancelAD, bs: srCancelBS }, unitCost)
               );
             }
           } else {
             // Cancel the damage-register rows this return created.
             await client.query(SR_DAMAGE_CANCEL_SQL, [`${ret.returnNumber}-SR-%`]);
           }
+          await reverseReturnJournal(client, {
+            kind: 'SALES_RETURN',
+            returnId: String(ret.id),
+            dateAD: srCancelAD,
+            reason: reason || 'Sales return cancelled',
+            actor: actorOf(req),
+          });
           for (const item of ret.items || []) {
             const serials = returnLineSerials(item).map((entry) => entry.deviceSerial);
             if (serials.length > 0) {
@@ -1169,20 +1275,36 @@ export async function post_customerPayments(req: any, res: Response): Promise<an
     };
 
     if (getPgConnected()) {
-      // Payment row + invoice balance adjustment commit atomically.
+      // Payment row, invoice balance, AR settlement, journal and audit commit
+      // atomically. A missing posting default or a closed period rolls the
+      // whole receipt back — no cash movement without its ledger entry.
       await withTransaction(async (client) => {
         await client.query(CP_INSERT_SQL, cpInsertParams(newPayment));
         if (newPayment.invoiceId) {
           await client.query(SI_RECORD_PAYMENT_SQL, [amount, newPayment.invoiceId]);
         }
+        await postCustomerReceiptLedger(client, { receipt: newPayment, actor: actorOf(req) });
+        await logAuditEvent(
+          req,
+          'RECORD_CUSTOMER_PAYMENT',
+          'SALES',
+          `Recorded customer payment #${paymentNumber} of NPR ${amount.toLocaleString()} from ${customerName} via ${paymentMethod}`,
+          branchId,
+          client
+        );
       });
+    } else {
+      logAuditEvent(req, 'RECORD_CUSTOMER_PAYMENT', 'SALES', `Recorded customer payment #${paymentNumber} of NPR ${amount.toLocaleString()} from ${customerName} via ${paymentMethod}`, branchId);
     }
 
-    logAuditEvent(req, 'RECORD_CUSTOMER_PAYMENT', 'SALES', `Recorded customer payment #${paymentNumber} of NPR ${amount.toLocaleString()} from ${customerName} via ${paymentMethod}`, branchId);
     res.status(201).json(newPayment);
   } catch (err: any) {
-    console.error('Error creating customer payment:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    // A missing posting default or a closed period is expected input, not a
+    // server fault: surface its 400/409 instead of a generic database 500.
+    if (!(err instanceof ApiError)) console.error('Error creating customer payment:', err);
+    res.status(err instanceof ApiError ? err.status : 500).json({
+      message: err instanceof ApiError ? err.message : `Database error: ${err.message}`,
+    });
   }
 }
 
@@ -1192,7 +1314,11 @@ export async function post_customerPaymentReverse(req: any, res: Response): Prom
     const { id } = req.params;
     const reason = String(req.body?.reason || '').trim();
     if (!reason) return res.status(400).json({ message: 'A reversal reason is required.' });
-    const payment = customerPayments.find((p) => p.id === id);
+    // PostgreSQL is the only decision source when connected: a payment created
+    // by the real write path is not in the in-memory mirror.
+    const payment = getPgConnected()
+      ? (await pgPool.query(CP_FIND_BY_ID_SQL, [id])).rows[0]
+      : customerPayments.find((p) => p.id === id);
     if (!payment) return res.status(404).json({ message: 'Customer payment not found.' });
     if (payment.status !== 'POSTED') {
       return res.status(409).json({ message: `Payment #${payment.paymentNumber} is already ${String(payment.status).toLowerCase()}.` });
@@ -1215,13 +1341,31 @@ export async function post_customerPaymentReverse(req: any, res: Response): Prom
         if (payment.invoiceId) {
           await client.query(SI_UNDO_PAYMENT_SQL, [Number(payment.amount), payment.invoiceId]);
         }
+        // The contra journal joins the same transaction: a reversed receipt
+        // cannot leave its original cash/AR entry standing alone.
+        await reverseCustomerReceiptJournal(client, {
+          paymentId: id,
+          reason,
+          actor: actorOf(req),
+        });
+        await logAuditEvent(
+          req,
+          'REVERSE_CUSTOMER_PAYMENT',
+          'SALES',
+          `Reversed customer payment #${payment.paymentNumber} — ${reason}`,
+          payment.branchId,
+          client
+        );
       });
+    } else {
+      logAuditEvent(req, 'REVERSE_CUSTOMER_PAYMENT', 'SALES', `Reversed customer payment #${payment.paymentNumber} — ${reason}`);
     }
 
-    logAuditEvent(req, 'REVERSE_CUSTOMER_PAYMENT', 'SALES', `Reversed customer payment #${payment.paymentNumber} — ${reason}`);
     res.json({ ...payment, status: 'REVERSED', reversalReason: reason });
   } catch (err: any) {
-    console.error('Error reversing customer payment:', err);
-    res.status(err.statusCode || 500).json({ message: err.message || 'Failed to reverse customer payment.' });
+    if (!(err instanceof ApiError)) console.error('Error reversing customer payment:', err);
+    res.status(err instanceof ApiError ? err.status : err.statusCode || 500).json({
+      message: err.message || 'Failed to reverse customer payment.',
+    });
   }
 }

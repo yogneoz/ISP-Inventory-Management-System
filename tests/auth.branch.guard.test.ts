@@ -311,6 +311,42 @@ describe('branch scoping (enforceBranchAccess, HTTP layer)', () => {
     }
   });
 
+  test('a multi-branch user may bootstrap an assigned secondary branch', { skip: skipPositive }, async () => {
+    const app = createApp();
+    registerAllRoutes(app);
+    const { port, close } = await startServer(app);
+    try {
+      const token = makeBranchUserToken({ allowedBranchIds: ['BRH01'] });
+      const res = await fetch(`http://127.0.0.1:${port}/api/bootstrap?branchId=BRH01`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      // Passing the guard is what this pins: the controller may still answer
+      // 503/400 without a DB, but it must not be the bootstrap 403.
+      assert.notEqual(
+        res.status,
+        403,
+        'an assigned secondary branch must pass the bootstrap branch gate'
+      );
+    } finally {
+      await close();
+    }
+  });
+
+  test('a branch user still cannot bootstrap an unassigned branch', { skip: skipPositive }, async () => {
+    const app = createApp();
+    registerAllRoutes(app);
+    const { port, close } = await startServer(app);
+    try {
+      const token = makeBranchUserToken({ allowedBranchIds: ['BRH01'] });
+      const res = await fetch(`http://127.0.0.1:${port}/api/bootstrap?branchId=BRH02`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      assert.equal(res.status, 403);
+    } finally {
+      await close();
+    }
+  });
+
   test('SUPER_ADMIN bypasses branch scoping (no branchId required)', { skip: skipPositive }, async () => {
     const app = createApp();
     registerAllRoutes(app);

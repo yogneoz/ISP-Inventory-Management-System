@@ -86,16 +86,24 @@ export function resetAvailableFixedAssets(): void {
 }
 
 export function useAvailableFixedAssets(refreshToken = 0): AvailableAssetsEntry {
-  useSyncExternalStore(
+  const storeVersion = useSyncExternalStore(
     (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
     () => version
   );
+  // `version`, not mounting alone: reset() publishes an EMPTY entry (sign-out /
+  // profile switch) while the picker stays mounted, and without this dependency
+  // the load below would never run again and the list would stay empty.
+  //
+  // `!entry.error` matters: a failed read publishes loaded:false, so watching
+  // the version alone re-armed this effect on every failure and retried forever
+  // (a network outage became a request storm and wedged render tests). A failed
+  // entry waits for an explicit refresh/invalidate instead of self-retrying.
   useEffect(() => {
-    if (!entry.loaded && !entry.loading) load();
-  }, []);
+    if (!entry.loaded && !entry.loading && !entry.error) load();
+  }, [storeVersion]);
   useEffect(() => {
     if (refreshToken > 0) load();
   }, [refreshToken]);

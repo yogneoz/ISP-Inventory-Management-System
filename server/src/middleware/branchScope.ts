@@ -68,6 +68,18 @@ export const BRANCH_SCOPED_RESOURCES: readonly BranchScopedResource[] = [
   // reach another branch's register (WTY-2). The list reads name their own
   // scope in the controller, so they are not in BRANCH_SCOPED_READ_PATHS.
   { prefix: '/warranties', table: 'warranty_coverages', columns: ['branch_id'] },
+  // Journals are branch-bound; the header carries the owning branch. Lines and
+  // subledger entries are only reachable through their guarded header.
+  { prefix: '/accounting/journals', table: 'gl_journals', columns: ['branch_id'] },
+  // Payroll is branch custody: employees belong to a branch and runs are filed
+  // under one. The employee-ledger path is guarded by the employee id parsed
+  // from `/employees/:id/ledger`.
+  { prefix: '/employees', table: 'employees', columns: ['branch_id'] },
+  { prefix: '/payroll-runs', table: 'payroll_runs', columns: ['branch_id'] },
+  // Daily cash closes are one row per branch and business day; the close
+  // endpoint resolves the branch from the session, and the reopen path is
+  // guarded by this by-id lookup as well.
+  { prefix: '/accounting/cash-close', table: 'daily_cash_closes', columns: ['branch_id'] },
 ];
 
 /**
@@ -111,6 +123,16 @@ export const BRANCH_SCOPE_EXEMPTIONS: readonly BranchScopeExemption[] = [
     reason:
       'Internal document-number counters keyed by branch + document type + day. Written only by the numbering service inside server-side transactions and never addressed by a record id.',
   },
+  {
+    table: 'gl_journal_lines',
+    reason:
+      'Ledger lines are written and read only through a branch-guarded gl_journals header (the /accounting/journals registry entry); there is no by-id line route a caller could use to cross branches.',
+  },
+  {
+    table: 'gl_subledger_entries',
+    reason:
+      'Generic subledger rows are created inside the same transaction as their guarded journal and are read through the reconciliation endpoint, which resolves branch scope from the session. No by-id route exists.',
+  },
 ];
 
 /** Resource prefixes where a list read must name an authorized branch. */
@@ -129,6 +151,8 @@ export const BRANCH_SCOPED_READ_PATHS: readonly string[] = [
   '/purchase-returns',
   '/approval-requests',
   '/locations',
+  '/employees',
+  '/payroll-runs',
 ];
 
 /**
@@ -148,6 +172,7 @@ export const COLLECTION_SEGMENTS: ReadonlySet<string> = new Set([
   'bulk',
   'bulk-reorder-levels',
   'reconcile-audit',
+  'consolidated',
 ]);
 
 /** Finds the guarded resource for a path, matching whole segments only. */

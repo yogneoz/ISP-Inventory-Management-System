@@ -842,7 +842,8 @@ export interface AuditLog {
     | 'APPROVAL_WORKFLOW'
     | 'SYSTEM'
     | 'SALES'
-    | 'PERMISSIONS';
+    | 'PERMISSIONS'
+    | 'ACCOUNTING';
   details: string;
   timestampAD: string;
   timestampBS: string;

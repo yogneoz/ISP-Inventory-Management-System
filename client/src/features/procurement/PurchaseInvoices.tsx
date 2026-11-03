@@ -45,6 +45,7 @@ import { FilterCard } from '../../components/common/FilterCard';
 import { PageHeader } from '../../components/common/PageHeader';
 import { api } from '../../services/api';
 import { PurchaseInvoiceForm } from './PurchaseInvoiceForm';
+import type { RecordRoute } from '../../routes/appPaths';
 
 /**
  * One-line date for the dense register. The full BS + AD pair stays in the
@@ -78,6 +79,11 @@ interface PurchaseInvoicesProps {
   /** Sidebar menu that opened this page: 'create-purchase' opens the inline bill form, 'purchase-list' opens the register. */
   activeTab?: 'create-purchase' | 'purchase-list';
   autoOpenModal?: boolean;
+  /** Child record path this screen is currently showing, if any. */
+  recordRoute?: RecordRoute | null;
+  onRecordRouteChange?: (record: RecordRoute | null) => void;
+  /** Switch between this register and the shared create form. */
+  onNavigateTab?: (tab: 'create-purchase' | 'purchase-list') => void;
   onCreateInvoice: (
     inv: Omit<PurchaseInvoice, 'id' | 'invoiceNumber'> & { poReferenceId?: string }
   ) => Promise<void>;
@@ -117,6 +123,9 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   dateMode,
   activeTab = 'purchase-list',
   autoOpenModal = false,
+  recordRoute = null,
+  onRecordRouteChange,
+  onNavigateTab,
   onCreateInvoice,
   onRecordPayment,
   onReversePayment,
@@ -135,6 +144,8 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
 
   const [viewingInvoice, setViewingInvoice] = useState<PurchaseInvoice | null>(null);
   const [productsModalInvoice, setProductsModalInvoice] = useState<PurchaseInvoice | null>(null);
+  const recordRouteChangeRef = useRef(onRecordRouteChange);
+  recordRouteChangeRef.current = onRecordRouteChange;
 
   // Payment State
   const [payInvoice, setPayInvoice] = useState<PurchaseInvoice | null>(null);
@@ -171,14 +182,15 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   const [piLoadError, setPiLoadError] = useState('');
   const [piRefreshKey, setPiRefreshKey] = useState(0);
 
-  // Sync the internal page with the sidebar menu that opened this component
+  // Sync the internal page with the sidebar menu that opened this component.
+  // A detail record is an overlay on the register; closing it returns to LIST.
   useEffect(() => {
     if (autoOpenModal || activeTab === 'create-purchase') {
       setInternalTab('CREATE_INVOICE');
-    } else if (activeTab === 'purchase-list') {
+    } else if (recordRoute?.kind !== 'detail') {
       setInternalTab('INVOICE_LIST');
     }
-  }, [autoOpenModal, activeTab]);
+  }, [autoOpenModal, activeTab, recordRoute?.kind]);
 
   // Server-side paged fetch: one page of filtered invoice rows plus sums.
   const piFetchSeq = useRef(0);
@@ -219,6 +231,87 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
     piPage,
     setPiPage
   );
+
+  const openInvoiceDetail = (invoice: PurchaseInvoice) => {
+    setViewingInvoice(invoice);
+    setInternalTab('VIEW_INVOICE');
+    recordRouteChangeRef.current?.({ kind: 'detail', id: invoice.invoiceNumber });
+  };
+  const closeInvoiceDetail = () => {
+    setViewingInvoice(null);
+    setInternalTab('INVOICE_LIST');
+    recordRouteChangeRef.current?.(null);
+  };
+  const openCreateForm = () => {
+    if (onNavigateTab) {
+      onNavigateTab('create-purchase');
+      return;
+    }
+    setInternalTab('CREATE_INVOICE');
+    recordRouteChangeRef.current?.(null);
+  };
+  const closeCreateForm = () => {
+    if (activeTab === 'create-purchase' && onNavigateTab) {
+      onNavigateTab('purchase-list');
+      return;
+    }
+    setInternalTab('INVOICE_LIST');
+    recordRouteChangeRef.current?.(null);
+  };
+  const closeInternalTab = () => {
+    if (internalTab === 'VIEW_INVOICE') closeInvoiceDetail();
+    else closeCreateForm();
+  };
+
+  // Resolve a `/purchasing/invoices/:number` link against the loaded page,
+  // then the filtered list endpoint when the bill is not on this page.
+  const recordKey = recordRoute?.kind === 'detail' ? recordRoute.id : '';
+  useEffect(() => {
+    if (!recordKey) {
+      setViewingInvoice(null);
+      return;
+    }
+    const wanted = recordKey.toLowerCase();
+    const matches = (invoice: PurchaseInvoice) =>
+      invoice.invoiceNumber?.toLowerCase() === wanted ||
+      invoice.id?.toLowerCase() === wanted ||
+      invoice.vendorBillNumber?.toLowerCase() === wanted;
+
+    const inPage = piRows.find(matches);
+    if (inPage) {
+      setViewingInvoice(inPage);
+      setInternalTab('VIEW_INVOICE');
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const envelope = (await api.getPurchaseInvoices({
+          query: recordKey,
+          page: 1,
+          pageSize: 10,
+        })) as PurchaseInvoice[] | { data: PurchaseInvoice[] };
+        if (cancelled) return;
+        const rows = Array.isArray(envelope) ? envelope : envelope.data || [];
+        const match = rows.find(matches);
+        if (match) {
+          setViewingInvoice(match);
+          setInternalTab('VIEW_INVOICE');
+        } else {
+          setViewingInvoice(null);
+          recordRouteChangeRef.current?.(null);
+        }
+      } catch {
+        if (cancelled) return;
+        setViewingInvoice(null);
+        recordRouteChangeRef.current?.(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [recordKey, piRows]);
 
   // Rows on screen: the server page, or (on fetch failure) the client-side
   // filtered prop array so the register degrades instead of breaking.
@@ -489,9 +582,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   };
 
   // The form component remounts fresh on every tab switch, so no field reset is needed here.
-  const handleOpenCreateTab = () => {
-    setInternalTab('CREATE_INVOICE');
-  };
+  const handleOpenCreateTab = openCreateForm;
 
   return (
     <div className="space-y-3" id="purchase-invoices-container">
@@ -505,7 +596,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
             {internalTab !== 'INVOICE_LIST' && (
               <button
                 type="button"
-                onClick={() => setInternalTab('INVOICE_LIST')}
+                onClick={closeInternalTab}
                 className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold shadow-xs transition-all cursor-pointer bg-white border-slate-300 text-slate-700 hover:bg-slate-200 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800`}
               >
                 <ArrowLeft className="h-4 w-4" />
@@ -561,7 +652,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
         <button
           type="button"
           id="tab-pi-register"
-          onClick={() => setInternalTab('INVOICE_LIST')}
+          onClick={closeInternalTab}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${internalTab === 'INVOICE_LIST' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800'}`}
         >
           <FileText className="h-4 w-4" />
@@ -869,10 +960,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
 
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setViewingInvoice(inv);
-                                  setInternalTab('VIEW_INVOICE');
-                                }}
+                                onClick={() => openInvoiceDetail(inv)}
                                 title="View Bill Details & Print Voucher"
                                 aria-label={`View bill ${inv.invoiceNumber}`}
                                 className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer transition-colors"
@@ -936,7 +1024,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
           dateMode={dateMode}
           onCreateInvoice={onCreateInvoice}
           onSaved={() => setPiRefreshKey((k) => k + 1)}
-          onClose={() => setInternalTab('INVOICE_LIST')}
+          onClose={closeCreateForm}
         />
       )}
 
@@ -1057,7 +1145,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
           <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
             <button
               type="button"
-              onClick={() => setInternalTab('INVOICE_LIST')}
+              onClick={closeInvoiceDetail}
               className={`flex items-center gap-1.5 rounded-xl border px-4 py-2 text-xs font-semibold cursor-pointer border-slate-300 text-slate-700 hover:bg-slate-200 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800`}
             >
               <ArrowLeft className="h-4 w-4" />

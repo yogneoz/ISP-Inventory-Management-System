@@ -327,13 +327,27 @@ export function piUpsertParams(inv: Record<string, any>, itemsJson: string): unk
   ];
 }
 
-/** Receives stock for an invoice item (upsert with additive quantity_on_hand). */
-export const PI_RECEIVE_STOCK_SQL = `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, min_reorder_level)
- VALUES ($1, $2, $3, $4, 5)
+/**
+ * Receives stock for an invoice item and keeps the moving weighted-average
+ * cost in step: the new average is (old qty × old average + received qty ×
+ * unit price) / (old qty + received qty). $5 is the bill's unit price. The
+ * arithmetic runs inside the same row lock as the quantity change, so two
+ * concurrent receipts cannot lose each other's value.
+ */
+export const PI_RECEIVE_STOCK_SQL = `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, average_cost, min_reorder_level)
+ VALUES ($1, $2, $3, $4, $5, 5)
  ON CONFLICT (product_id, branch_id) DO UPDATE SET
-   quantity_on_hand = inventory_stock.quantity_on_hand + $4,
+   average_cost = CASE
+     WHEN inventory_stock.quantity_on_hand + EXCLUDED.quantity_on_hand > 0
+     THEN ROUND((
+       inventory_stock.quantity_on_hand * inventory_stock.average_cost +
+       EXCLUDED.quantity_on_hand * EXCLUDED.average_cost
+     ) / (inventory_stock.quantity_on_hand + EXCLUDED.quantity_on_hand), 4)
+     ELSE 0
+   END,
+   quantity_on_hand = inventory_stock.quantity_on_hand + EXCLUDED.quantity_on_hand,
    last_updated = CURRENT_TIMESTAMP
- RETURNING quantity_on_hand`;
+ RETURNING quantity_on_hand, average_cost`;
 
 export function piReceiveStockParams(branchId: string, item: Record<string, any>): unknown[] {
   return [`stk-${branchId.toLowerCase()}-${item.productId}`, item.productId, branchId, Number(item.quantity) || 0];
@@ -396,10 +410,26 @@ export const PI_UNDO_PAYMENT_SQL = `UPDATE purchase_invoices SET
                          ELSE 'UNPAID' END
  WHERE id = $2`;
 
-/** Reverses received stock for a deleted invoice item, guarding on quantity. */
-export const PI_REVERSE_STOCK_SQL = `UPDATE inventory_stock SET quantity_on_hand = quantity_on_hand - $1, last_updated = CURRENT_TIMESTAMP
+/**
+ * Reverses received stock for a deleted invoice, guarding on quantity.
+ *
+ * The moving average is rewound by the value the receipt added ($1 × $4): a
+ * purchase of qty q at cost c raised the value by q·c, so removing it must
+ * lower both quantity and value by the same amounts. When the last unit goes,
+ * the average resets to zero rather than keeping a meaningless stale cost.
+ */
+export const PI_REVERSE_STOCK_SQL = `UPDATE inventory_stock SET
+ average_cost = CASE
+   WHEN quantity_on_hand > $1 AND quantity_on_hand > 0
+   THEN GREATEST(0, ROUND((
+     quantity_on_hand * average_cost - $1 * $4
+   ) / (quantity_on_hand - $1), 4))
+   ELSE 0
+ END,
+ quantity_on_hand = quantity_on_hand - $1,
+ last_updated = CURRENT_TIMESTAMP
  WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $1
- RETURNING quantity_on_hand`;
+ RETURNING quantity_on_hand, average_cost`;
 
 /**
  * Compensating PURCHASE_INVOICE_CANCELLED ledger row written when an invoice
@@ -587,7 +617,7 @@ export const PI_EXISTS_SQL = 'SELECT 1 FROM purchase_invoices WHERE id = $1 OR i
 
 /** Loads a minimal invoice row for deletion/reversal. */
 export const PI_FIND_FOR_DELETE_SQL =
-  'SELECT id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", vendor_bill_number AS "vendorBillNumber", branch_id AS "branchId", notes, items FROM purchase_invoices WHERE id = $1';
+  'SELECT id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", vendor_bill_number AS "vendorBillNumber", branch_id AS "branchId", grand_total AS "grandTotal", vat_amount AS "vatAmount", notes, items FROM purchase_invoices WHERE id = $1';
 
 export const FY_BY_ID_SQL =
   'SELECT id, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD" FROM fiscal_years WHERE id = $1';
@@ -755,15 +785,33 @@ export const PR_RETURNED_QTY_SQL =
    WHERE original_invoice_id = $1 AND item->>'productId' = $2 AND status = 'POSTED'`;
 
 /** Deducts returned stock from the branch, guarding on quantity (over-draw prevention). */
+/**
+ * Removes returned units at the bill value the return credits to inventory.
+ * The moving average is re-weighted by that value in the same statement, so a
+ * return at the original purchase price cannot leave stock value and the
+ * inventory account on different bases.
+ */
 export const PR_DEDUCT_STOCK_SQL = `UPDATE inventory_stock
- SET quantity_on_hand = quantity_on_hand - $1, last_updated = CURRENT_TIMESTAMP
- WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $1
+ SET average_cost = CASE
+       WHEN quantity_on_hand - $1 > 0
+       THEN GREATEST(0, ROUND((quantity_on_hand * average_cost - $1 * $2) / (quantity_on_hand - $1), 4))
+       ELSE 0
+     END,
+     quantity_on_hand = quantity_on_hand - $1,
+     last_updated = CURRENT_TIMESTAMP
+ WHERE product_id = $3 AND branch_id = $4 AND quantity_on_hand >= $1
  RETURNING quantity_on_hand`;
 
-/** Restores stock when a posted return is cancelled. */
+/** Restores stock at the return's cost when its credit note is cancelled. */
 export const PR_RESTORE_STOCK_SQL = `UPDATE inventory_stock
- SET quantity_on_hand = quantity_on_hand + $1, last_updated = CURRENT_TIMESTAMP
- WHERE product_id = $2 AND branch_id = $3
+ SET average_cost = CASE
+       WHEN quantity_on_hand + $1 > 0
+       THEN ROUND((quantity_on_hand * average_cost + $1 * $2) / (quantity_on_hand + $1), 4)
+       ELSE average_cost
+     END,
+     quantity_on_hand = quantity_on_hand + $1,
+     last_updated = CURRENT_TIMESTAMP
+ WHERE product_id = $3 AND branch_id = $4
  RETURNING quantity_on_hand`;
 
 /** Cancels a return only while it is still POSTED (idempotent no-op otherwise). */

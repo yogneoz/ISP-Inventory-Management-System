@@ -10,16 +10,23 @@
  *      sits under Sales Forms.
  *   4. Permission filtering never leaves an empty section heading (Auditor has
  *      no Procurement "Forms"; Front Desk has no Inventory "Reports").
- *   5. Single-open accordion: opening a group closes the previous one, clicking
- *      the open group collapses the rail, and the header control restores the
- *      current page's group.
+ *   5. Multi-open groups: opening one leaves the others alone, the header
+ *      expands or collapses every group, and navigating only adds the active
+ *      page's group.
  *   6. Menu search subtitles name Group · Section.
+ *   7. The open-group set persists across remounts, including Collapse all;
+ *      a first visit opens the active page's group.
+ *   8. Stored ids for groups the current menu cannot render are ignored and
+ *      healed; an all-stale set falls back to the active page's group.
  */
-import { test, describe } from 'node:test';
+import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { createElement } from 'react';
+import { createElement, StrictMode } from 'react';
 import { mountTree, inAct } from './harness/mount';
-import { Sidebar } from '../client/src/components/layout/Sidebar';
+import {
+  Sidebar,
+  SIDEBAR_OPEN_GROUPS_STORAGE_KEY,
+} from '../client/src/components/layout/Sidebar';
 
 const admin = {
   id: 'u-admin', name: 'Admin', email: 'admin@example.com', role: 'SUPER_ADMIN',
@@ -32,6 +39,10 @@ const auditor = {
 const frontDesk = {
   id: 'u-fd', name: 'Front Desk', email: 'fd@example.com', role: 'FRONT_DESK', branchId: 'br-a',
 } as any;
+
+beforeEach(() => {
+  localStorage.removeItem(SIDEBAR_OPEN_GROUPS_STORAGE_KEY);
+});
 
 const base = {
   companyProfile: null,
@@ -123,7 +134,9 @@ const EXPECTED: Record<string, { sections: string[]; items: string[] }> = {
   finance: {
     sections: ['Statements & ledgers', 'Tax & assets'],
     items: [
-      'financial-statements', 'vendor-ledger', 'customer-ledger', 'vendor-opening-balances',
+      'accounting', 'accounting-profit-loss', 'accounting-balance-sheet', 'accounting-cash-book',
+      'accounting-aging', 'accounting-chart',
+      'cash-position', 'financial-statements', 'vendor-ledger', 'customer-ledger', 'vendor-opening-balances',
       'vat-register', 'fixed-assets', 'depreciation-register',
     ],
   },
@@ -138,7 +151,7 @@ const EXPECTED: Record<string, { sections: string[]; items: string[] }> = {
   admin: {
     sections: ['Setup', 'Governance'],
     items: [
-      'company-setup', 'users', 'permissions', 'fiscal-year-management',
+      'company-setup', 'users', 'permissions', 'user-permissions', 'fiscal-year-management',
       'fiscal-year-closing', 'bs-calendar',
       'audit', 'data-recalculation', 'clear-demo-data',
     ],
@@ -283,34 +296,216 @@ describe('sidebar grouping', () => {
     }
   });
 
-  test('single-open accordion keeps one group open and restores it from the header', () => {
+  test('groups open independently and the header expands or collapses all of them', () => {
     const tree = render(admin, 'dashboard');
     const openHeaders = () =>
       tree.container.querySelectorAll('[data-nav-group] button[aria-expanded="true"]').length;
+    const allGroups = tree.container.querySelectorAll('[data-nav-group]');
+    const expandAll = tree.container.querySelector(
+      'button[aria-label="Expand all menu groups"]'
+    ) as HTMLButtonElement;
+    const collapseAll = tree.container.querySelector(
+      'button[aria-label="Collapse all menu groups"]'
+    ) as HTMLButtonElement;
+
     try {
+      assert.ok(expandAll, 'the header offers Expand all');
+      assert.ok(collapseAll, 'the header offers Collapse all');
       assert.equal(openHeaders(), 1, 'the active page group starts open');
 
       inAct(() => groupButton(tree, 'inventory').click());
       assert.equal(groupButton(tree, 'inventory').getAttribute('aria-expanded'), 'true');
-      assert.equal(groupButton(tree, 'dashboard').getAttribute('aria-expanded'), 'false');
-      assert.equal(openHeaders(), 1, 'opening Inventory must close Overview');
+      assert.equal(
+        groupButton(tree, 'dashboard').getAttribute('aria-expanded'),
+        'true',
+        'opening Inventory must not close Overview'
+      );
+      assert.equal(openHeaders(), 2, 'groups open independently');
+
+      inAct(() => groupButton(tree, 'procurement').click());
+      assert.equal(openHeaders(), 3);
 
       inAct(() => groupButton(tree, 'inventory').click());
-      assert.equal(openHeaders(), 0, 'clicking the open group collapses the rail');
+      assert.equal(openHeaders(), 2, 'closing one group leaves the others open');
 
-      const expand = tree.container.querySelector(
-        'button[title="Expand the menu group for the current page"]'
-      ) as HTMLButtonElement | null;
-      assert.ok(expand, 'header control must offer to restore the active page group');
-      inAct(() => expand!.click());
+      inAct(() => expandAll.click());
+      assert.equal(openHeaders(), allGroups.length, 'Expand all opens every visible group');
+      assert.equal(expandAll.disabled, true, 'Expand all is inert once everything is open');
+      assert.equal(collapseAll.disabled, false);
+
+      inAct(() => collapseAll.click());
+      assert.equal(openHeaders(), 0, 'Collapse all closes every group');
+      assert.equal(collapseAll.disabled, true);
+      assert.equal(expandAll.disabled, false);
+
+      // Navigating opens the destination group without resetting the rail.
+      tree.rerender(createElement(Sidebar, { ...base, currentUser: admin, activeTab: 'purchase-list' } as any));
+      assert.equal(groupButton(tree, 'procurement').getAttribute('aria-expanded'), 'true');
+      assert.equal(openHeaders(), 1);
+
+      inAct(() => groupButton(tree, 'inventory').click());
+      tree.rerender(createElement(Sidebar, { ...base, currentUser: admin, activeTab: 'sales-list' } as any));
+      assert.equal(groupButton(tree, 'sales').getAttribute('aria-expanded'), 'true');
+      assert.equal(
+        groupButton(tree, 'inventory').getAttribute('aria-expanded'),
+        'true',
+        'navigation adds the destination group instead of replacing the set'
+      );
+      assert.equal(openHeaders(), 3);
+    } finally {
+      tree.unmount();
+    }
+  });
+
+  test('the open-group set survives a remount', () => {
+    let tree = render(admin, 'dashboard');
+    try {
+      inAct(() => groupButton(tree, 'inventory').click());
+      assert.deepEqual(
+        new Set(JSON.parse(localStorage.getItem(SIDEBAR_OPEN_GROUPS_STORAGE_KEY) || '[]')),
+        new Set(['dashboard', 'inventory']),
+        'opening a group writes the whole set, not just the new id'
+      );
+    } finally {
+      tree.unmount();
+    }
+
+    tree = render(admin, 'dashboard');
+    try {
       assert.equal(groupButton(tree, 'dashboard').getAttribute('aria-expanded'), 'true');
+      assert.equal(groupButton(tree, 'inventory').getAttribute('aria-expanded'), 'true');
+      assert.equal(
+        tree.container.querySelectorAll('[data-nav-group] button[aria-expanded="true"]').length,
+        2,
+        'the remounted rail restores both open groups'
+      );
+    } finally {
+      tree.unmount();
+    }
+  });
 
-      const collapse = tree.container.querySelector(
-        'button[title="Collapse the open menu group"]'
-      ) as HTMLButtonElement | null;
-      assert.ok(collapse, 'header control must offer to collapse');
-      inAct(() => collapse!.click());
-      assert.equal(openHeaders(), 0);
+  test('Collapse all persists an empty set across a remount', () => {
+    let tree = render(admin, 'dashboard');
+    try {
+      const collapseAll = tree.container.querySelector(
+        'button[aria-label="Collapse all menu groups"]'
+      ) as HTMLButtonElement;
+      inAct(() => collapseAll.click());
+      assert.equal(
+        localStorage.getItem(SIDEBAR_OPEN_GROUPS_STORAGE_KEY),
+        '[]',
+        'an explicit Collapse all is stored, not treated as first visit'
+      );
+    } finally {
+      tree.unmount();
+    }
+
+    tree = render(admin, 'dashboard');
+    try {
+      assert.equal(
+        tree.container.querySelectorAll('[data-nav-group] button[aria-expanded="true"]').length,
+        0,
+        'the stored empty set wins over the first-visit default'
+      );
+
+      // The permission matrix arriving after bootstrap is not navigation, and
+      // must not reopen the active group over a persisted Collapse all.
+      tree.rerender(
+        createElement(Sidebar, {
+          ...base,
+          currentUser: admin,
+          activeTab: 'dashboard',
+          permissionsVersion: 1,
+        } as any)
+      );
+      assert.equal(
+        tree.container.querySelectorAll('[data-nav-group] button[aria-expanded="true"]').length,
+        0,
+        'a permissions refresh leaves the collapsed rail collapsed'
+      );
+    } finally {
+      tree.unmount();
+    }
+  });
+
+  test('StrictMode keeps the stored set, and malformed storage falls back', () => {
+    localStorage.setItem(SIDEBAR_OPEN_GROUPS_STORAGE_KEY, '[]');
+    const strict = mountTree(
+      createElement(
+        StrictMode,
+        null,
+        createElement(Sidebar, { ...base, currentUser: admin, activeTab: 'dashboard' } as any)
+      )
+    );
+    try {
+      assert.equal(
+        strict.container.querySelectorAll('[data-nav-group] button[aria-expanded="true"]').length,
+        0,
+        'the double-invoked mount effect must not re-open the active group'
+      );
+    } finally {
+      strict.unmount();
+    }
+
+    localStorage.setItem(SIDEBAR_OPEN_GROUPS_STORAGE_KEY, '{not json');
+    const fallback = render(admin, 'dashboard');
+    try {
+      assert.equal(groupButton(fallback, 'dashboard').getAttribute('aria-expanded'), 'true');
+      assert.equal(
+        fallback.container.querySelectorAll('[data-nav-group] button[aria-expanded="true"]').length,
+        1,
+        'a first visit falls back to the active page group'
+      );
+    } finally {
+      fallback.unmount();
+    }
+  });
+
+  test('stored ids for groups that no longer exist are ignored and healed', () => {
+    localStorage.setItem(
+      SIDEBAR_OPEN_GROUPS_STORAGE_KEY,
+      JSON.stringify(['dashboard', 'sales', 'removed-group'])
+    );
+    const tree = render(admin, 'dashboard');
+    try {
+      const open = tree.container.querySelectorAll(
+        '[data-nav-group] button[aria-expanded="true"]'
+      );
+      assert.equal(open.length, 2, 'only the two real groups reopen');
+      assert.equal(groupButton(tree, 'dashboard').getAttribute('aria-expanded'), 'true');
+      assert.equal(groupButton(tree, 'sales').getAttribute('aria-expanded'), 'true');
+      assert.deepEqual(
+        JSON.parse(localStorage.getItem(SIDEBAR_OPEN_GROUPS_STORAGE_KEY) || 'null'),
+        ['dashboard', 'sales'],
+        'the mount-time persist rewrites storage without the stale id'
+      );
+    } finally {
+      tree.unmount();
+    }
+  });
+
+  test('a role cannot restore a group its menu does not render', () => {
+    // The admin group is hidden from Front Desk, so an admin id saved by a
+    // previous (wider) profile must not leave the rail looking empty.
+    localStorage.setItem(SIDEBAR_OPEN_GROUPS_STORAGE_KEY, JSON.stringify(['admin']));
+    const tree = render(frontDesk, 'dashboard');
+    try {
+      assert.equal(
+        tree.container.querySelector('[data-nav-group="admin"]'),
+        null,
+        'Front Desk has no admin group to restore'
+      );
+      assert.equal(
+        tree.container.querySelectorAll('[data-nav-group] button[aria-expanded="true"]').length,
+        1,
+        'an all-stale set falls back to the active page group'
+      );
+      assert.equal(groupButton(tree, 'dashboard').getAttribute('aria-expanded'), 'true');
+      assert.deepEqual(
+        JSON.parse(localStorage.getItem(SIDEBAR_OPEN_GROUPS_STORAGE_KEY) || 'null'),
+        ['dashboard'],
+        'storage heals to the visible fallback'
+      );
     } finally {
       tree.unmount();
     }

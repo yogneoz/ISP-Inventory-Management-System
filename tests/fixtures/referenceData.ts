@@ -39,6 +39,7 @@ import {
   INITIAL_MASTER_BRANCHES,
   INITIAL_MASTER_FISCAL_YEARS,
 } from '../../server/src/config/seedData';
+import { ensureDefaultChart } from '../../server/src/services/accountingSeed.service';
 
 /** Minimal structural type: a pg.Pool or a checked-out pg.PoolClient. */
 export interface Queryable {
@@ -199,6 +200,10 @@ export async function ensureReferenceData(
 ): Promise<{ adDate: string; bsDate: string }> {
   await ensureDemoBranches(db);
   await ensureFiscalYearMaster(db);
+  // Any suite that exercises an invoice now also exercises its ledger posting,
+  // so the posting defaults are part of the reference data a schema-only
+  // database needs. The seeder is idempotent and additive.
+  await ensureDefaultChart(db);
   const resolved = await ensureBsDayRecords(db, [adDate]);
   return { adDate, bsDate: resolved.get(adDate)! };
 }

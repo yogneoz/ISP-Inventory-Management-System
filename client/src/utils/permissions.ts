@@ -7,6 +7,19 @@ import { DEFAULT_PERMISSIONS_MATRIX } from './permissionMatrixData';
 // there is deliberately no setter and no browser-storage fallback.
 let serverMatrixCache: Record<string, Record<string, boolean>> | null = null;
 
+/**
+ * The signed-in account's RESOLVED operation set (`GET /api/permissions/me`):
+ * the role matrix with this one user's grants and denies applied. It is keyed
+ * by the server-returned role so it can never answer for a different role —
+ * screens pass `currentUser.role`, and a call naming another role falls back to
+ * the role matrix, as before.
+ *
+ * Cleared on sign-out and at the start of a profile switch. This is display
+ * state only: the server resolves and enforces the same rules per request, so
+ * a tampered cache can hide a tab but cannot open an API.
+ */
+let effectivePermissionsCache: { role: string; operations: Set<string> } | null = null;
+
 export const CAN_SEE_ALL_BRANCHES_ROLES = new Set([
   'SUPER_ADMIN',
   'INVENTORY_MANAGER',
@@ -16,6 +29,19 @@ export const CAN_SEE_ALL_BRANCHES_ROLES = new Set([
 export const canUserSeeAllBranches = (user: User | null | undefined): boolean => {
   if (!user) return false;
   return CAN_SEE_ALL_BRANCHES_ROLES.has(user.role);
+};
+
+/**
+ * The server's global-scope account shape (`allowedBranchScope` in
+ * server/src/middleware/branchScope.ts): Super Admin, Head Office Admin, or a
+ * signed branchId of 'ALL'. Only these may pick the consolidated ALL view or a
+ * branch they are not assigned to; an INVENTORY_MANAGER signed to one branch is
+ * still branch-scoped even though `canUserSeeAllBranches` lists the role for
+ * display purposes.
+ */
+export const hasGlobalBranchScope = (user: User | null | undefined): boolean => {
+  if (!user) return false;
+  return user.role === 'SUPER_ADMIN' || user.role === 'HEAD_OFFICE_ADMIN' || user.branchId === 'ALL';
 };
 
 export const getAllowedBranchIds = (user: User | null | undefined, branches: Branch[]): string[] => {
@@ -42,6 +68,31 @@ export const getAllowedBranches = (user: User | null | undefined, branches: Bran
 };
 
 /**
+ * The view scope a branch selection may switch to.
+ *
+ * Mirrors `enforceBranchAccess` rather than the display-oriented
+ * `canUserSeeAllBranches`: a global account (Super Admin, Head Office Admin,
+ * or a signed branchId of 'ALL') may pick any branch and the consolidated
+ * ALL view; every other account may pick only its own branch plus the
+ * explicitly assigned ones. A stale or forged value falls back to the primary
+ * branch instead of becoming a scope the server will refuse.
+ */
+export const resolveBranchSelection = (
+  user: User | null | undefined,
+  branches: Branch[],
+  requested: string
+): string => {
+  if (!user) return requested;
+  const primary =
+    user.branchId && user.branchId !== 'ALL' ? user.branchId : '';
+  if (requested === 'ALL') return hasGlobalBranchScope(user) ? 'ALL' : primary || branches[0]?.id || '';
+  if (hasGlobalBranchScope(user)) return requested;
+  const scoped = getScopedBranches(user, branches).map((branch) => branch.id);
+  if (scoped.includes(requested)) return requested;
+  return primary || scoped[0] || '';
+};
+
+/**
  * Branches a screen may OFFER for selection, mirroring the server's branch
  * contract (`allowedBranchScope` in server/src/middleware/branchScope.ts):
  * Super Admin, Head Office Admin and a signed `branchId` of 'ALL' are global;
@@ -55,9 +106,7 @@ export const getAllowedBranches = (user: User | null | undefined, branches: Bran
  */
 export const getScopedBranches = (user: User | null | undefined, branches: Branch[]): Branch[] => {
   if (!user) return [];
-  if (user.role === 'SUPER_ADMIN' || user.role === 'HEAD_OFFICE_ADMIN' || user.branchId === 'ALL') {
-    return branches;
-  }
+  if (hasGlobalBranchScope(user)) return branches;
   const ids = new Set<string>([user.branchId || '', ...(user.allowedBranchIds || [])].filter(Boolean));
   return branches.filter((b) => ids.has(b.id));
 };
@@ -92,6 +141,30 @@ export const applyServerMatrix = (matrix: Record<string, Record<string, boolean>
   }
 };
 
+/**
+ * Applies the signed-in account's effective set. `null` (or a missing role)
+ * clears it, returning every gate to the role matrix. The role is required so
+ * an effective grant for a Branch Manager cannot leak into a check made for
+ * another role in the same tab.
+ */
+export const applyEffectivePermissions = (
+  operations: readonly string[] | null,
+  role?: string | null
+): void => {
+  if (!operations || !role) {
+    effectivePermissionsCache = null;
+    return;
+  }
+  effectivePermissionsCache = {
+    role,
+    operations: new Set(operations.filter((operation) => typeof operation === 'string' && operation.length > 0)),
+  };
+};
+
+/** The resolved set for the current session, or null when it has not loaded. */
+export const getEffectivePermissions = (): ReadonlySet<string> | null =>
+  effectivePermissionsCache ? effectivePermissionsCache.operations : null;
+
 export const isOperationAllowed = (
   opId: string,
   userRole?: UserRole | string | null,
@@ -113,6 +186,14 @@ export const isOperationAllowed = (
 
   if (userRole === 'SUPER_ADMIN') {
     return true;
+  }
+
+  // The effective set is the server's answer for THIS account, so it is used
+  // only when the caller is asking about the role it was resolved for. Without
+  // that guard, one user's exception could be displayed as another user's in a
+  // shared render (the server would still refuse the request).
+  if (effectivePermissionsCache && effectivePermissionsCache.role === userRole) {
+    return effectivePermissionsCache.operations.has(opId);
   }
 
   const matrix = getPermissionsMatrix();

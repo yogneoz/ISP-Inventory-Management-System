@@ -75,8 +75,6 @@ import {
   FY_SET_CURRENT_SQL,
   FY_CURRENT_COUNT_SQL,
   FY_SINGLE_CURRENT_CONSTRAINT,
-  FY_CLOSE_SQL,
-  FY_END_DATE_SQL,
   FY_REOPEN_SQL,
   FY_FIND_FOR_INIT_SQL,
   FY_NEXT_AFTER_SQL,
@@ -89,6 +87,8 @@ import {
   fiscalYearReferenceCountSql,
 } from '../models/admin.repo';
 import { replayLedgerBalances, LedgerReplayRow } from '../models/txnLogRows';
+import { ApiError } from '../errors/ApiError';
+import { closeFiscalYear } from '../services/accountingClosing.service';
 /** Forwarded from admin.routes.ts (post_clearDemoData). */
 export async function post_clearDemoData(req: any, res: Response): Promise<any> {
 try {
@@ -979,27 +979,42 @@ const { id } = req.params;
 }
 
 /** Forwarded from admin.routes.ts (put_Id4). */
-/** Forwarded from admin.routes.ts (post_close). */
+/**
+ * Forwarded from admin.routes.ts (post_close). Closing a year now also posts
+ * each branch's P&L residue to retained earnings, inside one transaction with
+ * the is_closed flag, so the balance sheet and the trial balance stay coherent.
+ * The response body is still the fiscal-year row this route has always returned.
+ */
 export async function post_close(req: any, res: Response): Promise<any> {
 const { id } = req.params;
   const authCheck = await verifySuperAdminCredentials(req.body?.adminEmail, req.body?.adminPassword);
   if (!authCheck.ok) return res.status(403).json({ message: authCheck.message });
   try {
-    const result = await pgPool.query(FY_CLOSE_SQL, [id]);
-    const fiscalYear = result.rows[0];
-    if (!fiscalYear) {
-      const existing = await pgPool.query(FY_END_DATE_SQL, [id]);
-      if (!existing.rows[0]) return res.status(404).json({ message: 'Fiscal year not found.' });
-      res.status(400).json({ message: `Fiscal year closing is available only after ${existing.rows[0].endDateAD}.` });
-      return;
-    }
+    const closed = await withTransaction(async (client) => {
+      const result = await closeFiscalYear(client, {
+        fiscalYearId: id,
+        actor: authCheck.email || null,
+      });
+      return result;
+    });
+    const fiscalYear = closed.fiscalYear;
+    if (!fiscalYear) return res.status(404).json({ message: 'Fiscal year not found.' });
 
     const index = fiscalYears.findIndex((item) => item.id === id);
     if (index >= 0) setFiscalYears(withReplaced(fiscalYears, index, fiscalYear));
-    logAuditEvent(req, 'CLOSE_FISCAL_YEAR', 'FISCAL_YEAR', `Closed and locked fiscal year ${fiscalYear.code} (authorized by ${authCheck.email})`);
+    logAuditEvent(
+      req,
+      'CLOSE_FISCAL_YEAR',
+      'FISCAL_YEAR',
+      `Closed and locked fiscal year ${fiscalYear.code} with ${closed.journalCount} year-end journal(s) (authorized by ${authCheck.email})`
+    );
     res.json(fiscalYear);
     return;
   } catch (error: any) {
+    if (error instanceof ApiError) {
+      res.status(error.status).json({ message: error.message });
+      return;
+    }
     console.error('Error closing fiscal year:', error);
     res.status(500).json({ message: `Unable to close fiscal year: ${error.message}` });
     return;

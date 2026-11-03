@@ -6,7 +6,7 @@
  */
 import type { Express } from 'express';
 import { get_stock, patch_Id, patch_reorderLevel, post_bulkReorderLevels, post_reconcileAudit, post_assets, patch_status, get_stockOperations, post_stockOperations, post_reverse, post_reverseConsumable, post_reversePullout, post_reverseStockOut, post_receive, get_customerDevicesPage, get_customerDevicesOverview, post_customerDevices, patch_status2, get_lookup, get_exchangeLookup, post_exchangeRefusal, post_dual, post_exchange, get_serialLog } from '../controllers/inventory.controller';
-import { get_fixedAssetsPage, get_fixedAssetsOverview, get_fixedAssetsAvailable, get_fixedAssetsLookup } from '../controllers/fixedAssets.controller';
+import { get_fixedAssetsPage, get_fixedAssetsOverview, get_fixedAssetsAvailable, get_fixedAssetsLookup, postFixedAssetDepreciation } from '../controllers/fixedAssets.controller';
 import {
   handleUpdateSerials,
   requirePermission,
@@ -60,6 +60,11 @@ app.get('/api/fixed-assets/overview', async (req, res, next) => { get_fixedAsset
 app.get('/api/fixed-assets/available', async (req, res, next) => { get_fixedAssetsAvailable(req as any, res as any).catch(next); });
 
 app.get('/api/fixed-assets/lookup', async (req, res, next) => { get_fixedAssetsLookup(req as any, res as any).catch(next); });
+
+// The depreciation run is a finance operation: it posts journals, so it is
+// gated on `fin-statements` rather than the stock-level `assets-manage`
+// operation that creates and deploys assets.
+app.post('/api/fixed-assets/depreciation', requirePermission('fin-statements'), async (req, res, next) => { postFixedAssetDepreciation(req as any, res as any).catch(next); });
 
 app.get('/api/stock-operations', async (req, res, next) => { get_stockOperations(req as any, res as any).catch(next); });
 

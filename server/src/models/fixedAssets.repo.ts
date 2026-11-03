@@ -226,6 +226,52 @@ export function buildFixedAssetAvailableQuery(opts: FixedAssetQueryOptions = {})
   return { sql, params };
 }
 
+/**
+ * The assets a depreciation run must charge for one branch and period end.
+ * Disposed/written-off rows and assets not yet in service are excluded; the
+ * caller still verifies that each candidate's cost is actually in the ledger
+ * before posting.
+ */
+export const FIXED_ASSET_DEPRECIATION_CANDIDATES_SQL = `SELECT
+  id,
+  tag_number AS "tagNumber",
+  name,
+  branch_id AS "branchId",
+  acquisition_cost AS "acquisitionCost",
+  COALESCE(placed_in_service_date_ad, acquisition_date_ad) AS "inServiceDateAD",
+  depreciation_method AS "depreciationMethod",
+  depreciation_rate_percent AS "depreciationRatePercent",
+  accumulated_depreciation AS "accumulatedDepreciation",
+  net_book_value AS "netBookValue",
+  status
+FROM fixed_assets
+WHERE branch_id = $1
+  AND acquisition_cost > 0
+  AND depreciation_rate_percent > 0
+  AND UPPER(status) NOT IN ('DISPOSED', 'WRITTEN_OFF')
+  AND COALESCE(placed_in_service_date_ad, acquisition_date_ad) <= $2
+ORDER BY tag_number ASC, id ASC`;
+
+/** One asset's ledger-relevant fields, by id (no branch filter of its own). */
+export const FIXED_ASSET_ACCOUNTING_ROW_SQL = `SELECT
+  id,
+  tag_number AS "tagNumber",
+  name,
+  branch_id AS "branchId",
+  acquisition_cost AS "acquisitionCost",
+  accumulated_depreciation AS "accumulatedDepreciation",
+  net_book_value AS "netBookValue",
+  status
+FROM fixed_assets
+WHERE id = $1`;
+
+/** Persist the accumulated depreciation a posted run established. */
+export const FIXED_ASSET_SET_DEPRECIATION_SQL = `UPDATE fixed_assets SET
+  accumulated_depreciation = $1,
+  net_book_value = $2,
+  updated_at = CURRENT_TIMESTAMP
+WHERE id = $3`;
+
 /** One asset by id, tag number or device serial, under the caller's branch scope. */
 export function buildFixedAssetLookupQuery(
   scope: FixedAssetQueryOptions,

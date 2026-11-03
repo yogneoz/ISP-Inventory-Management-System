@@ -45,9 +45,12 @@ export function useBranchStock(
   // Join into a primitive so a new array literal each render (the callers
   // build one from a selector) does not refetch on every keystroke.
   const key = branchIds.join('|');
+  // `generation` covers a sign-out/profile switch: reset() drops the previous
+  // user's branch ids, and this effect must re-register the NEW user's allowed
+  // set even when that set is textually the same (e.g. two branch managers).
   useEffect(() => {
     branchStockStore.ensureLoaded(key ? key.split('|') : []);
-  }, [key]);
+  }, [key, snapshot.generation]);
 
   const rows = useMemo(
     () => mergeBranchStock(fallback, snapshot.rows),

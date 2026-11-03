@@ -38,6 +38,11 @@ export function buildStockListQuery(branchId?: unknown): { sql: string; params: 
 export const STOCK_FIND_BY_ID_SQL =
   'SELECT id, product_id AS "productId", branch_id AS "branchId", quantity_on_hand AS "quantityOnHand", damaged_qty AS "damagedQty", reserved_qty AS "reservedQty", incoming_qty AS "incomingQty", min_reorder_level AS "minReorderLevel" FROM inventory_stock WHERE id = $1';
 
+/** Row lock for a direct level correction. Reads the cost basis in the same
+ * statement, so the value journal cannot be written from a stale average. */
+export const STOCK_LOCK_BY_ID_SQL = `SELECT id, product_id AS "productId", branch_id AS "branchId", quantity_on_hand AS "quantityOnHand", damaged_qty AS "damagedQty", reserved_qty AS "reservedQty", incoming_qty AS "incomingQty", min_reorder_level AS "minReorderLevel", average_cost::numeric AS "averageCost"
+ FROM inventory_stock WHERE id = $1 FOR UPDATE`;
+
 /** Level-touching upsert (PATCH /api/stock/:id): stamps last_updated via NOW(). */
 export const STOCK_UPSERT_LEVELS_SQL = `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, damaged_qty, reserved_qty, incoming_qty, min_reorder_level, last_updated)
  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
@@ -56,7 +61,7 @@ export function stockUpsertLevelsParams(stk: Record<string, any>): unknown[] {
     stk.damagedQty || 0,
     stk.reservedQty || 0,
     stk.incomingQty || 0,
-    stk.minReorderLevel || 5,
+    stk.minReorderLevel ?? 5,
   ];
 }
 
@@ -269,6 +274,27 @@ export function stockLockForUpdateParams(items: Array<{ productId: string }>, br
 }
 
 /**
+ * Weighted-average unit cost for the (product, branch) pairs a stock document
+ * is about to move. Read inside the same transaction as the movement, after
+ * the row lock, so the journal and the stock ledger use one cost basis.
+ */
+export const STOCK_AVERAGE_COSTS_SQL = `
+  SELECT product_id AS "productId", average_cost::numeric AS "averageCost"
+  FROM inventory_stock
+  WHERE branch_id = $1 AND product_id = ANY($2::text[])`;
+
+/**
+ * Materialises a weighted average for a stock row credited without a purchase
+ * (manual positive adjustment / exchange restock). Existing non-zero averages
+ * are never overwritten: an issue must not rewrite the cost of units already on
+ * hand.
+ */
+export const STOCK_SET_AVERAGE_COST_IF_ZERO_SQL = `
+  UPDATE inventory_stock
+  SET average_cost = $1, last_updated = CURRENT_TIMESTAMP
+  WHERE product_id = $2 AND branch_id = $3 AND COALESCE(average_cost, 0) = 0`;
+
+/**
  * Re-verification failure detail: the DB-truth availability for a locked row.
  * Thrown as a plain Error by the controllers with a user-facing message.
  */
@@ -475,9 +501,14 @@ export function assetUpsertParams(a: Record<string, any>): unknown[] {
  * asset is unassigned back to ACTIVE. Idempotent per asset via the
  * transaction-log reference (the controller checks before calling).
  */
-export const STOCK_RETURN_FROM_ASSET_SQL = `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, damaged_qty, reserved_qty, incoming_qty, min_reorder_level, last_updated)
- VALUES ($4, $1, $2, $3, 0, 0, 0, 0, NOW())
+export const STOCK_RETURN_FROM_ASSET_SQL = `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, damaged_qty, reserved_qty, incoming_qty, average_cost, min_reorder_level, last_updated)
+ VALUES ($4, $1, $2, $3, 0, 0, 0, $5, 0, NOW())
  ON CONFLICT (product_id, branch_id) DO UPDATE SET
+   average_cost = CASE
+     WHEN inventory_stock.quantity_on_hand + $3 > 0
+     THEN ROUND((inventory_stock.quantity_on_hand * inventory_stock.average_cost + $3 * $5) / (inventory_stock.quantity_on_hand + $3), 4)
+     ELSE inventory_stock.average_cost
+   END,
    quantity_on_hand = inventory_stock.quantity_on_hand + $3,
    last_updated = NOW()
  RETURNING quantity_on_hand;`;
@@ -504,7 +535,7 @@ export const ASSET_SET_ASSIGNMENT_SQL = `UPDATE fixed_assets SET
 // ---------------------------------------------------------------------------
 
 export const CPE_ASSET_SELECT_COLUMNS =
-  'id, tag_number AS "tagNumber", product_id AS "productId", branch_id AS "branchId", status, device_serial AS "deviceSerial", assigned_customer_id AS "assignedCustomerId", assigned_customer_name AS "assignedCustomerName", assigned_location_id AS "assignedLocationId", assigned_location_name AS "assignedLocationName", assignment_notes AS "assignmentNotes"';
+  'id, tag_number AS "tagNumber", product_id AS "productId", branch_id AS "branchId", status, device_serial AS "deviceSerial", acquisition_cost::numeric AS "acquisitionCost", assigned_customer_id AS "assignedCustomerId", assigned_customer_name AS "assignedCustomerName", assigned_location_id AS "assignedLocationId", assigned_location_name AS "assignedLocationName", assignment_notes AS "assignmentNotes"';
 
 /** Locks the asset a collection or exchange is about to move. */
 export const FIXED_ASSET_LOCK_BY_ID_SQL =
@@ -553,6 +584,10 @@ export const FIXED_ASSET_DEPLOY_PROOF_SQL = `SELECT 1 FROM transaction_logs
 
 /** Idempotency probe for a lifecycle ledger row (same id = same event). */
 export const TXN_FIND_BY_ID_SQL = 'SELECT id FROM transaction_logs WHERE id = $1';
+
+/** The cost a movement row recorded, recovered when a CPE unit is released. */
+export const TXN_ISSUE_COST_SQL =
+  'SELECT unit_cost::numeric AS "unitCost" FROM transaction_logs WHERE id = $1';
 
 /** Row lock used before a collection credit or an exchange deduction. */
 export const STOCK_LOCK_ONE_SQL =
@@ -726,7 +761,7 @@ export const STOCK_OPERATION_CANCEL_SQL = `UPDATE stock_operations SET status = 
 
 /** Locks a stock-operation row and reads the fields needed to receive it. */
 export const STOCK_OPERATION_FIND_FOR_RECEIVE_SQL =
-  'SELECT status, destination_warehouse_id AS "destinationWarehouseId", items FROM stock_operations WHERE id = $1 FOR UPDATE';
+  'SELECT status, type, branch_id AS "branchId", date_ad AS "dateAD", destination_warehouse_id AS "destinationWarehouseId", items FROM stock_operations WHERE id = $1 FOR UPDATE';
 
 /** Full-row read by id for the receive/reverse pre-checks (mirror step 3: PG-first). */
 export const STOCK_OPERATION_FIND_BY_ID_SQL = `SELECT ${STOCK_OP_SELECT_COLUMNS} FROM stock_operations WHERE id = $1`;
@@ -1124,9 +1159,14 @@ export function cdrAssignmentStockParams(
  * credited (the controller passes a positive stockChange on release), and
  * RETURNING gives the true post-update balance for the ledger row.
  */
-export const CDR_ASSIGNMENT_STOCK_RETURN_SQL = `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand)
- VALUES ($4, $2, $3, $1)
+export const CDR_ASSIGNMENT_STOCK_RETURN_SQL = `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, average_cost)
+ VALUES ($4, $2, $3, $1, $5)
  ON CONFLICT (product_id, branch_id) DO UPDATE SET
+   average_cost = CASE
+     WHEN inventory_stock.quantity_on_hand + $1 > 0
+     THEN ROUND((inventory_stock.quantity_on_hand * inventory_stock.average_cost + $1 * $5) / (inventory_stock.quantity_on_hand + $1), 4)
+     ELSE inventory_stock.average_cost
+   END,
    quantity_on_hand = inventory_stock.quantity_on_hand + $1,
    last_updated = CURRENT_TIMESTAMP
  RETURNING quantity_on_hand`;
@@ -1134,9 +1174,16 @@ export const CDR_ASSIGNMENT_STOCK_RETURN_SQL = `INSERT INTO inventory_stock (id,
 export function cdrAssignmentReturnParams(
   stockChange: number,
   productId: string,
-  branchId: string
+  branchId: string,
+  unitCost = 0
 ): unknown[] {
-  return [stockChange, productId, branchId, `stk-${branchId.toLowerCase()}-${productId}`];
+  return [
+    stockChange,
+    productId,
+    branchId,
+    `stk-${branchId.toLowerCase()}-${productId}`,
+    Math.max(0, Number(unitCost) || 0),
+  ];
 }
 
 /**

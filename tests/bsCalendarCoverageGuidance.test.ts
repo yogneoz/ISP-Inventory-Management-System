@@ -204,7 +204,11 @@ describe('BS-seeding guidance — the toast can reach the screen', () => {
     const app = read('client/src/App.tsx');
     assert.ok(app.includes('NAVIGATE_TAB_EVENT'), 'App must listen for navigation requests');
     assert.ok(
-      app.includes('canAccessTabRef.current(tab as NavTab)'),
+      app.includes('const nextTab = canonicalTab(tab as NavTab)'),
+      'navigation requests must resolve retired ids before validation'
+    );
+    assert.ok(
+      app.includes('canAccessTabRef.current(nextTab)'),
       'navigation requests must be validated against the user permissions'
     );
   });

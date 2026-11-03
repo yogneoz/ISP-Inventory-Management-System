@@ -13,9 +13,23 @@
  */
 import type { Response } from 'express';
 import { assetRegister, getPgConnected, pgPool } from '../app';
+import { withTransaction } from '../db/transactions';
+import { ApiError } from '../errors/ApiError';
+import { getUserFromReq } from '../middleware/auth';
+import { allowedBranchScope } from '../middleware/branchScope';
+import { logAuditEvent } from '../services/audit.service';
+import { periodBounds } from '../services/accounting.service';
+import {
+  postFixedAssetDepreciationJournal,
+  readFixedAssetCostValue,
+  readFixedAssetDepreciationPosted,
+} from '../services/cpePosting.service';
+import { DEPRECIATION_RUN_LOCK_SQL, JOURNAL_FIND_BY_SOURCE_SQL } from '../models/accounting.repo';
 import {
   FIXED_ASSET_AVAILABLE_MAX,
   FIXED_ASSET_EXPORT_MAX,
+  FIXED_ASSET_DEPRECIATION_CANDIDATES_SQL,
+  FIXED_ASSET_SET_DEPRECIATION_SQL,
   buildFixedAssetAggregateQuery,
   buildFixedAssetAvailableQuery,
   buildFixedAssetCountQuery,
@@ -28,6 +42,7 @@ import {
   type FixedAssetQueryOptions,
 } from '../models/fixedAssets.repo';
 import { calculateFixedAssetValues } from '../../../shared/depreciation';
+import { roundMoney } from '../utils/money';
 
 interface FixedAssetTotals {
   acquisitionCost: number;
@@ -480,6 +495,154 @@ export async function get_fixedAssetsLookup(req: any, res: Response): Promise<an
   });
   if (!row) return res.status(404).json({ message: 'Fixed asset not found.' });
   res.json(row);
+}
+
+/**
+ * POST /api/fixed-assets/depreciation — post one branch's depreciation for a
+ * calendar month.
+ *
+ * The run is idempotent per (asset, month): each asset's journal is keyed by
+ * `<assetId>:<periodKey>`, a repeat run for a month that is already posted is
+ * refused before anything writes, and the whole run holds a per-branch/period
+ * advisory lock so two concurrent requests cannot both pass the check. The
+ * charge is the method's cumulative depreciation at month end minus what the
+ * ledger has already posted for that asset, so a skipped month is caught up
+ * without ever double-charging one.
+ */
+export async function postFixedAssetDepreciation(req: any, res: Response): Promise<any> {
+  if (!getPgConnected()) throw new ApiError(503, 'PostgreSQL is unavailable.');
+  const branchId = typeof req.body?.branchId === 'string' ? req.body.branchId.trim() : '';
+  if (!branchId || branchId === 'ALL') {
+    return res.status(400).json({ message: 'Name the branch whose depreciation should run.' });
+  }
+  const scope = allowedBranchScope(req.user);
+  if (scope && !scope.has(branchId)) {
+    return res.status(403).json({ message: 'Forbidden: this account is not authorized for the requested branch.' });
+  }
+  const rawPeriod =
+    typeof req.body?.periodKey === 'string' && req.body.periodKey.trim()
+      ? req.body.periodKey.trim()
+      : typeof req.body?.dateAD === 'string'
+        ? req.body.dateAD.trim().slice(0, 7)
+        : '';
+  if (!rawPeriod) {
+    return res.status(400).json({ message: 'Name the period to depreciate as YYYY-MM.' });
+  }
+  const { periodKey, endDateAD } = periodBounds(rawPeriod);
+  const actor = getUserFromReq(req)?.email || null;
+
+  const run = await withTransaction(async (client) => {
+    // Serialize the same branch+month across requests before the duplicate
+    // check, so the check cannot be raced by a concurrent run.
+    await client.query(DEPRECIATION_RUN_LOCK_SQL, [`fixed-asset-depreciation:${branchId}:${periodKey}`]);
+
+    const candidates = (
+      await client.query(FIXED_ASSET_DEPRECIATION_CANDIDATES_SQL, [branchId, endDateAD])
+    ).rows as any[];
+
+    for (const asset of candidates) {
+      const posted = (
+        await client.query(JOURNAL_FIND_BY_SOURCE_SQL, [
+          'FIXED_ASSET_DEPRECIATION',
+          `${asset.id}:${periodKey}`,
+        ])
+      ).rows[0];
+      if (posted) {
+        throw new ApiError(
+          409,
+          `Depreciation for ${periodKey} has already been posted for ${branchId} (journal ${posted.journalNo}). Re-running the same month would double-post.`
+        );
+      }
+    }
+
+    const postedJournals: Array<{ assetId: string; tagNumber: string; amount: number; journalNo: string }> = [];
+    const updates: Array<{ assetId: string; accumulated: number; netBookValue: number }> = [];
+    const skipped: Array<{ assetId: string; tagNumber: string; reason: string }> = [];
+
+    for (const asset of candidates) {
+      const cost = await readFixedAssetCostValue(client, String(asset.id));
+      if (cost < 0.005) {
+        skipped.push({
+          assetId: String(asset.id),
+          tagNumber: String(asset.tagNumber || ''),
+          reason: 'no posted acquisition cost in the ledger',
+        });
+        continue;
+      }
+      const values = calculateFixedAssetValues({
+        acquisitionCost: cost,
+        acquisitionDateAD: String(asset.inServiceDateAD || '').slice(0, 10),
+        asOfDateAD: endDateAD,
+        depreciationMethod: asset.depreciationMethod,
+        depreciationRatePercent: faNumber(asset.depreciationRatePercent),
+        accumulatedDepreciation: 0,
+        netBookValue: cost,
+      });
+      const target = roundMoney(Math.min(Math.max(faNumber(values.accumulatedDepreciation), 0), cost));
+      const alreadyPosted = await readFixedAssetDepreciationPosted(client, String(asset.id));
+      const amount = roundMoney(target - alreadyPosted);
+      if (amount < 0.005) continue;
+
+      const journal = await postFixedAssetDepreciationJournal(client, {
+        assetId: String(asset.id),
+        tagNumber: String(asset.tagNumber || ''),
+        branchId,
+        periodKey,
+        dateAD: endDateAD,
+        amount,
+        actor,
+      });
+      if (!journal) continue;
+      const accumulated = roundMoney(alreadyPosted + amount);
+      const netBookValue = roundMoney(cost - accumulated);
+      await client.query(FIXED_ASSET_SET_DEPRECIATION_SQL, [accumulated, netBookValue, asset.id]);
+      postedJournals.push({
+        assetId: String(asset.id),
+        tagNumber: String(asset.tagNumber || ''),
+        amount,
+        journalNo: journal.journalNo,
+      });
+      updates.push({ assetId: String(asset.id), accumulated, netBookValue });
+    }
+
+    const total = roundMoney(postedJournals.reduce((sum, entry) => sum + entry.amount, 0));
+    if (postedJournals.length > 0) {
+      await logAuditEvent(
+        req,
+        'RUN_FIXED_ASSET_DEPRECIATION',
+        'FIXED_ASSETS',
+        `Posted depreciation for ${periodKey} at ${branchId}: ${postedJournals.length} asset(s), NPR ${total.toFixed(2)} total.`,
+        branchId,
+        client
+      );
+    }
+    return { postedJournals, updates, skipped, total };
+  });
+
+  // The register reads its cached columns; keep the mirror equal to the ledger
+  // immediately instead of waiting for the next cache refresh.
+  for (const update of run.updates) {
+    const row = assetRegister.find((asset) => String(asset.id) === update.assetId);
+    if (row) {
+      row.accumulatedDepreciation = update.accumulated;
+      row.netBookValue = update.netBookValue;
+    }
+  }
+
+  return res.status(run.postedJournals.length > 0 ? 201 : 200).json({
+    periodKey,
+    branchId,
+    journalDateAD: endDateAD,
+    posted: run.postedJournals,
+    skipped: run.skipped,
+    total: run.total,
+    message:
+      run.postedJournals.length > 0
+        ? `Posted depreciation of NPR ${run.total.toFixed(2)} for ${run.postedJournals.length} asset(s) in ${periodKey}.`
+        : run.skipped.length > 0
+          ? `Nothing was posted for ${periodKey}: ${run.skipped.length} asset(s) are not capitalised in the ledger.`
+          : `No further depreciation is due for ${periodKey}.`,
+  });
 }
 
 // Re-exported for tests that pin the shared WHERE and the aggregate rules

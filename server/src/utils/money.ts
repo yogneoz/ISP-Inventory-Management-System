@@ -116,11 +116,13 @@ export interface BillTotals {
  * taxRate (non-exempt), at the line's own rate — `defaultVatRate` (the
  * company-configured rate, see defaultVatRateFor) for lines that carry none.
  */
-export function computeBillTotals(
-  items: any[],
-  discountInput?: number,
-  defaultVatRate?: number
-): BillTotals {
+/**
+ * The per-line allocation both the aggregate and the cost helpers need.
+ * Keeping the discount split in one place is what stops the stock average from
+ * being computed off the list price while inventory is posted at the net
+ * value — two valuations of the same bill that would never reconcile.
+ */
+function allocateBillLines(items: any[], discountInput?: number, defaultVatRate?: number) {
   const fallbackRate =
     defaultVatRate !== undefined && Number.isFinite(Number(defaultVatRate)) && Number(defaultVatRate) > 0
       ? Number(defaultVatRate)
@@ -146,11 +148,31 @@ export function computeBillTotals(
     discount = lineDiscounts.reduce((s, d) => s + d, 0);
   }
 
+  const netLines = lines.map((line, i) => Math.max(0, line.gross - lineDiscounts[i]));
+  return { lines, netLines, grossSubtotal, discount };
+}
+
+/**
+ * Net amount for each line after the same discount allocation
+ * `computeBillTotals` uses. A purchase receipt feeds these into its moving
+ * average so the stock's unit cost is the cost the ledger actually capitalised.
+ */
+export function billLineNetAmounts(items: any[], discountInput?: number): number[] {
+  return allocateBillLines(items, discountInput).netLines.map(roundMoney);
+}
+
+export function computeBillTotals(
+  items: any[],
+  discountInput?: number,
+  defaultVatRate?: number
+): BillTotals {
+  const { lines, netLines, grossSubtotal, discount } = allocateBillLines(items, discountInput, defaultVatRate);
+
   let taxableAmount = 0;
   let nonTaxableAmount = 0;
   let vatAmount = 0;
   lines.forEach((line, i) => {
-    const net = Math.max(0, line.gross - lineDiscounts[i]);
+    const net = netLines[i];
     if (line.taxable) {
       taxableAmount += net;
       vatAmount += (net * line.rate) / 100;

@@ -36,6 +36,7 @@ import {
   setProducts,
 } from '../server/src/app';
 import { issueAuthToken } from '../server/src/middleware/auth';
+import { ensureDefaultChart } from '../server/src/services/accountingSeed.service';
 
 dotenv.config();
 
@@ -91,6 +92,11 @@ describe('CPE status PATCH authorization', () => {
     origProducts = [...products];
     if (!dbReachable) return;
 
+    // The REFUND path now collects the CPE asset, which posts a release
+    // journal against the branch: clear journals before re-creating branches
+    // and make sure the posting defaults exist.
+    await pool!.query("DELETE FROM gl_journals WHERE branch_id IN ('csa-a', 'csa-b')");
+    await ensureDefaultChart(pool!);
     await pool!.query("DELETE FROM transaction_logs WHERE id LIKE 'csa-%' OR reference_doc_id LIKE 'CSA-%'");
     await pool!.query("DELETE FROM fixed_assets WHERE id LIKE 'csa-%' OR tag_number LIKE 'CSA-%'");
     await pool!.query("DELETE FROM inventory_stock WHERE id LIKE 'csa-%'");
@@ -178,6 +184,7 @@ describe('CPE status PATCH authorization', () => {
     setCustomerDeviceRecords(origCdr as any);
     setProducts(origProducts as any);
     if (pool && dbReachable) {
+      await pool.query("DELETE FROM gl_journals WHERE branch_id IN ('csa-a', 'csa-b')");
       await pool.query("DELETE FROM transaction_logs WHERE id LIKE 'csa-%' OR reference_doc_id LIKE 'CSA-%'");
       await pool.query("DELETE FROM fixed_assets WHERE id LIKE 'csa-%' OR tag_number LIKE 'CSA-%'");
       await pool.query("DELETE FROM inventory_stock WHERE id LIKE 'csa-%'");

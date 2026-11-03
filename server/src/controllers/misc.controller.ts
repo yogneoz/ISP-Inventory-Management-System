@@ -6,7 +6,8 @@
  * original route handlers.
  */
 import type { Request, Response } from 'express';
-import { ensurePostgresConnection, setPgConnected, setIsPgConnected, getPgConnected, pgPool, transactionLogs, approvalRequests, setApprovalRequests, withPrepended, logAuditEvent, getUserFromReq, withTransaction, withConnection, products, inventoryStock, setInventoryStock, withAppended, setTransactionLogs, shipments, branches, customerDeviceRecords, serialLogs, setSerialLogs, auditTrail, permissionMatrix } from '../app';
+import { ensurePostgresConnection, setPgConnected, setIsPgConnected, getPgConnected, pgPool, transactionLogs, approvalRequests, setApprovalRequests, withPrepended, logAuditEvent, getUserFromReq, withTransaction, withConnection, products, inventoryStock, setInventoryStock, withAppended, setTransactionLogs, shipments, branches, customerDeviceRecords, serialLogs, setSerialLogs, auditTrail, permissionMatrix, userPermissionOverrides, userPermissionSetGrants } from '../app';
+import { effectivePermission } from '../services/permissionOverrides.service';
 import { ApprovalRequest, AuditLog, CustomerDeviceRecord, TransactionLog } from '../../../client/src/types';
 import { todayBs } from '../utils/bsDate';
 import {
@@ -30,13 +31,24 @@ import {
   AR_SHIPMENT_RESTORE_SOURCE_SQL,
   AR_SHIPMENT_RELEASE_DEST_SQL,
   CDR_SET_STATUS_SQL,
+  AUDIT_RECONCILE_LOCK_STOCK_SQL,
   AUDIT_RECONCILE_STOCK_SQL,
   auditReconcileStockParams,
 } from '../models/misc.repo';
-import { shipmentReceivedQty, SHIPMENT_UNDO_RECEIVE_STOCK_SQL, SHIPMENT_UNDO_RECEIVE_UPDATE_SQL, SHIPMENT_FIND_CANDIDATES_SQL } from '../models/shipments.repo';
+import {
+  shipmentReceivedQty,
+  shipmentQtySent,
+  SHIPMENT_UNDO_RECEIVE_STOCK_SQL,
+  SHIPMENT_UNDO_RECEIVE_UPDATE_SQL,
+  SHIPMENT_STOCK_LOCK_SQL,
+  SHIPMENT_FIND_CANDIDATES_SQL,
+} from '../models/shipments.repo';
 import { SERIAL_LOG_SYNC_ON_CDR_SQL, serialLogCdrSyncParams } from '../models/inventory.repo';
 import { serialStatusForCdrStatus, cdrHistoryEntry, flipSerialMirror, isLegacyCdrStatus } from '../services/cdrSerialSync';
 import { collectCpeFixedAsset } from '../services/cpeAssetLifecycle.service';
+import { resolveTransferUnitCost, reverseTransferJournal } from '../services/transferPosting.service';
+import { postStockValueJournal } from '../services/stockPosting.service';
+import { ApiError } from '../errors/ApiError';
 /** Forwarded from misc.routes.ts (get_status). */
 export async function get_status(req: any, res: Response): Promise<any> {
 let isConnected = await ensurePostgresConnection();
@@ -419,6 +431,7 @@ try {
               fallbackProduct,
               allowUnlinkedRestock: true,
               changeType: 'PULLOUT',
+              actor: getUserFromReq(req)?.email || null,
             });
             if (collected.ledger) {
               const stockRow = inventoryStock.find(
@@ -490,16 +503,31 @@ try {
           if (undoReceive && sh) {
             const destBranchObj = branches.find((b) => b.id === sh.destinationBranchId || b.code === sh.destinationBranchId);
             const destBranchId = destBranchObj?.id || sh.destinationBranchId;
+            const undoDateAD = new Date().toISOString().split('T')[0];
             for (const item of sh.items) {
               const qty = shipmentReceivedQty(item);
               if (qty > 0 && destBranchId) {
-                const undone = await client.query(SHIPMENT_UNDO_RECEIVE_STOCK_SQL, [qty, item.productId, destBranchId]);
+                // Same issue cost as the receipt, and the same stock guard as
+                // the direct route, so the approval cannot overdraw a branch.
+                const unitCost = await resolveTransferUnitCost(client, sh, item, String(sh.sourceBranchId || ''));
+                await client.query(SHIPMENT_STOCK_LOCK_SQL, [item.productId, destBranchId]);
+                const undone = await client.query(SHIPMENT_UNDO_RECEIVE_STOCK_SQL, [qty, unitCost, item.productId, destBranchId]);
                 if (undone.rowCount !== 1) {
                   throw new Error(`Insufficient stock at the destination branch to undo the receipt of ${item.productName || item.productId}.`);
                 }
               }
             }
-            const undoNote = (sh.notes ? sh.notes + ' | ' : '') + `Receipt cancelled via Approval #${request.requestNumber} on ${new Date().toISOString().split('T')[0]} by ${request.processedByName} (${request.processedByRole}). Reverted to In-Transit.`;
+            // The approval route is another entry point to the same undo, so it
+            // must reverse the receipt journal too — otherwise the units come
+            // off stock while the ledger still carries their value.
+            await reverseTransferJournal(client, {
+              leg: 'IN',
+              shipmentId: String(sh.id),
+              dateAD: undoDateAD,
+              reason: `Receipt cancelled via Approval #${request.requestNumber}`,
+              actor: request.processedByEmail || request.processedByName || null,
+            });
+            const undoNote = (sh.notes ? sh.notes + ' | ' : '') + `Receipt cancelled via Approval #${request.requestNumber} on ${undoDateAD} by ${request.processedByName} (${request.processedByRole}). Reverted to In-Transit.`;
             await client.query(SHIPMENT_UNDO_RECEIVE_UPDATE_SQL, [sh.id, undoNote]);
             sh.status = 'IN_TRANSIT';
             sh.receivedByNotes = undefined;
@@ -513,33 +541,83 @@ try {
             const destBranchObj = branches.find((b) => b.id === sh.destinationBranchId || b.code === sh.destinationBranchId);
             const destBranchId = destBranchObj?.id || sh.destinationBranchId;
 
+            const cancelDateAD = new Date().toISOString().split('T')[0];
             for (const item of sh.items) {
-              const qtySent = Number(item.quantitySent || (item as any).quantity) || 1;
+              const qtySent = shipmentQtySent(item);
               if (qtySent > 0 && srcBranchId) {
-                await client.query(AR_SHIPMENT_RESTORE_SOURCE_SQL, [qtySent, item.productId, srcBranchId]);
+                // Restore at the dispatch issue cost, exactly like the direct
+                // cancel route, so the average returns to its pre-dispatch value.
+                const unitCost = await resolveTransferUnitCost(client, sh, item, String(srcBranchId));
+                await client.query(SHIPMENT_STOCK_LOCK_SQL, [item.productId, srcBranchId]);
+                await client.query(AR_SHIPMENT_RESTORE_SOURCE_SQL, [qtySent, unitCost, item.productId, srcBranchId]);
               }
               if (qtySent > 0 && destBranchId) {
                 await client.query(AR_SHIPMENT_RELEASE_DEST_SQL, [qtySent, item.productId, destBranchId]);
               }
             }
 
+            // Reverse the dispatch journal in the same transaction, so a
+            // cancelled transfer leaves no inventory value behind.
+            await reverseTransferJournal(client, {
+              leg: 'OUT',
+              shipmentId: String(sh.id),
+              dateAD: cancelDateAD,
+              reason: `Transfer cancelled via Approval #${request.requestNumber}`,
+              actor: request.processedByEmail || request.processedByName || null,
+            });
+
             sh.status = 'CANCELLED';
-            sh.notes = (sh.notes ? sh.notes + ' | ' : '') + `Transfer cancelled via Approval #${request.requestNumber} on ${new Date().toISOString().split('T')[0]} by ${request.processedByName} (${request.processedByRole}). Stock restored to source branch.`;
+            sh.notes = (sh.notes ? sh.notes + ' | ' : '') + `Transfer cancelled via Approval #${request.requestNumber} on ${cancelDateAD} by ${request.processedByName} (${request.processedByRole}). Stock restored to source branch.`;
 
             await client.query(AR_SHIPMENT_CANCEL_SQL, ['CANCELLED', sh.notes, sh.id]);
           }
         }
 
-        // IF APPROVED: Physical Stock Audit Reconciliation
+        // IF APPROVED: Physical Stock Audit Reconciliation. This is a stock
+        // level correction just like PATCH /api/stock/:id, so it posts the
+        // signed count difference at the locked weighted average. A refusal
+        // (closed period, missing accounting default) rolls the approval and
+        // every count back together.
         if (request.type === 'STOCK_AUDIT_RECONCILIATION' && request.auditData) {
           const auditData = request.auditData;
           const targetBranchId = request.branchId || auditData.branchId;
 
           if (auditData.varianceItems && Array.isArray(auditData.varianceItems)) {
+            const auditRef = String(auditData.auditRefNumber || request.targetId || request.requestNumber);
+            const journalDateAD = String(request.processedAtAD || new Date().toISOString()).slice(0, 10);
+            const movements: Array<{ productId: string; quantity: number; unitCost: number }> = [];
+
             for (const item of auditData.varianceItems) {
+              const locked = await client.query(AUDIT_RECONCILE_LOCK_STOCK_SQL, [
+                item.productId,
+                targetBranchId,
+              ]);
+              const row = locked.rows[0];
+              const quantityBefore = Number(row?.quantityOnHand) || 0;
               const targetCounted = Number(item.countedQty) || 0;
+              const delta = targetCounted - quantityBefore;
+              const product = products.find((entry) => entry.id === item.productId);
+              const averageCost = Number(row?.averageCost) || 0;
+              const unitCost =
+                averageCost > 0
+                  ? averageCost
+                  : Number(item.unitCost) || Number(product?.costPrice) || 0;
+
               await client.query(AUDIT_RECONCILE_STOCK_SQL, auditReconcileStockParams(targetBranchId, item));
+              if (delta !== 0) {
+                movements.push({ productId: String(item.productId), quantity: delta, unitCost });
+              }
             }
+
+            await postStockValueJournal(client, {
+              branchId: String(targetBranchId),
+              journalDateAD,
+              sourceType: 'STOCK_AUDIT',
+              sourceId: auditRef,
+              memo: `Physical stock audit ${auditRef}`,
+              movements,
+              actor: request.processedByEmail || request.processedByName || null,
+            });
           }
         }
       });
@@ -572,6 +650,9 @@ try {
     }
     res.json({ request, message: 'Approval request authorized and executed successfully' });
   } catch (err: any) {
+    if (err instanceof ApiError) {
+      return res.status(err.status).json({ message: err.message });
+    }
     console.error('Error processing approval request:', err);
     res.status(500).json({ message: `Database error: ${err.message}` });
   }
@@ -603,9 +684,15 @@ try {
     // code copied req.body.user into the audit fields, so a caller could
     // attribute the cancellation to someone else.
     const currentU = getUserFromReq(req);
-    const canCancel =
-      currentU.role === 'SUPER_ADMIN' ||
-      Boolean((permissionMatrix as any)?.['workflow-approval-cancel']?.[currentU.role as string]);
+    // The resolver includes the per-user exception layer; a raw role lookup
+    // would ignore a granted (or denied) `workflow-approval-cancel`.
+    const canCancel = effectivePermission(
+      currentU,
+      'workflow-approval-cancel',
+      permissionMatrix,
+      userPermissionOverrides,
+      userPermissionSetGrants
+    );
     if (!canCancel) {
       return res.status(403).json({
         message: `Forbidden: role '${currentU.role}' is not permitted for operation 'workflow-approval-cancel'.`,

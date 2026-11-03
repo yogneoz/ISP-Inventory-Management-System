@@ -6,7 +6,8 @@
  * original route handlers.
  */
 import type { Request, Response } from 'express';
-import { getPgConnected, pgPool, shipments, branches, detectDateTypeMismatch, findBsDayRecordForAdDate, getUserFromReq, issueNextDocNumber, permissionMatrix, setShipments, withReplaced, withPrepended, withTransaction, inventoryStock, setInventoryStock, transactionLogs, setTransactionLogs, products, logAuditEvent, serialLogs, setSerialLogs } from '../app';
+import { getPgConnected, pgPool, shipments, branches, detectDateTypeMismatch, findBsDayRecordForAdDate, getUserFromReq, issueNextDocNumber, permissionMatrix, userPermissionOverrides, userPermissionSetGrants, setShipments, withReplaced, withPrepended, withTransaction, inventoryStock, setInventoryStock, transactionLogs, setTransactionLogs, products, logAuditEvent, serialLogs, setSerialLogs } from '../app';
+import { effectivePermission } from '../services/permissionOverrides.service';
 import { planSerialGateEntries, resolveSerialGateInDb, SerialGateError, serialGateKey } from '../services/serialGate.service';
 import { OperationError, errorResponse } from '../utils/operationError';
 import {
@@ -20,6 +21,12 @@ import {
   shipmentReceivedQty, SHIPMENT_UNDO_RECEIVE_STOCK_SQL, SHIPMENT_UNDO_RECEIVE_UPDATE_SQL, SHIPMENT_STOCK_LOCK_SQL,
   SERIAL_LOG_TRANSFER_FLIP_SQL, serialLogTransferFlipParams,
 } from '../models/shipments.repo';
+import {
+  postTransferDispatchJournal,
+  postTransferReceiptJournal,
+  resolveTransferUnitCost,
+  reverseTransferJournal,
+} from '../services/transferPosting.service';
 import { buildTxnMultiRowInsertSql, flattenTxnParams, txnInsertOnConflictParams } from '../models/inventory.repo';
 import { bsDateOr400 } from '../utils/bsDate';
 import { firstLineQuantityRefusal } from '../utils/lineQuantity';
@@ -62,6 +69,18 @@ function buildTransferTxn(
   };
 }
 
+/** Audit actor for document postings (email, falling back to the display name). */
+function actorOf(req: any): string | null {
+  const user = getUserFromReq(req) || req.user || {};
+  return user.email || user.name || null;
+}
+
+/**
+ * The cost a transfer line was issued at. New dispatches stamp it on the line;
+ * a shipment created before that stamp is valued from its TRANSFER_OUT movement
+ * row. Neither source recording a cost refuses the leg instead of valuing the
+ * units at zero and leaving inventory control short.
+ */
 /**
  * Serial-register history entry for one transfer leg (same {status, sourceType,
  * sourceId, dateAD, notes} shape the other serial flows append).
@@ -429,9 +448,11 @@ try {
 
     if (getPgConnected()) {
       await withTransaction(async (client) => {
-        await client.query(SHIPMENT_UPSERT_SQL, shipmentUpsertParams(newShipment));
+        const isDispatch =
+          !shipmentAlreadyExists && newShipment.type === 'INTER_BRANCH' && Boolean(newShipment.sourceBranchId);
+        let dispatchCosts: Array<{ productId: string; quantity: number; unitCost: number }> = [];
 
-        if (!shipmentAlreadyExists && newShipment.type === 'INTER_BRANCH' && newShipment.sourceBranchId) {
+        if (isDispatch) {
           // Slice E: a dispatched unit LEAVES the source branch's sellable pool.
           // Plan one entry per unit, resolve them through the shared gate under
           // this transaction's lock (IN_STOCK at the source), then flip
@@ -469,12 +490,16 @@ try {
 
           // Aggregate availability PER PRODUCT before any deduction: duplicate
           // lines of one product must not each pass against the same balance.
-          // The refusal is a clean 400 with available/requested numbers.
-          const requestedPerProduct = new Map<string, { qty: number; name: string }>();
+          // The same locked read captures the dispatch value, which is stamped
+          // on every line BEFORE the shipment is upserted: the receive and undo
+          // legs then use the cost the source actually relieved, not the
+          // destination's average.
+          const requestedPerProduct = new Map<string, { qty: number; name: string; unitCost: number }>();
           for (const item of newShipment.items) {
             const entry = requestedPerProduct.get(item.productId) || {
               qty: 0,
               name: String(item.productName || item.productId),
+              unitCost: 0,
             };
             entry.qty += shipmentQtySent(item);
             requestedPerProduct.set(item.productId, entry);
@@ -488,8 +513,21 @@ try {
                 `Insufficient inventory at the source branch for ${requested.name}. Available: ${available}, requested: ${requested.qty}.`
               );
             }
+            requested.unitCost = Math.max(0, Number(lockedRow.rows[0]?.averageCost) || 0);
           }
+          for (const item of newShipment.items) {
+            item.unitCost = requestedPerProduct.get(item.productId)?.unitCost || 0;
+          }
+          dispatchCosts = newShipment.items.map((item: any) => ({
+            productId: String(item.productId),
+            quantity: shipmentQtySent(item),
+            unitCost: Math.max(0, Number(item.unitCost) || 0),
+          }));
+        }
 
+        await client.query(SHIPMENT_UPSERT_SQL, shipmentUpsertParams(newShipment));
+
+        if (isDispatch) {
           const dispatchTxns: TransactionLog[] = [];
           let lineIdx = 0;
           for (const item of newShipment.items) {
@@ -516,6 +554,18 @@ try {
           }
           if (dispatchTxns.length > 0) {
             await client.query(buildTxnMultiRowInsertSql(dispatchTxns.length), flattenTxnParams(dispatchTxns.map((txn) => txnInsertOnConflictParams(txn))));
+          }
+          if (newShipment.destinationBranchId) {
+            await postTransferDispatchJournal(client, {
+              shipmentId: String(newShipment.id),
+              dateAD: newShipment.dispatchDateAD,
+              sourceBranchId: String(newShipment.sourceBranchId),
+              sourceBranchName: newShipment.sourceBranchName,
+              destinationBranchId: String(newShipment.destinationBranchId),
+              destinationBranchName: newShipment.destinationBranchName,
+              actor: createActor.email || createActor.name || null,
+              lines: dispatchCosts,
+            });
           }
         }
       });
@@ -635,8 +685,7 @@ try {
         (destBranch?.code || '').toUpperCase().startsWith('WH') ||
         /warehouse|head office/i.test(destBranch?.name || '');
       const laneOp = destIsWarehouse ? 'wh-receive-pullouts' : 'branch-transfer-receive';
-      const laneRow = permissionMatrix[laneOp];
-      if (!laneRow || !laneRow[receiveUser.role]) {
+      if (!effectivePermission(receiveUser, laneOp, permissionMatrix, userPermissionOverrides, userPermissionSetGrants)) {
         return res.status(403).json({
           message: `Forbidden: role '${receiveUser.role}' is not permitted for operation '${laneOp}' on this receiving lane.`,
         });
@@ -736,22 +785,41 @@ try {
         }
 
         let lineIdx = 0;
+        const receiptValueLines: Array<{ productId: string; quantity: number; unitCost: number }> = [];
         for (const item of sh.items) {
           const receivedQty = shipmentReceivedQty(item);
+          const unitCost = receivedQty > 0
+            ? await resolveTransferUnitCost(client, sh, item, String(sh.sourceBranchId || ''))
+            : 0;
           // Lock the destination row so the TRANSFER_IN ledger row records
           // the true quantity before/after alongside the credit itself.
           const locked = await client.query(SHIPMENT_STOCK_LOCK_SQL, [item.productId, sh.destinationBranchId]);
           const before = Number(locked.rows[0]?.quantityOnHand) || 0;
           await client.query(
             SHIPMENT_RECEIVE_STOCK_SQL,
-            shipmentReceiveStockParams(sh.destinationBranchId, item)
+            shipmentReceiveStockParams(sh.destinationBranchId, item, unitCost)
           );
           if (sh.destinationBranchId) {
             receiveTxns.push(buildTransferTxn(sh, item, lineIdx++, sh.destinationBranchId, 'TRANSFER_IN', before, receivedQty, sh.receivedDateAD || new Date().toISOString().split('T')[0], receivedDateBS || ''));
+            if (receivedQty > 0) {
+              receiptValueLines.push({ productId: String(item.productId), quantity: receivedQty, unitCost });
+            }
           }
         }
         if (receiveTxns.length > 0) {
           await client.query(buildTxnMultiRowInsertSql(receiveTxns.length), flattenTxnParams(receiveTxns.map((txn) => txnInsertOnConflictParams(txn))));
+        }
+        if (sh.destinationBranchId && sh.sourceBranchId && receiptValueLines.length > 0) {
+          await postTransferReceiptJournal(client, {
+            shipmentId: String(sh.id),
+            dateAD: sh.receivedDateAD || new Date().toISOString().split('T')[0],
+            sourceBranchId: String(sh.sourceBranchId),
+            sourceBranchName: sh.sourceBranchName,
+            destinationBranchId: String(sh.destinationBranchId),
+            destinationBranchName: sh.destinationBranchName,
+            actor: actorOf(req),
+            lines: receiptValueLines,
+          });
         }
       });
     }
@@ -858,11 +926,12 @@ try {
           if (qtySent > 0 && sourceBranchId) {
             // Lock the source row so the TRANSFER_CANCELLED ledger row carries
             // the true before/after of the restoration.
+            const unitCost = await resolveTransferUnitCost(client, sh, item, String(sourceBranchId));
             const locked = await client.query(SHIPMENT_STOCK_LOCK_SQL, [item.productId, sourceBranchId]);
             const before = Number(locked.rows[0]?.quantityOnHand) || 0;
             await client.query(
               SHIPMENT_CANCEL_RESTORE_SOURCE_SQL,
-              [qtySent, item.productId, sourceBranchId]
+              [qtySent, unitCost, item.productId, sourceBranchId]
             );
             cancelTxns.push(buildTransferTxn(sh, item, lineIdx++, sourceBranchId, 'TRANSFER_CANCELLED', before, qtySent, cancelDateAD, cancelDateBS));
           }
@@ -876,6 +945,16 @@ try {
         if (cancelTxns.length > 0) {
           await client.query(buildTxnMultiRowInsertSql(cancelTxns.length), flattenTxnParams(cancelTxns.map((txn) => txnInsertOnConflictParams(txn))));
         }
+
+        // The dispatch journal is reversed, not deleted: the source's inventory
+        // and due-from balance return to their pre-dispatch positions.
+        await reverseTransferJournal(client, {
+          leg: 'OUT',
+          shipmentId: String(id),
+          dateAD: cancelDateAD,
+          reason: reason || 'Transfer cancelled',
+          actor: cancelActor.email || cancelActor.name || null,
+        });
 
         // Slice E: units that never reached their destination go back to the
         // source branch's sellable pool (IN_TRANSIT → IN_STOCK).
@@ -986,15 +1065,15 @@ try {
         }
         const destBranchId = row.destinationBranchId;
         const items = typeof row.items === 'string' ? JSON.parse(row.items) : (row.items || sh.items);
-        let lineIdx = 0;
-        for (const item of items) {
+        let lineIdx = 0;          for (const item of items) {
           const qty = shipmentReceivedQty(item);
           if (qty > 0 && destBranchId) {
             // Lock the destination row so the TRANSFER_RECEIPT_CANCELLED
             // ledger row carries the true before/after of the reversal.
+            const unitCost = await resolveTransferUnitCost(client, sh, item, String(row.sourceBranchId || sh.sourceBranchId || ''));
             const locked = await client.query(SHIPMENT_STOCK_LOCK_SQL, [item.productId, destBranchId]);
             const before = Number(locked.rows[0]?.quantityOnHand) || 0;
-            const undone = await client.query(SHIPMENT_UNDO_RECEIVE_STOCK_SQL, [qty, item.productId, destBranchId]);
+            const undone = await client.query(SHIPMENT_UNDO_RECEIVE_STOCK_SQL, [qty, unitCost, item.productId, destBranchId]);
             if (undone.rowCount !== 1) {
               throw new Error(`Insufficient stock at the destination branch to undo the receipt of ${item.productName || item.productId}.`);
             }
@@ -1004,6 +1083,16 @@ try {
         if (undoTxns.length > 0) {
           await client.query(buildTxnMultiRowInsertSql(undoTxns.length), flattenTxnParams(undoTxns.map((txn) => txnInsertOnConflictParams(txn))));
         }
+
+        // The receipt journal is reversed too, so the destination's inventory
+        // and due-to balance unwind with the units.
+        await reverseTransferJournal(client, {
+          leg: 'IN',
+          shipmentId: String(id),
+          dateAD: undoDateAD,
+          reason: reason || 'Transfer receipt cancelled',
+          actor: undoActor.email || undoActor.name || null,
+        });
 
         // Slice E: undoing a receipt puts the units back in transit from the
         // source branch (IN_STOCK at the destination → IN_TRANSIT).

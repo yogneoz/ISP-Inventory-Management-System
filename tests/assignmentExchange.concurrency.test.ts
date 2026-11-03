@@ -37,6 +37,7 @@ import {
   setProducts,
 } from '../server/src/app';
 import { issueAuthToken } from '../server/src/middleware/auth';
+import { ensureReferenceData } from './fixtures/referenceData';
 
 dotenv.config();
 
@@ -87,7 +88,12 @@ describe('assignment vs exchange on one serial: exactly one may claim it', () =>
     await pool.query("DELETE FROM serial_log WHERE device_serial LIKE 'ASX-%'");
     await pool.query("DELETE FROM customer_device_records WHERE id LIKE 'asx-%' OR device_serial LIKE 'ASX-%'");
     await pool.query("DELETE FROM inventory_stock WHERE id = 'asx-stock'");
+    // Exchange now posts the replacement's stock value; clear its journals
+    // before the branch (RESTRICT FK) and provision the chart/fiscal year an
+    // exchange needs on a schema-only database.
+    await pool.query('DELETE FROM gl_journals WHERE branch_id = $1', [BRANCH]);
     await pool.query("DELETE FROM branches WHERE id = $1", [BRANCH]);
+    await ensureReferenceData(pool);
 
     await pool.query('DELETE FROM products WHERE id = $1', [PRODUCT_ID]);
 
@@ -154,6 +160,7 @@ describe('assignment vs exchange on one serial: exactly one may claim it', () =>
       await pool.query("DELETE FROM serial_log WHERE device_serial LIKE 'ASX-%'");
       await pool.query("DELETE FROM customer_device_records WHERE id LIKE 'asx-%' OR device_serial LIKE 'ASX-%'");
       await pool.query("DELETE FROM inventory_stock WHERE id = 'asx-stock'");
+      await pool.query('DELETE FROM gl_journals WHERE branch_id = $1', [BRANCH]);
       await pool.query('DELETE FROM products WHERE id = $1', [PRODUCT_ID]);
       await pool.query("DELETE FROM branches WHERE id = $1", [BRANCH]);
       await pool.end();

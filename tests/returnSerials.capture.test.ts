@@ -18,12 +18,20 @@
  *      duplicates are detected per slot.
  *   4. Submit is refused when a serial-tracked line is missing a unit or the
  *      same device appears twice.
- *   5. The screen itself has no comma box left and renders one row per unit.
+ *   5. The purchase return screen has no comma box and scans ONE field per
+ *      unit: the device serial. MAC/PON are retrieved from the invoice and
+ *      shown read-only; the sales return keeps all three editable fields.
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import React, { act, createElement } from 'react';
+import { mountTree, inAct } from './harness/mount';
+import { ReturnsRegister } from '../client/src/features/sales/ReturnsRegister';
+import { DarkModeProvider } from '../client/src/contexts/DarkModeContext';
+import { DialogProvider } from '../client/src/components/common/DialogProvider';
+import { api } from '../client/src/services/api';
 import {
   duplicateSerialSlotIndex,
   findInvoiceSerialUnit,
@@ -154,16 +162,23 @@ describe('the returns screen captures one serial row per unit', () => {
     assert.doesNotMatch(source, /\.split\(\/\[\\n,;\]\+\//, 'the form must not split free text on commas');
   });
 
-  test('each unit renders Device, MAC and PON inputs with Enter chaining', () => {
+  test('purchase returns scan one device field; sales returns keep all three', () => {
     assert.match(source, /line\.deviceSerials\.map\(\(slot, sIdx\)/);
     assert.match(source, /id=\{`ret-serial-device-\$\{idx\}-\$\{sIdx\}`\}/);
+    // MAC/PON inputs are the sales-only half: a purchase return retrieves
+    // those from the invoice and renders them read-only.
+    assert.match(source, /\{!isPurchase && \(/);
     assert.match(source, /id=\{`ret-serial-mac-\$\{idx\}-\$\{sIdx\}`\}/);
     assert.match(source, /id=\{`ret-serial-pon-\$\{idx\}-\$\{sIdx\}`\}/);
-    // Scanning device -> next unit when the invoice identified it; otherwise
-    // the identity fields are walked in order.
+    // Scanning device -> next unit when the invoice identified it (always on
+    // a purchase return); otherwise the identity fields are walked in order.
     assert.match(source, /focusNextDeviceSlot\(idx, sIdx\)/);
+    assert.match(source, /if \(isPurchase \|\| slot\.macAddress \|\| slot\.ponSerial\)/);
     assert.match(source, /focusReturnField\(`ret-serial-mac-\$\{idx\}-\$\{sIdx\}`\)/);
     assert.match(source, /normalizeLineMac\(idx, sIdx\)/);
+    // A corrected serial must not keep the previous unit's identity.
+    assert.match(source, /macAddress: unit\?\.macAddress \?\? ''/);
+    assert.match(source, /ponSerial: unit\?\.ponSerial \?\? ''/);
   });
 
   test('quantity resizes the rows and submit sends per-unit deviceSerials', () => {
@@ -172,6 +187,106 @@ describe('the returns screen captures one serial row per unit', () => {
     assert.match(source, /returnSerialProblems\(validLines\)/);
     assert.match(source, /deviceSerials: serials/);
     assert.match(source, /macAddress: slot\.macAddress\.trim\(\) \|\| undefined/);
+  });
+
+  test('the purchase return renders only the device scan and shows the retrieved identity', async () => {
+    const invoice = {
+      id: 'pi-1', invoiceNumber: 'PI-1', supplierId: 'sup-1', supplierName: 'Vendor',
+      branchId: 'br-1', grandTotal: 113,
+      items: [{
+        productId: 'p1', productName: 'GPON ONU', sku: 'ONU-1', unit: 'pcs',
+        quantity: 1, unitPrice: 100, taxRate: 13,
+        deviceSerials: [{ deviceSerial: 'SN-1', macAddress: 'AABBCCDDEE01', ponSerial: 'PON-1' }],
+      }],
+    } as any;
+    const products = [{ id: 'p1', name: 'GPON ONU', sku: 'ONU-1', requiresSerialTracking: true }] as any[];
+    const original = api.getPurchaseReturns;
+    api.getPurchaseReturns = (async () => ({
+      data: [], page: 1, pageSize: 25, totalItems: 0,
+    })) as any;
+
+    const tree = mountTree(
+      createElement(
+        DarkModeProvider,
+        null,
+        createElement(
+          DialogProvider,
+          null,
+          createElement(ReturnsRegister, {
+            kind: 'PURCHASE',
+            currentUser: { id: 'u-1', role: 'BRANCH_MANAGER', branchId: 'br-1' },
+            purchaseInvoices: [invoice],
+            returns: [],
+            products,
+            branches: [{ id: 'br-1', name: 'Branch One' }],
+            selectedBranchId: 'br-1',
+            dateMode: 'AD',
+            autoOpenCreate: true,
+            onCreateReturn: async () => ({}),
+            onCancelReturn: async () => {},
+            onApproveReturn: async () => {},
+          } as any)
+        )
+      )
+    );
+
+    try {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      const invoiceSelect = tree.container.querySelector('select') as HTMLSelectElement;
+      assert.ok(invoiceSelect, 'the purchase form renders the invoice picker');
+      const selectSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLSelectElement.prototype,
+        'value'
+      )!.set!;
+      inAct(() => {
+        selectSetter.call(invoiceSelect, 'pi-1');
+        invoiceSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+      });
+
+      const input = tree.container.querySelector('#ret-serial-device-0-0') as HTMLInputElement | null;
+      assert.ok(input, 'the device serial scan field renders');
+      assert.equal(input!.value, 'SN-1', 'the invoice unit seeds the field');
+      assert.equal(
+        tree.container.querySelectorAll('[id^="ret-serial-"]').length,
+        1,
+        'purchase returns expose a single scan field per unit'
+      );
+      assert.equal(tree.container.querySelector('#ret-serial-mac-0-0'), null);
+      assert.equal(tree.container.querySelector('#ret-serial-pon-0-0'), null);
+
+      const text = tree.container.textContent || '';
+      assert.match(text, /MAC and PON come from the invoice/);
+      assert.match(text, /MAC AABBCCDDEE01/);
+      assert.match(text, /PON PON-1/);
+      assert.match(text, /from invoice/);
+
+      const setValue = (next: string) => {
+        const setter = Object.getOwnPropertyDescriptor(
+          window.HTMLInputElement.prototype,
+          'value'
+        )!.set!;
+        inAct(() => {
+          setter.call(input!, next);
+          input!.dispatchEvent(new window.Event('input', { bubbles: true }));
+        });
+      };
+
+      // A serial that is not on the invoice clears the retrieved identity.
+      setValue('SN-OTHER');
+      assert.doesNotMatch(tree.container.textContent || '', /MAC AABBCCDDEE01/);
+      assert.doesNotMatch(tree.container.textContent || '', /PON PON-1/);
+
+      // Scanning the invoice's unit again (trimmed, other case) retrieves it.
+      setValue(' sn-1 ');
+      assert.match(tree.container.textContent || '', /MAC AABBCCDDEE01/);
+      assert.match(tree.container.textContent || '', /PON PON-1/);
+    } finally {
+      tree.unmount();
+      api.getPurchaseReturns = original;
+    }
   });
 
   test('the detail view shows each unit identity', () => {

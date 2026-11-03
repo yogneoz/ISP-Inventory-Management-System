@@ -911,7 +911,7 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
 });
 
 describe('Feature-screen coverage — every screen\'s server-call surface is pinned', () => {
-  // Audit (2026-10-03) of all 50 screens under client/src/features — now 67
+  // Audit (2026-10-03) of all 50 screens under client/src/features — now 73
   // after the §G StockOperations decomposition added 12 tab panels (and
   // commit 2 the extracted tab-bar chrome) under inventory/stockops, plus
   // the BS-calendar integrity work's Calendar Health panel — each
@@ -930,7 +930,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
   //    re-activation (and its own Retry) only.
   //  · 6 are write-only / auxiliary-read screens (mutations + validation
   //    reads); the grids they render come from bootstrap-slice props.
-  //  · the remaining 36 pins are the prop-rendered screens and the
+  //  · the remaining 37 pins are the prop-rendered screens and the
   //    StockOperations panels, each listed with its exact calls; 30 of the 55
   //    table entries make no server call of their own.
   //
@@ -950,6 +950,25 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       'seedBsCalendarYear',
       'seedBsCalendarYearsBulk',
       'updateBsCalendarYear',
+    ],
+    'finance/DailyCashClose.tsx': [
+      'closeDailyCash',
+      'getDailyCashClose',
+      'getDailyCashCloseConsolidated',
+      'reopenDailyCashClose',
+    ],
+    // The accounting workspace split into one register per statement. Each
+    // register owns exactly the read its tab used to make.
+    'finance/TrialBalanceRegister.tsx': ['getTrialBalance'],
+    'finance/ProfitAndLossRegister.tsx': ['getProfitAndLoss'],
+    'finance/BalanceSheetRegister.tsx': ['getBalanceSheet'],
+    'finance/CashBookRegister.tsx': ['getCashBook'],
+    'finance/AgingRegister.tsx': ['getAging'],
+    'finance/ChartOfAccountsRegister.tsx': [
+      'getAccountingAccounts',
+      'getAccountingGroups',
+      'getControlReconciliation',
+      'getPostingDefaults',
     ],
     'finance/CustomerLedger.tsx': ['getCustomerLedger', 'searchCustomers'],
     'finance/DocumentNumbering.tsx': ['getDocumentNumberConfigs', 'updateDocumentNumberConfigs'],
@@ -1022,8 +1041,36 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       'repairFiscalYearLinks',
       'rollForwardVendorOpenings',
     ],
-    'settings/PermissionManagement.tsx': ['getPermissionsMatrix', 'savePermissionsMatrix'],
-    'settings/UsersManagement.tsx': ['resetUserPassword'],
+    'settings/PermissionManagement.tsx': [
+      'getOperationPermissionOverrides',
+      'getPermissionsMatrix',
+      'savePermissionsMatrix',
+    ],
+    // The per-user editor reads one account's exceptions when selected and
+    // replaces them on Save; phase 2 also reads the reusable set list and
+    // replaces that user's memberships. It never fetches the effective set
+    // (App owns that session-scoped read).
+    'settings/UserPermissions.tsx': [
+      'getPermissionSets',
+      'getUserPermissionOverrides',
+      'saveUserPermissionOverrides',
+      'saveUserPermissionSets',
+    ],
+    // Phase 2's sets editor: list, create, replace and delete definitions.
+    'settings/PermissionSetsPanel.tsx': [
+      'createPermissionSet',
+      'deletePermissionSet',
+      'updatePermissionSet',
+    ],
+    // The register reads one bulk summary for every card; expanding a card
+    // loads that account's exception rows on demand. The edit modal keeps its
+    // own read-only summary. Permissions are still edited on the User Access
+    // screen.
+    'settings/UsersManagement.tsx': [
+      'getUserAccessSummaries',
+      'getUserPermissionOverrides',
+      'resetUserPassword',
+    ],
 
     // — prop-rendered screens: zero server calls of their own —
     //   (mutations flow through App.tsx callbacks, list data through the
@@ -1042,8 +1089,10 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'finance/AuditTrailReports.tsx': ['getAuditTrail', 'getTransactionLogs'],
     // ASSET-1: both registers page/filter on the server and read their KPIs and
     // grouped summary from /overview; the export is the bounded all=1 read.
+    // The fixed-asset register also resolves a `/:tagNumber` deep link through
+    // the existing branch-scoped lookup endpoint.
     'finance/DepreciationRegister.tsx': ['getFixedAssetExport', 'getFixedAssetOverview', 'getFixedAssetPage'],
-    'finance/FixedAssetRegister.tsx': ['getFixedAssetExport', 'getFixedAssetOverview', 'getFixedAssetPage'],
+    'finance/FixedAssetRegister.tsx': ['getFixedAssetExport', 'getFixedAssetOverview', 'getFixedAssetPage', 'lookupFixedAsset'],
     'finance/VatRegister.tsx': [],
     'inventory/BranchStockTracking.tsx': [],
     'inventory/ExportStock.tsx': ['getCustomerDeviceExport', 'getCustomerDevicePage'],
@@ -1131,6 +1180,13 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
   // ('all-stock' and 'product-master'): it keys off its own mode prop and
   // refetches after its own saves as well as on re-activation.
   const MOUNT_REFETCH_SCREENS = [
+    'finance/TrialBalanceRegister.tsx',
+    'finance/ProfitAndLossRegister.tsx',
+    'finance/BalanceSheetRegister.tsx',
+    'finance/CashBookRegister.tsx',
+    'finance/AgingRegister.tsx',
+    'finance/ChartOfAccountsRegister.tsx',
+    'finance/DailyCashClose.tsx',
     'finance/BsCalendarHealthPanel.tsx',
     'finance/BsCalendarUtility.tsx',
     'finance/CustomerLedger.tsx',
@@ -1146,6 +1202,9 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'inventory/ProductManagement.tsx',
     'inventory/UomManagement.tsx',
     'settings/LocationsManagement.tsx',
+    // The Users register fetches one bulk access summary on mount/activation;
+    // its cards otherwise render bootstrap-slice props.
+    'settings/UsersManagement.tsx',
   ];
 
   test('every feature screen is accounted for — a new screen must be pinned', () => {
@@ -1285,6 +1344,13 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
   // array means the screen renders under several tabs and keys off its own
   // mode prop (ProductManagement); every listed tab must still exist.
   const MOUNT_REFETCH_ACTIVATION_TABS: Record<string, string | string[]> = {
+    'finance/TrialBalanceRegister.tsx': 'accounting',
+    'finance/ProfitAndLossRegister.tsx': 'accounting-profit-loss',
+    'finance/BalanceSheetRegister.tsx': 'accounting-balance-sheet',
+    'finance/CashBookRegister.tsx': 'accounting-cash-book',
+    'finance/AgingRegister.tsx': 'accounting-aging',
+    'finance/ChartOfAccountsRegister.tsx': 'accounting-chart',
+    'finance/DailyCashClose.tsx': 'cash-position',
     'finance/BsCalendarHealthPanel.tsx': 'bs-calendar',
     'finance/BsCalendarUtility.tsx': 'bs-calendar',
     'finance/CustomerLedger.tsx': 'customer-ledger',
@@ -1300,6 +1366,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'inventory/ProductManagement.tsx': ['all-stock', 'product-master'],
     'inventory/UomManagement.tsx': 'uom-management',
     'settings/LocationsManagement.tsx': 'locations',
+    'settings/UsersManagement.tsx': 'users',
   };
 
   test('each mount-refetch screen opts in to refetch-on-reactivation via useActivationKey', () => {

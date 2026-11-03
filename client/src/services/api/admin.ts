@@ -67,6 +67,188 @@ export async function updateCompanyProfile(profile: Partial<CompanyProfile>): Pr
   });
 }
 
+export type PermissionOverrideEffect = 'grant' | 'deny';
+
+/** One per-user exception exactly as the API returns it. */
+export interface UserPermissionOverrideRow {
+  operationId: string;
+  effect: PermissionOverrideEffect;
+  reason: string;
+  expiresAt: string | null;
+  /** True when the row is stored but no longer applies (read-only view). */
+  expired: boolean;
+}
+
+/** One override as the replace endpoint accepts it. */
+export interface UserPermissionOverrideInput {
+  operationId: string;
+  effect: PermissionOverrideEffect;
+  reason: string;
+  expiresAt: string | null;
+}
+
+export interface EffectivePermissionsResponse {
+  role: string;
+  operations: string[];
+  version: number;
+}
+
+export interface UserPermissionOverridesResponse {
+  message?: string;
+  userId: string;
+  role: string;
+  /** The role matrix's answer for every operation, before exceptions. */
+  base: Record<string, boolean>;
+  overrides: UserPermissionOverrideRow[];
+  /** Reusable sets assigned to this user; their grants apply unless denied. */
+  setIds?: string[];
+  /** Resolved operations after set grants and exceptions. */
+  operations: string[];
+  version: number;
+}
+
+/** One account whose personal override changes a role's answer. */
+export interface OperationPermissionOverrideUser {
+  userId: string;
+  operationId: string;
+  name: string;
+  email: string;
+  role: string;
+  effect: PermissionOverrideEffect;
+  reason: string;
+  expiresAt: string | null;
+}
+
+/** One Users-register card's read-only access tally. */
+export interface UserAccessSummary {
+  userId: string;
+  role: string;
+  effective: number;
+  total: number;
+  grants: number;
+  denies: number;
+  setCount: number;
+  nextExpiry: string | null;
+  /** Effective operation ids, used by the Users register's access filter. */
+  operations: string[];
+}
+
+export interface UserAccessSummariesResponse {
+  users: UserAccessSummary[];
+  total: number;
+  version: number;
+}
+
+/** The matrix-cell drill-down response. */
+export interface OperationPermissionOverridesResponse {
+  operationId: string;
+  role: string;
+  /** The saved role default for this operation, from the enforcement cache. */
+  roleAllowed: boolean;
+  /** Active direct overrides that differ from the role default. */
+  users: OperationPermissionOverrideUser[];
+}
+
+/** A reusable bundle of grants several users can share. */
+export interface PermissionSetSummary {
+  id: string;
+  name: string;
+  description: string;
+  /** Catalogue operation ids this set grants. */
+  grants: string[];
+  /** User ids assigned to this set. */
+  members: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PermissionSetInput {
+  name: string;
+  description: string;
+  grants: string[];
+}
+
+/** The response of replacing one user's set memberships. */
+export interface UserPermissionSetsResponse {
+  message?: string;
+  userId: string;
+  role: string;
+  base: Record<string, boolean>;
+  setIds: string[];
+  operations: string[];
+  version: number;
+}
+
+/** The signed-in account's effective set (role matrix + its own exceptions). */
+export async function getMyPermissions(): Promise<EffectivePermissionsResponse> {
+  return fetchJson('/api/permissions/me');
+}
+
+/** One bulk read for every Users card; no per-card request fan-out. */
+export async function getUserAccessSummaries(): Promise<UserAccessSummariesResponse> {
+  return fetchJson('/api/users/access-summary');
+}
+
+export async function getUserPermissionOverrides(userId: string): Promise<UserPermissionOverridesResponse> {
+  return fetchJson(`/api/users/${encodeURIComponent(userId)}/permission-overrides`);
+}
+
+export async function getOperationPermissionOverrides(
+  operationId: string,
+  role: string
+): Promise<OperationPermissionOverridesResponse> {
+  const params = new URLSearchParams({ operationId, role });
+  return fetchJson(`/api/permissions/operation-overrides?${params.toString()}`);
+}
+
+export async function saveUserPermissionOverrides(
+  userId: string,
+  overrides: UserPermissionOverrideInput[]
+): Promise<UserPermissionOverridesResponse> {
+  return fetchJson(`/api/users/${encodeURIComponent(userId)}/permission-overrides`, {
+    method: 'PUT',
+    body: JSON.stringify({ overrides }),
+  });
+}
+
+export async function getPermissionSets(): Promise<PermissionSetSummary[]> {
+  const res = await fetchJson<{ sets: PermissionSetSummary[]; version: number }>('/api/permission-sets');
+  return res.sets;
+}
+
+export async function createPermissionSet(input: PermissionSetInput): Promise<PermissionSetSummary> {
+  const res = await fetchJson<{ set: PermissionSetSummary; version: number }>('/api/permission-sets', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  return res.set;
+}
+
+export async function updatePermissionSet(
+  id: string,
+  input: PermissionSetInput
+): Promise<PermissionSetSummary> {
+  const res = await fetchJson<{ set: PermissionSetSummary; version: number }>(
+    `/api/permission-sets/${encodeURIComponent(id)}`,
+    { method: 'PUT', body: JSON.stringify(input) }
+  );
+  return res.set;
+}
+
+export async function deletePermissionSet(id: string): Promise<{ success: boolean }> {
+  return fetchJson(`/api/permission-sets/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+export async function saveUserPermissionSets(
+  userId: string,
+  setIds: string[]
+): Promise<UserPermissionSetsResponse> {
+  return fetchJson(`/api/users/${encodeURIComponent(userId)}/permission-sets`, {
+    method: 'PUT',
+    body: JSON.stringify({ setIds }),
+  });
+}
+
 export async function getPermissionsMatrix(): Promise<Record<string, Record<string, boolean>>> {
   // The endpoint answers { matrix }; unwrap it so callers get the matrix
   // itself and the return type matches reality.

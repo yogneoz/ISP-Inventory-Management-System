@@ -5,10 +5,15 @@
  */
 import type { Express } from 'express';
 import { get_salesInvoices, post_salesInvoices, post_salesInvoiceCancel, get_salesReturns, post_salesReturns, post_salesReturnCancel, post_salesReturnApprove, get_customerLedger, post_customerPayments, post_customerPaymentReverse } from '../controllers/sales.controller';
+import { get_salesInvoicePrint } from '../controllers/pdf.controller';
 import { requirePermission } from '../middleware';
 
 export function registerSalesRoutes(app: Express) {
   app.get('/api/sales-invoices', async (req, res, next) => { get_salesInvoices(req as any, res as any).catch(next); });
+
+  // Print keeps the sales-invoice operation gate and the branch registry guard
+  // on the :id path; the controller repeats the branch check on the record.
+  app.get('/api/sales-invoices/:id/print', requirePermission('sales-invoice-create'), async (req, res, next) => { get_salesInvoicePrint(req as any, res as any).catch(next); });
 
   app.post('/api/sales-invoices', requirePermission('sales-invoice-create'), async (req, res, next) => { post_salesInvoices(req as any, res as any).catch(next); });
 

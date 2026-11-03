@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { CustomerRecord, CustomerDeviceRecord, Branch, User } from '../../types';
+import type { RecordRoute } from '../../routes/appPaths';
 import { formatNPR } from '../../utils/nprFormat';
 import { exportToCSV } from '../../utils/exportUtils';
 import { api } from '../../services/api';
@@ -50,6 +51,9 @@ interface CustomerMasterDirectoryProps {
   onCustomersChanged?: () => void;
   refreshKey?: number;
   sseRefreshKey?: number;
+  /** `/sales/customers/:customerId`, when the URL names one directory record. */
+  recordRoute?: RecordRoute | null;
+  onRecordRouteChange?: (record: RecordRoute | null) => void;
 }
 
 export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = ({
@@ -60,8 +64,12 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
   onCustomersChanged,
   refreshKey,
   sseRefreshKey = refreshKey ?? 0,
+  recordRoute = null,
+  onRecordRouteChange,
 }) => {
   const { alert: alertDialog } = useDialog();
+  const recordRouteChangeRef = useRef(onRecordRouteChange);
+  recordRouteChangeRef.current = onRecordRouteChange;
   // Check permission: Only Super Admin and Inventory Manager can Edit / Delete master customer records
   const canManageMaster =
     currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'INVENTORY_MANAGER';
@@ -86,6 +94,9 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
 
   // Expanded customer rows state to show assigned device serials
   const [expandedCustomerId, setExpandedCustomerId] = useState<string | null>(null);
+  // A deep-linked record that is outside the current page: pinned above the
+  // page rows so the URL can open it without changing the visible filters.
+  const [recordCustomer, setRecordCustomer] = useState<CustomerRecord | null>(null);
   const [copiedText, setCopiedText] = useState<string | null>(null);
 
   // Modal States
@@ -296,6 +307,17 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
   const customersSafePage = Math.min(customersPage, customersPageCount);
   const customersRangeStart = customersTotalItems === 0 ? 0 : (customersSafePage - 1) * customersPageSize + 1;
   const customersRangeEnd = Math.min(customersSafePage * customersPageSize, customersTotalItems);
+  const recordCustomerRow = recordCustomer;
+  const pinnedRecordCustomer =
+    recordCustomerRow &&
+    !customersRows.some(
+      (row) =>
+        row.id === recordCustomerRow.id ||
+        (row.customerId && row.customerId === recordCustomerRow.customerId)
+    )
+      ? recordCustomerRow
+      : null;
+  const directoryCustomers = pinnedRecordCustomer ? [pinnedRecordCustomer, ...customersRows] : customersRows;
 
   // VOL-4b: the Assigned Hardware column comes from the customer row's
   // server-computed count (one indexed subquery per page row), and the expanded
@@ -354,10 +376,70 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
     }
   };
 
+  const collapseExpandedCustomer = () => {
+    if (!expandedCustomerId) return;
+    expandedDevicesSeq.current += 1;
+    setExpandedCustomerId(null);
+    setExpandedDevices([]);
+    setExpandedDevicesTotal(0);
+    setExpandedDevicesError('');
+    setExpandedDevicesLoading(false);
+  };
+
+  const customerRecordKey = recordRoute?.kind === 'detail' ? recordRoute.id : '';
+  const customerMatchesKey = (customer: CustomerRecord) =>
+    [customer.customerId, customer.id].some(
+      (value) => typeof value === 'string' && value.toLowerCase() === customerRecordKey.toLowerCase()
+    );
+
+  useEffect(() => {
+    if (!customerRecordKey) {
+      setRecordCustomer((current) => (current ? null : current));
+      collapseExpandedCustomer();
+      return;
+    }
+
+    const local =
+      customersRows.find(customerMatchesKey) ??
+      (recordCustomer && customerMatchesKey(recordCustomer) ? recordCustomer : null);
+    if (local) {
+      setRecordCustomer((current) => (current && current.id === local.id ? current : local));
+      if (expandedCustomerId !== local.id) {
+        setExpandedCustomerId(local.id);
+        void loadExpandedDevices(local);
+      }
+      return;
+    }
+
+    let cancelled = false;
+    api.getCustomers({ query: customerRecordKey, page: 1, pageSize: 25 })
+      .then((envelope) => {
+        if (cancelled) return;
+        const match = (envelope.data || []).find(customerMatchesKey);
+        if (!match) {
+          recordRouteChangeRef.current?.(null);
+          return;
+        }
+        setRecordCustomer(match);
+      })
+      .catch(() => {
+        if (!cancelled) recordRouteChangeRef.current?.(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [customerRecordKey, customersRows, recordCustomer, expandedCustomerId]);
+
   const handleToggleExpanded = (customer: CustomerRecord) => {
-    if (expandedCustomerId === customer.id) {
-      expandedDevicesSeq.current += 1;
-      setExpandedCustomerId(null);
+    const isExpanded = expandedCustomerId === customer.id;
+    if (onRecordRouteChange) {
+      recordRouteChangeRef.current?.(
+        isExpanded ? null : { kind: 'detail', id: customer.customerId || customer.id }
+      );
+      return;
+    }
+    if (isExpanded) {
+      collapseExpandedCustomer();
       return;
     }
     setExpandedCustomerId(customer.id);
@@ -615,7 +697,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                     <p className="text-xs font-semibold">Loading customer records…</p>
                   </td>
                 </tr>
-              ) : customersRows.length === 0 ? (
+              ) : directoryCustomers.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="p-8 text-center text-slate-500 dark:text-slate-400">
                     <Users className="h-10 w-10 mx-auto mb-3 text-slate-300 dark:text-slate-600" />
@@ -632,7 +714,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                   </td>
                 </tr>
               ) : (
-                customersRows.map((customer) => {
+                directoryCustomers.map((customer) => {
                   const branchObj = branches.find((b) => b.id === customer.branchId);
                   const assignedDevices = getAssignedDeviceCount(customer);
                   const isExpanded = expandedCustomerId === customer.id;

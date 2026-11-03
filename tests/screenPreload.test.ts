@@ -56,15 +56,20 @@ describe('saved-tab screen preload', () => {
     assert.equal(preloadScreenModule(''), undefined);
   });
 
-  test('main.tsx starts the saved tab without delaying boot, and covers the fallback', () => {
+  test('main.tsx starts the first screen without delaying boot, and covers the fallback', () => {
     const main = read('client/src/main.tsx');
     const app = read('client/src/App.tsx');
     const html = read('client/index.html');
 
     assert.match(
       main,
-      /preloadScreenModule\(savedTab\(\)\)/,
-      'main must start the saved tab module'
+      /preloadScreenModule\(initialTab\(\)\)/,
+      'main must start the deep-linked or saved screen module'
+    );
+    assert.match(
+      main,
+      /resolveInitialTab\(/,
+      'main must resolve a canonical path before falling back to the saved tab'
     );
     assert.match(
       main,
@@ -72,7 +77,7 @@ describe('saved-tab screen preload', () => {
       'main must read the same saved-tab key App uses'
     );
     assert.ok(
-      main.indexOf('void preloadSavedScreen()') < main.lastIndexOf('renderApp()'),
+      main.indexOf('void preloadInitialScreen()') < main.lastIndexOf('renderApp()'),
       'the chunk request must start before React is mounted'
     );
     assert.match(

@@ -72,7 +72,7 @@ export function useExchangeDevices(
   const scope = exchangeQueryScope({ branchId, query: searchTerm });
   // The snapshot is a version counter, so any scope's change re-renders the
   // host; the entry itself is read below and is `[]` for an unloaded scope.
-  useSyncExternalStore(exchangeDevicesStore.subscribe, exchangeDevicesStore.getSnapshot);
+  const snapshot = useSyncExternalStore(exchangeDevicesStore.subscribe, exchangeDevicesStore.getSnapshot);
 
   // Debounced load: typing issues one request after the pause, not one per key,
   // and the previous page stays on screen while the next one loads.
@@ -81,13 +81,19 @@ export function useExchangeDevices(
   // The branch last read by THIS host, so a branch switch (and the first mount)
   // reads at once while only a typed term waits for the pause.
   const lastBranch = useRef<{ branch: string | null | undefined } | null>(null);
+  // A profile switch resets the store but leaves the host's branch and term
+  // unchanged; the generation makes that reset read at once as well.
+  const lastGeneration = useRef(snapshot.generation);
   useEffect(() => {
     const request: ExchangeDevicesQuery = {
       branchId: branchId || undefined,
       query: String(searchTerm || '').trim() || undefined,
       status: [...EXCHANGE_DEVICE_STATUSES],
     };
-    const branchChanged = !lastBranch.current || lastBranch.current.branch !== branchId;
+    const resetSinceLastRead = lastGeneration.current !== snapshot.generation;
+    lastGeneration.current = snapshot.generation;
+    const branchChanged =
+      resetSinceLastRead || !lastBranch.current || lastBranch.current.branch !== branchId;
     lastBranch.current = { branch: branchId };
     if (branchChanged) {
       if (timer.current) clearTimeout(timer.current);
@@ -104,7 +110,7 @@ export function useExchangeDevices(
       if (timer.current) clearTimeout(timer.current);
       exchangeDevicesStore.release(scope);
     };
-  }, [scope, branchId, searchTerm]);
+  }, [scope, branchId, searchTerm, snapshot.generation]);
 
   // Keep the previous page of this branch on screen while a typed term loads;
   // a branch switch or a failed read never carries rows (EXCH-1, DF-16).

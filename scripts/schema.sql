@@ -211,6 +211,10 @@ CREATE TABLE IF NOT EXISTS inventory_stock (
     product_id VARCHAR(50) NOT NULL REFERENCES products(id) ON DELETE CASCADE,
     branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
     quantity_on_hand INT DEFAULT 0,
+    -- Moving weighted-average unit cost used by the GL (COGS/inventory).
+    -- Standard/product cost remains the operational price; this column is the
+    -- financial valuation the ledger posts against.
+    average_cost NUMERIC(14, 4) NOT NULL DEFAULT 0,
     damaged_qty INT DEFAULT 0,
     reserved_qty INT DEFAULT 0,
     incoming_qty INT DEFAULT 0,
@@ -1105,6 +1109,67 @@ CREATE TABLE IF NOT EXISTS permission_matrix (
 CREATE INDEX IF NOT EXISTS idx_permission_matrix_role ON permission_matrix(role);
 
 -- ============================================================================
+-- 30b. Per-user Permission Overrides (plan: docs/permission-overrides-plan.md)
+-- An exception layer on TOP of permission_matrix: one row changes one
+-- operation for one user, without changing what their role means for anyone
+-- else. Resolution order (server/src/services/permissionOverrides.service.ts):
+--   SUPER_ADMIN -> allowed; user deny -> denied; user grant -> allowed;
+--   otherwise the role's permission_matrix row.
+-- `reason` is required by the API (audit requirement). `expires_at` is
+-- evaluated on read, so a temporary grant needs no follow-up job; the row is
+-- kept for the trail after it expires. ON DELETE CASCADE means removing a user
+-- removes their exceptions, never leaving orphan grants.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS user_permission_overrides (
+    user_id VARCHAR(50) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    operation_id VARCHAR(60) NOT NULL,
+    effect VARCHAR(10) NOT NULL CHECK (effect IN ('grant', 'deny')),
+    reason TEXT NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE,
+    created_by VARCHAR(50),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, operation_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_permission_overrides_user ON user_permission_overrides(user_id);
+
+-- ============================================================================
+-- 30c. Reusable Permission Sets (phase 2 of docs/permission-overrides-plan.md)
+-- A named bundle of GRANTS that several users can share. Resolution is:
+--   SUPER_ADMIN -> allowed; this user's explicit override -> its effect;
+--   any assigned set granting the operation -> allowed; otherwise the role's
+--   permission_matrix row. A per-user deny therefore still wins over a set.
+-- Sets carry grants only (no deny), so removing a member can never silently
+-- change what a role means. Membership cascades with the user, and deleting a
+-- set cascades its grants and memberships, so no orphan grant can survive.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS permission_sets (
+    id VARCHAR(50) PRIMARY KEY,
+    name VARCHAR(120) NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_permission_sets_name_lower ON permission_sets (LOWER(name));
+
+CREATE TABLE IF NOT EXISTS permission_set_grants (
+    set_id VARCHAR(50) NOT NULL REFERENCES permission_sets(id) ON DELETE CASCADE,
+    operation_id VARCHAR(60) NOT NULL,
+    PRIMARY KEY (set_id, operation_id)
+);
+
+CREATE TABLE IF NOT EXISTS permission_set_members (
+    user_id VARCHAR(50) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    set_id VARCHAR(50) NOT NULL REFERENCES permission_sets(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, set_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_permission_set_members_set ON permission_set_members(set_id);
+
+-- ============================================================================
 -- 31. Application Settings (company-wide configuration, key/value)
 -- Server-side authority for settings that used to live ONLY in browser
 -- localStorage (e.g. the company-wide blind stock-audit toggle), so clearing
@@ -1138,6 +1203,311 @@ CREATE TABLE IF NOT EXISTS user_preferences (
 CREATE INDEX IF NOT EXISTS idx_user_preferences_user ON user_preferences(user_id);
 
 -- ============================================================================
+-- 33. Accounting — chart of accounts, periods, journals and subledgers
+--
+-- The general ledger is the accounting source of truth. Operational tables
+-- (invoices, payments, stock moves) remain their own transaction records; a
+-- later slice posts them into these tables inside the same transaction. This
+-- slice ships the ledger core only: account groups/accounts with statement
+-- mapping and posting defaults, monthly periods with close/reopen, balanced
+-- journals with a branch dimension, and generic subledger entries that every
+-- control account must reconcile to.
+--
+-- Money is NUMERIC(14,2); a journal line is exactly one-sided (debit XOR
+-- credit), and both the header period and every line carry the branch so a
+-- branch P&L/BS can be produced without joining back through payload JSON.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS gl_account_groups (
+    id VARCHAR(50) PRIMARY KEY,
+    -- One optional level above a group: a sub-group carries the same type and
+    -- statement mapping as its parent, and accounts attach to either level.
+    parent_id VARCHAR(50) REFERENCES gl_account_groups(id) ON DELETE RESTRICT,
+    code VARCHAR(30) UNIQUE NOT NULL,
+    name VARCHAR(150) NOT NULL,
+    account_type VARCHAR(20) NOT NULL CHECK (account_type IN ('ASSET', 'LIABILITY', 'EQUITY', 'INCOME', 'EXPENSE')),
+    statement_group VARCHAR(30) NOT NULL CHECK (statement_group IN (
+        'CURRENT_ASSET', 'NON_CURRENT_ASSET', 'CURRENT_LIABILITY', 'NON_CURRENT_LIABILITY',
+        'EQUITY', 'REVENUE', 'COST_OF_SALES', 'OPERATING_EXPENSE', 'OTHER_INCOME', 'OTHER_EXPENSE'
+    )),
+    normal_balance VARCHAR(6) NOT NULL CHECK (normal_balance IN ('DEBIT', 'CREDIT')),
+    sort_order INT NOT NULL DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT gl_account_groups_parent_self CHECK (parent_id IS NULL OR parent_id <> id)
+);
+
+-- Existing installs predate the hierarchy; CREATE TABLE IF NOT EXISTS does
+-- not add a column to them.
+ALTER TABLE gl_account_groups ADD COLUMN IF NOT EXISTS parent_id VARCHAR(50) REFERENCES gl_account_groups(id) ON DELETE RESTRICT;
+ALTER TABLE gl_account_groups DROP CONSTRAINT IF EXISTS gl_account_groups_parent_self;
+ALTER TABLE gl_account_groups ADD CONSTRAINT gl_account_groups_parent_self CHECK (parent_id IS NULL OR parent_id <> id);
+CREATE INDEX IF NOT EXISTS idx_gl_account_groups_parent ON gl_account_groups(parent_id);
+
+CREATE TABLE IF NOT EXISTS gl_accounts (
+    id VARCHAR(50) PRIMARY KEY,
+    code VARCHAR(30) UNIQUE NOT NULL,
+    name VARCHAR(150) NOT NULL,
+    group_id VARCHAR(50) NOT NULL REFERENCES gl_account_groups(id) ON DELETE RESTRICT,
+    description TEXT,
+    is_control BOOLEAN NOT NULL DEFAULT FALSE,
+    subledger_type VARCHAR(30) NOT NULL DEFAULT 'NONE' CHECK (subledger_type IN (
+        'NONE', 'CUSTOMER', 'SUPPLIER', 'EMPLOYEE', 'INVENTORY', 'FIXED_ASSET', 'BANK', 'CASH', 'TAX', 'INTER_BRANCH'
+    )),
+    -- One account per posting purpose (AR control, cash, etc.). NULL means the
+    -- account is not a default. The partial unique index below enforces one.
+    posting_role VARCHAR(40) CHECK (posting_role IN (
+        'AR_CONTROL', 'AP_CONTROL', 'CASH', 'BANK', 'INVENTORY', 'SALES', 'COGS',
+        'TAX_OUTPUT', 'TAX_INPUT', 'RETAINED_EARNINGS', 'SALARY_PAYABLE', 'INTER_BRANCH_CLEARING',
+        'STOCK_EXPENSE', 'CPE_ASSET', 'DUE_FROM_HO', 'DUE_TO_HO',
+        'FIXED_ASSET', 'ACCUMULATED_DEPRECIATION', 'DEPRECIATION_EXPENSE',
+        'GAIN_ON_DISPOSAL', 'LOSS_ON_DISPOSAL',
+        'SALARY_EXPENSE', 'TDS_PAYABLE', 'SSF_PAYABLE', 'EMPLOYEE_ADVANCE', 'EMPLOYEE_LOAN'
+    )),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    -- A control account always names its subledger; an ordinary account never
+    -- pretends to have one. Without this, reconciliation could silently compare
+    -- a control balance with an empty subledger.
+    CONSTRAINT gl_accounts_control_subledger_check CHECK (
+        (is_control = FALSE AND subledger_type = 'NONE') OR
+        (is_control = TRUE AND subledger_type <> 'NONE')
+    )
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_gl_accounts_posting_role
+    ON gl_accounts(posting_role) WHERE posting_role IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_gl_accounts_group ON gl_accounts(group_id);
+
+-- Existing installs created gl_accounts before the stock-expense role existed;
+-- CREATE TABLE IF NOT EXISTS does not alter their inline CHECK constraint.
+ALTER TABLE gl_accounts DROP CONSTRAINT IF EXISTS gl_accounts_posting_role_check;
+ALTER TABLE gl_accounts ADD CONSTRAINT gl_accounts_posting_role_check CHECK (posting_role IN (
+    'AR_CONTROL', 'AP_CONTROL', 'CASH', 'BANK', 'INVENTORY', 'SALES', 'COGS',
+    'TAX_OUTPUT', 'TAX_INPUT', 'RETAINED_EARNINGS', 'SALARY_PAYABLE', 'INTER_BRANCH_CLEARING',
+    'STOCK_EXPENSE', 'CPE_ASSET', 'DUE_FROM_HO', 'DUE_TO_HO',
+    'FIXED_ASSET', 'ACCUMULATED_DEPRECIATION', 'DEPRECIATION_EXPENSE',
+    'GAIN_ON_DISPOSAL', 'LOSS_ON_DISPOSAL',
+    'SALARY_EXPENSE', 'TDS_PAYABLE', 'SSF_PAYABLE', 'EMPLOYEE_ADVANCE', 'EMPLOYEE_LOAN'
+));
+
+CREATE TABLE IF NOT EXISTS gl_periods (
+    id VARCHAR(50) PRIMARY KEY,
+    fiscal_year_id VARCHAR(50) NOT NULL REFERENCES fiscal_years(id) ON DELETE RESTRICT,
+    period_key VARCHAR(7) NOT NULL,
+    start_date_ad DATE NOT NULL,
+    end_date_ad DATE NOT NULL,
+    status VARCHAR(10) NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN', 'CLOSED')),
+    closed_at TIMESTAMP WITH TIME ZONE,
+    closed_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT gl_periods_date_order CHECK (end_date_ad >= start_date_ad),
+    UNIQUE (fiscal_year_id, period_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_gl_periods_dates ON gl_periods(start_date_ad, end_date_ad);
+
+CREATE SEQUENCE IF NOT EXISTS gl_journal_no_seq AS BIGINT START WITH 1;
+
+CREATE TABLE IF NOT EXISTS gl_journals (
+    id VARCHAR(50) PRIMARY KEY,
+    journal_no VARCHAR(50) UNIQUE NOT NULL,
+    journal_date_ad DATE NOT NULL,
+    fiscal_year_id VARCHAR(50) NOT NULL REFERENCES fiscal_years(id) ON DELETE RESTRICT,
+    period_id VARCHAR(50) NOT NULL REFERENCES gl_periods(id) ON DELETE RESTRICT,
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    source_type VARCHAR(30) NOT NULL DEFAULT 'MANUAL',
+    source_id VARCHAR(100),
+    memo TEXT,
+    status VARCHAR(10) NOT NULL DEFAULT 'POSTED' CHECK (status IN ('POSTED', 'REVERSED')),
+    reversal_of_id VARCHAR(50) REFERENCES gl_journals(id) ON DELETE SET NULL,
+    posted_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    posted_by VARCHAR(150),
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_gl_journals_date ON gl_journals(journal_date_ad);
+CREATE INDEX IF NOT EXISTS idx_gl_journals_branch ON gl_journals(branch_id, journal_date_ad);
+CREATE INDEX IF NOT EXISTS idx_gl_journals_period ON gl_journals(period_id);
+CREATE INDEX IF NOT EXISTS idx_gl_journals_source ON gl_journals(source_type, source_id);
+-- Opening balances are posted once per branch. The service also takes a
+-- per-branch advisory lock and pre-checks, but this partial unique index is
+-- the durable guard against a concurrent double post.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_gl_journals_opening_balance
+  ON gl_journals(branch_id) WHERE source_type = 'OPENING_BALANCE';
+
+CREATE TABLE IF NOT EXISTS gl_journal_lines (
+    id VARCHAR(60) PRIMARY KEY,
+    journal_id VARCHAR(50) NOT NULL REFERENCES gl_journals(id) ON DELETE CASCADE,
+    line_no INT NOT NULL,
+    account_id VARCHAR(50) NOT NULL REFERENCES gl_accounts(id) ON DELETE RESTRICT,
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    debit NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    credit NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    memo TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT gl_journal_lines_one_sided CHECK (
+        debit >= 0 AND credit >= 0 AND
+        ((debit > 0 AND credit = 0) OR (credit > 0 AND debit = 0))
+    ),
+    UNIQUE (journal_id, line_no)
+);
+
+CREATE INDEX IF NOT EXISTS idx_gl_journal_lines_account ON gl_journal_lines(account_id, branch_id);
+CREATE INDEX IF NOT EXISTS idx_gl_journal_lines_journal ON gl_journal_lines(journal_id);
+
+CREATE TABLE IF NOT EXISTS gl_subledger_entries (
+    id VARCHAR(60) PRIMARY KEY,
+    journal_id VARCHAR(50) NOT NULL REFERENCES gl_journals(id) ON DELETE CASCADE,
+    journal_line_id VARCHAR(60) NOT NULL REFERENCES gl_journal_lines(id) ON DELETE CASCADE,
+    account_id VARCHAR(50) NOT NULL REFERENCES gl_accounts(id) ON DELETE RESTRICT,
+    subledger_type VARCHAR(30) NOT NULL CHECK (subledger_type IN (
+        'CUSTOMER', 'SUPPLIER', 'EMPLOYEE', 'INVENTORY', 'FIXED_ASSET', 'BANK', 'CASH', 'TAX', 'INTER_BRANCH'
+    )),
+    party_id VARCHAR(100),
+    party_name VARCHAR(200),
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    entry_date_ad DATE NOT NULL,
+    debit NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    credit NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT gl_subledger_entries_one_sided CHECK (
+        debit >= 0 AND credit >= 0 AND
+        ((debit > 0 AND credit = 0) OR (credit > 0 AND debit = 0))
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_gl_subledger_account_branch ON gl_subledger_entries(account_id, branch_id);
+CREATE INDEX IF NOT EXISTS idx_gl_subledger_party ON gl_subledger_entries(subledger_type, party_id);
+CREATE INDEX IF NOT EXISTS idx_gl_subledger_journal ON gl_subledger_entries(journal_id);
+
+-- ============================================================================
+-- 34. Daily cash close — one counted close per branch and business day
+-- ============================================================================
+-- The close is a snapshot of the posted cash/bank lines: opening carries the
+-- signed balance before the day, cash-in and cash-out are that day's gross
+-- debits and credits, and expected closing is opening + in - out (which is
+-- also the cash book's closing and the balance sheet's cash-and-bank total for
+-- the same branch and date). The variance is the only entered figure.
+-- Reopening keeps the row and its last count for the audit trail; closing it
+-- again updates that same row rather than creating a second close.
+CREATE TABLE IF NOT EXISTS daily_cash_closes (
+    id VARCHAR(50) PRIMARY KEY,
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    business_date_ad DATE NOT NULL,
+    opening_cash NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    cash_in NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    cash_out NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    expected_closing NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    counted_closing NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    variance NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    status VARCHAR(10) NOT NULL DEFAULT 'CLOSED' CHECK (status IN ('CLOSED', 'OPEN')),
+    closed_by VARCHAR(150),
+    closed_at TIMESTAMP WITH TIME ZONE,
+    reopened_by VARCHAR(150),
+    reopened_at TIMESTAMP WITH TIME ZONE,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT daily_cash_closes_variance_check CHECK (
+        variance = counted_closing - expected_closing
+    ),
+    UNIQUE (branch_id, business_date_ad)
+);
+
+CREATE INDEX IF NOT EXISTS idx_daily_cash_closes_date ON daily_cash_closes(business_date_ad, branch_id);
+
+-- ============================================================================
+-- 35. Payroll — employee master, posted runs and their per-employee lines
+-- ============================================================================
+-- Payroll deliberately stores no salary calculation: the run's amounts are
+-- entered or imported. The ledger side is the generic subledger above — every
+-- run line writes EMPLOYEE party rows against salary payable, TDS, SSF,
+-- advances and loans, so the employee ledger is a read of the same ledger, not
+-- a parallel balance table.
+CREATE TABLE IF NOT EXISTS employees (
+    id VARCHAR(50) PRIMARY KEY,
+    employee_code VARCHAR(50) UNIQUE NOT NULL,
+    name VARCHAR(200) NOT NULL,
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    department VARCHAR(120),
+    designation VARCHAR(120),
+    pan_number VARCHAR(50),
+    ssf_number VARCHAR(50),
+    bank_account VARCHAR(80),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR(150),
+    updated_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_employees_branch ON employees(branch_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_employees_name ON employees(lower(name));
+
+CREATE TABLE IF NOT EXISTS payroll_runs (
+    id VARCHAR(50) PRIMARY KEY,
+    run_no VARCHAR(50) UNIQUE NOT NULL,
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    period_key VARCHAR(7) NOT NULL,
+    run_date_ad DATE NOT NULL,
+    gross_total NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    tds_total NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    ssf_total NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    advance_total NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    loan_total NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    net_total NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    status VARCHAR(10) NOT NULL DEFAULT 'POSTED' CHECK (status IN ('POSTED', 'PAID')),
+    journal_id VARCHAR(50) REFERENCES gl_journals(id) ON DELETE SET NULL,
+    paid_journal_id VARCHAR(50) REFERENCES gl_journals(id) ON DELETE SET NULL,
+    paid_date_ad DATE,
+    payment_method VARCHAR(30),
+    posted_by VARCHAR(150),
+    paid_at TIMESTAMP WITH TIME ZONE,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT payroll_runs_period_shape CHECK (period_key ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+    UNIQUE (branch_id, period_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_payroll_runs_branch_period ON payroll_runs(branch_id, period_key, run_date_ad);
+
+CREATE TABLE IF NOT EXISTS payroll_run_lines (
+    id VARCHAR(60) PRIMARY KEY,
+    run_id VARCHAR(50) NOT NULL REFERENCES payroll_runs(id) ON DELETE CASCADE,
+    employee_id VARCHAR(50) NOT NULL REFERENCES employees(id) ON DELETE RESTRICT,
+    employee_code VARCHAR(50) NOT NULL,
+    employee_name VARCHAR(200) NOT NULL,
+    period_key VARCHAR(7) NOT NULL,
+    gross_amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    tds_amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    ssf_amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    advance_deduction NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    loan_deduction NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    net_amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT payroll_run_lines_amounts_non_negative CHECK (
+        gross_amount >= 0 AND tds_amount >= 0 AND ssf_amount >= 0 AND
+        advance_deduction >= 0 AND loan_deduction >= 0 AND net_amount >= 0
+    ),
+    CONSTRAINT payroll_run_lines_net_check CHECK (
+        net_amount = gross_amount - tds_amount - ssf_amount - advance_deduction - loan_deduction
+    ),
+    UNIQUE (employee_id, period_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_payroll_run_lines_run ON payroll_run_lines(run_id);
+CREATE INDEX IF NOT EXISTS idx_payroll_run_lines_period ON payroll_run_lines(period_key, employee_id);
+
+-- ============================================================================
 -- v3.0 MIGRATION for databases created with schema v2.x
 -- (No-ops on fresh installs where the columns already exist above.)
 -- ============================================================================
@@ -1159,6 +1529,24 @@ ALTER TABLE products ADD COLUMN IF NOT EXISTS seller_warranty_months INT NOT NUL
 ALTER TABLE inventory_stock ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE inventory_stock ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
 ALTER TABLE inventory_stock ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
+-- Moving weighted-average cost (accounting). The DO block backfills existing
+-- stock from the product cost exactly once, so a legacy database starts the
+-- ledger at the same valuation the screens already show. Re-running it is a
+-- no-op (the column exists after the first run), so a genuine zero average
+-- from a free/received-at-zero purchase is never overwritten on boot.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'inventory_stock' AND column_name = 'average_cost'
+  ) THEN
+    ALTER TABLE inventory_stock ADD COLUMN average_cost NUMERIC(14, 4) NOT NULL DEFAULT 0;
+    UPDATE inventory_stock s
+    SET average_cost = COALESCE(p.cost_price, 0)
+    FROM products p
+    WHERE p.id = s.product_id AND s.average_cost = 0;
+  END IF;
+END $$;
 ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
 ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
@@ -1497,7 +1885,7 @@ ALTER TABLE audit_logs ADD CONSTRAINT audit_logs_module_check CHECK (module IN (
   'AUTH', 'MASTER_DATA', 'PRODUCTS', 'CATEGORIES', 'PROCUREMENT', 'LOGISTICS',
   'STOCK_OPERATIONS', 'FIXED_ASSETS', 'CPE_MANAGEMENT', 'INVENTORY', 'INVENTORY_AUDIT',
   'OPERATIONS', 'BRANCH_OPERATIONS', 'FISCAL_YEAR', 'APPROVAL_WORKFLOW', 'SYSTEM',
-  'SALES', 'PERMISSIONS'
+  'SALES', 'PERMISSIONS', 'ACCOUNTING'
 ));
 
 -- Customer Records indexes

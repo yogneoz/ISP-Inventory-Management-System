@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Shipment, Product, Branch, InventoryStock, User, ApprovalRequest } from '../../types';
+import type { RecordRoute } from '../../routes/appPaths';
 import { Truck, Search, PackageCheck, History, Send, Eye, X, Barcode, ArrowRight, Info } from 'lucide-react';
 import { PageHeader } from '../../components/common/PageHeader';
 import { KeepMounted } from '../../components/common/KeepMounted';
@@ -40,6 +41,11 @@ interface ShipmentsProps {
   /** Bumped by App on every shipment/approval/full refresh; re-runs the paged read. */
   shipmentsRefresh?: number;
   isDarkMode?: boolean;
+  /** `/purchasing/shipments/:trackingCode`, when the URL names one manifest. */
+  recordRoute?: RecordRoute | null;
+  onRecordRouteChange?: (record: RecordRoute | null) => void;
+  /** Root-owned bounded lookup for a manifest outside the loaded window. */
+  onFindShipment?: (key: string, branchId?: string) => Promise<Shipment | null>;
 }
 
 export const Shipments: React.FC<ShipmentsProps> = ({
@@ -57,12 +63,17 @@ export const Shipments: React.FC<ShipmentsProps> = ({
   onRequestApproval,
   onCancelApproval,
   shipmentsRefresh = 0,
+  recordRoute = null,
+  onRecordRouteChange,
+  onFindShipment,
 }) => {
   const { isDarkMode } = useDarkMode();
   const [internalTab, setInternalTab] = useState<'REGISTER' | 'CREATE_SHIPMENT' | 'VIEW'>(
     activeTab === 'create-shipment' ? 'CREATE_SHIPMENT' : 'REGISTER'
   );
   const [viewingShipment, setViewingShipment] = useState<Shipment | null>(null);
+  const recordRouteChangeRef = useRef(onRecordRouteChange);
+  recordRouteChangeRef.current = onRecordRouteChange;
   const [searchQuery, setSearchQuery] = useState('');
 
   // Report Filters (dispatch date range, status, transfer direction)
@@ -72,12 +83,13 @@ export const Shipments: React.FC<ShipmentsProps> = ({
   const [shipmentMode, setShipmentMode] = useState<'ALL' | 'CREATED' | 'RECEIVED'>('ALL');
 
   useEffect(() => {
+    if (recordRoute?.kind === 'detail') return;
     if (activeTab === 'create-shipment') {
       setInternalTab('CREATE_SHIPMENT');
     } else if (activeTab === 'shipment-list') {
       setInternalTab('REGISTER');
     }
-  }, [activeTab]);
+  }, [activeTab, recordRoute?.kind]);
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -107,10 +119,52 @@ export const Shipments: React.FC<ShipmentsProps> = ({
     setSearchQuery('');
   };
 
+  const shipmentRecordKey = recordRoute?.kind === 'detail' ? recordRoute.id : '';
+  const shipmentMatchesKey = (sh: Shipment) =>
+    [sh.trackingCode, sh.id].some(
+      (value) => typeof value === 'string' && value.toLowerCase() === shipmentRecordKey.toLowerCase()
+    );
+
   const onViewShipment = (sh: Shipment) => {
     setViewingShipment(sh);
     setInternalTab('VIEW');
+    recordRouteChangeRef.current?.({ kind: 'detail', id: sh.trackingCode || sh.id });
   };
+
+  const closeShipmentDetail = () => {
+    setViewingShipment(null);
+    setInternalTab('REGISTER');
+    recordRouteChangeRef.current?.(null);
+  };
+
+  // A shared manifest link resolves the record from the URL, even when it is
+  // not on the current register page.
+  useEffect(() => {
+    if (!shipmentRecordKey) {
+      setViewingShipment((current) => (current ? null : current));
+      setInternalTab((tab) => (tab === 'VIEW' ? 'REGISTER' : tab));
+      return;
+    }
+    if (viewingShipment && shipmentMatchesKey(viewingShipment)) {
+      setInternalTab('VIEW');
+      return;
+    }
+
+    if (!onFindShipment) return;
+    let cancelled = false;
+    void onFindShipment(shipmentRecordKey, selectedBranchId).then((match) => {
+      if (cancelled) return;
+      if (!match) {
+        recordRouteChangeRef.current?.(null);
+        return;
+      }
+      setViewingShipment(match);
+      setInternalTab('VIEW');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [shipmentRecordKey, selectedBranchId, onFindShipment]);
 
   return (
     <div className="space-y-3">
@@ -283,7 +337,8 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                 <span>Stock Transfer Manifest — {viewingShipment.trackingCode}</span>
               </h3>
               <button
-                onClick={() => setViewingShipment(null)}
+                onClick={closeShipmentDetail}
+                aria-label="Close manifest"
                 className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
               >
                 <X className="h-4 w-4" />

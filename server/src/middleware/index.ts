@@ -2,7 +2,8 @@
 // lock, RBAC, matrix-based operation permissions, and branch access scoping.
 // Extracted verbatim from app.ts (isPgConnected now read via accessors).
 import { pgPool, realPoolInstance, ensurePostgresConnection, getIsPgConnected, setIsPgConnected } from '../../db';
-import { branches, permissionMatrix, getPgConnected, setPgConnected } from '../app';
+import { branches, permissionMatrix, userPermissionOverrides, userPermissionSetGrants, getPgConnected, setPgConnected } from '../app';
+import { effectivePermission } from '../services/permissionOverrides.service';
 import { getUserFromReq, verifyAuthToken } from './auth';
 import { BRANCH_SCOPED_READ_PATHS, COLLECTION_SEGMENTS, findBranchScopedResource } from './branchScope';
 export { getUserFromReq } from './auth';
@@ -132,7 +133,17 @@ export async function enforceBranchAccess(req: any, res: any, next: any) {
   if (user.branchId === 'ALL') return next();
   if (req.path === '/bootstrap') {
     const requestedBootstrapBranch = req.query?.branchId;
-    if (typeof requestedBootstrapBranch !== 'string' || requestedBootstrapBranch === 'ALL' || requestedBootstrapBranch !== user.branchId) {
+    // The primary branch plus every explicitly assigned branch. A multi-branch
+    // user must be able to bootstrap the branch they switch the header to;
+    // ALL stays reserved for global accounts (checked above).
+    const bootstrapBranches = new Set(
+      [user.branchId || '', ...(user.allowedBranchIds || [])].filter(Boolean)
+    );
+    if (
+      typeof requestedBootstrapBranch !== 'string' ||
+      requestedBootstrapBranch === 'ALL' ||
+      !bootstrapBranches.has(requestedBootstrapBranch)
+    ) {
       return res.status(403).json({ message: 'Forbidden: bootstrap must be scoped to the authenticated user branch.' });
     }
   }
@@ -224,10 +235,13 @@ export function requirePermissionAny(...operationIds: string[]) {
       return next();
     }
 
-    const allowedByMatrix = operationIds.some((operationId) => {
-      const opRow = permissionMatrix[operationId];
-      return Boolean(opRow && opRow[role]);
-    });
+    // One resolver for the role matrix AND the per-user exception layer. A
+    // grant can open an operation the role lacks; a deny closes one it has.
+    // Checking `permissionMatrix[operationId][role]` directly here would
+    // silently ignore overrides for every gated route.
+    const allowedByMatrix = operationIds.some((operationId) =>
+      effectivePermission(user, operationId, permissionMatrix, userPermissionOverrides, userPermissionSetGrants)
+    );
     if (!allowedByMatrix) {
       return res.status(403).json({
         message: `Forbidden: role '${role}' is not permitted for operation '${operationIds.join("' or '")}'.`,

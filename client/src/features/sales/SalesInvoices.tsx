@@ -51,6 +51,7 @@ import { warrantyCoveredDefault, warrantyEndFieldError, warrantyEndFor } from '.
 import { isWarrantyBearingLine, salesWarrantyCoverageLabel, summarizeSalesWarranty } from '../../utils/salesWarranty';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { getAllowedBranches } from '../../utils/permissions';
+import type { RecordRoute } from '../../routes/appPaths';
 
 /** Human labels for the stored payment-method codes (the values stay the API enums). */
 const SALES_PAYMENT_METHODS: Array<{ value: NonNullable<SalesInvoice['paymentMethod']>; label: string }> = [
@@ -235,6 +236,11 @@ interface SalesInvoicesProps {
   selectedBranchId: string;
   dateMode: 'BS' | 'AD';
   activeTab?: 'create-sale' | 'sales-list';
+  /** Child record path this screen is currently showing, if any. */
+  recordRoute?: RecordRoute | null;
+  onRecordRouteChange?: (record: RecordRoute | null) => void;
+  /** Switch between this register and the shared create form. */
+  onNavigateTab?: (tab: 'create-sale' | 'sales-list') => void;
   onCreateInvoice: (inv: Omit<SalesInvoice, 'id' | 'invoiceNumber'>) => Promise<void>;
   /** Records a dated customer receipt (customer_payments sub-ledger). */
   onRecordPayment?: (invoice: SalesInvoice, amount: number, paymentMethod: string) => Promise<void>;
@@ -280,6 +286,9 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
   selectedBranchId,
   dateMode,
   activeTab = 'sales-list',
+  recordRoute = null,
+  onRecordRouteChange,
+  onNavigateTab,
   onCreateInvoice,
   onRecordPayment,
   onCancelInvoice,
@@ -291,6 +300,8 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
     activeTab === 'create-sale' ? 'CREATE' : 'LIST'
   );
   const [viewing, setViewing] = useState<SalesInvoice | null>(null);
+  const recordRouteChangeRef = useRef(onRecordRouteChange);
+  recordRouteChangeRef.current = onRecordRouteChange;
 
   // Only branches this account may post from. A fixture that mounts the form
   // without a session keeps the full list rather than an empty select.
@@ -384,6 +395,87 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
   // A filter change snaps the page back to 1 in the same render, so one
   // change costs one request for page 1 instead of two (DF-12).
   useFilterPageReset([branchFilter, query].join('\u0000'), siPage, setSiPage);
+
+  const openInvoiceDetail = (invoice: SalesInvoice) => {
+    setViewing(invoice);
+    recordRouteChangeRef.current?.({ kind: 'detail', id: invoice.invoiceNumber });
+  };
+  const closeInvoiceDetail = () => {
+    setViewing(null);
+    recordRouteChangeRef.current?.(null);
+  };
+  const openCreateForm = () => {
+    if (onNavigateTab) {
+      onNavigateTab('create-sale');
+      return;
+    }
+    setInternalTab('CREATE');
+    recordRouteChangeRef.current?.(null);
+  };
+  const closeCreateForm = () => {
+    if (activeTab === 'create-sale' && onNavigateTab) {
+      onNavigateTab('sales-list');
+      return;
+    }
+    setInternalTab('LIST');
+    recordRouteChangeRef.current?.(null);
+  };
+
+  // The dedicated create tab owns CREATE; the register returns to LIST unless
+  // its URL names a record (the detail view is an overlay over the register).
+  useEffect(() => {
+    if (activeTab === 'create-sale') setInternalTab('CREATE');
+    else if (recordRoute?.kind !== 'detail') setInternalTab('LIST');
+  }, [activeTab, recordRoute?.kind]);
+
+  // Resolve a record path against the register page first, then the filtered
+  // list endpoint. A shared `/sales/invoices/INV-…` link therefore opens the
+  // invoice even when it is not on the current page.
+  const recordKey = recordRoute?.kind === 'detail' ? recordRoute.id : '';
+  useEffect(() => {
+    if (!recordKey) {
+      setViewing(null);
+      return;
+    }
+    const wanted = recordKey.toLowerCase();
+    const matches = (invoice: SalesInvoice) =>
+      invoice.invoiceNumber?.toLowerCase() === wanted || invoice.id?.toLowerCase() === wanted;
+
+    const inPage = siRows.find(matches);
+    if (inPage) {
+      setViewing(inPage);
+      setInternalTab('LIST');
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const envelope = (await api.getSalesInvoices({
+          query: recordKey,
+          page: 1,
+          pageSize: 10,
+        })) as SalesInvoice[] | { data: SalesInvoice[] };
+        if (cancelled) return;
+        const rows = Array.isArray(envelope) ? envelope : envelope.data || [];
+        const match = rows.find(matches);
+        if (match) {
+          setViewing(match);
+          setInternalTab('LIST');
+        } else {
+          setViewing(null);
+          recordRouteChangeRef.current?.(null);
+        }
+      } catch {
+        if (cancelled) return;
+        setViewing(null);
+        recordRouteChangeRef.current?.(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [recordKey, siRows]);
 
   // Record-payment state (customer_payments sub-ledger)
   const [payInvoice, setPayInvoice] = useState<SalesInvoice | null>(null);
@@ -756,7 +848,12 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
         notes,
       } as Omit<SalesInvoice, 'id' | 'invoiceNumber'>);
       resetForm();
-      setInternalTab('LIST');
+      if (activeTab === 'create-sale' && onNavigateTab) {
+        onNavigateTab('sales-list');
+      } else {
+        setInternalTab('LIST');
+        recordRouteChangeRef.current?.(null);
+      }
       setSiRefreshKey((k) => k + 1);
     } catch (e: any) {
       setFormError(e?.message || 'Failed to create sales invoice.');
@@ -916,12 +1013,12 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
                 {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                 {exporting ? 'Exporting…' : 'Export Invoice CSV'}
               </button>
-              <button className={btnGhost} onClick={() => setViewing(null)}>
+              <button className={btnGhost} onClick={closeInvoiceDetail}>
                 <ArrowLeft className="h-4 w-4" /> Back to Register
               </button>
             </>
           ) : internalTab === 'CREATE' ? (
-            <button className={btnGhost} onClick={() => setInternalTab('LIST')}>
+            <button className={btnGhost} onClick={closeCreateForm}>
               <ArrowLeft className="h-4 w-4" /> Back to Register
             </button>
           ) : (
@@ -934,7 +1031,7 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
                 {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                 {exporting ? 'Exporting…' : 'Export CSV'}
               </button>
-              <button className={btnPrimary} onClick={() => setInternalTab('CREATE')}>
+              <button className={btnPrimary} onClick={openCreateForm}>
                 <PlusCircle className="h-4 w-4" /> New Sales Invoice
               </button>
             </>
@@ -1410,7 +1507,7 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
                     <td className="px-4 py-2 text-right">{formatMoney(inv.grandTotal)}</td>
                     <td className="whitespace-nowrap px-4 py-2 text-right">
                       <button className="text-indigo-600 hover:text-indigo-700 dark:text-indigo-400" title="View"
-                        onClick={() => { setViewing(inv); }}>
+                        onClick={() => openInvoiceDetail(inv)}>
                         <Eye className="h-4 w-4" />
                       </button>
                       {onRecordPayment && inv.status !== 'CANCELLED' && inv.paymentStatus !== 'PAID' && (

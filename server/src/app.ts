@@ -73,6 +73,8 @@ import { registerProcurementRoutes } from './routes/procurement.routes';
 import { registerSalesRoutes } from './routes/sales.routes';
 import { registerShipmentsRoutes } from './routes/shipments.routes';
 import { registerReportsRoutes } from './routes/reports.routes';
+import { registerAccountingRoutes } from './routes/accounting.routes';
+import { registerPayrollRoutes } from './routes/payroll.routes';
 import { registerLeftoverFiscalRoutes } from './routes/fiscal.routes';
 import { setLogAuditEvent } from './routes/fiscal.auditAccess';
 import { cacheRefreshHook } from './middleware/cacheRefreshHook';
@@ -85,7 +87,8 @@ export {
   salesInvoices, purchaseReturns, salesReturns,
   shipments, stockOperations, auditTrail, transactionLogs, vendorPayments,
   customerPayments,
-  approvalRequests, damageRecords, serialLogs, activeUser, permissionMatrix,
+  approvalRequests, damageRecords, serialLogs, activeUser, permissionMatrix, userPermissionOverrides,
+  userPermissionSetGrants,
   setCompanyProfile, setDocNumberConfigs, setUsers, setSuppliers, setUomList,
   setLocationRecords, setBranches, setFiscalYears, setProducts, setCategories,
   setProductGroups,
@@ -94,7 +97,7 @@ export {
   setShipments, setStockOperations, setAuditTrail, setTransactionLogs,
   setCustomerDeviceRecords, setCustomerMasterRecords,
   setVendorPayments, setCustomerPayments, setApprovalRequests, setDamageRecords, setSerialLogs,
-  setPermissionMatrix, setActiveUser, setPgConnected, getPgConnected,
+  setPermissionMatrix, setUserPermissionOverrides, setUserPermissionSetGrants, setActiveUser, setPgConnected, getPgConnected,
   getActiveUser, getDataVersion, setDataVersion, CACHE_LOADS,
   hydrateOperationalData, refreshOperationalCache,
 } from './state/runtimeState';
@@ -307,6 +310,8 @@ export function registerAllRoutes(expressApp: express.Express) {
   registerSalesRoutes(expressApp);
   registerShipmentsRoutes(expressApp);
   registerReportsRoutes(expressApp);
+  registerAccountingRoutes(expressApp);
+  registerPayrollRoutes(expressApp);
 
   // Central structured-error handler must be registered LAST so every route's
   // thrown ApiError is converted to a standard JSON response.

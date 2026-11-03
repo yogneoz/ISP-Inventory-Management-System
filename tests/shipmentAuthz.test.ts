@@ -40,6 +40,7 @@ import { issueAuthToken } from '../server/src/middleware/auth';
 import { setPermissionMatrix } from '../server/src/state/runtimeState';
 import { DEFAULT_PERMISSIONS_MATRIX } from '../client/src/utils/permissionMatrixData';
 import { ensureBsDayRecords, todayAd } from './fixtures/referenceData';
+import { ensureDefaultChart } from '../server/src/services/accountingSeed.service';
 
 dotenv.config();
 
@@ -88,7 +89,10 @@ describe('shipment authorization fixes (VULN-001/2/3, VERIFY-001)', () => {
   before(async () => {
     if (!dbReachable) return;
 
-    // Clear leftovers from aborted runs, then seed idempotently.
+    // Clear leftovers from aborted runs, then seed idempotently. Receipts now
+    // post journals against the branch, so those go before the branches do.
+    await pool!.query("DELETE FROM gl_journals WHERE branch_id LIKE 'aztest-%'");
+    await ensureDefaultChart(pool!);
     await pool!.query("DELETE FROM shipments WHERE id LIKE 'aztest-%' OR id LIKE 'sh-authztest-%' OR tracking_code LIKE 'ST-AUTHZ-%'");
     await pool!.query("DELETE FROM inventory_stock WHERE product_id LIKE 'aztest-%'");
     await pool!.query("DELETE FROM products WHERE id LIKE 'aztest-%'");
@@ -109,9 +113,12 @@ describe('shipment authorization fixes (VULN-001/2/3, VERIFY-001)', () => {
       "('stk-aztest-mid-aztest-prod1', 'aztest-prod1', 'aztest-mid', 0, 0)"
     );
 
-    const openItems = JSON.stringify([{ productId: 'aztest-prod1', productName: 'Authz Test Product 1', quantitySent: 2 }]);
-    const hqItems = JSON.stringify([{ productId: 'aztest-prod1', productName: 'Authz Test Product 1', quantitySent: 1 }]);
-    const nosrcItems = JSON.stringify([{ productId: 'aztest-prod1', productName: 'Authz Test Product 1', quantitySent: 1 }]);
+    // unitCost is the dispatch issue cost these legacy fixtures need: the
+    // receive/cancel paths now refuse to value a transfer the schema never
+    // recorded a cost for.
+    const openItems = JSON.stringify([{ productId: 'aztest-prod1', productName: 'Authz Test Product 1', quantitySent: 2, unitCost: 100 }]);
+    const hqItems = JSON.stringify([{ productId: 'aztest-prod1', productName: 'Authz Test Product 1', quantitySent: 1, unitCost: 100 }]);
+    const nosrcItems = JSON.stringify([{ productId: 'aztest-prod1', productName: 'Authz Test Product 1', quantitySent: 1, unitCost: 100 }]);
     // An IN_TRANSIT dispatch (cancel + VERIFY-001 targets) and a legacy
     // NULL-source shipment (receive-block target).
     await pool!.query(
@@ -135,7 +142,7 @@ describe('shipment authorization fixes (VULN-001/2/3, VERIFY-001)', () => {
       destinationBranchId: dst, destinationBranchName: 'Authz Branch',
       dispatchDateAD: '2026-09-01', dispatchDateBS: '2083-05-16 BS',
       status: 'IN_TRANSIT', notes: '',
-      items: [{ productId: 'aztest-prod1', productName: 'Authz Test Product 1', quantitySent: qty }],
+      items: [{ productId: 'aztest-prod1', productName: 'Authz Test Product 1', quantitySent: qty, unitCost: 100 }],
     });
     setShipments([
       ...shipments.filter((s) => !(s.id || '').startsWith('aztest-') && !(s.id || '').startsWith('sh-authztest-')),
@@ -174,6 +181,7 @@ describe('shipment authorization fixes (VULN-001/2/3, VERIFY-001)', () => {
     setShipments(shipments.filter((s) => !(s.id || '').startsWith('aztest-') && !(s.id || '').startsWith('sh-authztest-')) as any);
     setPermissionMatrix({});
     if (pool && dbReachable) {
+      await pool.query("DELETE FROM gl_journals WHERE branch_id LIKE 'aztest-%'");
       await pool.query("DELETE FROM shipments WHERE id LIKE 'aztest-%' OR id LIKE 'sh-authztest-%' OR tracking_code LIKE 'ST-AUTHZ-%'");
       await pool.query("DELETE FROM inventory_stock WHERE product_id LIKE 'aztest-%'");
       await pool.query("DELETE FROM products WHERE id LIKE 'aztest-%'");

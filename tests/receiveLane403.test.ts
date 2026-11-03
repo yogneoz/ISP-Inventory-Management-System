@@ -106,7 +106,9 @@ describe('receive lane 403s (route gate + handler lane gate)', () => {
   // run dbBoot) and every destination would silently classify as a branch.
   const WH = 'WH001';   // head office -> warehouse lane
   const BR = 'BRH01';   // plain branch -> transfer lane
-  const shipItem = JSON.stringify([{ productId: PRODUCT, productName: 'RLT Product', quantitySent: 2 }]);
+  // unitCost is the issue cost a real dispatch stamps onto the line; without
+  // it a receipt refuses rather than valuing the goods at zero.
+  const shipItem = JSON.stringify([{ productId: PRODUCT, productName: 'RLT Product', quantitySent: 2, unitCost: 100 }]);
   const opItem = JSON.stringify([{ productId: PRODUCT, quantity: 3 }]);
 
   before(async () => {
@@ -175,7 +177,7 @@ describe('receive lane 403s (route gate + handler lane gate)', () => {
       destinationBranchId: dest, destinationBranchName: destName,
       dispatchDateAD: '2026-09-01', dispatchDateBS: '2083-05-16 BS',
       status: 'IN_TRANSIT', notes: '',
-      items: [{ productId: PRODUCT, productName: 'RLT Product', quantitySent: 2 }],
+      items: [{ productId: PRODUCT, productName: 'RLT Product', quantitySent: 2, unitCost: 100 }],
     });
     setShipments([
       ...shipments.filter((s) => !(s.id || '').startsWith('rlt-')),

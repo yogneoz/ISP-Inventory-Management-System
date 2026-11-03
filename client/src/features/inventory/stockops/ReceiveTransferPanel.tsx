@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useStockOperationsCtx } from './StockOperationsContext';
+import type { RecordRoute } from '../../../routes/appPaths';
 import {
   ApprovalRequest,
   Shipment,
@@ -34,10 +35,74 @@ import {
  * panel renders the exact conditional block the host used to render inline;
  * everything it does not own comes from the StockOperations context.
  */
-export const ReceiveTransferPanel: React.FC = () => {
+interface ReceiveTransferPanelProps {
+  /** `/inventory/transfers/receive/:trackingCode`, when the URL names one receipt. */
+  recordRoute?: RecordRoute | null;
+  onRecordRouteChange?: (record: RecordRoute | null) => void;
+  /** Root-owned bounded lookup for a transfer outside the overview window. */
+  onFindShipment?: (key: string, branchId?: string) => Promise<Shipment | null>;
+}
+
+export const ReceiveTransferPanel: React.FC<ReceiveTransferPanelProps> = ({
+  recordRoute = null,
+  onRecordRouteChange,
+  onFindShipment,
+}) => {
   const { activeTab, allowedBranches, approvalRequests, branchFilter, branches, canSeeAll, currentUser, ensureBsDateAvailable, onCancelApproval, onCancelReceiveShipment, onRequestApproval, onReceiveShipment, products, selectedBranchId, setBranchFilter, shipments, showToast } = useStockOperationsCtx();
 
   const [expandedShipmentId, setExpandedShipmentId] = useState<string | null>(null);
+  // A shared link may name a transfer outside the bounded overview window; pin
+  // it above the rows so its expansion is reachable without a filter change.
+  const [recordShipment, setRecordShipment] = useState<Shipment | null>(null);
+  const recordRouteChangeRef = useRef(onRecordRouteChange);
+  recordRouteChangeRef.current = onRecordRouteChange;
+  const transferRecordKey = recordRoute?.kind === 'detail' ? recordRoute.id : '';
+  const shipmentMatchesKey = (sh: Shipment) =>
+    [sh.trackingCode, sh.id].some(
+      (value) => typeof value === 'string' && value.toLowerCase() === transferRecordKey.toLowerCase()
+    );
+
+  useEffect(() => {
+    if (!transferRecordKey) {
+      setRecordShipment((current) => (current ? null : current));
+      setExpandedShipmentId((current) => (current ? null : current));
+      return;
+    }
+
+    const local =
+      shipments.find(shipmentMatchesKey) ??
+      (recordShipment && shipmentMatchesKey(recordShipment) ? recordShipment : null);
+    if (local) {
+      setRecordShipment((current) => (current && current.id === local.id ? current : local));
+      setExpandedShipmentId(local.id);
+      return;
+    }
+
+    if (!onFindShipment) return;
+    let cancelled = false;
+    void onFindShipment(transferRecordKey, selectedBranchId).then((match) => {
+      if (cancelled) return;
+      if (!match) {
+        recordRouteChangeRef.current?.(null);
+        return;
+      }
+      setRecordShipment(match);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [transferRecordKey, shipments, recordShipment, selectedBranchId, onFindShipment]);
+
+  const toggleShipmentDetails = (sh: Shipment) => {
+    const isExpanded = expandedShipmentId === sh.id;
+    if (onRecordRouteChange) {
+      recordRouteChangeRef.current?.(
+        isExpanded ? null : { kind: 'detail', id: sh.trackingCode || sh.id }
+      );
+      return;
+    }
+    setExpandedShipmentId(isExpanded ? null : sh.id);
+  };
 
   const [transferStatusFilter, setTransferStatusFilter] = useState<'ALL' | 'IN_TRANSIT' | 'RECEIVED' | 'CANCEL_PENDING' | 'CANCELLED'>('ALL');
 
@@ -343,7 +408,13 @@ export const ReceiveTransferPanel: React.FC = () => {
                       return true;
                     });
 
-                    if (filteredShipments.length === 0) {
+                    const recordRow =
+                      recordShipment && !filteredShipments.some((sh) => sh.id === recordShipment.id)
+                        ? recordShipment
+                        : null;
+                    const rowsToRender = recordRow ? [recordRow, ...filteredShipments] : filteredShipments;
+
+                    if (rowsToRender.length === 0) {
                       return (
                         <tr>
                           <td colSpan={8} className="p-8 text-center text-slate-400">
@@ -354,7 +425,7 @@ export const ReceiveTransferPanel: React.FC = () => {
                       );
                     }
 
-                    return filteredShipments.map((sh) => {
+                    return rowsToRender.map((sh) => {
                       const isExpanded = expandedShipmentId === sh.id;
                       const pendingCancelReq = approvalRequests?.find(
                         (r) =>
@@ -411,7 +482,7 @@ export const ReceiveTransferPanel: React.FC = () => {
                             <td className="p-2.5 text-center">
                               <button
                                 type="button"
-                                onClick={() => setExpandedShipmentId(isExpanded ? null : sh.id)}
+                                onClick={() => toggleShipmentDetails(sh)}
                                 className={`p-1.5 rounded-lg border transition-all cursor-pointer ${isExpanded ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-100 text-slate-600 hover:text-slate-900 border-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:hover:text-white dark:border-slate-700'}`}
                                 title={isExpanded ? "Collapse item details" : "Expand itemized stock breakdown"}
                               >

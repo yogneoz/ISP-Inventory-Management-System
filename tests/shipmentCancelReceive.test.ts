@@ -31,6 +31,7 @@ import pg from 'pg';
 import dotenv from 'dotenv';
 import { createApp, registerAllRoutes, shipments, setShipments, approvalRequests, setApprovalRequests } from '../server/src/app';
 import { issueAuthToken } from '../server/src/middleware/auth';
+import { ensureReferenceData } from './fixtures/referenceData';
 
 dotenv.config();
 
@@ -65,7 +66,7 @@ const fixtureShipment = (id: string, trackingCode: string, productId: string, pr
   destinationBranchId: 'crtest-dst', destinationBranchName: 'CR Destination',
   dispatchDateAD: '2026-09-01', dispatchDateBS: '2083-05-16 BS',
   status: 'RECEIVED', notes: '',
-  items: [{ productId, productName, quantitySent: qty, quantityReceived: qty }],
+  items: [{ productId, productName, quantitySent: qty, quantityReceived: qty, unitCost: 100 }],
   receivedByNotes: 'test receipt', receivedDateAD: '2026-09-02',
   receivedDateBS: '2083-05-17 BS', hasDiscrepancy: false,
 });
@@ -79,7 +80,11 @@ describe('cancel-received-transfer (POST /api/shipments/:id/cancel-receive)', ()
   before(async () => {
     if (!dbReachable) return;
 
-    // Clear leftovers from aborted runs, then seed idempotently.
+    // Clear leftovers from aborted runs, then seed idempotently. The undo now
+    // posts a contra journal against the destination branch, so journals must
+    // go before the branches can be re-created and the chart must exist.
+    await pool!.query("DELETE FROM gl_journals WHERE branch_id LIKE 'crtest-%'");
+    await ensureReferenceData(pool!);
     await pool!.query("DELETE FROM approval_requests WHERE target_id LIKE 'crtest-%'");
     await pool!.query("DELETE FROM shipments WHERE id LIKE 'crtest-%'");
     await pool!.query("DELETE FROM inventory_stock WHERE product_id LIKE 'crtest-%'");
@@ -100,8 +105,10 @@ describe('cancel-received-transfer (POST /api/shipments/:id/cancel-receive)', ()
       "('stk-crtest-dst-crtest-prod1', 'crtest-prod1', 'crtest-dst', 10, 0), " +
       "('stk-crtest-dst-crtest-prod2', 'crtest-prod2', 'crtest-dst', 5, 0)"
     );
-    const items1 = JSON.stringify([{ productId: 'crtest-prod1', productName: 'CR Test Product 1', quantitySent: 4, quantityReceived: 4 }]);
-    const items2 = JSON.stringify([{ productId: 'crtest-prod2', productName: 'CR Test Product 2', quantitySent: 2, quantityReceived: 2 }]);
+    // unitCost is the issue cost the dispatch recorded; the undo needs it to
+    // reverse the value, not just the quantity.
+    const items1 = JSON.stringify([{ productId: 'crtest-prod1', productName: 'CR Test Product 1', quantitySent: 4, quantityReceived: 4, unitCost: 100 }]);
+    const items2 = JSON.stringify([{ productId: 'crtest-prod2', productName: 'CR Test Product 2', quantitySent: 2, quantityReceived: 2, unitCost: 100 }]);
     await pool!.query(
       "INSERT INTO shipments (id, tracking_code, type, source_branch_id, source_branch_name, " +
       "destination_branch_id, destination_branch_name, dispatch_date_ad, dispatch_date_bs, status, " +
@@ -145,6 +152,7 @@ describe('cancel-received-transfer (POST /api/shipments/:id/cancel-receive)', ()
     setShipments(shipments.filter((s) => !s.id.startsWith('crtest-')) as any);
     setApprovalRequests(approvalRequests.filter((r) => !(r.targetId || '').startsWith('crtest-')) as any);
     if (pool && dbReachable) {
+      await pool.query("DELETE FROM gl_journals WHERE branch_id LIKE 'crtest-%'");
       await pool.query("DELETE FROM approval_requests WHERE target_id LIKE 'crtest-%'");
       await pool.query("DELETE FROM shipments WHERE id LIKE 'crtest-%'");
       await pool.query("DELETE FROM inventory_stock WHERE product_id LIKE 'crtest-%'");

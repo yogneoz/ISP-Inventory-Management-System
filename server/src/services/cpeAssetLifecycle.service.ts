@@ -33,9 +33,11 @@ import {
   STOCK_RETURN_FROM_ASSET_SQL,
   TXN_FIND_BY_ID_SQL,
   TXN_INSERT_ON_CONFLICT_SQL,
+  TXN_ISSUE_COST_SQL,
   txnInsertOnConflictParams,
 } from '../models/inventory.repo';
 import { OperationError } from '../utils/operationError';
+import { postCpeReleaseJournal } from './cpePosting.service';
 
 export interface CpeAssetRow {
   id: string;
@@ -44,6 +46,7 @@ export interface CpeAssetRow {
   branchId: string | null;
   status: string;
   deviceSerial: string | null;
+  acquisitionCost?: number | null;
   assignedCustomerId?: string | null;
   assignedCustomerName?: string | null;
   assignedLocationId?: string | null;
@@ -74,6 +77,7 @@ export interface CollectCpeAssetInput {
   fallbackProduct?: LifecycleProduct | null;
   allowUnlinkedRestock?: boolean;
   changeType?: 'PULLOUT' | 'MANUAL_ADJUSTMENT';
+  actor?: string | null;
 }
 
 export interface CollectCpeAssetResult {
@@ -103,6 +107,8 @@ export interface ExchangeCpeAssetResult {
   asset: CpeAssetRow | null;
   assetMoved: boolean;
   replacementStockDeducted: boolean;
+  /** Product whose branch stock the replacement consumed, when it did. */
+  replacementProductId: string | null;
   ledger: TransactionLog | null;
 }
 
@@ -198,6 +204,40 @@ export async function findCpeAsset(
   return (found.rows[0] as CpeAssetRow) || null;
 }
 
+/**
+ * The cost a released unit entered stock at. The deployment's own STOCK_OUT
+ * movement row is the recorded issue cost; a linked fixed asset's acquisition
+ * cost and the product master are the only recorded fallbacks. If none exists
+ * the release refuses instead of crediting inventory with an invented value.
+ */
+async function resolveReleaseUnitCost(
+  client: any,
+  opts: {
+    asset: CpeAssetRow | null;
+    cpeId?: string | null;
+    product: LifecycleProduct | null;
+    fallbackProduct?: LifecycleProduct | null;
+  }
+): Promise<number> {
+  const keys = [
+    opts.asset ? `txn-asset-${opts.asset.id}` : '',
+    opts.cpeId ? `txn-cdr-${opts.cpeId}-assign` : '',
+  ].filter(Boolean);
+  for (const key of keys) {
+    const row = (await client.query(TXN_ISSUE_COST_SQL, [key])).rows[0];
+    const cost = Number(row?.unitCost);
+    if (row && Number.isFinite(cost)) return Math.max(0, cost);
+  }
+  const acquisition = Number(opts.asset?.acquisitionCost);
+  if (Number.isFinite(acquisition) && acquisition >= 0) return acquisition;
+  const productCost = Number(opts.product?.costPrice ?? opts.fallbackProduct?.costPrice);
+  if (Number.isFinite(productCost) && productCost >= 0) return productCost;
+  throw new OperationError(
+    400,
+    `CPE ${opts.asset?.tagNumber || opts.cpeId || 'unit'} records no issue cost. The release cannot be valued — nothing was posted.`
+  );
+}
+
 function productFor(
   products: readonly LifecycleProduct[] | undefined,
   id: string | null | undefined,
@@ -277,6 +317,12 @@ export async function collectCpeFixedAsset(input: CollectCpeAssetInput): Promise
         reason: 'collection stock was already credited for this request',
       };
     }
+    const unitCost = await resolveReleaseUnitCost(client, {
+      asset: null,
+      cpeId: input.cpeId,
+      product: input.fallbackProduct,
+      fallbackProduct: input.fallbackProduct,
+    });
     const locked = await client.query(STOCK_LOCK_ONE_SQL, [input.fallbackProduct.id, input.branchId]);
     const before = locked.rows[0] ? Number(locked.rows[0].quantity_on_hand) || 0 : 0;
     const returned = await client.query(STOCK_RETURN_FROM_ASSET_SQL, [
@@ -284,6 +330,7 @@ export async function collectCpeFixedAsset(input: CollectCpeAssetInput): Promise
       input.branchId,
       1,
       `stk-${input.fallbackProduct.id}-${input.branchId}`,
+      unitCost,
     ]);
     const after = Number(returned.rows[0]?.quantity_on_hand ?? before + 1);
     const ledger = collectionLedgerRow({
@@ -300,6 +347,17 @@ export async function collectCpeFixedAsset(input: CollectCpeAssetInput): Promise
       todayBS: input.todayBS,
     });
     await client.query(TXN_INSERT_ON_CONFLICT_SQL, txnInsertOnConflictParams(ledger));
+    await postCpeReleaseJournal(client, {
+      branchId: input.branchId,
+      productId: input.fallbackProduct.id,
+      quantity: 1,
+      unitCost,
+      dateAD: input.todayAD,
+      sourceType: 'CPE_DEVICE',
+      sourceId: String(input.cpeId || input.requestNumber || input.deviceSerial || 'unlinked'),
+      memo: `CPE collection ${input.requestNumber || input.cpeId || input.deviceSerial || ''}`,
+      actor: input.actor || null,
+    });
     return {
       asset: null,
       assetCollected: false,
@@ -338,6 +396,12 @@ export async function collectCpeFixedAsset(input: CollectCpeAssetInput): Promise
 
   let ledger: TransactionLog | null = null;
   if (!existing.rows[0] && proof && productId && branchId && product) {
+    const unitCost = await resolveReleaseUnitCost(client, {
+      asset,
+      cpeId: input.cpeId,
+      product,
+      fallbackProduct: input.fallbackProduct,
+    });
     const locked = await client.query(STOCK_LOCK_ONE_SQL, [productId, branchId]);
     const before = locked.rows[0] ? Number(locked.rows[0].quantity_on_hand) || 0 : 0;
     const returned = await client.query(STOCK_RETURN_FROM_ASSET_SQL, [
@@ -345,6 +409,7 @@ export async function collectCpeFixedAsset(input: CollectCpeAssetInput): Promise
       branchId,
       1,
       `stk-${productId}-${branchId}`,
+      unitCost,
     ]);
     const after = Number(returned.rows[0]?.quantity_on_hand ?? before + 1);
     ledger = collectionLedgerRow({
@@ -361,6 +426,17 @@ export async function collectCpeFixedAsset(input: CollectCpeAssetInput): Promise
       todayBS: input.todayBS,
     });
     await client.query(TXN_INSERT_ON_CONFLICT_SQL, txnInsertOnConflictParams(ledger));
+    await postCpeReleaseJournal(client, {
+      branchId,
+      productId,
+      quantity: 1,
+      unitCost,
+      dateAD: input.todayAD,
+      sourceType: 'CPE_ASSET',
+      sourceId: String(asset.id),
+      memo: `CPE collection ${asset.tagNumber}`,
+      actor: input.actor || null,
+    });
   }
 
   await client.query(FIXED_ASSET_COLLECT_SQL, [
@@ -460,6 +536,7 @@ export async function exchangeCpeFixedAsset(input: ExchangeCpeAssetInput): Promi
         asset,
         assetMoved: Boolean(asset),
         replacementStockDeducted: true,
+        replacementProductId,
         ledger,
       };
     }
@@ -469,6 +546,7 @@ export async function exchangeCpeFixedAsset(input: ExchangeCpeAssetInput): Promi
     asset,
     assetMoved: Boolean(asset),
     replacementStockDeducted: false,
+    replacementProductId: replacementProductId || null,
     ledger: null,
   };
 }
