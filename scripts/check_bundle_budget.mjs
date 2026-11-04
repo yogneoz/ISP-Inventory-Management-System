@@ -39,8 +39,19 @@ const ASSETS = path.join(DIST, 'assets');
 // while the 320 kB total still holds 28.8 kB — screen weight belongs in lazy
 // chunks, not here. A breach still means the startup graph got meaningfully
 // bigger and needs a look.
+// 2026-11-04 (full-project audit): measured entry 19.5 kB, startup total
+// 305.6 kB. The master-data work added four screens, one API domain and the
+// types they share, and the new screens' API module rides the eagerly imported
+// `services/api` barrel, so the entry graph legitimately crossed the 18 kB
+// line. Permission Management and User Permissions (~2,200 lines, opened from
+// Settings, never during boot) moved to `React.lazy` in the same change, which
+// took 11 kB gzip out of the startup total (316.3 -> 305.6) but left the entry
+// chunk itself at 19.5 kB — that chunk is the app shell and routing, not screen
+// weight. The entry budget therefore moves 18 -> 20 kB (0.5 kB headroom) while
+// the total keeps 14.4 kB at 320. A further entry breach still means the shell
+// itself grew and needs a look; screen weight belongs in lazy chunks.
 const BUDGETS = {
-  entryGz: 18 * 1024, // entry chunk alone
+  entryGz: 20 * 1024, // entry chunk alone
   startupTotalGz: 320 * 1024, // entry + all statically-imported chunks
 };
 

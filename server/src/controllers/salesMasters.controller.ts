@@ -9,6 +9,7 @@ import { ApiError } from '../errors/ApiError';
 import { allowedBranchScope } from '../middleware/branchScope';
 import { isForeignKeyViolation } from '../services/accounting.service';
 import { logAuditEvent } from '../services/audit.service';
+import { booleanFlag } from '../utils/booleanFlag';
 import {
   AREA_BY_CODE_SQL,
   AREA_BY_ID_SQL,
@@ -117,7 +118,7 @@ function parseArea(body: Record<string, any>, existing?: Area): Area {
     name,
     parentId: text(parentRaw, 50) || null,
     branchId: text(branchRaw, 50) || null,
-    active: body.active === undefined ? existing?.active ?? true : Boolean(body.active),
+    active: booleanFlag(body.active, existing?.active ?? true),
     isDemo: existing?.isDemo ?? false,
   };
 }
@@ -231,7 +232,7 @@ function parseAgent(body: Record<string, any>, existing?: SalesAgent): SalesAgen
     email: text(body.email ?? existing?.email, 150) || null,
     areaId: text(areaRaw, 50) || null,
     commissionRate: commission,
-    active: body.active === undefined ? existing?.active ?? true : Boolean(body.active),
+    active: booleanFlag(body.active, existing?.active ?? true),
     isDemo: existing?.isDemo ?? false,
   };
 }

@@ -11,3 +11,11 @@ tsc_all.txt
 
 # Freebuff tool artifacts (crash logs, run docs) — not project source
 .freebuff/
+
+# Local session artifacts (agent/audit scratch files, screenshots). These are
+# never project source; `*.log` above already covers the log files.
+.tmp-*/
+.tmp-*.json
+.tmp-*.mjs
+.tmp-*.txt
+preview-*.png

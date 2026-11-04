@@ -241,8 +241,17 @@ import { CompanySetupManagement } from './features/settings/CompanySetupManageme
 
 import { SuppliersManagement } from './features/procurement/SuppliersManagement';
 import { UsersManagement } from './features/settings/UsersManagement';
-import { PermissionManagement } from './features/settings/PermissionManagement';
-import { UserPermissions, type UserAccessFocusRequest } from './features/settings/UserPermissions';
+import type { UserAccessFocusRequest } from './features/settings/UserPermissions';
+// The two access-management screens are large and are opened from Settings,
+// never during boot. Loading them lazily keeps ~2,200 lines out of the startup
+// chunk (the entry budget gate measures exactly this) while their preload
+// entries keep a deep link's splash covered.
+const PermissionManagementLazy = React.lazy(() =>
+  import('./features/settings/PermissionManagement').then((m) => ({ default: m.PermissionManagement }))
+);
+const UserPermissionsLazy = React.lazy(() =>
+  import('./features/settings/UserPermissions').then((m) => ({ default: m.UserPermissions }))
+);
 const ApprovalWorkflowCenter = React.lazy(() =>
   import('./features/settings/ApprovalWorkflowCenter').then((m) => ({ default: m.ApprovalWorkflowCenter }))
 );
@@ -3199,24 +3208,28 @@ export default function App() {
       />
     )),
     screenRoute('permissions', (
-      <PermissionManagement
-        currentUser={currentUser}
-        permissionsMatrix={permissionsMatrix}
-        onOpenUserAccess={(target) => {
-          if (target) openUserAccess(target.userId, target.operationId);
-          else setActiveTab('user-permissions');
-        }}
-      />
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <PermissionManagementLazy
+          currentUser={currentUser}
+          permissionsMatrix={permissionsMatrix}
+          onOpenUserAccess={(target) => {
+            if (target) openUserAccess(target.userId, target.operationId);
+            else setActiveTab('user-permissions');
+          }}
+        />
+      </React.Suspense>
     )),
     screenRoute('user-permissions',
-      <UserPermissions
-        currentUser={currentUser}
-        users={users}
-        branches={branches}
-        dateMode={dateMode}
-        focusRequest={userAccessFocus}
-        onOpenRoleDefaults={() => setActiveTab('permissions')}
-      />
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <UserPermissionsLazy
+          currentUser={currentUser}
+          users={users}
+          branches={branches}
+          dateMode={dateMode}
+          focusRequest={userAccessFocus}
+          onOpenRoleDefaults={() => setActiveTab('permissions')}
+        />
+      </React.Suspense>
     ),
     screenRoute('company-setup', (
       <CompanySetupManagement

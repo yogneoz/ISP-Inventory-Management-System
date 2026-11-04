@@ -11,6 +11,7 @@ import { ApiError } from '../errors/ApiError';
 import { allowedBranchScope } from '../middleware/branchScope';
 import { isForeignKeyViolation } from '../services/accounting.service';
 import { logAuditEvent } from '../services/audit.service';
+import { booleanFlag } from '../utils/booleanFlag';
 import {
   ACCOUNTING_MASTER_BRANCH_EXISTS_SQL,
   COST_CENTER_BY_CODE_SQL,
@@ -164,7 +165,7 @@ function parseCostCenter(body: Record<string, any>, existing?: CostCenter): Cost
     name,
     parentId,
     branchId,
-    active: body.active === undefined ? existing?.active ?? true : Boolean(body.active),
+    active: booleanFlag(body.active, existing?.active ?? true),
     isDemo: existing?.isDemo ?? false,
   };
 }
@@ -316,7 +317,7 @@ function parseNarrationTemplate(
     code,
     text: narration,
     transactionType: type,
-    active: body.active === undefined ? existing?.active ?? true : Boolean(body.active),
+    active: booleanFlag(body.active, existing?.active ?? true),
     isDemo: existing?.isDemo ?? false,
   };
 }

@@ -42,6 +42,8 @@ export const SCREEN_PRELOADERS: Readonly<Record<string, ScreenModuleLoader>> = {
   'customer-devices': () => import('./features/sales/CustomersManagement'),
   'complete-serial-inventory': () => import('./features/inventory/SerialLogRegister'),
   locations: () => import('./features/settings/LocationsManagement'),
+  permissions: () => import('./features/settings/PermissionManagement'),
+  'user-permissions': () => import('./features/settings/UserPermissions'),
   'import-customers': () => import('./features/sales/ImportCustomers'),
   'create-purchase': loadPurchaseInvoices,
   'purchase-list': loadPurchaseInvoices,

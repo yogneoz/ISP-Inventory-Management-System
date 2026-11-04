@@ -191,20 +191,18 @@ const { name, email, password, branchId } = req.body;
 export async function post_forgotPassword(req: any, res: Response): Promise<any> {
 const { email } = req.body;
   const user = users.find((u) => u.email.toLowerCase() === (email || '').toLowerCase().trim());
-  
-  if (!user) {
-    res.status(404).json({ message: 'No registered user account found with this email address.' });
-    return;
-  }
 
-  const adminUser = users.find((u) => u.role === 'SUPER_ADMIN') || users[0];
-  logAuditEvent(req, 'FORGOT_PASSWORD_REQUEST', 'AUTH', `Password reset request submitted for ${user.name} (${user.email})`);
+  // One response body for a known and an unknown address. Answering 404 (or
+  // naming the account and the administrator) for a known one is unauthenticated
+  // account enumeration, and this endpoint is reachable before sign-in.
+  if (user) {
+    logAuditEvent(req, 'FORGOT_PASSWORD_REQUEST', 'AUTH', `Password reset request submitted for ${user.name} (${user.email})`);
+  }
 
   res.json({
     success: true,
-    userName: user.name,
-    adminEmail: adminUser?.email || 'superadmin@example.com',
-    message: `Reset request logged for ${user.name}. Please contact your System Administrator (${adminUser?.email || 'superadmin@example.com'}) or ask your Manager to reset your password in User & Staff Management.`,
+    message:
+      'If an account exists for that email, the reset request has been logged. Contact your System Administrator or ask your Manager to reset the password in User & Staff Management.',
   });
 
 }
@@ -216,7 +214,10 @@ const authenticatedUser = (req as any).user;
     res.status(401).json({ message: 'Not authenticated' });
     return;
   }
-  res.json(authenticatedUser);
+  // The session fingerprint is server-side bookkeeping; it is not part of the
+  // user record the client stores.
+  const { ver: _ver, ...user } = authenticatedUser;
+  res.json(user);
 
 }
 

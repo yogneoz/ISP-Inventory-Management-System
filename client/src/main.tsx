@@ -1,6 +1,7 @@
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
+import {AppErrorBoundary} from './components/common/AppErrorBoundary';
 import {AppProviders} from './contexts/AppProviders';
 import {ACTIVE_TAB_STORAGE_KEY, preloadScreenModule} from './screenPreload';
 import {resolveInitialTab} from './routes/appPaths';
@@ -95,9 +96,13 @@ function dismissBootSplashWhenReady(): void {
 function renderApp(): void {
   createRoot(document.getElementById('root')!).render(
    <StrictMode>
+   {/* Outside the providers on purpose: a provider throw is one of the
+       failures this boundary exists to catch. */}
+   <AppErrorBoundary>
    <AppProviders>
    <App />
    </AppProviders>
+   </AppErrorBoundary>
    </StrictMode>,
   );
 }

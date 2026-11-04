@@ -769,7 +769,7 @@ async function readTrace() {
   return trace;
 }
 
-async function measureReload(label, { clearCache }) {
+async function measureReload(label, { clearCache, baseUrl }) {
   // Drop the previous document's finished trace before navigating: otherwise
   // the first poll can read stale timings from the page that is being replaced.
   await evaluate('window.__bootTrace = null; true');
@@ -784,7 +784,17 @@ async function measureReload(label, { clearCache }) {
       return true;
     })()`);
   }
-  await cdp.send('Page.reload', { ignoreCache: false });
+  // Navigate to the site root rather than reloading the current document.
+  // Since canonical URL routing (2026-11-01) the app immediately rewrites `/`
+  // to the active tab's own path (`/dashboard`, `/sales/invoices/new`, …), so a
+  // plain reload restores that PATH — and a path deliberately outranks the
+  // saved tab in resolveInitialTab(). Reloading therefore measured the URL the
+  // setup boot had just written and never the saved-tab restore this check
+  // exists to prove. Entering at `/` is what this boot exercise means: the
+  // browser hands the app a bare URL and the app has to restore the session,
+  // the tab and the paint order from what it stored.
+  const rootUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+  await cdp.send('Page.navigate', { url: rootUrl });
   const trace = await readTrace();
   log(pretty(label, trace));
   return trace;
@@ -937,9 +947,9 @@ async function main() {
     return true;
   })()`);
 
-  const cold = await measureReload('Cold reload (no bootstrap cache)', { clearCache: true });
+  const cold = await measureReload('Cold reload (no bootstrap cache)', { clearCache: true, baseUrl });
   await sleep(500); // let the app persist its bootstrap cache
-  const warm = await measureReload('Warm reload (cached bootstrap)', { clearCache: false });
+  const warm = await measureReload('Warm reload (cached bootstrap)', { clearCache: false, baseUrl });
 
   if (pageErrors.length) {
     throw new Error(`uncaught page exception(s) during boot:\n${pageErrors.join('\n')}`);

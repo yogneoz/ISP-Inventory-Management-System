@@ -24,7 +24,8 @@
  * so no stream, keep-alive timer or client registration is created.
  */
 import type { Request, Response, NextFunction } from 'express';
-import { verifyAuthToken } from './auth';
+import { users } from '../app';
+import { sessionStillValid, verifyAuthToken } from './auth';
 
 export function requireSseAuth(req: Request, res: Response, next: NextFunction) {
   const header = typeof req.headers.authorization === 'string' ? req.headers.authorization : '';
@@ -35,6 +36,15 @@ export function requireSseAuth(req: Request, res: Response, next: NextFunction) 
   const user = token ? verifyAuthToken(token) : null;
   if (!user || !user.email) {
     return res.status(401).json({ message: 'Unauthorized: a valid token is required to access the sync stream.' });
+  }
+  // A revoked session must not keep its live change feed either: the stream is
+  // authenticated by its own path (EventSource cannot send headers), so it
+  // applies the same account-fingerprint rule as every other request.
+  if (!sessionStillValid(user, users)) {
+    return res.status(401).json({
+      message: 'Your session is no longer valid — your account, role or password changed. Sign in again.',
+      sessionRevoked: true,
+    });
   }
   (req as any).user = user;
   next();

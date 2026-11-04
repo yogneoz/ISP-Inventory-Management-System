@@ -49,6 +49,8 @@ export interface User {
   allowedBranchIds?: string[];
   avatarUrl?: string;
   canSwitchUser?: boolean;
+  /** Account status. Anything other than 'active' ends the session server-side. */
+  status?: string;
   // Session root marker (set only when this profile is an impersonated child
   // of another account via profile switching). Lets a switched session switch
   // back to the account that originally signed in.

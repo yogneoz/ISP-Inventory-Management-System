@@ -10,7 +10,7 @@
 
 /** Column list every users row read must return (camelCase aliased). */
 export const USER_SELECT_COLUMNS =
-  'id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser"';
+  'id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser", status';
 
 /** Login lookup: case-insensitive match on email. */
 export const USER_FIND_BY_EMAIL_SQL =

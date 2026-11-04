@@ -2,9 +2,9 @@
 // lock, RBAC, matrix-based operation permissions, and branch access scoping.
 // Extracted verbatim from app.ts (isPgConnected now read via accessors).
 import { pgPool, realPoolInstance, ensurePostgresConnection, getIsPgConnected, setIsPgConnected } from '../../db';
-import { branches, permissionMatrix, userPermissionOverrides, userPermissionSetGrants, getPgConnected, setPgConnected } from '../app';
+import { branches, users, permissionMatrix, userPermissionOverrides, userPermissionSetGrants, getPgConnected, setPgConnected } from '../app';
 import { effectivePermission } from '../services/permissionOverrides.service';
-import { getUserFromReq, verifyAuthToken } from './auth';
+import { getUserFromReq, sessionStillValid, verifyAuthToken } from './auth';
 import { BRANCH_SCOPED_READ_PATHS, COLLECTION_SEGMENTS, findBranchScopedResource } from './branchScope';
 export { getUserFromReq } from './auth';
 export { verifyPassword } from './auth';
@@ -13,10 +13,23 @@ export { verifyPassword } from './auth';
  * Express Authentication Middleware
  * Resolves authenticated user details from headers/session and attaches to request
  */
+/**
+ * Express Authentication Middleware
+ * Resolves authenticated user details from headers/session and attaches to request
+ */
 export function authenticateUser(req: any, _res: any, next: any) {
   const authorization = typeof req.headers.authorization === 'string' ? req.headers.authorization : '';
   const token = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : '';
-  req.user = token ? verifyAuthToken(token) : null;
+  const verified = token ? verifyAuthToken(token) : null;
+  if (verified && !sessionStillValid(verified, users)) {
+    // Distinguish a re-authentication demand from a missing/expired token so
+    // the client can say why the session ended.
+    req.sessionRevoked = true;
+    req.user = null;
+    next();
+    return;
+  }
+  req.user = verified;
   next();
 }
 
@@ -70,7 +83,12 @@ export async function enforceFiscalYearWriteAccess(req: any, res: any, next: any
 export function requireAuth(req: any, res: any, next: any) {
   const user = req.user;
   if (!user || !user.email) {
-    return res.status(401).json({ message: 'Unauthorized: Authentication required to access endpoint' });
+    return res.status(401).json({
+      message: req.sessionRevoked
+        ? 'Your session is no longer valid — your account, role or password changed. Sign in again.'
+        : 'Unauthorized: Authentication required to access endpoint',
+      sessionRevoked: Boolean(req.sessionRevoked),
+    });
   }
   req.user = user;
   next();

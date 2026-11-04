@@ -17,7 +17,7 @@ export async function setupSuperAdmin(data: {
   });
 }
 
-export async function forgotPassword(email: string): Promise<{ success: boolean; userName: string; adminEmail: string; message: string }> {
+export async function forgotPassword(email: string): Promise<{ success: boolean; message: string }> {
   return fetchJson('/api/auth/forgot-password', {
     method: 'POST',
     body: JSON.stringify({ email }),

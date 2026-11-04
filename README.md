@@ -43,7 +43,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 - **PDF Reporting**: one server-side pdfmake service renders sales invoices, purchase bills, the trial balance, profit and loss, the balance sheet and payroll payslips through permission-gated, branch-scoped print routes; the printed statements recurse through the same group → sub-group tree and print each level's subtotal. Fonts are vendored through `@fontsource/noto-sans` and `@fontsource/noto-sans-devanagari` (no ad-hoc downloads), registered at boot, and required: a missing file fails with its name instead of silently substituting a Latin-only font. Mixed-script text is split into Noto Sans and Noto Sans Devanagari runs, so a Devanagari customer or employee name is embedded as a real font subset with a Unicode map rather than dropped glyphs.
 - **Canonical URL Routing**: every workspace screen has a stable path (`/sales/invoices`, `/settings/users`, `/inventory/assets/assign`, …). Refresh, bookmark and share a screen directly, and use Browser Back/Forward; the path is only a request and the same RBAC guard still decides whether the screen may render. Older `?tab=<id>` links redirect in place, preserving the Users access filters.
 - **Real-Time Multi-User Sync with Targeted Refresh**: Server-Sent Events (SSE) broadcast every mutation tagged with the client-state domain it invalidates. Clients re-fetch **only that domain's slice** (`GET /api/bootstrap/local?key=...`) instead of re-downloading the whole bootstrap; unknown events fall back to a full atomic bootstrap resync.
-- **Automated PostgreSQL Setup**: Built-in automated shell and Node.js setup scripts (`npm run setup:pg`) that can install, configure PostgreSQL, migrate all **54 relational database tables**, and optionally seed a linked demo dataset.
+- **Automated PostgreSQL Setup**: Built-in automated shell and Node.js setup scripts (`npm run setup:pg`) that can install, configure PostgreSQL, migrate all **57 relational database tables**, and optionally seed a linked demo dataset.
 - **Hardened HTTP Surface**:
   - **helmet security headers** on every response (CSP, nosniff, frame protection, cross-origin policies) — configured LAN-safe (no HSTS/`upgrade-insecure-requests` on plain HTTP; re-enable behind a TLS proxy).
   - **Authenticated SSE**: `/api/sync/stream` and `/api/sync/version` require the app's HMAC token via `Authorization: Bearer` header or `?token=` query parameter (EventSource cannot send headers; the client attaches the stored token automatically). Rejections happen before any stream handshake.
@@ -97,7 +97,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 │       │                             #   pipeline incl. helmet, registerAllRoutes); re-exports
 │       │                             #   every historical symbol so imports stay stable
 │       ├── state/runtimeState.ts     # Shared runtime state as ESM live bindings + CACHE_LOADS
-│       ├── boot/dbBoot.ts            # Schema DDL sync (38 tables), seeding, permission matrix
+│       ├── boot/dbBoot.ts            # Schema DDL sync (57 tables), seeding, permission matrix
 │       ├── realtime/sse.ts           # sseClients + broadcastChange (SSE fan-out)
 │       ├── db/transactions.ts        # withTransaction / withConnection helpers
 │       ├── syncDomains.ts            # SSE event → client-domain mapping (targeted refresh)
@@ -119,7 +119,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 │                                     #   rateLimiter.ts, docNumber.ts, fiscalYear.ts)
 │
 ├── scripts/                          # Database Automation Scripts
-│   ├── schema.sql                    # Full PostgreSQL schema — 38 tables, idempotent, safe to re-run
+│   ├── schema.sql                    # Full PostgreSQL schema — 57 tables, idempotent, safe to re-run
 │   ├── setup_db.js                   # Node.js setup: schema + master data + demo dataset + FY backfill
 │   ├── setup_postgres.sh             # Shell: auto-install & configure PostgreSQL (Linux/macOS/Windows)
 │   ├── demo_dataset.js               # Linked demo dataset (is_demo = TRUE)
@@ -205,7 +205,7 @@ npm run setup:pg
 
 **What this script does:**
 1. Connects to PostgreSQL (falls back to the shell installer `setup_postgres.sh` on Linux/macOS if unreachable).
-2. Applies `scripts/schema.sql` — all **38 tables**, constraints, foreign keys, and indexes (fully idempotent, atomic).
+2. Applies `scripts/schema.sql` — all **57 tables**, constraints, foreign keys, and indexes (fully idempotent, atomic).
 3. Seeds fiscal years, the Bikram Sambat calendar (2078–2085 BS), UOMs, document-numbering configs, company profile, branches, and example user accounts.
 4. Seeds the linked demo dataset (products, stock, serial log, fixed assets, purchase orders/invoices, vendor payments) with `is_demo = TRUE`.
 5. Backfills `fiscal_year_id` on transactional rows from their AD dates.
@@ -734,7 +734,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 1913-test suite against a PostgreSQL 16 service container (zero DB skips;
+  full 1924-test suite against a PostgreSQL 16 service container (zero DB skips;
   the two unconditional skips are Windows-only real-signal checks, which CI runs,
   and the live-drain check runs under `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1` so its
   preconditions cannot silently skip it) →

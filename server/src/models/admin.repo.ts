@@ -44,6 +44,14 @@ export const DEMO_DATA_TABLES = [
   'products',
   'categories',
   'suppliers',
+  // Master data added with the master-data plan. These carry is_demo and are
+  // referenced by customers/invoices with ON DELETE SET NULL, so they clear
+  // after the documents that point at them.
+  'areas',
+  'sales_agents',
+  'cost_centers',
+  'narration_templates',
+  'bill_terms',
   'fiscal_years',
 ] as const;
 

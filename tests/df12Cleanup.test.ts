@@ -72,6 +72,13 @@ describe('useFilterPageReset — one request per filter change', () => {
 });
 
 describe('DF-12 wiring', () => {
+  // The one place a reload is the right answer: the top-level error boundary is
+  // what runs AFTER a render crash, so there is no live tree, no props and no
+  // refresh callback to call — only the printed error, a reload and a reset of
+  // the saved workspace are left. Every other file, screens included, must use
+  // the refresh path.
+  const CRASH_RECOVERY = ['client/src/components/common/AppErrorBoundary.tsx'];
+
   test('no screen reloads the whole page after a mutation', () => {
     const offenders: string[] = [];
     const walk = (dir: string) => {
@@ -80,7 +87,8 @@ describe('DF-12 wiring', () => {
         if (entry.isDirectory()) walk(full);
         else if (/\.tsx?$/.test(entry.name)) {
           const src = fs.readFileSync(full, 'utf8');
-          if (src.includes('window.location.reload(')) offenders.push(full);
+          const rel = path.relative(process.cwd(), full).replace(/\\/g, '/');
+          if (src.includes('window.location.reload(') && !CRASH_RECOVERY.includes(rel)) offenders.push(full);
         }
       }
     };

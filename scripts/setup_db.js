@@ -102,11 +102,15 @@ const DEFAULT_FISCAL_YEARS = [
   { id: 'fy-3', code: '2082-83', startDateAD: '2025-07-17', endDateAD: '2026-07-16', startDateBS: '2082-04-01 BS', endDateBS: '2083-03-32 BS', isClosed: false },
   { id: 'fy-4', code: '2083-84', startDateAD: '2026-07-17', endDateAD: '2027-07-16', startDateBS: '2083-04-01 BS', endDateBS: '2084-03-32 BS', isClosed: false },
   { id: 'fy-5', code: '2084-85', startDateAD: '2027-07-17', endDateAD: '2028-07-15', startDateBS: '2084-04-01 BS', endDateBS: '2085-03-31 BS', isClosed: false },
-  // fy-6 runs past the seeded BS calendar (which stops at 2085-12-30 =
-  // 2029-04-13), so neither its endDateAD nor its endDateBS can be derived yet:
-  // '2085-12-31 BS' is not a day Chaitra 2085 has (30 days). Re-derive both
-  // fields once BS 2086 is seeded from the patro.
-  { id: 'fy-6', code: '2085-86', startDateAD: '2028-07-16', endDateAD: '2029-07-15', startDateBS: '2085-04-01 BS', endDateBS: '2085-12-31 BS', isClosed: false },
+  // fy-6 ends past BS 2085 (which runs 2028-04-13..2029-04-13), i.e. in Ashad
+  // 2086, a year the published patro does not cover yet. Its AD window is
+  // authoritative; its BS end label is therefore PROVISIONAL and flagged as
+  // such (is_provisional = TRUE) instead of claiming patro verification, and
+  // the screens that show it say the label is unconfirmed. The stored day
+  // cannot be derived from 2086's month lengths, so re-derive endDateBS and
+  // clear the flag once BS 2086 is seeded from the patro (the BS audit reports
+  // the row until then).
+  { id: 'fy-6', code: '2085-86', startDateAD: '2028-07-16', endDateAD: '2029-07-15', startDateBS: '2085-04-01 BS', endDateBS: '2085-12-31 BS', isClosed: false, isProvisional: true },
 ];
 
 // EXAMPLE/DUMMY branch master (is_demo = TRUE) - no real branch data.
@@ -234,16 +238,17 @@ async function ensureEnterpriseColumns(client) {
 async function seedFiscalYears(client) {
   for (const fy of DEFAULT_FISCAL_YEARS) {
     await client.query(
-      `INSERT INTO fiscal_years (id, code, start_date_ad, end_date_ad, start_date_bs, end_date_bs, is_current, is_closed, is_demo)
-       VALUES ($1, $2, $3, $4, $5, $6, FALSE, $7, TRUE)
+      `INSERT INTO fiscal_years (id, code, start_date_ad, end_date_ad, start_date_bs, end_date_bs, is_current, is_closed, is_demo, is_provisional)
+       VALUES ($1, $2, $3, $4, $5, $6, FALSE, $7, TRUE, $8)
        ON CONFLICT (id) DO UPDATE SET
          code = EXCLUDED.code,
          start_date_ad = EXCLUDED.start_date_ad,
          end_date_ad = EXCLUDED.end_date_ad,
          start_date_bs = EXCLUDED.start_date_bs,
          end_date_bs = EXCLUDED.end_date_bs,
-         is_demo = EXCLUDED.is_demo`,
-      [fy.id, fy.code, fy.startDateAD, fy.endDateAD, fy.startDateBS, fy.endDateBS, fy.isClosed]
+         is_demo = EXCLUDED.is_demo,
+         is_provisional = EXCLUDED.is_provisional`,
+      [fy.id, fy.code, fy.startDateAD, fy.endDateAD, fy.startDateBS, fy.endDateBS, fy.isClosed, Boolean(fy.isProvisional)]
     );
   }
 

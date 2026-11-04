@@ -124,6 +124,17 @@ export interface ApiToastIntent {
 // pre-switch request and renders the old year's rows.
 const inFlightRequests = new Map<string, Promise<any>>();
 
+/**
+ * How long a request may hang before it is abandoned.
+ *
+ * There was no bound at all: a stalled server left every spinner turning
+ * forever, and because identical GETs join the in-flight promise, a stuck call
+ * kept every later request for the same URL stuck with it. Two minutes is far
+ * above the slowest legitimate call (a bulk import or a PDF render) and far
+ * below "the operator gives up and reloads".
+ */
+const REQUEST_TIMEOUT_MS = 120_000;
+
 export interface FetchJsonConfig {
   /**
    * Skip the global mutation-error toast. For callers that render the refusal
@@ -148,14 +159,33 @@ export async function fetchJson<T>(endpoint: string, options?: RequestInit, conf
 
   const promise = (async () => {
     try {
-      const res = await fetch(url, {
-        headers: {
-          'Content-Type': 'application/json',
-          ...userHeaders,
-          ...options?.headers,
-        },
-        ...options,
-      });
+      // A caller-supplied signal owns its own lifetime; otherwise every request
+      // gets the hang guard above.
+      const controller = options?.signal ? null : new AbortController();
+      const timer = controller
+        ? setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+        : 0;
+      let res: Response;
+      try {
+        res = await fetch(url, {
+          headers: {
+            'Content-Type': 'application/json',
+            ...userHeaders,
+            ...options?.headers,
+          },
+          ...options,
+          signal: options?.signal ?? controller!.signal,
+        });
+      } catch (err) {
+        if (controller?.signal.aborted) {
+          throw new Error(
+            'The server did not respond in time. Check the connection and try again.'
+          );
+        }
+        throw err;
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
 
       if (!res.ok) {
         const errorBody = await res.json().catch(() => ({ message: res.statusText }));
@@ -193,6 +223,10 @@ export async function fetchJson<T>(endpoint: string, options?: RequestInit, conf
         }
         throw error;
       }
+      // 204 No Content carries nothing to parse. Calling res.json() on it
+      // throws, which turned a successful call into a rejection every caller
+      // had to swallow (POST /api/customer-devices/exchange/refusal).
+      if (res.status === 204) return undefined as T;
       return await res.json();
     } finally {
       if (isGet) {

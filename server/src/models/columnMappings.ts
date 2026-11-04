@@ -405,6 +405,9 @@ export const BOOTSTRAP_TABLES = {
       ['branch_id', 'branchId'],
       ['allowed_branch_ids', 'allowedBranchIds'],
       ['can_switch_user', 'canSwitchUser'],
+      // Account status rides along so the per-request session check can refuse
+      // a deactivated account without a database round-trip.
+      ['status', 'status'],
     ],
   },
   approvalRequests: {

@@ -145,7 +145,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         text: res.message,
       });
     } catch (err: any) {
-      setError(err.message || 'No registered user account found with this email.');
+      setError(err.message || 'Could not submit the reset request. Try again or contact your System Administrator.');
     } finally {
       setLoading(false);
     }

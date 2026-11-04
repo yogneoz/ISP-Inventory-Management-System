@@ -6,6 +6,7 @@
 import type { Response } from 'express';
 import { getPgConnected, pgPool } from '../app';
 import { logAuditEvent } from '../services/audit.service';
+import { booleanFlag } from '../utils/booleanFlag';
 import { ApiError } from '../errors/ApiError';
 import {
   BILL_TERM_DELETE_SQL,
@@ -70,7 +71,7 @@ function parseBillTerm(body: Record<string, any>, existing?: BillTerm): BillTerm
     dueDays,
     discountDays,
     discountPercent,
-    active: body.active === undefined ? existing?.active ?? true : Boolean(body.active),
+    active: booleanFlag(body.active, existing?.active ?? true),
     isDemo: existing?.isDemo ?? false,
   };
 }
