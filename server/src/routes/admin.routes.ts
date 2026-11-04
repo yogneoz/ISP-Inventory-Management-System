@@ -5,7 +5,7 @@
  * position of this domain's first route.
  */
 import type { Express } from 'express';
-import { post_clearDemoData, put_companyProfile, get_branches, post_branches, put_Id, delete_Id, post_users, put_Id2, delete_Id2, post_resetPassword, post_fixedAssets, post_liveStock, post_ledgerBalances, post_serialRegisterBackfill, post_bsDayRecords, post_fiscalYearLinks, get_documentNumberConfigs, put_documentNumberConfigs, post_generateNext, post_resetCounter, get_fiscalYears, post_fiscalYears, post_setCurrent, post_close, post_reopen, post_initializeOpeningStock, delete_Id3, get_years, get_day, get_days, get_integrity, post_integrityApply, post_seed, post_seedBulk, put_YearBS, post_syncRange } from '../controllers/admin.controller';
+import { post_clearDemoData, put_companyProfile, get_branches, post_branches, put_Id, delete_Id, post_users, put_Id2, delete_Id2, post_resetPassword, post_fixedAssets, post_liveStock, post_ledgerBalances, post_serialRegisterBackfill, post_bsDayRecords, post_fiscalYearLinks, get_documentNumberConfigs, put_documentNumberConfigs, post_documentNumberConfig, patch_documentNumberConfig, post_generateNext, post_resetCounter, get_fiscalYears, post_fiscalYears, post_setCurrent, post_close, post_reopen, post_initializeOpeningStock, delete_Id3, get_years, get_day, get_days, get_integrity, post_integrityApply, post_seed, post_seedBulk, put_YearBS, post_syncRange } from '../controllers/admin.controller';
 import { requirePermission, requireRole } from '../app';
 import { DAYS_OF_WEEK_EN_SERVER, DAYS_OF_WEEK_NP_SERVER, NEPALI_MONTHS_EN_SERVER, NEPALI_MONTHS_NP_SERVER, hydrateOperationalData, pgPool } from '../app';
 import type { Asset, Branch, DocumentNumberConfig } from '../../../client/src/types';
@@ -46,6 +46,10 @@ app.post('/api/admin/repair/fiscal-year-links', requireRole('SUPER_ADMIN'), asyn
 app.get('/api/document-number-configs', async (req, res, next) => { get_documentNumberConfigs(req as any, res as any).catch(next); });
 
 app.put('/api/document-number-configs', async (req, res, next) => { put_documentNumberConfigs(req as any, res as any).catch(next); });
+
+app.post('/api/document-number-configs', requirePermission('admin-fiscal'), async (req, res, next) => { post_documentNumberConfig(req as any, res as any).catch(next); });
+
+app.patch('/api/document-number-configs/:id', requirePermission('admin-fiscal'), async (req, res, next) => { patch_documentNumberConfig(req as any, res as any).catch(next); });
 
 app.post('/api/document-number-configs/generate-next', requirePermission('admin-fiscal'), async (req, res, next) => { post_generateNext(req as any, res as any).catch(next); });
 

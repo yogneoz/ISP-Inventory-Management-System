@@ -43,8 +43,9 @@ import { normalizeMacAddress } from '../../../../shared/macAddress';
 import { ProductSearchBar } from '../inventory/ProductSearchBar';
 import type {
   SalesInvoice, SalesInvoiceItem, Product, Branch, InventoryStock, CompanyProfile, User,
-  CustomerRecord, DeviceSerialPair, SerialLog,
+  CustomerRecord, DeviceSerialPair, SerialLog, BillTerm,
 } from '../../types';
+import { computeDueDateAD } from '../../../../shared/billTerms';
 import { localTodayAD } from '../../utils/localDate';
 import { clampLineQuantity } from '../../utils/lineQuantity';
 import { warrantyCoveredDefault, warrantyEndFieldError, warrantyEndFor } from '../../utils/warrantyCapture';
@@ -52,6 +53,7 @@ import { isWarrantyBearingLine, salesWarrantyCoverageLabel, summarizeSalesWarran
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { getAllowedBranches } from '../../utils/permissions';
 import type { RecordRoute } from '../../routes/appPaths';
+import type { SettlementAccount } from '../../services/api/accounting';
 
 /** Human labels for the stored payment-method codes (the values stay the API enums). */
 const SALES_PAYMENT_METHODS: Array<{ value: NonNullable<SalesInvoice['paymentMethod']>; label: string }> = [
@@ -243,7 +245,12 @@ interface SalesInvoicesProps {
   onNavigateTab?: (tab: 'create-sale' | 'sales-list') => void;
   onCreateInvoice: (inv: Omit<SalesInvoice, 'id' | 'invoiceNumber'>) => Promise<void>;
   /** Records a dated customer receipt (customer_payments sub-ledger). */
-  onRecordPayment?: (invoice: SalesInvoice, amount: number, paymentMethod: string) => Promise<void>;
+  onRecordPayment?: (
+    invoice: SalesInvoice,
+    amount: number,
+    paymentMethod: string,
+    settlementAccountId?: string
+  ) => Promise<void>;
   /**
    * Voids a posted invoice. The server reverses it atomically (stock + claimed
    * serials + ledger) and refuses invoices that still carry payments or credit
@@ -322,6 +329,8 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
   const [branchId, setBranchId] = useState(pickInitialBranch);
   const [customerId, setCustomerId] = useState('');
   const [customerName, setCustomerName] = useState('');
+  const [areaId, setAreaId] = useState('');
+  const [agentId, setAgentId] = useState('');
   // Searchable customer picker: `customerQuery` is the visible label,
   // `customerId`/`customerName` stay the canonical FK + display name.
   const [customerQuery, setCustomerQuery] = useState('');
@@ -329,6 +338,9 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
   /** Recomputed every render so the picker and the guard share one "today". */
   const todayAD = localTodayAD();
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CREDIT' | 'BANK_TRANSFER' | 'CHEQUE' | 'ONLINE' | 'CARD' | 'OTHER'>('CASH');
+  const [billTerms, setBillTerms] = useState<BillTerm[]>([]);
+  const [billTermsId, setBillTermsId] = useState('');
+  const [dueDateAD, setDueDateAD] = useState('');
   const [amountPaid, setAmountPaid] = useState('0');
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<FormLine[]>([
@@ -347,6 +359,17 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
     );
     if (match) setBranchId(match.id);
   }, [selectedBranchId, selectableBranches]);
+
+  // Credit terms are master data; the create form needs the list to show the
+  // invoice's due date before it is posted. A failed read leaves the form
+  // usable with no term, and the server still applies a party default.
+  useEffect(() => {
+    let live = true;
+    api.getBillTerms(true)
+      .then((rows) => { if (live) setBillTerms(Array.isArray(rows) ? rows.filter((t) => t.active) : []); })
+      .catch(() => { if (live) setBillTerms([]); });
+    return () => { live = false; };
+  }, []);
 
   // Server-side paged fetch state: the register asks /api/sales-invoices for
   // one page of filtered rows instead of filtering the whole prop array.
@@ -481,8 +504,20 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
   const [payInvoice, setPayInvoice] = useState<SalesInvoice | null>(null);
   const [payAmount, setPayAmount] = useState('');
   const [payMethod, setPayMethod] = useState('CASH');
+  const [settlementAccounts, setSettlementAccounts] = useState<SettlementAccount[]>([]);
+  const [paySettlementAccountId, setPaySettlementAccountId] = useState('');
   const [paySubmitting, setPaySubmitting] = useState(false);
   const [payError, setPayError] = useState('');
+
+  // Payment settlement ledgers: any active cash/bank ledger, including extra
+  // tills and bank accounts that do not carry the single posting default.
+  useEffect(() => {
+    let live = true;
+    api.getSettlementAccounts()
+      .then((rows) => { if (live) setSettlementAccounts(Array.isArray(rows) ? rows : []); })
+      .catch(() => { if (live) setSettlementAccounts([]); });
+    return () => { live = false; };
+  }, []);
 
   // Mirrors the server's computeBillTotals(items): line discount is clamped to
   // the line gross, and VAT is charged on the discounted (net) taxable amount.
@@ -656,10 +691,17 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
   };
 
   const resetForm = () => {
-    setCustomerId(''); setCustomerName(''); setCustomerQuery(''); setNotes(''); setAmountPaid('0');
-    setPaymentMethod('CASH');
+    setCustomerId(''); setCustomerName(''); setCustomerQuery(''); setAreaId(''); setAgentId('');
+    setNotes(''); setAmountPaid('0');
+    setPaymentMethod('CASH'); setBillTermsId(''); setDueDateAD('');
     setLines([emptyLine()]);
     setFormError('');
+  };
+
+  const chooseBillTerms = (termId: string) => {
+    const term = billTerms.find((entry) => entry.id === termId && entry.active);
+    setBillTermsId(term ? termId : '');
+    setDueDateAD(term ? computeDueDateAD(invDateAD, term.dueDays) || '' : '');
   };
 
   const customerDisplay = (c: CustomerRecord) => `${c.customerName} (${c.customerId})`;
@@ -837,6 +879,10 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
         branchId,
         invoiceDateAD: invDateAD,
         invoiceDateBS: '',
+        billTermsId: billTermsId || undefined,
+        dueDateAD: dueDateAD || undefined,
+        areaId: areaId || undefined,
+        agentId: agentId || undefined,
         items,
         taxableAmount: lineTotals.taxable,
         vatAmount: lineTotals.vat,
@@ -862,10 +908,24 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
     }
   };
 
+  const settlementKind = (method: string) => (method === 'CASH' ? 'CASH' : 'BANK');
+  const settlementOptions = settlementAccounts.filter(
+    (account) => account.accountKind === settlementKind(payMethod)
+  );
+  const defaultSettlementAccountId = (method: string) => {
+    const kind = settlementKind(method);
+    return (
+      settlementAccounts.find((account) => account.postingRole === kind)?.id ||
+      settlementAccounts.find((account) => account.accountKind === kind)?.id ||
+      ''
+    );
+  };
+
   const openPayment = (inv: SalesInvoice) => {
     setPayInvoice(inv);
     setPayAmount(String(Math.max(0, (Number(inv.grandTotal) || 0) - (Number(inv.amountPaid) || 0))));
     setPayMethod('CASH');
+    setPaySettlementAccountId(defaultSettlementAccountId('CASH'));
     setPayError('');
   };
 
@@ -894,7 +954,7 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
     setPaySubmitting(true);
     setPayError('');
     try {
-      await onRecordPayment?.(payInvoice, amt, payMethod);
+      await onRecordPayment?.(payInvoice, amt, payMethod, paySettlementAccountId || undefined);
       setPayInvoice(null);
       setSiRefreshKey((k) => k + 1);
     } catch (e: any) {
@@ -1138,6 +1198,9 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
                   setCustomerId(customer?.id || '');
                   setCustomerName(customer?.customerName || '');
                   setCustomerQuery(customer ? customerDisplay(customer) : '');
+                  setAreaId(customer?.areaId || '');
+                  setAgentId(customer?.agentId || '');
+                  chooseBillTerms(customer?.billTermsId || '');
                 }}
                 search={api.searchCustomers}
                 placeholder="Search customer name, code, phone, or address…"
@@ -1160,6 +1223,37 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
                 }}
               />
               <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">Invoice can only be dated today — no past or future dates.</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:max-w-xl">
+            <div>
+              <label className={labelClass}>Bill Terms</label>
+              <select
+                className={inputClass}
+                value={billTermsId}
+                onChange={(e) => chooseBillTerms(e.target.value)}
+              >
+                <option value="">No terms — due on invoice date</option>
+                {billTerms.map((term) => (
+                  <option key={term.id} value={term.id}>
+                    {term.name} ({term.dueDays === 0 ? 'due on receipt' : `${term.dueDays} days`})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={labelClass}>Due Date (AD)</label>
+              <input
+                type="date"
+                className={inputClass}
+                min={invDateAD}
+                value={dueDateAD}
+                onChange={(e) => setDueDateAD(e.target.value)}
+              />
+              <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+                Calculated from the term; edit to override.
+              </p>
             </div>
           </div>
 
@@ -1567,10 +1661,36 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
             </div>
             <div>
               <label className={labelClass}>Method</label>
-              <select className={inputClass} value={payMethod} onChange={(e) => setPayMethod(e.target.value)}>
+              <select
+                className={inputClass}
+                value={payMethod}
+                onChange={(e) => {
+                  const method = e.target.value;
+                  setPayMethod(method);
+                  setPaySettlementAccountId(defaultSettlementAccountId(method));
+                }}
+              >
                 {SALES_PAYMENT_METHODS.filter((m) => m.value !== 'CREDIT').map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
               </select>
             </div>
+            {settlementOptions.length > 0 && (
+              <div>
+                <label className={labelClass}>Settle through</label>
+                <select
+                  className={inputClass}
+                  value={paySettlementAccountId}
+                  onChange={(e) => setPaySettlementAccountId(e.target.value)}
+                >
+                  <option value="">Default {settlementKind(payMethod).toLowerCase()} ledger</option>
+                  {settlementOptions.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.code} · {account.name}
+                      {account.bankName ? ` · ${account.bankName}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             {payError && (
               <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">{payError}</div>
             )}

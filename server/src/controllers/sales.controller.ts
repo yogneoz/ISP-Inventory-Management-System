@@ -37,6 +37,7 @@ import {
   SI_CLAIMED_SERIALS_SQL, SI_RELEASE_SERIAL_SQL, siCancelTxnLogParams,
 } from '../models/sales.repo';
 import { planSerialGateEntries, resolveSerialGateInDb, serialGateKey } from '../services/serialGate.service';
+import { findAreaById, findSalesAgentById } from './salesMasters.controller';
 import {
   buildSellerCoverageCaptures,
   recordWarrantyCoverageMirror,
@@ -61,6 +62,7 @@ import { intFromEnv } from '../utils/envGuard';
 import { firstLineQuantityRefusal } from '../utils/lineQuantity';
 import { ApiError } from '../errors/ApiError';
 import { postSalesInvoiceLedger, reverseInvoiceJournal } from '../services/invoicePosting.service';
+import { resolveInvoiceTerms } from '../services/billTerms.service';
 import { postCustomerReceiptLedger, reverseCustomerReceiptJournal } from '../services/paymentPosting.service';
 import {
   loadSalesIssueCosts,
@@ -319,6 +321,25 @@ export async function post_salesInvoices(req: any, res: Response): Promise<any> 
     // own AD date; 400 when unseeded.
     const invoiceDateBS = await bsDateOr400(res, invDate);
     if (!invoiceDateBS) return;
+    // Bill terms turn the party's credit days into a stored due date. An
+    // explicit override wins; otherwise the selected term (or the customer's
+    // default) supplies it. The resolved date is snapshotted on the invoice.
+    const terms = await resolveInvoiceTerms({
+      invoiceDateAD: invDate,
+      dueDateAD: req.body.dueDateAD || req.body.dueDateAd || null,
+      dueDateBS: req.body.dueDateBS || req.body.dueDateBs || null,
+      billTermsId: req.body.billTermsId || null,
+      partyType: 'CUSTOMER',
+      partyId: req.body.customerId || null,
+    });
+
+    // Sales dimensions are snapshotted at posting. Resolve the names from the
+    // masters now, so renaming/retiring an area or agent later cannot rewrite
+    // this invoice's history; an unknown id is a 400 rather than a silent null.
+    const area = req.body.areaId ? await findAreaById(String(req.body.areaId)) : null;
+    if (req.body.areaId && !area) return res.status(400).json({ message: 'The selected sales area was not found.' });
+    const agent = req.body.agentId ? await findSalesAgentById(String(req.body.agentId)) : null;
+    if (req.body.agentId && !agent) return res.status(400).json({ message: 'The selected sales agent was not found.' });
 
     const newInv: any = {
       id: req.body.id || `si-${Date.now()}`,
@@ -328,8 +349,13 @@ export async function post_salesInvoices(req: any, res: Response): Promise<any> 
       branchId: targetBranchId,
       invoiceDateAD: invDate,
       invoiceDateBS,
-      dueDateAD: req.body.dueDateAD || req.body.dueDateAd || null,
-      dueDateBS: req.body.dueDateBS || req.body.dueDateBs || null,
+      billTermsId: terms.billTermsId,
+      dueDateAD: terms.dueDateAD,
+      dueDateBS: terms.dueDateBS,
+      areaId: area?.id || null,
+      areaName: area?.name || null,
+      agentId: agent?.id || null,
+      agentName: agent?.name || null,
       taxableAmount: totals.taxableAmount,
       vatAmount: totals.vatAmount,
       nonTaxableAmount: totals.nonTaxableAmount,
@@ -1269,6 +1295,7 @@ export async function post_customerPayments(req: any, res: Response): Promise<an
       chequeDateAD: body.chequeDateAD || null,
       chequeDateBS,
       transactionReference: body.transactionReference || null,
+      settlementAccountId: body.settlementAccountId || null,
       notes: body.notes || null,
       status: 'POSTED',
       createdBy: getUserFromReq(req)?.email || 'system',

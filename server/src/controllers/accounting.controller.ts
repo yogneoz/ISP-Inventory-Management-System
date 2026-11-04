@@ -19,6 +19,7 @@ import {
   ACCOUNT_GROUP_LIST_SQL,
   ACCOUNT_LIST_SQL,
   PERIOD_LIST_SQL,
+  SETTLEMENT_ACCOUNTS_SQL,
   buildJournalCountQuery,
   buildJournalPageQuery,
   type JournalListOptions,
@@ -174,6 +175,15 @@ export async function get_accounts(req: any, res: Response): Promise<any> {
   return res.json(rows);
 }
 
+/**
+ * The active cash/bank ledgers a payment document can settle through. This is
+ * deliberately narrower than the chart: payment roles such as sales-invoice
+ * create and inv-pay need the picker without receiving every ledger account.
+ */
+export async function get_settlementAccounts(_req: any, res: Response): Promise<any> {
+  return res.json((await pgPool.query(SETTLEMENT_ACCOUNTS_SQL)).rows);
+}
+
 /** POST /api/accounting/accounts */
 export async function post_account(req: any, res: Response): Promise<any> {
   const account = await inTransaction(async (client) => {
@@ -184,7 +194,8 @@ export async function post_account(req: any, res: Response): Promise<any> {
       'ACCOUNTING',
       `Created ledger account ${created.code} ${created.name}` +
         (created.isControl ? ` (${created.subledgerType} control)` : '') +
-        (created.postingRole ? ` as ${created.postingRole}` : ''),
+        (created.postingRole ? ` as ${created.postingRole}` : '') +
+        (created.accountKind && created.accountKind !== 'OTHER' ? ` [${created.accountKind}]` : ''),
       undefined,
       client
     );
@@ -204,7 +215,7 @@ export async function patch_account(req: any, res: Response): Promise<any> {
       'UPDATE_GL_ACCOUNT',
       'ACCOUNTING',
       `Updated ledger account ${updated.code} ${updated.name}` +
-        ` (posting role ${updated.postingRole || 'none'}, ${updated.isActive ? 'active' : 'inactive'})`,
+        ` (${updated.accountKind || 'OTHER'}, posting role ${updated.postingRole || 'none'}, ${updated.isActive ? 'active' : 'inactive'})`,
       undefined,
       client
     );

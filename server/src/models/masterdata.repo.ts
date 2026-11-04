@@ -79,10 +79,10 @@ export const LOCATION_DELETE_SQL = 'DELETE FROM locations WHERE id = $1';
 // ---------------------------------------------------------------------------
 
 export const SUPPLIER_SELECT =
-  'SELECT id, supplier_code AS "supplierCode", name, contact_person AS "contactPerson", phone, email, address, pan_vat_number AS "panVatNumber", rating, status FROM suppliers ORDER BY name ASC';
+  'SELECT id, supplier_code AS "supplierCode", name, contact_person AS "contactPerson", phone, email, address, pan_vat_number AS "panVatNumber", bill_terms_id AS "billTermsId", rating, status FROM suppliers ORDER BY name ASC';
 
-export const SUPPLIER_UPSERT_SQL = `INSERT INTO suppliers (id, supplier_code, name, contact_person, phone, email, address, pan_vat_number, rating, status)
- VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+export const SUPPLIER_UPSERT_SQL = `INSERT INTO suppliers (id, supplier_code, name, contact_person, phone, email, address, pan_vat_number, bill_terms_id, rating, status)
+ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
  ON CONFLICT (id) DO UPDATE SET
    supplier_code = EXCLUDED.supplier_code,
    name = EXCLUDED.name,
@@ -91,19 +91,20 @@ export const SUPPLIER_UPSERT_SQL = `INSERT INTO suppliers (id, supplier_code, na
    email = EXCLUDED.email,
    address = EXCLUDED.address,
    pan_vat_number = EXCLUDED.pan_vat_number,
+   bill_terms_id = EXCLUDED.bill_terms_id,
    rating = EXCLUDED.rating,
    status = EXCLUDED.status;`;
 
 export function supplierUpsertParams(s: Record<string, any>): unknown[] {
-  return [s.id, s.supplierCode, s.name, s.contactPerson, s.phone, s.email, s.address, s.panVatNumber, s.rating, s.status];
+  return [s.id, s.supplierCode, s.name, s.contactPerson, s.phone, s.email, s.address, s.panVatNumber, s.billTermsId || null, s.rating, s.status];
 }
 
 export const SUPPLIER_UPDATE_SQL = `UPDATE suppliers SET
-   supplier_code = $1, name = $2, contact_person = $3, phone = $4, email = $5, address = $6, pan_vat_number = $7, rating = $8, status = $9
- WHERE id = $10;`;
+   supplier_code = $1, name = $2, contact_person = $3, phone = $4, email = $5, address = $6, pan_vat_number = $7, bill_terms_id = $8, rating = $9, status = $10
+ WHERE id = $11;`;
 
 export function supplierUpdateParams(s: Record<string, any>, id: string): unknown[] {
-  return [s.supplierCode || '', s.name, s.contactPerson || '', s.phone || '', s.email || '', s.address || '', s.panVatNumber || '', Number(s.rating) || 5.0, s.status || 'ACTIVE', id];
+  return [s.supplierCode || '', s.name, s.contactPerson || '', s.phone || '', s.email || '', s.address || '', s.panVatNumber || '', s.billTermsId || null, Number(s.rating) || 5.0, s.status || 'ACTIVE', id];
 }
 
 export const SUPPLIER_DELETE_SQL = 'DELETE FROM suppliers WHERE id = $1';
@@ -287,7 +288,7 @@ export const PRODUCT_GROUP_BY_NAME_SQL =
 // ---------------------------------------------------------------------------
 
 export const CUSTOMER_SELECT_COLUMNS =
-  'id, customer_id AS "customerId", customer_name AS "customerName", username, contact_number AS "contactNumber", branch_id AS "branchId", address, email, status, credit_limit AS "creditLimit"';
+  'id, customer_id AS "customerId", customer_name AS "customerName", username, contact_number AS "contactNumber", branch_id AS "branchId", address, email, status, credit_limit AS "creditLimit", bill_terms_id AS "billTermsId", area_id AS "areaId", agent_id AS "agentId"';
 
 /**
  * VOL-4b: the directory's assigned-hardware count, computed from the CPE table
@@ -412,8 +413,8 @@ export function buildCustomerListAggregateQuery(opts: CustomerListQueryOptions =
   };
 }
 
-export const CUSTOMER_UPSERT_SQL = `INSERT INTO customer_records (id, customer_id, customer_name, username, contact_number, branch_id, address, email, status, credit_limit, assigned_devices_count)
- VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+export const CUSTOMER_UPSERT_SQL = `INSERT INTO customer_records (id, customer_id, customer_name, username, contact_number, branch_id, address, email, status, credit_limit, bill_terms_id, area_id, agent_id, assigned_devices_count)
+ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
  ON CONFLICT (id) DO UPDATE SET
    customer_id = EXCLUDED.customer_id,
    customer_name = EXCLUDED.customer_name,
@@ -423,24 +424,29 @@ export const CUSTOMER_UPSERT_SQL = `INSERT INTO customer_records (id, customer_i
    address = EXCLUDED.address,
    email = EXCLUDED.email,
    status = EXCLUDED.status,
-   credit_limit = EXCLUDED.credit_limit;`;
+   credit_limit = EXCLUDED.credit_limit,
+   bill_terms_id = EXCLUDED.bill_terms_id,
+   area_id = EXCLUDED.area_id,
+   agent_id = EXCLUDED.agent_id;`;
 
 export function customerUpsertParams(c: Record<string, any>): unknown[] {
   return [
     c.id, c.customerId, c.customerName, c.username, c.contactNumber, c.branchId,
-    c.address, c.email, c.status, c.creditLimit, c.assignedDevicesCount,
+    c.address, c.email, c.status, c.creditLimit, c.billTermsId || null,
+    c.areaId || null, c.agentId || null, c.assignedDevicesCount,
   ];
 }
 
 /** Customer master update (PUT): matches by id or customer_id with one value. */
 export const CUSTOMER_UPDATE_BY_ID_OR_CODE_SQL = `UPDATE customer_records SET
-   customer_id = $1, customer_name = $2, username = $3, contact_number = $4, branch_id = $5, address = $6, email = $7, status = $8, credit_limit = $9
- WHERE id = $10 OR customer_id = $10;`;
+   customer_id = $1, customer_name = $2, username = $3, contact_number = $4, branch_id = $5, address = $6, email = $7, status = $8, credit_limit = $9, bill_terms_id = $10, area_id = $11, agent_id = $12
+ WHERE id = $13 OR customer_id = $13;`;
 
 export function customerUpdateByIdOrCodeParams(c: Record<string, any>): unknown[] {
   return [
     c.customerId, c.customerName, c.username, c.contactNumber, c.branchId,
-    c.address, c.email, c.status, Number(c.creditLimit) || 0,
+    c.address, c.email, c.status, Number(c.creditLimit) || 0, c.billTermsId || null,
+    c.areaId || null, c.agentId || null,
   ];
 }
 

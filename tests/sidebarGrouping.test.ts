@@ -135,23 +135,24 @@ const EXPECTED: Record<string, { sections: string[]; items: string[] }> = {
     sections: ['Statements & ledgers', 'Tax & assets'],
     items: [
       'accounting', 'accounting-profit-loss', 'accounting-balance-sheet', 'accounting-cash-book',
-      'accounting-aging', 'accounting-chart',
+      'accounting-aging',
       'cash-position', 'financial-statements', 'vendor-ledger', 'customer-ledger', 'vendor-opening-balances',
       'vat-register', 'fixed-assets', 'depreciation-register',
     ],
   },
   'inventory-setup': {
-    sections: ['Products', 'Parties', 'Organisation'],
+    sections: ['Accounting', 'Products', 'Parties', 'Organisation'],
     items: [
+      'accounting-chart', 'bill-terms', 'cost-centers', 'narration-templates', 'fiscal-year-management',
       'product-master', 'category-management', 'product-group-management', 'uom-management',
-      'customers', 'import-customers', 'suppliers',
+      'customers', 'sales-agents-areas', 'import-customers', 'suppliers',
       'locations', 'branches',
     ],
   },
   admin: {
     sections: ['Setup', 'Governance'],
     items: [
-      'company-setup', 'users', 'permissions', 'user-permissions', 'fiscal-year-management',
+      'company-setup', 'users', 'permissions', 'user-permissions',
       'fiscal-year-closing', 'bs-calendar',
       'audit', 'data-recalculation', 'clear-demo-data',
     ],
@@ -289,6 +290,7 @@ describe('sidebar grouping', () => {
       assert.deepEqual(setup.items.map((item) => item.id), [
         'product-master',
         'customers',
+        'sales-agents-areas',
         'locations',
       ]);
     } finally {

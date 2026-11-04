@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
-import { CustomerRecord, CustomerDeviceRecord, Branch, User } from '../../types';
+import { CustomerRecord, CustomerDeviceRecord, Branch, User, BillTerm, Area, SalesAgent } from '../../types';
 import type { RecordRoute } from '../../routes/appPaths';
 import { formatNPR } from '../../utils/nprFormat';
 import { exportToCSV } from '../../utils/exportUtils';
@@ -91,6 +91,27 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedBranchFilter, setSelectedBranchFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
+  const [billTerms, setBillTerms] = useState<BillTerm[]>([]);
+  const [areas, setAreas] = useState<Area[]>([]);
+  const [salesAgents, setSalesAgents] = useState<SalesAgent[]>([]);
+
+  useEffect(() => {
+    let live = true;
+    Promise.all([api.getBillTerms(true), api.getAreas(true), api.getSalesAgents(true)])
+      .then(([terms, areaRows, agentRows]) => {
+        if (!live) return;
+        setBillTerms(Array.isArray(terms) ? terms.filter((term) => term.active) : []);
+        setAreas(Array.isArray(areaRows) ? areaRows.filter((area) => area.active) : []);
+        setSalesAgents(Array.isArray(agentRows) ? agentRows.filter((agent) => agent.active) : []);
+      })
+      .catch(() => {
+        if (!live) return;
+        setBillTerms([]);
+        setAreas([]);
+        setSalesAgents([]);
+      });
+    return () => { live = false; };
+  }, []);
 
   // Expanded customer rows state to show assigned device serials
   const [expandedCustomerId, setExpandedCustomerId] = useState<string | null>(null);
@@ -119,6 +140,9 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
     email: '',
     status: 'ACTIVE' as 'ACTIVE' | 'INACTIVE',
     creditLimit: 0,
+    billTermsId: '',
+    areaId: '',
+    agentId: '',
   });
 
   const resetForm = () => {
@@ -131,6 +155,9 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
       email: '',
       status: 'ACTIVE',
       creditLimit: 0,
+      billTermsId: '',
+      areaId: '',
+      agentId: '',
     });
   };
 
@@ -150,6 +177,9 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
       email: customer.email || '',
       status: customer.status || 'ACTIVE',
       creditLimit: customer.creditLimit || 0,
+      billTermsId: customer.billTermsId || '',
+      areaId: customer.areaId || '',
+      agentId: customer.agentId || '',
     });
   };
 
@@ -176,6 +206,9 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
         email: formData.email,
         status: formData.status,
         creditLimit: Number(formData.creditLimit) || 0,
+        billTermsId: formData.billTermsId || null,
+        areaId: formData.areaId || null,
+        agentId: formData.agentId || null,
       });
       if (created) {
         setIsAddModalOpen(false);
@@ -210,6 +243,9 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
           email: formData.email,
           status: formData.status,
           creditLimit: Number(formData.creditLimit) || 0,
+          billTermsId: formData.billTermsId || null,
+          areaId: formData.areaId || null,
+          agentId: formData.agentId || null,
         });
         setEditingCustomer(null);
         if (updated) {
@@ -1124,6 +1160,67 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                   />
                 </div>
               </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Default Bill Terms
+                </label>
+                <select
+                  value={formData.billTermsId}
+                  onChange={(e) => setFormData({ ...formData, billTermsId: e.target.value })}
+                  className={`w-full px-3 py-1.5 text-xs rounded-xl border outline-none bg-slate-50 border-slate-300 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
+                >
+                  <option value="">No default — due on invoice date</option>
+                  {billTerms.map((term) => (
+                    <option key={term.id} value={term.id}>
+                      {term.name} ({term.dueDays === 0 ? 'due on receipt' : `${term.dueDays} days`})
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
+                  Used to prefill credit sales; each invoice still stores its own due date.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Sales Area
+                  </label>
+                  <select
+                    value={formData.areaId}
+                    onChange={(e) => setFormData({ ...formData, areaId: e.target.value })}
+                    className={`w-full px-3 py-1.5 text-xs rounded-xl border outline-none bg-slate-50 border-slate-300 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
+                  >
+                    <option value="">No default area</option>
+                    {areas.map((area) => (
+                      <option key={area.id} value={area.id}>
+                        {area.code} — {area.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Sales Agent
+                  </label>
+                  <select
+                    value={formData.agentId}
+                    onChange={(e) => setFormData({ ...formData, agentId: e.target.value })}
+                    className={`w-full px-3 py-1.5 text-xs rounded-xl border outline-none bg-slate-50 border-slate-300 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
+                  >
+                    <option value="">No default agent</option>
+                    {salesAgents.map((agent) => (
+                      <option key={agent.id} value={agent.id}>
+                        {agent.code} — {agent.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                These default onto new sales invoices and are snapshotted when the invoice posts.
+              </p>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>

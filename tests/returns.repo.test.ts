@@ -185,8 +185,8 @@ describe('sales invoices repo', () => {
     assert.deepEqual(filtered.params, ['BR002']);
   });
 
-  test('insert SQL has 18 columns/params and param builder maps them in order', () => {
-    assert.equal((SI_INSERT_SQL.match(/\$\d+/g) || []).length, 18);
+  test('insert SQL has 23 columns/params and param builder maps them in order', () => {
+    assert.equal((SI_INSERT_SQL.match(/\$\d+/g) || []).length, 23);
     const inv = {
       id: 'si-1', invoiceNumber: 'INV-BRC01-202609010001',
       customerId: 'cus-1', customerName: 'Customer', branchId: 'WH001',
@@ -195,11 +195,15 @@ describe('sales invoices repo', () => {
       grandTotal: 226, paymentStatus: 'PAID', paymentMethod: 'CASH', amountPaid: 226,
     };
     const p = siInsertParams(inv, '[]');
-    assert.equal(p.length, 18);
+    assert.equal(p.length, 23);
     assert.equal(p[0], 'si-1');
-    assert.equal(p[12], 226);
-    assert.equal(p[13], 'PAID');
-    assert.equal(p[17], '[]');
+    assert.equal(p[10], null);
+    assert.equal(p[11], null);
+    assert.equal(p[12], null);
+    assert.equal(p[13], null);
+    assert.equal(p[17], 226);
+    assert.equal(p[18], 'PAID');
+    assert.equal(p[22], '[]');
   });
 
   test('selling deducts stock with a no-negative-stock guard and returns the new balance', () => {
@@ -430,17 +434,17 @@ describe('sales returns repo', () => {
     assert.match(SR_CANCEL_DRAFT_SQL, /status = 'DRAFT'/);
   });
 
-  test('customer payments: receipt insert has 20 params; payment applies to invoice atomically', () => {
-    assert.equal((CP_INSERT_SQL.match(/\$\d+/g) || []).length, 20);
+  test('customer payments: receipt insert has 21 params; payment applies to invoice atomically', () => {
+    assert.equal((CP_INSERT_SQL.match(/\$\d+/g) || []).length, 21);
     const p = cpInsertParams({
       id: 'cp-1', paymentNumber: 'CR-WH001-202609010001', customerId: 'cus-1',
       customerName: 'Customer', branchId: 'WH001', invoiceId: 'si-1',
       invoiceNumber: 'INV-1', paymentDateAD: '2026-09-01', paymentDateBS: '2083-05-18 BS',
       amount: 500, paymentMethod: 'CASH', createdBy: 'tester@example.com',
     });
-    assert.equal(p.length, 20);
+    assert.equal(p.length, 21);
     assert.equal(p[9], 500);
-    assert.equal(p[19], 'tester@example.com');
+    assert.equal(p[20], 'tester@example.com');
     // Payment + reversal adjust the invoice balance additively, guarded.
     assert.match(SI_RECORD_PAYMENT_SQL, /amount_paid = amount_paid \+ \$1/);
     assert.match(SI_UNDO_PAYMENT_SQL, /GREATEST\(0, amount_paid - \$1\)/);

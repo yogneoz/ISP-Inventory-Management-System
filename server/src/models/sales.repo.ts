@@ -13,7 +13,7 @@
 // ---------------------------------------------------------------------------
 
 export const SI_SELECT_COLUMNS =
-  'id, invoice_number AS "invoiceNumber", customer_id AS "customerId", customer_name AS "customerName", branch_id AS "branchId", invoice_date_ad AS "invoiceDateAD", invoice_date_bs AS "invoiceDateBS", due_date_ad AS "dueDateAD", due_date_bs AS "dueDateBS", taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", payment_status AS "paymentStatus", payment_method AS "paymentMethod", amount_paid AS "amountPaid", status, notes, items, fiscal_year_id AS "fiscalYearId", is_demo AS "isDemo", created_by AS "createdBy", created_at AS "createdAt"';
+  'id, invoice_number AS "invoiceNumber", customer_id AS "customerId", customer_name AS "customerName", branch_id AS "branchId", invoice_date_ad AS "invoiceDateAD", invoice_date_bs AS "invoiceDateBS", bill_terms_id AS "billTermsId", due_date_ad AS "dueDateAD", due_date_bs AS "dueDateBS", area_id AS "areaId", area_name AS "areaName", agent_id AS "agentId", agent_name AS "agentName", taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", payment_status AS "paymentStatus", payment_method AS "paymentMethod", amount_paid AS "amountPaid", status, notes, items, fiscal_year_id AS "fiscalYearId", is_demo AS "isDemo", created_by AS "createdBy", created_at AS "createdAt"';
 
 export function buildSalesInvoiceListSql(branchId?: unknown): { sql: string; params: unknown[] } {
   const filter = branchId && branchId !== 'ALL';
@@ -87,9 +87,10 @@ export function buildSalesInvoicePagedQuery(opts: SalesInvoiceQueryOptions, pagi
 
 export const SI_INSERT_SQL = `INSERT INTO sales_invoices (
    id, invoice_number, customer_id, customer_name, branch_id, invoice_date_ad, invoice_date_bs,
-   due_date_ad, due_date_bs, taxable_amount, vat_amount, non_taxable_amount, grand_total,
+   bill_terms_id, due_date_ad, due_date_bs, area_id, area_name, agent_id, agent_name,
+   taxable_amount, vat_amount, non_taxable_amount, grand_total,
    payment_status, payment_method, amount_paid, notes, items
- ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`;
+ ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)`;
 
 export function siInsertParams(inv: Record<string, any>, itemsJson: string): unknown[] {
   return [
@@ -100,8 +101,13 @@ export function siInsertParams(inv: Record<string, any>, itemsJson: string): unk
     inv.branchId,
     inv.invoiceDateAD,
     inv.invoiceDateBS,
+    inv.billTermsId || null,
     inv.dueDateAD || null,
     inv.dueDateBS || null,
+    inv.areaId || null,
+    inv.areaName || null,
+    inv.agentId || null,
+    inv.agentName || null,
     Number(inv.taxableAmount) || 0,
     Number(inv.vatAmount) || 0,
     Number(inv.nonTaxableAmount) || 0,
@@ -654,8 +660,8 @@ export const CP_INSERT_SQL = `INSERT INTO customer_payments (
    id, payment_number, customer_id, customer_name, branch_id, invoice_id, invoice_number,
    payment_date_ad, payment_date_bs, amount, payment_method, bank_name, bank_branch,
    account_number, cheque_number, cheque_date_ad, cheque_date_bs, transaction_reference,
-   notes, status, created_by
- ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 'POSTED', $20)`;
+   settlement_account_id, notes, status, created_by
+ ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, 'POSTED', $21)`;
 
 export function cpInsertParams(p: Record<string, any>): unknown[] {
   return [
@@ -677,6 +683,7 @@ export function cpInsertParams(p: Record<string, any>): unknown[] {
     p.chequeDateAD || null,
     p.chequeDateBS || null,
     p.transactionReference || null,
+    p.settlementAccountId || null,
     p.notes || null,
     p.createdBy || 'system',
   ];
@@ -704,6 +711,9 @@ export const CP_FIND_BY_ID_SQL = `SELECT id,
   cheque_date_ad::text AS "chequeDateAD",
   cheque_date_bs AS "chequeDateBS",
   transaction_reference AS "transactionReference",
+  settlement_account_id AS "settlementAccountId",
+  (SELECT code FROM gl_accounts a WHERE a.id = customer_payments.settlement_account_id) AS "settlementAccountCode",
+  (SELECT name FROM gl_accounts a WHERE a.id = customer_payments.settlement_account_id) AS "settlementAccountName",
   notes,
   status,
   reversal_reason AS "reversalReason",

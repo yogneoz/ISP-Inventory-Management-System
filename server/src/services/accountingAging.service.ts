@@ -162,11 +162,12 @@ function emptyBuckets(): Record<AgingBucketKey, number> {
 }
 
 /**
- * The date this charge is due. A sales invoice's stored due date is used from
- * the invoice date onward. A purchase invoice stores the vendor bill date in
- * `due_date_ad`; only a value later than the invoice date can be a genuine
- * due date, so anything else falls back to the invoice date (no terms are
- * recorded today). A non-invoice journal ages from its own date.
+ * The date this charge is due. Sales and purchase invoices now store the
+ * resolved bill-term due date; a purchase invoice's vendor bill date lives in
+ * its own column and is never read here. A due date on or after the document
+ * date is genuine, so a 0-day term (due on receipt) is preserved as the
+ * document date rather than treated as missing. A non-invoice journal ages
+ * from its own date.
  */
 function resolveDueDate(row: any): { documentDateAD: string; dueDateAD: string; termsDays: number } {
   const entryDateAD = dateOnly(row.entryDateAD);

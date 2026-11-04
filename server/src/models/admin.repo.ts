@@ -743,6 +743,18 @@ export const DOC_NUMBER_CONFIG_UPSERT_SQL = `INSERT INTO document_number_configs
              notes = EXCLUDED.notes,
              updated_at = CURRENT_TIMESTAMP;`;
 
+export const DOC_NUMBER_CONFIG_INSERT_SQL = `INSERT INTO document_number_configs
+  (id, document_type, prefix, suffix, min_digits, starting_number, next_number, reset_every_fiscal_year, notes)
+ VALUES ($1, $2, $3, '', 4, 1, 1, TRUE, $4)`;
+
+/** Edits the series label/prefix without resetting its live counter. */
+export const DOC_NUMBER_CONFIG_DETAILS_UPDATE_SQL = `UPDATE document_number_configs SET
+  document_type = $1,
+  prefix = $2,
+  notes = $3,
+  updated_at = CURRENT_TIMESTAMP
+ WHERE id = $4`;
+
 export function docNumberConfigUpsertParams(cfg: DocumentNumberConfig): unknown[] {
   return [
     cfg.id,

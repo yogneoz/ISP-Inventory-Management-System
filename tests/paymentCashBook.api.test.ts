@@ -119,6 +119,7 @@ describe('payment documents and the cash/bank book (real HTTP + PostgreSQL)', { 
     await pool!.query('DELETE FROM gl_journals WHERE branch_id = $1', [BR]);
     await pool!.query('DELETE FROM customer_payments WHERE branch_id = $1', [BR]);
     await pool!.query('DELETE FROM vendor_payments WHERE branch_id = $1', [BR]);
+    await pool!.query("DELETE FROM gl_accounts WHERE code LIKE 'PCB-%'");
     await pool!.query('DELETE FROM sales_invoices WHERE branch_id = $1', [BR]);
     await pool!.query('DELETE FROM purchase_invoices WHERE branch_id = $1', [BR]);
     await pool!.query('DELETE FROM inventory_stock WHERE branch_id = $1', [BR]);
@@ -567,6 +568,76 @@ describe('payment documents and the cash/bank book (real HTTP + PostgreSQL)', { 
     );
   });
 
+  test('a payment can settle through a non-default cash ledger', async () => {
+    const chart = await get('/api/accounting/accounts');
+    assert.equal(chart.status, 200, JSON.stringify(chart.json));
+    const defaultCash = chart.json.find((account: any) => account.code === '1010');
+    assert.ok(defaultCash, 'the seeded cash ledger is required');
+
+    const extra = await post('/api/accounting/accounts', {
+      code: 'PCB-1021',
+      name: 'PCB Petty Cash',
+      groupId: defaultCash.groupId,
+      accountKind: 'CASH',
+    });
+    assert.equal(extra.status, 201, JSON.stringify(extra.json));
+    assert.equal(extra.json.accountKind, 'CASH');
+    assert.equal(extra.json.postingRole, null, 'the extra till is not the CASH default');
+
+    const receipt = await post('/api/customer-payments', {
+      customerId: CUSTOMER,
+      customerName: 'PCB Customer',
+      branchId: BR,
+      paymentDateAD: today,
+      amount: 25,
+      paymentMethod: 'CASH',
+      settlementAccountId: extra.json.id,
+      notes: 'PCB extra till receipt',
+    });
+    assert.equal(receipt.status, 201, JSON.stringify(receipt.json));
+    assert.equal(receipt.json.settlementAccountId, extra.json.id);
+
+    const [journal] = await journalFor('CUSTOMER_PAYMENT', String(receipt.json.id));
+    assert.ok(journal, 'the selected till must still post a journal');
+    const lines = await journalLines(journal.id);
+    assert.equal(lines.find((line) => line.code === 'PCB-1021')?.debit, 25, 'the chosen till is debited');
+    assert.equal(lines.find((line) => line.code === '1010')?.debit, undefined, 'the default till is untouched');
+    assert.equal(lines.find((line) => line.code === '1100')?.credit, 25, 'AR control is still credited');
+
+    const stored = await pool!.query(
+      'SELECT settlement_account_id AS "settlementAccountId" FROM customer_payments WHERE id = $1',
+      [receipt.json.id]
+    );
+    assert.equal(stored.rows[0].settlementAccountId, extra.json.id, 'the payment row records the chosen till');
+
+    const book = await get(`/api/accounting/cash-book?from=${FROM}&to=${today}&branchId=${BR}`);
+    assert.equal(book.status, 200, JSON.stringify(book.json));
+    const extraBook = book.json.accounts.find((account: any) => account.code === 'PCB-1021');
+    assert.ok(extraBook, 'the extra cash ledger must appear in the cash book');
+    assert.equal(extraBook.opening, 0);
+    assert.equal(extraBook.receipts, 25);
+    assert.equal(extraBook.closing, 25);
+    assert.equal(book.json.accounts.find((account: any) => account.code === '1010').closing, 100);
+    assert.equal(book.json.closing, 125, 'the book total includes the extra till');
+
+    const wrongKind = await post('/api/customer-payments', {
+      customerId: CUSTOMER,
+      customerName: 'PCB Customer',
+      branchId: BR,
+      paymentDateAD: today,
+      amount: 1,
+      paymentMethod: 'BANK_TRANSFER',
+      settlementAccountId: extra.json.id,
+      notes: 'PCB wrong-kind receipt',
+    });
+    assert.equal(wrongKind.status, 400, JSON.stringify(wrongKind.json));
+    assert.match(String(wrongKind.json?.message), /must settle through a BANK ledger/i);
+    const refused = await pool!.query(
+      "SELECT count(*)::int AS n FROM customer_payments WHERE notes = 'PCB wrong-kind receipt'"
+    );
+    assert.equal(Number(refused.rows[0].n), 0, 'a wrong-kind settlement must roll the receipt back');
+  });
+
   test('missing settlement defaults are named, and the read route keeps its scope', async () => {
     const emptyChart = { query: async () => ({ rows: [] }) };
     await assert.rejects(
@@ -601,7 +672,7 @@ describe('payment documents and the cash/bank book (real HTTP + PostgreSQL)', { 
     const own = await get(`/api/accounting/cash-book?asOf=${today}`, tokens.accountant);
     assert.equal(own.status, 200, JSON.stringify(own.json));
     assert.equal(own.json.branchId, BR, 'a branch account defaults to its own branch');
-    assert.equal(own.json.closing, 100);
+    assert.equal(own.json.closing, 125, 'the extra till receipt remains in the book');
 
     assert.equal(
       (await get(`/api/accounting/cash-book?asOf=${today}&branchId=${OTHER}`, tokens.accountant)).status,

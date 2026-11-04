@@ -7,8 +7,10 @@
  * endpoints so it cannot quietly disagree with the ledger.
  */
 import { fetchJson } from './http';
+import type { BillTerm, CostCenter, NarrationTemplate, NarrationTransactionType } from '../../types';
 
 export type AccountType = 'ASSET' | 'LIABILITY' | 'EQUITY' | 'INCOME' | 'EXPENSE';
+export type AccountKind = 'CASH' | 'BANK' | 'OTHER';
 
 export interface AccountingGroup {
   id: string;
@@ -33,6 +35,13 @@ export interface AccountingAccount {
   isControl: boolean;
   subledgerType: string;
   postingRole: string | null;
+  /** Classifies every till and bank ledger, including extras without a role. */
+  accountKind?: AccountKind;
+  bankName?: string | null;
+  bankBranch?: string | null;
+  accountNumber?: string | null;
+  accountHolder?: string | null;
+  swiftCode?: string | null;
   isActive: boolean;
   isDemo: boolean;
   groupCode: string;
@@ -40,6 +49,19 @@ export interface AccountingAccount {
   accountType: AccountType;
   statementGroup: string;
   normalBalance: string;
+}
+
+export interface SettlementAccount {
+  id: string;
+  code: string;
+  name: string;
+  accountKind: 'CASH' | 'BANK';
+  postingRole: 'CASH' | 'BANK' | null;
+  bankName?: string | null;
+  bankBranch?: string | null;
+  accountNumber?: string | null;
+  accountHolder?: string | null;
+  swiftCode?: string | null;
 }
 
 export interface PostingDefault {
@@ -360,7 +382,13 @@ export interface CashBookAccount {
   accountId: string;
   code: string;
   name: string;
-  postingRole: string;
+  accountKind?: 'CASH' | 'BANK';
+  postingRole: string | null;
+  bankName?: string | null;
+  bankBranch?: string | null;
+  accountNumber?: string | null;
+  accountHolder?: string | null;
+  swiftCode?: string | null;
   isActive: boolean;
   opening: number;
   receipts: number;
@@ -511,6 +539,12 @@ export interface AccountingAccountInput {
   description?: string | null;
   subledgerType?: string;
   postingRole?: string | null;
+  accountKind?: AccountKind;
+  bankName?: string | null;
+  bankBranch?: string | null;
+  accountNumber?: string | null;
+  accountHolder?: string | null;
+  swiftCode?: string | null;
 }
 
 export interface AccountingAccountPatch {
@@ -519,6 +553,12 @@ export interface AccountingAccountPatch {
   /** Refused once the account has posted lines, so history keeps its mapping. */
   groupId?: string;
   postingRole?: string | null;
+  accountKind?: AccountKind;
+  bankName?: string | null;
+  bankBranch?: string | null;
+  accountNumber?: string | null;
+  accountHolder?: string | null;
+  swiftCode?: string | null;
   isActive?: boolean;
 }
 
@@ -568,8 +608,123 @@ export async function getAccountingAccounts(includeInactive = false): Promise<Ac
   return fetchJson(`/api/accounting/accounts${includeInactive ? '?includeInactive=1' : ''}`);
 }
 
+/** Active cash/bank ledgers for payment settlement pickers. */
+export async function getSettlementAccounts(): Promise<SettlementAccount[]> {
+  return fetchJson('/api/accounting/settlement-accounts');
+}
+
 export async function getPostingDefaults(): Promise<PostingDefaultsResponse> {
   return fetchJson('/api/accounting/posting-defaults');
+}
+
+export interface BillTermInput {
+  code: string;
+  name: string;
+  dueDays: number;
+  discountDays?: number | null;
+  discountPercent?: number | null;
+  active?: boolean;
+}
+
+export async function getBillTerms(includeInactive = true): Promise<BillTerm[]> {
+  return fetchJson(`/api/accounting/bill-terms${includeInactive ? '?includeInactive=1' : ''}`);
+}
+
+export async function createBillTerm(input: BillTermInput): Promise<BillTerm> {
+  return fetchJson('/api/accounting/bill-terms', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateBillTerm(
+  id: string,
+  input: Partial<BillTermInput>
+): Promise<BillTerm> {
+  return fetchJson(`/api/accounting/bill-terms/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteBillTerm(id: string): Promise<{ deleted: boolean; id: string }> {
+  return fetchJson(`/api/accounting/bill-terms/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+export interface CostCenterInput {
+  code: string;
+  name: string;
+  parentId?: string | null;
+  branchId?: string | null;
+  active?: boolean;
+}
+
+export async function getCostCenters(includeInactive = true): Promise<CostCenter[]> {
+  return fetchJson(`/api/accounting/cost-centers${includeInactive ? '?includeInactive=1' : ''}`);
+}
+
+export async function createCostCenter(input: CostCenterInput): Promise<CostCenter> {
+  return fetchJson('/api/accounting/cost-centers', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateCostCenter(
+  id: string,
+  input: Partial<CostCenterInput>
+): Promise<CostCenter> {
+  return fetchJson(`/api/accounting/cost-centers/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteCostCenter(id: string): Promise<{ deleted: boolean; id: string }> {
+  return fetchJson(`/api/accounting/cost-centers/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+export interface NarrationTemplateInput {
+  code: string;
+  text: string;
+  transactionType: NarrationTransactionType;
+  active?: boolean;
+}
+
+export async function getNarrationTemplates(
+  includeInactive = true,
+  type?: NarrationTransactionType
+): Promise<NarrationTemplate[]> {
+  const params = new URLSearchParams();
+  if (includeInactive) params.set('includeInactive', '1');
+  if (type) params.set('type', type);
+  const suffix = params.toString();
+  return fetchJson(`/api/accounting/narrations${suffix ? `?${suffix}` : ''}`);
+}
+
+export async function createNarrationTemplate(
+  input: NarrationTemplateInput
+): Promise<NarrationTemplate> {
+  return fetchJson('/api/accounting/narrations', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateNarrationTemplate(
+  id: string,
+  input: Partial<NarrationTemplateInput>
+): Promise<NarrationTemplate> {
+  return fetchJson(`/api/accounting/narrations/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteNarrationTemplate(
+  id: string
+): Promise<{ deleted: boolean; id: string }> {
+  return fetchJson(`/api/accounting/narrations/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
 export async function getTrialBalance(query: StatementQuery = {}): Promise<TrialBalanceResponse> {

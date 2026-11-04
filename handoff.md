@@ -227,7 +227,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 1899 tests; CI runs
+                                        #   drift/concurrency guards — 1913 tests; CI runs
                                         #   tsc + npm test + the source guards + the
                                         #   production build + the boot-timing gate +
                                         #   npm audit on every push/PR
@@ -443,7 +443,7 @@ ISP-Inventory-Management-System/
 | 41 | `permission_set_grants` | Operations a reusable set grants | (set_id, operation_id) PK, set_id FK cascade |
 | 42 | `permission_set_members` | Users assigned to a reusable set | (user_id, set_id) PK, both FKs cascade |
 | 43 | `gl_account_groups` | Chart-of-accounts groups with statement mapping | id (PK), code (UNIQUE), account_type, statement_group, normal_balance, sort_order |
-| 44 | `gl_accounts` | Ledger accounts, control/subledger type and posting default | id (PK), code (UNIQUE), group_id (FK→gl_account_groups), is_control, subledger_type, posting_role (UNIQUE partial) |
+| 44 | `gl_accounts` | Ledger accounts, cash/bank kind, control/subledger type and posting default | id (PK), code (UNIQUE), group_id (FK→gl_account_groups), account_kind (CASH/BANK/OTHER), bank_name, bank_branch, account_number, account_holder, swift_code, is_control, subledger_type, posting_role (UNIQUE partial) |
 | 45 | `gl_periods` | Monthly accounting periods with close/reopen | id (PK), fiscal_year_id (FK), period_key, start/end_date_ad, status (OPEN/CLOSED), closed_at/by; UNIQUE (fiscal_year_id, period_key) |
 | 46 | `gl_journals` | Balanced journal headers with branch dimension | id (PK), journal_no (UNIQUE), journal_date_ad, fiscal_year_id, period_id (FK→gl_periods), branch_id (FK→branches), source_type/id, status, posted_by |
 | 47 | `gl_journal_lines` | Debit/credit journal lines | id (PK), journal_id (FK cascade), line_no, account_id (FK), branch_id (FK), debit/credit (one-sided), UNIQUE (journal_id, line_no) |
@@ -582,7 +582,7 @@ The server registers ~130 routes. The most important ones:
 | `/api/damage-records` | GET, POST, PUT `:id` | Damage lifecycle |
 | `/api/approval-requests` | GET, POST, `:id/process`, `:id/cancel` | Approval workflow |
 | `/api/serial-log` | GET, POST | Serial register read (role-guarded, branch-scoped) & manual entry |
-| `/api/accounting/groups`, `/api/accounting/accounts` | GET, POST, PATCH/DELETE `:id` | Chart maintenance: statement-mapped groups with one optional sub-group level, control/subledger accounts and one posting default per role (`gl-view` read, `gl-manage` write). A sub-group inherits its parent's type and statement mapping; a group's code/type/mapping is fixed, only an empty group may move or be deleted, and an account's code/control nature is fixed, its group only changes before its first posting, retiring it clears its posting role, and an account with posted lines cannot be deleted |
+| `/api/accounting/groups`, `/api/accounting/accounts`, `/api/accounting/settlement-accounts` | GET, POST, PATCH/DELETE `:id`; GET picker | Chart maintenance: statement-mapped groups with one optional sub-group level, control/subledger accounts and one posting default per role (`gl-view` read, `gl-manage` write). A sub-group inherits its parent's type and statement mapping; a group's code/type/mapping is fixed, only an empty group may move or be deleted, and an account's code/control nature is fixed, its group only changes before its first posting, retiring it clears its posting role, and an account with posted lines cannot be deleted. `account_kind` classifies extra CASH/BANK ledgers that deliberately carry no posting role; the settlement picker exposes those active ledgers to `gl-view`, `sales-invoice-create` or `inv-pay` |
 | `/api/accounting/posting-defaults` | GET | Posting role → account mapping that invoice postings resolve; a missing role refuses the document instead of skipping its journal |
 | `/api/accounting/periods`, `:id/close`, `:id/reopen` | GET, POST | Monthly periods; a closed period refuses postings until reopened (`gl-close`) |
 | `/api/accounting/journals`, `:id` | GET, POST | Branch-scoped journal list / detail and balanced manual posting; a control-account line must carry its subledger party (`gl-post`) |
@@ -1376,7 +1376,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 1899 tests against a real PostgreSQL 16 service container
+2. `npm test` — 1913 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM
@@ -1463,12 +1463,12 @@ so any unwired new fetch fails the suite instead of shipping:
   remount refreshes it). Each test pins the effect deps carrying the refresh key and EVERY App.tsx render
   site passing it (2 PO, 2 PI, 1 SerialLogRegister, 11 StockOperations, 4 ReturnsRegister,
   2 SalesInvoices) — a newly added unwired mount fails.
-- **Feature-screen coverage (2026-10-03 audit, all 78 screens — the §G StockOperations
+- **Feature-screen coverage (2026-10-03 audit, all 82 screens — the §G StockOperations
   split added 12 tab panels plus the extracted tab-bar chrome, the BS-calendar
   integrity work added the Calendar Health panel, the permission-sets editor
   added its own panel, the daily cash close added its own screen, and the accounting
   workspace split into six statement registers)** — a `SCREEN_SURFACE_PINS`
-  table pins the 67 screens not covered above (the other 11 are pinned by the dedicated
+  table pins the 71 screens not covered above (the other 11 are pinned by the dedicated
   tests); an unpinned new screen fails coverage, and each pinned screen must match its
   exact surface. Surfaces use `serverCallsIn` = `api.*` methods **plus named
   `services/api` imports** — the audit found FinancialStatements.tsx imports

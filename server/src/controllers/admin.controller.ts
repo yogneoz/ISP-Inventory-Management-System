@@ -64,6 +64,8 @@ import {
   DOC_NUMBER_CONFIGS_SELECT_SQL,
   DOC_NUMBER_CONFIG_BY_ID_SQL,
   DOC_NUMBER_CONFIG_UPSERT_SQL,
+  DOC_NUMBER_CONFIG_INSERT_SQL,
+  DOC_NUMBER_CONFIG_DETAILS_UPDATE_SQL,
   docNumberConfigUpsertParams,
   DOC_NUMBER_CONFIG_INCREMENT_SQL,
   DOC_NUMBER_CONFIG_CLAIM_SQL,
@@ -692,6 +694,93 @@ const configs: DocumentNumberConfig[] = req.body;
   }
   res.json(docNumberConfigs);
 
+}
+
+function docNumberConfigCode(value: unknown): string {
+  const code = String(value ?? '').trim().toUpperCase();
+  if (!/^[A-Z0-9][A-Z0-9_-]{0,19}$/.test(code)) {
+    throw new ApiError(
+      400,
+      'A document-type id is required: 1–20 letters, digits, hyphens or underscores.'
+    );
+  }
+  return code;
+}
+
+function documentNumberConfigFields(body: Record<string, any>) {
+  const documentType = String(body.documentType ?? '').trim().slice(0, 150);
+  if (!documentType) throw new ApiError(400, 'A document-type name is required.');
+  const prefix = String(body.prefix ?? '').trim().toUpperCase().slice(0, 50);
+  if (!prefix) throw new ApiError(400, 'A document-type prefix is required.');
+  const notes = String(body.notes ?? '').trim().slice(0, 500);
+  return { documentType, prefix, notes };
+}
+
+/** POST /api/document-number-configs — create one numbering series. */
+export async function post_documentNumberConfig(req: any, res: Response): Promise<any> {
+  const id = docNumberConfigCode(req.body?.id);
+  const fields = documentNumberConfigFields(req.body || {});
+  if (getPgConnected()) {
+    const existing = await pgPool.query(DOC_NUMBER_CONFIG_BY_ID_SQL, [id]);
+    if (existing.rows[0]) throw new ApiError(409, `Document type '${id}' already exists.`);
+    await pgPool.query(DOC_NUMBER_CONFIG_INSERT_SQL, [id, fields.documentType, fields.prefix, fields.notes]);
+  } else if (docNumberConfigs.some((cfg) => cfg.id === id)) {
+    throw new ApiError(409, `Document type '${id}' already exists.`);
+  }
+  const row = getPgConnected()
+    ? (await pgPool.query(DOC_NUMBER_CONFIG_BY_ID_SQL, [id])).rows[0]
+    : {
+        id,
+        documentType: fields.documentType,
+        prefix: fields.prefix,
+        suffix: '',
+        minDigits: 4,
+        startingNumber: 1,
+        nextNumber: 1,
+        resetEveryFiscalYear: true,
+        notes: fields.notes,
+      };
+  setDocNumberConfigs(
+    [...docNumberConfigs.filter((cfg) => cfg.id !== id), row].sort((a, b) => a.id.localeCompare(b.id))
+  );
+  broadcastChange({ type: 'DOC_NUMBER_UPDATED', entity: 'MASTER_DATA' });
+  await logAuditEvent(
+    req,
+    'CREATE_DOCUMENT_NUMBER_CONFIG',
+    'MASTER_DATA',
+    `Created document type ${id} (${fields.prefix})`
+  );
+  return res.status(201).json(row);
+}
+
+/** PATCH /api/document-number-configs/:id — edit label/prefix without resetting the counter. */
+export async function patch_documentNumberConfig(req: any, res: Response): Promise<any> {
+  const id = docNumberConfigCode(req.params?.id);
+  const fields = documentNumberConfigFields(req.body || {});
+  const existing = getPgConnected()
+    ? (await pgPool.query(DOC_NUMBER_CONFIG_BY_ID_SQL, [id])).rows[0]
+    : docNumberConfigs.find((cfg) => cfg.id === id);
+  if (!existing) throw new ApiError(404, 'Document type not found.');
+  if (getPgConnected()) {
+    await pgPool.query(DOC_NUMBER_CONFIG_DETAILS_UPDATE_SQL, [
+      fields.documentType,
+      fields.prefix,
+      fields.notes,
+      id,
+    ]);
+  }
+  const row = getPgConnected()
+    ? (await pgPool.query(DOC_NUMBER_CONFIG_BY_ID_SQL, [id])).rows[0]
+    : { ...existing, ...fields };
+  setDocNumberConfigs(docNumberConfigs.map((cfg) => (cfg.id === id ? row : cfg)));
+  broadcastChange({ type: 'DOC_NUMBER_UPDATED', entity: 'MASTER_DATA' });
+  await logAuditEvent(
+    req,
+    'UPDATE_DOCUMENT_NUMBER_CONFIG',
+    'MASTER_DATA',
+    `Updated document type ${id} (${fields.prefix})`
+  );
+  return res.json(row);
 }
 
 /** Forwarded from admin.routes.ts (post_generateNext). */

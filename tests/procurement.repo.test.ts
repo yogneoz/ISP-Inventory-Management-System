@@ -97,20 +97,21 @@ describe('buildPiListSql', () => {
 });
 
 describe('piUpsertParams', () => {
-  test('fills 20 columns with documented defaults', () => {
+  test('fills 23 columns with documented defaults', () => {
     const inv = {
       id: 'inv-1', invoiceNumber: 'PI-1', branchId: 'WH001',
       invoiceDateAD: '2026-01-01', invoiceDateBS: '2083-04-10 BS',
       taxableAmount: 100, vatAmount: 13, nonTaxableAmount: 0, grandTotal: 113,
     };
     assert.deepEqual(piUpsertParams(inv, '[]'), [
-      'inv-1', 'PI-1', null, null, undefined, 'Vendor', 'WH001', '2026-01-01', '2083-04-10 BS',
-      null, null, 100, 13, 0, 113, 'UNPAID', 'CREDIT', 0, '', '[]',
+      'inv-1', 'PI-1', null, null, null, null, undefined, 'Vendor', 'WH001',
+      '2026-01-01', '2083-04-10 BS', null, null, null,
+      100, 13, 0, 113, 'UNPAID', 'CREDIT', 0, '', '[]',
     ]);
   });
 
   test('passes supplierId through raw (controller resolves it before calling)', () => {
-    assert.equal(piUpsertParams({ id: 'i', invoiceNumber: 'n', branchId: 'b', supplierId: 's1', invoiceDateBS: '2083-04-10 BS' }, '[]')[4], 's1');
+    assert.equal(piUpsertParams({ id: 'i', invoiceNumber: 'n', branchId: 'b', supplierId: 's1', invoiceDateBS: '2083-04-10 BS' }, '[]')[6], 's1');
   });
 
   test('resolves poReferenceId from poId fallback', () => {
@@ -198,17 +199,17 @@ describe('buildVendorPaymentWhere', () => {
 });
 
 describe('vendor payment params', () => {
-  test('vpInsertParams passes 21 values with isDemo handled in SQL as FALSE', () => {
+  test('vpInsertParams passes 22 values with isDemo handled in SQL as FALSE', () => {
     const p = {
       id: 'vp-1', paymentNumber: 'CP-1', supplierName: 'Acme', branchId: 'WH001',
       paymentDateAD: '2026-01-01', paymentDateBS: 'bs', amount: 500, paymentMethod: 'CASH', status: 'POSTED', createdBy: 'a@b',
     };
     const params = vpInsertParams(p);
-    assert.equal(params.length, 21);
+    assert.equal(params.length, 22);
     assert.deepEqual(params, [
       'vp-1', 'CP-1', null, 'Acme', 'WH001', undefined, undefined,
       '2026-01-01', 'bs', 500, 'CASH', undefined, undefined, undefined, undefined,
-      undefined, undefined, undefined, undefined, 'POSTED', 'a@b',
+      undefined, undefined, undefined, null, undefined, 'POSTED', 'a@b',
     ]);
   });
 

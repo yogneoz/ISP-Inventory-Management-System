@@ -199,7 +199,7 @@ export const PO_RELEASE_INCOMING_SQL = `UPDATE inventory_stock SET incoming_qty 
 // ---------------------------------------------------------------------------
 
 export const PI_SELECT_COLUMNS =
-  'id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", vendor_bill_number AS "vendorBillNumber", supplier_id AS "supplierId", supplier_name AS "supplierName", branch_id AS "branchId", invoice_date_ad AS "invoiceDateAD", invoice_date_bs AS "invoiceDateBS", due_date_ad AS "dueDateAD", due_date_bs AS "dueDateBS", taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", payment_status AS "paymentStatus", payment_method AS "paymentMethod", amount_paid AS "amountPaid", notes, items';
+  'id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", vendor_bill_number AS "vendorBillNumber", vendor_bill_date_ad AS "vendorBillDateAD", vendor_bill_date_bs AS "vendorBillDateBS", supplier_id AS "supplierId", supplier_name AS "supplierName", branch_id AS "branchId", invoice_date_ad AS "invoiceDateAD", invoice_date_bs AS "invoiceDateBS", bill_terms_id AS "billTermsId", due_date_ad AS "dueDateAD", due_date_bs AS "dueDateBS", taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", payment_status AS "paymentStatus", payment_method AS "paymentMethod", amount_paid AS "amountPaid", notes, items';
 
 export function buildPiListSql(branchId?: unknown): { sql: string; params: unknown[] } {
   const filter = branchId && branchId !== 'ALL';
@@ -293,8 +293,8 @@ export function buildPurchaseInvoicePagedQuery(opts: PurchaseInvoiceQueryOptions
 }
 
 export const PI_UPSERT_SQL = `INSERT INTO purchase_invoices (
-   id, invoice_number, po_reference_id, vendor_bill_number, supplier_id, supplier_name, branch_id, invoice_date_ad, invoice_date_bs, due_date_ad, due_date_bs, taxable_amount, vat_amount, non_taxable_amount, grand_total, payment_status, payment_method, amount_paid, notes, items
- ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+   id, invoice_number, po_reference_id, vendor_bill_number, vendor_bill_date_ad, vendor_bill_date_bs, supplier_id, supplier_name, branch_id, invoice_date_ad, invoice_date_bs, bill_terms_id, due_date_ad, due_date_bs, taxable_amount, vat_amount, non_taxable_amount, grand_total, payment_status, payment_method, amount_paid, notes, items
+ ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
  ON CONFLICT (id) DO UPDATE SET
    payment_status = EXCLUDED.payment_status,
    payment_method = EXCLUDED.payment_method,
@@ -308,11 +308,14 @@ export function piUpsertParams(inv: Record<string, any>, itemsJson: string): unk
     inv.invoiceNumber,
     inv.poReferenceId || inv.poId || null,
     inv.vendorBillNumber || null,
+    inv.vendorBillDateAD || inv.vendorBillDateAd || null,
+    inv.vendorBillDateBS || inv.vendorBillDateBs || null,
     inv.supplierId,
     inv.supplierName || 'Vendor',
     inv.branchId,
     inv.invoiceDateAD,
     inv.invoiceDateBS,
+    inv.billTermsId || null,
     inv.dueDateAD || inv.dueDateAd || null,
     inv.dueDateBS || inv.dueDateBs || null,
     Number(inv.taxableAmount) || 0,
@@ -510,8 +513,8 @@ export const VP_INSERT_SQL = `INSERT INTO vendor_payments (
    id, payment_number, supplier_id, supplier_name, branch_id, invoice_id, invoice_number,
    payment_date_ad, payment_date_bs, amount, payment_method, bank_name, bank_branch,
    account_number, cheque_number, cheque_date_ad, cheque_date_bs, transaction_reference,
-   notes, status, is_demo, created_by
- ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, FALSE, $21)
+   settlement_account_id, notes, status, is_demo, created_by
+ ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, FALSE, $22)
  ON CONFLICT (id) DO NOTHING`;
 
 export function vpInsertParams(p: Record<string, any>): unknown[] {
@@ -520,7 +523,7 @@ export function vpInsertParams(p: Record<string, any>): unknown[] {
     p.branchId, p.invoiceId, p.invoiceNumber,
     p.paymentDateAD, p.paymentDateBS, p.amount, p.paymentMethod,
     p.bankName, p.bankBranch, p.accountNumber, p.chequeNumber,
-    p.chequeDateAD, p.chequeDateBS, p.transactionReference,
+    p.chequeDateAD, p.chequeDateBS, p.transactionReference, p.settlementAccountId || null,
     p.notes, p.status, p.createdBy,
   ];
 }
@@ -648,7 +651,11 @@ export const VENDOR_PAYMENT_SELECT = `
          bank_name AS "bankName", bank_branch AS "bankBranch",
          account_number AS "accountNumber", cheque_number AS "chequeNumber",
          cheque_date_ad AS "chequeDateAD", cheque_date_bs AS "chequeDateBS",
-         transaction_reference AS "transactionReference", notes, status,
+         transaction_reference AS "transactionReference",
+         settlement_account_id AS "settlementAccountId",
+         (SELECT code FROM gl_accounts a WHERE a.id = vendor_payments.settlement_account_id) AS "settlementAccountCode",
+         (SELECT name FROM gl_accounts a WHERE a.id = vendor_payments.settlement_account_id) AS "settlementAccountName",
+         notes, status,
          reversal_reason AS "reversalReason", reversed_by AS "reversedBy",
          reversed_at_ad AS "reversedAtAD", original_payment_id AS "originalPaymentId",
          fiscal_year_id AS "fiscalYearId", is_demo AS "isDemo",

@@ -27,6 +27,7 @@
 import { ApiError } from '../errors/ApiError';
 import { roundMoney } from '../utils/money';
 import {
+  ACCOUNT_BY_ID_SQL,
   ACCOUNTS_BY_POSTING_ROLES_SQL,
   type PostingRole,
 } from '../models/accounting.repo';
@@ -43,6 +44,8 @@ interface PostingAccount {
   name: string;
   isControl: boolean;
   subledgerType: string;
+  accountKind?: string | null;
+  isActive?: boolean;
 }
 
 type PaymentAccountRole = Extract<PostingRole, 'AR_CONTROL' | 'AP_CONTROL' | 'CASH' | 'BANK'>;
@@ -54,6 +57,8 @@ interface PaymentDocument {
   paymentDateAD: string;
   amount: number | string;
   paymentMethod?: string | null;
+  /** The selected till/bank ledger; NULL keeps the posting default. */
+  settlementAccountId?: string | null;
   bankName?: string | null;
   chequeNumber?: string | null;
 }
@@ -109,6 +114,34 @@ function text(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
+/**
+ * Resolve the payment's chosen ledger. The method still decides whether the
+ * settlement is CASH or BANK; the chosen account only narrows WHICH till or
+ * bank account receives/pays the money. An inactive or wrong-kind account is
+ * refused rather than silently replaced by the default.
+ */
+async function loadSettlementAccount(
+  client: AccountingClient,
+  accountId: string,
+  expectedKind: 'CASH' | 'BANK',
+  label: string
+): Promise<PostingAccount> {
+  const account = (await client.query(ACCOUNT_BY_ID_SQL, [accountId])).rows[0];
+  if (!account) {
+    throw new ApiError(400, `The selected settlement ledger for ${label} no longer exists. Choose another account.`);
+  }
+  if (account.isActive === false) {
+    throw new ApiError(400, `The selected settlement ledger ${account.code} is inactive. Choose another account.`);
+  }
+  if (account.accountKind !== expectedKind) {
+    throw new ApiError(
+      400,
+      `The selected settlement ledger ${account.code} is ${account.accountKind || 'not a cash/bank ledger'}, but this ${label} must settle through a ${expectedKind} ledger.`
+    );
+  }
+  return account as PostingAccount;
+}
+
 function paymentMemo(label: string, doc: PaymentDocument): string {
   const parts = [`${label} ${doc.paymentNumber}`, String(doc.paymentMethod || 'CASH').toUpperCase()];
   if (doc.chequeNumber) parts.push(`cheque ${doc.chequeNumber}`);
@@ -155,11 +188,15 @@ export async function postCustomerReceiptLedger(
   }
 
   const settlementRole = cashOrBankRole(input.receipt.paymentMethod);
+  const settlementAccountId = text(input.receipt.settlementAccountId);
   const defaults = await loadPaymentDefaults(
     client,
-    ['AR_CONTROL', settlementRole],
+    settlementAccountId ? ['AR_CONTROL'] : ['AR_CONTROL', settlementRole],
     'customer receipts'
   );
+  const settlementAccount = settlementAccountId
+    ? await loadSettlementAccount(client, settlementAccountId, settlementRole, 'customer receipt')
+    : defaults[settlementRole];
   const memo = paymentMemo('Customer receipt', input.receipt);
 
   return postJournal(client, {
@@ -170,7 +207,7 @@ export async function postCustomerReceiptLedger(
     sourceId: input.receipt.id,
     actor: input.actor || null,
     lines: [
-      ordinaryLine(defaults[settlementRole], amount, 0, memo),
+      ordinaryLine(settlementAccount, amount, 0, memo),
       controlLine(defaults.AR_CONTROL, 0, amount, input.receipt.customerId, partyName, memo),
     ],
   });
@@ -192,11 +229,15 @@ export async function postVendorPaymentLedger(
   }
 
   const settlementRole = cashOrBankRole(input.payment.paymentMethod);
+  const settlementAccountId = text(input.payment.settlementAccountId);
   const defaults = await loadPaymentDefaults(
     client,
-    ['AP_CONTROL', settlementRole],
+    settlementAccountId ? ['AP_CONTROL'] : ['AP_CONTROL', settlementRole],
     'supplier payments'
   );
+  const settlementAccount = settlementAccountId
+    ? await loadSettlementAccount(client, settlementAccountId, settlementRole, 'supplier payment')
+    : defaults[settlementRole];
   const memo = paymentMemo('Vendor payment', input.payment);
 
   return postJournal(client, {
@@ -208,7 +249,7 @@ export async function postVendorPaymentLedger(
     actor: input.actor || null,
     lines: [
       controlLine(defaults.AP_CONTROL, amount, 0, input.payment.supplierId, partyName, memo),
-      ordinaryLine(defaults[settlementRole], 0, amount, memo),
+      ordinaryLine(settlementAccount, 0, amount, memo),
     ],
   });
 }

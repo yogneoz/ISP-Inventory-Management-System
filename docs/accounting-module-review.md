@@ -62,7 +62,7 @@ is the intended full-ERP shape against what actually shipped:
 
 | Area | First-plan intent (as remembered) | Implemented today |
 | --- | --- | --- |
-| Data model | ~86 tables; ledger tables per domain | **52 tables total**, 10 accounting tables: chart, accounts, periods, journals, lines, subledger, daily cash close, employees, payroll runs/lines |
+| Data model | ~86 tables; ledger tables per domain | **53 tables total**, 11 accounting tables: chart, accounts, bill terms, periods, journals, lines, subledger, daily cash close, employees, payroll runs/lines |
 | Ledger | separate AR/AP/inventory/asset/payroll ledgers | one generic `gl_journals` + `gl_journal_lines` + `gl_subledger_entries`; every domain posts through the same helper |
 | Chart of accounts | full CoA, hierarchy, maintenance | 38 seeded codes covering posting roles; one flat group level; read-only screen |
 | Journals | vouchers, recurring, reversals, period locks | source-keyed journals, linked reversals, period open/close, opening balances, year-end close |

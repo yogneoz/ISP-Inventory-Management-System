@@ -331,6 +331,32 @@ export async function updateDocumentNumberConfigs(configs: DocumentNumberConfig[
   });
 }
 
+export interface DocumentNumberConfigInput {
+  id?: string;
+  documentType: string;
+  prefix: string;
+  notes?: string;
+}
+
+export async function createDocumentNumberConfig(
+  input: DocumentNumberConfigInput
+): Promise<DocumentNumberConfig> {
+  return fetchJson('/api/document-number-configs', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateDocumentNumberConfig(
+  id: string,
+  input: DocumentNumberConfigInput
+): Promise<DocumentNumberConfig> {
+  return fetchJson(`/api/document-number-configs/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
 // Audit Logs & Transaction Logs
 //
 // The Audit Trail screen bootstraps the 200 newest audit rows. A serial's

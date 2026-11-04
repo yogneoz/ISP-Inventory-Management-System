@@ -4,7 +4,7 @@
  * journal record path is additionally branch-guarded by the registry.
  */
 import type { Express } from 'express';
-import { requirePermission } from '../middleware';
+import { requirePermission, requirePermissionAny } from '../middleware';
 import {
   delete_account,
   delete_accountGroup,
@@ -17,6 +17,7 @@ import {
   get_journals,
   get_periods,
   get_postingDefaults,
+  get_settlementAccounts,
   get_profitAndLoss,
   get_reconciliation,
   get_statementAccountLines,
@@ -32,6 +33,22 @@ import {
   post_period,
   post_reopenPeriod,
 } from '../controllers/accounting.controller';
+import {
+  delete_billTerm,
+  get_billTerms,
+  patch_billTerm,
+  post_billTerm,
+} from '../controllers/billTerms.controller';
+import {
+  delete_costCenter,
+  delete_narrationTemplate,
+  get_costCenters,
+  get_narrationTemplates,
+  patch_costCenter,
+  patch_narrationTemplate,
+  post_costCenter,
+  post_narrationTemplate,
+} from '../controllers/accountingMasters.controller';
 import {
   get_balanceSheetPrint,
   get_profitAndLossPrint,
@@ -61,6 +78,16 @@ export function registerAccountingRoutes(app: Express) {
   app.get('/api/accounting/accounts', requirePermission('gl-view'), async (req, res, next) => {
     get_accounts(req as any, res as any).catch(next);
   });
+  // Payment forms need the cash/bank picker without the full chart. Any of the
+  // three operations may read it: ledger viewers, receipt writers and payment
+  // writers. The response is only the active CASH/BANK ledgers.
+  app.get(
+    '/api/accounting/settlement-accounts',
+    requirePermissionAny('gl-view', 'sales-invoice-create', 'inv-pay'),
+    async (req, res, next) => {
+      get_settlementAccounts(req as any, res as any).catch(next);
+    }
+  );
   app.post('/api/accounting/accounts', requirePermission('gl-manage'), async (req, res, next) => {
     post_account(req as any, res as any).catch(next);
   });
@@ -72,6 +99,46 @@ export function registerAccountingRoutes(app: Express) {
   });
   app.get('/api/accounting/posting-defaults', requirePermission('gl-view'), async (req, res, next) => {
     get_postingDefaults(req as any, res as any).catch(next);
+  });
+  app.get('/api/accounting/bill-terms', requirePermission('gl-view'), async (req, res, next) => {
+    get_billTerms(req as any, res as any).catch(next);
+  });
+  app.post('/api/accounting/bill-terms', requirePermission('gl-manage'), async (req, res, next) => {
+    post_billTerm(req as any, res as any).catch(next);
+  });
+  app.patch('/api/accounting/bill-terms/:id', requirePermission('gl-manage'), async (req, res, next) => {
+    patch_billTerm(req as any, res as any).catch(next);
+  });
+  app.delete('/api/accounting/bill-terms/:id', requirePermission('gl-manage'), async (req, res, next) => {
+    delete_billTerm(req as any, res as any).catch(next);
+  });
+
+  // Analytical dimensions and narration text. Cost centres are required to be
+  // active and branch-compatible when a journal line names them; narrations
+  // are quick-pick text and are never stored as a journal foreign key.
+  app.get('/api/accounting/cost-centers', requirePermission('gl-view'), async (req, res, next) => {
+    get_costCenters(req as any, res as any).catch(next);
+  });
+  app.post('/api/accounting/cost-centers', requirePermission('gl-manage'), async (req, res, next) => {
+    post_costCenter(req as any, res as any).catch(next);
+  });
+  app.patch('/api/accounting/cost-centers/:id', requirePermission('gl-manage'), async (req, res, next) => {
+    patch_costCenter(req as any, res as any).catch(next);
+  });
+  app.delete('/api/accounting/cost-centers/:id', requirePermission('gl-manage'), async (req, res, next) => {
+    delete_costCenter(req as any, res as any).catch(next);
+  });
+  app.get('/api/accounting/narrations', requirePermission('gl-view'), async (req, res, next) => {
+    get_narrationTemplates(req as any, res as any).catch(next);
+  });
+  app.post('/api/accounting/narrations', requirePermission('gl-manage'), async (req, res, next) => {
+    post_narrationTemplate(req as any, res as any).catch(next);
+  });
+  app.patch('/api/accounting/narrations/:id', requirePermission('gl-manage'), async (req, res, next) => {
+    patch_narrationTemplate(req as any, res as any).catch(next);
+  });
+  app.delete('/api/accounting/narrations/:id', requirePermission('gl-manage'), async (req, res, next) => {
+    delete_narrationTemplate(req as any, res as any).catch(next);
   });
 
   // Monthly periods.

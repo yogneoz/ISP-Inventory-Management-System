@@ -15,6 +15,7 @@ import { intFromEnv } from '../utils/envGuard';
 import { firstLineQuantityRefusal } from '../utils/lineQuantity';
 import { ApiError } from '../errors/ApiError';
 import { postPurchaseInvoiceLedger, reverseInvoiceJournal } from '../services/invoicePosting.service';
+import { resolveInvoiceTerms } from '../services/billTerms.service';
 import { postVendorPaymentLedger, reverseVendorPaymentJournal } from '../services/paymentPosting.service';
 import { postPurchaseReturnJournal, reverseReturnJournal } from '../services/returnPosting.service';
 
@@ -500,14 +501,27 @@ try {
     // own AD date; 400 when unseeded (client-supplied BS never overrides).
     const invoiceDateBS = await bsDateOr400(res, invDate);
     if (!invoiceDateBS) return;
+    // The payable due date is driven by bill terms; the supplier's own bill
+    // date is a separate metadata field and is never written into due_date_ad.
+    const terms = await resolveInvoiceTerms({
+      invoiceDateAD: invDate,
+      dueDateAD: req.body.dueDateAD || req.body.dueDateAd || null,
+      dueDateBS: req.body.dueDateBS || req.body.dueDateBs || null,
+      billTermsId: req.body.billTermsId || null,
+      partyType: 'SUPPLIER',
+      partyId: req.body.supplierId || null,
+    });
     const newInv = {
       id: req.body.id || `inv-${Date.now()}`,
       invoiceNumber,
       invoiceDateAD: invDate,
       ...req.body,
-      // Placed after the spread so a client-supplied BS can never override
-      // the server-derived value.
+      // Placed after the spread so client-supplied values can never override
+      // the server-derived BS date or the resolved credit terms.
       invoiceDateBS,
+      billTermsId: terms.billTermsId,
+      dueDateAD: terms.dueDateAD,
+      dueDateBS: terms.dueDateBS,
     };
     // C1: the invoice's financial aggregates are recomputed from line
     // primitives (quantity × unitPrice, per-line taxRate/isTaxExempt). A
@@ -523,8 +537,10 @@ try {
     newInv.nonTaxableAmount = piTotals.nonTaxableAmount;
     newInv.vatAmount = piTotals.vatAmount;
     newInv.grandTotal = piTotals.grandTotal;
-    // Guard: the vendor bill date (stored as dueDateAD) can never be after the purchase date
-    if (newInv.dueDateAD && newInv.invoiceDateAD && newInv.dueDateAD > newInv.invoiceDateAD) {
+    // The supplier's own bill date is metadata and can never be after the
+    // purchase date. The payable due date is validated by the terms service.
+    const vendorBillDateAD = newInv.vendorBillDateAD || (newInv as any).vendorBillDateAd;
+    if (vendorBillDateAD && newInv.invoiceDateAD && vendorBillDateAD > newInv.invoiceDateAD) {
       res.status(400).json({ message: 'Vendor bill date cannot be after the purchase date.' });
       return;
     }
@@ -797,8 +813,10 @@ try {
       res.status(409).json({ message: 'A device serial, PON serial or MAC address in this bill was just registered by another transaction — nothing was posted.' });
       return;
     }
-    console.error('Error creating purchase invoice:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    if (!(err instanceof ApiError)) console.error('Error creating purchase invoice:', err);
+    res.status(err instanceof ApiError ? err.status : 500).json({
+      message: err instanceof ApiError ? err.message : `Database error: ${err.message}`,
+    });
   }
 
 }
@@ -1257,6 +1275,7 @@ try {
       chequeDateAD: body.chequeDateAD || null,
       chequeDateBS,
       transactionReference: body.transactionReference || null,
+      settlementAccountId: body.settlementAccountId || null,
       notes: body.notes || null,
       status: 'POSTED',
       reversalReason: null,

@@ -44,8 +44,9 @@ import { LoadStateNotice } from '../../components/common/LoadStateNotice';
 import { useOpenPurchaseOrders } from '../../services/procurementPendingCache';
 import { normalizeMacAddress } from '../../../../shared/macAddress';
 import type {
-  PurchaseInvoice, PurchaseInvoiceItem, PurchaseOrder, Product, Branch, Supplier, DeviceSerialPair, User,
+  PurchaseInvoice, PurchaseInvoiceItem, PurchaseOrder, Product, Branch, Supplier, DeviceSerialPair, User, BillTerm,
 } from '../../types';
+import { computeDueDateAD } from '../../../../shared/billTerms';
 
 interface InvoiceFormLine {
   productId: string;
@@ -69,6 +70,8 @@ interface PurchaseInvoiceFormProps {
   products: Product[];
   branches: Branch[];
   suppliers: Supplier[];
+  /** Active credit policies from the Bill Terms master. */
+  billTerms?: BillTerm[];
   selectedBranchId: string;
   /** Header fiscal-year scope for the open-PO read (AD dates). */
   fiscalYearStartAD?: string;
@@ -87,6 +90,7 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
   products,
   branches,
   suppliers,
+  billTerms = [],
   selectedBranchId,
   fiscalYearStartAD,
   fiscalYearEndAD,
@@ -136,9 +140,30 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
   const [vendorBillDateAD, setVendorBillDateAD] = useState(
     new Date().toISOString().split('T')[0]
   );
+  const [billTermsId, setBillTermsId] = useState('');
+  const [dueDateAD, setDueDateAD] = useState('');
   const [branchId, setBranchId] = useState(
     selectedBranchId !== 'ALL' ? selectedBranchId : branches[0]?.id || ''
   );
+
+  // Keep the displayed due date in step with the purchase date or the chosen
+  // term. A manual due-date edit survives until one of those inputs changes.
+  useEffect(() => {
+    if (!billTermsId) {
+      setDueDateAD('');
+      return;
+    }
+    const term = billTerms.find((entry) => entry.id === billTermsId);
+    setDueDateAD(term && purchaseDateAD ? computeDueDateAD(purchaseDateAD, term.dueDays) || '' : '');
+  }, [billTermsId, billTerms, purchaseDateAD]);
+
+  /** Select a supplier and adopt their default credit term. */
+  const selectSupplier = (supplier: Supplier | null | undefined) => {
+    const defaultTermId = supplier?.billTermsId;
+    setSupplierName(supplier?.name || '');
+    setSupplierId(supplier?.id || '');
+    setBillTermsId(defaultTermId && billTerms.some((term) => term.id === defaultTermId) ? defaultTermId : '');
+  };
 
   // Close supplier dropdown when clicking outside
   useEffect(() => {
@@ -252,6 +277,8 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
     setSelectedPoId('');
     setSupplierName('');
     setSupplierId('');
+    setBillTermsId('');
+    setDueDateAD('');
     setIsSupplierDropdownOpen(false);
     setBillDiscountValue(0);
     setTaxationType('TAXABLE_13');
@@ -502,6 +529,12 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
       );
       return;
     }
+    if (dueDateAD && dueDateAD < purchaseDateAD) {
+      setSaveMessage(
+        `Due date (${dueDateAD}) cannot be before the purchase date (${purchaseDateAD}). Please correct the term or the date.`
+      );
+      return;
+    }
 
     // WTY-4: the supplier's expiry is a contract date, so a reversed or
     // malformed one is refused here and again by the API — never clamped.
@@ -616,8 +649,12 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
       branchId,
       invoiceDateAD: purchaseDateAD,
       invoiceDateBS: invBs,
-      dueDateAD: vendorBillDateAD,
-      dueDateBS: vendorBillBs,
+      vendorBillDateAD,
+      vendorBillDateBS: vendorBillBs,
+      billTermsId: billTermsId || undefined,
+      dueDateAD: dueDateAD || undefined,
+      // The server derives the authoritative BS spelling from the AD due date.
+      dueDateBS: dueDateAD ? ensureBSDayForAD(dueDateAD) || '' : '',
       paymentMethod: 'CREDIT',
       items,
       subtotalAmount: grossSubtotal,
@@ -713,6 +750,11 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
                       // If the typed text exactly matches a directory supplier, keep its id for the FK.
                       const exact = availableSuppliers.find((s) => s.name.toLowerCase() === e.target.value.trim().toLowerCase());
                       setSupplierId(exact?.id || '');
+                      setBillTermsId(
+                        exact?.billTermsId && billTerms.some((term) => term.id === exact.billTermsId)
+                          ? exact.billTermsId
+                          : ''
+                      );
                       setIsSupplierDropdownOpen(true);
                     }}
                     placeholder="Select supplier — search name or PAN..."
@@ -723,7 +765,7 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
                     <button
                       type="button"
                       onClick={() => {
-                        setSupplierName('');
+                        selectSupplier(null);
                         setIsSupplierDropdownOpen(true);
                       }}
                       className={`absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded-full cursor-pointer text-slate-400 hover:text-slate-600 hover:bg-slate-200 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800`}
@@ -760,8 +802,7 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
                             key={s.id || s.name}
                             type="button"
                             onClick={() => {
-                              setSupplierName(s.name);
-                              setSupplierId(s.id);
+                              selectSupplier(s);
                               setIsSupplierDropdownOpen(false);
                             }}
                             className={`w-full text-left p-2.5 hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors cursor-pointer flex items-center justify-between ${
@@ -822,6 +863,42 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
                     Bill date is after the purchase date — bill cannot be saved.
                   </div>
                 )}
+              </div>
+
+              <div className="lg:col-span-4">
+                <label className={`block text-[10px] font-bold uppercase tracking-wider mb-1 text-slate-500 dark:text-slate-400`}>
+                  Bill Terms
+                </label>
+                <select
+                  id="pi-bill-terms-select"
+                  value={billTermsId}
+                  onChange={(e) => setBillTermsId(e.target.value)}
+                  className={`w-full rounded-xl border px-2.5 py-1.5 h-9 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100`}
+                >
+                  <option value="">No terms — due on invoice date</option>
+                  {billTerms.map((term) => (
+                    <option key={term.id} value={term.id}>
+                      {term.name} ({term.dueDays === 0 ? 'due on receipt' : `${term.dueDays} days`})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="lg:col-span-4 lg:max-w-[15rem]">
+                <label className={`block text-[10px] font-bold uppercase tracking-wider mb-1 text-slate-500 dark:text-slate-400`}>
+                  Due Date (AD)
+                </label>
+                <input
+                  type="date"
+                  id="pi-due-date"
+                  value={dueDateAD}
+                  min={purchaseDateAD || undefined}
+                  onChange={(e) => setDueDateAD(e.target.value)}
+                  className={`w-full rounded-xl border px-2.5 py-1.5 h-9 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100`}
+                />
+                <p className="mt-1 text-[10px] text-slate-400 dark:text-slate-500">
+                  Calculated from the term; edit to override.
+                </p>
               </div>
 
               {/* Whole Bill Taxation Terms Selection */}
@@ -1407,8 +1484,9 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
                           type="button"
                           onClick={() => {
                             setSelectedPoId(po.id);
-                            if (po.supplierName) setSupplierName(po.supplierName);
-                            if (po.supplierId) setSupplierId(po.supplierId);
+                            const poSupplier = availableSuppliers.find((s) => s.id === po.supplierId);
+                            if (poSupplier) selectSupplier(poSupplier);
+                            else if (po.supplierName) setSupplierName(po.supplierName);
                             if (po.branchId) setBranchId(po.branchId);
                             setIsPoSelectModalOpen(false);
                           }}

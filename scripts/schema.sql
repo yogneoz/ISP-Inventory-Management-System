@@ -97,6 +97,41 @@ CREATE INDEX IF NOT EXISTS idx_fiscal_years_demo ON fiscal_years(id) WHERE is_de
 ALTER TABLE fiscal_years ADD COLUMN IF NOT EXISTS is_provisional BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- ==========================================
+-- 3b. Bill Terms Table (credit days / early-payment discount)
+-- ==========================================
+-- A bill term is a reusable credit policy: due_days is counted from the
+-- invoice date (0 = due on receipt). Parties and invoices point at it; the
+-- invoice stores the resolved due date, so changing a term later never
+-- rewrites posted history.
+CREATE TABLE IF NOT EXISTS bill_terms (
+    id VARCHAR(50) PRIMARY KEY,
+    code VARCHAR(30) UNIQUE NOT NULL,
+    name VARCHAR(150) NOT NULL,
+    due_days INT NOT NULL DEFAULT 0 CHECK (due_days >= 0 AND due_days <= 3650),
+    discount_days INT CHECK (discount_days IS NULL OR (discount_days >= 0 AND discount_days <= 3650)),
+    discount_percent NUMERIC(5, 2) CHECK (discount_percent IS NULL OR (discount_percent >= 0 AND discount_percent <= 100)),
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR(150),
+    updated_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_bill_terms_active ON bill_terms(active);
+
+-- Seed the common terms once. ON CONFLICT keeps an operator's edited row.
+INSERT INTO bill_terms (id, code, name, due_days, discount_days, discount_percent, active, is_demo)
+VALUES
+  ('bt-due-on-receipt', 'DUE_ON_RECEIPT', 'Due on Receipt', 0, NULL, NULL, TRUE, FALSE),
+  ('bt-net-7', 'NET_7', 'Net 7 Days', 7, NULL, NULL, TRUE, FALSE),
+  ('bt-net-15', 'NET_15', 'Net 15 Days', 15, NULL, NULL, TRUE, FALSE),
+  ('bt-net-30', 'NET_30', 'Net 30 Days', 30, NULL, NULL, TRUE, FALSE),
+  ('bt-net-45', 'NET_45', 'Net 45 Days', 45, NULL, NULL, TRUE, FALSE),
+  ('bt-net-60', 'NET_60', 'Net 60 Days', 60, NULL, NULL, TRUE, FALSE)
+ON CONFLICT (id) DO NOTHING;
+
+-- ==========================================
 -- 4. Suppliers Table
 -- ==========================================
 CREATE TABLE IF NOT EXISTS suppliers (
@@ -108,6 +143,7 @@ CREATE TABLE IF NOT EXISTS suppliers (
     email VARCHAR(150),
     address TEXT,
     pan_vat_number VARCHAR(50),
+    bill_terms_id VARCHAR(50) REFERENCES bill_terms(id) ON DELETE SET NULL,
     rating NUMERIC(3, 1) DEFAULT 5.0,
     status VARCHAR(20) DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'INACTIVE', 'SUSPENDED')),
     is_demo BOOLEAN NOT NULL DEFAULT FALSE,
@@ -116,6 +152,10 @@ CREATE TABLE IF NOT EXISTS suppliers (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Existing databases pick the supplier default up on the next boot.
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS bill_terms_id VARCHAR(50) REFERENCES bill_terms(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_suppliers_bill_terms ON suppliers(bill_terms_id);
 
 -- ==========================================
 -- 5. Categories Table
@@ -348,11 +388,14 @@ CREATE TABLE IF NOT EXISTS purchase_invoices (
     invoice_number VARCHAR(100) UNIQUE NOT NULL,
     po_reference_id VARCHAR(50),
     vendor_bill_number VARCHAR(100),
+    vendor_bill_date_ad DATE,
+    vendor_bill_date_bs VARCHAR(20),
     supplier_id VARCHAR(50) REFERENCES suppliers(id) ON DELETE SET NULL,
     supplier_name VARCHAR(200) NOT NULL,
     branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
     invoice_date_ad DATE NOT NULL,
     invoice_date_bs VARCHAR(20) NOT NULL,
+    bill_terms_id VARCHAR(50) REFERENCES bill_terms(id) ON DELETE SET NULL,
     due_date_ad DATE,
     due_date_bs VARCHAR(20),
     taxable_amount NUMERIC(14, 2) DEFAULT 0.00,
@@ -382,6 +425,11 @@ CREATE TABLE IF NOT EXISTS purchase_invoices (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS vendor_bill_date_ad DATE;
+ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS vendor_bill_date_bs VARCHAR(20);
+ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS bill_terms_id VARCHAR(50) REFERENCES bill_terms(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_purchase_invoices_bill_terms ON purchase_invoices(bill_terms_id);
+
 -- ==========================================
 -- 10b. Vendor Payments Sub-ledger Table
 -- ==========================================
@@ -404,6 +452,7 @@ CREATE TABLE IF NOT EXISTS vendor_payments (
     cheque_date_ad DATE,
     cheque_date_bs VARCHAR(20),
     transaction_reference VARCHAR(200),
+    settlement_account_id VARCHAR(50),
     notes TEXT,
     status VARCHAR(30) DEFAULT 'POSTED' CHECK (status IN ('POSTED', 'REVERSED', 'VOIDED')),
     reversal_reason TEXT,
@@ -586,6 +635,45 @@ CREATE TABLE IF NOT EXISTS transaction_logs (
 );
 
 -- ==========================================
+-- 15b. Sales Areas and Agents (Step 5)
+-- ==========================================
+-- Areas are the geographic/sales territory dimension; agents are the people
+-- responsible for a territory. Both are sales masters, not ledger accounts.
+-- An area may be global (NULL branch_id) or owned by one branch. Customers
+-- default to an area/agent, and a posted invoice snapshots both.
+CREATE TABLE IF NOT EXISTS areas (
+    id VARCHAR(50) PRIMARY KEY,
+    code VARCHAR(30) UNIQUE NOT NULL,
+    name VARCHAR(150) NOT NULL,
+    parent_id VARCHAR(50) REFERENCES areas(id) ON DELETE RESTRICT,
+    branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE RESTRICT,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT areas_parent_self CHECK (parent_id IS NULL OR parent_id <> id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_areas_parent ON areas(parent_id);
+CREATE INDEX IF NOT EXISTS idx_areas_branch ON areas(branch_id);
+
+CREATE TABLE IF NOT EXISTS sales_agents (
+    id VARCHAR(50) PRIMARY KEY,
+    code VARCHAR(30) UNIQUE NOT NULL,
+    name VARCHAR(150) NOT NULL,
+    phone VARCHAR(50),
+    email VARCHAR(150),
+    area_id VARCHAR(50) REFERENCES areas(id) ON DELETE SET NULL,
+    commission_rate NUMERIC(5, 2) NOT NULL DEFAULT 0 CHECK (commission_rate >= 0 AND commission_rate <= 100),
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_sales_agents_area ON sales_agents(area_id);
+
+-- ==========================================
 -- 16. Customer Records Table
 -- ==========================================
 CREATE TABLE IF NOT EXISTS customer_records (
@@ -599,6 +687,9 @@ CREATE TABLE IF NOT EXISTS customer_records (
     email VARCHAR(150),
     status VARCHAR(30) DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'INACTIVE', 'SUSPENDED')),
     credit_limit NUMERIC(12, 2) DEFAULT 0.00,
+    bill_terms_id VARCHAR(50) REFERENCES bill_terms(id) ON DELETE SET NULL,
+    area_id VARCHAR(50) REFERENCES areas(id) ON DELETE SET NULL,
+    agent_id VARCHAR(50) REFERENCES sales_agents(id) ON DELETE SET NULL,
     assigned_devices_count INT DEFAULT 0,
     is_demo BOOLEAN NOT NULL DEFAULT FALSE,
     created_by VARCHAR(150),
@@ -606,6 +697,13 @@ CREATE TABLE IF NOT EXISTS customer_records (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE customer_records ADD COLUMN IF NOT EXISTS bill_terms_id VARCHAR(50) REFERENCES bill_terms(id) ON DELETE SET NULL;
+ALTER TABLE customer_records ADD COLUMN IF NOT EXISTS area_id VARCHAR(50) REFERENCES areas(id) ON DELETE SET NULL;
+ALTER TABLE customer_records ADD COLUMN IF NOT EXISTS agent_id VARCHAR(50) REFERENCES sales_agents(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_customer_records_bill_terms ON customer_records(bill_terms_id);
+CREATE INDEX IF NOT EXISTS idx_customer_records_area ON customer_records(area_id);
+CREATE INDEX IF NOT EXISTS idx_customer_records_agent ON customer_records(agent_id);
 
 -- ==========================================
 -- 10a-1. Sales Invoices Table (with items JSONB)
@@ -621,8 +719,13 @@ CREATE TABLE IF NOT EXISTS sales_invoices (
     branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
     invoice_date_ad DATE NOT NULL,
     invoice_date_bs VARCHAR(20) NOT NULL,
+    bill_terms_id VARCHAR(50) REFERENCES bill_terms(id) ON DELETE SET NULL,
     due_date_ad DATE,
     due_date_bs VARCHAR(20),
+    area_id VARCHAR(50) REFERENCES areas(id) ON DELETE SET NULL,
+    area_name VARCHAR(150),
+    agent_id VARCHAR(50) REFERENCES sales_agents(id) ON DELETE SET NULL,
+    agent_name VARCHAR(150),
     taxable_amount NUMERIC(14, 2) DEFAULT 0.00,
     vat_amount NUMERIC(14, 2) DEFAULT 0.00,
     non_taxable_amount NUMERIC(14, 2) DEFAULT 0.00,
@@ -647,6 +750,14 @@ CREATE TABLE IF NOT EXISTS sales_invoices (
 
 CREATE INDEX IF NOT EXISTS idx_sales_invoices_customer ON sales_invoices(customer_id);
 CREATE INDEX IF NOT EXISTS idx_sales_invoices_branch ON sales_invoices(branch_id);
+ALTER TABLE sales_invoices ADD COLUMN IF NOT EXISTS bill_terms_id VARCHAR(50) REFERENCES bill_terms(id) ON DELETE SET NULL;
+ALTER TABLE sales_invoices ADD COLUMN IF NOT EXISTS area_id VARCHAR(50) REFERENCES areas(id) ON DELETE SET NULL;
+ALTER TABLE sales_invoices ADD COLUMN IF NOT EXISTS area_name VARCHAR(150);
+ALTER TABLE sales_invoices ADD COLUMN IF NOT EXISTS agent_id VARCHAR(50) REFERENCES sales_agents(id) ON DELETE SET NULL;
+ALTER TABLE sales_invoices ADD COLUMN IF NOT EXISTS agent_name VARCHAR(150);
+CREATE INDEX IF NOT EXISTS idx_sales_invoices_bill_terms ON sales_invoices(bill_terms_id);
+CREATE INDEX IF NOT EXISTS idx_sales_invoices_area ON sales_invoices(area_id);
+CREATE INDEX IF NOT EXISTS idx_sales_invoices_agent ON sales_invoices(agent_id);
 CREATE INDEX IF NOT EXISTS idx_sales_invoices_date ON sales_invoices(invoice_date_ad);
 CREATE INDEX IF NOT EXISTS idx_sales_invoices_demo ON sales_invoices(id) WHERE is_demo = TRUE;
 
@@ -773,6 +884,7 @@ CREATE TABLE IF NOT EXISTS customer_payments (
     cheque_date_ad DATE,
     cheque_date_bs VARCHAR(20),
     transaction_reference VARCHAR(200),
+    settlement_account_id VARCHAR(50),
     notes TEXT,
     status VARCHAR(30) DEFAULT 'POSTED' CHECK (status IN ('POSTED', 'REVERSED', 'VOIDED')),
     reversal_reason TEXT,
@@ -1265,6 +1377,14 @@ CREATE TABLE IF NOT EXISTS gl_accounts (
         'GAIN_ON_DISPOSAL', 'LOSS_ON_DISPOSAL',
         'SALARY_EXPENSE', 'TDS_PAYABLE', 'SSF_PAYABLE', 'EMPLOYEE_ADVANCE', 'EMPLOYEE_LOAN'
     )),
+    -- CASH/BANK classify every till and bank ledger, including the extra ones
+    -- that deliberately have no posting role. OTHER is every non-cash ledger.
+    account_kind VARCHAR(10) NOT NULL DEFAULT 'OTHER' CHECK (account_kind IN ('CASH', 'BANK', 'OTHER')),
+    bank_name VARCHAR(150),
+    bank_branch VARCHAR(150),
+    account_number VARCHAR(100),
+    account_holder VARCHAR(150),
+    swift_code VARCHAR(50),
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     is_demo BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -1293,6 +1413,89 @@ ALTER TABLE gl_accounts ADD CONSTRAINT gl_accounts_posting_role_check CHECK (pos
     'GAIN_ON_DISPOSAL', 'LOSS_ON_DISPOSAL',
     'SALARY_EXPENSE', 'TDS_PAYABLE', 'SSF_PAYABLE', 'EMPLOYEE_ADVANCE', 'EMPLOYEE_LOAN'
 ));
+
+-- Existing installs need the new ledger classification and bank metadata. The
+-- default cash/bank ledgers are classified from the posting role they already
+-- carry; every other account starts as OTHER and can be corrected in the chart.
+ALTER TABLE gl_accounts ADD COLUMN IF NOT EXISTS account_kind VARCHAR(10) NOT NULL DEFAULT 'OTHER';
+CREATE INDEX IF NOT EXISTS idx_gl_accounts_kind ON gl_accounts(account_kind);
+ALTER TABLE gl_accounts DROP CONSTRAINT IF EXISTS gl_accounts_account_kind_check;
+ALTER TABLE gl_accounts ADD CONSTRAINT gl_accounts_account_kind_check
+    CHECK (account_kind IN ('CASH', 'BANK', 'OTHER'));
+ALTER TABLE gl_accounts ADD COLUMN IF NOT EXISTS bank_name VARCHAR(150);
+ALTER TABLE gl_accounts ADD COLUMN IF NOT EXISTS bank_branch VARCHAR(150);
+ALTER TABLE gl_accounts ADD COLUMN IF NOT EXISTS account_number VARCHAR(100);
+ALTER TABLE gl_accounts ADD COLUMN IF NOT EXISTS account_holder VARCHAR(150);
+ALTER TABLE gl_accounts ADD COLUMN IF NOT EXISTS swift_code VARCHAR(50);
+UPDATE gl_accounts SET account_kind = CASE
+    WHEN posting_role = 'CASH' THEN 'CASH'
+    WHEN posting_role = 'BANK' THEN 'BANK'
+    ELSE account_kind
+  END
+ WHERE posting_role IN ('CASH', 'BANK') AND account_kind = 'OTHER';
+
+-- Cost centres are an analytical dimension on journal lines, deliberately
+-- separate from branch (a location) and from the ledger account. A NULL
+-- branch_id makes the centre available to every branch; a set branch_id keeps
+-- it inside that branch. Parent rows let the master mirror a department tree.
+CREATE TABLE IF NOT EXISTS cost_centers (
+    id VARCHAR(50) PRIMARY KEY,
+    code VARCHAR(30) UNIQUE NOT NULL,
+    name VARCHAR(150) NOT NULL,
+    parent_id VARCHAR(50) REFERENCES cost_centers(id) ON DELETE RESTRICT,
+    branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE RESTRICT,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT cost_centers_parent_self CHECK (parent_id IS NULL OR parent_id <> id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cost_centers_parent ON cost_centers(parent_id);
+CREATE INDEX IF NOT EXISTS idx_cost_centers_branch ON cost_centers(branch_id);
+
+-- Narration templates are quick-pick text only. The journal stores the chosen
+-- text, never the template id, so editing a template never rewrites history.
+CREATE TABLE IF NOT EXISTS narration_templates (
+    id VARCHAR(50) PRIMARY KEY,
+    code VARCHAR(30) UNIQUE NOT NULL,
+    text TEXT NOT NULL,
+    transaction_type VARCHAR(40) NOT NULL DEFAULT 'ALL',
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_narration_templates_type ON narration_templates(transaction_type);
+
+-- Payment documents name the till/bank ledger they actually settled through.
+-- NULL keeps the posting default for historical rows and older clients.
+ALTER TABLE vendor_payments ADD COLUMN IF NOT EXISTS settlement_account_id VARCHAR(50);
+ALTER TABLE customer_payments ADD COLUMN IF NOT EXISTS settlement_account_id VARCHAR(50);
+CREATE INDEX IF NOT EXISTS idx_vendor_payments_settlement_account
+  ON vendor_payments(settlement_account_id);
+CREATE INDEX IF NOT EXISTS idx_customer_payments_settlement_account
+  ON customer_payments(settlement_account_id);
+
+-- Both payment tables are created before gl_accounts, so their settlement FK
+-- is added here once the ledger table exists. The guard keeps re-running the
+-- schema idempotent.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'vendor_payments_settlement_account_fkey'
+  ) THEN
+    ALTER TABLE vendor_payments ADD CONSTRAINT vendor_payments_settlement_account_fkey
+      FOREIGN KEY (settlement_account_id) REFERENCES gl_accounts(id) ON DELETE SET NULL;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'customer_payments_settlement_account_fkey'
+  ) THEN
+    ALTER TABLE customer_payments ADD CONSTRAINT customer_payments_settlement_account_fkey
+      FOREIGN KEY (settlement_account_id) REFERENCES gl_accounts(id) ON DELETE SET NULL;
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS gl_periods (
     id VARCHAR(50) PRIMARY KEY,
@@ -1347,6 +1550,7 @@ CREATE TABLE IF NOT EXISTS gl_journal_lines (
     journal_id VARCHAR(50) NOT NULL REFERENCES gl_journals(id) ON DELETE CASCADE,
     line_no INT NOT NULL,
     account_id VARCHAR(50) NOT NULL REFERENCES gl_accounts(id) ON DELETE RESTRICT,
+    cost_center_id VARCHAR(50) REFERENCES cost_centers(id) ON DELETE RESTRICT,
     branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
     debit NUMERIC(14, 2) NOT NULL DEFAULT 0,
     credit NUMERIC(14, 2) NOT NULL DEFAULT 0,
@@ -1361,6 +1565,8 @@ CREATE TABLE IF NOT EXISTS gl_journal_lines (
 
 CREATE INDEX IF NOT EXISTS idx_gl_journal_lines_account ON gl_journal_lines(account_id, branch_id);
 CREATE INDEX IF NOT EXISTS idx_gl_journal_lines_journal ON gl_journal_lines(journal_id);
+ALTER TABLE gl_journal_lines ADD COLUMN IF NOT EXISTS cost_center_id VARCHAR(50) REFERENCES cost_centers(id) ON DELETE RESTRICT;
+CREATE INDEX IF NOT EXISTS idx_gl_journal_lines_cost_center ON gl_journal_lines(cost_center_id);
 
 CREATE TABLE IF NOT EXISTS gl_subledger_entries (
     id VARCHAR(60) PRIMARY KEY,

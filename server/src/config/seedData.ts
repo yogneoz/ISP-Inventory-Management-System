@@ -1,7 +1,7 @@
 // Seed constants: default company profile, document numbering, master data
 // (UoM, locations, branches, fiscal years, suppliers) and demo user accounts.
 // Extracted verbatim from app.ts. Runtime state declarations remain in app.ts.
-import type { CompanyProfile, DocumentNumberConfig, UnitOfMeasure, LocationRecord, Branch, FiscalYear, Supplier, User, ProductGroup } from '../../../client/src/types';
+import type { CompanyProfile, DocumentNumberConfig, UnitOfMeasure, LocationRecord, Branch, FiscalYear, Supplier, User, ProductGroup, BillTerm } from '../../../client/src/types';
 
 // EXAMPLE/DUMMY company profile (is_demo-labelled data). Replace via the
 // Company Setup screen once real company details are available.
@@ -61,6 +61,17 @@ export const INITIAL_DOCUMENT_NUMBER_CONFIGS: DocumentNumberConfig[] = [
 // same rows for PostgreSQL (and for every test database); this copy is what a
 // PG-less demo run starts from. tests/productGroups.repo.test.ts asserts the two
 // lists stay identical, so neither can drift alone.
+// The common credit terms the schema seeds. Due days are counted from the
+// invoice date; 0 is due on receipt. PG-less demo mode starts from this list.
+export const INITIAL_BILL_TERMS: BillTerm[] = [
+  { id: 'bt-due-on-receipt', code: 'DUE_ON_RECEIPT', name: 'Due on Receipt', dueDays: 0, active: true },
+  { id: 'bt-net-7', code: 'NET_7', name: 'Net 7 Days', dueDays: 7, active: true },
+  { id: 'bt-net-15', code: 'NET_15', name: 'Net 15 Days', dueDays: 15, active: true },
+  { id: 'bt-net-30', code: 'NET_30', name: 'Net 30 Days', dueDays: 30, active: true },
+  { id: 'bt-net-45', code: 'NET_45', name: 'Net 45 Days', dueDays: 45, active: true },
+  { id: 'bt-net-60', code: 'NET_60', name: 'Net 60 Days', dueDays: 60, active: true },
+];
+
 export const INITIAL_PRODUCT_GROUPS: ProductGroup[] = [
   { id: 'pg-product-item', code: 'PRODUCT_ITEM', name: 'Product Item', behavior: 'STOCK_ITEM', sortOrder: 10, active: true, isSystem: true },
   { id: 'pg-consumable-item', code: 'CONSUMABLE_ITEM', name: 'Consumable Item', behavior: 'CONSUMABLE', sortOrder: 20, active: true, isSystem: true },

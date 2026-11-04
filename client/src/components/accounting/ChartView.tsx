@@ -92,6 +92,12 @@ export const ChartView: React.FC<{
           groupId: values.groupId,
           description: values.description,
           postingRole: values.postingRole || null,
+          accountKind: values.accountKind,
+          bankName: values.bankName || null,
+          bankBranch: values.bankBranch || null,
+          accountNumber: values.accountNumber || null,
+          accountHolder: values.accountHolder || null,
+          swiftCode: values.swiftCode || null,
         });
       } else {
         await api.createAccountingAccount({
@@ -101,6 +107,12 @@ export const ChartView: React.FC<{
           description: values.description,
           subledgerType: values.subledgerType,
           postingRole: values.postingRole || null,
+          accountKind: values.accountKind,
+          bankName: values.bankName || null,
+          bankBranch: values.bankBranch || null,
+          accountNumber: values.accountNumber || null,
+          accountHolder: values.accountHolder || null,
+          swiftCode: values.swiftCode || null,
         });
       }
       setAccountDialog(null);
@@ -190,7 +202,7 @@ export const ChartView: React.FC<{
     return (
       <React.Fragment key={group.id}>
         <tr className={depth === 0 ? 'bg-slate-100 dark:bg-slate-800/60' : 'bg-slate-50 dark:bg-slate-800/40'}>
-          <td colSpan={canManage ? 8 : 7} className="px-2.5 py-1.5">
+          <td colSpan={canManage ? 9 : 8} className="px-2.5 py-1.5">
             <div
               className="flex flex-wrap items-center justify-between gap-2"
               style={{ paddingLeft: depth * 16 }}
@@ -236,7 +248,7 @@ export const ChartView: React.FC<{
         </tr>
         {accounts.length === 0 && children.length === 0 && (
           <tr>
-            <td colSpan={canManage ? 8 : 7} className="px-3 py-2 text-[11px] italic text-slate-400">
+            <td colSpan={canManage ? 9 : 8} className="px-3 py-2 text-[11px] italic text-slate-400">
               No accounts or sub-groups in this group.
             </td>
           </tr>
@@ -248,6 +260,15 @@ export const ChartView: React.FC<{
               {account.name}
             </td>
             <td className="px-2.5 py-1.5 text-slate-500 dark:text-slate-400">{account.accountType}</td>
+            <td className="px-2.5 py-1.5">
+              {account.accountKind && account.accountKind !== 'OTHER' ? (
+                <span className="rounded-full bg-emerald-50 px-2 py-0.5 font-mono text-[10px] font-bold text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300">
+                  {account.accountKind}
+                </span>
+              ) : (
+                <span className="text-slate-400">—</span>
+              )}
+            </td>
             <td className="px-2.5 py-1.5 text-slate-500 dark:text-slate-400">{account.statementGroup}</td>
             <td className="px-2.5 py-1.5 text-slate-500 dark:text-slate-400">
               {account.isControl ? account.subledgerType : '—'}
@@ -373,6 +394,7 @@ export const ChartView: React.FC<{
                 <th className="px-2.5 py-1.5">Code</th>
                 <th className="px-2.5 py-1.5">Account</th>
                 <th className="px-2.5 py-1.5">Type</th>
+                <th className="px-2.5 py-1.5">Kind</th>
                 <th className="px-2.5 py-1.5">Statement group</th>
                 <th className="px-2.5 py-1.5">Control</th>
                 <th className="px-2.5 py-1.5">Posting role</th>
@@ -383,7 +405,7 @@ export const ChartView: React.FC<{
             <tbody className="divide-y divide-slate-100 font-medium dark:divide-slate-800/60">
               {state.accounts.length === 0 ? (
                 <tr>
-                  <td colSpan={canManage ? 8 : 7} className="px-3 py-6 text-center text-slate-400">
+                  <td colSpan={canManage ? 9 : 8} className="px-3 py-6 text-center text-slate-400">
                     No ledger accounts are configured.
                   </td>
                 </tr>

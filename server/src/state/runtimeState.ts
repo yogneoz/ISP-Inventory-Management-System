@@ -12,6 +12,7 @@
 import { pgPool } from '../../db';
 import { BOOTSTRAP_TABLES, CACHE_ONLY_TABLES, buildCacheSelectSql } from '../models/columnMappings';
 import {
+  INITIAL_BILL_TERMS,
   INITIAL_COMPANY_PROFILE,
   INITIAL_DOCUMENT_NUMBER_CONFIGS,
 } from '../config/seedData';
@@ -22,7 +23,7 @@ import type {
   ApprovalRequest, Category, UnitOfMeasure, LocationRecord,
   DocumentNumberConfig, DamageRecord, SerialLog, VendorPayment,
   SalesInvoice, PurchaseReturn, SalesReturn, CustomerPayment, ProductGroup,
-  WarrantyCoverageRecord,
+  WarrantyCoverageRecord, BillTerm, CostCenter, NarrationTemplate, Area, SalesAgent,
 } from '../../../client/src/types';
 import { INITIAL_PRODUCT_GROUPS } from '../config/seedData';
 import type {
@@ -49,6 +50,18 @@ export let categories: readonly Category[] = [];
 // Seeded from the same three groups scripts/schema.sql seeds, so PG-less demo
 // mode resolves behaviour instead of falling back to an empty list.
 export let productGroups: readonly ProductGroup[] = INITIAL_PRODUCT_GROUPS.map((g) => ({ ...g }));
+// Credit terms are master data, not a transaction: PG mode reads them through
+// the API, while this seeded list keeps PG-less demo mode usable.
+export let billTerms: readonly BillTerm[] = INITIAL_BILL_TERMS.map((t) => ({ ...t }));
+// Cost centres and narration templates are master data for the ledger. They
+// have no seed rows; PG mode reads them through their APIs and this mirror
+// keeps PG-less demo mode from throwing on a read.
+export let costCenters: readonly CostCenter[] = [];
+export let narrationTemplates: readonly NarrationTemplate[] = [];
+// Sales territories/agents are master data for customer defaults and invoice
+// snapshots; PG mode reads them directly, this mirror keeps demo mode usable.
+export let areas: readonly Area[] = [];
+export let salesAgents: readonly SalesAgent[] = [];
 export let inventoryStock: readonly InventoryStock[] = [];
 export let assetRegister: readonly Asset[] = [];
 export let customerDeviceRecords: readonly CustomerDeviceRecord[] = [];
@@ -103,6 +116,11 @@ export function setFiscalYears(value: readonly FiscalYear[]): void { fiscalYears
 export function setProducts(value: readonly Product[]): void { products = value; }
 export function setCategories(value: readonly Category[]): void { categories = value; }
 export function setProductGroups(value: readonly ProductGroup[]): void { productGroups = value; }
+export function setBillTerms(value: readonly BillTerm[]): void { billTerms = value; }
+export function setCostCenters(value: readonly CostCenter[]): void { costCenters = value; }
+export function setNarrationTemplates(value: readonly NarrationTemplate[]): void { narrationTemplates = value; }
+export function setAreas(value: readonly Area[]): void { areas = value; }
+export function setSalesAgents(value: readonly SalesAgent[]): void { salesAgents = value; }
 export function setInventoryStock(value: readonly InventoryStock[]): void { inventoryStock = value; }
 export function setAssetRegister(value: readonly Asset[]): void { assetRegister = value; }
 export function setCustomerDeviceRecords(value: readonly CustomerDeviceRecord[]): void { customerDeviceRecords = value; }

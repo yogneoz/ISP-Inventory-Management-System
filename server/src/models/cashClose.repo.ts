@@ -54,7 +54,7 @@ export const CASH_BRANCH_FIGURES_SQL = `WITH scoped AS (
   JOIN gl_journals j ON j.id = l.journal_id
   JOIN gl_accounts a ON a.id = l.account_id
   WHERE j.status = 'POSTED'
-    AND a.posting_role IN ('CASH', 'BANK')
+    AND a.account_kind IN ('CASH', 'BANK')
     AND j.journal_date_ad <= $1::date
     AND ($2::varchar[] IS NULL OR l.branch_id = ANY($2::varchar[]))
 )

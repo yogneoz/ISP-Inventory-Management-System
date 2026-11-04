@@ -201,6 +201,70 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
     assert.equal(defaults.json.defaults.SALES.accountId, accounts.sales);
   });
 
+  test('cash and bank ledgers are classified, may be multiple, and feed the settlement picker', async () => {
+    const bank = await post('/api/accounting/accounts', tokens.super, {
+      code: 'ATC-1021',
+      name: 'ACC Collection Bank',
+      groupId: accounts.groupAsset,
+      accountKind: 'BANK',
+      bankName: 'ACC Bank',
+      bankBranch: 'Main',
+      accountNumber: '0123456789',
+      accountHolder: 'ACC Company',
+      swiftCode: 'ACCSNPKA',
+    });
+    assert.equal(bank.status, 201, JSON.stringify(bank.json));
+    assert.equal(bank.json.accountKind, 'BANK');
+    assert.equal(bank.json.bankName, 'ACC Bank');
+    assert.equal(bank.json.swiftCode, 'ACCSNPKA');
+    assert.equal(bank.json.postingRole, null, 'an extra bank ledger must not steal the BANK default');
+
+    const cash = await post('/api/accounting/accounts', tokens.super, {
+      code: 'ATC-1011',
+      name: 'ACC Petty Cash',
+      groupId: accounts.groupAsset,
+      accountKind: 'CASH',
+    });
+    assert.equal(cash.status, 201, JSON.stringify(cash.json));
+    assert.equal(cash.json.accountKind, 'CASH');
+    assert.equal(cash.json.postingRole, null);
+
+    const defaults = await get('/api/accounting/posting-defaults', tokens.super);
+    assert.equal(defaults.status, 200);
+    assert.notEqual(defaults.json.defaults.BANK.accountId, bank.json.id);
+    assert.notEqual(defaults.json.defaults.CASH.accountId, cash.json.id);
+
+    const picker = await get('/api/accounting/settlement-accounts', tokens.super);
+    assert.equal(picker.status, 200, JSON.stringify(picker.json));
+    const chosenBank = picker.json.find((account: any) => account.id === bank.json.id);
+    const chosenCash = picker.json.find((account: any) => account.id === cash.json.id);
+    assert.ok(chosenBank, 'the extra bank ledger must be available to payments');
+    assert.ok(chosenCash, 'the extra cash ledger must be available to payments');
+    assert.equal(chosenBank.accountKind, 'BANK');
+    assert.equal(chosenBank.bankName, 'ACC Bank');
+    assert.equal(chosenCash.accountKind, 'CASH');
+
+    const mismatched = await post('/api/accounting/accounts', tokens.super, {
+      code: 'ATC-BAD5',
+      name: 'ACC Mismatched Cash',
+      groupId: accounts.groupAsset,
+      accountKind: 'CASH',
+      postingRole: 'SALES',
+    });
+    assert.equal(mismatched.status, 400, JSON.stringify(mismatched.json));
+    assert.match(mismatched.json.message, /cash ledger.*posting role/i);
+
+    const bankDetailsOnOther = await post('/api/accounting/accounts', tokens.super, {
+      code: 'ATC-BAD6',
+      name: 'ACC Bank Details On Other',
+      groupId: accounts.groupAsset,
+      accountKind: 'OTHER',
+      bankName: 'Not A Bank Ledger',
+    });
+    assert.equal(bankDetailsOnOther.status, 400, JSON.stringify(bankDetailsOnOther.json));
+    assert.match(bankDetailsOnOther.json.message, /bank details/i);
+  });
+
   test('invalid chart entries are refused and change nothing', async () => {
     const badMapping = await post('/api/accounting/groups', tokens.super, {
       code: 'ATC-BAD1', name: 'ACC Bad Mapping', accountType: 'ASSET', statementGroup: 'REVENUE',

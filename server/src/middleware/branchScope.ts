@@ -71,6 +71,14 @@ export const BRANCH_SCOPED_RESOURCES: readonly BranchScopedResource[] = [
   // Journals are branch-bound; the header carries the owning branch. Lines and
   // subledger entries are only reachable through their guarded header.
   { prefix: '/accounting/journals', table: 'gl_journals', columns: ['branch_id'] },
+  // Sales territories are branch custody when they name a branch; global areas
+  // (NULL branch_id) are limited to global accounts by the controller.
+  { prefix: '/sales/areas', table: 'areas', columns: ['branch_id'] },
+  // Cost centres are master data but a branch-owned centre is branch custody:
+  // a branch accountant must not edit another branch's centre by id. Global
+  // centres (NULL branch_id) are intentionally handled by the controller's
+  // create/update guard, which only lets global accounts use them.
+  { prefix: '/accounting/cost-centers', table: 'cost_centers', columns: ['branch_id'] },
   // Payroll is branch custody: employees belong to a branch and runs are filed
   // under one. The employee-ledger path is guarded by the employee id parsed
   // from `/employees/:id/ledger`.

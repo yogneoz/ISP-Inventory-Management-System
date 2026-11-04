@@ -63,7 +63,10 @@ export type PostingRole =
   | 'EMPLOYEE_ADVANCE'
   | 'EMPLOYEE_LOAN';
 
+export type AccountKind = 'CASH' | 'BANK' | 'OTHER';
+
 export const ACCOUNT_TYPES: readonly AccountType[] = ['ASSET', 'LIABILITY', 'EQUITY', 'INCOME', 'EXPENSE'];
+export const ACCOUNT_KINDS: readonly AccountKind[] = ['CASH', 'BANK', 'OTHER'];
 export const STATEMENT_GROUPS: readonly StatementGroup[] = [
   'CURRENT_ASSET',
   'NON_CURRENT_ASSET',
@@ -136,6 +139,12 @@ export const ACCOUNT_COLUMNS = `a.id,
   a.is_control AS "isControl",
   a.subledger_type AS "subledgerType",
   a.posting_role AS "postingRole",
+  a.account_kind AS "accountKind",
+  a.bank_name AS "bankName",
+  a.bank_branch AS "bankBranch",
+  a.account_number AS "accountNumber",
+  a.account_holder AS "accountHolder",
+  a.swift_code AS "swiftCode",
   a.is_active AS "isActive",
   a.is_demo AS "isDemo",
   g.code AS "groupCode",
@@ -194,12 +203,16 @@ export const JOURNAL_LINES_SQL = `SELECT l.id,
   a.name AS "accountName",
   a.is_control AS "isControl",
   a.subledger_type AS "subledgerType",
+  l.cost_center_id AS "costCenterId",
+  cc.code AS "costCenterCode",
+  cc.name AS "costCenterName",
   l.branch_id AS "branchId",
   l.debit::numeric AS debit,
   l.credit::numeric AS credit,
   l.memo
 FROM gl_journal_lines l
 JOIN gl_accounts a ON a.id = l.account_id
+LEFT JOIN cost_centers cc ON cc.id = l.cost_center_id
 WHERE l.journal_id = $1
 ORDER BY l.line_no ASC`;
 
@@ -278,9 +291,11 @@ ON CONFLICT DO NOTHING`;
 
 export const ACCOUNT_SEED_INSERT_SQL = `INSERT INTO gl_accounts (
   id, code, name, group_id, description, is_control, subledger_type,
-  posting_role, is_active, is_demo
+  posting_role, account_kind, is_active, is_demo
 )
-SELECT $1, $2, $3, g.id, $4, $5, $6, $7, TRUE, FALSE
+SELECT $1, $2, $3, g.id, $4, $5, $6, $7,
+  CASE WHEN $7::varchar = 'CASH' THEN 'CASH' WHEN $7::varchar = 'BANK' THEN 'BANK' ELSE 'OTHER' END,
+  TRUE, FALSE
 FROM gl_account_groups g
 WHERE g.code = $8
 ON CONFLICT DO NOTHING`;
@@ -359,8 +374,9 @@ WHERE id = $1 AND status = 'POSTED'`;
 
 export const ACCOUNT_INSERT_SQL = `INSERT INTO gl_accounts (
   id, code, name, group_id, description, is_control, subledger_type,
-  posting_role, is_active, is_demo
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE, $9)`;
+  posting_role, account_kind, bank_name, bank_branch, account_number,
+  account_holder, swift_code, is_active, is_demo
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, TRUE, $15)`;
 
 export const ACCOUNT_UPDATE_SQL = `UPDATE gl_accounts SET
   name = COALESCE($2, name),
@@ -368,8 +384,30 @@ export const ACCOUNT_UPDATE_SQL = `UPDATE gl_accounts SET
   posting_role = $4,
   is_active = COALESCE($5, is_active),
   group_id = COALESCE($6, group_id),
+  account_kind = COALESCE($7, account_kind),
+  bank_name = $8,
+  bank_branch = $9,
+  account_number = $10,
+  account_holder = $11,
+  swift_code = $12,
   updated_at = CURRENT_TIMESTAMP
 WHERE id = $1`;
+
+/** Active ledgers a payment document may settle through, default first. */
+export const SETTLEMENT_ACCOUNTS_SQL = `SELECT a.id,
+  a.code,
+  a.name,
+  a.account_kind AS "accountKind",
+  a.posting_role AS "postingRole",
+  a.bank_name AS "bankName",
+  a.bank_branch AS "bankBranch",
+  a.account_number AS "accountNumber",
+  a.account_holder AS "accountHolder",
+  a.swift_code AS "swiftCode"
+FROM gl_accounts a
+WHERE a.is_active = TRUE AND a.account_kind IN ('CASH', 'BANK')
+ORDER BY CASE WHEN a.posting_role IN ('CASH', 'BANK') THEN 0 ELSE 1 END,
+  a.account_kind ASC, a.code ASC`;
 
 /** `$1` is a text[] of ids; callers pass an empty array safely (no rows). */
 export const ACCOUNTS_BY_IDS_SQL = `SELECT ${ACCOUNT_COLUMNS}
@@ -490,8 +528,8 @@ export const JOURNAL_INSERT_SQL = `INSERT INTO gl_journals (
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'POSTED', $10, $11, $12)`;
 
 export const JOURNAL_LINE_INSERT_SQL = `INSERT INTO gl_journal_lines (
-  id, journal_id, line_no, account_id, branch_id, debit, credit, memo
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`;
+  id, journal_id, line_no, account_id, cost_center_id, branch_id, debit, credit, memo
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`;
 
 export const SUBLEDGER_INSERT_SQL = `INSERT INTO gl_subledger_entries (
   id, journal_id, journal_line_id, account_id, subledger_type, party_id,
@@ -689,6 +727,7 @@ SELECT a.id AS "accountId",
   a.is_active AS "isActive",
   a.subledger_type AS "subledgerType",
   a.posting_role AS "postingRole",
+  a.account_kind AS "accountKind",
   g.id AS "groupId",
   g.parent_id AS "parentGroupId",
   g.code AS "groupCode",
@@ -1003,9 +1042,10 @@ WHERE a.is_control = TRUE
 ORDER BY a.code ASC`;
 
 /**
- * Cash/bank book, account totals: one row per account carrying the CASH or
- * BANK posting default. `$1` is the opening boundary (NULL means inception),
- * `$2` the closing date and `$3` the branch (NULL rolls up every branch).
+ * Cash/bank book, account totals: one row per ledger classified CASH or BANK,
+ * whether or not it carries the single posting default. `$1` is the opening
+ * boundary (NULL means inception), `$2` the closing date and `$3` the branch
+ * (NULL rolls up every branch).
  *
  * Only POSTED journals count, and the branch filter is on the line where the
  * branch dimension lives — exactly the rules the statements use. The closing
@@ -1022,7 +1062,13 @@ export const CASH_BANK_ACCOUNT_ROWS_SQL = `WITH scoped AS (
 SELECT a.id AS "accountId",
   a.code,
   a.name,
+  a.account_kind AS "accountKind",
   a.posting_role AS "postingRole",
+  a.bank_name AS "bankName",
+  a.bank_branch AS "bankBranch",
+  a.account_number AS "accountNumber",
+  a.account_holder AS "accountHolder",
+  a.swift_code AS "swiftCode",
   a.is_active AS "isActive",
   COALESCE(SUM(CASE WHEN $1::date IS NOT NULL AND s.journal_date_ad < $1::date
     THEN s.debit - s.credit ELSE 0 END), 0)::numeric AS opening,
@@ -1032,9 +1078,10 @@ SELECT a.id AS "accountId",
     THEN s.credit ELSE 0 END), 0)::numeric AS payments
 FROM gl_accounts a
 LEFT JOIN scoped s ON s.account_id = a.id
-WHERE a.posting_role IN ('CASH', 'BANK')
-GROUP BY a.id, a.code, a.name, a.posting_role, a.is_active
-ORDER BY a.code ASC`;
+WHERE a.account_kind IN ('CASH', 'BANK')
+GROUP BY a.id, a.code, a.name, a.account_kind, a.posting_role, a.bank_name,
+  a.bank_branch, a.account_number, a.account_holder, a.swift_code, a.is_active
+ORDER BY a.account_kind ASC, a.code ASC`;
 
 /** The individual movements behind the cash/bank book, oldest first. */
 export const CASH_BANK_ENTRY_ROWS_SQL = `SELECT a.id AS "accountId",
@@ -1051,7 +1098,7 @@ export const CASH_BANK_ENTRY_ROWS_SQL = `SELECT a.id AS "accountId",
 FROM gl_journal_lines l
 JOIN gl_journals j ON j.id = l.journal_id
 JOIN gl_accounts a ON a.id = l.account_id
-WHERE a.posting_role IN ('CASH', 'BANK')
+WHERE a.account_kind IN ('CASH', 'BANK')
   AND j.status = 'POSTED'
   AND ($1::date IS NULL OR j.journal_date_ad >= $1::date)
   AND j.journal_date_ad <= $2::date
@@ -1135,6 +1182,12 @@ export interface AccountInput {
   isControl: boolean;
   subledgerType: SubledgerType;
   postingRole?: PostingRole | null;
+  accountKind?: AccountKind;
+  bankName?: string | null;
+  bankBranch?: string | null;
+  accountNumber?: string | null;
+  accountHolder?: string | null;
+  swiftCode?: string | null;
   isDemo?: boolean;
 }
 
@@ -1148,6 +1201,12 @@ export function accountInsertParams(input: AccountInput): unknown[] {
     input.isControl,
     input.subledgerType,
     input.postingRole || null,
+    input.accountKind || 'OTHER',
+    input.bankName || null,
+    input.bankBranch || null,
+    input.accountNumber || null,
+    input.accountHolder || null,
+    input.swiftCode || null,
     Boolean(input.isDemo),
   ];
 }
@@ -1189,6 +1248,7 @@ export function journalLineInsertParams(input: {
   journalId: string;
   lineNo: number;
   accountId: string;
+  costCenterId?: string | null;
   branchId: string;
   debit: number;
   credit: number;
@@ -1199,6 +1259,7 @@ export function journalLineInsertParams(input: {
     input.journalId,
     input.lineNo,
     input.accountId,
+    input.costCenterId || null,
     input.branchId,
     input.debit,
     input.credit,

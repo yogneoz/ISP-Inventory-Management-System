@@ -616,8 +616,10 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
     // invoice-detail modal's payment history and the two reversal write
     // flows — none of them supplies the grid, all are user-initiated.
     assert.deepEqual(serverCallsIn(source), [
+      'getBillTerms',
       'getInvoicePayments',
       'getPurchaseInvoices',
+      'getSettlementAccounts',
       'reverseInvoicePayments',
       'reverseVendorPayment',
     ]);
@@ -712,7 +714,12 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
     // The LIST tab's only data load is /api/sales-invoices (loadSiPage).
     // The create form's customer picker searches the directory server-side;
     // create and record-payment mutations flow through App callbacks.
-    assert.deepEqual(serverCallsIn(source), ['getSalesInvoices', 'searchCustomers']);
+    assert.deepEqual(serverCallsIn(source), [
+      'getBillTerms',
+      'getSalesInvoices',
+      'getSettlementAccounts',
+      'searchCustomers',
+    ]);
     assert.match(source, /sseRefreshKey\?: number;/);
     assert.match(
       source,
@@ -970,12 +977,29 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       'getControlReconciliation',
       'getPostingDefaults',
     ],
+    'finance/BillTermsManagement.tsx': ['createBillTerm', 'deleteBillTerm', 'getBillTerms', 'updateBillTerm'],
+    'finance/CostCentersManagement.tsx': [
+      'createCostCenter',
+      'deleteCostCenter',
+      'getCostCenters',
+      'updateCostCenter',
+    ],
     'finance/CustomerLedger.tsx': ['getCustomerLedger', 'searchCustomers'],
-    'finance/DocumentNumbering.tsx': ['getDocumentNumberConfigs', 'updateDocumentNumberConfigs'],
+    'finance/DocumentNumbering.tsx': [
+      'createDocumentNumberConfig',
+      'getDocumentNumberConfigs',
+      'updateDocumentNumberConfig',
+    ],
     'finance/FinancialStatements.tsx': ['getFinancialSummaries', 'getFixedAssetOverview'],
     // FY closing wizard: scoped reads for the selected closing year, not the
     // header-scoped purchase/shipment bootstrap slices.
     'finance/FiscalYearClosingWizard.tsx': ['getPurchaseInvoices', 'getPurchaseOrders', 'getShipments'],
+    'finance/NarrationTemplatesManagement.tsx': [
+      'createNarrationTemplate',
+      'deleteNarrationTemplate',
+      'getNarrationTemplates',
+      'updateNarrationTemplate',
+    ],
     'finance/NepaliFiscalManagement.tsx': [
       'getBsCalendarYears',
       'getBsDayRecords',
@@ -1111,8 +1135,9 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'inventory/warranty/WarrantyEditModal.tsx': ['updateWarrantyCoverage'],
     'inventory/warranty/WarrantyRegister.tsx': ['fetchSellerWarranties', 'fetchVendorWarranties'],
     'procurement/ReceiveInboundWarehouse.tsx': [],
-    'procurement/SuppliersManagement.tsx': [],
-    'sales/CustomerMasterDirectory.tsx': ['createCustomer', 'deleteCustomer', 'getCustomerDeviceOverview', 'getCustomerDevicePage', 'getCustomers', 'updateCustomer'],
+    'procurement/SuppliersManagement.tsx': ['getBillTerms'],
+    'sales/CustomerMasterDirectory.tsx': ['createCustomer', 'deleteCustomer', 'getAreas', 'getBillTerms', 'getCustomerDeviceOverview', 'getCustomerDevicePage', 'getCustomers', 'getSalesAgents', 'updateCustomer'],
+    'sales/SalesAgentsAreasManagement.tsx': ['createArea', 'createSalesAgent', 'deleteArea', 'deleteSalesAgent', 'getAreas', 'getSalesAgents', 'updateArea', 'updateSalesAgent'],
     'sales/ImportCustomers.tsx': [],
     'settings/ApprovalWorkflowCenter.tsx': [],
     'settings/BranchesManagement.tsx': [],
@@ -1186,6 +1211,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'finance/CashBookRegister.tsx',
     'finance/AgingRegister.tsx',
     'finance/ChartOfAccountsRegister.tsx',
+    'finance/BillTermsManagement.tsx',
     'finance/DailyCashClose.tsx',
     'finance/BsCalendarHealthPanel.tsx',
     'finance/BsCalendarUtility.tsx',
@@ -1350,6 +1376,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'finance/CashBookRegister.tsx': 'accounting-cash-book',
     'finance/AgingRegister.tsx': 'accounting-aging',
     'finance/ChartOfAccountsRegister.tsx': 'accounting-chart',
+    'finance/BillTermsManagement.tsx': 'bill-terms',
     'finance/DailyCashClose.tsx': 'cash-position',
     'finance/BsCalendarHealthPanel.tsx': 'bs-calendar',
     'finance/BsCalendarUtility.tsx': 'bs-calendar',

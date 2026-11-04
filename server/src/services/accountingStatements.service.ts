@@ -71,6 +71,7 @@ export interface AccountBalanceRow {
   isActive: boolean;
   subledgerType: string;
   postingRole: string | null;
+  accountKind: 'CASH' | 'BANK' | 'OTHER';
   groupId: string;
   parentGroupId: string | null;
   groupCode: string;
@@ -420,6 +421,7 @@ async function loadAccountBalances(
     isActive: row.isActive === true,
     subledgerType: String(row.subledgerType || 'NONE'),
     postingRole: row.postingRole ? String(row.postingRole) : null,
+    accountKind: row.accountKind === 'CASH' || row.accountKind === 'BANK' ? row.accountKind : 'OTHER',
     groupId: String(row.groupId),
     parentGroupId: row.parentGroupId ? String(row.parentGroupId) : null,
     groupCode: String(row.groupCode),
@@ -798,7 +800,7 @@ export async function buildBalanceSheet(client: AccountingClient, window: Statem
   // branch and date, so it is computed from the same posted rows and roles.
   const cashAndBank = roundMoney(
     rows
-      .filter((row) => row.postingRole === 'CASH' || row.postingRole === 'BANK')
+      .filter((row) => row.accountKind === 'CASH' || row.accountKind === 'BANK')
       .reduce((total, row) => total + amountOf(row), 0)
   );
   const totalLiabilities = sectionTotal(liabilitySections);

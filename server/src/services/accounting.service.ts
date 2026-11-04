@@ -19,6 +19,7 @@ import crypto from 'crypto';
 import { ApiError } from '../errors/ApiError';
 import { roundMoney } from '../utils/money';
 import {
+  ACCOUNT_KINDS,
   ACCOUNT_TYPES,
   ACCOUNT_BY_CODE_SQL,
   ACCOUNT_BY_ID_SQL,
@@ -61,12 +62,14 @@ import {
   journalInsertParams,
   journalLineInsertParams,
   subledgerInsertParams,
+  type AccountKind,
   type AccountType,
   type NormalBalance,
   type PostingRole,
   type StatementGroup,
   type SubledgerType,
 } from '../models/accounting.repo';
+import { COST_CENTERS_BY_IDS_SQL } from '../models/accountingMasters.repo';
 
 /** The pg pool or a checked-out transaction client. */
 export interface AccountingClient {
@@ -83,6 +86,7 @@ const STATEMENT_GROUPS_BY_TYPE: Record<AccountType, readonly StatementGroup[]> =
 
 const SUBLEDGER_TYPES_SET = new Set<string>(SUBLEDGER_TYPES);
 const POSTING_ROLES_SET = new Set<string>(POSTING_ROLES);
+const ACCOUNT_KINDS_SET = new Set<string>(ACCOUNT_KINDS);
 
 function text(value: unknown, max: number): string {
   return typeof value === 'string' ? value.trim().slice(0, max) : '';
@@ -94,6 +98,80 @@ function accountCode(value: unknown): string {
     throw new ApiError(400, 'Account code must be 1–30 letters, digits, dots, dashes or underscores.');
   }
   return code;
+}
+
+/**
+ * A ledger's cash/bank classification is separate from its posting role. The
+ * default CASH/BANK ledgers carry both, while extra tills and bank accounts
+ * carry only the kind. The two fields must still agree: a CASH ledger cannot
+ * hold a BANK default, and a non-cash ledger cannot hold either default.
+ */
+function accountKind(
+  value: unknown,
+  postingRole: PostingRole | null,
+  fallback: AccountKind = 'OTHER'
+): AccountKind {
+  const raw = text(value, 10).toUpperCase();
+  const inferred = raw || fallback;
+  if (!ACCOUNT_KINDS_SET.has(inferred)) {
+    throw new ApiError(400, `Account kind must be one of: ${ACCOUNT_KINDS.join(', ')}.`);
+  }
+  const kind = inferred as AccountKind;
+  if (postingRole === 'CASH' && kind !== 'CASH') {
+    throw new ApiError(400, 'A ledger holding the CASH posting role must have account kind CASH.');
+  }
+  if (postingRole === 'BANK' && kind !== 'BANK') {
+    throw new ApiError(400, 'A ledger holding the BANK posting role must have account kind BANK.');
+  }
+  if ((kind === 'CASH' || kind === 'BANK') && postingRole && postingRole !== kind) {
+    throw new ApiError(
+      400,
+      `A ${kind} ledger can only hold the ${kind} posting role; ${postingRole} belongs to a different ledger.`
+    );
+  }
+  return kind;
+}
+
+function bankMetadata(
+  input: Record<string, unknown>,
+  kind: AccountKind,
+  existing?: Record<string, any>
+) {
+  const fields = ['bankName', 'bankBranch', 'accountNumber', 'accountHolder', 'swiftCode'] as const;
+  const allowed = kind === 'BANK';
+  const provided = fields.some((field) =>
+    Object.prototype.hasOwnProperty.call(input, field) && Boolean(text(input[field], 150))
+  );
+  if (!allowed && provided) {
+    throw new ApiError(400, 'Bank details are only allowed on a ledger with account kind BANK.');
+  }
+  return {
+    bankName: allowed
+      ? Object.prototype.hasOwnProperty.call(input, 'bankName')
+        ? text(input.bankName, 150) || null
+        : existing?.bankName || null
+      : null,
+    bankBranch: allowed
+      ? Object.prototype.hasOwnProperty.call(input, 'bankBranch')
+        ? text(input.bankBranch, 150) || null
+        : existing?.bankBranch || null
+      : null,
+    accountNumber: allowed
+      ? Object.prototype.hasOwnProperty.call(input, 'accountNumber')
+        ? text(input.accountNumber, 100) || null
+        : existing?.accountNumber || null
+      : null,
+    accountHolder: allowed
+      ? Object.prototype.hasOwnProperty.call(input, 'accountHolder')
+        ? text(input.accountHolder, 150) || null
+        : existing?.accountHolder || null
+      : null,
+    swiftCode: allowed
+      ? Object.prototype.hasOwnProperty.call(input, 'swiftCode')
+        ? text(input.swiftCode, 50) || null
+        : existing?.swiftCode || null
+      : null,
+  };
 }
 
 /** A real AD calendar date in YYYY-MM-DD form. */
@@ -367,6 +445,12 @@ export async function createAccount(
     isControl?: unknown;
     subledgerType?: unknown;
     postingRole?: unknown;
+    accountKind?: unknown;
+    bankName?: unknown;
+    bankBranch?: unknown;
+    accountNumber?: unknown;
+    accountHolder?: unknown;
+    swiftCode?: unknown;
     isDemo?: boolean;
   }
 ) {
@@ -393,6 +477,12 @@ export async function createAccount(
   if (postingRole && !POSTING_ROLES_SET.has(postingRole)) {
     throw new ApiError(400, `Posting role must be one of: ${POSTING_ROLES.join(', ')}.`);
   }
+  const kind = accountKind(
+    input.accountKind,
+    postingRole,
+    postingRole === 'CASH' ? 'CASH' : postingRole === 'BANK' ? 'BANK' : 'OTHER'
+  );
+  const bank = bankMetadata(input as Record<string, unknown>, kind);
   if ((await client.query(ACCOUNT_BY_CODE_SQL, [code])).rows[0]) {
     throw new ApiError(409, `Account code ${code} already exists.`);
   }
@@ -412,6 +502,8 @@ export async function createAccount(
       isControl,
       subledgerType,
       postingRole,
+      accountKind: kind,
+      ...bank,
       isDemo: input.isDemo,
     })
   );
@@ -432,6 +524,12 @@ export async function updateAccount(
     groupId?: unknown;
     postingRole?: unknown;
     isActive?: unknown;
+    accountKind?: unknown;
+    bankName?: unknown;
+    bankBranch?: unknown;
+    accountNumber?: unknown;
+    accountHolder?: unknown;
+    swiftCode?: unknown;
   }
 ) {
   const existing = (await client.query(ACCOUNT_BY_ID_SQL, [accountId])).rows[0];
@@ -458,6 +556,18 @@ export async function updateAccount(
     }
   }
   if (input.isActive === false) postingRole = null;
+
+  const existingKind: AccountKind =
+    existing.accountKind === 'CASH' || existing.accountKind === 'BANK'
+      ? existing.accountKind
+      : existing.postingRole === 'CASH'
+        ? 'CASH'
+        : existing.postingRole === 'BANK'
+          ? 'BANK'
+          : 'OTHER';
+  const kind = accountKind(input.accountKind, postingRole, existingKind);
+  const bank = bankMetadata(input as Record<string, unknown>, kind, existing);
+
   const name = Object.prototype.hasOwnProperty.call(input, 'name') ? text(input.name, 150) : undefined;
   if (name !== undefined && !name) throw new ApiError(400, 'Account name cannot be empty.');
   const description = Object.prototype.hasOwnProperty.call(input, 'description')
@@ -489,6 +599,12 @@ export async function updateAccount(
     postingRole,
     isActive === undefined ? null : isActive,
     groupId,
+    kind,
+    bank.bankName,
+    bank.bankBranch,
+    bank.accountNumber,
+    bank.accountHolder,
+    bank.swiftCode,
   ]);
   return (await client.query(ACCOUNT_BY_ID_SQL, [accountId])).rows[0];
 }
@@ -520,6 +636,7 @@ export async function deleteAccount(client: AccountingClient, accountId: string)
 
 export interface JournalLineInput {
   accountId?: unknown;
+  costCenterId?: unknown;
   debit?: unknown;
   credit?: unknown;
   memo?: unknown;
@@ -573,6 +690,15 @@ export async function postJournal(
   if (accountIds.length === 0) throw new ApiError(400, 'Every journal line needs an account.');
   const accounts = (await client.query(ACCOUNTS_BY_IDS_SQL, [accountIds])).rows;
   const accountsById = new Map<string, any>(accounts.map((account) => [account.id, account]));
+  const rawCostCenterIds = [
+    ...new Set(rawLines.map((line) => text(line?.costCenterId, 50)).filter(Boolean)),
+  ];
+  const costCenters = rawCostCenterIds.length
+    ? (await client.query(COST_CENTERS_BY_IDS_SQL, [rawCostCenterIds])).rows
+    : [];
+  const costCentersById = new Map<string, any>(
+    costCenters.map((center) => [center.id, center])
+  );
 
   const lines = rawLines.map((raw, index) => {
     const lineNo = index + 1;
@@ -584,6 +710,19 @@ export async function postJournal(
     const credit = amount(raw?.credit, `Line ${lineNo} credit`);
     if ((debit > 0) === (credit > 0)) {
       throw new ApiError(400, `Line ${lineNo} must have exactly one of debit or credit.`);
+    }
+
+    const costCenterId = text(raw?.costCenterId, 50) || null;
+    if (costCenterId) {
+      const center = costCentersById.get(costCenterId);
+      if (!center) throw new ApiError(400, `Line ${lineNo}: cost centre not found.`);
+      if (!center.active) throw new ApiError(400, `Line ${lineNo}: cost centre ${center.code} is inactive.`);
+      if (center.branchId && center.branchId !== branchId) {
+        throw new ApiError(
+          400,
+          `Line ${lineNo}: cost centre ${center.code} belongs to another branch.`
+        );
+      }
     }
 
     const rawSubledger = text(raw?.subledgerType, 30).toUpperCase();
@@ -600,12 +739,12 @@ export async function postJournal(
       if (!partyId && !partyName) {
         throw new ApiError(400, `Line ${lineNo}: a control-account line must name the subledger party.`);
       }
-      return { lineNo, account, debit, credit, memo: text(raw?.memo, 300) || null, subledgerType, partyId, partyName };
+      return { lineNo, account, costCenterId, debit, credit, memo: text(raw?.memo, 300) || null, subledgerType, partyId, partyName };
     }
     if (rawSubledger && rawSubledger !== 'NONE') {
       throw new ApiError(400, `Line ${lineNo}: account ${account.code} is not a control account.`);
     }
-    return { lineNo, account, debit, credit, memo: text(raw?.memo, 300) || null, subledgerType: 'NONE' as const, partyId: null, partyName: null };
+    return { lineNo, account, costCenterId, debit, credit, memo: text(raw?.memo, 300) || null, subledgerType: 'NONE' as const, partyId: null, partyName: null };
   });
 
   const totalDebit = roundMoney(lines.reduce((sum, line) => sum + line.debit, 0));
@@ -653,6 +792,7 @@ export async function postJournal(
         journalId,
         lineNo: line.lineNo,
         accountId: line.account.id,
+        costCenterId: line.costCenterId,
         branchId,
         debit: line.debit,
         credit: line.credit,

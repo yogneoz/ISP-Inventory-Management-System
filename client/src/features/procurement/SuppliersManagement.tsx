@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
-import { Supplier, User } from '../../types';
+import React, { useEffect, useState } from 'react';
+import { Supplier, User, BillTerm } from '../../types';
 import { Factory, Plus, Search, Mail, Phone, MapPin, CheckCircle2, Edit, Trash2 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { PageHeader } from '../../components/common/PageHeader';
 import { isOperationAllowed } from '../../utils/permissions';
 import { useDialog } from '../../components/common/DialogProvider';
 import { ModalPanel } from '../../components/common/ModalPanel';
+import { api } from '../../services/api';
 
 interface SuppliersManagementProps {
   suppliers: Supplier[];
@@ -34,6 +35,16 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
   const [email, setEmail] = useState('');
   const [address, setAddress] = useState('');
   const [panVatNumber, setPanVatNumber] = useState('');
+  const [billTermsId, setBillTermsId] = useState('');
+  const [billTerms, setBillTerms] = useState<BillTerm[]>([]);
+
+  useEffect(() => {
+    let live = true;
+    api.getBillTerms(true)
+      .then((rows) => { if (live) setBillTerms(Array.isArray(rows) ? rows.filter((term) => term.active) : []); })
+      .catch(() => { if (live) setBillTerms([]); });
+    return () => { live = false; };
+  }, []);
 
   const filtered = suppliers.filter(
     (s) =>
@@ -52,6 +63,7 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
     setEmail('');
     setAddress('');
     setPanVatNumber('');
+    setBillTermsId('');
     setIsModalOpen(true);
   };
 
@@ -63,6 +75,7 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
     setEmail(s.email);
     setAddress(s.address);
     setPanVatNumber(s.panVatNumber);
+    setBillTermsId(s.billTermsId || '');
     setIsModalOpen(true);
   };
 
@@ -87,6 +100,7 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
           email: email || 'sales@supplier.example.com',
           address: address || 'Example City, Nepal',
           panVatNumber: panVatNumber || '300000000',
+          billTermsId: billTermsId || null,
         });
       }
     } else {
@@ -98,6 +112,7 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
           email: email || 'sales@supplier.example.com',
           address: address || 'Example City, Nepal',
           panVatNumber: panVatNumber || '300000000',
+          billTermsId: billTermsId || null,
         });
       }
     }
@@ -108,6 +123,7 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
     setEmail('');
     setAddress('');
     setPanVatNumber('');
+    setBillTermsId('');
     setEditingSupplier(null);
     setIsModalOpen(false);
   };
@@ -262,6 +278,22 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
                     placeholder="301928374"
                     className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent px-3 py-1.5 h-9"
                   />
+                </div>
+
+                <div className="sm:col-span-2 lg:col-span-12">
+                  <label className="block font-semibold mb-1">Default Bill Terms</label>
+                  <select
+                    value={billTermsId}
+                    onChange={(e) => setBillTermsId(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent px-3 py-1.5 h-9"
+                  >
+                    <option value="">No default — due on invoice date</option>
+                    {billTerms.map((term) => (
+                      <option key={term.id} value={term.id}>
+                        {term.name} ({term.dueDays === 0 ? 'due on receipt' : `${term.dueDays} days`})
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="lg:col-span-4">

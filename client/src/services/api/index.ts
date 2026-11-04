@@ -30,6 +30,7 @@ import * as bootstrap from './bootstrap';
 import * as inventory from './inventory';
 import * as procurement from './procurement';
 import * as sales from './sales';
+import * as salesMasters from './salesMasters';
 import * as finance from './finance';
 import * as accounting from './accounting';
 import * as admin from './admin';
@@ -165,6 +166,16 @@ export const api = {
   reverseInvoicePayments: procurement.reverseInvoicePayments,
   getVendorLedger: procurement.getVendorLedger,
 
+  // Sales territories and agents
+  getAreas: salesMasters.getAreas,
+  createArea: salesMasters.createArea,
+  updateArea: salesMasters.updateArea,
+  deleteArea: salesMasters.deleteArea,
+  getSalesAgents: salesMasters.getSalesAgents,
+  createSalesAgent: salesMasters.createSalesAgent,
+  updateSalesAgent: salesMasters.updateSalesAgent,
+  deleteSalesAgent: salesMasters.deleteSalesAgent,
+
   // Sales Invoices & Returns
   getSalesInvoices: sales.getSalesInvoices,
   createSalesInvoice: sales.createSalesInvoice,
@@ -215,6 +226,8 @@ export const api = {
   // Document Numbering Configurations
   getDocumentNumberConfigs: inventory.getDocumentNumberConfigs,
   updateDocumentNumberConfigs: inventory.updateDocumentNumberConfigs,
+  createDocumentNumberConfig: inventory.createDocumentNumberConfig,
+  updateDocumentNumberConfig: inventory.updateDocumentNumberConfig,
 
   // Financial Summary
   getFinancialSummary: finance.getFinancialSummary,
@@ -228,7 +241,20 @@ export const api = {
   createAccountingAccount: accounting.createAccountingAccount,
   updateAccountingAccount: accounting.updateAccountingAccount,
   deleteAccountingAccount: accounting.deleteAccountingAccount,
+  getSettlementAccounts: accounting.getSettlementAccounts,
   getPostingDefaults: accounting.getPostingDefaults,
+  getBillTerms: accounting.getBillTerms,
+  createBillTerm: accounting.createBillTerm,
+  updateBillTerm: accounting.updateBillTerm,
+  deleteBillTerm: accounting.deleteBillTerm,
+  getCostCenters: accounting.getCostCenters,
+  createCostCenter: accounting.createCostCenter,
+  updateCostCenter: accounting.updateCostCenter,
+  deleteCostCenter: accounting.deleteCostCenter,
+  getNarrationTemplates: accounting.getNarrationTemplates,
+  createNarrationTemplate: accounting.createNarrationTemplate,
+  updateNarrationTemplate: accounting.updateNarrationTemplate,
+  deleteNarrationTemplate: accounting.deleteNarrationTemplate,
   getTrialBalance: accounting.getTrialBalance,
   getProfitAndLoss: accounting.getProfitAndLoss,
   getBalanceSheet: accounting.getBalanceSheet,

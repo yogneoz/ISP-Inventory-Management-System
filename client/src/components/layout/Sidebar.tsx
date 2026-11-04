@@ -48,6 +48,7 @@ import {
   UserPlus,
   ClipboardCheck,
   CalendarDays,
+  CalendarClock,
   HelpCircle,
   RefreshCw,
   Trash2,
@@ -73,6 +74,7 @@ export type NavTab =
   | 'physical-stock-audit'
   | 'fixed-assets'
   | 'customers'
+  | 'sales-agents-areas'
   | 'customer-devices'
   | 'complete-serial-inventory'
   | 'locations'
@@ -119,6 +121,9 @@ export type NavTab =
   | 'accounting-cash-book'
   | 'accounting-aging'
   | 'accounting-chart'
+  | 'bill-terms'
+  | 'cost-centers'
+  | 'narration-templates'
   | 'cash-position'
   | 'financial-statements'
   | 'vendor-ledger'
@@ -154,6 +159,7 @@ export const NAV_TABS: NavTab[] = [
   'physical-stock-audit',
   'fixed-assets',
   'customers',
+  'sales-agents-areas',
   'customer-devices',
   'complete-serial-inventory',
   'locations',
@@ -200,6 +206,9 @@ export const NAV_TABS: NavTab[] = [
   'accounting-cash-book',
   'accounting-aging',
   'accounting-chart',
+  'bill-terms',
+  'cost-centers',
+  'narration-templates',
   'cash-position',
   'financial-statements',
   'vendor-ledger',
@@ -649,8 +658,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       { id: 'accounting-profit-loss' as NavTab, label: 'Profit & Loss', icon: TrendingUp, section: 'Statements & ledgers' },
       { id: 'accounting-balance-sheet' as NavTab, label: 'Balance Sheet', icon: Landmark, section: 'Statements & ledgers' },
       { id: 'accounting-cash-book' as NavTab, label: 'Cash & Bank Book', icon: Wallet, section: 'Statements & ledgers' },
-      { id: 'accounting-aging' as NavTab, label: 'AR / AP Aging', icon: Clock, section: 'Statements & ledgers' },
-      { id: 'accounting-chart' as NavTab, label: 'Chart & Defaults', icon: ListTree, section: 'Statements & ledgers' }
+      { id: 'accounting-aging' as NavTab, label: 'AR / AP Aging', icon: Clock, section: 'Statements & ledgers' }
     );
   }
   if (isOperationAllowed('gl-view', currentUser?.role)) {
@@ -716,8 +724,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
     });
   }
 
-  // 7. Master Data & Setup — products, parties, and the organisation tree.
+  // 7. Master Data & Setup — accounting masters, products, parties, and the
+  //    organisation tree. Chart of Accounts is master data, so it lives here;
+  //    Finance keeps the registers and reports that read from it.
   const inventorySetupChildren: NavChildDef[] = [
+    ...(isOperationAllowed('gl-view', currentUser?.role)
+      ? [
+          { id: 'accounting-chart' as NavTab, label: 'Chart of Accounts', icon: ListTree, section: 'Accounting' },
+          { id: 'bill-terms' as NavTab, label: 'Bill Terms', icon: CalendarClock, section: 'Accounting' },
+          { id: 'cost-centers' as NavTab, label: 'Cost Centers', icon: Layers, section: 'Accounting' },
+          { id: 'narration-templates' as NavTab, label: 'Narration Templates', icon: FileText, section: 'Accounting' },
+        ]
+      : []),
+    ...(isOperationAllowed('admin-fiscal', currentUser?.role)
+      ? [
+          {
+            id: 'fiscal-year-management' as NavTab,
+            label: 'Document Classes & Numbering',
+            icon: CalendarDays,
+            section: 'Accounting',
+          },
+        ]
+      : []),
     ...(canViewProducts
       ? [{ id: 'product-master' as NavTab, label: 'Product Master Catalog', icon: Package, section: 'Products' }]
       : []),
@@ -732,6 +760,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       : []),
     ...(isOperationAllowed('customers-manage', currentUser?.role)
       ? [{ id: 'customers' as NavTab, label: 'Customer Master Directory', icon: Users, section: 'Parties' }]
+      : []),
+    ...(isOperationAllowed('customers-manage', currentUser?.role)
+      ? [{ id: 'sales-agents-areas' as NavTab, label: 'Sales Agents & Areas', icon: MapPin, section: 'Parties' }]
       : []),
     ...(isSuperAdmin
       ? [{ id: 'import-customers' as NavTab, label: 'Import Customers (CSV)', icon: UserPlus, section: 'Parties' }]
@@ -770,7 +801,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }
   if (isOperationAllowed('admin-fiscal', currentUser?.role)) {
     adminChildren.push(
-      { id: 'fiscal-year-management' as NavTab, label: 'Document Numbering Setup', icon: CalendarDays, section: 'Setup' },
       { id: 'fiscal-year-closing' as NavTab, label: 'Fiscal Year Closing Wizard', icon: CalendarDays, section: 'Setup' }
     );
   }

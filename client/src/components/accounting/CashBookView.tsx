@@ -30,7 +30,10 @@ export const CashBookView: React.FC<{ data: CashBookResponse; dateMode: 'BS' | '
                 {account.name}
               </h3>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                {account.postingRole} · opening {money(account.opening)} · receipts {money(account.receipts)} · payments {money(account.payments)}
+                {account.accountKind || account.postingRole || 'CASH/BANK'}
+                {account.bankName ? ` · ${account.bankName}` : ''}
+                {account.accountNumber ? ` · ${account.accountNumber}` : ''}
+                {' · '}opening {money(account.opening)} · receipts {money(account.receipts)} · payments {money(account.payments)}
               </p>
             </div>
             <span className="font-mono text-sm font-bold text-slate-900 dark:text-white">

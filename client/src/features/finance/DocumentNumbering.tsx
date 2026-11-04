@@ -10,6 +10,7 @@ import {
   Hash,
   CheckCircle2,
   Edit3,
+  Plus,
   X,
   Search,
   Info,
@@ -17,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { LoadStateNotice } from '../../components/common/LoadStateNotice';
+import { useDialog } from '../../components/common/DialogProvider';
 
 type DocCategory = 'ALL' | 'PROCUREMENT_SALES' | 'INVENTORY_OPS' | 'FIXED_ASSETS' | 'FINANCE_TAX';
 
@@ -48,6 +50,7 @@ const getDocCategory = (id: string): DocCategory => {
  * Fiscal Year Closing Wizard, so this page stays focused on voucher numbering.
  */
 export const DocumentNumbering: React.FC = () => {
+  const { alert: alertDialog } = useDialog();
   // Document Numbering State
   const [docConfigs, setDocConfigs] = useState<DocumentNumberConfig[]>([]);
   const [loading, setLoading] = useState(true);
@@ -83,6 +86,14 @@ export const DocumentNumbering: React.FC = () => {
   const [docSearchQuery, setDocSearchQuery] = useState<string>('');
   const [editingDocConfig, setEditingDocConfig] = useState<DocumentNumberConfig | null>(null);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string>('');
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [newConfig, setNewConfig] = useState({
+    id: '',
+    documentType: '',
+    prefix: '',
+    notes: '',
+  });
+  const [creating, setCreating] = useState(false);
 
   const filteredDocConfigs = docConfigs.filter((c) => {
     const matchesCategory = selectedCategory === 'ALL' || getDocCategory(c.id) === selectedCategory;
@@ -111,25 +122,73 @@ export const DocumentNumbering: React.FC = () => {
       return;
     }
 
-    // Persist the full prefix but the server only uses its leading code.
-    const updated = docConfigs.map((c) =>
-      c.id === editingDocConfig.id ? editingDocConfig : c
-    );
+    try {
+      await api.updateDocumentNumberConfig(editingDocConfig.id, {
+        documentType: editingDocConfig.documentType,
+        prefix: editingDocConfig.prefix,
+        notes: editingDocConfig.notes,
+      });
+      setSaveSuccessMsg(
+        `Document type "${editingDocConfig.documentType}" updated to "${editingDocConfig.prefix}".`
+      );
+      setEditingDocConfig(null);
+      await loadDocumentNumberConfigs();
+      setTimeout(() => setSaveSuccessMsg(''), 4000);
+    } catch (err: any) {
+      alertDialog(`Failed to save document type: ${err?.message || 'Database error'}`);
+    }
+  }
 
-    setDocConfigs(updated);
-    await api.updateDocumentNumberConfigs(updated);
-    setSaveSuccessMsg(`Prefix for "${editingDocConfig.documentType}" updated to "${editingDocConfig.prefix}".`);
-    setEditingDocConfig(null);
-    setTimeout(() => setSaveSuccessMsg(''), 4000);
+  async function handleCreateDocConfig(e: React.FormEvent) {
+    e.preventDefault();
+    const id = newConfig.id.trim().toUpperCase();
+    const documentType = newConfig.documentType.trim();
+    const prefix = newConfig.prefix.trim().toUpperCase();
+    if (!/^[A-Z0-9][A-Z0-9_-]{0,19}$/.test(id)) {
+      alertDialog('A document-type id is required: 1–20 letters, digits, hyphens or underscores.');
+      return;
+    }
+    if (!documentType || !prefix) {
+      alertDialog('A document-type name and prefix are required.');
+      return;
+    }
+    setCreating(true);
+    try {
+      await api.createDocumentNumberConfig({
+        id,
+        documentType,
+        prefix,
+        notes: newConfig.notes,
+      });
+      setIsCreateOpen(false);
+      setNewConfig({ id: '', documentType: '', prefix: '', notes: '' });
+      setSaveSuccessMsg(`Document type "${documentType}" created with prefix "${prefix}".`);
+      await loadDocumentNumberConfigs();
+      setTimeout(() => setSaveSuccessMsg(''), 4000);
+    } catch (err: any) {
+      alertDialog(`Failed to create document type: ${err?.message || 'Database error'}`);
+    } finally {
+      setCreating(false);
+    }
   }
 
   return (
     <div className="space-y-3">
       {/* Page Title Header — shared PageHeader (single h2 per screen rule) */}
       <PageHeader
-        title="Document Numbering Setup"
-        description="Configure the document-type prefix. Branch, date and counter are issued automatically by the server."
+        title="Document Classes & Numbering"
+        description="Configure numbering series and prefixes. Branch, date and counter are issued automatically by the server."
         icon={<Hash className="h-5 w-5 text-indigo-500" />}
+        actions={
+          <button
+            type="button"
+            onClick={() => setIsCreateOpen(true)}
+            className="flex cursor-pointer items-center gap-2 rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-md transition-all hover:bg-indigo-500"
+          >
+            <Plus className="h-4 w-4" />
+            <span>New Document Type</span>
+          </button>
+        }
       />
 
       <LoadStateNotice
@@ -311,7 +370,7 @@ export const DocumentNumbering: React.FC = () => {
                           className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs cursor-pointer shadow-xs"
                         >
                           <Edit3 className="h-3.5 w-3.5" />
-                          <span>Edit Prefix</span>
+                          <span>Edit Series</span>
                         </button>
                       </td>
                     </tr>
@@ -342,7 +401,7 @@ export const DocumentNumbering: React.FC = () => {
               <div className="flex items-center gap-2">
                 <Hash className="h-5 w-5 text-indigo-500" />
                 <h3 className="text-base font-bold">
-                  Edit Prefix: {editingDocConfig.documentType}
+                  Edit Document Class: {editingDocConfig.documentType}
                 </h3>
               </div>
               <button
@@ -358,9 +417,21 @@ export const DocumentNumbering: React.FC = () => {
               <div className={`p-3 rounded-xl border flex items-start gap-2 text-[11px] bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300`}>
                 <Info className="h-4 w-4 text-indigo-500 flex-shrink-0 mt-0.5" />
                 <span>
-                  The branch code, date, and running counter are generated automatically by the server and cannot be
-                  changed here. Only the leading <b>prefix</b> appears in the final number.
+                  The series id and its live counter are fixed. The branch code, date, and running counter are
+                  generated automatically by the server; the leading <b>prefix</b> and label are editable here.
                 </span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold mb-1">Document-Type Name:</label>
+                <input
+                  type="text"
+                  value={editingDocConfig.documentType}
+                  onChange={(e) =>
+                    setEditingDocConfig({ ...editingDocConfig, documentType: e.target.value })
+                  }
+                  className="w-full rounded-xl border p-2.5 text-xs bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:border-indigo-500 outline-none"
+                />
               </div>
 
               <div>
@@ -412,7 +483,102 @@ export const DocumentNumbering: React.FC = () => {
                   type="submit"
                   className="px-5 py-2 rounded-xl bg-indigo-600 text-white font-bold text-xs"
                 >
-                  Save Prefix
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {isCreateOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className={`w-full max-w-lg rounded-2xl border p-6 shadow-2xl space-y-4 bg-white border-slate-200 text-slate-900 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}>
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center gap-2">
+                <Hash className="h-5 w-5 text-indigo-500" />
+                <h3 className="text-base font-bold">New Document Class</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCreateOpen(false)}
+                className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateDocConfig} className="space-y-4">
+              <div className={`p-3 rounded-xl border flex items-start gap-2 text-[11px] bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300`}>
+                <Info className="h-4 w-4 text-indigo-500 flex-shrink-0 mt-0.5" />
+                <span>
+                  Add a numbering series for a document type that does not have one yet. The series id is its stable
+                  key; the prefix is what appears before the server-issued branch/date/counter.
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-bold mb-1">Series ID *</label>
+                  <input
+                    type="text"
+                    required
+                    value={newConfig.id}
+                    onChange={(e) => setNewConfig({ ...newConfig, id: e.target.value.toUpperCase() })}
+                    placeholder="e.g. RMA"
+                    className="w-full rounded-xl border p-2.5 text-sm font-mono font-bold uppercase bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:border-indigo-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold mb-1">Prefix *</label>
+                  <input
+                    type="text"
+                    required
+                    value={newConfig.prefix}
+                    onChange={(e) => setNewConfig({ ...newConfig, prefix: e.target.value.toUpperCase() })}
+                    placeholder="e.g. RMA"
+                    className="w-full rounded-xl border p-2.5 text-sm font-mono font-bold uppercase bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:border-indigo-500 outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold mb-1">Document-Type Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={newConfig.documentType}
+                  onChange={(e) => setNewConfig({ ...newConfig, documentType: e.target.value })}
+                  placeholder="e.g. Return Merchandise Authorization"
+                  className="w-full rounded-xl border p-2.5 text-xs bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:border-indigo-500 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold mb-1">Description / Notes:</label>
+                <input
+                  type="text"
+                  value={newConfig.notes}
+                  onChange={(e) => setNewConfig({ ...newConfig, notes: e.target.value })}
+                  placeholder="What this series is used for…"
+                  className="w-full rounded-xl border p-2.5 text-xs bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:border-indigo-500 outline-none"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t">
+                <button
+                  type="button"
+                  onClick={() => setIsCreateOpen(false)}
+                  className="px-4 py-2 rounded-xl border text-xs font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={creating}
+                  className="px-5 py-2 rounded-xl bg-indigo-600 text-white font-bold text-xs disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {creating ? 'Creating…' : 'Create Document Class'}
                 </button>
               </div>
             </form>

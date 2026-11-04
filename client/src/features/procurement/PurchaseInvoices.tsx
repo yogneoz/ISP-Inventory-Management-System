@@ -10,6 +10,7 @@ import {
   User,
   CompanyProfile,
   VendorPayment,
+  BillTerm,
 } from '../../types';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { DateField } from '../../components/DateField';
@@ -46,6 +47,7 @@ import { PageHeader } from '../../components/common/PageHeader';
 import { api } from '../../services/api';
 import { PurchaseInvoiceForm } from './PurchaseInvoiceForm';
 import type { RecordRoute } from '../../routes/appPaths';
+import type { SettlementAccount } from '../../services/api/accounting';
 
 /**
  * One-line date for the dense register. The full BS + AD pair stays in the
@@ -97,6 +99,7 @@ interface PurchaseInvoicesProps {
       accountNumber?: string;
       chequeNumber?: string;
       transactionReference?: string;
+      settlementAccountId?: string;
       paymentDateAD?: string;
     }
   ) => Promise<void>;
@@ -160,6 +163,8 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   const [chequeNumber, setChequeNumber] = useState('');
   const [transactionReference, setTransactionReference] = useState('');
   const [paymentDateAD, setPaymentDateAD] = useState(new Date().toISOString().split('T')[0]);
+  const [settlementAccounts, setSettlementAccounts] = useState<SettlementAccount[]>([]);
+  const [paymentSettlementAccountId, setPaymentSettlementAccountId] = useState('');
   // Payment history for the current payInvoice
   const [invoicePayments, setInvoicePayments] = useState<VendorPayment[]>([]);
   const [paymentsLoading, setPaymentsLoading] = useState(false);
@@ -181,6 +186,29 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   const [piLoading, setPiLoading] = useState(true);
   const [piLoadError, setPiLoadError] = useState('');
   const [piRefreshKey, setPiRefreshKey] = useState(0);
+  const [billTerms, setBillTerms] = useState<BillTerm[]>([]);
+
+  // The create form needs current credit terms. Re-read whenever that form is
+  // opened, so an edit made in the Bill Terms screen is not stale in a
+  // keep-mounted register.
+  useEffect(() => {
+    if (internalTab !== 'CREATE_INVOICE') return;
+    let live = true;
+    api.getBillTerms(true)
+      .then((rows) => { if (live) setBillTerms(Array.isArray(rows) ? rows.filter((term) => term.active) : []); })
+      .catch(() => { if (live) setBillTerms([]); });
+    return () => { live = false; };
+  }, [internalTab]);
+
+  // Settlement pickers list every active cash/bank ledger, not just the one
+  // holding the posting default, so extra tills and bank accounts are usable.
+  useEffect(() => {
+    let live = true;
+    api.getSettlementAccounts()
+      .then((rows) => { if (live) setSettlementAccounts(Array.isArray(rows) ? rows : []); })
+      .catch(() => { if (live) setSettlementAccounts([]); });
+    return () => { live = false; };
+  }, []);
 
   // Sync the internal page with the sidebar menu that opened this component.
   // A detail record is an overlay on the register; closing it returns to LIST.
@@ -387,12 +415,25 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
 
   const unpaidAmount = (inv: PurchaseInvoice) =>
     Math.max(0, (Number(inv.grandTotal) || 0) - (Number(inv.amountPaid) || 0));
+  const settlementKind = (method: string) => (method === 'CASH' ? 'CASH' : 'BANK');
+  const paymentSettlementOptions = settlementAccounts.filter(
+    (account) => account.accountKind === settlementKind(paymentMethod)
+  );
+  const defaultSettlementAccountId = (method: string) => {
+    const kind = settlementKind(method);
+    return (
+      settlementAccounts.find((account) => account.postingRole === kind)?.id ||
+      settlementAccounts.find((account) => account.accountKind === kind)?.id ||
+      ''
+    );
+  };
 
   // Open the payment modal for an invoice
   const openPaymentModal = async (inv: PurchaseInvoice) => {
     setPayInvoice(inv);
     setPaymentError('');
     setPaymentMethod('CASH');
+    setPaymentSettlementAccountId(defaultSettlementAccountId('CASH'));
     setPaymentAmount(String(unpaidAmount(inv)));
     setBankName('');
     setBankBranch('');
@@ -513,6 +554,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
         accountNumber,
         chequeNumber: paymentMethod === 'CHEQUE' ? chequeNumber : undefined,
         transactionReference: paymentMethod === 'BANK_TRANSFER' ? transactionReference : undefined,
+        settlementAccountId: paymentSettlementAccountId || undefined,
         paymentDateAD,
       });
       setPaymentSubmitting(false);
@@ -1018,6 +1060,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
           products={products}
           branches={branches}
           suppliers={availableSuppliers}
+          billTerms={billTerms}
           selectedBranchId={selectedBranchId}
           fiscalYearStartAD={fiscalYearStartAD}
           fiscalYearEndAD={fiscalYearEndAD}
@@ -1276,7 +1319,11 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                 </label>
                 <select
                   value={paymentMethod}
-                  onChange={(e) => setPaymentMethod(e.target.value as any)}
+                  onChange={(e) => {
+                    const method = e.target.value;
+                    setPaymentMethod(method as any);
+                    setPaymentSettlementAccountId(defaultSettlementAccountId(method));
+                  }}
                   className={`w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 px-3 py-2 text-xs text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none cursor-pointer`}
                 >
                   <option value="CASH">Cash</option>
@@ -1285,6 +1332,27 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                   <option value="CREDIT">Credit / Adjustment</option>
                 </select>
               </div>
+
+              {paymentSettlementOptions.length > 0 && (
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Settle Through
+                  </label>
+                  <select
+                    value={paymentSettlementAccountId}
+                    onChange={(e) => setPaymentSettlementAccountId(e.target.value)}
+                    className={`w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 px-3 py-2 text-xs text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none cursor-pointer`}
+                  >
+                    <option value="">Default {settlementKind(paymentMethod).toLowerCase()} ledger</option>
+                    {paymentSettlementOptions.map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.code} · {account.name}
+                        {account.bankName ? ` · ${account.bankName}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div className="md:col-span-2">
                 <div className="flex items-center gap-1.5 mb-1 text-xs font-bold text-slate-700 dark:text-slate-300">
@@ -1367,6 +1435,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                               {formatDualDate(p.paymentDateAD, dateMode)}
                               {' • '}
                               {p.paymentMethod}
+                              {p.settlementAccountCode ? ` • ${p.settlementAccountCode} ${p.settlementAccountName || ''}` : ''}
                               {p.bankName ? ` • ${p.bankName}` : ''}
                               {p.chequeNumber ? ` • Chq ${p.chequeNumber}` : ''}
                               {p.transactionReference ? ` • Ref ${p.transactionReference}` : ''}

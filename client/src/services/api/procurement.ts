@@ -222,6 +222,7 @@ export async function createVendorPayment(payload: {
   chequeDateAD?: string;
   chequeDateBS?: string;
   transactionReference?: string;
+  settlementAccountId?: string;
   branchId?: string;
 }): Promise<VendorPayment> {
   // The server issues the payment number via issueNextDocNumber

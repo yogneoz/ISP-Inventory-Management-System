@@ -57,15 +57,15 @@ describe('buildLocationSelectSql', () => {
 });
 
 describe('supplier params', () => {
-  test('upsert passes all ten columns through', () => {
+  test('upsert passes all eleven columns through', () => {
     const s = { id: 's1', supplierCode: 'SUP-1', name: 'Acme', contactPerson: 'x', phone: 'p', email: 'e', address: 'a', panVatNumber: 'v', rating: 4.5, status: 'ACTIVE' };
-    assert.equal(supplierUpsertParams(s).length, 10);
-    assert.deepEqual(supplierUpsertParams(s), [s.id, s.supplierCode, s.name, s.contactPerson, s.phone, s.email, s.address, s.panVatNumber, s.rating, s.status]);
+    assert.equal(supplierUpsertParams(s).length, 11);
+    assert.deepEqual(supplierUpsertParams(s), [s.id, s.supplierCode, s.name, s.contactPerson, s.phone, s.email, s.address, s.panVatNumber, null, s.rating, s.status]);
   });
 
   test('update applies the production defaults for empty fields', () => {
     const params = supplierUpdateParams({ supplierCode: null, name: 'Acme', rating: undefined, status: undefined }, 's1');
-    assert.deepEqual(params, ['', 'Acme', '', '', '', '', '', 5.0, 'ACTIVE', 's1']);
+    assert.deepEqual(params, ['', 'Acme', '', '', '', '', '', null, 5.0, 'ACTIVE', 's1']);
   });
 });
 
@@ -245,9 +245,14 @@ describe('buildCustomerListAggregateQuery', () => {
 });
 
 describe('customerUpsertParams', () => {
-  test('carries all eleven columns in SQL order', () => {
+  test('carries all fourteen columns in SQL order', () => {
     const c = { id: 'i', customerId: 'CUS-1', customerName: 'N', username: 'u', contactNumber: '9', branchId: 'B', address: 'A', email: 'e', status: 'ACTIVE', creditLimit: 100, assignedDevicesCount: 3 };
-    assert.equal(customerUpsertParams(c).length, 11);
-    assert.deepEqual(customerUpsertParams(c), ['i', 'CUS-1', 'N', 'u', '9', 'B', 'A', 'e', 'ACTIVE', 100, 3]);
+    assert.equal(customerUpsertParams(c).length, 14);
+    assert.deepEqual(customerUpsertParams(c), ['i', 'CUS-1', 'N', 'u', '9', 'B', 'A', 'e', 'ACTIVE', 100, null, null, null, 3]);
+  });
+
+  test('passes area and agent defaults through', () => {
+    const c = { id: 'i', customerId: 'CUS-1', customerName: 'N', username: 'u', contactNumber: '9', branchId: 'B', address: 'A', email: 'e', status: 'ACTIVE', creditLimit: 100, billTermsId: 'bt-1', areaId: 'ar-1', agentId: 'ag-1', assignedDevicesCount: 0 };
+    assert.deepEqual(customerUpsertParams(c), ['i', 'CUS-1', 'N', 'u', '9', 'B', 'A', 'e', 'ACTIVE', 100, 'bt-1', 'ar-1', 'ag-1', 0]);
   });
 });

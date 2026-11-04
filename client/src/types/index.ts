@@ -67,7 +67,81 @@ export interface Supplier {
   email: string;
   address: string;
   panVatNumber: string;
+  /** Default credit terms for vendor bills; null means no default. */
+  billTermsId?: string | null;
   rating: number;
+}
+
+/** Reusable credit policy: due_days is counted from the invoice date. */
+export interface BillTerm {
+  id: string;
+  code: string;
+  name: string;
+  dueDays: number;
+  discountDays?: number | null;
+  discountPercent?: number | null;
+  active: boolean;
+  isDemo?: boolean;
+}
+
+/** Geographic/sales territory, separate from branch and ledger. */
+export interface Area {
+  id: string;
+  code: string;
+  name: string;
+  parentId?: string | null;
+  parentName?: string | null;
+  branchId?: string | null;
+  branchName?: string | null;
+  active: boolean;
+  isDemo?: boolean;
+}
+
+/** Sales agent responsible for a territory/customer. */
+export interface SalesAgent {
+  id: string;
+  code: string;
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+  areaId?: string | null;
+  areaName?: string | null;
+  commissionRate: number;
+  active: boolean;
+  isDemo?: boolean;
+}
+
+/** Analytical posting dimension, separate from branch and ledger account. */
+export interface CostCenter {
+  id: string;
+  code: string;
+  name: string;
+  parentId?: string | null;
+  parentName?: string | null;
+  /** Null means the centre can be used by every branch. */
+  branchId?: string | null;
+  branchName?: string | null;
+  active: boolean;
+  isDemo?: boolean;
+}
+
+export type NarrationTransactionType =
+  | 'ALL'
+  | 'MANUAL_JOURNAL'
+  | 'CUSTOMER_RECEIPT'
+  | 'VENDOR_PAYMENT'
+  | 'EXPENSE'
+  | 'PAYROLL'
+  | 'OPENING_BALANCE';
+
+/** Quick-pick narration text; the journal stores the text, never this id. */
+export interface NarrationTemplate {
+  id: string;
+  code: string;
+  text: string;
+  transactionType: NarrationTransactionType;
+  active: boolean;
+  isDemo?: boolean;
 }
 
 export interface Branch {
@@ -218,6 +292,10 @@ export interface VendorPayment {
   chequeDateAD?: string | null;
   chequeDateBS?: string | null;
   transactionReference?: string | null;
+  /** The till/bank ledger this payment actually settled through. */
+  settlementAccountId?: string | null;
+  settlementAccountCode?: string | null;
+  settlementAccountName?: string | null;
   notes?: string | null;
   status: VendorPaymentStatus;
   reversalReason?: string | null;
@@ -577,8 +655,12 @@ export interface PurchaseInvoice {
   branchId: string;
   invoiceDateAD: string;
   invoiceDateBS: string;
-  dueDateAD: string;
-  dueDateBS: string;
+  /** The supplier's own bill date, separate from the payable due date. */
+  vendorBillDateAD?: string;
+  vendorBillDateBS?: string;
+  billTermsId?: string | null;
+  dueDateAD?: string;
+  dueDateBS?: string;
   paymentMethod?: 'CASH' | 'CREDIT' | 'BANK_TRANSFER' | 'CHEQUE';
   items?: PurchaseInvoiceItem[];
   subtotalAmount?: number;
@@ -908,6 +990,10 @@ export interface CustomerRecord {
   email?: string;
   status: 'ACTIVE' | 'INACTIVE';
   creditLimit?: number;
+  /** Default credit terms for sales invoices; null means no default. */
+  billTermsId?: string | null;
+  areaId?: string | null;
+  agentId?: string | null;
   assignedDevicesCount?: number;
 }
 
@@ -1006,8 +1092,13 @@ export interface SalesInvoice {
   branchId: string;
   invoiceDateAD: string;
   invoiceDateBS: string;
+  billTermsId?: string | null;
   dueDateAD?: string;
   dueDateBS?: string;
+  areaId?: string | null;
+  areaName?: string | null;
+  agentId?: string | null;
+  agentName?: string | null;
   items?: SalesInvoiceItem[];
   taxableAmount: number;
   vatAmount: number;
@@ -1047,6 +1138,10 @@ export interface CustomerPayment {
   chequeDateAD?: string | null;
   chequeDateBS?: string | null;
   transactionReference?: string | null;
+  /** The till/bank ledger this receipt actually settled through. */
+  settlementAccountId?: string | null;
+  settlementAccountCode?: string | null;
+  settlementAccountName?: string | null;
   notes?: string | null;
   status: 'POSTED' | 'REVERSED' | 'VOIDED';
   reversalReason?: string | null;

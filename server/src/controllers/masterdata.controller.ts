@@ -9,6 +9,22 @@ import type { Request, Response } from 'express';
 import { getPgConnected, pgPool, uomList, setUomList, withReplaced, withAppended, logAuditEvent, locationRecords, setLocationRecords, withPrepended, suppliers, setSuppliers, products, setProducts, branches, setInventoryStock, inventoryStock, categories, setCategories, productGroups, setProductGroups, broadcastChange, customerMasterRecords, customerDeviceRecords, setCustomerMasterRecords, withTransaction, companyProfile } from '../app';
 import { defaultVatRateFor } from '../utils/money';
 import { warrantyTermError } from '../../../shared/warrantyTerm';
+import { findAreaById, findSalesAgentById } from './salesMasters.controller';
+
+/**
+ * Customers carry the sales dimensions as defaults. Resolve them here so an
+ * unknown id is a 400 naming the field instead of a raw FK error from the
+ * insert; `null` clears a default deliberately.
+ */
+async function customerSalesDimensionError(body: Record<string, any>): Promise<string | null> {
+  if (body.areaId && !(await findAreaById(String(body.areaId)))) {
+    return 'The selected sales area was not found.';
+  }
+  if (body.agentId && !(await findSalesAgentById(String(body.agentId)))) {
+    return 'The selected sales agent was not found.';
+  }
+  return null;
+}
 
 /**
  * VAT rate for a product being created: the submitted value wins — including
@@ -315,6 +331,7 @@ try {
       email: req.body.email || '',
       address: req.body.address || '',
       panVatNumber: req.body.panVatNumber || '',
+      billTermsId: req.body.billTermsId || null,
       rating: Number(req.body.rating) || 5.0,
       status: req.body.status || 'ACTIVE',
     } as any;
@@ -956,6 +973,11 @@ const { branchId, query, status, page, pageSize, all } = req.query;
 export async function post_customers(req: any, res: Response): Promise<any> {
 try {
     const body = req.body;
+    const dimensionError = await customerSalesDimensionError(body);
+    if (dimensionError) {
+      res.status(400).json({ message: dimensionError });
+      return;
+    }
     const newRecord: CustomerRecord = {
       id: body.id || body.customerId || `CUS-${Math.floor(10000 + Math.random() * 90000)}`,
       customerId: body.customerId || `CUS-${Math.floor(10000 + Math.random() * 90000)}`,
@@ -967,6 +989,9 @@ try {
       email: body.email || '',
       status: body.status || 'ACTIVE',
       creditLimit: Number(body.creditLimit) || 0,
+      billTermsId: body.billTermsId || null,
+      areaId: body.areaId || null,
+      agentId: body.agentId || null,
       assignedDevicesCount: 0,
     };
 
@@ -1009,6 +1034,7 @@ try {
             email: cust.email || '',
             status: cust.status || 'ACTIVE',
             creditLimit: Number(cust.creditLimit) || 0,
+            billTermsId: cust.billTermsId || null,
             assignedDevicesCount: 0,
           };
 
@@ -1036,6 +1062,7 @@ try {
           email: cust.email || '',
           status: cust.status || 'ACTIVE',
           creditLimit: Number(cust.creditLimit) || 0,
+          billTermsId: cust.billTermsId || null,
           assignedDevicesCount: 0,
         };
 
@@ -1064,6 +1091,12 @@ try {
     const idx = customerMasterRecords.findIndex((c) => c.id === id || c.customerId === id);
     if (idx < 0) {
       res.status(404).json({ message: 'Customer record not found' });
+      return;
+    }
+
+    const dimensionError = await customerSalesDimensionError(req.body || {});
+    if (dimensionError) {
+      res.status(400).json({ message: dimensionError });
       return;
     }
 

@@ -77,6 +77,9 @@ const CustomersManagement = React.lazy(() =>
 const CustomerMasterDirectory = React.lazy(() =>
   import('./features/sales/CustomerMasterDirectory').then((m) => ({ default: m.CustomerMasterDirectory }))
 );
+const SalesAgentsAreasManagement = React.lazy(() =>
+  import('./features/sales/SalesAgentsAreasManagement').then((m) => ({ default: m.SalesAgentsAreasManagement }))
+);
 const SerialLogRegister = React.lazy(() =>
   import('./features/inventory/SerialLogRegister').then((m) => ({ default: m.SerialLogRegister }))
 );
@@ -161,6 +164,15 @@ const AgingRegister = React.lazy(() =>
 );
 const ChartOfAccountsRegister = React.lazy(() =>
   import('./features/finance/ChartOfAccountsRegister').then((m) => ({ default: m.ChartOfAccountsRegister }))
+);
+const BillTermsManagement = React.lazy(() =>
+  import('./features/finance/BillTermsManagement').then((m) => ({ default: m.BillTermsManagement }))
+);
+const CostCentersManagement = React.lazy(() =>
+  import('./features/finance/CostCentersManagement').then((m) => ({ default: m.CostCentersManagement }))
+);
+const NarrationTemplatesManagement = React.lazy(() =>
+  import('./features/finance/NarrationTemplatesManagement').then((m) => ({ default: m.NarrationTemplatesManagement }))
 );
 const DailyCashClose = React.lazy(() =>
   import('./features/finance/DailyCashClose').then((m) => ({ default: m.DailyCashClose }))
@@ -1845,7 +1857,8 @@ export default function App() {
   const handleRecordCustomerPayment = async (
     invoice: SalesInvoice,
     amount: number,
-    paymentMethod: string
+    paymentMethod: string,
+    settlementAccountId?: string
   ) => {
     await api.createCustomerPayment({
       invoiceId: invoice.id,
@@ -1855,6 +1868,7 @@ export default function App() {
       branchId: invoice.branchId,
       amount,
       paymentMethod: paymentMethod as CustomerPayment['paymentMethod'],
+      settlementAccountId,
       paymentDateAD: new Date().toISOString().split('T')[0],
     });
     refreshAllData();
@@ -1915,6 +1929,7 @@ export default function App() {
       accountNumber?: string;
       chequeNumber?: string;
       transactionReference?: string;
+      settlementAccountId?: string;
       paymentDateAD?: string;
     }
   ) => {
@@ -1936,6 +1951,7 @@ export default function App() {
       accountNumber: details?.accountNumber,
       chequeNumber: details?.chequeNumber,
       transactionReference: details?.transactionReference,
+      settlementAccountId: details?.settlementAccountId,
     });
     refreshAllData();
   };
@@ -2443,6 +2459,11 @@ export default function App() {
           recordRoute={activeTab === 'customers' ? recordRoute : null}
           onRecordRouteChange={handleRecordRouteChange}
         />
+      </React.Suspense>
+    )),
+    screenRoute('sales-agents-areas', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <SalesAgentsAreasManagement branches={branches} currentUser={currentUser} />
       </React.Suspense>
     )),
     screenRoute('customer-devices', (
@@ -3274,6 +3295,21 @@ export default function App() {
     screenRoute('accounting-chart', (
       <React.Suspense fallback={<TabLoadingFallback />}>
         <ChartOfAccountsRegister branches={branches} dateMode={dateMode} currentUser={currentUser} />
+      </React.Suspense>
+    )),
+    screenRoute('bill-terms', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <BillTermsManagement currentUser={currentUser} />
+      </React.Suspense>
+    )),
+    screenRoute('cost-centers', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <CostCentersManagement branches={branches} currentUser={currentUser} />
+      </React.Suspense>
+    )),
+    screenRoute('narration-templates', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <NarrationTemplatesManagement currentUser={currentUser} />
       </React.Suspense>
     )),
     screenRoute('cash-position', (

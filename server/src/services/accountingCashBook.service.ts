@@ -40,7 +40,13 @@ export interface CashBookAccount {
   accountId: string;
   code: string;
   name: string;
-  postingRole: string;
+  accountKind: 'CASH' | 'BANK';
+  postingRole: string | null;
+  bankName: string | null;
+  bankBranch: string | null;
+  accountNumber: string | null;
+  accountHolder: string | null;
+  swiftCode: string | null;
   isActive: boolean;
   opening: number;
   receipts: number;
@@ -107,7 +113,13 @@ export async function buildCashBook(client: AccountingClient, window: StatementW
       accountId: String(row.accountId),
       code: String(row.code),
       name: String(row.name),
-      postingRole: String(row.postingRole),
+      accountKind: row.accountKind === 'CASH' ? 'CASH' : 'BANK',
+      postingRole: row.postingRole ? String(row.postingRole) : null,
+      bankName: row.bankName ? String(row.bankName) : null,
+      bankBranch: row.bankBranch ? String(row.bankBranch) : null,
+      accountNumber: row.accountNumber ? String(row.accountNumber) : null,
+      accountHolder: row.accountHolder ? String(row.accountHolder) : null,
+      swiftCode: row.swiftCode ? String(row.swiftCode) : null,
       isActive: row.isActive === true,
       opening,
       receipts,
