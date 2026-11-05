@@ -139,8 +139,8 @@ export const INITIAL_MASTER_FISCAL_YEARS: FiscalYear[] = [
 ];
 
 // EXAMPLE/DUMMY suppliers (is_demo = TRUE). No real supplier data.
-// Ids match scripts/demo_dataset.js DEMO_SUPPLIERS (demo-sup-*) so the seed
-// rows are the SAME suppliers referenced by demo invoices/payments/POs.
+// The server's fallback example suppliers for an empty database. The
+// verification dataset (scripts/seed/) seeds its own vendors independently.
 export const INITIAL_MASTER_SUPPLIERS: Supplier[] = [
   {
     id: 'demo-sup-1',

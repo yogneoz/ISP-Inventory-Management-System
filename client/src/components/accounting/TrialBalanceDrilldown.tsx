@@ -12,6 +12,7 @@ import type {
 import { ModalPanel } from '../common/ModalPanel';
 import { StatusPill } from './StatementPrimitives';
 import { money } from './statementFormat';
+import { JournalLink, VoucherDetailDialog } from './VoucherDetailDialog';
 
 export type TrialBalanceDrilldownTarget =
   | { kind: 'GROUP'; group: TrialBalanceGroup }
@@ -68,6 +69,7 @@ const LineTable: React.FC<{
   showAccount: boolean;
   showRunningBalance: boolean;
   broughtForward?: number;
+  onOpenVoucher: (journalId: string) => void;
 }> = ({
   title,
   caption,
@@ -77,6 +79,7 @@ const LineTable: React.FC<{
   showAccount,
   showRunningBalance,
   broughtForward,
+  onOpenVoucher,
 }) => {
   const columnCount = 5 + (showAccount ? 1 : 0) + (showRunningBalance ? 1 : 0);
 
@@ -132,9 +135,11 @@ const LineTable: React.FC<{
                       {entry.journalDateAD}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2">
-                      <span className="font-mono text-[11px] font-bold text-slate-700 dark:text-slate-300">
-                        {entry.journalNo}
-                      </span>
+                      <JournalLink
+                        journalId={entry.journalId}
+                        journalNo={entry.journalNo}
+                        onOpen={onOpenVoucher}
+                      />
                       <span className="mt-0.5 block text-[10px] uppercase tracking-wide text-slate-400">
                         {entry.sourceType.replace(/_/g, ' ')}
                       </span>
@@ -206,6 +211,7 @@ export const TrialBalanceDrilldown: React.FC<TrialBalanceDrilldownProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
+  const [detailId, setDetailId] = useState<string | null>(null);
 
   const isAccount = target.kind === 'ACCOUNT';
   const subject = isAccount ? target.account : target.group;
@@ -263,6 +269,7 @@ export const TrialBalanceDrilldown: React.FC<TrialBalanceDrilldownProps> = ({
   }`;
 
   return (
+    <>
     <div className="fixed inset-0 z-[95] flex items-start justify-center overflow-y-auto bg-slate-950/70 p-4 backdrop-blur-sm">
       <ModalPanel
         label={`Posted journal lines for ${subject.code} ${subject.name}`}
@@ -334,6 +341,7 @@ export const TrialBalanceDrilldown: React.FC<TrialBalanceDrilldownProps> = ({
               }
               showAccount={!isAccount}
               showRunningBalance={isAccount}
+              onOpenVoucher={setDetailId}
             />
             <LineTable
               title="Period lines"
@@ -348,6 +356,7 @@ export const TrialBalanceDrilldown: React.FC<TrialBalanceDrilldownProps> = ({
               showAccount={!isAccount}
               showRunningBalance={isAccount}
               broughtForward={isAccount ? target.account.openingBalance : undefined}
+              onOpenVoucher={setDetailId}
             />
 
             <div className="border-t border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/60">
@@ -396,5 +405,7 @@ export const TrialBalanceDrilldown: React.FC<TrialBalanceDrilldownProps> = ({
         )}
       </ModalPanel>
     </div>
+    {detailId && <VoucherDetailDialog journalId={detailId} onClose={() => setDetailId(null)} />}
+    </>
   );
 };

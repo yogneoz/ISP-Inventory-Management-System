@@ -1,24 +1,17 @@
 /**
- * WTY-7 demo warranty fixture, clear order and legacy-backfill proof.
+ * Legacy warranty backfill proof.
  *
- * Three separate risks this pins:
+ * The demo-fixture half of this file went away with `scripts/demo_dataset.js`
+ * (replaced by scripts/seed/verificationDataset.ts, which seeds no warranty
+ * rows). What remains is the part that never depended on the fixture: the
+ * legacy 12-month INSERTs in scripts/schema.sql are extracted and run TWICE
+ * inside one rolled-back transaction on the real database. That proves the
+ * statements are idempotent, mark their rows LEGACY_12_MONTH, and leave a unit
+ * already captured by an operator alone (the NOT EXISTS guard) — without
+ * applying the whole schema to a shared test database.
  *
- *  1. FIXTURE — the demo seed has to exercise the registers, not decorate them:
- *     both sides must show valid, expiring and expired rows on a FRESH seed,
- *     dates must be derived from the run date (a fixed acquisition date turned
- *     every seeded asset expired within a year), and one current row per
- *     type + serial. Building the dataset is cheap and needs no database, so
- *     the shape is asserted directly rather than by squinting at a screen.
- *  2. CLEAR ORDER — warranty_coverages references products, fixed assets and
- *     device records. It is cleared first so its demo rows are counted before
- *     an FK cascade can hide them (asserted in admin.repo.test.ts too; here the
- *     concern is that the seeder actually persists what the fixture builds).
- *  3. BACKFILL — the legacy 12-month INSERTs in scripts/schema.sql are
- *     extracted and run TWICE inside one rolled-back transaction on the real
- *     database. That proves the statements are idempotent, mark their rows
- *     LEGACY_12_MONTH, and leave a unit already captured by an operator alone
- *     (the NOT EXISTS guard) — without applying the whole schema to a shared
- *     test database.
+ * The clear-order guarantee (warranty_coverages cleared before the tables it
+ * references) is asserted in tests/admin.repo.test.ts.
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
@@ -27,142 +20,9 @@ import path from 'node:path';
 import pg from 'pg';
 import dotenv from 'dotenv';
 
-import { buildDemoDataset } from '../scripts/demo_dataset.js';
-import {
-  addCalendarMonths,
-  isAdDate,
-  todayAd,
-  warrantyDaysRemaining,
-  warrantyStateFor,
-} from '../shared/warrantyTerm';
-import { INITIAL_MASTER_BRANCHES } from '../server/src/config/seedData';
+import { addCalendarMonths } from '../shared/warrantyTerm';
 
 dotenv.config();
-
-const branches = INITIAL_MASTER_BRANCHES.map((b) => ({ ...b, isHeadquarters: Boolean(b.isHeadquarters) }));
-const dataset = buildDemoDataset(branches);
-
-type Coverage = {
-  id: string;
-  coverageType: 'VENDOR' | 'SELLER';
-  itemCategory: string;
-  productId?: string | null;
-  productName: string;
-  serialNumber: string;
-  assetId?: string | null;
-  branchId?: string | null;
-  startDateAD: string;
-  endDateAD: string;
-  termMonths?: number | null;
-  startBasis: string;
-  notes?: string;
-  isCurrent: boolean;
-  isDemo: boolean;
-};
-
-const coverages = dataset.warrantyCoverages as Coverage[];
-
-describe('demo warranty fixture', () => {
-  test('both registers carry valid, expiring and expired rows on a fresh seed', () => {
-    assert.ok(coverages.length >= 6, `expected a populated fixture, got ${coverages.length}`);
-    const today = todayAd();
-    for (const type of ['VENDOR', 'SELLER'] as const) {
-      const states = new Set(
-        coverages.filter((c) => c.coverageType === type).map((c) => warrantyStateFor(c.endDateAD, today))
-      );
-      assert.deepEqual(
-        [...states].sort(),
-        ['EXPIRED', 'EXPIRING_SOON', 'VALID'],
-        `${type} coverage must exercise all three register states`
-      );
-    }
-  });
-
-  test('every coverage is a real, ordered range and matches its term snapshot', () => {
-    for (const coverage of coverages) {
-      assert.ok(isAdDate(coverage.startDateAD), `${coverage.id}: invalid start ${coverage.startDateAD}`);
-      assert.ok(isAdDate(coverage.endDateAD), `${coverage.id}: invalid expiry ${coverage.endDateAD}`);
-      assert.ok(coverage.endDateAD >= coverage.startDateAD, `${coverage.id}: expiry precedes start`);
-      assert.equal(coverage.isCurrent, true, `${coverage.id}: demo rows are current`);
-      assert.equal(coverage.isDemo, true, `${coverage.id}: demo rows must be is_demo = TRUE`);
-      if (coverage.termMonths !== null && coverage.termMonths !== undefined) {
-        assert.equal(
-          coverage.endDateAD,
-          addCalendarMonths(coverage.startDateAD, coverage.termMonths),
-          `${coverage.id}: expiry must equal start + term (the shared calendar-month rule)`
-        );
-      }
-    }
-  });
-
-  test('one current row per coverage type + serial (the partial unique index)', () => {
-    const keys = coverages.map((c) => `${c.coverageType}:${c.serialNumber.toUpperCase()}`);
-    assert.equal(new Set(keys).size, keys.length, 'duplicate current coverage in the demo dataset');
-    assert.equal(new Set(coverages.map((c) => c.id)).size, coverages.length, 'duplicate coverage id');
-  });
-
-  test('dates are derived from the seed run, not frozen on a 2024 acquisition', () => {
-    // The failure this prevents: every seeded asset acquired on one old date,
-    // so the old warranty screen counted three expired rows and default-filtered
-    // them away. Relative dates keep the fixture meaningful as time passes.
-    const assets = dataset.assetRegister as Array<{ id: string; acquisitionDateAD: string }>;
-    assert.ok(new Set(assets.map((a) => a.acquisitionDateAD)).size > 1, 'assets must not share one acquisition date');
-    for (const asset of assets) {
-      assert.ok(asset.acquisitionDateAD >= '2025-01-01', `${asset.id} was still seeded with a 2024 date`);
-    }
-
-    for (const coverage of coverages) {
-      const remaining = warrantyDaysRemaining(coverage.endDateAD);
-      assert.ok(remaining !== null, `${coverage.id}: unreadable expiry`);
-      // 500 days of history and 2 years of future is enough headroom for every
-      // state while proving the dates move with the run date.
-      assert.ok(coverage.startDateAD >= shift(-500), `${coverage.id}: start is further back than the seed window`);
-      assert.ok(coverage.endDateAD <= shift(800), `${coverage.id}: expiry is further ahead than the seed window`);
-    }
-  });
-
-  test('fixed-asset supplier coverages start on the asset acquisition date', () => {
-    const assets = new Map((dataset.assetRegister as Array<{ id: string; acquisitionDateAD: string }>).map((a) => [a.id, a]));
-    const assetCoverages = coverages.filter((c) => c.coverageType === 'VENDOR' && c.assetId);
-    assert.ok(assetCoverages.length > 0, 'the fixture must capture supplier coverages for fixed assets');
-    for (const coverage of assetCoverages) {
-      const asset = assets.get(coverage.assetId!);
-      assert.ok(asset, `${coverage.id}: unknown asset ${coverage.assetId}`);
-      assert.equal(
-        coverage.startDateAD,
-        asset!.acquisitionDateAD,
-        `${coverage.id}: supplier coverage must start with the asset`
-      );
-    }
-  });
-
-  test('the product defaults demonstrate a 0-month and a 24-month term', () => {
-    const products = dataset.products as Array<{ id: string; vendorWarrantyMonths?: number; sellerWarrantyMonths?: number }>;
-    assert.ok(products.some((p) => p.vendorWarrantyMonths === 0), 'a no-warranty product default is missing');
-    assert.ok(products.some((p) => p.vendorWarrantyMonths === 24), 'a 24-month product default is missing');
-    assert.ok(products.some((p) => p.sellerWarrantyMonths === 0), 'a 0-month seller default is missing');
-    assert.ok(products.some((p) => p.sellerWarrantyMonths === 24), 'a 24-month seller default is missing');
-  });
-
-  test('the demo seeder persists the fixture and counts the table', () => {
-    const seeder = fs.readFileSync(path.resolve('scripts/setup_db.js'), 'utf8');
-    assert.match(seeder, /INSERT INTO warranty_coverages/, 'setup_db.js must seed the coverage fixture');
-    assert.match(seeder, /warranty_coverages WHERE is_demo/, 'the demo summary must count coverage rows');
-    assert.match(
-      seeder,
-      /vendor_warranty_months, seller_warranty_months/,
-      'the product insert must carry the warranty defaults'
-    );
-    assert.match(seeder, /p\.vendorWarrantyMonths \?\? 12/, 'products without a term must fall back to 12 months');
-  });
-});
-
-/** AD date `offset` days from today — the same window the fixture builds with. */
-function shift(offset: number): string {
-  const now = new Date();
-  const base = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  return new Date(base + offset * 86_400_000).toISOString().slice(0, 10);
-}
 
 // ---------------------------------------------------------------------------
 // Legacy backfill — real PostgreSQL, real statements, rolled back

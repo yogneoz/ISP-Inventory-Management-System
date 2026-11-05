@@ -123,6 +123,17 @@ describe('financial statements API (real HTTP + PostgreSQL)', { skip: skipNoDb }
     return res.json.id as string;
   }
 
+  async function createControlAccount(input: Record<string, unknown>) {
+    const id = await createAccount(input);
+    const book = await post('/api/accounting/subledgers', tokens.super, {
+      code: `SL-${String(input.code)}`,
+      name: `Book ${String(input.name)}`,
+      mainAccountId: id,
+    });
+    assert.equal(book.status, 201, `book ${String(input.code)}: ${JSON.stringify(book.json)}`);
+    return id;
+  }
+
   function line(accountId: string, debit: number, credit: number, extra: Record<string, unknown> = {}) {
     return { accountId, debit, credit, ...extra };
   }
@@ -175,10 +186,15 @@ describe('financial statements API (real HTTP + PostgreSQL)', { skip: skipNoDb }
     await pool!.query("DELETE FROM transaction_logs WHERE product_id LIKE 'ast-%'");
     await pool!.query("DELETE FROM audit_logs WHERE details LIKE '%AST-%'");
     await pool!.query("DELETE FROM products WHERE id LIKE 'ast-%'");
+    await pool!.query(
+      "DELETE FROM gl_subledgers WHERE main_account_id IN (SELECT id FROM gl_accounts WHERE code LIKE 'AST-%')"
+    );
     await pool!.query("DELETE FROM gl_accounts WHERE code LIKE 'AST-%'");
     await pool!.query("DELETE FROM gl_account_groups WHERE code LIKE 'AST-%'");
     await pool!.query(
-      "DELETE FROM gl_periods WHERE period_key = $1 AND fiscal_year_id = (SELECT id FROM fiscal_years WHERE code = '2083-84')",
+      // Only the app-created period for this month (glp- ids). A seeded/real
+      // period for the same month owns journals, and the period FK is RESTRICT.
+      "DELETE FROM gl_periods WHERE period_key = $1 AND fiscal_year_id = (SELECT id FROM fiscal_years WHERE code = '2083-84') AND id LIKE 'glp-%'",
       [PERIOD_KEY]
     );
     await pool!.query('DELETE FROM branches WHERE id = $1', [BR]);
@@ -228,19 +244,19 @@ describe('financial statements API (real HTTP + PostgreSQL)', { skip: skipNoDb }
     const incomeGroup = await createGroup('AST-RG', 'AST Revenue Group', 'INCOME', 'REVENUE');
     const expenseGroup = await createGroup('AST-EX', 'AST Expense Group', 'EXPENSE', 'OPERATING_EXPENSE');
 
-    accounts.customerControl = await createAccount({
+    accounts.customerControl = await createControlAccount({
       code: 'AST-1100', name: 'AST Customer Control', groupId: assetGroup,
       isControl: true, subledgerType: 'CUSTOMER',
     });
-    accounts.dueFrom = await createAccount({
+    accounts.dueFrom = await createControlAccount({
       code: 'AST-1610', name: 'AST Due from Head Office', groupId: assetGroup,
       isControl: true, subledgerType: 'INTER_BRANCH',
     });
-    accounts.supplierControl = await createAccount({
+    accounts.supplierControl = await createControlAccount({
       code: 'AST-2000', name: 'AST Supplier Control', groupId: liabilityGroup,
       isControl: true, subledgerType: 'SUPPLIER',
     });
-    accounts.dueTo = await createAccount({
+    accounts.dueTo = await createControlAccount({
       code: 'AST-2310', name: 'AST Due to Head Office', groupId: liabilityGroup,
       isControl: true, subledgerType: 'INTER_BRANCH',
     });
@@ -768,10 +784,32 @@ describe('financial statements API (real HTTP + PostgreSQL)', { skip: skipNoDb }
     );
     assert.equal(company.status, 200, JSON.stringify(company.json));
     assert.equal(company.json.branchId, 'ALL');
-    assert.equal(company.json.totalAssets, 1339, 'branch 1289 + other branch 50');
-    assert.equal(company.json.totalLiabilities, 739);
-    assert.equal(company.json.equity.currentEarnings, 600);
-    assert.equal(company.json.totalLiabilitiesAndEquity, 1339);
+
+    // A shared database is not empty, so the company level is asserted as the
+    // roll-up of every branch rather than a fixed number: the property under
+    // test is the roll-up, and the seeded verification dataset legitimately
+    // contributes journals to the same fiscal year.
+    const allBranches = (await get('/api/branches', tokens.super)).json as any[];
+    let branchAssets = 0;
+    let branchLiabilities = 0;
+    let branchEarnings = 0;
+    let branchDebit = 0;
+    let branchCredit = 0;
+    for (const branch of allBranches) {
+      const bs = await get(`/api/accounting/statements/balance-sheet?asOf=${TO}&branchId=${branch.id}`, tokens.super);
+      assert.equal(bs.status, 200, JSON.stringify(bs.json));
+      branchAssets += Number(bs.json.totalAssets);
+      branchLiabilities += Number(bs.json.totalLiabilities);
+      branchEarnings += Number(bs.json.equity.currentEarnings);
+      const tb = await get(`/api/accounting/statements/trial-balance?asOf=${TO}&branchId=${branch.id}`, tokens.super);
+      assert.equal(tb.status, 200, JSON.stringify(tb.json));
+      branchDebit += Number(tb.json.totals.periodDebit);
+      branchCredit += Number(tb.json.totals.periodCredit);
+    }
+    assert.equal(company.json.totalAssets, branchAssets, 'ALL assets must equal the branch totals summed');
+    assert.equal(company.json.totalLiabilities, branchLiabilities);
+    assert.equal(company.json.equity.currentEarnings, branchEarnings);
+    assert.equal(company.json.totalLiabilitiesAndEquity, branchAssets);
     assert.equal(company.json.difference, 0);
     assert.equal(company.json.balanced, true);
 
@@ -790,8 +828,9 @@ describe('financial statements API (real HTTP + PostgreSQL)', { skip: skipNoDb }
       tokens.super
     );
     assert.equal(companyTrial.status, 200, JSON.stringify(companyTrial.json));
-    assert.equal(companyTrial.json.totals.periodDebit, 2899);
-    assert.equal(companyTrial.json.totals.periodCredit, 2899);
+    assert.equal(companyTrial.json.totals.periodDebit, branchDebit);
+    assert.equal(companyTrial.json.totals.periodCredit, branchCredit);
+    assert.equal(companyTrial.json.totals.periodDebit, companyTrial.json.totals.periodCredit);
     assert.equal(companyTrial.json.balanced, true);
   });
 

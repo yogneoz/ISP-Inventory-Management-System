@@ -120,12 +120,12 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 │
 ├── scripts/                          # Database Automation Scripts
 │   ├── schema.sql                    # Full PostgreSQL schema — 57 tables, idempotent, safe to re-run
-│   ├── setup_db.js                   # Node.js setup: schema + master data + demo dataset + FY backfill
+│   ├── setup_db.js                   # Node setup: wipe (BS calendar kept) + schema, then the dataset seeder
 │   ├── setup_postgres.sh             # Shell: auto-install & configure PostgreSQL (Linux/macOS/Windows)
-│   ├── demo_dataset.js               # Linked demo dataset (is_demo = TRUE)
+│   ├── seed/verificationDataset.ts   # The one dataset: 2 FYs, 4 branches, 80 customers, ledger targets
 │   ├── integrity_check.mjs           # Database integrity verification
 │   ├── check_no_inline_sql.ts        # CI guard: fails if controllers contain raw SQL
-│   └── reset_fresh_demo.mjs          # Full reset & re-seed while preserving the BS calendar
+│   └── seed_verification_data.ts     # Full reset & verification seed (preserves the BS calendar)
 │
 ├── server/                           # Backend (Node.js + Express) — index.ts bootstrap,
 │                                     #   src/{app,routes,controllers,services,middleware,models,config,errors,utils}
@@ -304,7 +304,7 @@ If demo data was previously loaded or tested, you can clear all demo records at 
 To wipe **all** records (including users, branches, and locations) while **preserving the Nepali (BS) calendar reference tables**, then reseed the example dataset:
 
 ```bash
-node scripts/reset_fresh_demo.mjs
+npm run seed:verify
 ```
 
 After running it, restart the server (`npm run dev`) and log in with the demo credentials above (or your own account, if it was preserved).
@@ -513,7 +513,7 @@ docker run -d \
 | **API Smoke Test** *(server must be running)* | `npm run smoke` |
 | **Production Boot Timing** *(after `npm run build`; needs Chrome + demo DB)* | `npm run check:boot-timing` |
 | **Write-Latency Benchmark** *(server must be running)* | `npm run bench:write` |
-| **Full Demo Reset** | `node scripts/reset_fresh_demo.mjs` |
+| **Full Reset & Verification Seed** | `npm run seed:verify` |
 | **PM2 Process Status** | `pm2 status` |
 | **View Server Logs** | `pm2 logs enterprise-erp` |
 | **Restart Application** | `pm2 restart enterprise-erp` |
@@ -664,7 +664,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   passing its counter (2 PurchaseOrders, 2 PurchaseInvoices, 1
   SerialLogRegister, 11 StockOperations, 4 ReturnsRegister, 2 SalesInvoices).
   A newly added unwired mount fails.
-- **All 82 feature screens pinned** — a coverage table asserts every screen
+- **All 85 feature screens pinned** — a coverage table asserts every screen
   under `client/src/features` exists in `SCREEN_SURFACE_PINS` with its exact
   server-call surface (`api.*` methods **and** named `services/api` imports —
   FinancialStatements.tsx imports `getFinancialSummary` directly, which a
@@ -734,7 +734,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 1924-test suite against a PostgreSQL 16 service container (zero DB skips;
+  full 1933-test suite against a PostgreSQL 16 service container (zero DB skips;
   the two unconditional skips are Windows-only real-signal checks, which CI runs,
   and the live-drain check runs under `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1` so its
   preconditions cannot silently skip it) →

@@ -229,11 +229,22 @@ describe('VOL-1 — GET /api/transaction-logs paged contract', () => {
   });
 
   test('a global account may read all branches; the date window is inclusive', { skip: skipNoDb }, async () => {
-    const all = await get('/api/transaction-logs?dateFromAD=2026-01-01&dateToAD=2026-01-31&page=1&pageSize=10', superToken);
+    const all = await get('/api/transaction-logs?dateFromAD=2026-01-01&dateToAD=2026-01-31&page=1&pageSize=200', superToken);
     assert.equal(all.status, 200);
-    assert.equal(all.json.totalItems, 4);
+    // The database is shared with the seeded verification dataset, so the
+    // window total is asserted against DB truth (and must still include the
+    // four fixture rows), not against a fixture-only count of 4.
+    const expected = await pool!.query(
+      "SELECT COUNT(*)::int AS count FROM transaction_logs WHERE timestamp_ad::date BETWEEN '2026-01-01' AND '2026-01-31'"
+    );
+    assert.equal(all.json.totalItems, expected.rows[0].count, 'the global read must match the DB count for the window');
+    assert.ok(all.json.totalItems >= 4, 'the four fixture rows are inside the window');
+    const ids = all.json.data.map((r: any) => r.id);
+    for (const row of ROWS.filter((r) => r.id !== `${PREFIX}tx-old`)) {
+      assert.ok(ids.includes(row.id), `${row.id} must be in the global read`);
+    }
     assert.ok(all.json.data.some((r: any) => r.branchId === BRANCH_B));
-    assert.ok(!all.json.data.some((r: any) => r.id === `${PREFIX}tx-old`));
+    assert.ok(!ids.includes(`${PREFIX}tx-old`), 'the window must exclude the December row');
   });
 
   test('all=1 returns the bounded export envelope, and no page params keeps the legacy array', { skip: skipNoDb }, async () => {

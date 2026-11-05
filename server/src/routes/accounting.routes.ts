@@ -31,6 +31,7 @@ import {
   post_journal,
   post_openingBalances,
   post_period,
+  post_reverseJournal,
   post_reopenPeriod,
 } from '../controllers/accounting.controller';
 import {
@@ -39,6 +40,16 @@ import {
   patch_billTerm,
   post_billTerm,
 } from '../controllers/billTerms.controller';
+import {
+  delete_subledger,
+  get_chartHealth,
+  get_subledgerEntries,
+  get_subledgers,
+  patch_subledger,
+  post_chartDefaults,
+  post_generateSubledgers,
+  post_subledger,
+} from '../controllers/subledgers.controller';
 import {
   delete_costCenter,
   delete_narrationTemplate,
@@ -96,6 +107,32 @@ export function registerAccountingRoutes(app: Express) {
   });
   app.delete('/api/accounting/accounts/:id', requirePermission('gl-manage'), async (req, res, next) => {
     delete_account(req as any, res as any).catch(next);
+  });
+  // Subledger master: one book per control account, plus the chart setup
+  // health panel and its idempotent default repair.
+  app.get('/api/accounting/subledgers', requirePermission('gl-view'), async (req, res, next) => {
+    get_subledgers(req as any, res as any).catch(next);
+  });
+  app.get('/api/accounting/subledgers/:id/entries', requirePermission('gl-view'), async (req, res, next) => {
+    get_subledgerEntries(req as any, res as any).catch(next);
+  });
+  app.post('/api/accounting/subledgers/generate', requirePermission('gl-manage'), async (req, res, next) => {
+    post_generateSubledgers(req as any, res as any).catch(next);
+  });
+  app.post('/api/accounting/subledgers', requirePermission('gl-manage'), async (req, res, next) => {
+    post_subledger(req as any, res as any).catch(next);
+  });
+  app.patch('/api/accounting/subledgers/:id', requirePermission('gl-manage'), async (req, res, next) => {
+    patch_subledger(req as any, res as any).catch(next);
+  });
+  app.delete('/api/accounting/subledgers/:id', requirePermission('gl-manage'), async (req, res, next) => {
+    delete_subledger(req as any, res as any).catch(next);
+  });
+  app.get('/api/accounting/chart-health', requirePermission('gl-view'), async (req, res, next) => {
+    get_chartHealth(req as any, res as any).catch(next);
+  });
+  app.post('/api/accounting/chart-defaults', requirePermission('gl-manage'), async (req, res, next) => {
+    post_chartDefaults(req as any, res as any).catch(next);
   });
   app.get('/api/accounting/posting-defaults', requirePermission('gl-view'), async (req, res, next) => {
     get_postingDefaults(req as any, res as any).catch(next);
@@ -164,6 +201,9 @@ export function registerAccountingRoutes(app: Express) {
   });
   app.post('/api/accounting/journals', requirePermission('gl-post'), async (req, res, next) => {
     post_journal(req as any, res as any).catch(next);
+  });
+  app.post('/api/accounting/journals/:id/reverse', requirePermission('gl-post'), async (req, res, next) => {
+    post_reverseJournal(req as any, res as any).catch(next);
   });
   app.get('/api/accounting/reconciliations', requirePermission('gl-view'), async (req, res, next) => {
     get_reconciliation(req as any, res as any).catch(next);

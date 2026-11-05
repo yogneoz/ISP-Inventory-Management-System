@@ -3,8 +3,13 @@ import { StatCard } from '../common/StatCard';
 import type { CashBookResponse } from '../../services/api/accounting';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { money } from './statementFormat';
+import { JournalLink } from './VoucherDetailDialog';
 
-export const CashBookView: React.FC<{ data: CashBookResponse; dateMode: 'BS' | 'AD' }> = ({ data, dateMode }) => (
+export const CashBookView: React.FC<{
+  data: CashBookResponse;
+  dateMode: 'BS' | 'AD';
+  onOpenVoucher?: (journalId: string) => void;
+}> = ({ data, dateMode, onOpenVoucher }) => (
   <div className="space-y-4">
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       <StatCard label="OPENING BALANCE" value={money(data.opening)} tone="indigo" hint="Before the period start" />
@@ -64,7 +69,17 @@ export const CashBookView: React.FC<{ data: CashBookResponse; dateMode: 'BS' | '
                   account.entries.map((entry, index) => (
                     <tr key={`${entry.journalNo}-${index}`} className="text-slate-800 dark:text-slate-300">
                       <td className="px-2.5 py-1.5 font-mono text-[11px]">{formatDualDate(entry.journalDateAD, dateMode)}</td>
-                      <td className="px-2.5 py-1.5 font-mono text-[11px] text-indigo-600 dark:text-indigo-400">{entry.journalNo}</td>
+                      <td className="px-2.5 py-1.5 font-mono text-[11px] text-indigo-600 dark:text-indigo-400">
+                        {onOpenVoucher && entry.journalId ? (
+                          <JournalLink
+                            journalId={entry.journalId}
+                            journalNo={entry.journalNo}
+                            onOpen={onOpenVoucher}
+                          />
+                        ) : (
+                          entry.journalNo
+                        )}
+                      </td>
                       <td className="px-2.5 py-1.5 text-slate-500 dark:text-slate-400">{entry.sourceType}</td>
                       <td className="max-w-[18rem] truncate px-2.5 py-1.5 text-slate-500 dark:text-slate-400">{entry.memo || '—'}</td>
                       <td className="px-2.5 py-1.5 text-right font-mono text-emerald-600 dark:text-emerald-400">

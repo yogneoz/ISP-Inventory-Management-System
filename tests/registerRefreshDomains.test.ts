@@ -977,6 +977,39 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       'getControlReconciliation',
       'getPostingDefaults',
     ],
+    'finance/GeneralLedgerMaster.tsx': [
+      'createAccountingAccount',
+      'deleteAccountingAccount',
+      'getAccountingAccounts',
+      'getAccountingGroups',
+      'updateAccountingAccount',
+    ],
+    // Journal/Cash-Bank entry: the posted-voucher page rides App's
+    // transactionLog counter (sales/procurement/stock/assets all bump it; a
+    // manual accounting event falls back to the full refresh that bumps every
+    // counter), while customer parties use the shared paged picker.
+    'finance/VoucherEntries.tsx': [
+      'getAccountingAccounts',
+      'getAccountingEmployees',
+      'getAccountingJournals',
+      'getActiveBranchId',
+      'getCashBook',
+      'getSettlementAccounts',
+      'postAccountingJournal',
+      'reverseAccountingJournal',
+      'searchCustomers',
+    ],
+    'finance/SubledgersManagement.tsx': [
+      'createAccountingSubledger',
+      'deleteAccountingSubledger',
+      'generateAccountingSubledgers',
+      'getAccountingAccounts',
+      'getAccountingSubledgerEntries',
+      'getAccountingSubledgers',
+      'getChartHealth',
+      'seedChartDefaults',
+      'updateAccountingSubledger',
+    ],
     'finance/BillTermsManagement.tsx': ['createBillTerm', 'deleteBillTerm', 'getBillTerms', 'updateBillTerm'],
     'finance/CostCentersManagement.tsx': [
       'createCostCenter',
@@ -1211,6 +1244,8 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'finance/CashBookRegister.tsx',
     'finance/AgingRegister.tsx',
     'finance/ChartOfAccountsRegister.tsx',
+    'finance/GeneralLedgerMaster.tsx',
+    'finance/SubledgersManagement.tsx',
     'finance/BillTermsManagement.tsx',
     'finance/DailyCashClose.tsx',
     'finance/BsCalendarHealthPanel.tsx',
@@ -1314,6 +1349,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
         // ASSET-1: the asset registers page their own server reads.
         'finance/DepreciationRegister.tsx',
         'finance/FixedAssetRegister.tsx',
+        'finance/VoucherEntries.tsx',
         'inventory/AssetDeployments.tsx',
         'inventory/SerialLogRegister.tsx',
         'inventory/stockops/ConsumablesRegisterPanel.tsx',
@@ -1376,6 +1412,8 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'finance/CashBookRegister.tsx': 'accounting-cash-book',
     'finance/AgingRegister.tsx': 'accounting-aging',
     'finance/ChartOfAccountsRegister.tsx': 'accounting-chart',
+    'finance/GeneralLedgerMaster.tsx': 'general-ledger',
+    'finance/SubledgersManagement.tsx': 'subledgers',
     'finance/BillTermsManagement.tsx': 'bill-terms',
     'finance/DailyCashClose.tsx': 'cash-position',
     'finance/BsCalendarHealthPanel.tsx': 'bs-calendar',

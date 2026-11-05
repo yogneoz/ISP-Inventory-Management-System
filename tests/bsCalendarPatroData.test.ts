@@ -272,20 +272,26 @@ describe('the repo keeps exactly one hand-maintained copy of the BS calendar', (
     }
   });
 
-  test('setup_db.js loads the shared file instead of carrying its own year arrays', () => {
-    const source = read('scripts/setup_db.js');
+  test('the seeder loads the shared file instead of carrying its own year arrays', () => {
+    const setup = read('scripts/setup_db.js');
     assert.match(
-      source,
+      setup,
+      /scripts\/seed_verification_data\.ts/,
+      'the setup entry point must delegate seeding to the verification seeder'
+    );
+    const seeder = read('scripts/seed/verificationDataset.ts');
+    assert.match(
+      seeder,
       /shared\/bsCalendarYears\.json/,
       'the seeder must read shared/bsCalendarYears.json'
     );
     assert.match(
-      source,
+      seeder,
       /JSON\.parse\(\s*fs\.readFileSync\([^)]*shared\/bsCalendarYears\.json/,
       'the seeder must parse the shared file at runtime'
     );
     assert.equal(
-      /daysInMonths:\s*\[/.test(source),
+      /daysInMonths:\s*\[/.test(seeder),
       false,
       'the seeder must not inline BS month arrays again (that copy is what seeded BS 2084/2085 wrong)'
     );
@@ -333,11 +339,7 @@ describe('seeded fiscal years store only BS dates that exist in the patro', () =
    * it is an escape hatch for data that lies outside the seeded calendar, and a
    * stale entry fails the test below.
    */
-  const OUT_OF_CALENDAR_COVERAGE: Record<string, string> = {
-    'fy-6:endDateBS':
-      'fy-6 ends 2029-07-15, past the seeded BS calendar (which stops at 2085-12-30 = ' +
-      '2029-04-13); re-derive this label once BS 2086 is seeded from the patro',
-  };
+  const OUT_OF_CALENDAR_COVERAGE: Record<string, string> = {};
 
   interface SeedFiscalYear {
     source: string;
@@ -361,7 +363,7 @@ describe('seeded fiscal years store only BS dates that exist in the patro', () =
     }));
   };
 
-  const SEED_SOURCES = ['scripts/setup_db.js', 'server/src/config/seedData.ts'];
+  const SEED_SOURCES = ['scripts/seed/verificationDataset.ts', 'server/src/config/seedData.ts'];
 
   test('every seeded fiscal-year BS label exists in the bundled calendar', () => {
     resetBsCalendarData();

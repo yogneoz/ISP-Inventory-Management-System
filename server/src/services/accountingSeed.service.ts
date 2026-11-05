@@ -17,11 +17,16 @@
 import {
   ACCOUNT_GROUP_SEED_INSERT_SQL,
   ACCOUNT_SEED_INSERT_SQL,
+  SUBLEDGER_SEED_INSERT_SQL,
   accountGroupSeedParams,
   accountSeedParams,
 } from '../models/accounting.repo';
 import type { AccountingClient } from './accounting.service';
-import { DEFAULT_CHART_ACCOUNTS, DEFAULT_CHART_GROUPS } from '../config/defaultChart';
+import {
+  DEFAULT_CHART_ACCOUNTS,
+  DEFAULT_CHART_GROUPS,
+  DEFAULT_CHART_SUBLEDGERS,
+} from '../config/defaultChart';
 
 /** Deterministic ids make a re-run and a concurrent run address the same row. */
 function groupId(code: string): string {
@@ -32,10 +37,18 @@ function accountId(code: string): string {
   return `gla-default-${code}`;
 }
 
+function subledgerId(accountCode: string): string {
+  return `gls-default-${accountCode}`;
+}
+
 /** Idempotently insert the default chart. Safe to call inside a transaction. */
-export async function ensureDefaultChart(client: AccountingClient): Promise<void> {
+export async function ensureDefaultChart(
+  client: AccountingClient
+): Promise<{ groups: number; accounts: number }> {
+  let groups = 0;
+  let accounts = 0;
   for (const group of DEFAULT_CHART_GROUPS) {
-    await client.query(
+    const result = await client.query(
       ACCOUNT_GROUP_SEED_INSERT_SQL,
       accountGroupSeedParams({
         id: groupId(group.code),
@@ -47,9 +60,10 @@ export async function ensureDefaultChart(client: AccountingClient): Promise<void
         sortOrder: group.sortOrder,
       })
     );
+    groups += result.rowCount || 0;
   }
   for (const account of DEFAULT_CHART_ACCOUNTS) {
-    await client.query(
+    const result = await client.query(
       ACCOUNT_SEED_INSERT_SQL,
       accountSeedParams({
         id: accountId(account.code),
@@ -62,5 +76,28 @@ export async function ensureDefaultChart(client: AccountingClient): Promise<void
         groupCode: account.groupCode,
       })
     );
+    accounts += result.rowCount || 0;
   }
+  return { groups, accounts };
+}
+
+/**
+ * Idempotently give every default control account its subledger book. A control
+ * account without one is a half-configured chart: the GL still totals, but no
+ * party book exists to reconcile it against, so the health panel reports it.
+ */
+export async function ensureDefaultSubledgers(client: AccountingClient): Promise<number> {
+  let inserted = 0;
+  for (const subledger of DEFAULT_CHART_SUBLEDGERS) {
+    const result = await client.query(SUBLEDGER_SEED_INSERT_SQL, [
+      subledgerId(subledger.accountCode),
+      subledger.code,
+      subledger.name,
+      subledger.subledgerType,
+      subledger.description,
+      subledger.accountCode,
+    ]);
+    inserted += result.rowCount || 0;
+  }
+  return inserted;
 }

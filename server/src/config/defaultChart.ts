@@ -233,6 +233,16 @@ export const DEFAULT_CHART_ACCOUNTS: readonly DefaultChartAccount[] = [
     postingRole: 'EMPLOYEE_LOAN',
   },
   {
+    code: '1640',
+    name: 'Inter-branch Clearing',
+    groupCode: '1000',
+    description:
+      'Holds the value of an inter-branch movement between dispatch and receipt, so each branch and the company roll-up stay balanced.',
+    isControl: false,
+    subledgerType: 'NONE',
+    postingRole: 'INTER_BRANCH_CLEARING',
+  },
+  {
     code: '2100',
     name: 'Accounts Payable',
     groupCode: '2000',
@@ -372,3 +382,18 @@ export const DEFAULT_CHART_ACCOUNTS: readonly DefaultChartAccount[] = [
     postingRole: 'STOCK_EXPENSE',
   },
 ];
+
+/**
+ * One default subledger book per default control account. Deriving it from the
+ * chart keeps the two seeds in lockstep: adding a control account adds its
+ * book, and the code/name pair stays human-readable (`SL-1100`).
+ */
+export const DEFAULT_CHART_SUBLEDGERS = DEFAULT_CHART_ACCOUNTS.filter(
+  (account) => account.isControl
+).map((account) => ({
+  code: `SL-${account.code}`,
+  name: `${account.name} subledger`,
+  subledgerType: account.subledgerType,
+  accountCode: account.code,
+  description: `Subledger book behind the ${account.name} control account.`,
+}));

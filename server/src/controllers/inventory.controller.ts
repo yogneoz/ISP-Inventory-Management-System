@@ -677,7 +677,7 @@ try {
       tagNumber: tagNum,
       name: req.body.name || 'Fixed Asset',
       category: req.body.category || 'Equipment',
-      branchId: req.body.branchId || 'WH001',
+      branchId: req.body.branchId || branches[0]?.id,
       acquisitionDateAD: req.body.acquisitionDateAD || req.body.acquisitionDateAd || new Date().toISOString().split('T')[0],
       // C4: BS fallback derives from the actually-stored AD date.
       acquisitionDateBS: req.body.acquisitionDateBS || req.body.acquisitionDateBs || await resolveBsDateForLedger(newAssetAcquisitionAD),
@@ -1365,8 +1365,12 @@ const { branchId, type, status, query, dateFromAD, dateToAD, page, pageSize, all
 export async function post_stockOperations(req: any, res: Response): Promise<any> {
 try {
     const opType = req.body.type || 'DAMAGE';
-    const branchObj = branches.find((b) => b.id === req.body.branchId);
-    const destWarehouseObj = branches.find((b) => b.id === (req.body.destinationWarehouseId || 'WH001'));
+    // Never fall back to a hard-coded demo branch id: on a database whose real
+    // branches are BR-KTM/BR-PKR/BR-BTL/BR-DHN, defaulting the destination to
+    // WH001 wrote a destination_warehouse_id that violates the FK.
+    const opBranchId = req.body.branchId || branches[0]?.id;
+    const branchObj = branches.find((b) => b.id === opBranchId);
+    const destWarehouseObj = branches.find((b) => b.id === (req.body.destinationWarehouseId || opBranchId));
     const items = req.body.items || [];
     // MANUAL_ADJUSTMENT carries a SIGNED quantity (negative draws stock,
     // positive credits it); every other type draws stock and keeps the legacy
@@ -1466,7 +1470,6 @@ try {
     const opDateBS = await bsDateOr400(res, opDateAD);
     if (!opDateBS) return;
 
-    const opBranchId = req.body.branchId || 'WH001';
     // Map operation type to document type code for numbering:
     // DAMAGE → DMG, PULLOUT → PLT, STOCK_OUT → SALE, CONSUMABLE_ISSUE → CON,
     // MANUAL_ADJUSTMENT → SA, others → their first 4 letters.
@@ -1492,7 +1495,7 @@ try {
       totalValue,
       fiscalYear: req.body.fiscalYear || getFiscalYearCodeForDate(opDateAD),
       branchName: branchObj?.name || req.body.branchName || 'Branch',
-      destinationWarehouseId: destWarehouseObj?.id || req.body.destinationWarehouseId || 'WH001',
+      destinationWarehouseId: destWarehouseObj?.id || req.body.destinationWarehouseId || opBranchId,
       destinationWarehouseName: destWarehouseObj?.name || req.body.destinationWarehouseName || 'Headquarters Warehouse',
       status: req.body.status || (opType === 'PULLOUT' ? 'DISPATCHED' : 'LOGGED'),
     };

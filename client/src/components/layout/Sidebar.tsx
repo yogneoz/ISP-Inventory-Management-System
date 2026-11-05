@@ -120,7 +120,11 @@ export type NavTab =
   | 'accounting-balance-sheet'
   | 'accounting-cash-book'
   | 'accounting-aging'
+  | 'journal-entry'
+  | 'cash-bank-entry'
   | 'accounting-chart'
+  | 'general-ledger'
+  | 'subledgers'
   | 'bill-terms'
   | 'cost-centers'
   | 'narration-templates'
@@ -205,7 +209,11 @@ export const NAV_TABS: NavTab[] = [
   'accounting-balance-sheet',
   'accounting-cash-book',
   'accounting-aging',
+  'journal-entry',
+  'cash-bank-entry',
   'accounting-chart',
+  'general-ledger',
+  'subledgers',
   'bill-terms',
   'cost-centers',
   'narration-templates',
@@ -648,12 +656,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
     });
   }
 
-  // 6. Finance & Accounting — the accounting registers first (each statement
-  //    is its own register since the workspace split), then the management
-  //    overview, ledgers, tax and the asset register.
+  // 6. Finance & Accounting — voucher forms first, then the accounting
+  //    registers (each statement is its own register since the workspace
+  //    split), the management overview, ledgers, tax and the asset register.
   const financeChildren: NavChildDef[] = [];
   if (isOperationAllowed('gl-view', currentUser?.role)) {
     financeChildren.push(
+      { id: 'journal-entry' as NavTab, label: 'Journal Entry', icon: BookOpen, section: 'Entries' },
+      { id: 'cash-bank-entry' as NavTab, label: 'Cash & Bank Entry', icon: Wallet, section: 'Entries' },
       { id: 'accounting' as NavTab, label: 'Trial Balance', icon: Scale, section: 'Statements & ledgers' },
       { id: 'accounting-profit-loss' as NavTab, label: 'Profit & Loss', icon: TrendingUp, section: 'Statements & ledgers' },
       { id: 'accounting-balance-sheet' as NavTab, label: 'Balance Sheet', icon: Landmark, section: 'Statements & ledgers' },
@@ -731,6 +741,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     ...(isOperationAllowed('gl-view', currentUser?.role)
       ? [
           { id: 'accounting-chart' as NavTab, label: 'Chart of Accounts', icon: ListTree, section: 'Accounting' },
+          { id: 'general-ledger' as NavTab, label: 'General Ledger Master', icon: ListTree, section: 'Accounting' },
+          { id: 'subledgers' as NavTab, label: 'Subledgers', icon: Layers, section: 'Accounting' },
           { id: 'bill-terms' as NavTab, label: 'Bill Terms', icon: CalendarClock, section: 'Accounting' },
           { id: 'cost-centers' as NavTab, label: 'Cost Centers', icon: Layers, section: 'Accounting' },
           { id: 'narration-templates' as NavTab, label: 'Narration Templates', icon: FileText, section: 'Accounting' },

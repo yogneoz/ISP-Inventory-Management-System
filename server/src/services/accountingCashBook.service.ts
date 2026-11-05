@@ -25,6 +25,7 @@ import {
 export interface CashBookEntry {
   journalDateAD: string;
   journalNo: string;
+  journalId: string;
   sourceType: string;
   sourceId: string | null;
   branchId: string;
@@ -99,6 +100,7 @@ export async function buildCashBook(client: AccountingClient, window: StatementW
       return {
         journalDateAD: String(entry.journalDateAD).slice(0, 10),
         journalNo: String(entry.journalNo),
+        journalId: String(entry.journalId),
         sourceType: String(entry.sourceType),
         sourceId: entry.sourceId ? String(entry.sourceId) : null,
         branchId: String(entry.branchId),

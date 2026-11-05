@@ -44,6 +44,8 @@ import {
   JOURNAL_INSERT_SQL,
   JOURNAL_LINES_SQL,
   JOURNAL_LINE_INSERT_SQL,
+  JOURNAL_LOCK_BY_ID_SQL,
+  JOURNAL_REVERSAL_EXISTS_SQL,
   JOURNAL_SUBLEDGER_SQL,
   NEXT_JOURNAL_SEQUENCE_SQL,
   PERIOD_BY_ID_SQL,
@@ -54,6 +56,7 @@ import {
   POSTING_ROLES,
   STATEMENT_GROUPS,
   SUBLEDGER_BALANCE_SQL,
+  SUBLEDGER_BOOKS_BY_ACCOUNT_SQL,
   SUBLEDGER_INSERT_SQL,
   SUBLEDGER_PARTY_BALANCE_SQL,
   SUBLEDGER_TYPES,
@@ -189,6 +192,15 @@ export function isAccountingDate(value: unknown): value is string {
 function requireDate(value: unknown): string {
   const date = text(value, 10);
   if (!isAccountingDate(date)) throw new ApiError(400, 'A real journal date (YYYY-MM-DD) is required.');
+  return date;
+}
+
+function optionalDate(value: unknown, field: string): string | null {
+  const date = text(value, 10);
+  if (!date) return null;
+  if (!isAccountingDate(date)) {
+    throw new ApiError(400, `${field} must be a real date (YYYY-MM-DD).`);
+  }
   return date;
 }
 
@@ -435,6 +447,29 @@ export async function deleteAccountGroup(client: AccountingClient, groupId: stri
   return existing;
 }
 
+/**
+ * The extra GL-master fields are display/default metadata, not posting inputs.
+ * Keep them to primitive values and a bounded size so the jsonb profile cannot
+ * become a second, unvalidated account record.
+ */
+function readMasterProfile(value: unknown): Record<string, unknown> | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new ApiError(400, 'The GL master profile must be an object.');
+  }
+  const profile: Record<string, unknown> = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (!/^[a-zA-Z][a-zA-Z0-9]{0,39}$/.test(key)) continue;
+    if (typeof raw === 'string') profile[key] = raw.slice(0, 500);
+    else if (typeof raw === 'number' && Number.isFinite(raw)) profile[key] = raw;
+    else if (typeof raw === 'boolean') profile[key] = raw;
+  }
+  if (JSON.stringify(profile).length > 8000) {
+    throw new ApiError(400, 'The GL master profile is too large.');
+  }
+  return profile;
+}
+
 export async function createAccount(
   client: AccountingClient,
   input: {
@@ -451,6 +486,7 @@ export async function createAccount(
     accountNumber?: unknown;
     accountHolder?: unknown;
     swiftCode?: unknown;
+    masterProfile?: unknown;
     isDemo?: boolean;
   }
 ) {
@@ -504,6 +540,7 @@ export async function createAccount(
       postingRole,
       accountKind: kind,
       ...bank,
+      masterProfile: readMasterProfile(input.masterProfile) || {},
       isDemo: input.isDemo,
     })
   );
@@ -530,6 +567,7 @@ export async function updateAccount(
     accountNumber?: unknown;
     accountHolder?: unknown;
     swiftCode?: unknown;
+    masterProfile?: unknown;
   }
 ) {
   const existing = (await client.query(ACCOUNT_BY_ID_SQL, [accountId])).rows[0];
@@ -575,6 +613,7 @@ export async function updateAccount(
     : undefined;
   const isActive =
     typeof input.isActive === 'boolean' ? input.isActive : undefined;
+  const masterProfile = readMasterProfile(input.masterProfile);
 
   let groupId: string | null = null;
   if (Object.prototype.hasOwnProperty.call(input, 'groupId')) {
@@ -605,6 +644,7 @@ export async function updateAccount(
     bank.accountNumber,
     bank.accountHolder,
     bank.swiftCode,
+    masterProfile === undefined ? null : masterProfile,
   ]);
   return (await client.query(ACCOUNT_BY_ID_SQL, [accountId])).rows[0];
 }
@@ -651,6 +691,14 @@ export interface PostJournalInput {
   memo?: unknown;
   sourceType?: unknown;
   sourceId?: unknown;
+  voucherType?: unknown;
+  voucherClass?: unknown;
+  referenceNo?: unknown;
+  referenceDateAD?: unknown;
+  chequeNo?: unknown;
+  chequeDateAD?: unknown;
+  currency?: unknown;
+  exchangeRate?: unknown;
   reversalOfId?: unknown;
   isDemo?: boolean;
   lines?: JournalLineInput[];
@@ -757,14 +805,49 @@ export async function postJournal(
     );
   }
 
+  // Every control account must have an active book before it can post. The
+  // book may be the account-wide one or a party's own book (an employee under
+  // Salary Payable, a customer under AR); a missing book is a configuration
+  // error, not a NULL that silently disconnects the GL from its subledger.
+  const booksByAccount = new Map<string, Array<{ id: string; partyId: string | null }>>();
+  for (const line of lines) {
+    if (!line.account.isControl || booksByAccount.has(line.account.id)) continue;
+    const books = (await client.query(SUBLEDGER_BOOKS_BY_ACCOUNT_SQL, [line.account.id]))
+      .rows as Array<{ id: string; partyId: string | null }>;
+    if (books.length === 0) {
+      throw new ApiError(
+        400,
+        `Control account ${line.account.code} ${line.account.name} has no active subledger book. Create one in Accounting → Subledgers before posting.`
+      );
+    }
+    booksByAccount.set(line.account.id, books);
+  }
+
   const period = await ensureOpenPeriod(client, journalDateAD);
   const sequence = Number((await client.query(NEXT_JOURNAL_SEQUENCE_SQL)).rows[0]?.seq);
   if (!Number.isFinite(sequence) || sequence <= 0) {
     throw new ApiError(500, 'Could not allocate a journal number.');
   }
-  const journalNo = `MJ-${period.fiscalYearCode}-${String(sequence).padStart(5, '0')}`;
+  const sourceType = text(input.sourceType, 30).toUpperCase() || 'MANUAL';
+  const numberPrefix =
+    sourceType === 'CASH_RECEIPT'
+      ? 'RV'
+      : sourceType === 'CASH_PAYMENT'
+        ? 'PV'
+        : sourceType === 'CASH_BANK'
+          ? 'CB'
+          : 'MJ';
+  const journalNo = `${numberPrefix}-${period.fiscalYearCode}-${String(sequence).padStart(5, '0')}`;
   const journalId = `glj-${crypto.randomUUID()}`;
-  const sourceType = (text(input.sourceType, 30).toUpperCase() || 'MANUAL');
+  const currency = text(input.currency, 10).toUpperCase() || 'NPR';
+  if (!/^[A-Z]{3}$/.test(currency)) {
+    throw new ApiError(400, 'Currency must be a three-letter ISO code.');
+  }
+  const exchangeRate = Number(input.exchangeRate ?? 1);
+  if (!Number.isFinite(exchangeRate) || exchangeRate <= 0 || exchangeRate > 99_999_999) {
+    throw new ApiError(400, 'Exchange rate must be a positive number.');
+  }
+  const voucherType = text(input.voucherType, 30).toUpperCase() || 'JOURNAL';
   await client.query(
     JOURNAL_INSERT_SQL,
     journalInsertParams({
@@ -776,6 +859,14 @@ export async function postJournal(
       branchId,
       sourceType,
       sourceId: text(input.sourceId, 100) || null,
+      voucherType,
+      voucherClass: text(input.voucherClass, 50) || null,
+      referenceNo: text(input.referenceNo, 100) || null,
+      referenceDateAD: optionalDate(input.referenceDateAD, 'Reference date'),
+      chequeNo: text(input.chequeNo, 100) || null,
+      chequeDateAD: optionalDate(input.chequeDateAD, 'Cheque date'),
+      currency,
+      exchangeRate: Math.round(exchangeRate * 1_000_000) / 1_000_000,
       memo: text(input.memo, 1000) || null,
       reversalOfId: text(input.reversalOfId, 50) || null,
       postedBy: input.actor || null,
@@ -800,6 +891,20 @@ export async function postJournal(
       })
     );
     if (line.account.isControl) {
+      const books = booksByAccount.get(line.account.id) || [];
+      // Party-specific book first, then the account-wide book, then the only
+      // book on the account. Two or more party books without a general book
+      // cannot serve an unrelated party, so that line is refused.
+      const book =
+        (line.partyId ? books.find((entry) => entry.partyId === line.partyId) : undefined) ??
+        books.find((entry) => !entry.partyId) ??
+        (books.length === 1 ? books[0] : null);
+      if (!book) {
+        throw new ApiError(
+          400,
+          `Control account ${line.account.code} ${line.account.name} has no subledger book for ${line.partyName || line.partyId}. Create that party's subledger or the account's general book before posting.`
+        );
+      }
       await client.query(
         SUBLEDGER_INSERT_SQL,
         subledgerInsertParams({
@@ -807,6 +912,7 @@ export async function postJournal(
           journalId,
           journalLineId: lineId,
           accountId: line.account.id,
+          subledgerId: book.id,
           subledgerType: line.subledgerType as Exclude<SubledgerType, 'NONE'>,
           partyId: line.partyId,
           partyName: line.partyName,
@@ -822,6 +928,116 @@ export async function postJournal(
   return { id: journalId, journalNo, periodId: period.id, fiscalYearId: period.fiscalYearId };
 }
 
+/**
+ * Source types the manual voucher screens own. Operational documents (invoices,
+ * payments, payroll, depreciation, closing entries) reverse through their own
+ * controllers because they must also restore the document's status.
+ */
+const REVERSIBLE_MANUAL_SOURCES = new Set([
+  'MANUAL',
+  'CASH_RECEIPT',
+  'CASH_PAYMENT',
+  'CASH_BANK',
+]);
+
+export interface ReverseJournalInput {
+  journalDateAD?: unknown;
+  reason?: unknown;
+  actor?: string | null;
+}
+
+/**
+ * Post a contra voucher for a posted manual/cash voucher. The original stays
+ * POSTED and auditable; the contra carries the opposite lines (including each
+ * control line's subledger party and cost centre), so the general ledger and
+ * every subledger net to zero. Reversal is refused for operational documents,
+ * for a contra itself, twice for the same original, and for a closed period.
+ */
+export async function reverseJournal(
+  client: AccountingClient,
+  journalId: string,
+  input: ReverseJournalInput
+): Promise<{ id: string; journalNo: string; periodId: string; fiscalYearId: string }> {
+  const id = text(journalId, 50);
+  if (!id) throw new ApiError(400, 'A journal id is required.');
+  const original = (await client.query(JOURNAL_LOCK_BY_ID_SQL, [id])).rows[0];
+  if (!original) throw new ApiError(404, 'Journal not found.');
+
+  const sourceType = String(original.sourceType || '').toUpperCase();
+  if (!REVERSIBLE_MANUAL_SOURCES.has(sourceType)) {
+    throw new ApiError(
+      409,
+      `Journal ${original.journalNo} was posted by ${sourceType || 'another document'}. Reverse it from the document that created it.`
+    );
+  }
+  if (original.reversalOfId) {
+    throw new ApiError(409, `Journal ${original.journalNo} is itself a reversal and cannot be reversed.`);
+  }
+  if (String(original.status) !== 'POSTED') {
+    throw new ApiError(409, `Journal ${original.journalNo} is ${original.status} and cannot be reversed.`);
+  }
+  const existing = (await client.query(JOURNAL_REVERSAL_EXISTS_SQL, [id])).rows[0];
+  if (existing) {
+    throw new ApiError(409, `Journal ${original.journalNo} was already reversed by ${existing.journalNo}.`);
+  }
+
+  const reason = text(input.reason, 500);
+  if (!reason) throw new ApiError(400, 'A reversal reason is required.');
+  const journalDateAD = requireDate(input.journalDateAD);
+
+  const [lineRows, subledgerRows] = await Promise.all([
+    client.query(JOURNAL_LINES_SQL, [id]),
+    client.query(JOURNAL_SUBLEDGER_SQL, [id]),
+  ]);
+  if (lineRows.rows.length === 0) {
+    throw new ApiError(409, `Journal ${original.journalNo} has no lines to reverse.`);
+  }
+  const subledgerByLine = new Map<string, any>(
+    subledgerRows.rows.map((entry) => [entry.journalLineId, entry])
+  );
+  const lines = lineRows.rows.map((line) => {
+    const subledger = subledgerByLine.get(line.id);
+    return {
+      accountId: line.accountId,
+      costCenterId: line.costCenterId,
+      // The contra is the mirror image: what was debited is now credited.
+      debit: Number(line.credit),
+      credit: Number(line.debit),
+      memo: `Reversal of ${original.journalNo}`.slice(0, 300),
+      ...(subledger
+        ? {
+            subledgerType: subledger.subledgerType,
+            partyId: subledger.partyId,
+            partyName: subledger.partyName,
+          }
+        : {}),
+    };
+  });
+
+  // A unique reversal source id keeps the search hint and marks provenance;
+  // `reversal_of_id` remains the authoritative link.
+  const originalSourceId = text(original.sourceId, 90);
+  return postJournal(client, {
+    journalDateAD,
+    branchId: original.branchId,
+    sourceType: `${sourceType}_REVERSAL`,
+    sourceId: originalSourceId ? `${originalSourceId}:REV` : null,
+    voucherType: original.voucherType,
+    voucherClass: original.voucherClass,
+    referenceNo: original.referenceNo,
+    referenceDateAD: original.referenceDateAD,
+    chequeNo: original.chequeNo,
+    chequeDateAD: original.chequeDateAD,
+    currency: original.currency,
+    exchangeRate: Number(original.exchangeRate),
+    memo: `Reversal of ${original.journalNo}: ${reason}`.slice(0, 1000),
+    reversalOfId: id,
+    isDemo: Boolean(original.isDemo),
+    lines,
+    actor: input.actor,
+  });
+}
+
 /** Header + lines + subledger rows for one posted journal. */
 export async function readJournal(client: AccountingClient, journalId: string) {
   const header = (await client.query(JOURNAL_BY_ID_SQL, [journalId])).rows[0];
@@ -832,6 +1048,7 @@ export async function readJournal(client: AccountingClient, journalId: string) {
   ]);
   return {
     ...header,
+    exchangeRate: Number(header.exchangeRate),
     totalDebit: Number(header.totalDebit),
     totalCredit: Number(header.totalCredit),
     lines: lines.rows.map((line) => ({ ...line, debit: Number(line.debit), credit: Number(line.credit) })),

@@ -8,8 +8,9 @@
 #   3. Creates the application database + user if missing.
 #   4. Applies scripts/schema.sql (idempotent) with ON_ERROR_STOP=1.
 #   5. Verifies the schema (table count + v3.0 enterprise columns).
-#   6. Hands off to `node scripts/setup_db.js` which seeds master data and
-#      the demo dataset (is_demo = TRUE).
+#   6. Hands off to `node scripts/setup_db.js` which seeds the verification
+#      dataset (is_demo = TRUE): 2 fiscal years, 4 branches, 80 customers and a
+#      ledger whose AR/AP/inventory/cash/equity figures are asserted.
 #
 # Works on Linux (Debian/Ubuntu, RHEL/CentOS, Alpine), macOS (Homebrew),
 # Windows (Git Bash) and via a Docker container.
@@ -407,7 +408,7 @@ run_node_seeder() {
         warn "Seeder script not found: ${NODE_SETUP_SCRIPT}"
         return 0
     fi
-    log "Running Node seeder (scripts/setup_db.js): schema re-check, master data, demo dataset, fiscal-year backfill..."
+    log "Running Node seeder (scripts/setup_db.js): schema re-check + verification dataset..."
     if (cd "${SCRIPT_DIR}/.." && POSTGRES_HOST="${PSQL_HOST:-localhost}" POSTGRES_PORT="${DB_PORT}" POSTGRES_DB="${DB_NAME}" POSTGRES_USER="${DB_USER}" POSTGRES_PASSWORD="${DB_PASS}" node "${NODE_SETUP_SCRIPT}"); then
         log "Node seeder completed."
     else
@@ -440,7 +441,7 @@ run_schema_migration
 log "Step 5: Testing connection..."
 test_connection || true
 
-log "Step 6: Running Node seeder (master + demo data)..."
+log "Step 6: Running Node seeder (verification dataset)..."
 run_node_seeder
 
 echo ""

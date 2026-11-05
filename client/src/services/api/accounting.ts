@@ -32,6 +32,8 @@ export interface AccountingAccount {
   name: string;
   groupId: string;
   description: string | null;
+  /** Legacy GL-master metadata (short name, category, terms, currency). */
+  masterProfile?: Record<string, unknown>;
   isControl: boolean;
   subledgerType: string;
   postingRole: string | null;
@@ -368,6 +370,7 @@ export interface TrialBalanceAccountLinesQuery {
 export interface CashBookEntry {
   journalDateAD: string;
   journalNo: string;
+  journalId: string;
   sourceType: string;
   sourceId: string | null;
   branchId: string;
@@ -537,6 +540,7 @@ export interface AccountingAccountInput {
   name: string;
   groupId: string;
   description?: string | null;
+  masterProfile?: Record<string, unknown>;
   subledgerType?: string;
   postingRole?: string | null;
   accountKind?: AccountKind;
@@ -550,6 +554,7 @@ export interface AccountingAccountInput {
 export interface AccountingAccountPatch {
   name?: string;
   description?: string | null;
+  masterProfile?: Record<string, unknown>;
   /** Refused once the account has posted lines, so history keeps its mapping. */
   groupId?: string;
   postingRole?: string | null;
@@ -885,4 +890,363 @@ export async function reopenDailyCashClose(id: string): Promise<CashCloseRecord>
     method: 'POST',
     body: JSON.stringify({}),
   });
+}
+
+/**
+ * Subledger master — one named book per control ledger, plus the figures that
+ * prove the book still reconciles to its account.
+ */
+export interface AccountingSubledger {
+  id: string;
+  code: string;
+  name: string;
+  subledgerType: string;
+  mainAccountId: string;
+  /** NULL for the account-wide book; a master id for a party book. */
+  partyId: string | null;
+  description: string | null;
+  isActive: boolean;
+  isDemo: boolean;
+  accountCode: string;
+  accountName: string;
+  accountPostingRole: string | null;
+  groupCode: string;
+  groupName: string;
+  /** Rows and balance of THIS book in the selected branch. */
+  entryCount: number;
+  bookBalance: number;
+  /** All books on the control account, in the selected branch. */
+  subledgerBalance: number;
+  glBalance: number;
+  /** GL minus every book on the account; the account-level tie-out. */
+  difference: number;
+  unlinkedCount: number;
+}
+
+export interface AccountingSubledgerInput {
+  code: string;
+  name: string;
+  mainAccountId: string;
+  subledgerType?: string;
+  /** Customer/supplier/employee master id; omit for the account-wide book. */
+  partyId?: string | null;
+  description?: string | null;
+  isActive?: boolean;
+}
+
+export interface AccountingSubledgerPatch {
+  name?: string;
+  mainAccountId?: string;
+  description?: string | null;
+  isActive?: boolean;
+}
+
+export interface ChartHealth {
+  missingPostingRoles: string[];
+  controlAccountsWithoutSubledger: Array<{
+    accountId: string;
+    code: string;
+    name: string;
+    subledgerType: string;
+    isActive: boolean;
+  }>;
+  inactiveAccountsHoldingRole: Array<{
+    accountId: string;
+    code: string;
+    name: string;
+    postingRole: string;
+  }>;
+  totals: { accounts: number; controlAccounts: number; subledgers: number; activeSubledgers: number };
+}
+
+export async function getAccountingSubledgers(
+  includeInactive = true,
+  branchId?: string
+): Promise<AccountingSubledger[]> {
+  const params = new URLSearchParams({ includeInactive: includeInactive ? '1' : '0' });
+  if (branchId && branchId !== 'ALL') params.set('branchId', branchId);
+  return fetchJson(`/api/accounting/subledgers?${params.toString()}`);
+}
+
+export async function createAccountingSubledger(
+  input: AccountingSubledgerInput
+): Promise<AccountingSubledger> {
+  return fetchJson('/api/accounting/subledgers', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export async function updateAccountingSubledger(
+  id: string,
+  input: AccountingSubledgerPatch
+): Promise<AccountingSubledger> {
+  return fetchJson(`/api/accounting/subledgers/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteAccountingSubledger(
+  id: string
+): Promise<{ deleted: boolean; id: string }> {
+  return fetchJson(`/api/accounting/subledgers/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+export async function generateAccountingSubledgers(mainAccountId: string): Promise<{
+  created: number;
+  skipped: number;
+  linkedEntries: number;
+  total: number;
+  accountCode: string;
+  subledgerType: string;
+}> {
+  return fetchJson('/api/accounting/subledgers/generate', {
+    method: 'POST',
+    body: JSON.stringify({ mainAccountId }),
+  });
+}
+
+export async function getChartHealth(): Promise<ChartHealth> {
+  return fetchJson('/api/accounting/chart-health');
+}
+
+export async function seedChartDefaults(): Promise<{
+  added: { groups: number; accounts: number; subledgers: number };
+  message: string;
+}> {
+  return fetchJson('/api/accounting/chart-defaults', { method: 'POST' });
+}
+
+export interface AccountingSubledgerLedgerEntry {
+  id: string;
+  journalId: string;
+  journalNo: string;
+  journalLineId: string;
+  accountId: string;
+  subledgerType: string;
+  partyId: string | null;
+  partyName: string | null;
+  branchId: string;
+  entryDateAD: string;
+  debit: number;
+  credit: number;
+  memo: string;
+}
+
+export interface AccountingSubledgerPartyBalance {
+  partyId: string | null;
+  partyName: string;
+  balance: number;
+}
+
+export interface AccountingSubledgerLedger {
+  book: {
+    id: string;
+    code: string;
+    name: string;
+    subledgerType: string;
+    mainAccountId: string;
+    partyId: string | null;
+    accountCode: string;
+    accountName: string;
+  };
+  from: string | null;
+  to: string | null;
+  branchId: string | null;
+  entries: AccountingSubledgerLedgerEntry[];
+  parties: AccountingSubledgerPartyBalance[];
+  totals: { debit: number; credit: number; balance: number };
+  unlinkedCount: number;
+}
+
+export async function getAccountingSubledgerEntries(
+  id: string,
+  options: { from?: string; to?: string; branchId?: string } = {}
+): Promise<AccountingSubledgerLedger> {
+  const params = new URLSearchParams();
+  if (options.from) params.set('from', options.from);
+  if (options.to) params.set('to', options.to);
+  if (options.branchId) params.set('branchId', options.branchId);
+  const query = params.toString();
+  return fetchJson(
+    `/api/accounting/subledgers/${encodeURIComponent(id)}/entries${query ? `?${query}` : ''}`
+  );
+}
+
+/** One employee option for an EMPLOYEE control-account line. */
+export interface AccountingEmployee {
+  id: string;
+  employeeCode: string;
+  name: string;
+  branchId: string;
+  department: string | null;
+  designation: string | null;
+  isActive: boolean;
+}
+
+export async function getAccountingEmployees(
+  branchId?: string
+): Promise<AccountingEmployee[]> {
+  const params = new URLSearchParams({ activeOnly: '1' });
+  if (branchId && branchId !== 'ALL') params.set('branchId', branchId);
+  return fetchJson(`/api/employees?${params.toString()}`);
+}
+
+/** A line as posted through the manual journal endpoint. Amounts are NPR. */
+export interface AccountingJournalLineInput {
+  accountId: string;
+  debit?: number;
+  credit?: number;
+  memo?: string | null;
+  subledgerType?: string;
+  partyId?: string | null;
+  partyName?: string | null;
+}
+
+export interface AccountingJournalInput {
+  journalDateAD: string;
+  branchId: string;
+  memo?: string | null;
+  sourceType?: string;
+  voucherType?: string;
+  voucherClass?: string | null;
+  referenceNo?: string | null;
+  referenceDateAD?: string | null;
+  chequeNo?: string | null;
+  chequeDateAD?: string | null;
+  currency?: string;
+  exchangeRate?: number;
+  lines: AccountingJournalLineInput[];
+}
+
+export interface AccountingJournalLine extends AccountingJournalLineInput {
+  id: string;
+  journalId: string;
+  lineNo: number;
+  accountCode: string;
+  accountName: string;
+  isControl: boolean;
+  branchId: string;
+  costCenterId: string | null;
+  costCenterCode: string | null;
+  costCenterName: string | null;
+  debit: number;
+  credit: number;
+}
+
+/** The subledger row posted alongside a control-account journal line. */
+export interface AccountingJournalSubledgerEntry {
+  id: string;
+  journalId: string;
+  journalLineId: string;
+  accountId: string;
+  subledgerId: string | null;
+  subledgerType: string;
+  partyId: string | null;
+  partyName: string | null;
+  branchId: string;
+  entryDateAD: string;
+  debit: number;
+  credit: number;
+}
+
+export interface AccountingJournal {
+  id: string;
+  journalNo: string;
+  journalDateAD: string;
+  fiscalYearId: string;
+  fiscalYearCode: string;
+  periodId: string;
+  periodKey: string;
+  branchId: string;
+  branchName: string | null;
+  sourceType: string;
+  sourceId: string | null;
+  voucherType: string;
+  voucherClass: string | null;
+  referenceNo: string | null;
+  referenceDateAD: string | null;
+  chequeNo: string | null;
+  chequeDateAD: string | null;
+  currency: string;
+  exchangeRate: number;
+  memo: string | null;
+  status: string;
+  reversalOfId: string | null;
+  /** Id of the contra that reversed this voucher, when one is posted. */
+  reversalJournalId: string | null;
+  /** The contra that reversed this voucher, when one is posted. */
+  reversalJournalNo: string | null;
+  /** When this voucher is itself a reversal, the original it reversed. */
+  reversalOfNo: string | null;
+  postedAt: string;
+  postedBy: string | null;
+  isDemo: boolean;
+  totalDebit: number;
+  totalCredit: number;
+  lines: AccountingJournalLine[];
+  subledgerEntries: AccountingJournalSubledgerEntry[];
+}
+
+export interface AccountingJournalListQuery {
+  branchId?: string;
+  from?: string;
+  to?: string;
+  status?: string;
+  query?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface AccountingJournalListResponse {
+  data: AccountingJournal[];
+  page: number;
+  pageSize: number;
+  totalItems: number;
+}
+
+export async function postAccountingJournal(
+  input: AccountingJournalInput
+): Promise<AccountingJournal> {
+  return fetchJson('/api/accounting/journals', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export interface AccountingJournalReversalInput {
+  journalDateAD: string;
+  reason: string;
+}
+
+/**
+ * Post the contra voucher that reverses a posted manual/cash voucher. The
+ * original remains posted and auditable; the server refuses an operational
+ * source, a second reversal and a closed period.
+ */
+export async function reverseAccountingJournal(
+  id: string,
+  input: AccountingJournalReversalInput
+): Promise<AccountingJournal> {
+  return fetchJson(`/api/accounting/journals/${encodeURIComponent(id)}/reverse`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function getAccountingJournal(id: string): Promise<AccountingJournal> {
+  return fetchJson(`/api/accounting/journals/${encodeURIComponent(id)}`);
+}
+
+export async function getAccountingJournals(
+  query: AccountingJournalListQuery = {}
+): Promise<AccountingJournalListResponse> {
+  const params = new URLSearchParams();
+  if (query.branchId && query.branchId !== 'ALL') params.set('branchId', query.branchId);
+  if (query.from) params.set('from', query.from);
+  if (query.to) params.set('to', query.to);
+  if (query.status) params.set('status', query.status);
+  if (query.query) params.set('query', query.query);
+  if (query.page) params.set('page', String(query.page));
+  if (query.pageSize) params.set('pageSize', String(query.pageSize));
+  const suffix = params.toString();
+  return fetchJson(`/api/accounting/journals${suffix ? `?${suffix}` : ''}`);
 }

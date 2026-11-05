@@ -165,6 +165,18 @@ const AgingRegister = React.lazy(() =>
 const ChartOfAccountsRegister = React.lazy(() =>
   import('./features/finance/ChartOfAccountsRegister').then((m) => ({ default: m.ChartOfAccountsRegister }))
 );
+const GeneralLedgerMaster = React.lazy(() =>
+  import('./features/finance/GeneralLedgerMaster').then((m) => ({ default: m.GeneralLedgerMaster }))
+);
+const JournalEntry = React.lazy(() =>
+  import('./features/finance/VoucherEntries').then((m) => ({ default: m.JournalEntry }))
+);
+const CashBankEntry = React.lazy(() =>
+  import('./features/finance/VoucherEntries').then((m) => ({ default: m.CashBankEntry }))
+);
+const SubledgersManagement = React.lazy(() =>
+  import('./features/finance/SubledgersManagement').then((m) => ({ default: m.SubledgersManagement }))
+);
 const BillTermsManagement = React.lazy(() =>
   import('./features/finance/BillTermsManagement').then((m) => ({ default: m.BillTermsManagement }))
 );
@@ -3305,9 +3317,39 @@ export default function App() {
         <AgingRegister branches={branches} dateMode={dateMode} currentUser={currentUser} />
       </React.Suspense>
     )),
+    screenRoute('journal-entry', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <JournalEntry
+          branches={branches}
+          currentUser={currentUser}
+          suppliers={suppliers}
+          sseRefreshKey={registerRefresh.transactionLog}
+        />
+      </React.Suspense>
+    )),
+    screenRoute('cash-bank-entry', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <CashBankEntry
+          branches={branches}
+          currentUser={currentUser}
+          suppliers={suppliers}
+          sseRefreshKey={registerRefresh.transactionLog}
+        />
+      </React.Suspense>
+    )),
     screenRoute('accounting-chart', (
       <React.Suspense fallback={<TabLoadingFallback />}>
         <ChartOfAccountsRegister branches={branches} dateMode={dateMode} currentUser={currentUser} />
+      </React.Suspense>
+    )),
+    screenRoute('general-ledger', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <GeneralLedgerMaster currentUser={currentUser} />
+      </React.Suspense>
+    )),
+    screenRoute('subledgers', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <SubledgersManagement branches={branches} currentUser={currentUser} />
       </React.Suspense>
     )),
     screenRoute('bill-terms', (

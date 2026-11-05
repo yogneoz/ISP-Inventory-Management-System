@@ -227,7 +227,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 1924 tests; CI runs
+                                        #   drift/concurrency guards — 1933 tests; CI runs
                                         #   tsc + npm test + the source guards + the
                                         #   production build + the boot-timing gate +
                                         #   npm audit on every push/PR
@@ -379,10 +379,10 @@ ISP-Inventory-Management-System/
 │   ├── schema.sql                     # Full PostgreSQL schema (48 tables, idempotent)
 │   ├── setup_db.js                    # Node.js database setup & seed runner
 │   ├── setup_postgres.sh              # Shell: auto-install & configure PostgreSQL
-│   ├── demo_dataset.js                # Demo data seeder (is_demo=TRUE, all-IN_STOCK serials)
+│   ├── seed/                          # Verification dataset (2 FYs, 4 branches, ledger targets)
 │   ├── integrity_check.mjs            # Database integrity verification
 │   ├── check_no_inline_sql.ts         # CI guard: fails the build if controllers contain raw SQL
-│   └── reset_fresh_demo.mjs           # Full reset & re-seed script (preserves BS calendar)
+│   └── seed_verification_data.ts      # Full reset & re-seed (preserves BS calendar)
 │
 ├── package.json                       # Project manifest
 ├── tsconfig.json                      # TypeScript configuration
@@ -447,7 +447,7 @@ ISP-Inventory-Management-System/
 | 45 | `gl_periods` | Monthly accounting periods with close/reopen | id (PK), fiscal_year_id (FK), period_key, start/end_date_ad, status (OPEN/CLOSED), closed_at/by; UNIQUE (fiscal_year_id, period_key) |
 | 46 | `gl_journals` | Balanced journal headers with branch dimension | id (PK), journal_no (UNIQUE), journal_date_ad, fiscal_year_id, period_id (FK→gl_periods), branch_id (FK→branches), source_type/id, status, posted_by |
 | 47 | `gl_journal_lines` | Debit/credit journal lines | id (PK), journal_id (FK cascade), line_no, account_id (FK), branch_id (FK), debit/credit (one-sided), UNIQUE (journal_id, line_no) |
-| 48 | `gl_subledger_entries` | Generic party subledger for every control account | id (PK), journal_id/line_id (FK cascade), account_id (FK), subledger_type, party_id/name, branch_id, entry_date_ad, debit/credit |
+| 48 | `gl_subledger_entries` | Generic party subledger for every control account | id (PK), journal_id/line_id (FK cascade), account_id (FK), subledger_id (FK→gl_subledgers), subledger_type, party_id/name, branch_id, entry_date_ad, debit/credit |
 
 ### 5.2 Serial Log Uniqueness
 
@@ -582,6 +582,7 @@ The server registers ~130 routes. The most important ones:
 | `/api/damage-records` | GET, POST, PUT `:id` | Damage lifecycle |
 | `/api/approval-requests` | GET, POST, `:id/process`, `:id/cancel` | Approval workflow |
 | `/api/serial-log` | GET, POST | Serial register read (role-guarded, branch-scoped) & manual entry |
+| `/api/accounting/subledgers`, `/api/accounting/chart-health`, `/api/accounting/chart-defaults` | GET, POST, PATCH/DELETE `:id` | Subledger master: one named book per control account, bound by `main_account_id` (unique) and typed by that account, with its posted-row count and GL / subledger tie-out. A book can only bind to an active control account of the same type, its code and type are fixed, rebinding is refused once it has rows, and deletion is refused with rows (retire instead). `chart-health` reports control accounts with no book, posting roles no active ledger holds and retired ledgers still claiming a role; `chart-defaults` idempotently seeds missing default groups/accounts/books (`gl-view` read, `gl-manage` write) |
 | `/api/accounting/groups`, `/api/accounting/accounts`, `/api/accounting/settlement-accounts` | GET, POST, PATCH/DELETE `:id`; GET picker | Chart maintenance: statement-mapped groups with one optional sub-group level, control/subledger accounts and one posting default per role (`gl-view` read, `gl-manage` write). A sub-group inherits its parent's type and statement mapping; a group's code/type/mapping is fixed, only an empty group may move or be deleted, and an account's code/control nature is fixed, its group only changes before its first posting, retiring it clears its posting role, and an account with posted lines cannot be deleted. `account_kind` classifies extra CASH/BANK ledgers that deliberately carry no posting role; the settlement picker exposes those active ledgers to `gl-view`, `sales-invoice-create` or `inv-pay` |
 | `/api/accounting/posting-defaults` | GET | Posting role → account mapping that invoice postings resolve; a missing role refuses the document instead of skipping its journal |
 | `/api/accounting/periods`, `:id/close`, `:id/reopen` | GET, POST | Monthly periods; a closed period refuses postings until reopened (`gl-close`) |
@@ -1165,7 +1166,7 @@ npm run lint              # TypeScript check (tsc --noEmit)
 npm run setup:pg          # Database setup & migration (Node)
 npm run setup:postgres    # Database setup (shell installer)
 npm run integrity:check   # Database integrity verification
-node scripts/reset_fresh_demo.mjs   # Full reset & reseed
+npm run seed:verify               # Full reset & reseed (verification dataset)
 ```
 
 ---
@@ -1376,7 +1377,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 1924 tests against a real PostgreSQL 16 service container
+2. `npm test` — 1933 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM
@@ -1463,12 +1464,12 @@ so any unwired new fetch fails the suite instead of shipping:
   remount refreshes it). Each test pins the effect deps carrying the refresh key and EVERY App.tsx render
   site passing it (2 PO, 2 PI, 1 SerialLogRegister, 11 StockOperations, 4 ReturnsRegister,
   2 SalesInvoices) — a newly added unwired mount fails.
-- **Feature-screen coverage (2026-10-03 audit, all 82 screens — the §G StockOperations
+- **Feature-screen coverage (2026-10-03 audit, all 85 screens — the §G StockOperations
   split added 12 tab panels plus the extracted tab-bar chrome, the BS-calendar
   integrity work added the Calendar Health panel, the permission-sets editor
   added its own panel, the daily cash close added its own screen, and the accounting
-  workspace split into six statement registers)** — a `SCREEN_SURFACE_PINS`
-  table pins the 71 screens not covered above (the other 11 are pinned by the dedicated
+  workspace split into six statement registers, and the General Ledger Master screen)** — a `SCREEN_SURFACE_PINS`
+  table pins the 74 screens not covered above (the other 11 are pinned by the dedicated
   tests); an unpinned new screen fails coverage, and each pinned screen must match its
   exact surface. Surfaces use `serverCallsIn` = `api.*` methods **plus named
   `services/api` imports** — the audit found FinancialStatements.tsx imports

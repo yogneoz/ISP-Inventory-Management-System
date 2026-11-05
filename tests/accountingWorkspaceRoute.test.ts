@@ -568,6 +568,7 @@ const cashBook: CashBookResponse = {
         {
           journalDateAD: '2026-10-05',
           journalNo: 'JV-0001',
+          journalId: 'j-cash-1',
           sourceType: 'CUSTOMER_PAYMENT',
           sourceId: 'cp-1',
           branchId: 'WH001',

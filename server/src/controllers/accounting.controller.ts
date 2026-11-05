@@ -18,6 +18,7 @@ import { ApiError } from '../errors/ApiError';
 import {
   ACCOUNT_GROUP_LIST_SQL,
   ACCOUNT_LIST_SQL,
+  JOURNAL_BY_ID_SQL,
   PERIOD_LIST_SQL,
   SETTLEMENT_ACCOUNTS_SQL,
   buildJournalCountQuery,
@@ -35,6 +36,7 @@ import {
   postJournal,
   readJournal,
   reconcileControlAccount,
+  reverseJournal,
   setPeriodStatus,
   updateAccount,
   updateAccountGroup,
@@ -353,6 +355,7 @@ export async function get_journals(req: any, res: Response): Promise<any> {
   return res.json({
     data: rows.rows.map((row: any) => ({
       ...row,
+      exchangeRate: Number(row.exchangeRate),
       totalDebit: Number(row.totalDebit),
       totalCredit: Number(row.totalCredit),
     })),
@@ -413,6 +416,48 @@ export async function post_journal(req: any, res: Response): Promise<any> {
     return journal;
   });
   return res.status(201).json(posted);
+}
+
+/**
+ * POST /api/accounting/journals/:id/reverse — post a contra voucher for a
+ * posted manual/cash voucher. The original stays POSTED and auditable; the
+ * contra nets the ledger to zero, so statements need no status exception.
+ */
+export async function post_reverseJournal(req: any, res: Response): Promise<any> {
+  const scope = resolveBranchScope(req, res);
+  if (!scope) return;
+  if (scope.empty) {
+    return res.status(403).json({ message: 'Forbidden: this account has no branch scope.' });
+  }
+  const journalId = String(req.params?.id || '').trim();
+  if (!journalId) throw new ApiError(400, 'A journal id is required.');
+
+  const reversed = await inTransaction(async (client) => {
+    const original = (await client.query(JOURNAL_BY_ID_SQL, [journalId])).rows[0];
+    if (!original) throw new ApiError(404, 'Journal not found.');
+    const inScope = scope.allowed
+      ? scope.allowed.has(original.branchId)
+      : !scope.branchId || original.branchId === scope.branchId;
+    if (!inScope) {
+      throw new ApiError(403, 'Forbidden: this journal belongs to another branch.');
+    }
+    const result = await reverseJournal(client, journalId, {
+      journalDateAD: req.body?.journalDateAD,
+      reason: req.body?.reason,
+      actor: actorOf(req),
+    });
+    const journal = await readJournal(client, result.id);
+    await logAuditEvent(
+      req,
+      'REVERSE_ACCOUNTING_JOURNAL',
+      'ACCOUNTING',
+      `Reversed journal ${original.journalNo} with ${result.journalNo} on ${journal.journalDateAD}: ${String(req.body?.reason || '').trim().slice(0, 300)}`,
+      journal.branchId,
+      client
+    );
+    return journal;
+  });
+  return res.status(201).json(reversed);
 }
 
 /**

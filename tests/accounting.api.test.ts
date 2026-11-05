@@ -103,6 +103,29 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
   const get = (path: string, token?: string) => request('GET', path, token);
   const post = (path: string, token: string | undefined, body: unknown) => request('POST', path, token, body);
   const patch = (path: string, token: string | undefined, body: unknown) => request('PATCH', path, token, body);
+
+  /**
+   * INTER_BRANCH_CLEARING is the one posting role with no posting path. The
+   * seeded chart now carries it, so a test that needs a free role borrows it
+   * from the seeded holder and hands it back afterwards instead of depending on
+   * an unassigned role the chart happens to leave loose.
+   */
+  async function releaseRole(role: string): Promise<{ id: string; postingRole: string } | null> {
+    const list = await get('/api/accounting/accounts?includeInactive=1', tokens.super);
+    const holder = (list.json as any[]).find((account) => account.postingRole === role);
+    if (!holder) return null;
+    const cleared = await patch('/api/accounting/accounts/' + holder.id, tokens.super, { postingRole: null });
+    assert.equal(cleared.status, 200, JSON.stringify(cleared.json));
+    return { id: holder.id, postingRole: role };
+  }
+
+  async function restoreRole(holder: { id: string; postingRole: string } | null): Promise<void> {
+    if (!holder) return;
+    const restored = await patch('/api/accounting/accounts/' + holder.id, tokens.super, {
+      postingRole: holder.postingRole,
+    });
+    assert.equal(restored.status, 200, JSON.stringify(restored.json));
+  }
   const del = (path: string, token: string | undefined) => request('DELETE', path, token);
 
   async function createGroup(code: string, name: string, accountType: string, statementGroup: string) {
@@ -124,6 +147,9 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
   before(async () => {
     await ensureReferenceData(pool!);
     // FK order: journals cascade lines/subledger; periods then accounts/groups.
+    await pool!.query(
+      "DELETE FROM gl_journals WHERE reversal_of_id IN (SELECT id FROM gl_journals WHERE source_id LIKE 'ACC-TEST-%' OR memo LIKE 'ACC TEST%')"
+    );
     await pool!.query(
       "DELETE FROM gl_journals WHERE source_id LIKE 'ACC-TEST-%' OR memo LIKE 'ACC TEST%'"
     );
@@ -295,21 +321,22 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
   });
 
   test('a posting-default can be changed through the account PATCH', async () => {
-    // The seeded chart owns every posting role except INTER_BRANCH_CLEARING,
-    // which has no default and no posting path. Assigning that role here keeps
-    // the assertion real without moving a default another suite may be reading
-    // from the same database at the same time.
-    const res = await patch('/api/accounting/accounts/' + accounts.expense, tokens.super, {
-      postingRole: 'INTER_BRANCH_CLEARING',
-    });
-    assert.equal(res.status, 200, JSON.stringify(res.json));
-    assert.equal(res.json.postingRole, 'INTER_BRANCH_CLEARING');
-    const defaults = await get('/api/accounting/posting-defaults', tokens.super);
-    assert.equal(defaults.json.defaults.INTER_BRANCH_CLEARING.accountId, accounts.expense);
+    const holder = await releaseRole('INTER_BRANCH_CLEARING');
+    try {
+      const res = await patch('/api/accounting/accounts/' + accounts.expense, tokens.super, {
+        postingRole: 'INTER_BRANCH_CLEARING',
+      });
+      assert.equal(res.status, 200, JSON.stringify(res.json));
+      assert.equal(res.json.postingRole, 'INTER_BRANCH_CLEARING');
+      const defaults = await get('/api/accounting/posting-defaults', tokens.super);
+      assert.equal(defaults.json.defaults.INTER_BRANCH_CLEARING.accountId, accounts.expense);
 
-    const cleared = await patch('/api/accounting/accounts/' + accounts.expense, tokens.super, { postingRole: null });
-    assert.equal(cleared.status, 200, JSON.stringify(cleared.json));
-    assert.equal(cleared.json.postingRole, null);
+      const cleared = await patch('/api/accounting/accounts/' + accounts.expense, tokens.super, { postingRole: null });
+      assert.equal(cleared.status, 200, JSON.stringify(cleared.json));
+      assert.equal(cleared.json.postingRole, null);
+    } finally {
+      await restoreRole(holder);
+    }
   });
 
   test('chart maintenance adds, edits, retires and deletes with guards', async () => {
@@ -341,6 +368,7 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
     const createdAccount = await createAccount({
       code: 'ATC-9001', name: 'ACC Delivery Van', groupId: createdGroup.json.id,
     });
+    const roleHolder = await releaseRole('INTER_BRANCH_CLEARING');
     const editedAccount = await patch('/api/accounting/accounts/' + createdAccount, tokens.super, {
       name: 'ACC Delivery Van 2026', groupId: accounts.groupAsset, description: 'ACC TEST van',
       postingRole: 'INTER_BRANCH_CLEARING',
@@ -362,6 +390,7 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
     assert.equal(retired.status, 200, JSON.stringify(retired.json));
     assert.equal(retired.json.isActive, false);
     assert.equal(retired.json.postingRole, null);
+    await restoreRole(roleHolder);
     const activeList = await get('/api/accounting/accounts', tokens.super);
     assert.ok(!activeList.json.some((account: any) => account.code === 'ATC-9001'), 'inactive accounts leave the active list');
     const fullList = await get('/api/accounting/accounts?includeInactive=1', tokens.super);
@@ -482,12 +511,23 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
 
   test('a closed period refuses postings until it is reopened', async () => {
     const opened = await post('/api/accounting/periods', tokens.super, { periodKey: PERIOD_KEY });
-    assert.equal(opened.status, 201, JSON.stringify(opened.json));
-    assert.equal(opened.json.periodKey, PERIOD_KEY);
-    assert.equal(opened.json.status, 'OPEN');
-    assert.equal(opened.json.fiscalYearCode, '2083-84');
+    // A seeded/real database already owns this month's period, so the create is
+    // correctly refused with 409; the behaviour under test is close → refuse →
+    // reopen, so reuse the existing row instead of requiring a virgin table.
+    const existing = opened.status === 409
+      ? (await pool!.query("SELECT id, status FROM gl_periods WHERE period_key = $1 ORDER BY start_date_ad DESC LIMIT 1", [PERIOD_KEY])).rows[0]
+      : null;
+    if (existing) {
+      assert.equal(existing.status, 'OPEN', 'the seeded period must start open');
+    } else {
+      assert.equal(opened.status, 201, JSON.stringify(opened.json));
+      assert.equal(opened.json.periodKey, PERIOD_KEY);
+      assert.equal(opened.json.status, 'OPEN');
+      assert.equal(opened.json.fiscalYearCode, '2083-84');
+    }
+    const periodId = existing ? existing.id : opened.json.id;
 
-    const closed = await post(`/api/accounting/periods/${opened.json.id}/close`, tokens.super, {});
+    const closed = await post(`/api/accounting/periods/${periodId}/close`, tokens.super, {});
     assert.equal(closed.status, 200);
     assert.equal(closed.json.status, 'CLOSED');
     assert.ok(closed.json.closedAt);
@@ -505,7 +545,7 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
     const afterAttempt = await pool!.query("SELECT COUNT(*)::int AS count FROM gl_journals WHERE source_id = 'ACC-TEST-CLOSED'");
     assert.equal(Number(afterAttempt.rows[0].count), 0, 'a refused closed-period post must write nothing');
 
-    const reopened = await post(`/api/accounting/periods/${opened.json.id}/reopen`, tokens.super, {});
+    const reopened = await post(`/api/accounting/periods/${periodId}/reopen`, tokens.super, {});
     assert.equal(reopened.status, 200);
     assert.equal(reopened.json.status, 'OPEN');
     assert.equal(reopened.json.closedAt, null);
@@ -608,6 +648,182 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
     assert.equal(detail.status, 200);
     assert.equal(detail.json.lines.length, 2);
     assert.equal(detail.json.subledgerEntries.length, 1);
+  });
+
+  test('voucher metadata, foreign currency and cash-bank numbering round-trip', async () => {
+    const posted = await post('/api/accounting/journals', tokens.accountant, {
+      journalDateAD: JOURNAL_DATE,
+      branchId: BR,
+      sourceType: 'CASH_RECEIPT',
+      voucherType: 'CASH_BANK',
+      referenceNo: 'ACC-TEST-REF-1',
+      referenceDateAD: '2026-08-10',
+      chequeNo: 'ACC-TEST-CHQ-1',
+      chequeDateAD: '2026-08-11',
+      currency: 'USD',
+      exchangeRate: 130.5,
+      memo: 'ACC TEST cash voucher metadata',
+      sourceId: 'ACC-TEST-VOUCHER',
+      lines: [line(accounts.cash, 1305, 0), line(accounts.sales, 0, 1305)],
+    });
+    assert.equal(posted.status, 201, JSON.stringify(posted.json));
+    assert.match(posted.json.journalNo, /^RV-2083-84-\d{5}$/);
+    assert.equal(posted.json.sourceType, 'CASH_RECEIPT');
+    assert.equal(posted.json.voucherType, 'CASH_BANK');
+    assert.equal(posted.json.referenceNo, 'ACC-TEST-REF-1');
+    assert.equal(posted.json.referenceDateAD, '2026-08-10');
+    assert.equal(posted.json.chequeNo, 'ACC-TEST-CHQ-1');
+    assert.equal(posted.json.chequeDateAD, '2026-08-11');
+    assert.equal(posted.json.currency, 'USD');
+    assert.equal(posted.json.exchangeRate, 130.5);
+
+    const detail = await get('/api/accounting/journals/' + posted.json.id, tokens.super);
+    assert.equal(detail.status, 200, JSON.stringify(detail.json));
+    assert.equal(detail.json.voucherType, 'CASH_BANK');
+    assert.equal(detail.json.referenceNo, 'ACC-TEST-REF-1');
+    assert.equal(detail.json.currency, 'USD');
+    assert.equal(detail.json.exchangeRate, 130.5);
+
+    const zeroRate = await post('/api/accounting/journals', tokens.accountant, {
+      journalDateAD: JOURNAL_DATE,
+      branchId: BR,
+      sourceType: 'CASH_RECEIPT',
+      exchangeRate: 0,
+      memo: 'ACC TEST zero rate',
+      sourceId: 'ACC-TEST-ZERO-RATE',
+      lines: [line(accounts.cash, 10, 0), line(accounts.sales, 0, 10)],
+    });
+    assert.equal(zeroRate.status, 400);
+    assert.match(zeroRate.json.message, /exchange rate/i);
+  });
+
+  test('a posted manual voucher reverses through a contra and refuses a second reversal', async () => {
+    const original = await post('/api/accounting/journals', tokens.accountant, {
+      journalDateAD: JOURNAL_DATE,
+      branchId: BR,
+      memo: 'ACC TEST reversal original',
+      sourceId: 'ACC-TEST-REV',
+      lines: [
+        line(accounts.receivable, 450, 0, {
+          subledgerType: 'CUSTOMER', partyId: 'ACC-TEST-CUST-REV', partyName: 'ACC Test Reversal Customer',
+        }),
+        line(accounts.sales, 0, 450),
+      ],
+    });
+    assert.equal(original.status, 201, JSON.stringify(original.json));
+
+    const auditorPost = await post(`/api/accounting/journals/${original.json.id}/reverse`, tokens.auditor, {
+      journalDateAD: JOURNAL_DATE,
+      reason: 'ACC TEST auditor reversal',
+    });
+    assert.equal(auditorPost.status, 403);
+
+    const noReason = await post(`/api/accounting/journals/${original.json.id}/reverse`, tokens.accountant, {
+      journalDateAD: JOURNAL_DATE,
+    });
+    assert.equal(noReason.status, 400);
+    assert.match(noReason.json.message, /reason/i);
+
+    const reversed = await post(`/api/accounting/journals/${original.json.id}/reverse`, tokens.accountant, {
+      journalDateAD: JOURNAL_DATE,
+      reason: 'ACC TEST duplicate posting',
+    });
+    assert.equal(reversed.status, 201, JSON.stringify(reversed.json));
+    assert.equal(reversed.json.reversalOfId, original.json.id);
+    assert.equal(reversed.json.status, 'POSTED');
+    assert.equal(reversed.json.totalDebit, 450);
+    assert.equal(reversed.json.totalCredit, 450);
+    assert.match(reversed.json.journalNo, /^MJ-2083-84-\d{5}$/);
+
+    const originalLines = original.json.lines as any[];
+    const reversalLines = reversed.json.lines as any[];
+    assert.equal(reversalLines.length, originalLines.length);
+    for (const row of originalLines) {
+      const contra = reversalLines.find((candidate: any) => candidate.accountId === row.accountId);
+      assert.ok(contra, `line for account ${row.accountCode} must be reversed`);
+      assert.equal(contra.debit, row.credit);
+      assert.equal(contra.credit, row.debit);
+    }
+    const contraSubledger = reversed.json.subledgerEntries[0];
+    assert.equal(contraSubledger.partyId, 'ACC-TEST-CUST-REV');
+    assert.equal(contraSubledger.debit, 0);
+    assert.equal(contraSubledger.credit, 450);
+
+    const originalNet = await pool!.query(
+      `SELECT COALESCE(SUM(l.debit - l.credit), 0)::numeric AS net
+       FROM gl_journal_lines l
+       WHERE l.journal_id IN ($1, $2)`,
+      [original.json.id, reversed.json.id]
+    );
+    assert.equal(Number(originalNet.rows[0].net), 0, 'the original and its contra must net to zero');
+
+    const detail = await get('/api/accounting/journals/' + original.json.id, tokens.super);
+    assert.equal(detail.status, 200);
+    assert.equal(detail.json.status, 'POSTED', 'the original stays posted and auditable');
+    assert.equal(detail.json.reversalJournalId, reversed.json.id);
+    assert.equal(detail.json.reversalJournalNo, reversed.json.journalNo);
+    assert.equal(detail.json.reversalOfNo, null);
+
+    const listed = await get('/api/accounting/journals?query=ACC%20TEST%20reversal%20original', tokens.super);
+    const listedOriginal = listed.json.data.find((row: any) => row.id === original.json.id);
+    assert.ok(listedOriginal);
+    assert.equal(listedOriginal.reversalJournalId, reversed.json.id);
+    assert.equal(listedOriginal.reversalJournalNo, reversed.json.journalNo);
+
+    const second = await post(`/api/accounting/journals/${original.json.id}/reverse`, tokens.accountant, {
+      journalDateAD: JOURNAL_DATE,
+      reason: 'ACC TEST second attempt',
+    });
+    assert.equal(second.status, 409);
+    assert.match(second.json.message, /already reversed/i);
+
+    const contraAgain = await post(`/api/accounting/journals/${reversed.json.id}/reverse`, tokens.accountant, {
+      journalDateAD: JOURNAL_DATE,
+      reason: 'ACC TEST contra attempt',
+    });
+    assert.equal(contraAgain.status, 409);
+
+    const missing = await post('/api/accounting/journals/glj-does-not-exist/reverse', tokens.accountant, {
+      journalDateAD: JOURNAL_DATE,
+      reason: 'ACC TEST missing',
+    });
+    assert.equal(missing.status, 404);
+
+    const operational = await post('/api/accounting/journals', tokens.super, {
+      journalDateAD: JOURNAL_DATE,
+      branchId: BR,
+      sourceType: 'SALES_INVOICE',
+      memo: 'ACC TEST operational source',
+      sourceId: 'ACC-TEST-OP',
+      lines: [line(accounts.cash, 90, 0), line(accounts.sales, 0, 90)],
+    });
+    assert.equal(operational.status, 201, JSON.stringify(operational.json));
+    const operationalReverse = await post(`/api/accounting/journals/${operational.json.id}/reverse`, tokens.super, {
+      journalDateAD: JOURNAL_DATE,
+      reason: 'ACC TEST operational reversal',
+    });
+    assert.equal(operationalReverse.status, 409);
+    assert.match(operationalReverse.json.message, /document that created it/i);
+
+    const warehouse = await post('/api/accounting/journals', tokens.super, {
+      journalDateAD: JOURNAL_DATE,
+      branchId: WH,
+      memo: 'ACC TEST reversal warehouse',
+      sourceId: 'ACC-TEST-REV-WH',
+      lines: [line(accounts.cash, 70, 0), line(accounts.sales, 0, 70)],
+    });
+    assert.equal(warehouse.status, 201, JSON.stringify(warehouse.json));
+    const foreign = await post(`/api/accounting/journals/${warehouse.json.id}/reverse`, tokens.accountant, {
+      journalDateAD: JOURNAL_DATE,
+      reason: 'ACC TEST foreign reversal',
+    });
+    assert.equal(foreign.status, 403);
+
+    const noScope = await post(`/api/accounting/journals/${original.json.id}/reverse`, tokens.empty, {
+      journalDateAD: JOURNAL_DATE,
+      reason: 'ACC TEST no scope reversal',
+    });
+    assert.equal(noScope.status, 403);
   });
 
   test('a control account reconciles to its subledger and exposes a real difference', async () => {

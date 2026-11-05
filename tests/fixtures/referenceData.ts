@@ -173,7 +173,7 @@ export async function ensureFiscalYearMaster(db: Queryable): Promise<void> {
   for (const fy of INITIAL_MASTER_FISCAL_YEARS) {
     await db.query(
       `INSERT INTO fiscal_years (id, code, start_date_ad, end_date_ad, start_date_bs, end_date_bs, is_current, is_closed, is_demo)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE) ON CONFLICT (id) DO NOTHING`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE) ON CONFLICT DO NOTHING`,
       [
         fy.id,
         fy.code,

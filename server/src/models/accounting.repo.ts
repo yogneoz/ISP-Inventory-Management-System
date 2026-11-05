@@ -136,6 +136,7 @@ export const ACCOUNT_COLUMNS = `a.id,
   a.name,
   a.group_id AS "groupId",
   a.description,
+  a.master_profile AS "masterProfile",
   a.is_control AS "isControl",
   a.subledger_type AS "subledgerType",
   a.posting_role AS "postingRole",
@@ -174,6 +175,14 @@ export const JOURNAL_COLUMNS = `j.id,
   b.name AS "branchName",
   j.source_type AS "sourceType",
   j.source_id AS "sourceId",
+  j.voucher_type AS "voucherType",
+  j.voucher_class AS "voucherClass",
+  j.reference_no AS "referenceNo",
+  j.reference_date_ad AS "referenceDateAD",
+  j.cheque_no AS "chequeNo",
+  j.cheque_date_ad AS "chequeDateAD",
+  j.currency,
+  j.exchange_rate AS "exchangeRate",
   j.memo,
   j.status,
   j.reversal_of_id AS "reversalOfId",
@@ -183,7 +192,16 @@ export const JOURNAL_COLUMNS = `j.id,
 
 export const JOURNAL_HEADER_SQL = `SELECT ${JOURNAL_COLUMNS},
   COALESCE(t.total_debit, 0)::numeric AS "totalDebit",
-  COALESCE(t.total_credit, 0)::numeric AS "totalCredit"
+  COALESCE(t.total_credit, 0)::numeric AS "totalCredit",
+  -- The contra that reversed this voucher (if any). The original keeps its
+  -- POSTED status, so the list derives "reversed" from the linked contra.
+  (SELECT r.id FROM gl_journals r
+    WHERE r.reversal_of_id = j.id AND r.status = 'POSTED'
+    ORDER BY r.posted_at ASC LIMIT 1) AS "reversalJournalId",
+  (SELECT r.journal_no FROM gl_journals r
+    WHERE r.reversal_of_id = j.id AND r.status = 'POSTED'
+    ORDER BY r.posted_at ASC LIMIT 1) AS "reversalJournalNo",
+  (SELECT o.journal_no FROM gl_journals o WHERE o.id = j.reversal_of_id) AS "reversalOfNo"
 FROM gl_journals j
 JOIN fiscal_years fy ON fy.id = j.fiscal_year_id
 JOIN gl_periods p ON p.id = j.period_id
@@ -220,6 +238,7 @@ export const JOURNAL_SUBLEDGER_SQL = `SELECT s.id,
   s.journal_id AS "journalId",
   s.journal_line_id AS "journalLineId",
   s.account_id AS "accountId",
+  s.subledger_id AS "subledgerId",
   s.subledger_type AS "subledgerType",
   s.party_id AS "partyId",
   s.party_name AS "partyName",
@@ -372,11 +391,45 @@ export const JOURNAL_MARK_REVERSED_SQL = `UPDATE gl_journals SET
   status = 'REVERSED', updated_at = CURRENT_TIMESTAMP
 WHERE id = $1 AND status = 'POSTED'`;
 
+/**
+ * The original voucher being reversed. `FOR UPDATE` serializes two concurrent
+ * reversal requests on the same journal, so a double-click cannot post two
+ * contras before either sees the other.
+ */
+export const JOURNAL_LOCK_BY_ID_SQL = `SELECT j.id,
+  j.journal_no AS "journalNo",
+  j.journal_date_ad AS "journalDateAD",
+  j.branch_id AS "branchId",
+  j.source_type AS "sourceType",
+  j.source_id AS "sourceId",
+  j.voucher_type AS "voucherType",
+  j.voucher_class AS "voucherClass",
+  j.reference_no AS "referenceNo",
+  j.reference_date_ad AS "referenceDateAD",
+  j.cheque_no AS "chequeNo",
+  j.cheque_date_ad AS "chequeDateAD",
+  j.currency,
+  j.exchange_rate AS "exchangeRate",
+  j.memo,
+  j.status,
+  j.reversal_of_id AS "reversalOfId",
+  j.is_demo AS "isDemo"
+FROM gl_journals j
+WHERE j.id = $1
+FOR UPDATE`;
+
+/** The contra already posted for an original voucher, if one exists. */
+export const JOURNAL_REVERSAL_EXISTS_SQL = `SELECT id, journal_no AS "journalNo"
+FROM gl_journals
+WHERE reversal_of_id = $1
+ORDER BY posted_at ASC
+LIMIT 1`;
+
 export const ACCOUNT_INSERT_SQL = `INSERT INTO gl_accounts (
   id, code, name, group_id, description, is_control, subledger_type,
   posting_role, account_kind, bank_name, bank_branch, account_number,
-  account_holder, swift_code, is_active, is_demo
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, TRUE, $15)`;
+  account_holder, swift_code, master_profile, is_active, is_demo
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, TRUE, $16)`;
 
 export const ACCOUNT_UPDATE_SQL = `UPDATE gl_accounts SET
   name = COALESCE($2, name),
@@ -390,6 +443,7 @@ export const ACCOUNT_UPDATE_SQL = `UPDATE gl_accounts SET
   account_number = $10,
   account_holder = $11,
   swift_code = $12,
+  master_profile = COALESCE($13::jsonb, master_profile),
   updated_at = CURRENT_TIMESTAMP
 WHERE id = $1`;
 
@@ -524,17 +578,22 @@ export const NEXT_JOURNAL_SEQUENCE_SQL = `SELECT nextval('gl_journal_no_seq')::b
 
 export const JOURNAL_INSERT_SQL = `INSERT INTO gl_journals (
   id, journal_no, journal_date_ad, fiscal_year_id, period_id, branch_id,
-  source_type, source_id, memo, status, reversal_of_id, posted_by, is_demo
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'POSTED', $10, $11, $12)`;
+  source_type, source_id, voucher_type, voucher_class, reference_no,
+  reference_date_ad, cheque_no, cheque_date_ad, currency, exchange_rate,
+  memo, status, reversal_of_id, posted_by, is_demo
+) VALUES (
+  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+  $17, 'POSTED', $18, $19, $20
+)`;
 
 export const JOURNAL_LINE_INSERT_SQL = `INSERT INTO gl_journal_lines (
   id, journal_id, line_no, account_id, cost_center_id, branch_id, debit, credit, memo
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`;
 
 export const SUBLEDGER_INSERT_SQL = `INSERT INTO gl_subledger_entries (
-  id, journal_id, journal_line_id, account_id, subledger_type, party_id,
-  party_name, branch_id, entry_date_ad, debit, credit
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`;
+  id, journal_id, journal_line_id, account_id, subledger_id, subledger_type,
+  party_id, party_name, branch_id, entry_date_ad, debit, credit
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`;
 
 export interface JournalListOptions {
   branchId?: string;
@@ -1089,6 +1148,7 @@ export const CASH_BANK_ENTRY_ROWS_SQL = `SELECT a.id AS "accountId",
   a.name,
   j.journal_date_ad::text AS "journalDateAD",
   j.journal_no AS "journalNo",
+  j.id AS "journalId",
   j.source_type AS "sourceType",
   j.source_id AS "sourceId",
   l.branch_id AS "branchId",
@@ -1188,6 +1248,7 @@ export interface AccountInput {
   accountNumber?: string | null;
   accountHolder?: string | null;
   swiftCode?: string | null;
+  masterProfile?: Record<string, unknown>;
   isDemo?: boolean;
 }
 
@@ -1207,6 +1268,7 @@ export function accountInsertParams(input: AccountInput): unknown[] {
     input.accountNumber || null,
     input.accountHolder || null,
     input.swiftCode || null,
+    input.masterProfile || {},
     Boolean(input.isDemo),
   ];
 }
@@ -1220,6 +1282,14 @@ export interface JournalInsertInput {
   branchId: string;
   sourceType: string;
   sourceId?: string | null;
+  voucherType?: string | null;
+  voucherClass?: string | null;
+  referenceNo?: string | null;
+  referenceDateAD?: string | null;
+  chequeNo?: string | null;
+  chequeDateAD?: string | null;
+  currency?: string | null;
+  exchangeRate?: number | null;
   memo?: string | null;
   reversalOfId?: string | null;
   postedBy?: string | null;
@@ -1236,6 +1306,14 @@ export function journalInsertParams(input: JournalInsertInput): unknown[] {
     input.branchId,
     input.sourceType,
     input.sourceId || null,
+    input.voucherType || 'JOURNAL',
+    input.voucherClass || null,
+    input.referenceNo || null,
+    input.referenceDateAD || null,
+    input.chequeNo || null,
+    input.chequeDateAD || null,
+    input.currency || 'NPR',
+    input.exchangeRate ?? 1,
     input.memo || null,
     input.reversalOfId || null,
     input.postedBy || null,
@@ -1272,6 +1350,7 @@ export function subledgerInsertParams(input: {
   journalId: string;
   journalLineId: string;
   accountId: string;
+  subledgerId?: string | null;
   subledgerType: Exclude<SubledgerType, 'NONE'>;
   partyId?: string | null;
   partyName?: string | null;
@@ -1285,6 +1364,7 @@ export function subledgerInsertParams(input: {
     input.journalId,
     input.journalLineId,
     input.accountId,
+    input.subledgerId || null,
     input.subledgerType,
     input.partyId || null,
     input.partyName || null,
@@ -1294,3 +1374,215 @@ export function subledgerInsertParams(input: {
     input.credit,
   ];
 }
+
+/**
+ * Subledger master: a named book bound to one control account. The list carries
+ * the two sides of the reconciliation per book — the account's posted GL
+ * balance and the sum of its subledger entries — so the screen can show a
+ * difference without a second request per row.
+ */
+export const SUBLEDGER_COLUMNS = `s.id,
+  s.code,
+  s.name,
+  s.subledger_type AS "subledgerType",
+  s.main_account_id AS "mainAccountId",
+  s.party_id AS "partyId",
+  s.description,
+  s.is_active AS "isActive",
+  s.is_demo AS "isDemo",
+  a.code AS "accountCode",
+  a.name AS "accountName",
+  a.posting_role AS "accountPostingRole",
+  g.code AS "groupCode",
+  g.name AS "groupName"`;
+
+const SUBLEDGER_JOIN_SQL = `FROM gl_subledgers s
+JOIN gl_accounts a ON a.id = s.main_account_id
+JOIN gl_account_groups g ON g.id = a.group_id`;
+
+/**
+ * The register list. `$1` is the branch filter (NULL = company level), so a
+ * book's rows, the account-wide subledger total, the GL balance and the
+ * unlinked count all describe the same branch window. `bookBalance` is one
+ * book; `subledgerBalance` is every book on the control account; `difference`
+ * is therefore the account-level GL tie-out, repeated on each of its books.
+ */
+export const SUBLEDGER_LIST_SQL = `SELECT ${SUBLEDGER_COLUMNS},
+  COALESCE(book.entry_count, 0)::int AS "entryCount",
+  COALESCE(book.balance, 0)::numeric AS "bookBalance",
+  COALESCE(acct.balance, 0)::numeric AS "subledgerBalance",
+  COALESCE(gl.balance, 0)::numeric AS "glBalance",
+  (COALESCE(gl.balance, 0) - COALESCE(acct.balance, 0))::numeric AS "difference",
+  COALESCE(unlinked.count, 0)::int AS "unlinkedCount"
+${SUBLEDGER_JOIN_SQL}
+LEFT JOIN (
+  SELECT se.subledger_id, COUNT(*)::int AS entry_count, SUM(se.debit - se.credit) AS balance
+  FROM gl_subledger_entries se
+  JOIN gl_journals j ON j.id = se.journal_id
+  WHERE j.status = 'POSTED' AND ($1::varchar IS NULL OR se.branch_id = $1)
+  GROUP BY se.subledger_id
+) book ON book.subledger_id = s.id
+LEFT JOIN (
+  SELECT se.account_id, SUM(se.debit - se.credit) AS balance
+  FROM gl_subledger_entries se
+  JOIN gl_journals j ON j.id = se.journal_id
+  WHERE j.status = 'POSTED' AND ($1::varchar IS NULL OR se.branch_id = $1)
+  GROUP BY se.account_id
+) acct ON acct.account_id = s.main_account_id
+LEFT JOIN (
+  SELECT l.account_id, SUM(l.debit - l.credit) AS balance
+  FROM gl_journal_lines l
+  JOIN gl_journals j ON j.id = l.journal_id
+  WHERE j.status = 'POSTED' AND ($1::varchar IS NULL OR j.branch_id = $1)
+  GROUP BY l.account_id
+) gl ON gl.account_id = s.main_account_id
+LEFT JOIN (
+  SELECT se.account_id, COUNT(*)::int AS count
+  FROM gl_subledger_entries se
+  WHERE se.subledger_id IS NULL AND ($1::varchar IS NULL OR se.branch_id = $1)
+  GROUP BY se.account_id
+) unlinked ON unlinked.account_id = s.main_account_id
+ORDER BY s.code ASC`;
+
+export const SUBLEDGER_BY_ID_SQL = `SELECT ${SUBLEDGER_COLUMNS}
+${SUBLEDGER_JOIN_SQL} WHERE s.id = $1`;
+
+export const SUBLEDGER_BY_CODE_SQL = `SELECT s.id FROM gl_subledgers s WHERE s.code = $1`;
+
+export const SUBLEDGER_GENERAL_BY_ACCOUNT_SQL = `SELECT s.id
+FROM gl_subledgers s
+WHERE s.main_account_id = $1 AND s.party_id IS NULL`;
+
+export const SUBLEDGER_BY_ACCOUNT_PARTY_SQL = `SELECT s.id
+FROM gl_subledgers s
+WHERE s.main_account_id = $1 AND s.party_id = $2`;
+
+/** Every active book on one control account, used to resolve a posting line. */
+export const SUBLEDGER_BOOKS_BY_ACCOUNT_SQL = `SELECT s.id, s.party_id AS "partyId"
+FROM gl_subledgers s
+WHERE s.main_account_id = $1 AND s.is_active = TRUE
+ORDER BY s.party_id NULLS FIRST, s.code ASC`;
+
+export const SUBLEDGER_MASTER_INSERT_SQL = `INSERT INTO gl_subledgers (
+  id, code, name, subledger_type, main_account_id, party_id, description, is_active, is_demo
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`;
+
+export const SUBLEDGER_UPDATE_SQL = `UPDATE gl_subledgers SET
+  name = $2,
+  description = $3,
+  is_active = $4,
+  main_account_id = $5,
+  updated_at = CURRENT_TIMESTAMP
+WHERE id = $1`;
+
+export const SUBLEDGER_DELETE_SQL = `DELETE FROM gl_subledgers WHERE id = $1`;
+
+/** Posted rows in one book; 0 means the book is safe to delete or rebind. */
+export const SUBLEDGER_BOOK_USAGE_COUNT_SQL = `SELECT COUNT(*)::int AS count
+FROM gl_subledger_entries WHERE subledger_id = $1`;
+
+/** Legacy rows on an account that carry no book id (pre-linkage history). */
+export const SUBLEDGER_USAGE_COUNT_SQL = `SELECT COUNT(*)::int AS count
+FROM gl_subledger_entries WHERE account_id = $1 AND subledger_id IS NULL`;
+
+/**
+ * The posted movements of one book. Reading by `subledger_id` (rather than by
+ * the main account) is what lets two books on one account stay separable, and
+ * what makes the report independent of the chart's control-account mapping.
+ */
+export const SUBLEDGER_BOOK_ENTRIES_SQL = `SELECT s.id,
+  s.journal_id AS "journalId",
+  j.journal_no AS "journalNo",
+  s.journal_line_id AS "journalLineId",
+  s.account_id AS "accountId",
+  s.subledger_type AS "subledgerType",
+  s.party_id AS "partyId",
+  s.party_name AS "partyName",
+  s.branch_id AS "branchId",
+  s.entry_date_ad::text AS "entryDateAD",
+  s.debit::numeric AS debit,
+  s.credit::numeric AS credit,
+  COALESCE(l.memo, j.memo, '') AS memo
+FROM gl_subledger_entries s
+JOIN gl_journals j ON j.id = s.journal_id
+LEFT JOIN gl_journal_lines l ON l.id = s.journal_line_id
+WHERE s.subledger_id = $1
+  AND j.status = 'POSTED'
+  AND ($2::date IS NULL OR s.entry_date_ad >= $2::date)
+  AND ($3::date IS NULL OR s.entry_date_ad <= $3::date)
+  AND ($4::varchar IS NULL OR s.branch_id = $4)
+ORDER BY s.entry_date_ad DESC, s.id DESC`;
+
+export const SUBLEDGER_BOOK_PARTY_BALANCES_SQL = `SELECT
+  s.party_id AS "partyId",
+  COALESCE(MAX(s.party_name), '') AS "partyName",
+  COALESCE(SUM(s.debit - s.credit), 0)::numeric AS balance
+FROM gl_subledger_entries s
+JOIN gl_journals j ON j.id = s.journal_id
+WHERE s.subledger_id = $1
+  AND j.status = 'POSTED'
+  AND ($2::date IS NULL OR s.entry_date_ad >= $2::date)
+  AND ($3::date IS NULL OR s.entry_date_ad <= $3::date)
+  AND ($4::varchar IS NULL OR s.branch_id = $4)
+GROUP BY s.party_id
+ORDER BY balance DESC NULLS LAST`;
+
+/** Rows on the book's control account that still carry no book id, in scope. */
+export const SUBLEDGER_BOOK_UNLINKED_COUNT_SQL = `SELECT COUNT(*)::int AS count
+FROM gl_subledger_entries
+WHERE account_id = $1 AND subledger_id IS NULL
+  AND ($2::varchar IS NULL OR branch_id = $2)`;
+
+/**
+ * Party masters for book generation. Customer ids are
+ * `customer_records.customer_id` — the same id sales invoices, stock issue and
+ * accounting already use — so a customer never has two subledger identities.
+ */
+export const SUBLEDGER_CUSTOMER_CANDIDATES_SQL = `SELECT customer_id AS id,
+  customer_name AS name,
+  customer_id AS code
+FROM customer_records
+WHERE status = 'ACTIVE' AND ($1::varchar IS NULL OR branch_id = $1)
+ORDER BY customer_name ASC`;
+
+export const SUBLEDGER_SUPPLIER_CANDIDATES_SQL = `SELECT id,
+  name,
+  COALESCE(supplier_code, id) AS code
+FROM suppliers
+WHERE status = 'ACTIVE'
+ORDER BY name ASC`;
+
+export const SUBLEDGER_EMPLOYEE_CANDIDATES_SQL = `SELECT id,
+  name,
+  employee_code AS code
+FROM employees
+WHERE is_active = TRUE AND ($1::varchar IS NULL OR branch_id = $1)
+ORDER BY employee_code ASC`;
+
+export const CUSTOMER_PARTY_BY_ID_SQL = `SELECT customer_id AS id, customer_name AS name
+FROM customer_records WHERE customer_id = $1`;
+
+export const SUPPLIER_PARTY_BY_ID_SQL = `SELECT id, name FROM suppliers WHERE id = $1`;
+
+export const EMPLOYEE_PARTY_BY_ID_SQL = `SELECT id, name FROM employees WHERE id = $1`;
+
+/** Move a party's existing rows from the general book (or no book) to its own. */
+export const SUBLEDGER_REASSIGN_PARTY_SQL = `UPDATE gl_subledger_entries
+SET subledger_id = $3
+WHERE account_id = $1
+  AND party_id = $2
+  AND (subledger_id IS NULL OR ($4::varchar IS NOT NULL AND subledger_id = $4))`;
+
+/**
+ * Idempotent default subledger seed. It resolves the control account by code,
+ * so it works on a fresh install and on an install whose account ids differ.
+ * ON CONFLICT DO NOTHING absorbs both a known code and an account that already
+ * has a different subledger assigned.
+ */
+export const SUBLEDGER_SEED_INSERT_SQL = `INSERT INTO gl_subledgers (
+  id, code, name, subledger_type, main_account_id, description, is_active, is_demo
+)
+SELECT $1, $2, $3, $4, a.id, $5, TRUE, FALSE
+FROM gl_accounts a
+WHERE a.code = $6 AND a.is_control = TRUE
+ON CONFLICT DO NOTHING`;

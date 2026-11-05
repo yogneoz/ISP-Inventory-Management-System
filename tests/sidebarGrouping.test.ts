@@ -132,8 +132,9 @@ const EXPECTED: Record<string, { sections: string[]; items: string[] }> = {
     ],
   },
   finance: {
-    sections: ['Statements & ledgers', 'Tax & assets'],
+    sections: ['Entries', 'Statements & ledgers', 'Tax & assets'],
     items: [
+      'journal-entry', 'cash-bank-entry',
       'accounting', 'accounting-profit-loss', 'accounting-balance-sheet', 'accounting-cash-book',
       'accounting-aging',
       'cash-position', 'financial-statements', 'vendor-ledger', 'customer-ledger', 'vendor-opening-balances',
@@ -143,7 +144,7 @@ const EXPECTED: Record<string, { sections: string[]; items: string[] }> = {
   'inventory-setup': {
     sections: ['Accounting', 'Products', 'Parties', 'Organisation'],
     items: [
-      'accounting-chart', 'bill-terms', 'cost-centers', 'narration-templates', 'fiscal-year-management',
+      'accounting-chart', 'general-ledger', 'subledgers', 'bill-terms', 'cost-centers', 'narration-templates', 'fiscal-year-management',
       'product-master', 'category-management', 'product-group-management', 'uom-management',
       'customers', 'sales-agents-areas', 'import-customers', 'suppliers',
       'locations', 'branches',

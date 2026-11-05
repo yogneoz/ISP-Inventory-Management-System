@@ -34,7 +34,7 @@ import {
   rowsToUserPermissionSetGrantMap,
 } from '../models/permissions.repo';
 import { hashPassword } from '../middleware/auth';
-import { ensureDefaultChart } from '../services/accountingSeed.service';
+import { ensureDefaultChart, ensureDefaultSubledgers } from '../services/accountingSeed.service';
 
 import {
   setDocNumberConfigs,
@@ -127,6 +127,8 @@ export async function syncDatabaseAndIndexes() {
     // chart setup: seed the minimum posting defaults idempotently. Existing
     // codes are never changed, so operator edits survive every boot.
     await ensureDefaultChart(client);
+    // One subledger book per control account, so the chart is not half set up.
+    await ensureDefaultSubledgers(client);
     await hydrateOperationalData(client);
     // SER-2 / D3: the serial register is no longer converged on boot. A silent
     // pass hid unregistered legacy units and rewrote the register behind the
@@ -173,14 +175,25 @@ export async function syncDatabaseAndIndexes() {
 
 async function seedInitialPostgresData(client: pg.PoolClient) {
   try {
-    for (const b of INITIAL_MASTER_BRANCHES) {
+    // Demo masters (branches, fiscal years, locations, suppliers, users) are a
+    // fresh-install fallback only. On an already-populated database they must
+    // not resurrect rows an operator (or the verification seed) removed — a
+    // restart used to re-add WH001/BRH01 and the 2080-81/2081-82 fiscal years
+    // next to the real ones. Everything below this guard is idempotent master
+    // configuration and still runs on every boot.
+    const existingBranches = await client.query('SELECT 1 FROM branches LIMIT 1');
+    const isFreshInstall = existingBranches.rows.length === 0;
+    if (!isFreshInstall) {
+      console.log('ℹ️  Demo master seed skipped: the database already has branches.');
+    }
+    for (const b of (isFreshInstall ? INITIAL_MASTER_BRANCHES : [])) {
       await client.query(
         `INSERT INTO branches (id, code, name, location, phone, is_headquarters, active, allow_procurement, allow_warehouse_transfer, is_demo)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE) ON CONFLICT (id) DO NOTHING`,
         [b.id, b.code, b.name, b.location, b.phone || '', b.isHeadquarters || false, b.active !== false, b.allowProcurement !== false, b.allowWarehouseTransfer !== false]
       );
     }
-    for (const fy of INITIAL_MASTER_FISCAL_YEARS) {
+    for (const fy of (isFreshInstall ? INITIAL_MASTER_FISCAL_YEARS : [])) {
       await client.query(
         `INSERT INTO fiscal_years (id, code, start_date_ad, end_date_ad, start_date_bs, end_date_bs, is_current, is_closed, is_demo)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE) ON CONFLICT (id) DO NOTHING`,
@@ -228,7 +241,7 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
         [u.id, u.name, u.symbol, u.type, u.isBaseUnit]
       );
     }
-    for (const l of INITIAL_MASTER_LOCATIONS) {
+    for (const l of (isFreshInstall ? INITIAL_MASTER_LOCATIONS : [])) {
       await client.query(
         `INSERT INTO locations (id, name, type, branch_id, address, coordinates, contact_person, contact_phone, notes, active_assets_count, is_demo)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE) ON CONFLICT (id) DO NOTHING`,
@@ -236,7 +249,7 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
       );
     }
 
-    for (const s of INITIAL_MASTER_SUPPLIERS) {
+    for (const s of (isFreshInstall ? INITIAL_MASTER_SUPPLIERS : [])) {
       const sup = s as any;
       await client.query(
         `INSERT INTO suppliers (id, supplier_code, name, contact_person, phone, email, address, pan_vat_number, rating, status, is_demo)
@@ -247,7 +260,7 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
 
     // Example/dummy user accounts (is_demo = TRUE) so the app is testable out
     // of the box after a fresh setup. Never overwrite existing accounts.
-    for (const eu of INITIAL_EXAMPLE_USERS) {
+    for (const eu of (isFreshInstall ? INITIAL_EXAMPLE_USERS : [])) {
       const allowedBranchIds = eu.role === 'SUPER_ADMIN' ? INITIAL_MASTER_BRANCHES.map((b) => b.id) : [eu.branchId];
       await client.query(
         `INSERT INTO users (id, email, password, name, role, branch_id, allowed_branch_ids, can_switch_user, is_demo)

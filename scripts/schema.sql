@@ -1363,6 +1363,11 @@ CREATE TABLE IF NOT EXISTS gl_accounts (
     name VARCHAR(150) NOT NULL,
     group_id VARCHAR(50) NOT NULL REFERENCES gl_account_groups(id) ON DELETE RESTRICT,
     description TEXT,
+    -- Legacy GL-master fields (short name, category, credit terms, tax type,
+    -- currency, guarantee/deposit notes) that do not change posting behaviour.
+    -- They live in one jsonb profile so the master form can carry the full
+    -- legacy field set without 15 mostly-unused columns on the ledger table.
+    master_profile JSONB NOT NULL DEFAULT '{}'::jsonb,
     is_control BOOLEAN NOT NULL DEFAULT FALSE,
     subledger_type VARCHAR(30) NOT NULL DEFAULT 'NONE' CHECK (subledger_type IN (
         'NONE', 'CUSTOMER', 'SUPPLIER', 'EMPLOYEE', 'INVENTORY', 'FIXED_ASSET', 'BANK', 'CASH', 'TAX', 'INTER_BRANCH'
@@ -1427,12 +1432,49 @@ ALTER TABLE gl_accounts ADD COLUMN IF NOT EXISTS bank_branch VARCHAR(150);
 ALTER TABLE gl_accounts ADD COLUMN IF NOT EXISTS account_number VARCHAR(100);
 ALTER TABLE gl_accounts ADD COLUMN IF NOT EXISTS account_holder VARCHAR(150);
 ALTER TABLE gl_accounts ADD COLUMN IF NOT EXISTS swift_code VARCHAR(50);
+ALTER TABLE gl_accounts ADD COLUMN IF NOT EXISTS master_profile JSONB NOT NULL DEFAULT '{}'::jsonb;
 UPDATE gl_accounts SET account_kind = CASE
     WHEN posting_role = 'CASH' THEN 'CASH'
     WHEN posting_role = 'BANK' THEN 'BANK'
     ELSE account_kind
   END
  WHERE posting_role IN ('CASH', 'BANK') AND account_kind = 'OTHER';
+
+-- Subledger master: named books behind a control ledger. A book with no
+-- party_id is that account's general book (one per account); a book with a
+-- party_id is one party's own book under the same control account (unlimited
+-- employees under Salary Payable, customers under AR, suppliers under AP).
+-- Posting picks the party's book first, then the general book.
+CREATE TABLE IF NOT EXISTS gl_subledgers (
+    id VARCHAR(50) PRIMARY KEY,
+    code VARCHAR(30) UNIQUE NOT NULL,
+    name VARCHAR(150) NOT NULL,
+    subledger_type VARCHAR(30) NOT NULL CHECK (subledger_type IN (
+        'CUSTOMER', 'SUPPLIER', 'EMPLOYEE', 'INVENTORY', 'FIXED_ASSET', 'BANK', 'CASH', 'TAX', 'INTER_BRANCH'
+    )),
+    main_account_id VARCHAR(50) NOT NULL REFERENCES gl_accounts(id) ON DELETE RESTRICT,
+    -- NULL is the account-wide book; otherwise the id of the party in the
+    -- shared master (customer_records.customer_id, suppliers.id, employees.id).
+    party_id VARCHAR(100),
+    description TEXT,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_gl_subledgers_type ON gl_subledgers(subledger_type);
+
+-- Existing installs had one book per control account. Uniqueness now applies
+-- per party: exactly one general book, and one book per (account, party).
+ALTER TABLE gl_subledgers DROP CONSTRAINT IF EXISTS gl_subledgers_main_account_id_key;
+ALTER TABLE gl_subledgers ADD COLUMN IF NOT EXISTS party_id VARCHAR(100);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_gl_subledgers_general
+    ON gl_subledgers(main_account_id) WHERE party_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_gl_subledgers_party
+    ON gl_subledgers(main_account_id, party_id) WHERE party_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_gl_subledgers_party
+    ON gl_subledgers(subledger_type, party_id);
 
 -- Cost centres are an analytical dimension on journal lines, deliberately
 -- separate from branch (a location) and from the ledger account. A NULL
@@ -1525,6 +1567,16 @@ CREATE TABLE IF NOT EXISTS gl_journals (
     branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
     source_type VARCHAR(30) NOT NULL DEFAULT 'MANUAL',
     source_id VARCHAR(100),
+    -- Voucher-form metadata. Amounts in gl_journal_lines stay in NPR; the
+    -- currency/rate record how a foreign-currency voucher was converted.
+    voucher_type VARCHAR(30) NOT NULL DEFAULT 'JOURNAL',
+    voucher_class VARCHAR(50),
+    reference_no VARCHAR(100),
+    reference_date_ad DATE,
+    cheque_no VARCHAR(100),
+    cheque_date_ad DATE,
+    currency VARCHAR(10) NOT NULL DEFAULT 'NPR',
+    exchange_rate NUMERIC(14, 6) NOT NULL DEFAULT 1,
     memo TEXT,
     status VARCHAR(10) NOT NULL DEFAULT 'POSTED' CHECK (status IN ('POSTED', 'REVERSED')),
     reversal_of_id VARCHAR(50) REFERENCES gl_journals(id) ON DELETE SET NULL,
@@ -1539,6 +1591,15 @@ CREATE INDEX IF NOT EXISTS idx_gl_journals_date ON gl_journals(journal_date_ad);
 CREATE INDEX IF NOT EXISTS idx_gl_journals_branch ON gl_journals(branch_id, journal_date_ad);
 CREATE INDEX IF NOT EXISTS idx_gl_journals_period ON gl_journals(period_id);
 CREATE INDEX IF NOT EXISTS idx_gl_journals_source ON gl_journals(source_type, source_id);
+CREATE INDEX IF NOT EXISTS idx_gl_journals_reversal_of ON gl_journals(reversal_of_id);
+ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS voucher_type VARCHAR(30) NOT NULL DEFAULT 'JOURNAL';
+ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS voucher_class VARCHAR(50);
+ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS reference_no VARCHAR(100);
+ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS reference_date_ad DATE;
+ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS cheque_no VARCHAR(100);
+ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS cheque_date_ad DATE;
+ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS currency VARCHAR(10) NOT NULL DEFAULT 'NPR';
+ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS exchange_rate NUMERIC(14, 6) NOT NULL DEFAULT 1;
 -- Opening balances are posted once per branch. The service also takes a
 -- per-branch advisory lock and pre-checks, but this partial unique index is
 -- the durable guard against a concurrent double post.
@@ -1573,6 +1634,9 @@ CREATE TABLE IF NOT EXISTS gl_subledger_entries (
     journal_id VARCHAR(50) NOT NULL REFERENCES gl_journals(id) ON DELETE CASCADE,
     journal_line_id VARCHAR(60) NOT NULL REFERENCES gl_journal_lines(id) ON DELETE CASCADE,
     account_id VARCHAR(50) NOT NULL REFERENCES gl_accounts(id) ON DELETE RESTRICT,
+    -- The book this row belongs to. Declared here for a fresh install; the
+    -- ALTER below adopts rows written before the master existed.
+    subledger_id VARCHAR(50) REFERENCES gl_subledgers(id) ON DELETE RESTRICT,
     subledger_type VARCHAR(30) NOT NULL CHECK (subledger_type IN (
         'CUSTOMER', 'SUPPLIER', 'EMPLOYEE', 'INVENTORY', 'FIXED_ASSET', 'BANK', 'CASH', 'TAX', 'INTER_BRANCH'
     )),
@@ -1592,6 +1656,24 @@ CREATE TABLE IF NOT EXISTS gl_subledger_entries (
 CREATE INDEX IF NOT EXISTS idx_gl_subledger_account_branch ON gl_subledger_entries(account_id, branch_id);
 CREATE INDEX IF NOT EXISTS idx_gl_subledger_party ON gl_subledger_entries(subledger_type, party_id);
 CREATE INDEX IF NOT EXISTS idx_gl_subledger_journal ON gl_subledger_entries(journal_id);
+
+-- The book each subledger row belongs to. The master names the book; the entry
+-- points at it, so a report can read one book directly instead of re-deriving
+-- it from the control account and type. The column is nullable only for rows
+-- written before the master existed: the backfill below adopts those, and the
+-- posting path resolves the book for every new row.
+ALTER TABLE gl_subledger_entries
+    ADD COLUMN IF NOT EXISTS subledger_id VARCHAR(50) REFERENCES gl_subledgers(id) ON DELETE RESTRICT;
+
+CREATE INDEX IF NOT EXISTS idx_gl_subledger_book ON gl_subledger_entries(subledger_id);
+
+UPDATE gl_subledger_entries e
+SET subledger_id = s.id
+FROM gl_subledgers s
+WHERE e.subledger_id IS NULL
+  AND s.main_account_id = e.account_id
+  AND s.subledger_type = e.subledger_type
+  AND s.party_id IS NULL;
 
 -- ============================================================================
 -- 34. Daily cash close — one counted close per branch and business day

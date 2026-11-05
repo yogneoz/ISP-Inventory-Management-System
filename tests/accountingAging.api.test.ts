@@ -193,11 +193,15 @@ describe('AR / AP aging API (real HTTP + throwaway PostgreSQL)', { skip: skipNoD
     assert.equal(await ensurePostgresConnection(), true, 'the throwaway database must be reachable');
 
     const { ensureReferenceData } = await import('./fixtures/referenceData');
+    const { ensureDefaultSubledgers } = await import('../server/src/services/accountingSeed.service');
     const { issueAuthToken } = await import('../server/src/middleware/auth');
     const { setPermissionMatrix } = await import('../server/src/state/runtimeState');
     const { DEFAULT_PERMISSIONS_MATRIX } = await import('../client/src/utils/permissionMatrixData');
 
     await ensureReferenceData(throwaway.pool);
+    // schema.sql alone leaves a fresh throwaway chart without books; a real
+    // boot seeds one per control account, and posting now requires it.
+    await ensureDefaultSubledgers(throwaway.pool as any);
     for (const branchId of [BR_A, BR_B]) {
       await throwaway.pool.query(
         `INSERT INTO branches (id, code, name, location, active, allow_procurement, allow_warehouse_transfer, is_demo)

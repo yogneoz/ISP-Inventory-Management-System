@@ -151,6 +151,9 @@ export const AccountFormDialog: React.FC<{
   const [groupId, setGroupId] = useState(account?.groupId || groups[0]?.id || '');
   const [description, setDescription] = useState(account?.description || '');
   const [subledgerType, setSubledgerType] = useState(account?.subledgerType || 'NONE');
+  // Explicit control-account toggle: the subledger select used to be the only
+  // signal, so an operator could create a control account without realising it.
+  const [controlAccount, setControlAccount] = useState(Boolean(account?.isControl));
   const [postingRole, setPostingRole] = useState(account?.postingRole || '');
   const [accountKind, setAccountKind] = useState<AccountKind>(
     account?.accountKind || (account?.postingRole === 'CASH' ? 'CASH' : account?.postingRole === 'BANK' ? 'BANK' : 'OTHER')
@@ -201,7 +204,7 @@ export const AccountFormDialog: React.FC<{
               name,
               groupId,
               description,
-              subledgerType,
+              subledgerType: controlAccount ? subledgerType : 'NONE',
               postingRole,
               accountKind,
               bankName,
@@ -317,6 +320,21 @@ export const AccountFormDialog: React.FC<{
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
+                  <label className="mb-2 flex items-center gap-2 text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                    <input
+                      type="checkbox"
+                      id="chart-account-control"
+                      checked={controlAccount}
+                      disabled={mode === 'edit'}
+                      onChange={(event) => {
+                        const next = event.target.checked;
+                        setControlAccount(next);
+                        if (!next) setSubledgerType('NONE');
+                        else if (subledgerType === 'NONE') setSubledgerType('CUSTOMER');
+                      }}
+                    />
+                    Control account (party detail lives in a subledger)
+                  </label>
                   <label className={labelClass} htmlFor="chart-account-subledger">
                     Subledger
                   </label>
@@ -325,7 +343,7 @@ export const AccountFormDialog: React.FC<{
                     className={inputClass}
                     value={subledgerType}
                     onChange={(event) => setSubledgerType(event.target.value)}
-                    disabled={mode === 'edit'}
+                    disabled={mode === 'edit' || !controlAccount}
                   >
                     {SUBLEDGER_TYPE_OPTIONS.map((type) => (
                       <option key={type} value={type}>

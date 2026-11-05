@@ -14,6 +14,7 @@ import {
 } from '../../components/accounting/AccountingRegisterShell';
 import type { AccountingScreenProps } from '../../components/accounting/AccountingRegisterShell';
 import { CashBookView } from '../../components/accounting/CashBookView';
+import { VoucherDetailDialog } from '../../components/accounting/VoucherDetailDialog';
 
 export const CashBookRegister: React.FC<AccountingScreenProps> = ({
   branches,
@@ -25,6 +26,7 @@ export const CashBookRegister: React.FC<AccountingScreenProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
+  const [detailId, setDetailId] = useState<string | null>(null);
   const activationKey = useActivationKey('accounting-cash-book');
   const isVisible = useTabActive('accounting-cash-book') && scope.allowed;
 
@@ -52,6 +54,7 @@ export const CashBookRegister: React.FC<AccountingScreenProps> = ({
   }, [isVisible, scope.branchId, scope.asOfDate, activationKey, reloadKey]);
 
   return (
+    <>
     <AccountingRegisterShell
       title="Cash & Bank Book"
       description="Every posted cash and bank movement with a running balance for the selected branch and date."
@@ -65,12 +68,14 @@ export const CashBookRegister: React.FC<AccountingScreenProps> = ({
       onRetry={() => setReloadKey((key) => key + 1)}
     >
       {data ? (
-        <CashBookView data={data} dateMode={dateMode} />
+        <CashBookView data={data} dateMode={dateMode} onOpenVoucher={setDetailId} />
       ) : (
         !loading &&
         !error && <RegisterEmpty message="No cash and bank book has been loaded yet." />
       )}
     </AccountingRegisterShell>
+    {detailId && <VoucherDetailDialog journalId={detailId} onClose={() => setDetailId(null)} />}
+    </>
   );
 };
 

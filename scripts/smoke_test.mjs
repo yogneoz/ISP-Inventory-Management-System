@@ -156,11 +156,14 @@ check('read: /api/bootstrap returns every expected payload section', async () =>
   const r = await authedGet('/api/bootstrap');
   ok(r.status === 200, `expected 200, got ${r.status}: ${JSON.stringify(r.data).slice(0, 160)}`);
   const expected = [
-    'branches', 'products', 'stock', 'assets', 'customerDevices', 'customers',
-    'purchaseOrders', 'purchaseInvoices', 'shipments', 'stockOperations',
-    'fiscalYears', 'auditLogs', 'transactionLogs', 'financialSummary',
+    // Registers that grew into their own paged endpoints (customers, POs,
+    // purchase/sales invoices, shipments, stock operations, serials, payment
+    // and transaction logs) are fetched per screen and are no longer part of
+    // the bootstrap payload.
+    'branches', 'products', 'stock', 'fiscalYears', 'financialSummary',
     'suppliers', 'users', 'approvalRequests', 'categories', 'uom', 'locations',
-    'companyProfile', 'damageRecords', 'vendorPayments',
+    'companyProfile', 'damageRecords', 'productGroups', 'purchaseReturns',
+    'salesReturns', 'auditLogs', 'serverTime',
     // serialLogs was dropped from bootstrap (paged /api/serial-log instead);
     // server-side settings & the caller's preferences replaced the old
     // browser-localStorage copies and ship with every bootstrap now.
@@ -185,10 +188,13 @@ check('read: /api/health and /api/db/status are healthy', async () => {
 });
 
 check('read: master-data endpoints return arrays', async () => {
+  // /api/customers is paged now (`{ data, page, totalItems }`); the rest are
+  // still plain arrays.
   for (const path of ['/api/branches', '/api/products', '/api/stock', '/api/uom', '/api/locations', '/api/suppliers', '/api/fiscal-years', '/api/document-number-configs', '/api/customers', '/api/bs-calendar/years']) {
     const r = await authedGet(path);
     ok(r.status === 200, `${path} expected 200, got ${r.status}`);
-    ok(Array.isArray(r.data), `${path} expected an array, got ${typeof r.data}`);
+    const rows = Array.isArray(r.data) ? r.data : r.data && Array.isArray(r.data.data) ? r.data.data : null;
+    ok(rows !== null, `${path} expected an array or { data: [] }, got ${JSON.stringify(r.data).slice(0, 120)}`);
   }
   const b = await authedGet('/api/branches');
   ok(b.data.length > 0, 'no branches returned (demo data missing?)');
@@ -244,8 +250,11 @@ check('read: reports/financial-summary responds', async () => {
 // --- 3. Write paths over constrained enums ----------------------------------
 check('write: location create (locations.type enum) + delete', async () => {
   const token = await login();
+  const branches = await authedGet('/api/branches');
+  const branch = (branches.data || [])[0];
+  if (!branch) throw new Skip('no branches exist; cannot place a location');
   const r = await HTTP.post('/api/locations', {
-    name: `Smoke Loc ${TAG}`, type: 'FIBER_NETWORK_NODE', branchId: 'WH001', address: TAG,
+    name: `Smoke Loc ${TAG}`, type: 'FIBER_NETWORK_NODE', branchId: branch.id, address: TAG,
   }, { token });
   ok([200, 201].includes(r.status), `POST /api/locations expected 200/201, got ${r.status}: ${JSON.stringify(r.data).slice(0, 200)}`);
   ok(r.data && r.data.id, 'no location id returned');
@@ -274,10 +283,15 @@ check('write: vendor payment (vendor_payments enums) with cleanup', async () => 
 
 check('write: DISPOSAL + DAMAGE stock operations (stock_operations.type enum)', async () => {
   const token = await login();
-  const stock = await authedGet('/api/stock?branchId=WH001');
+  // Branch ids come from the live master (the seeded branches are BR-KTM,
+  // BR-PKR, BR-BTL, BR-DHN — never the old WH001/BRH01 demo ids).
+  const branches = await authedGet('/api/branches');
+  const branch = (branches.data || [])[0];
+  if (!branch) throw new Skip('no branches exist; cannot probe stock operations');
+  const stock = await authedGet(`/api/stock?branchId=${encodeURIComponent(branch.id)}`);
   const products = await authedGet('/api/products');
   const row = (stock.data || []).find((s) => Number(s.quantityOnHand) >= 1);
-  if (!row) throw new Skip('no stock row with quantity >= 1 at WH001');
+  if (!row) throw new Skip(`no stock row with quantity >= 1 at ${branch.id}`);
   const product = (products.data || []).find((p) => p.id === row.productId) || { name: 'Product' };
   const nonSerialized = product.trackingType === 'QUANTITY_ONLY' || product.requiresSerialTracking === false;
   const dateAD = new Date().toISOString().split('T')[0];
@@ -289,12 +303,16 @@ check('write: DISPOSAL + DAMAGE stock operations (stock_operations.type enum)', 
     if (db && opRef) await db.query(`DELETE FROM transaction_logs WHERE reference_doc_id = $1`, [opRef]);
   };
 
-  // DISPOSAL never consumes stock — safe to create and delete.
-  const disposal = await HTTP.post('/api/stock-operations', {
-    type: 'DISPOSAL', branchId: row.branchId, dateAD, reason: `${TAG} enum check`, inspectorName: TAG, items,
-  }, { token });
-  ok([200, 201].includes(disposal.status), `DISPOSAL expected 200/201, got ${disposal.status}: ${JSON.stringify(disposal.data).slice(0, 250)}`);
-  await removeLedger(disposal.data && disposal.data.referenceNumber);
+  // DISPOSAL draws the quarantined (damaged) pool, not usable stock, so it can
+  // only be probed when a damaged unit exists. Seeded verification data has
+  // none; the check still exercises DAMAGE + reversal below.
+  if (Number(row.damagedQty) > 0) {
+    const disposal = await HTTP.post('/api/stock-operations', {
+      type: 'DISPOSAL', branchId: row.branchId, dateAD, reason: `${TAG} enum check`, inspectorName: TAG, items,
+    }, { token });
+    ok([200, 201].includes(disposal.status), `DISPOSAL expected 200/201, got ${disposal.status}: ${JSON.stringify(disposal.data).slice(0, 250)}`);
+    await removeLedger(disposal.data && disposal.data.referenceNumber);
+  }
 
   // DAMAGE consumes a unit and reverses it back.
   if (nonSerialized) {

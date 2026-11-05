@@ -21,7 +21,8 @@
     "check:bundle-budget": "node scripts/check_bundle_budget.mjs",
     "check:boot-timing": "node scripts/check_boot_timing.mjs",
     "audit:bs-dates": "tsx scripts/audit_bs_calendar_dates.ts",
-    "verify:fresh-install": "node scripts/verify_fresh_install.mjs"
+    "verify:fresh-install": "node scripts/verify_fresh_install.mjs",
+    "seed:verify": "tsx scripts/seed_verification_data.ts"
   },
   "dependencies": {
     "@fontsource/noto-sans": "^5.3.0",
