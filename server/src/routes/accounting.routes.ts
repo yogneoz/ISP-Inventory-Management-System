@@ -202,7 +202,7 @@ export function registerAccountingRoutes(app: Express) {
   app.post('/api/accounting/journals', requirePermission('gl-post'), async (req, res, next) => {
     post_journal(req as any, res as any).catch(next);
   });
-  app.post('/api/accounting/journals/:id/reverse', requirePermission('gl-post'), async (req, res, next) => {
+  app.post('/api/accounting/journals/:id/reverse', requirePermission('gl-reverse'), async (req, res, next) => {
     post_reverseJournal(req as any, res as any).catch(next);
   });
   app.get('/api/accounting/reconciliations', requirePermission('gl-view'), async (req, res, next) => {

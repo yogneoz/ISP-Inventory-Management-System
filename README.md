@@ -24,7 +24,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 - **Fiscal Year Closing & Lock Wizard**:
   - 5-step guided wizard for year-end inventory valuation, fixed asset depreciation posting, trial balance roll-forward, and IRD period locking.
   - Super Admin re-authentication and downloadable official IRD Audit Closing Certificate.
-- **Role-Based Access Control (RBAC)**: 9 roles × 50 operations permission matrix, editable in-app and persisted server-side in the `permission_matrix` table (with client-side caching).
+- **Role-Based Access Control (RBAC)**: 9 roles × 55 operations permission matrix, editable in-app and persisted server-side in the `permission_matrix` table (with client-side caching).
 - **Vendor Ledger & Payments**: Vendor payments sub-ledger with bank/cheque details, partial payments, payment reversal, and a full vendor ledger report with running balances.
 - **Stock Movement Ledger & Transaction Logs**: Complete audit trail for stock receipts, dispatches, issues, transfers, damage pullouts, and manual adjustments.
 - **Consumable & Fixed Asset Management**:

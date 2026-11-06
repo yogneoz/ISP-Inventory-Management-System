@@ -19,7 +19,7 @@
  *
  * Branch scope and permission gates are exercised on the same routes: a branch
  * accountant cannot read or post another branch, an empty-scope account gets an
- * empty ledger, and `gl-view`/`gl-post`/`gl-close` are enforced independently.
+ * empty ledger, and `gl-view`/`gl-post`/`gl-reverse`/`gl-close` are enforced independently.
  */
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -938,7 +938,7 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
     assert.equal(refused.status, 403);
   });
 
-  test('gl-view, gl-post and gl-close are enforced independently', async () => {
+  test('gl-view, gl-post, gl-reverse and gl-close are enforced independently', async () => {
     assert.equal((await get('/api/accounting/accounts', tokens.noView)).status, 403);
     assert.equal((await get('/api/accounting/journals', tokens.noView)).status, 403);
 
@@ -955,6 +955,42 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
 
     const auditorClose = await post(`/api/accounting/periods/${PERIOD_KEY}/close`, tokens.auditor, {});
     assert.equal(auditorClose.status, 403);
+
+    // Reversal is its own control. Give this auditor the posting grant but not
+    // the reversal grant: posting must succeed while reversal is refused, then
+    // the same route must open once gl-reverse is granted.
+    const baselineMatrix = JSON.parse(JSON.stringify(DEFAULT_PERMISSIONS_MATRIX));
+    try {
+      const reversalMatrix = JSON.parse(JSON.stringify(baselineMatrix));
+      reversalMatrix['gl-post'].AUDITOR = true;
+      reversalMatrix['gl-reverse'].AUDITOR = false;
+      setPermissionMatrix(reversalMatrix);
+
+      const auditorJournal = await post('/api/accounting/journals', tokens.auditor, {
+        journalDateAD: JOURNAL_DATE,
+        branchId: BR,
+        memo: 'ACC TEST auditor reversal gate',
+        sourceId: 'ACC-TEST-AUD-REV-GATE',
+        lines: [line(accounts.cash, 12, 0), line(accounts.sales, 0, 12)],
+      });
+      assert.equal(auditorJournal.status, 201, JSON.stringify(auditorJournal.json));
+
+      const refusedReverse = await post(`/api/accounting/journals/${auditorJournal.json.id}/reverse`, tokens.auditor, {
+        journalDateAD: JOURNAL_DATE,
+        reason: 'ACC TEST gl-post only must not reverse',
+      });
+      assert.equal(refusedReverse.status, 403, 'gl-post alone must not reverse a voucher');
+
+      reversalMatrix['gl-reverse'].AUDITOR = true;
+      setPermissionMatrix(reversalMatrix);
+      const allowedReverse = await post(`/api/accounting/journals/${auditorJournal.json.id}/reverse`, tokens.auditor, {
+        journalDateAD: JOURNAL_DATE,
+        reason: 'ACC TEST gl-reverse allows reversal',
+      });
+      assert.equal(allowedReverse.status, 201, JSON.stringify(allowedReverse.json));
+    } finally {
+      setPermissionMatrix(baselineMatrix);
+    }
 
     const unauthenticated = await get('/api/accounting/accounts');
     assert.equal(unauthenticated.status, 401);

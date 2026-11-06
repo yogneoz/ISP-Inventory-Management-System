@@ -586,7 +586,7 @@ The server registers ~130 routes. The most important ones:
 | `/api/accounting/groups`, `/api/accounting/accounts`, `/api/accounting/settlement-accounts` | GET, POST, PATCH/DELETE `:id`; GET picker | Chart maintenance: statement-mapped groups with one optional sub-group level, control/subledger accounts and one posting default per role (`gl-view` read, `gl-manage` write). A sub-group inherits its parent's type and statement mapping; a group's code/type/mapping is fixed, only an empty group may move or be deleted, and an account's code/control nature is fixed, its group only changes before its first posting, retiring it clears its posting role, and an account with posted lines cannot be deleted. `account_kind` classifies extra CASH/BANK ledgers that deliberately carry no posting role; the settlement picker exposes those active ledgers to `gl-view`, `sales-invoice-create` or `inv-pay` |
 | `/api/accounting/posting-defaults` | GET | Posting role → account mapping that invoice postings resolve; a missing role refuses the document instead of skipping its journal |
 | `/api/accounting/periods`, `:id/close`, `:id/reopen` | GET, POST | Monthly periods; a closed period refuses postings until reopened (`gl-close`) |
-| `/api/accounting/journals`, `:id` | GET, POST | Branch-scoped journal list / detail and balanced manual posting; a control-account line must carry its subledger party (`gl-post`) |
+| `/api/accounting/journals`, `:id`, `:id/reverse` | GET, POST | Branch-scoped journal list / detail, balanced manual posting, and contra reversal; a control-account line must carry its subledger party (`gl-post` post, `gl-reverse` reverse) |
 | `/api/accounting/reconciliations?accountId=` | GET | Control-account GL balance vs subledger total, with per-party balances and `RECONCILED`/`DIFFERENCE` (`gl-view`) |
 | `/api/accounting/statements/trial-balance` | GET | Posted-line trial balance: opening, turnover and closing with debit = credit, a `groups` tree of group → sub-group → account with rolled-up subtotals, statement-group → account-group nesting, and every control account's GL vs subledger agreement as of the same date (`gl-view`) |
 | `/api/accounting/statements/profit-and-loss` | GET | Period revenue, cost of sales and expenses from posted lines, nested by statement group → group → sub-group with a rolled-up subtotal at each level; `asOf` or `from`/`to` (`gl-view`) |
@@ -699,7 +699,7 @@ Every `/api/*` request passes through this middleware chain in order:
 | `FIELD_TECHNICIAN` | Field operations | Single branch |
 | `AUDITOR` | Read-only audit access | Single branch |
 
-### 8.2 Permissions Matrix (50 operations × 9 roles)
+### 8.2 Permissions Matrix (55 operations × 9 roles)
 
 Defined in `src/utils/permissionMatrixData.ts` (`INVENTORY_OPERATIONS`, `APP_ROLES`, `DEFAULT_PERMISSIONS_MATRIX`). Key groups:
 
@@ -707,7 +707,7 @@ Defined in `src/utils/permissionMatrixData.ts` (`INVENTORY_OPERATIONS`, `APP_ROL
 - **Warehouse**: `shipment-create`, `wh-receive-pullouts`, `wh-restrict-transfer`, `shipment-history`
 - **Branch Ops**: `branch-transfer-create`, `branch-transfer-receive`, `branch-transfer-cancel-receive`, `branch-transfer-request-cancel`, `branch-pullout-dispatch`, `branch-damage-mark`, `stock-disposal-writeoff`, `branch-asset-assign`, `stock-out`
 - **Inventory**: `prod-view`, `prod-edit`, `uom-manage`, `edit-device-serials`, `category-manage`, `product-group-manage`, `stock-import-export`, `opening-stock-view`, `opening-stock-edit`, `warranty-view`, `warranty-edit`
-- **Financials**: `assets-manage`, `fin-statements`, `vat-register`, `stock-valuation`
+- **Finance & Accounting**: `gl-view`, `gl-post`, `gl-reverse`, `gl-manage`, `gl-close`, `fin-statements`, `vat-register`, `assets-manage`, `stock-valuation`
 - **Master/Settings**: `suppliers-manage`, plus admin operations (`admin-users`, `admin-branches`, `admin-audit`, `admin-fiscal`, `auth-switch-user`, `workflow-approval`)
 
 **Storage (two layers, in precedence order):**

@@ -54,7 +54,7 @@ const OPERATION_NAMES: Record<string, string> = (() => {
 
 /**
  * Operation choices for the register's access filter. The matrix screen's
- * groups cover 46 operations; the catalogue also enforces four ids it does not
+ * groups cover 51 operations; the catalogue also enforces four ids it does not
  * render. They still appear in every user's effective list, so the filter must
  * offer them too or those accounts could not be found by what they can do.
  */

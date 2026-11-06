@@ -292,12 +292,12 @@ export const DEFAULT_GROUPS: PermissionGroup[] = [
   },
   {
     id: 'financials',
-    category: 'Fixed Assets & Financial Accounting',
+    category: 'Finance & Accounting',
     icon: Building,
     color: 'text-purple-600 dark:text-purple-400',
     bgColor: 'bg-purple-50 dark:bg-purple-950/30',
     borderColor: 'border-purple-200 dark:border-purple-900',
-    description: 'Fixed asset registration, depreciation calculations, VAT register, and financial statements',
+    description: 'Voucher entry, ledger review, statements, accounting masters, tax, stock valuation and the fixed-asset register',
     operations: [
       {
         id: 'assets-manage',
@@ -325,20 +325,26 @@ export const DEFAULT_GROUPS: PermissionGroup[] = [
       },
       {
         id: 'gl-view',
-        operationName: 'View General Ledger',
-        description: 'Read the accounting workspace: trial balance, P&L, balance sheet, cash book, chart of accounts, posting defaults and control-account reconciliations',
+        operationName: 'View Finance & Accounting Registers',
+        description: 'Read the voucher register, trial balance, P&L, balance sheet, cash & bank book, AR/AP aging, chart of accounts, general ledger master, subledgers, bill terms, cost centres, narrations, posting defaults and control-account reconciliations',
         permissions: DEFAULT_PERMISSIONS_MATRIX['gl-view'],
       },
       {
         id: 'gl-post',
-        operationName: 'Post Manual Journals',
-        description: 'Post a balanced manual journal into an open accounting period',
+        operationName: 'Post Journal & Cash/Bank Vouchers',
+        description: 'Post balanced manual journals, cash/bank vouchers, opening balances and payroll runs, and close the counted daily cash position',
         permissions: DEFAULT_PERMISSIONS_MATRIX['gl-post'],
       },
       {
+        id: 'gl-reverse',
+        operationName: 'Reverse Posted Vouchers',
+        description: 'Reverse an eligible manual or cash/bank voucher through a linked contra entry; the original stays posted and a second reversal is refused',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['gl-reverse'],
+      },
+      {
         id: 'gl-manage',
-        operationName: 'Maintain Chart of Accounts',
-        description: 'Create account groups and ledger accounts, set posting defaults and retire accounts',
+        operationName: 'Maintain Chart, Subledgers & Accounting Masters',
+        description: 'Create account groups and ledgers, bind subledger books, set posting defaults, and maintain bill terms, cost centres, narrations and employee masters',
         permissions: DEFAULT_PERMISSIONS_MATRIX['gl-manage'],
       },
       {

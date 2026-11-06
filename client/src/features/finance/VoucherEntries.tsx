@@ -144,6 +144,7 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
   const activationKey = useActivationKey(tabKey);
   const canView = isOperationAllowed('gl-view', currentUser?.role);
   const canPost = isOperationAllowed('gl-post', currentUser?.role);
+  const canReverse = isOperationAllowed('gl-reverse', currentUser?.role);
   const scopedBranches = useMemo(
     () => getScopedBranches(currentUser, branches).filter((branch) => branch.active),
     [branches, currentUser]
@@ -668,6 +669,10 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
 
   const submitReversal = async () => {
     if (!reversalTarget) return;
+    if (!canReverse) {
+      setReversalError('You do not have permission to reverse vouchers.');
+      return;
+    }
     if (!reversalDate) {
       setReversalError('Choose the reversal date.');
       return;
@@ -1238,7 +1243,7 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
                   const reversalNo = journal.reversalJournalNo;
                   const status = journalStatus(journal);
                   const eligible =
-                    canPost &&
+                    canReverse &&
                     !journal.reversalOfId &&
                     !reversalNo &&
                     journal.status === 'POSTED' &&
