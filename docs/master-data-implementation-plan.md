@@ -23,7 +23,7 @@ note still says chart Add/Edit is API-only, which is no longer true.
 | 1 | Ledger | Master Data & Setup → Accounting → Chart of Accounts → New Account (`/finance/accounting/chart`) | Done | Chart of Accounts → Ledgers |
 | 2 | Sub Ledger | Chart of Accounts → New/Edit Account → Subledger field; rows come from transactions | Partial | Chart of Accounts → Control Accounts |
 | 3 | Account Group | Chart of Accounts → New Group, no parent | Done | Chart of Accounts → Groups & Sub-Groups |
-| 4 | Account Sub Group | Chart of Accounts → New Group, parent = top-level group | Done | Chart of Accounts → Groups & Sub-Groups |
+| 4 | Account Sub Group | Chart of Accounts → New Group or a group’s Add sub-group action, parent = any group | Done | Chart of Accounts → Groups & Sub-Groups |
 | 5 | Product | Master Data & Setup → Products → Product Master Catalog (`/inventory/products`) | Done | Products |
 | 6 | Bill Terms | Master Data & Setup → Accounting → Bill Terms (`/finance/accounting/bill-terms`) | Done | Accounting → Bill Terms |
 | 7 | Agent / Area | Master Data & Setup → Parties → Sales Agents & Areas (`/sales/agents-areas`) | Done | Parties → Sales Agents & Areas |
@@ -130,14 +130,19 @@ accounts.
 
 ### 4.3 Account Group and Account Sub Group
 
-**Today.** Both are `gl_account_groups` rows. A group has no parent; a sub-group
-has a top-level parent. The UI therefore supports two levels, matching the legacy
-separate masters.
+**Today.** Both are `gl_account_groups` rows. A group has an optional parent and
+may nest to any depth; a sub-group inherits its nearest parent’s account type,
+statement group and normal balance. Ledger accounts attach to any group, but only
+accounts receive postings. The chart form has an explicit Add sub-group action and
+shows the full code path, and the classic ledger master lists every descendant of
+the selected root group.
 
-**Decision.** Keep two levels for reporting clarity. The schema can hold deeper
-trees, but the form deliberately limits the parent list. If deeper nesting is ever
-needed, relax the parent options and add cycle checks rather than creating a second
-hierarchy table.
+**Decision.** Keep one self-referencing hierarchy table, not a second “sub-group”
+table. Allow arbitrary nesting because the parent selector, cycle guard and
+recursive statement builders already work as a tree; the trial balance, P&L,
+balance sheet and PDF renderer recurse through it. A group may move only while it
+has no accounts and no children, and a move under itself or a descendant is
+refused.
 
 ### 4.4 Product
 

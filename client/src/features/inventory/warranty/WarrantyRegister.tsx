@@ -12,7 +12,7 @@
  * Default status is ALL. The old screen defaulted to VALID, which presented an
  * empty table as if no unit carried a warranty.
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Download,
   Edit2,
@@ -107,6 +107,9 @@ export const WarrantyRegister: React.FC<WarrantyRegisterProps> = ({
   const canEdit = isOperationAllowed('warranty-edit', currentUser?.role);
 
   const [searchQuery, setSearchQuery] = useState('');
+  // FilterCard owns the keystroke draft; an export clicked before the debounce
+  // applies must use the text the operator can see, not the previous search.
+  const searchDraftRef = useRef<string | null>(null);
   const [status, setStatus] = useState('ALL');
   const [category, setCategory] = useState('ALL');
   const [startFrom, setStartFrom] = useState('');
@@ -233,7 +236,7 @@ export const WarrantyRegister: React.FC<WarrantyRegisterProps> = ({
       const envelope = await fetchAll(
         {
           branchId: selectedBranchId,
-          query: searchQuery || undefined,
+          query: (searchDraftRef.current ?? searchQuery) || undefined,
           status: status !== 'ALL' ? status : undefined,
           category: category !== 'ALL' ? category : undefined,
           startFrom: startFrom || undefined,
@@ -359,6 +362,7 @@ export const WarrantyRegister: React.FC<WarrantyRegisterProps> = ({
         }
         searchValue={searchQuery}
         onSearchApply={setSearchQuery}
+        onSearchDraftChange={(draft) => { searchDraftRef.current = draft; }}
         hasActiveFilters={filtersActive}
         onClearAll={() => {
           setSearchQuery('');

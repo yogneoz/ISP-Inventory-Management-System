@@ -83,6 +83,9 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
   const [vendorGenerating, setVendorGenerating] = useState<boolean>(false);
   const [vendorGenMessage, setVendorGenMessage] = useState<string>('');
   const [vendorSearch, setVendorSearch] = useState<string>('');
+  // FilterCard owns the keystroke draft; an export clicked before the debounce
+  // applies must use the text the operator can see, not the previous search.
+  const searchDraftRef = useRef<string | null>(null);
   const [vendorBranchFilter, setVendorBranchFilter] = useState<string>('ALL');
   const [vendorNonZeroOnly, setVendorNonZeroOnly] = useState<boolean>(false);
   const [vendorChangedOnly, setVendorChangedOnly] = useState<boolean>(false);
@@ -167,9 +170,9 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [vendorData, vendorDrafts, scopedBranchIds]
   );
-  const filteredVendorRows = useMemo(() => {
+  const filterVendorRows = (searchTerm: string) => {
     if (!vendorData) return [];
-    const q = vendorSearch.trim().toLowerCase();
+    const q = searchTerm.trim().toLowerCase();
     return vendorData.rows.filter((row) => {
       // Defence in depth: a stale cache or an older payload can still carry
       // another branch's row, and it must never be shown or edited here.
@@ -186,8 +189,12 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
       }
       return true;
     });
+  };
+  const filteredVendorRows = useMemo(
+    () => filterVendorRows(vendorSearch),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vendorData, vendorSearch, vendorBranchFilter, vendorNonZeroOnly, vendorChangedOnly, vendorDrafts, scopedBranchIds]);
+    [vendorData, vendorSearch, vendorBranchFilter, vendorNonZeroOnly, vendorChangedOnly, vendorDrafts, scopedBranchIds]
+  );
 
   const validateVendorDraftRow = (row: VendorOpeningBalanceRow): string | null => {
     const d = getVendorDraft(row);
@@ -272,7 +279,7 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
     ];
     exportToCSV({
       filename: `Fiscal_Opening_Vendors_${fy?.code || selectedFyId}`.replace(/\//g, '-'),
-      data: filteredVendorRows,
+      data: filterVendorRows(searchDraftRef.current ?? vendorSearch),
       columns,
       reportTitle: `Fiscal Year Opening Register — Vendor Opening Balances — FY ${fy?.code || ''}`,
       generatedBy: currentUser?.name,
@@ -425,6 +432,7 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
             searchPlaceholder="Search supplier…"
             searchValue={vendorSearch}
             onSearchApply={setVendorSearch}
+            onSearchDraftChange={(draft) => { searchDraftRef.current = draft; }}
             hasActiveFilters={
               Boolean(vendorSearch) || vendorBranchFilter !== 'ALL' || vendorNonZeroOnly || vendorChangedOnly
             }

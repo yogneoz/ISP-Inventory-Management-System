@@ -337,7 +337,14 @@ export const ExportStock: React.FC<ExportStockProps> = ({
   const handleExportSerializedDevices = async () => {
     setIsExportingDevices(true);
     try {
-      const exported = await api.getCustomerDeviceExport(deviceQuery);
+      // Export what the operator has typed, not the term the 250 ms pause last
+      // applied: clicking Export right after typing used to export the previous
+      // filter. The table preview stays debounced on purpose — only the click
+      // reads the live draft.
+      const exported = await api.getCustomerDeviceExport({
+        ...deviceQuery,
+        query: searchQuery.trim() || undefined,
+      });
       const exportRows = Array.isArray(exported?.data) ? exported.data : [];
       if (exportRows.length === 0) {
         alertDialog('No serialized devices match the current filters.');

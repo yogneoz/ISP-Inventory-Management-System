@@ -350,6 +350,9 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
   const [formError, setFormError] = useState('');
   const [branchFilter, setBranchFilter] = useState('ALL');
   const [query, setQuery] = useState('');
+  // FilterCard owns the keystroke draft; an export clicked before the debounce
+  // applies must use the text the operator can see, not the previous search.
+  const searchDraftRef = useRef<string | null>(null);
 
   // Follow the global branch selector only while it points at a branch this
   // account may post from.
@@ -996,7 +999,7 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
       } else {
         const envelope = (await api.getSalesInvoices({
           branchId: branchFilter !== 'ALL' ? branchFilter : undefined,
-          query: query.trim() || undefined,
+          query: (searchDraftRef.current ?? query).trim() || undefined,
           all: true,
         })) as SalesInvoice[] | { data: SalesInvoice[] };
         exported = Array.isArray(envelope) ? envelope : envelope.data || [];
@@ -1544,6 +1547,7 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
             searchPlaceholder="Invoice # or customer…"
             searchValue={query}
             onSearchApply={setQuery}
+            onSearchDraftChange={(draft) => { searchDraftRef.current = draft; }}
             onClearAll={() => { setBranchFilter('ALL'); setQuery(''); }}
             hasActiveFilters={branchFilter !== 'ALL' || !!query}
             filterChildren={

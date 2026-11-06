@@ -227,7 +227,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 1933 tests; CI runs
+                                        #   drift/concurrency guards — 1949 tests; CI runs
                                         #   tsc + npm test + the source guards + the
                                         #   production build + the boot-timing gate +
                                         #   npm audit on every push/PR
@@ -583,7 +583,7 @@ The server registers ~130 routes. The most important ones:
 | `/api/approval-requests` | GET, POST, `:id/process`, `:id/cancel` | Approval workflow |
 | `/api/serial-log` | GET, POST | Serial register read (role-guarded, branch-scoped) & manual entry |
 | `/api/accounting/subledgers`, `/api/accounting/chart-health`, `/api/accounting/chart-defaults` | GET, POST, PATCH/DELETE `:id` | Subledger master: one named book per control account, bound by `main_account_id` (unique) and typed by that account, with its posted-row count and GL / subledger tie-out. A book can only bind to an active control account of the same type, its code and type are fixed, rebinding is refused once it has rows, and deletion is refused with rows (retire instead). `chart-health` reports control accounts with no book, posting roles no active ledger holds and retired ledgers still claiming a role; `chart-defaults` idempotently seeds missing default groups/accounts/books (`gl-view` read, `gl-manage` write) |
-| `/api/accounting/groups`, `/api/accounting/accounts`, `/api/accounting/settlement-accounts` | GET, POST, PATCH/DELETE `:id`; GET picker | Chart maintenance: statement-mapped groups with one optional sub-group level, control/subledger accounts and one posting default per role (`gl-view` read, `gl-manage` write). A sub-group inherits its parent's type and statement mapping; a group's code/type/mapping is fixed, only an empty group may move or be deleted, and an account's code/control nature is fixed, its group only changes before its first posting, retiring it clears its posting role, and an account with posted lines cannot be deleted. `account_kind` classifies extra CASH/BANK ledgers that deliberately carry no posting role; the settlement picker exposes those active ledgers to `gl-view`, `sales-invoice-create` or `inv-pay` |
+| `/api/accounting/groups`, `/api/accounting/accounts`, `/api/accounting/settlement-accounts` | GET, POST, PATCH/DELETE `:id`; GET picker | Chart maintenance: statement-mapped groups with a group/sub-group hierarchy of any depth, control/subledger accounts and one posting default per role (`gl-view` read, `gl-manage` write). A sub-group inherits its nearest parent's type and statement mapping; a group's code/type/mapping is fixed, only an empty group may move or be deleted, and an account's code/control nature is fixed, its group only changes before its first posting, retiring it clears its posting role, and an account with posted lines cannot be deleted. `account_kind` classifies extra CASH/BANK ledgers that deliberately carry no posting role; the settlement picker exposes those active ledgers to `gl-view`, `sales-invoice-create` or `inv-pay` |
 | `/api/accounting/posting-defaults` | GET | Posting role → account mapping that invoice postings resolve; a missing role refuses the document instead of skipping its journal |
 | `/api/accounting/periods`, `:id/close`, `:id/reopen` | GET, POST | Monthly periods; a closed period refuses postings until reopened (`gl-close`) |
 | `/api/accounting/journals`, `:id`, `:id/reverse` | GET, POST | Branch-scoped journal list / detail, balanced manual posting, and contra reversal; a control-account line must carry its subledger party (`gl-post` post, `gl-reverse` reverse) |
@@ -591,6 +591,7 @@ The server registers ~130 routes. The most important ones:
 | `/api/accounting/statements/trial-balance` | GET | Posted-line trial balance: opening, turnover and closing with debit = credit, a `groups` tree of group → sub-group → account with rolled-up subtotals, statement-group → account-group nesting, and every control account's GL vs subledger agreement as of the same date (`gl-view`) |
 | `/api/accounting/statements/profit-and-loss` | GET | Period revenue, cost of sales and expenses from posted lines, nested by statement group → group → sub-group with a rolled-up subtotal at each level; `asOf` or `from`/`to` (`gl-view`) |
 | `/api/accounting/statements/balance-sheet` | GET | As-of assets, liabilities, equity, current earnings and due to/from head office, with each section nested by group → sub-group and rolled-up subtotals; one branch or `ALL` (`gl-view`) |
+| `/api/accounting/statements/cash-flow` | GET | Direct-method operating, investing and financing cash movements from posted cash/bank lines, with one net movement per journal classified by its largest non-cash counterpart; opening cash, net movement and closing cash tie to the same cash-book rows. `from`/`to` (or `asOf`) and one branch or `ALL` (`gl-view`) |
 | `/api/accounting/statements/group-lines` | GET | The POSTED journal lines behind one statement group subtotal, including every sub-group. `statement=TRIAL_BALANCE|PROFIT_AND_LOSS|BALANCE_SHEET`, `groupId`, `asOf`/`to` or `from`/`to`, `branchId`, `limit` (500 default, 2,000 max). The trial-balance variant returns opening lines (before `from`) and period lines (`from`..`to`), nets opening/closing per account like the trial-balance columns, and applies the page limit per window; totals always cover every matching line. The other statements return each line's natural-side amount and a group `amount` equal to the statement subtotal. An unknown group is 404, a group from the other statement side is 400, and branch scope plus `gl-view` are enforced (`gl-view`) |
 | `/api/accounting/statements/account-lines?accountId=` | GET | The POSTED journal lines behind one trial-balance account row, split into opening lines (before `from`) and period lines (`from`..`to`). The account summary and independent line totals use the trial balance's net-per-account rule, and each line carries a debit-positive running balance: opening lines run from zero, and period lines carry the opening balance forward. `asOf`/`to` or `from`/`to`, `branchId`, `limit` (500 default, 2,000 max, applied per window); totals always cover every matching line. An unknown account is 404, and branch scope plus `gl-view` are enforced (`gl-view`) |
 | `/api/accounting/cash-book` | GET | Branch cash/bank book from posted lines on the `CASH`/`BANK` accounts: opening, receipts, payments and closing per account plus the movement detail. `asOf` or `from`/`to`; its closing total ties to the balance sheet's cash and bank figure (`gl-view`) |
@@ -1126,11 +1127,23 @@ DISABLE_HMR=true             # Disable HMR for AI agent editing
 variable it names is read by the code, and `tests/envDocs.guard.test.ts`
 fails the suite if a knob is documented without a reader (or a removed one
 comes back). Optional guarded knobs not shown above: `PG_POOL_MAX`
-(default 20), `PG_CONNECT_TIMEOUT_MS` (default 2000), `TRUST_PROXY` (set
+(default 40), `PG_CONNECT_TIMEOUT_MS` (default 2000), `TRUST_PROXY` (set
 `true` only behind a reverse proxy — it makes `req.ip` honour
 `X-Forwarded-For`, which the login rate limiter and the per-IP SSE cap key
 on) and `RETURNS_APPROVAL_THRESHOLD_NPR` (default 200000 — returns at or
 above it wait for approval).
+
+**Capacity profile (2026-11-06).** The modelled ceiling is 100,000 customers
+across 50 branches, 1,000 product types, 500 concurrent readers and five years
+of history. The directory has national/branch/status name-order indexes and a
+trigram contains-search index; the device-count subquery is indexed on both
+`customer_code` and `customer_id`. Sales-invoice number/customer search is
+trigram-indexed, and the newest-first registers (sales invoices, purchase
+orders/invoices, stock operations, transaction/audit logs) have branch-leading
+page indexes. `PG_POOL_MAX` defaults to 40 and JSON responses above 1 KiB are
+gzip-compressed. This remains a single Node instance: multi-instance
+deployments must add PgBouncer (pool sum below the PostgreSQL budget) and
+should route heavy statements to a read replica.
 
 ### 13.2 Vite Configuration & Code-Splitting Strategy
 
@@ -1378,7 +1391,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 1933 tests against a real PostgreSQL 16 service container
+2. `npm test` — 1949 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM
@@ -1465,12 +1478,12 @@ so any unwired new fetch fails the suite instead of shipping:
   remount refreshes it). Each test pins the effect deps carrying the refresh key and EVERY App.tsx render
   site passing it (2 PO, 2 PI, 1 SerialLogRegister, 11 StockOperations, 4 ReturnsRegister,
   2 SalesInvoices) — a newly added unwired mount fails.
-- **Feature-screen coverage (2026-10-03 audit, all 85 screens — the §G StockOperations
+- **Feature-screen coverage (2026-10-03 audit, all 86 screens — the §G StockOperations
   split added 12 tab panels plus the extracted tab-bar chrome, the BS-calendar
   integrity work added the Calendar Health panel, the permission-sets editor
   added its own panel, the daily cash close added its own screen, and the accounting
-  workspace split into six statement registers, and the General Ledger Master screen)** — a `SCREEN_SURFACE_PINS`
-  table pins the 74 screens not covered above (the other 11 are pinned by the dedicated
+  workspace split into seven statement registers, and the General Ledger Master screen)** — a `SCREEN_SURFACE_PINS`
+  table pins the 75 screens not covered above (the other 11 are pinned by the dedicated
   tests); an unpinned new screen fails coverage, and each pinned screen must match its
   exact surface. Surfaces use `serverCallsIn` = `api.*` methods **plus named
   `services/api` imports** — the audit found FinancialStatements.tsx imports

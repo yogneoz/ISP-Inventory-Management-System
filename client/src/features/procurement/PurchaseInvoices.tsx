@@ -171,6 +171,9 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   const [, setReversalId] = useState<string | null>(null);
   const [, setReversalReason] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  // FilterCard owns the keystroke draft; an export clicked before the debounce
+  // applies must use the text the operator can see, not the previous search.
+  const searchDraftRef = useRef<string | null>(null);
   const [vendorFilter, setVendorFilter] = useState('ALL');
   // Register date range on the bill date (canonical AD values; DateField
   // converts BS picks). Empty bound = open-ended.
@@ -581,7 +584,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
       const envelope = await api.getPurchaseInvoices({
         branchId: selectedBranchId !== 'ALL' ? selectedBranchId : undefined,
         supplier: vendorFilter !== 'ALL' ? vendorFilter : undefined,
-        query: searchQuery.trim() || undefined,
+        query: (searchDraftRef.current ?? searchQuery).trim() || undefined,
         dateFromAD: billDateFromAD || undefined,
         dateToAD: billDateToAD || undefined,
         all: true,
@@ -803,6 +806,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
             searchPlaceholder="Search Invoice #, Bill # or Supplier..."
             searchValue={searchQuery}
             onSearchApply={setSearchQuery}
+            onSearchDraftChange={(draft) => { searchDraftRef.current = draft; }}
             hasActiveFilters={
               Boolean(searchQuery) || vendorFilter !== 'ALL' || Boolean(billDateFromAD) || Boolean(billDateToAD)
             }

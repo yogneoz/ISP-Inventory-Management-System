@@ -105,6 +105,9 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
   // Register search: the input uses a debounced draft (FilterCard); the table
   // only re-filters when the user pauses typing or presses Enter.
   const [searchQuery, setSearchQuery] = useState('');
+  // FilterCard owns the keystroke draft; an export clicked before the debounce
+  // applies must use the text the operator can see, not the previous search.
+  const searchDraftRef = useRef<string | null>(null);
   // Register date range on the PO order date (canonical AD values;
   // DateField converts BS picks). Empty bound = open-ended.
   const [orderDateFromAD, setOrderDateFromAD] = useState('');
@@ -310,7 +313,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
       const envelope = await api.getPurchaseOrders({
         branchId: selectedBranchId !== 'ALL' ? selectedBranchId : undefined,
         supplier: supplierFilterName,
-        query: searchQuery.trim() || undefined,
+        query: (searchDraftRef.current ?? searchQuery).trim() || undefined,
         dateFromAD: orderDateFromAD || undefined,
         dateToAD: orderDateToAD || undefined,
         all: true,
@@ -587,6 +590,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
             searchPlaceholder="Search PO # or Vendor Name..."
             searchValue={searchQuery}
             onSearchApply={setSearchQuery}
+            onSearchDraftChange={(draft) => { searchDraftRef.current = draft; }}
             hasActiveFilters={
               Boolean(searchQuery) || selectedSupplierFilter !== 'ALL' || Boolean(orderDateFromAD) || Boolean(orderDateToAD)
             }

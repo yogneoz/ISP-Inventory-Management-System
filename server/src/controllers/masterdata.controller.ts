@@ -156,6 +156,7 @@ import {
   buildCustomerListQuery, buildCustomerListAggregateQuery, normalizeCustomerPaging, CUSTOMER_UPSERT_SQL, customerUpsertParams,
   CUSTOMER_UPDATE_BY_ID_OR_CODE_SQL, customerUpdateByIdOrCodeParams, CUSTOMER_DELETE_BY_ID_OR_CODE_SQL,
 } from '../models/masterdata.repo';
+import { customerKpiCacheKey, getCustomerKpis, invalidateCustomerKpis } from '../services/customerKpiCache';
 /** Forwarded from masterdata.routes.ts (get_uom). */
 export async function get_uom(req: any, res: Response): Promise<any> {
 if (getPgConnected()) {
@@ -894,21 +895,39 @@ const { branchId, query, status, page, pageSize, all } = req.query;
     try {
       const list = buildCustomerListQuery(options);
       const aggregate = buildCustomerListAggregateQuery(options);
+      // The page is read straight from the table; only the three directory
+      // totals are cached, because they are the full-table aggregate (see
+      // services/customerKpiCache.ts). Any customer write clears the cache, so
+      // a page that reflects a commit never pairs with pre-commit totals.
       const [rows, totals] = await Promise.all([
         pgPool.query(list.sql, list.params as any[]),
-        pgPool.query(aggregate.sql, aggregate.params as any[]),
+        getCustomerKpis(customerKpiCacheKey(aggregate.sql, aggregate.params), async () => {
+          const kpi = await pgPool.query(aggregate.sql, aggregate.params as any[]);
+          return {
+            totalItems: Number(kpi.rows[0]?.count) || 0,
+            activeItems: Number(kpi.rows[0]?.active) || 0,
+            totalCreditLimit: Number(kpi.rows[0]?.credit) || 0,
+          };
+        }),
       ]);
       res.json({
         data: rows.rows,
         page: list.page,
         pageSize: exportAll ? rows.rows.length : list.pageSize,
-        totalItems: Number(totals.rows[0]?.count) || 0,
-        activeItems: Number(totals.rows[0]?.active) || 0,
-        totalCreditLimit: Number(totals.rows[0]?.credit) || 0,
+        totalItems: totals.totalItems,
+        activeItems: totals.activeItems,
+        totalCreditLimit: totals.totalCreditLimit,
       });
       return;
     } catch (err) {
+      // The directory is national data and this endpoint is its only read. If
+      // PostgreSQL is up but the read failed (pool saturated, statement
+      // cancelled), answering from the in-memory demo rows would show an
+      // operator a plausible but wrong 80-customer directory. Report a
+      // retryable failure instead; the demo path below is for demo mode only.
       console.error('Error fetching customers from DB:', err);
+      res.status(503).json({ message: 'The customer directory is temporarily unavailable. Please retry.' });
+      return;
     }
   }
 
@@ -1005,6 +1024,7 @@ try {
     if (getPgConnected()) {
       await pgPool.query(CUSTOMER_UPSERT_SQL, customerUpsertParams(newRecord));
     }
+    invalidateCustomerKpis();
     logAuditEvent(req, 'CREATE_CUSTOMER', 'MASTER_DATA', `Created / Registered Customer Profile ${newRecord.customerName} (${newRecord.customerId})`, newRecord.branchId);
     res.status(201).json(newRecord);
   } catch (err: any) {
@@ -1075,6 +1095,7 @@ try {
         count++;
       }
     }
+    invalidateCustomerKpis();
     logAuditEvent(req, 'BULK_IMPORT_CUSTOMERS', 'MASTER_DATA', `Bulk imported ${count} Customer Records into Master Directory`);
     res.status(201).json({ success: true, count, total: customerMasterRecords.length });
   } catch (err: any) {
@@ -1112,6 +1133,7 @@ try {
         [...customerUpdateByIdOrCodeParams(updated), id]
       );
     }
+    invalidateCustomerKpis();
     logAuditEvent(req, 'UPDATE_CUSTOMER', 'MASTER_DATA', `Updated Customer Master Details for ${updated.customerName} (${updated.customerId})`, updated.branchId);
     res.json(updated);
   } catch (err: any) {
@@ -1131,6 +1153,7 @@ try {
     if (getPgConnected()) {
       await pgPool.query(CUSTOMER_DELETE_BY_ID_OR_CODE_SQL, [id]);
     }
+    invalidateCustomerKpis();
     logAuditEvent(req, 'DELETE_CUSTOMER', 'MASTER_DATA', `Deleted Customer Record ${cust?.customerName || id}`);
     res.json({ success: true, deletedId: id });
   } catch (err: any) {

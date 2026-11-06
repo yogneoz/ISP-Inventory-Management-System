@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Product, Branch, InventoryStock, User } from '../../types';
 import { NavTab } from '../../components/layout/Sidebar';
 import { isOperationAllowed } from '../../utils/permissions';
@@ -69,6 +69,9 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
 
   const [showOnlyReorder, setShowOnlyReorder] = useState(true);
   const [localSearch, setLocalSearch] = useState('');
+  // FilterCard owns the keystroke draft; an export clicked before the debounce
+  // applies must use the text the operator can see, not the previous search.
+  const searchDraftRef = useRef<string | null>(null);
   const [filterCategory, setFilterCategory] = useState('ALL');
 
   const categories = Array.from(new Set(products.map((p) => p.category)));
@@ -157,11 +160,11 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
     };
   }), [products, activeBranches, stockIndex]);
 
-  const visibleProducts = productsReorderData.filter(
+  const filterVisibleProducts = (searchTerm: string) => productsReorderData.filter(
     ({ prod, isBelowMinOverall }) => {
       const matchesReorderFilter = !showOnlyReorder || isBelowMinOverall;
       const matchesCat = filterCategory === 'ALL' || prod.category === filterCategory;
-      const query = localSearch.trim().toLowerCase();
+      const query = searchTerm.trim().toLowerCase();
       const matchesSearch =
         !query ||
         (prod?.name || '').toLowerCase().includes(query) ||
@@ -172,6 +175,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
       return matchesReorderFilter && matchesCat && matchesSearch;
     }
   );
+  const visibleProducts = filterVisibleProducts(localSearch);
 
   // Summary Metrics
   const lowStockSKUCount = productsReorderData.filter((p) => p.isBelowMinOverall).length;
@@ -230,7 +234,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
       reportTitle: 'Inventory Reorder Level & Deficit Manager Report',
       branchName,
       generatedBy: currentUser?.name ? `${currentUser.name} (${currentUser.role})` : currentUser?.email || 'System User',
-      data: visibleProducts,
+      data: filterVisibleProducts(searchDraftRef.current ?? localSearch),
       columns,
     });
   };
@@ -378,6 +382,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
         searchPlaceholder="Search SKU, Product Name, Category..."
         searchValue={localSearch}
         onSearchApply={setLocalSearch}
+        onSearchDraftChange={(draft) => { searchDraftRef.current = draft; }}
         hasActiveFilters={Boolean(localSearch) || filterCategory !== 'ALL' || showOnlyReorder}
         onClearAll={() => {
           setLocalSearch('');

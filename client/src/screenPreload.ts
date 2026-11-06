@@ -62,6 +62,7 @@ export const SCREEN_PRELOADERS: Readonly<Record<string, ScreenModuleLoader>> = {
   accounting: () => import('./features/finance/TrialBalanceRegister'),
   'accounting-profit-loss': () => import('./features/finance/ProfitAndLossRegister'),
   'accounting-balance-sheet': () => import('./features/finance/BalanceSheetRegister'),
+  'accounting-cash-flow': () => import('./features/finance/CashFlowRegister'),
   'accounting-cash-book': () => import('./features/finance/CashBookRegister'),
   'accounting-aging': () => import('./features/finance/AgingRegister'),
   'journal-entry': () => import('./features/finance/VoucherEntries'),

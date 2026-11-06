@@ -30,6 +30,11 @@ import {
   POSTING_ROLE_OPTIONS,
   SUBLEDGER_TYPE_OPTIONS,
 } from '../../components/accounting/ChartMaintenanceDialogs';
+import {
+  groupAncestors,
+  groupDescendantIds,
+  hierarchyGroupOptions,
+} from '../../components/accounting/chartHierarchy';
 
 type TabKey = 'ACCOUNT' | 'OTHER' | 'CREDIT' | 'BANK';
 
@@ -172,14 +177,14 @@ export const GeneralLedgerMaster: React.FC<{ currentUser?: User | null }> = ({ c
   }, [activationKey]);
 
   function fill(account: AccountingAccount) {
-    const group = groups.find((row) => row.id === account.groupId);
-    const topId = group?.parentId || group?.id || '';
+    const ancestry = groupAncestors(groups, account.groupId);
+    const topId = ancestry[0]?.id || account.groupId;
     setForm({
       code: account.code,
       name: account.name,
       description: account.description || '',
       groupTopId: topId,
-      groupSubId: group?.parentId ? group.id : '',
+      groupSubId: ancestry.length > 1 ? account.groupId : '',
       postingRole: account.postingRole || '',
       accountKind: account.accountKind || 'OTHER',
       isControl: account.isControl,
@@ -237,13 +242,19 @@ export const GeneralLedgerMaster: React.FC<{ currentUser?: User | null }> = ({ c
   };
 
   const topGroups = groups.filter((group) => !group.parentId);
-  const subGroups = groups.filter((group) => group.parentId === form.groupTopId);
+  const subGroupOptions = form.groupTopId
+    ? hierarchyGroupOptions(groups).filter((option) =>
+        groupDescendantIds(groups, form.groupTopId).has(option.id)
+      )
+    : [];
   const effectiveGroupId = form.groupSubId || form.groupTopId;
   const effectiveGroup = groups.find((group) => group.id === effectiveGroupId);
   const accountType: AccountType | null = effectiveGroup?.accountType || null;
 
   const chooseTopGroup = (id: string) => {
-    const children = groups.filter((group) => group.parentId === id);
+    const children = hierarchyGroupOptions(groups).filter(
+      (option) => option.group.parentId === id
+    );
     setForm({
       ...form,
       groupTopId: id,
@@ -521,12 +532,15 @@ export const GeneralLedgerMaster: React.FC<{ currentUser?: User | null }> = ({ c
               </div>
               <div>
                 <label className={label} htmlFor="gl-subgroup">Sub-Group</label>
-                <select id="gl-subgroup" className={input} value={form.groupSubId} onChange={(event) => setForm({ ...form, groupSubId: event.target.value })} disabled={subGroups.length === 0}>
+                <select id="gl-subgroup" className={input} value={form.groupSubId} onChange={(event) => setForm({ ...form, groupSubId: event.target.value })} disabled={subGroupOptions.length === 0}>
                   <option value="">Directly under group</option>
-                  {subGroups.map((group) => (
-                    <option key={group.id} value={group.id}>{group.code} · {group.name}</option>
+                  {subGroupOptions.map((option) => (
+                    <option key={option.id} value={option.id}>{option.label}</option>
                   ))}
                 </select>
+                <p className="mt-1 text-[10px] text-slate-400">
+                  Lists every descendant group; choose the exact ledger parent at any depth.
+                </p>
               </div>
               <div>
                 <label className={label} htmlFor="gl-type">A/c Type</label>

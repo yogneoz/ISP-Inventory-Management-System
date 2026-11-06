@@ -156,6 +156,9 @@ const ProfitAndLossRegister = React.lazy(() =>
 const BalanceSheetRegister = React.lazy(() =>
   import('./features/finance/BalanceSheetRegister').then((m) => ({ default: m.BalanceSheetRegister }))
 );
+const CashFlowRegister = React.lazy(() =>
+  import('./features/finance/CashFlowRegister').then((m) => ({ default: m.CashFlowRegister }))
+);
 const CashBookRegister = React.lazy(() =>
   import('./features/finance/CashBookRegister').then((m) => ({ default: m.CashBookRegister }))
 );
@@ -3305,6 +3308,11 @@ export default function App() {
     screenRoute('accounting-balance-sheet', (
       <React.Suspense fallback={<TabLoadingFallback />}>
         <BalanceSheetRegister branches={branches} dateMode={dateMode} currentUser={currentUser} />
+      </React.Suspense>
+    )),
+    screenRoute('accounting-cash-flow', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <CashFlowRegister branches={branches} dateMode={dateMode} currentUser={currentUser} />
       </React.Suspense>
     )),
     screenRoute('accounting-cash-book', (

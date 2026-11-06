@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { PurchaseInvoice, CompanyProfile } from '../../types';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { exportToCSV } from '../../utils/exportUtils';
@@ -30,16 +30,19 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
   companyProfile,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
+  // FilterCard owns the keystroke draft; an export clicked before the debounce
+  // applies must use the text the operator can see, not the previous search.
+  const searchDraftRef = useRef<string | null>(null);
   // 'TAXABLE' is the rate-agnostic token for "has input VAT"; its label always
   // renders the company-configured rate instead of a hard-coded 13%.
   const [vatTypeFilter, setVatTypeFilter] = useState<'ALL' | 'TAXABLE' | '0%'>('ALL');
 
-  const filteredInvoices = (invoices || []).filter((inv) => {
+  const filterInvoices = (searchTerm: string) => (invoices || []).filter((inv) => {
     const matchesSearch =
-      !searchQuery ||
-      inv.invoiceNumber?.toLowerCase().includes((searchQuery || '').toLowerCase()) ||
-      inv.supplierName?.toLowerCase().includes((searchQuery || '').toLowerCase()) ||
-      inv.vendorBillNumber?.toLowerCase().includes((searchQuery || '').toLowerCase());
+      !searchTerm ||
+      inv.invoiceNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      inv.supplierName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      inv.vendorBillNumber?.toLowerCase().includes(searchTerm.toLowerCase());
 
     const vatAmt = inv.vatAmount ?? 0;
     if (vatTypeFilter === 'TAXABLE') return matchesSearch && vatAmt > 0;
@@ -47,6 +50,8 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
 
     return matchesSearch;
   });
+
+  const filteredInvoices = filterInvoices(searchQuery);
 
   const totalTaxableAmount = filteredInvoices.reduce(
     (sum, inv) => sum + ((inv.taxableAmount ?? inv.subtotalAmount ?? 0) - (inv.totalDiscount ?? 0)),
@@ -58,7 +63,7 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
   const vatPagination = useClientPagination(filteredInvoices, 15, [searchQuery, vatTypeFilter]);
 
   const handleExportCSV = () => {
-    const data = filteredInvoices.map((inv) => ({
+    const data = filterInvoices(searchDraftRef.current ?? searchQuery).map((inv) => ({
       InvoiceNumber: inv.invoiceNumber,
       DateAD: inv.invoiceDateAD,
       DateBS: inv.invoiceDateBS,
@@ -155,6 +160,7 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
         searchPlaceholder="Search Tax Invoice #, Supplier, PAN..."
         searchValue={searchQuery}
         onSearchApply={setSearchQuery}
+        onSearchDraftChange={(draft) => { searchDraftRef.current = draft; }}
         hasActiveFilters={Boolean(searchQuery) || vatTypeFilter !== 'ALL'}
         onClearAll={() => {
           setSearchQuery('');

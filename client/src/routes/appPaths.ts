@@ -91,6 +91,7 @@ export const APP_PATHS: Record<NavTab, string> = {
   accounting: '/finance/accounting',
   'accounting-profit-loss': '/finance/accounting/profit-loss',
   'accounting-balance-sheet': '/finance/accounting/balance-sheet',
+  'accounting-cash-flow': '/finance/accounting/cash-flow',
   'accounting-cash-book': '/finance/accounting/cash-book',
   'accounting-aging': '/finance/accounting/aging',
   'journal-entry': '/finance/accounting/journal-entry',

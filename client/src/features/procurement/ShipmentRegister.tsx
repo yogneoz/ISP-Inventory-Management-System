@@ -267,6 +267,8 @@ export const ShipmentRegister: React.FC<ShipmentRegisterProps> = ({
   const [loadError, setLoadError] = useState('');
   const [retryToken, setRetryToken] = useState(0);
   const requestSeq = useRef(0);
+  // FilterCard's live draft — `searchQuery` is only the debounced apply.
+  const searchDraftRef = useRef<string | null>(null);
 
   // A filter change snaps back to page 1 in the same commit (the React
   // "adjust state during render" pattern the client paginator used), so a
@@ -373,7 +375,7 @@ export const ShipmentRegister: React.FC<ShipmentRegisterProps> = ({
       // pages through everything on screen instead.
       const data = await api.getShipments({
         branchId: scopeBranchId,
-        search: searchQuery || undefined,
+        search: (searchDraftRef.current ?? searchQuery) || undefined,
         status: shipmentStatusFilter,
         direction: shipmentMode === 'ALL' ? undefined : shipmentMode,
         dateFromAD: startDateAD || undefined,
@@ -434,6 +436,7 @@ export const ShipmentRegister: React.FC<ShipmentRegisterProps> = ({
         searchPlaceholder="Search Tracking Code..."
         searchValue={searchQuery}
         onSearchApply={setSearchQuery}
+        onSearchDraftChange={(draft) => { searchDraftRef.current = draft; }}
         hasActiveFilters={
           Boolean(searchQuery) || shipmentStatusFilter !== 'ALL' || shipmentMode !== 'ALL' || Boolean(startDateAD) || Boolean(endDateAD)
         }

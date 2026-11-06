@@ -113,6 +113,9 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
   // Applied (debounced) search text — the server filters on this, not the
   // keystroke-level draft the FilterCard holds.
   const [appliedSearch, setAppliedSearch] = useState('');
+  // FilterCard owns the keystroke draft; an export clicked before the debounce
+  // applies must use the text the operator can see, not the previous search.
+  const searchDraftRef = useRef<string | null>(null);
   const [serverPage, setServerPage] = useState(1);
   const [serverPageSize, setServerPageSize] = useState(20);
   const [rows, setRows] = useState<DisplayLog[]>([]);
@@ -203,7 +206,7 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
       const envelope = await api.getSerialLogs({
         branchId: scopeBranch,
         status: filterStatus,
-        query: appliedSearch,
+        query: searchDraftRef.current ?? appliedSearch,
         dateFromAD: dateFromAD || undefined,
         dateToAD: dateToAD || undefined,
         all: true,
@@ -544,6 +547,7 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
         searchPlaceholder="Search serial, PON, MAC, product, customer, branch..."
         searchValue={appliedSearch}
         onSearchApply={setAppliedSearch}
+        onSearchDraftChange={(draft) => { searchDraftRef.current = draft; }}
         hasActiveFilters={
           Boolean(appliedSearch) || filterBranch !== 'ALL' || filterStatus !== 'ALL' || Boolean(dateFromAD) || Boolean(dateToAD)
         }

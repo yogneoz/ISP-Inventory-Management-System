@@ -504,16 +504,19 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
   // status patch, approval-flow status) so a stale browser slice never survive.
 
   const handleExportCSV = async () => {
-    if (devicesTotalItems === 0) {
-      alertDialog('No customer devices available to export.');
-      return;
-    }
+    // No `devicesTotalItems === 0` pre-check: that count belongs to the
+    // DEBOUNCED query. Right after typing it still describes the previous
+    // filter, so it could refuse an export for a term the server was never
+    // asked about. The export reports an empty set below instead.
     setIsExporting(true);
     try {
-      // VOL-4b: export the FILTERED set from the server, not the page on screen.
+      // VOL-4b: export the FILTERED set from the server, not the page on
+      // screen — and read the search the operator has TYPED, not the term the
+      // 250 ms pause last applied. Clicking Export right after typing used to
+      // export the previous filter (the table preview stays debounced).
       const exported = await api.getCustomerDeviceExport({
         branchId: selectedBranchId,
-        query: appliedQuery || undefined,
+        query: searchQuery.trim() || undefined,
         status: selectedStatus !== 'ALL' ? selectedStatus : undefined,
       });
       const exportRows = Array.isArray(exported?.data) ? exported.data : [];

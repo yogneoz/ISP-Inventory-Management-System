@@ -225,6 +225,42 @@ export interface BalanceSheetResponse {
   interBranch: { dueFromHeadOffice: number; dueToHeadOffice: number };
 }
 
+export type CashFlowSectionKey = 'OPERATING' | 'INVESTING' | 'FINANCING';
+
+export interface CashFlowLine {
+  accountId: string;
+  accountCode: string;
+  accountName: string;
+  groupCode: string;
+  groupName: string;
+  /** Positive is a receipt; negative is a payment. */
+  amount: number;
+  journalCount: number;
+}
+
+export interface CashFlowSection {
+  key: CashFlowSectionKey;
+  label: string;
+  amount: number;
+  lines: CashFlowLine[];
+}
+
+export interface CashFlowResponse {
+  statement: 'CASH_FLOW';
+  method: 'DIRECT';
+  branchId: string | null;
+  from: string | null;
+  to: string;
+  openingCash: number;
+  closingCash: number;
+  cashBookClosing: number;
+  netCashFlow: number;
+  classifiedCashFlow: number;
+  difference: number;
+  reconciled: boolean;
+  sections: CashFlowSection[];
+}
+
 export type StatementGroupDrilldownStatement = 'PROFIT_AND_LOSS' | 'BALANCE_SHEET';
 
 /** One POSTED journal line behind a statement group subtotal. */
@@ -742,6 +778,10 @@ export async function getProfitAndLoss(query: StatementQuery = {}): Promise<Prof
 
 export async function getBalanceSheet(query: StatementQuery = {}): Promise<BalanceSheetResponse> {
   return fetchJson(`/api/accounting/statements/balance-sheet${statementQuery({ branchId: query.branchId, to: query.to })}`);
+}
+
+export async function getCashFlow(query: StatementQuery = {}): Promise<CashFlowResponse> {
+  return fetchJson(`/api/accounting/statements/cash-flow${statementQuery(query)}`);
 }
 
 export async function getStatementGroupLines(

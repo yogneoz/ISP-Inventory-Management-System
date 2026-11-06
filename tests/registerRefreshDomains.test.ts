@@ -827,6 +827,29 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
     const exportScreen = readFeatureSource('inventory/ExportStock.tsx');
     assert.match(exportScreen, /api\.getCustomerDevicePage\(/);
     assert.match(exportScreen, /api\.getCustomerDeviceExport\(/);
+    // The click exports what the operator has TYPED; only the table preview is
+    // debounced. Passing the memoised query straight through used to export the
+    // filter applied 250 ms ago when Export was clicked right after typing.
+    assert.match(
+      exportScreen,
+      /getCustomerDeviceExport\(\{\s*\.\.\.deviceQuery,\s*query: searchQuery\.trim\(\)/,
+      'the device export must use the live typed search, not the debounced term'
+    );
+
+    // The customer-device CSV on the customers register has the same rule: the
+    // click reads the typed term, and its debounced row count must not refuse
+    // an export for a filter the server has not been asked about yet.
+    const customerDevices = readFeatureSource('sales/CustomersManagement.tsx');
+    assert.match(
+      customerDevices,
+      /getCustomerDeviceExport\(\{\s*branchId: selectedBranchId,\s*query: searchQuery\.trim\(\)/,
+      'the customer-device export must use the live typed search, not the debounced term'
+    );
+    assert.doesNotMatch(
+      customerDevices,
+      /handleExportCSV = async \(\) => \{\s*if \(devicesTotalItems === 0\)/,
+      'the customer-device export must not refuse based on the debounced total'
+    );
   });
 
   test('StockOperations: host makes no server call; it reads the shared caches', () => {
@@ -969,6 +992,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'finance/TrialBalanceRegister.tsx': ['getTrialBalance'],
     'finance/ProfitAndLossRegister.tsx': ['getProfitAndLoss'],
     'finance/BalanceSheetRegister.tsx': ['getBalanceSheet'],
+    'finance/CashFlowRegister.tsx': ['getCashFlow'],
     'finance/CashBookRegister.tsx': ['getCashBook'],
     'finance/AgingRegister.tsx': ['getAging'],
     'finance/ChartOfAccountsRegister.tsx': [
@@ -1241,6 +1265,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'finance/TrialBalanceRegister.tsx',
     'finance/ProfitAndLossRegister.tsx',
     'finance/BalanceSheetRegister.tsx',
+    'finance/CashFlowRegister.tsx',
     'finance/CashBookRegister.tsx',
     'finance/AgingRegister.tsx',
     'finance/ChartOfAccountsRegister.tsx',
@@ -1409,6 +1434,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'finance/TrialBalanceRegister.tsx': 'accounting',
     'finance/ProfitAndLossRegister.tsx': 'accounting-profit-loss',
     'finance/BalanceSheetRegister.tsx': 'accounting-balance-sheet',
+    'finance/CashFlowRegister.tsx': 'accounting-cash-flow',
     'finance/CashBookRegister.tsx': 'accounting-cash-book',
     'finance/AgingRegister.tsx': 'accounting-aging',
     'finance/ChartOfAccountsRegister.tsx': 'accounting-chart',

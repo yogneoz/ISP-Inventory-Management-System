@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Product, Branch, InventoryStock, User, StockOperation, DamageRecord } from '../../types';
 import { NavTab } from '../../components/layout/Sidebar';
 import { api } from '../../services/api';
@@ -205,6 +205,9 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
 
   const [showZeroDamaged, setShowZeroDamaged] = useState(false);
   const [localSearch, setLocalSearch] = useState('');
+  // FilterCard owns the keystroke draft; an export clicked before the debounce
+  // applies must use the text the operator can see, not the previous search.
+  const searchDraftRef = useRef<string | null>(null);
   const [filterCategory, setFilterCategory] = useState('ALL');
   // Report date range (canonical AD values; DateField converts BS picks). A
   // range narrows the damage records counted in the matrix by damageDateAD;
@@ -273,11 +276,11 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
     return { prod, branchData, totalDamagedQty, totalUsableQty, totalLossValuation };
   });
 
-  const visibleProducts = productsWithDamaged
+  const filterVisibleProducts = (searchTerm: string) => productsWithDamaged
     .filter(({ prod, totalDamagedQty }) => {
       const matchesDamagedFilter = showZeroDamaged || totalDamagedQty > 0;
       const matchesCat = filterCategory === 'ALL' || prod.category === filterCategory;
-      const query = localSearch.trim().toLowerCase();
+      const query = searchTerm.trim().toLowerCase();
       const matchesSearch =
         !query ||
         (prod?.name || '').toLowerCase().includes(query) ||
@@ -287,9 +290,12 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
 
       return matchesDamagedFilter && matchesCat && matchesSearch;
     });
+  const visibleProducts = filterVisibleProducts(localSearch);
 
   // Summary metrics
-  const displayProducts = (filterCategory !== 'ALL' || localSearch.trim()) ? visibleProducts : productsWithDamaged;
+  const displayProductsFor = (searchTerm: string) =>
+    (filterCategory !== 'ALL' || searchTerm.trim()) ? filterVisibleProducts(searchTerm) : productsWithDamaged;
+  const displayProducts = displayProductsFor(localSearch);
 
   const damagedPagination = useClientPagination(visibleProducts, 20, [filterCategory, localSearch, reportDateFromAD, reportDateToAD]);
   const grandTotalDamagedUnits = displayProducts.reduce((sum, item) => sum + item.totalDamagedQty, 0);
@@ -345,7 +351,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
       reportTitle: 'Damaged Stock Matrix & Financial Loss Valuation Report',
       branchName,
       generatedBy: currentUser?.name ? `${currentUser.name} (${currentUser.role})` : currentUser?.email || 'System User',
-      data: displayProducts,
+      data: displayProductsFor(searchDraftRef.current ?? localSearch),
       columns,
     });
   };
@@ -694,6 +700,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
         searchPlaceholder="Search product name, SKU..."
         searchValue={localSearch}
         onSearchApply={setLocalSearch}
+        onSearchDraftChange={(draft) => { searchDraftRef.current = draft; }}
         hasActiveFilters={
           Boolean(localSearch) || filterCategory !== 'ALL' || hasDateRange || showZeroDamaged
         }

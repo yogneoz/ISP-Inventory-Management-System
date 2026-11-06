@@ -1165,6 +1165,46 @@ WHERE a.account_kind IN ('CASH', 'BANK')
   AND ($3::varchar IS NULL OR l.branch_id = $3::varchar)
 ORDER BY a.code ASC, j.journal_date_ad ASC, j.journal_no ASC, l.line_no ASC`;
 
+/**
+ * Direct cash-flow rows: every line of a journal that has at least one cash or
+ * bank line inside the requested branch/window. Cash lines carry the actual
+ * movement; non-cash lines are the counterpart accounts used to classify it.
+ * Filtering the journal's lines by the same branch keeps a branch statement
+ * from borrowing a counterpart from another branch.
+ */
+export const CASH_FLOW_JOURNAL_ROWS_SQL = `WITH scoped_journals AS (
+  SELECT DISTINCT j.id
+  FROM gl_journals j
+  JOIN gl_journal_lines cash_line ON cash_line.journal_id = j.id
+  JOIN gl_accounts cash_account ON cash_account.id = cash_line.account_id
+  WHERE j.status = 'POSTED'
+    AND j.journal_date_ad >= $1::date
+    AND j.journal_date_ad <= $2::date
+    AND cash_account.account_kind IN ('CASH', 'BANK')
+    AND ($3::varchar IS NULL OR cash_line.branch_id = $3::varchar)
+)
+SELECT j.id AS "journalId",
+  j.journal_no AS "journalNo",
+  j.journal_date_ad::text AS "journalDateAD",
+  l.branch_id AS "branchId",
+  l.account_id AS "accountId",
+  a.code AS "accountCode",
+  a.name AS "accountName",
+  a.account_kind AS "accountKind",
+  g.code AS "groupCode",
+  g.name AS "groupName",
+  g.account_type AS "accountType",
+  g.statement_group AS "statementGroup",
+  l.debit::numeric AS debit,
+  l.credit::numeric AS credit
+FROM scoped_journals sj
+JOIN gl_journals j ON j.id = sj.id
+JOIN gl_journal_lines l ON l.journal_id = j.id
+JOIN gl_accounts a ON a.id = l.account_id
+JOIN gl_account_groups g ON g.id = a.group_id
+WHERE ($3::varchar IS NULL OR l.branch_id = $3::varchar)
+ORDER BY j.journal_date_ad ASC, j.journal_no ASC, l.line_no ASC`;
+
 export interface AccountGroupInput {
   id: string;
   parentId?: string | null;

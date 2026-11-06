@@ -435,7 +435,7 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
     assert.equal((await del('/api/accounting/accounts/gla-missing', tokens.super)).status, 404);
   });
 
-  test('group hierarchy nests one sub-group level and trial balance subtotals roll up', async () => {
+  test('group hierarchy nests arbitrary sub-group levels and trial balance subtotals roll up', async () => {
     const parent = await post('/api/accounting/groups', tokens.super, {
       code: 'ATC-9100', name: 'ACC Hierarchy Assets', accountType: 'ASSET', statementGroup: 'CURRENT_ASSET', sortOrder: 5,
     });
@@ -452,17 +452,24 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
     assert.equal(child.json.statementGroup, 'CURRENT_ASSET');
     assert.equal(child.json.normalBalance, 'DEBIT');
 
+    // Any depth is allowed; each level inherits the accounting nature of its
+    // nearest parent, so a deep branch cannot change statement classification.
     const thirdLevel = await post('/api/accounting/groups', tokens.super, {
-      parentId: child.json.id, code: 'ATC-9120', name: 'ACC Too Deep',
+      parentId: child.json.id, code: 'ATC-9120', name: 'ACC Cash Drawer',
     });
-    assert.equal(thirdLevel.status, 400, JSON.stringify(thirdLevel.json));
-    assert.match(thirdLevel.json.message, /cannot itself have sub-groups/i);
+    assert.equal(thirdLevel.status, 201, JSON.stringify(thirdLevel.json));
+    assert.equal(thirdLevel.json.parentId, child.json.id);
+    assert.equal(thirdLevel.json.accountType, 'ASSET');
+    assert.equal(thirdLevel.json.statementGroup, 'CURRENT_ASSET');
 
     const parentAccount = await createAccount({
       code: 'ATC-9101', name: 'ACC Hierarchy Parent Account', groupId: parent.json.id,
     });
     const childAccount = await createAccount({
       code: 'ATC-9102', name: 'ACC Hierarchy Child Account', groupId: child.json.id,
+    });
+    const thirdAccount = await createAccount({
+      code: 'ATC-9103', name: 'ACC Hierarchy Third Account', groupId: thirdLevel.json.id,
     });
     const emptyChild = await post('/api/accounting/groups', tokens.super, {
       parentId: parent.json.id, code: 'ATC-9130', name: 'ACC Empty Sub-group', sortOrder: 7,
@@ -477,7 +484,7 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
       branchId: BR,
       memo: 'ACC TEST group hierarchy',
       sourceId: 'ACC-TEST-GROUP-HIERARCHY',
-      lines: [line(parentAccount, 500, 0), line(childAccount, 1000, 0), line(accounts.cash, 0, 1500)],
+      lines: [line(parentAccount, 500, 0), line(childAccount, 1000, 0), line(thirdAccount, 250, 0), line(accounts.cash, 0, 1750)],
     });
     assert.equal(posted.status, 201, JSON.stringify(posted.json));
 
@@ -485,13 +492,17 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
     assert.equal(trial.status, 200, JSON.stringify(trial.json));
     const top = trial.json.groups.find((group: any) => group.code === 'ATC-9100');
     assert.ok(top, 'the parent group must appear in the trial balance tree');
-    assert.equal(top.periodDebit, 1500, 'the parent subtotal must include its direct account and its sub-group');
-    assert.equal(top.closingDebit, 1500);
+    assert.equal(top.periodDebit, 1750, 'the parent subtotal must include its direct account and every descendant');
+    assert.equal(top.closingDebit, 1750);
     assert.deepEqual(top.accounts.map((account: any) => account.code), ['ATC-9101']);
     const sub = top.children.find((group: any) => group.code === 'ATC-9110');
     assert.ok(sub, 'the sub-group must nest under its parent');
-    assert.equal(sub.periodDebit, 1000, 'the sub-group subtotal must include its own account');
+    assert.equal(sub.periodDebit, 1250, 'the sub-group subtotal must include its own account and its child group');
     assert.deepEqual(sub.accounts.map((account: any) => account.code), ['ATC-9102']);
+    const third = sub.children.find((group: any) => group.code === 'ATC-9120');
+    assert.ok(third, 'a third-level group must nest under its parent');
+    assert.equal(third.periodDebit, 250, 'the third-level subtotal must include its own account');
+    assert.deepEqual(third.accounts.map((account: any) => account.code), ['ATC-9103']);
     assert.ok(!top.children.some((group: any) => group.code === 'ATC-9130'), 'an empty sub-group is pruned from the statement tree');
 
     // A group with any child or account is structural history, not editable hierarchy.

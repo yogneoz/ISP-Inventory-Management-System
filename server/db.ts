@@ -36,7 +36,11 @@ export let realPoolInstance: any = null;
 export function buildPoolConfig(): { connectionTimeoutMillis: number; max: number; idleTimeoutMillis: number } {
   return {
     connectionTimeoutMillis: intFromEnv('PG_CONNECT_TIMEOUT_MS', 2000, { min: 100, max: 120_000 }),
-    max: intFromEnv('PG_POOL_MAX', 20, { min: 1, max: 500 }),
+    // 500 concurrent users is the modelled ceiling. 20 connections made
+    // ordinary page reads queue behind long report queries; 40 keeps two
+    // connections per available CPU core on a typical 20-core database host
+    // without exhausting PostgreSQL's default 100-connection budget.
+    max: intFromEnv('PG_POOL_MAX', 40, { min: 1, max: 500 }),
     idleTimeoutMillis: 30000,
   };
 }
@@ -72,6 +76,42 @@ export async function ensurePostgresConnection(): Promise<boolean> {
   }
 }
 
+/**
+ * Whether a failed query means the connection itself is unusable, so the pool
+ * should count as offline until a re-probe succeeds.
+ *
+ * Only connection-level failures qualify. SQL-level errors (FK violations,
+ * constraint failures, ...) must not take the whole database layer offline for
+ * subsequent queries.
+ *
+ * 57xxx (operator intervention) is deliberately NOT a disconnect: 57014 is
+ * `query_canceled`, which PostgreSQL also raises for statement_timeout and for
+ * a client cancel. Treating one cancelled statement as an outage made every
+ * later request answer 503 until the next re-probe. Only class 08 (connection
+ * exception) and shutdown/crash classes 53/58 qualify, and the message
+ * fallback does not match a bare "timeout" (a statement timeout is not a
+ * broken socket).
+ *
+ * pg-pool's own acquire timeout ("timeout exceeded when trying to connect")
+ * also stays online: it has no SQLSTATE but no socket was ever handed out — the
+ * pool is merely saturated. Counting it as a disconnect flipped every later
+ * request to 503 during a 500-user burst, turning a short queue into a
+ * whole-API outage. Only the request that timed out fails.
+ */
+export function isConnectionLevelFailure(err: any): boolean {
+  const sqlState: string = typeof err?.code === 'string' ? err.code : '';
+  const isPoolAcquireTimeout = /timeout exceeded when trying to connect/i.test(err?.message || '');
+  return (
+    (!isPoolAcquireTimeout && !sqlState) ||
+    sqlState.startsWith('08') ||
+    sqlState.startsWith('53') ||
+    sqlState.startsWith('58') ||
+    /ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|Connection terminated|connection to server/i.test(
+      err?.message || ''
+    )
+  );
+}
+
 export const pgPool = {
   async query(text: string, params?: any[]) {
     if (!isPgConnected || !realPoolInstance) {
@@ -80,27 +120,7 @@ export const pgPool = {
     try {
       return await realPoolInstance.query(text, params);
     } catch (err: any) {
-      // Only connection-level failures mark the pool as disconnected. SQL-level
-      // errors (FK violations, constraint failures, ...) must not take the whole
-      // database layer offline for subsequent queries.
-      //
-      // 57xxx (operator intervention) is deliberately NOT a disconnect: 57014 is
-      // `query_canceled`, which PostgreSQL also raises for statement_timeout and
-      // for a client cancel. Treating one cancelled statement as an outage made
-      // every later request answer 503 until the next re-probe. Only class 08
-      // (connection exception) and shutdown/crash classes 53/58 qualify, and the
-      // message fallback no longer matches a bare "timeout" (a statement timeout
-      // is not a broken socket).
-      const sqlState: string = typeof err?.code === 'string' ? err.code : '';
-      const isConnectionError =
-        !sqlState ||
-        sqlState.startsWith('08') ||
-        sqlState.startsWith('53') ||
-        sqlState.startsWith('58') ||
-        /ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|Connection terminated|connection to server/i.test(
-          err?.message || ''
-        );
-      if (isConnectionError) isPgConnected = false;
+      if (isConnectionLevelFailure(err)) isPgConnected = false;
       console.error('PostgreSQL query failed:', err?.message || err);
       throw err;
     }

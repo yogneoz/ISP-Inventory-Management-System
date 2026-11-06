@@ -17,6 +17,7 @@ import type {
   AgingResponse,
   BalanceSheetResponse,
   CashBookResponse,
+  CashFlowResponse,
   ControlReconciliationResponse,
   ProfitAndLossResponse,
   StatementGroupLinesResponse,
@@ -587,6 +588,56 @@ const cashBook: CashBookResponse = {
   closing: 1300,
 };
 
+const cashFlow: CashFlowResponse = {
+  statement: 'CASH_FLOW',
+  method: 'DIRECT',
+  branchId: 'ALL',
+  from: '2026-07-17',
+  to: '2026-11-02',
+  openingCash: 1000,
+  closingCash: 1200,
+  cashBookClosing: 1200,
+  netCashFlow: 200,
+  classifiedCashFlow: 200,
+  difference: 0,
+  reconciled: true,
+  sections: [
+    {
+      key: 'OPERATING',
+      label: 'Operating activities',
+      amount: 500,
+      lines: [
+        {
+          accountId: 'a-rev',
+          accountCode: '4000',
+          accountName: 'Cash sales',
+          groupCode: 'REV',
+          groupName: 'Trading Revenue',
+          amount: 500,
+          journalCount: 2,
+        },
+      ],
+    },
+    {
+      key: 'INVESTING',
+      label: 'Investing activities',
+      amount: -300,
+      lines: [
+        {
+          accountId: 'a-fa',
+          accountCode: '1500',
+          accountName: 'Plant and machinery',
+          groupCode: 'NCA',
+          groupName: 'Non-current Assets',
+          amount: -300,
+          journalCount: 1,
+        },
+      ],
+    },
+    { key: 'FINANCING', label: 'Financing activities', amount: 0, lines: [] },
+  ],
+};
+
 const agingAr: AgingResponse = {
   report: 'AR_AGING',
   type: 'AR',
@@ -820,6 +871,7 @@ function accountingStubs(overrides: Record<string, unknown> = {}) {
     getTrialBalance: async () => trialBalance(),
     getProfitAndLoss: async () => profitAndLoss,
     getBalanceSheet: async () => balanceSheet,
+    getCashFlow: async () => cashFlow,
     getStatementGroupLines: async () => profitGroupLines,
     getCashBook: async () => cashBook,
     getAging: async () => agingAr,
@@ -1084,6 +1136,45 @@ test('cash and bank book register renders the endpoint figures', async () => {
   }
 });
 
+test('cash flow register renders sections and sends the period start', async () => {
+  const calls: StatementQuery[] = [];
+  const restored = mountWorkspace(accountant, 'accounting-cash-flow');
+  const restoreApi = installApiStubs(
+    accountingStubs({
+      getBootstrapState: async () => bootstrapWithTab('accounting-cash-flow'),
+      getCashFlow: async (query: StatementQuery = {}) => {
+        calls.push(query);
+        return cashFlow;
+      },
+    })
+  );
+  const tree = mountAppRouteTree();
+
+  try {
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes('Operating activities')),
+      'the cash flow sections must load'
+    );
+    assert.ok(text(tree.container).includes('Plant and machinery'));
+    assert.ok(text(tree.container).includes('Ties to cash book'));
+
+    const fromInput = tree.container.querySelector(
+      'input[aria-label="Accounting period start"]'
+    ) as HTMLInputElement | null;
+    assert.ok(fromInput, 'the cash flow register must offer a period start');
+    setInputValue(fromInput, '2026-07-01');
+    assert.ok(
+      await settleUntil(() => calls.some((call) => call.from === '2026-07-01')),
+      'the period start must reach the cash flow endpoint'
+    );
+    assert.equal(window.location.pathname, '/finance/accounting/cash-flow');
+  } finally {
+    tree.unmount();
+    restoreApi();
+    restored.restoreEventSource();
+  }
+});
+
 test('aging register renders buckets and unmatched credits and switches AR/AP', async () => {
   const calls: Array<{ type?: string; branchId?: string; asOf?: string }> = [];
   const restored = mountWorkspace(accountant, 'accounting-aging');
@@ -1242,13 +1333,17 @@ test('chart maintenance creates, edits, retires and deletes through the mounted 
       sortOrder: 0,
     });
 
-    inAct(() => buttonByText(tree.container, 'New group').click());
+    clickAria(tree.container, 'Add sub-group under CA');
     assert.ok(await settleUntil(() => Boolean(tree.container.querySelector('#chart-group-code'))));
+    assert.equal(
+      (tree.container.querySelector('#chart-group-parent') as HTMLSelectElement).value,
+      'g-ca',
+      'the parent must be preselected from the group action'
+    );
     setInputValue(tree.container.querySelector('#chart-group-code') as HTMLInputElement, 'FA2');
     setInputValue(tree.container.querySelector('#chart-group-name') as HTMLInputElement, 'Vehicles Sub-group');
-    setSelectValue(tree.container.querySelector('#chart-group-parent') as HTMLSelectElement, 'g-ca');
     const subGroupDialog = tree.container.querySelector('[role="dialog"]') as HTMLElement;
-    inAct(() => buttonByText(subGroupDialog, 'Create group').click());
+    inAct(() => buttonByText(subGroupDialog, 'Create sub-group').click());
     assert.ok(await settleUntil(() => createdGroups.length === 2), 'creating a sub-group must call the endpoint');
     assert.equal(createdGroups[1].parentId, 'g-ca');
     assert.equal(createdGroups[1].accountType, 'ASSET');

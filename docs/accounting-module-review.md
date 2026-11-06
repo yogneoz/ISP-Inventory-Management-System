@@ -1,6 +1,6 @@
 # Accounting module review — Swastik TB, plan vs implementation
 
-_Status: proposal, 2026-11-03. No runtime code is changed by this note._
+_Status: review updated 2026-11-06. The P1/P2 chart work below is implemented; the original 2026-11-03 findings remain as the baseline._
 
 ## 1. What the attached Swastik trial balance contains
 
@@ -37,21 +37,22 @@ treat the file as data to reconcile, not a template to copy blindly.
 | Capability | Status |
 | --- | --- |
 | Trial balance, opening/period/closing Dr-Cr per account | Yes — `GET /api/accounting/statements/trial-balance`, Trial Balance register |
-| Group/sub-group subtotals like the Swastik export | **Partial** — one account-group level; the flat register does not render section/subtotal rows |
+| Group/sub-group subtotals like the Swastik export | **Yes** — group hierarchy of any depth; trial balance, P&L and balance sheet render nested subtotals and drill into the posted lines |
 | Profit & loss from posted journals | Yes — nested statement group → account group → accounts |
 | Balance sheet from posted journals | Yes — assets/liabilities/equity, current earnings, inter-branch |
-| Cash flow statement | **No** — a cash book and daily cash close exist, but neither is a cash-flow statement |
+| Cash flow statement | **Yes** — direct method from posted cash/bank lines, classified by counterpart and tied to opening/closing cash |
 | AR/AP aging + control tie-out | Yes |
 | Chart of accounts read | Yes — Chart & Defaults register |
-| Chart of accounts Add/Edit | **API only** — `POST /api/accounting/groups`, `POST /api/accounting/accounts`, `PATCH /api/accounting/accounts/:id`; no client UI |
-| Chart of accounts Delete | **No** — accounts are deactivated, groups cannot be edited/deleted |
+| Chart of accounts Add/Edit | **Yes** — group/sub-group/ledger maintenance, including an explicit Add sub-group action and full group paths |
+| Chart of accounts Delete | **Yes, with history guards** — an account with postings is retired; an unused account or an empty group may be deleted |
 | PDF/print of statements and documents | Yes |
 | Branch and consolidated reporting | Yes (branch-scoped or `ALL`) |
 | Budgets, bank reconciliation, recurring journals, multi-currency | No |
 
-So: the trial balance is the same *statement shape* (six amount columns, balanced
-check, posted ledger) but not yet the same *report shape* (two-level groups and
-subtotal rows), and cash flow is genuinely absent.
+So: the trial balance has the same *statement shape* (six amount columns,
+balanced check, posted ledger) and the same nested *report shape* (group →
+sub-group subtotal rows); the cash-flow statement now reports direct posted
+movements with a cash-book tie-out.
 
 ## 3. First plan vs implemented plan
 
@@ -64,13 +65,13 @@ is the intended full-ERP shape against what actually shipped:
 | --- | --- | --- |
 | Data model | ~86 tables; ledger tables per domain | **53 tables total**, 11 accounting tables: chart, accounts, bill terms, periods, journals, lines, subledger, daily cash close, employees, payroll runs/lines |
 | Ledger | separate AR/AP/inventory/asset/payroll ledgers | one generic `gl_journals` + `gl_journal_lines` + `gl_subledger_entries`; every domain posts through the same helper |
-| Chart of accounts | full CoA, hierarchy, maintenance | 38 seeded codes covering posting roles; one flat group level; read-only screen |
+| Chart of accounts | full CoA, hierarchy, maintenance | seeded posting-role chart plus an editable group → sub-group → ledger hierarchy of any depth |
 | Journals | vouchers, recurring, reversals, period locks | source-keyed journals, linked reversals, period open/close, opening balances, year-end close |
 | AR/AP | subledgers, balances, aging | yes, control accounts + party subledger + aging |
-| Cash | cash book, close, cash flow | cash book + daily close; no cash-flow statement |
+| Cash | cash book, close, cash flow | cash book + daily close + direct cash-flow statement |
 | Fixed assets | register, depreciation, disposal | all posted through chart roles; register screens exist |
 | Payroll | employee master, runs, TDS/SSF | posted through the same subledger; API only, no screens |
-| Statements | TB, BS, P&L, cash flow, PDF | TB/BS/P&L and PDF; cash flow missing |
+| Statements | TB, BS, P&L, cash flow, PDF | TB/BS/P&L, direct cash flow and PDF; cash-flow print is a follow-up |
 | Budgets / bank rec / multi-currency | part of the large draft | absent |
 | Tests | route-level proof | 1,887 tests green, including posting/statement/aging/close routes |
 
@@ -79,15 +80,20 @@ per-domain ledger tables the large draft implied, while keeping immutable
 journals, a balanced trial balance, subledger tie-outs and one posting path. That
 is the part a maintainer should keep.
 
-The real gaps are narrower and product-shaped:
+The 2026-11-06 chart review closed the first two report-shape gaps:
 
-1. The chart is not maintainable from the client (Add/Edit missing; no Delete).
-2. The chart is one level deep, so Swastik-style group/sub-group reporting and
-   subtotal rows cannot be reproduced.
-3. There is no cash-flow statement.
-4. Navigation still presents accounting as a flat “Statements & ledgers” list
-   mixed with operational finance, while payroll, closing and fiscal setup live
-   elsewhere.
+1. The chart is maintainable from the client, including arbitrary group depth,
+   full code paths, sub-group creation and history-safe delete/retire rules.
+2. Swastik-style group/sub-group reporting and subtotal rows are reproducible;
+   the statement drill-downs already follow every descendant group.
+
+The remaining gaps and guardrails are:
+
+3. The historical cash-flow statement is now implemented; a forward cash-flow
+   forecast and its print view remain follow-ups.
+4. The ledger should not copy the legacy one-ledger-per-customer/supplier model;
+   keep control accounts and party subledgers. Mixed-nature legacy groups such
+   as Duties & Taxes must be split by accounting nature.
 
 ## 4. Recommendation
 
@@ -148,19 +154,24 @@ change, not an architecture inversion.
 - Trial balance response: nested group blocks with subtotals; render group and
   sub-group total rows like the Swastik export; keep the flat account list for
   exports.
-- Chart UI: tree with add-subgroup.
-- Acceptance: a two-level chart prints Group → Sub Group → Ledger with subtotals;
-  totals still tie to debits = credits and control accounts.
+- Chart UI: tree with add-subgroup at any level.
+- Acceptance: a multi-level chart prints Group → Sub Group → Ledger with
+  subtotals; totals still tie to debits = credits and control accounts.
 
-### P3 — Cash-flow statement
+### P3 — Cash-flow statement (implemented 2026-11-06)
 
-- Add `cash_flow_category` (OPERATING / INVESTING / FINANCING / NONE) to accounts
-  with sensible defaults from statement group; fall back to counterpart-account
-  classification for legacy postings.
-- `GET /api/accounting/statements/cash-flow` (direct method from cash/bank lines),
-  register screen and PDF/print.
-- Acceptance: cash flow’s net change equals closing cash − opening cash for the
-  same branch/date; investing/financing lines trace to their journals.
+- The direct method reads posted cash/bank lines. Each journal contributes its
+  net cash movement once, classified by its largest non-cash counterpart:
+  non-current assets → investing; equity and non-current liabilities →
+  financing; everything else → operating. Cash-to-cash transfers therefore do
+  not inflate receipts or payments, and no parallel category column is needed.
+- `GET /api/accounting/statements/cash-flow` and the Cash Flow register support
+  branch and `from`/`to` filters. Opening cash, net movement and closing cash
+  are tied to the cash-book rows; a failed tie is surfaced, not hidden.
+- Acceptance: the API test posts operating, investing and financing movements
+  and pins the sections, cash-book tie and branch/window scope; the mounted
+  screen test pins the period-start request. PDF/print is the remaining
+  follow-up for this statement.
 
 ### P4 — Navigation restructure
 
@@ -186,7 +197,7 @@ current inventory business to close its books.
 1. Is the target an inventory-first business system with a strong accounting
    module (recommended), or a sellable general accounting package?
 2. Does the Swastik chart need to be importable, or only reproducible manually?
-3. Cash flow: direct method from cash lines (recommended for this ledger), or
-   indirect from net profit + working-capital movement?
+3. Cash flow: direct method from cash lines — **implemented 2026-11-06**. The
+   remaining choice is whether to add an indirect reconciliation alongside it.
 4. Should the flat “Financial Overview” management screen survive alongside the
    statutory statement registers, or be folded into Statements?

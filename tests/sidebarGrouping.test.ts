@@ -135,8 +135,8 @@ const EXPECTED: Record<string, { sections: string[]; items: string[] }> = {
     sections: ['Entries', 'Statements & ledgers', 'Tax & assets'],
     items: [
       'journal-entry', 'cash-bank-entry',
-      'accounting', 'accounting-profit-loss', 'accounting-balance-sheet', 'accounting-cash-book',
-      'accounting-aging',
+      'accounting', 'accounting-profit-loss', 'accounting-balance-sheet', 'accounting-cash-flow',
+      'accounting-cash-book', 'accounting-aging',
       'cash-position', 'financial-statements', 'vendor-ledger', 'customer-ledger', 'vendor-opening-balances',
       'vat-register', 'fixed-assets', 'depreciation-register',
     ],

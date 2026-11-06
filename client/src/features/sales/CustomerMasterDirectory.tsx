@@ -89,6 +89,9 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
     currentUser?.role === 'ACCOUNTANT';
 
   const [searchQuery, setSearchQuery] = useState('');
+  // FilterCard owns the keystroke draft; an export clicked before the debounce
+  // applies must use the text the operator can see, not the previous search.
+  const searchDraftRef = useRef<string | null>(null);
   const [selectedBranchFilter, setSelectedBranchFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
   const [billTerms, setBillTerms] = useState<BillTerm[]>([]);
@@ -495,7 +498,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
     try {
       const envelope = await api.getCustomers({
         branchId: selectedBranchFilter !== 'ALL' ? selectedBranchFilter : undefined,
-        query: searchQuery.trim() || undefined,
+        query: (searchDraftRef.current ?? searchQuery).trim() || undefined,
         status: statusFilter !== 'ALL' ? statusFilter : undefined,
         all: true,
       });
@@ -638,6 +641,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
           setSearchQuery(query);
           setCustomersPage(1);
         }}
+        onSearchDraftChange={(draft) => { searchDraftRef.current = draft; }}
         hasActiveFilters={Boolean(searchQuery) || selectedBranchFilter !== 'ALL' || statusFilter !== 'ALL'}
         onClearAll={() => {
           setSearchQuery('');

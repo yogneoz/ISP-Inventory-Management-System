@@ -70,6 +70,8 @@ function canReadRecordBranch(req: any, res: Response, branchId: string): boolean
   return true;
 }
 
+type PrintableStatementMode = Exclude<StatementMode, 'CASH_FLOW'>;
+
 function sendPdf(res: Response, buffer: Buffer, filename: string): void {
   const safe = filename.replace(/[^A-Za-z0-9._-]+/g, '-');
   res.setHeader('Content-Type', 'application/pdf');
@@ -116,7 +118,7 @@ export async function get_purchaseInvoicePrint(req: any, res: Response): Promise
   sendPdf(res, buffer, `purchase-bill-${invoice.invoiceNumber}.pdf`);
 }
 
-async function printStatement(req: any, res: Response, mode: StatementMode): Promise<any> {
+async function printStatement(req: any, res: Response, mode: PrintableStatementMode): Promise<any> {
   requireDb();
   const scope = resolveBranchScope(req, res);
   if (!scope) return;

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Product, Branch, InventoryStock } from '../../types';
 import { exportToCSV } from '../../utils/exportUtils';
 import { formatNPR, formatNPRInteger } from '../../utils/nprFormat';
@@ -41,6 +41,9 @@ export const StockValuation: React.FC<StockValuationProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [stockStatusFilter, setStockStatusFilter] = useState<'ALL' | 'LOW' | 'NORMAL' | 'OUT_OF_STOCK'>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  // FilterCard owns the keystroke draft; an export clicked before the debounce
+  // applies must use the text the operator can see, not the previous search.
+  const searchDraftRef = useRef<string | null>(null);
   // Stock-activity date range (canonical AD values; DateField converts BS
   // picks). Narrows rows by the latest stock movement date (lastUpdated);
   // an empty bound is open-ended.
@@ -101,8 +104,9 @@ export const StockValuation: React.FC<StockValuationProps> = ({
     };
   }), [products, visibleBranches, stockIndex]);
 
-  // Filtered Itemized Data
-  const filteredItemized = itemizedValuationData.filter(({ prod, totalOnHand, isLow, isOutOfStock }) => {
+  // Filtered Itemized Data. Kept as a function of the term so the export can
+  // apply the live FilterCard draft while the table keeps the applied search.
+  const filterItemized = (searchTerm: string) => itemizedValuationData.filter(({ prod, totalOnHand, isLow, isOutOfStock }) => {
     if (selectedCategory !== 'ALL' && prod.category !== selectedCategory) return false;
 
     // Latest stock movement for this product across the visible branches.
@@ -120,8 +124,8 @@ export const StockValuation: React.FC<StockValuationProps> = ({
     if (stockStatusFilter === 'OUT_OF_STOCK' && !isOutOfStock) return false;
     if (stockStatusFilter === 'NORMAL' && (isLow || isOutOfStock)) return false;
 
-    if (searchQuery.trim()) {
-      const q = (searchQuery || '').toLowerCase().trim();
+    if (searchTerm.trim()) {
+      const q = searchTerm.toLowerCase().trim();
       const matchName = (prod?.name || '').toLowerCase().includes(q);
       const matchSKU = (prod?.sku || '').toLowerCase().includes(q);
       const matchBarcode = prod.barcode ? (prod?.barcode || '').toLowerCase().includes(q) : false;
@@ -130,6 +134,7 @@ export const StockValuation: React.FC<StockValuationProps> = ({
     }
     return true;
   });
+  const filteredItemized = filterItemized(searchQuery);
 
   // Overall KPI Aggregations across visible scope
   const grandTotalUnits = filteredItemized.reduce((sum, i) => sum + i.totalOnHand, 0);
@@ -215,7 +220,11 @@ export const StockValuation: React.FC<StockValuationProps> = ({
       { key: 'totalDamaged', label: 'Damaged Units' },
       { key: 'damagedLoss', label: 'Damaged Stock Loss Value' },
     ];
-    exportToCSV('Stock_Valuation_Report', filteredItemized, columns);
+    exportToCSV(
+      'Stock_Valuation_Report',
+      filterItemized(searchDraftRef.current ?? searchQuery),
+      columns
+    );
   };
 
   return (
@@ -316,6 +325,7 @@ export const StockValuation: React.FC<StockValuationProps> = ({
             searchPlaceholder="Scan Barcode or Search & Enter Product Name / SKU:"
             searchValue={searchQuery}
             onSearchApply={setSearchQuery}
+            onSearchDraftChange={(draft) => { searchDraftRef.current = draft; }}
             hasActiveFilters={
               Boolean(searchQuery) || activeBranchId !== 'ALL' || selectedCategory !== 'ALL' || stockStatusFilter !== 'ALL' ||
               Boolean(activityFromAD) || Boolean(activityToAD)

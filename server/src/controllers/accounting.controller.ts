@@ -43,6 +43,7 @@ import {
 } from '../services/accounting.service';
 import {
   buildBalanceSheet,
+  buildCashFlow,
   buildProfitAndLoss,
   buildStatementGroupLines,
   buildTrialBalance,
@@ -531,6 +532,13 @@ export async function get_balanceSheet(req: any, res: Response): Promise<any> {
   const window = await statementWindow(req, res, 'BALANCE_SHEET');
   if (!window) return;
   return res.json(await buildBalanceSheet(pgPool, window));
+}
+
+/** GET /api/accounting/statements/cash-flow */
+export async function get_cashFlow(req: any, res: Response): Promise<any> {
+  const window = await statementWindow(req, res, 'CASH_FLOW');
+  if (!window) return;
+  return res.json(await buildCashFlow(pgPool, window));
 }
 
 /**

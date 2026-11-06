@@ -36,6 +36,8 @@ import {
   ACCOUNT_BALANCE_ROWS_SQL,
   ACCOUNT_BY_ID_SQL,
   ACCOUNT_GROUP_LIST_SQL,
+  CASH_BANK_ACCOUNT_ROWS_SQL,
+  CASH_FLOW_JOURNAL_ROWS_SQL,
   CONTROL_AGREEMENT_ROWS_SQL,
   FISCAL_YEAR_BOUNDS_SQL,
   STATEMENT_GROUP_LINES_SQL,
@@ -47,7 +49,7 @@ import {
 } from '../models/accounting.repo';
 import { isAccountingDate, type AccountingClient } from './accounting.service';
 
-export type StatementMode = 'TRIAL_BALANCE' | 'PROFIT_AND_LOSS' | 'BALANCE_SHEET';
+export type StatementMode = 'TRIAL_BALANCE' | 'PROFIT_AND_LOSS' | 'BALANCE_SHEET' | 'CASH_FLOW';
 
 export interface StatementWindow {
   /** Opening window starts here; `null` means "from inception". */
@@ -150,6 +152,43 @@ export interface StatementSection {
   label: string;
   amount: number;
   groups: StatementGroupBlock[];
+}
+
+export type CashFlowSectionKey = 'OPERATING' | 'INVESTING' | 'FINANCING';
+
+export interface CashFlowLine {
+  accountId: string;
+  accountCode: string;
+  accountName: string;
+  groupCode: string;
+  groupName: string;
+  /** Positive is a cash receipt; negative is a cash payment. */
+  amount: number;
+  /** Number of posted journals that make up this line. */
+  journalCount: number;
+}
+
+export interface CashFlowSection {
+  key: CashFlowSectionKey;
+  label: string;
+  amount: number;
+  lines: CashFlowLine[];
+}
+
+export interface CashFlowResponse {
+  statement: 'CASH_FLOW';
+  method: 'DIRECT';
+  branchId: string | null;
+  from: string | null;
+  to: string;
+  openingCash: number;
+  closingCash: number;
+  cashBookClosing: number;
+  netCashFlow: number;
+  classifiedCashFlow: number;
+  difference: number;
+  reconciled: boolean;
+  sections: CashFlowSection[];
 }
 
 export type StatementGroupDrilldownMode = Extract<
@@ -842,6 +881,169 @@ export async function buildBalanceSheet(client: AccountingClient, window: Statem
     difference,
     balanced: Math.abs(difference) < 0.005,
     interBranch: { dueFromHeadOffice, dueToHeadOffice },
+  };
+}
+
+const CASH_FLOW_SECTION_KEYS: CashFlowSectionKey[] = ['OPERATING', 'INVESTING', 'FINANCING'];
+const CASH_FLOW_SECTION_LABELS: Record<CashFlowSectionKey, string> = {
+  OPERATING: 'Operating activities',
+  INVESTING: 'Investing activities',
+  FINANCING: 'Financing activities',
+};
+
+function cashFlowSectionOf(row: any): CashFlowSectionKey {
+  const accountType = String(row.accountType);
+  const statementGroup = String(row.statementGroup);
+  // A non-current asset movement is investing. Equity and long-term debt are
+  // financing. Everything else — revenue, expense and working capital — is
+  // operating. The chart's existing type/mapping is the authority; no parallel
+  // cash-flow taxonomy can drift from it.
+  if (statementGroup === 'NON_CURRENT_ASSET') return 'INVESTING';
+  if (accountType === 'EQUITY' || statementGroup === 'NON_CURRENT_LIABILITY') {
+    return 'FINANCING';
+  }
+  return 'OPERATING';
+}
+
+function emptyCashFlow(window: StatementWindow): CashFlowResponse {
+  return {
+    statement: 'CASH_FLOW',
+    method: 'DIRECT',
+    branchId: statementBranchLabel(window),
+    from: window.from,
+    to: window.to,
+    openingCash: 0,
+    closingCash: 0,
+    cashBookClosing: 0,
+    netCashFlow: 0,
+    classifiedCashFlow: 0,
+    difference: 0,
+    reconciled: true,
+    sections: CASH_FLOW_SECTION_KEYS.map((key) => ({
+      key,
+      label: CASH_FLOW_SECTION_LABELS[key],
+      amount: 0,
+      lines: [],
+    })),
+  };
+}
+
+/**
+ * Direct cash-flow statement. Each posted journal contributes its net cash/bank
+ * movement once, classified from its largest non-cash counterpart account.
+ * That keeps a transfer between two cash accounts out of receipts/payments and
+ * prevents a compound journal from being counted twice. Opening cash comes from
+ * the same cash/bank account rows as the cash book, so the closing figure can
+ * be tied back to it instead of being asserted by construction.
+ */
+export async function buildCashFlow(
+  client: AccountingClient,
+  window: StatementWindow
+): Promise<CashFlowResponse> {
+  if (window.empty) return emptyCashFlow(window);
+
+  const [accountRows, journalRows] = await Promise.all([
+    client.query(CASH_BANK_ACCOUNT_ROWS_SQL, [window.from, window.to, window.branchId]),
+    client.query(CASH_FLOW_JOURNAL_ROWS_SQL, [window.from, window.to, window.branchId]),
+  ]);
+
+  let openingCash = 0;
+  let cashBookClosing = 0;
+  for (const row of accountRows.rows) {
+    const opening = money(row.opening);
+    openingCash = roundMoney(openingCash + opening);
+    cashBookClosing = roundMoney(
+      cashBookClosing + opening + money(row.receipts) - money(row.payments)
+    );
+  }
+
+  type JournalBucket = {
+    cashNet: number;
+    counterparts: any[];
+  };
+  const byJournal = new Map<string, JournalBucket>();
+  for (const row of journalRows.rows) {
+    const journalId = String(row.journalId);
+    const bucket = byJournal.get(journalId) ?? { cashNet: 0, counterparts: [] };
+    const debit = money(row.debit);
+    const credit = money(row.credit);
+    if (row.accountKind === 'CASH' || row.accountKind === 'BANK') {
+      bucket.cashNet = roundMoney(bucket.cashNet + debit - credit);
+    } else {
+      bucket.counterparts.push(row);
+    }
+    byJournal.set(journalId, bucket);
+  }
+
+  const lines = new Map<string, CashFlowLine>();
+  let netCashFlow = 0;
+  for (const bucket of byJournal.values()) {
+    if (Math.abs(bucket.cashNet) < 0.005) continue;
+    const primary = bucket.counterparts
+      .map((row) => ({ row, weight: Math.abs(money(row.debit) - money(row.credit)) }))
+      .filter((candidate) => candidate.weight > 0)
+      .sort(
+        (left, right) =>
+          right.weight - left.weight ||
+          String(left.row.accountCode).localeCompare(String(right.row.accountCode))
+      )[0]?.row;
+    const section = primary ? cashFlowSectionOf(primary) : 'OPERATING';
+    const key = primary ? String(primary.accountId) : 'UNCLASSIFIED';
+    const existing = lines.get(key);
+    if (existing) {
+      existing.amount = roundMoney(existing.amount + bucket.cashNet);
+      existing.journalCount += 1;
+    } else {
+      lines.set(key, {
+        accountId: key,
+        accountCode: primary ? String(primary.accountCode) : '—',
+        accountName: primary ? String(primary.accountName) : 'Unclassified cash movement',
+        groupCode: primary ? String(primary.groupCode) : '—',
+        groupName: primary ? String(primary.groupName) : 'Unclassified',
+        amount: roundMoney(bucket.cashNet),
+        journalCount: 1,
+      });
+    }
+    netCashFlow = roundMoney(netCashFlow + bucket.cashNet);
+  }
+
+  const sections = CASH_FLOW_SECTION_KEYS.map((key) => {
+    const sectionLines = [...lines.values()]
+      .filter((line) => {
+        if (line.accountId === 'UNCLASSIFIED') return key === 'OPERATING';
+        const source = journalRows.rows.find((row: any) => String(row.accountId) === line.accountId);
+        return source ? cashFlowSectionOf(source) === key : key === 'OPERATING';
+      })
+      .sort((left, right) => left.accountCode.localeCompare(right.accountCode));
+    return {
+      key,
+      label: CASH_FLOW_SECTION_LABELS[key],
+      amount: roundMoney(sectionLines.reduce((total, line) => total + line.amount, 0)),
+      lines: sectionLines,
+    };
+  });
+
+  const classifiedCashFlow = roundMoney(
+    sections.reduce((total, section) => total + section.amount, 0)
+  );
+  const closingCash = roundMoney(openingCash + netCashFlow);
+  const difference = roundMoney(classifiedCashFlow - netCashFlow);
+  const closingDifference = roundMoney(closingCash - cashBookClosing);
+
+  return {
+    statement: 'CASH_FLOW',
+    method: 'DIRECT',
+    branchId: statementBranchLabel(window),
+    from: window.from,
+    to: window.to,
+    openingCash,
+    closingCash,
+    cashBookClosing,
+    netCashFlow,
+    classifiedCashFlow,
+    difference,
+    reconciled: Math.abs(difference) < 0.005 && Math.abs(closingDifference) < 0.005,
+    sections,
   };
 }
 

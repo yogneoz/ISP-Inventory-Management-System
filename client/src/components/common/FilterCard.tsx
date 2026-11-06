@@ -22,6 +22,13 @@ interface FilterCardProps {
   rightChildren?: React.ReactNode;
   /** Debounce in ms before onSearchApply fires while typing. */
   debounceMs?: number;
+  /**
+   * Optional sink for the keystroke-level draft. The card owns the input
+   * buffer, so an export handler firing before the debounce elapses would
+   * otherwise only see the last applied value. Reports the draft on mount, on
+   * every keystroke, on Clear, and when `searchValue` resets it.
+   */
+  onSearchDraftChange?: (draft: string) => void;
 }
 
 /**
@@ -49,10 +56,22 @@ export function FilterCard({
   hasActiveFilters,
   rightChildren,
   debounceMs = 400,
+  onSearchDraftChange,
 }: FilterCardProps) {
   // Local typing buffer — instant feedback for the user, debounced for the table.
   const [draft, setDraft] = useState(searchValue);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Report the live draft so callers (CSV exports) can use text typed after
+  // the last debounce apply. The callback lives in a ref so a caller passing
+  // an inline function does not re-run the report effect on every render.
+  const onDraftChangeRef = useRef(onSearchDraftChange);
+  useEffect(() => {
+    onDraftChangeRef.current = onSearchDraftChange;
+  }, [onSearchDraftChange]);
+  useEffect(() => {
+    onDraftChangeRef.current?.(draft);
+  }, [draft]);
 
   // Keep the draft in sync when the applied value changes from outside
   // (e.g. the Clear button or the register's own search box). Adjusted

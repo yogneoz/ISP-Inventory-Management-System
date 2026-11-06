@@ -49,6 +49,9 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
   const { alert: alertDialog } = useDialog();
   const [activeTab, setActiveTab] = useState<'SUMMARY' | 'DATE_WISE'>('SUMMARY');
   const [searchQuery, setSearchQuery] = useState('');
+  // FilterCard owns the keystroke draft; an export clicked before the debounce
+  // applies must use the text the operator can see, not the previous search.
+  const searchDraftRef = useRef<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
@@ -136,7 +139,22 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
 
   const handleExportCSV = async () => {
     if (activeTab === 'SUMMARY') {
-      const data = groups.map((g) => ({
+      // Refetch the summary for the live draft: the table keeps the debounced
+      // search, but the file must reflect the text typed before Export.
+      let exportGroups = groups;
+      try {
+        const overview = await api.getFixedAssetOverview({
+          ...scopedParams,
+          query: (searchDraftRef.current ?? searchQuery) || undefined,
+          asOf: asOfDateAD,
+          groupBy: 'master',
+          categories: true,
+        });
+        exportGroups = overview?.groups ?? [];
+      } catch {
+        // Keep the groups already on screen rather than exporting nothing.
+      }
+      const data = exportGroups.map((g) => ({
         AssetTitle: g.masterName,
         Category: g.category,
         PurchaseLotsCount: g.lotCount,
@@ -161,7 +179,11 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
       let exportRows = rows;
       let truncated = false;
       try {
-        const exported = await api.getFixedAssetExport({ ...scopedParams, sort: 'invoiceDate' });
+        const exported = await api.getFixedAssetExport({
+          ...scopedParams,
+          query: (searchDraftRef.current ?? searchQuery) || undefined,
+          sort: 'invoiceDate',
+        });
         exportRows = exported.data;
         truncated = Boolean(exported.truncated);
       } catch {
@@ -315,6 +337,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
         searchPlaceholder="Search Asset Title, Invoice #, Tag #, Supplier..."
         searchValue={searchQuery}
         onSearchApply={setSearchQuery}
+        onSearchDraftChange={(draft) => { searchDraftRef.current = draft; }}
         hasActiveFilters={Boolean(searchQuery) || categoryFilter !== 'ALL'}
         onClearAll={() => {
           setSearchQuery('');

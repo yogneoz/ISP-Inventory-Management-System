@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { TransactionLog, Product, Branch, InventoryStock, StockOperation, Shipment, PurchaseOrder, DamageRecord } from '../../types';
 import { exportToCSV } from '../../utils/exportUtils';
 import { formatNPR } from '../../utils/nprFormat';
@@ -88,6 +88,9 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
   const [endDateAD, setEndDateAD] = useState<string>('');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  // FilterCard owns the keystroke draft; an export clicked before the debounce
+  // applies must use the text the operator can see, not the previous search.
+  const searchDraftRef = useRef<string | null>(null);
   const [viewTab, setViewTab] = useState<'SUMMARY_MATRIX' | 'TRANSACTION_LOGS'>('SUMMARY_MATRIX');
 
   // Keep the ledger branch filter aligned with the global branch context.
@@ -225,8 +228,10 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
     }
   };
 
-  // Filter logs based on branch, date, search
-  const filteredLogs = effectiveTransactionLogs.filter((log) => {
+  // Filter logs based on branch, date, search. Kept as a function of the term so
+  // the export can apply the live FilterCard draft while the table keeps the
+  // debounced (applied) search.
+  const filterLogs = (searchTerm: string) => effectiveTransactionLogs.filter((log) => {
     if (activeBranchId !== 'ALL' && log.branchId !== activeBranchId) return false;
 
     // Extract date YYYY-MM-DD
@@ -234,8 +239,8 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
     if (startDateAD && logDate < startDateAD) return false;
     if (endDateAD && logDate > endDateAD) return false;
 
-    if (searchQuery.trim()) {
-      const q = (searchQuery || '').toLowerCase().trim();
+    if (searchTerm.trim()) {
+      const q = searchTerm.toLowerCase().trim();
       const matchName = (log?.productName || '').toLowerCase().includes(q);
       const matchSku = (log?.productSku || '').toLowerCase().includes(q);
       const matchedProd = products.find((p) => p.id === log.productId || p.sku === log.productSku);
@@ -251,6 +256,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
 
     return true;
   });
+  const filteredLogs = filterLogs(searchQuery);
 
   // Calculate product-level ledger metrics (Opening, Received, Delivered, Damaged, Closing)
   const productLedgerMatrix = products.map((prod) => {
@@ -334,10 +340,10 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
   });
 
   // Filter Product Ledger Matrix by Category and Search
-  const filteredProductLedger = productLedgerMatrix.filter(({ prod }) => {
+  const filterProductLedger = (searchTerm: string) => productLedgerMatrix.filter(({ prod }) => {
     if (selectedCategory !== 'ALL' && prod.category !== selectedCategory) return false;
-    if (searchQuery.trim()) {
-      const q = (searchQuery || '').toLowerCase().trim();
+    if (searchTerm.trim()) {
+      const q = searchTerm.toLowerCase().trim();
       const matchName = (prod?.name || '').toLowerCase().includes(q);
       const matchSku = (prod?.sku || '').toLowerCase().includes(q);
       const matchBarcode = prod.barcode ? (prod?.barcode || '').toLowerCase().includes(q) : false;
@@ -345,6 +351,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
     }
     return true;
   });
+  const filteredProductLedger = filterProductLedger(searchQuery);
 
   // Quantity Totals for Summary Matrix
   const totalOpeningQty = filteredProductLedger.reduce((sum, p) => sum + p.openingQty, 0);
@@ -379,7 +386,10 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
 
   // Export Product Ledger CSV with Total Summary Row
   const exportLedgerCSV = () => {
-    const rows = filteredProductLedger.map((r) => ({
+    // A file exported right after typing must reflect the draft, not the search
+    // the table had applied a debounce earlier.
+    const exportLedger = filterProductLedger(searchDraftRef.current ?? searchQuery);
+    const rows = exportLedger.map((r) => ({
       sku: r.prod.sku,
       name: r.prod.name,
       category: r.prod.category,
@@ -399,19 +409,19 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
     // Append Summary Total Row
     rows.push({
       sku: 'TOTAL_SUMMARY',
-      name: `Grand Total (${filteredProductLedger.length} SKUs)`,
+      name: `Grand Total (${exportLedger.length} SKUs)`,
       category: 'ALL',
       unitCost: 0,
-      openingQty: totalOpeningQty,
-      openingValue: totalOpeningVal,
-      receivedQty: totalReceivedQty,
-      receivedValue: totalReceivedVal,
-      deliveredQty: totalDeliveredQty,
-      deliveredValue: totalDeliveredVal,
-      damagedQty: totalDamagedQty,
-      damagedValue: totalDamagedVal,
-      closingQty: totalClosingQty,
-      closingValue: totalClosingVal,
+      openingQty: exportLedger.reduce((sum, r) => sum + r.openingQty, 0),
+      openingValue: exportLedger.reduce((sum, r) => sum + r.openingValue, 0),
+      receivedQty: exportLedger.reduce((sum, r) => sum + r.receivedQty, 0),
+      receivedValue: exportLedger.reduce((sum, r) => sum + r.receivedValue, 0),
+      deliveredQty: exportLedger.reduce((sum, r) => sum + r.deliveredQty, 0),
+      deliveredValue: exportLedger.reduce((sum, r) => sum + r.deliveredValue, 0),
+      damagedQty: exportLedger.reduce((sum, r) => sum + r.damagedQty, 0),
+      damagedValue: exportLedger.reduce((sum, r) => sum + r.damagedValue, 0),
+      closingQty: exportLedger.reduce((sum, r) => sum + r.closingQty, 0),
+      closingValue: exportLedger.reduce((sum, r) => sum + r.closingValue, 0),
     });
 
     const columns = [
@@ -472,7 +482,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
       filename: 'Stock_Movement_Logs_Detail',
       reportTitle: 'Stock Movement Event & Transaction Logs Report',
       branchName: activeBranchId && activeBranchId !== 'ALL' ? branches.find((b) => b.id === activeBranchId)?.name || `Branch ${activeBranchId}` : 'All Branches (Consolidated)',
-      data: filteredLogs,
+      data: filterLogs(searchDraftRef.current ?? searchQuery),
       columns,
     });
   };
@@ -546,6 +556,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
         searchPlaceholder="Search by Product Name, SKU or Barcode..."
         searchValue={searchQuery}
         onSearchApply={setSearchQuery}
+        onSearchDraftChange={(draft) => { searchDraftRef.current = draft; }}
         hasActiveFilters={
           Boolean(searchQuery) || activeBranchId !== 'ALL' || selectedCategory !== 'ALL' ||
           Boolean(startDateAD) || Boolean(endDateAD)

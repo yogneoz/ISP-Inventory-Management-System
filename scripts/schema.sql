@@ -1331,8 +1331,9 @@ CREATE INDEX IF NOT EXISTS idx_user_preferences_user ON user_preferences(user_id
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS gl_account_groups (
     id VARCHAR(50) PRIMARY KEY,
-    -- One optional level above a group: a sub-group carries the same type and
-    -- statement mapping as its parent, and accounts attach to either level.
+    -- Optional parent: groups may nest to any depth, and a sub-group carries
+    -- the same type and statement mapping as its nearest parent. Accounts
+    -- attach to any group but remain the only postable nodes.
     parent_id VARCHAR(50) REFERENCES gl_account_groups(id) ON DELETE RESTRICT,
     code VARCHAR(30) UNIQUE NOT NULL,
     name VARCHAR(150) NOT NULL,
@@ -2631,3 +2632,67 @@ WHERE s.source_type = 'PURCHASE'
       AND w.is_current = TRUE
   )
 ON CONFLICT DO NOTHING;
+
+-- ============================================================================
+-- Scale profile: 100k customers, 50 branches, 1k product types, 500 readers.
+-- These indexes match the actual WHERE/ORDER BY shapes of the paged registers;
+-- they do not replace the older branch/date indexes, which still serve reports.
+-- ============================================================================
+
+-- Customer directory: national name paging, branch+status paging and the
+-- status-only national filter. The older (branch_id, name, id) index remains
+-- the best choice when a branch is selected without a status filter.
+CREATE INDEX IF NOT EXISTS idx_customer_records_name_all
+  ON customer_records (customer_name, customer_id);
+CREATE INDEX IF NOT EXISTS idx_customer_records_branch_status_name
+  ON customer_records (branch_id, status, customer_name, customer_id);
+CREATE INDEX IF NOT EXISTS idx_customer_records_status_name
+  ON customer_records (status, customer_name, customer_id);
+
+-- CUSTOMER_DEVICE_COUNT_SQL probes customer_code and customer_id. The existing
+-- (customer_id, customer_code) index covers only the second arm; this gives the
+-- planner an index for the customer_code arm too.
+CREATE INDEX IF NOT EXISTS idx_customer_devices_customer_code
+  ON customer_device_records (customer_code);
+
+-- Sales invoice register: the contains-search is ORed over these two columns.
+-- Two trigram indexes preserve that OR (a concatenated expression would match
+-- across the column boundary and change results).
+CREATE INDEX IF NOT EXISTS idx_sales_invoices_number_trgm
+  ON sales_invoices USING gin (lower(invoice_number) gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_sales_invoices_customer_trgm
+  ON sales_invoices USING gin (lower(customer_name) gin_trgm_ops);
+
+-- Newest-first paged registers. A concrete branch uses the composite; a global
+-- user uses the created_at-only index instead of sorting the whole table.
+CREATE INDEX IF NOT EXISTS idx_sales_invoices_page_all
+  ON sales_invoices (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sales_invoices_branch_page
+  ON sales_invoices (branch_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_purchase_orders_page_all
+  ON purchase_orders (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_purchase_orders_branch_page
+  ON purchase_orders (branch_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_purchase_invoices_page_all
+  ON purchase_invoices (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_purchase_invoices_branch_page
+  ON purchase_invoices (branch_id, created_at DESC);
+
+-- Stock operations are read by branch OR destination warehouse. Both leading
+-- columns need an index before the created_at page can be served without a sort.
+CREATE INDEX IF NOT EXISTS idx_stock_ops_page_all
+  ON stock_operations (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_stock_ops_branch_page
+  ON stock_operations (branch_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_stock_ops_destination_page
+  ON stock_operations (destination_warehouse_id, created_at DESC);
+
+-- Transaction and audit logs are append-only and grow every day. Branch-scoped
+-- reads get the composite; the global transaction read keeps its existing
+-- timestamp index plus the id tie-breaker in the page order.
+CREATE INDEX IF NOT EXISTS idx_txn_branch_time
+  ON transaction_logs (branch_id, timestamp_ad DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_branch_timestamp
+  ON audit_logs (branch_id, timestamp_ad DESC);

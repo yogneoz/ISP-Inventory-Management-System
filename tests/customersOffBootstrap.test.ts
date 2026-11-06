@@ -169,6 +169,19 @@ describe('VOL-4a — customers off the bootstrap', () => {
       /idx_customer_records_name/.test(schema),
       'the stable name-ordered page index (branch_id, customer_name, customer_id) is missing'
     );
+    assert.ok(
+      /idx_customer_records_name_all/.test(schema),
+      'the global name-ordered page index (customer_name, customer_id) is missing'
+    );
+    assert.ok(
+      /idx_customer_records_branch_status_name/.test(schema) &&
+        /idx_customer_records_status_name/.test(schema),
+      'the status-aware national and branch customer page indexes are missing'
+    );
+    assert.ok(
+      /idx_customer_devices_customer_code/.test(schema),
+      'the customer_code lookup index for the per-row device count is missing'
+    );
   });
 
   describe('HTTP against real PostgreSQL', () => {

@@ -230,6 +230,16 @@ export const DeviceSerialInput: React.FC<DeviceSerialInputProps> = ({
   // operator may never give it before clicking Submit.
   const resolveRef = useRef(resolve);
   resolveRef.current = resolve;
+
+  /**
+   * The pending typing-pause timer. Enter, blur and Retry resolve immediately
+   * and must cancel it: left running, it fires 400 ms later, repeats a lookup
+   * the operator already has the answer to, and briefly flips the field back to
+   * "Checking…" — which is what made the DF-15 render test flaky under load,
+   * where that timer could land between its assertions.
+   */
+  const pendingResolveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     if (disabled) return;
     const typed = deviceSerial.trim();
@@ -239,8 +249,22 @@ export const DeviceSerialInput: React.FC<DeviceSerialInputProps> = ({
       return;
     }
     const timer = setTimeout(() => { void resolveRef.current(); }, RESOLVE_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
+    pendingResolveRef.current = timer;
+    return () => {
+      clearTimeout(timer);
+      if (pendingResolveRef.current === timer) pendingResolveRef.current = null;
+    };
   }, [deviceSerial, branchId, productId, productName, disabled]);
+
+  /** Resolve at once and drop the pending pause: one scan costs one lookup. */
+  const resolveNow = () => {
+    const pending = pendingResolveRef.current;
+    if (pending !== null) {
+      clearTimeout(pending);
+      pendingResolveRef.current = null;
+    }
+    void resolve();
+  };
 
   const handleChange = (next: string) => {
     setState('idle');
@@ -271,11 +295,11 @@ export const DeviceSerialInput: React.FC<DeviceSerialInputProps> = ({
           disabled={disabled}
           autoFocus={autoFocus}
           onChange={(e) => handleChange(e.target.value)}
-          onBlur={resolve}
+          onBlur={resolveNow}
           onKeyDown={(e) => {
             if (e.key !== 'Enter') return;
             e.preventDefault();
-            void resolve();
+            resolveNow();
             onEnter?.();
           }}
           className="w-full px-2 py-1 text-[11px] font-mono font-bold rounded border focus:outline-none focus:ring-2 focus:ring-indigo-500 border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
@@ -308,7 +332,7 @@ export const DeviceSerialInput: React.FC<DeviceSerialInputProps> = ({
             <button
               type="button"
               disabled={disabled}
-              onClick={() => void resolve()}
+              onClick={resolveNow}
               className="ml-0.5 underline font-bold hover:no-underline disabled:no-underline disabled:opacity-60"
             >
               Retry

@@ -748,6 +748,77 @@ describe('financial statements API (real HTTP + PostgreSQL)', { skip: skipNoDb }
     assert.equal(asOf.json.netProfit, 550, 'the as-of call covers the fiscal year to date');
   });
 
+  test('cash flow classifies posted cash movements and ties opening + net to the cash book', async () => {
+    try {
+      const nonCurrentGroup = await createGroup(
+        'AST-NCA', 'AST Non-current Assets', 'ASSET', 'NON_CURRENT_ASSET'
+      );
+      const equityGroup = await createGroup('AST-EQ', 'AST Equity', 'EQUITY', 'EQUITY');
+      const fixedAsset = await createAccount({
+        code: 'AST-1500', name: 'AST Equipment', groupId: nonCurrentGroup,
+      });
+      const capital = await createAccount({
+        code: 'AST-3000', name: 'AST Owner Capital', groupId: equityGroup,
+      });
+
+      // Cash expense 500 (already in the fixture) is operating; the equipment
+      // purchase is investing; the owner contribution is financing.
+      await postJournal('2026-07-27', BR, 'ast-cf-invest', 'AST cash equipment purchase', [
+        line(fixedAsset, 300, 0),
+        line(accounts.cash, 0, 300),
+      ]);
+      await postJournal('2026-07-28', BR, 'ast-cf-finance', 'AST owner capital contribution', [
+        line(accounts.cash, 700, 0),
+        line(capital, 0, 700),
+      ]);
+
+      const res = await get(
+        `/api/accounting/statements/cash-flow?from=2026-07-01&to=${TO}&branchId=${BR}`,
+        tokens.super
+      );
+      assert.equal(res.status, 200, JSON.stringify(res.json));
+      assert.equal(res.json.statement, 'CASH_FLOW');
+      assert.equal(res.json.method, 'DIRECT');
+      assert.equal(res.json.branchId, BR);
+      assert.equal(res.json.from, '2026-07-01');
+      assert.equal(res.json.to, TO);
+
+      const section = (key: string) => res.json.sections.find((item: any) => item.key === key);
+      assert.deepEqual(
+        res.json.sections.map((item: any) => item.key),
+        ['OPERATING', 'INVESTING', 'FINANCING'],
+        'sections keep the canonical operating → investing → financing order'
+      );
+      assert.equal(section('OPERATING').amount, -500);
+      assert.equal(section('INVESTING').amount, -300);
+      assert.equal(section('FINANCING').amount, 700);
+      assert.equal(
+        section('OPERATING').lines.find((line: any) => line.accountCode === 'AST-6100').amount,
+        -500
+      );
+      assert.equal(
+        section('INVESTING').lines.find((line: any) => line.accountCode === 'AST-1500').amount,
+        -300
+      );
+      assert.equal(
+        section('FINANCING').lines.find((line: any) => line.accountCode === 'AST-3000').amount,
+        700
+      );
+
+      assert.equal(res.json.openingCash, 0);
+      assert.equal(res.json.netCashFlow, -100);
+      assert.equal(res.json.classifiedCashFlow, -100);
+      assert.equal(res.json.closingCash, -100);
+      assert.equal(res.json.cashBookClosing, -100);
+      assert.equal(res.json.difference, 0);
+      assert.equal(res.json.reconciled, true);
+    } finally {
+      await pool!.query("DELETE FROM gl_journals WHERE source_id LIKE 'ast-cf-%'");
+      await pool!.query("DELETE FROM gl_accounts WHERE code IN ('AST-1500', 'AST-3000')");
+      await pool!.query("DELETE FROM gl_account_groups WHERE code IN ('AST-NCA', 'AST-EQ')");
+    }
+  });
+
   test('the balance sheet balances per branch and reports due to/from head office', async () => {
     const res = await get(
       `/api/accounting/statements/balance-sheet?asOf=${TO}&branchId=${BR}`,

@@ -280,6 +280,7 @@ export const api = {
   getTrialBalance: accounting.getTrialBalance,
   getProfitAndLoss: accounting.getProfitAndLoss,
   getBalanceSheet: accounting.getBalanceSheet,
+  getCashFlow: accounting.getCashFlow,
   getStatementGroupLines: accounting.getStatementGroupLines,
   getTrialBalanceGroupLines: accounting.getTrialBalanceGroupLines,
   getTrialBalanceAccountLines: accounting.getTrialBalanceAccountLines,

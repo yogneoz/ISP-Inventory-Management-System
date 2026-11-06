@@ -46,7 +46,11 @@ export const ChartView: React.FC<{
 }> = ({ state, branchId, loading, canManage, onChanged }) => {
   const { confirm: confirmDialog } = useDialog();
   const [accountDialog, setAccountDialog] = useState<{ mode: 'create' | 'edit'; account?: AccountingAccount } | null>(null);
-  const [groupDialog, setGroupDialog] = useState<{ mode: 'create' | 'edit'; group?: AccountingGroup } | null>(null);
+  const [groupDialog, setGroupDialog] = useState<{
+    mode: 'create' | 'edit';
+    group?: AccountingGroup;
+    initialParentId?: string;
+  } | null>(null);
   const [dialogBusy, setDialogBusy] = useState(false);
   const [dialogError, setDialogError] = useState('');
   const [actionError, setActionError] = useState('');
@@ -223,6 +227,18 @@ export const ChartView: React.FC<{
                   <button
                     type="button"
                     className={rowAction}
+                    aria-label={`Add sub-group under ${group.code}`}
+                    disabled={dialogBusy}
+                    onClick={() => {
+                      setDialogError('');
+                      setGroupDialog({ mode: 'create', initialParentId: group.id });
+                    }}
+                  >
+                    <Plus className="h-3 w-3" /> Sub-group
+                  </button>
+                  <button
+                    type="button"
+                    className={rowAction}
                     aria-label={`Edit group ${group.code}`}
                     disabled={dialogBusy}
                     onClick={() => {
@@ -357,7 +373,7 @@ export const ChartView: React.FC<{
           <div>
             <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200">Chart of accounts</h3>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              Accounts grouped by their account group. A posting role marks the account the posting services use by default.
+              Groups can nest to any depth; only ledger accounts receive postings. A posting role marks the account the posting services use by default.
             </p>
           </div>
           {canManage && (
@@ -546,6 +562,7 @@ export const ChartView: React.FC<{
         <GroupFormDialog
           mode={groupDialog.mode}
           group={groupDialog.group}
+          initialParentId={groupDialog.initialParentId}
           groups={state.groups}
           busy={dialogBusy}
           error={dialogError}

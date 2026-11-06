@@ -26,6 +26,7 @@
  */
 import express from 'express';
 import helmet from 'helmet';
+import compression from 'compression';
 import { intFromEnv, sizeFromEnv } from './utils/envGuard';
 import dotenv from 'dotenv';
 
@@ -241,6 +242,16 @@ export function createApp(): express.Express {
             },
           },
       strictTransportSecurity: false,
+    })
+  );
+
+  // Large JSON payloads (bootstrap, customer pages, financial reports) are the
+  // dominant egress at 500 concurrent users. Compress only bodies above 1 KiB
+  // and leave the long-lived SSE stream uncompressed.
+  app.use(
+    compression({
+      threshold: 1024,
+      filter: (req, res) => req.path !== '/api/sync/stream' && compression.filter(req, res),
     })
   );
 

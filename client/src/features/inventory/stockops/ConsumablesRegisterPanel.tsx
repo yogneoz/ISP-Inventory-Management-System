@@ -32,6 +32,9 @@ export const ConsumablesRegisterPanel: React.FC = () => {
   const { activeTab, branches, consumableOperations, currentUser, dateMode, onReverseConsumableIssue, promptDialog, showToast, sseRefreshKey } = useStockOperationsCtx();
 
   const [consumableRegisterQuery, setConsumableRegisterQuery] = useState('');
+  // FilterCard owns the keystroke draft; an export clicked before the debounce
+  // applies must use the text the operator can see, not the previous search.
+  const searchDraftRef = useRef<string | null>(null);
   const [consumableRegisterBranch, setConsumableRegisterBranch] = useState('ALL');
   const [consumableRegisterStatus, setConsumableRegisterStatus] = useState('ALL');
   const [consumableRegisterDateFrom, setConsumableRegisterDateFrom] = useState('');
@@ -197,6 +200,7 @@ export const ConsumablesRegisterPanel: React.FC = () => {
               searchPlaceholder="Search reference, technician, work order, product, POP location or customer..."
               searchValue={consumableRegisterQuery}
               onSearchApply={setConsumableRegisterQuery}
+              onSearchDraftChange={(draft) => { searchDraftRef.current = draft; }}
               hasActiveFilters={
                 Boolean(consumableRegisterQuery) || consumableRegisterBranch !== 'ALL' || consumableRegisterStatus !== 'ALL' ||
                 Boolean(consumableRegisterDateFrom) || Boolean(consumableRegisterDateTo)
@@ -284,7 +288,7 @@ export const ConsumablesRegisterPanel: React.FC = () => {
                         type: 'CONSUMABLE_ISSUE',
                         branchId: consumableRegisterBranch !== 'ALL' ? consumableRegisterBranch : undefined,
                         status: consumableRegisterStatus,
-                        query: consumableRegisterQuery.trim() || undefined,
+                        query: (searchDraftRef.current ?? consumableRegisterQuery).trim() || undefined,
                         dateFromAD: consumableRegisterDateFrom || undefined,
                         dateToAD: consumableRegisterDateTo || undefined,
                         all: true,

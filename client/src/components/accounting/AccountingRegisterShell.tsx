@@ -92,6 +92,8 @@ export const AccountingRegisterShell: React.FC<{
   registerName: string;
   scope: AccountingScope;
   dateMode: 'BS' | 'AD';
+  /** Optional period start for flow statements such as cash flow. */
+  periodStart?: { value: string; onChange: (value: string) => void };
   loading: boolean;
   error: string;
   onRefresh: () => void;
@@ -104,6 +106,7 @@ export const AccountingRegisterShell: React.FC<{
   registerName,
   scope,
   dateMode,
+  periodStart,
   loading,
   error,
   onRefresh,
@@ -153,7 +156,7 @@ export const AccountingRegisterShell: React.FC<{
         }
       />
 
-      <div className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900/40 md:grid-cols-3">
+      <div className={`grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900/40 ${periodStart ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
         <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400">
           Branch
           <select
@@ -182,6 +185,19 @@ export const AccountingRegisterShell: React.FC<{
             className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
           />
         </label>
+        {periodStart && (
+          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400">
+            From (AD) — optional
+            <input
+              aria-label="Accounting period start"
+              type="date"
+              max={asOfDate}
+              value={periodStart.value}
+              onChange={(event) => periodStart.onChange(event.target.value)}
+              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+            />
+          </label>
+        )}
         <div className="flex items-end">
           <p className="rounded-lg bg-slate-50 px-3 py-2 text-[11px] leading-snug text-slate-500 dark:bg-slate-800/50 dark:text-slate-400">
             Showing {branchId === 'ALL' ? 'all branches (company level)' : scopedBranches.find((branch) => branch.id === branchId)?.name || branchId} as of{' '}

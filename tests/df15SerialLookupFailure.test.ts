@@ -106,6 +106,16 @@ describe('DF-15 — the serial field distinguishes the three outcomes', () => {
     assert.equal(lookups.length, before + 1, 'Retry must re-run the lookup');
     assert.deepEqual(changes, [], 'a failed lookup must not fabricate PON/MAC');
 
+    // One scan costs one lookup: Enter cancels the 400 ms typing-pause timer.
+    // If it is left running it repeats the lookup after the answer is already
+    // on screen and flips the field back to "Checking…" — under a loaded suite
+    // that landing between assertions is what made this test flaky.
+    const settled = lookups.length;
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    });
+    assert.equal(lookups.length, settled, 'Enter must cancel the typing-pause timer');
+
     tree.unmount();
   });
 

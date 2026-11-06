@@ -7,6 +7,11 @@ import type {
   AccountKind,
   AccountType,
 } from '../../services/api/accounting';
+import {
+  groupDescendantIds,
+  hierarchyGroupOptions,
+  statementPresentation,
+} from './chartHierarchy';
 
 /**
  * Chart maintenance dialogs.
@@ -74,25 +79,6 @@ export const STATEMENT_GROUPS_BY_TYPE: Record<AccountType, string[]> = {
   INCOME: ['REVENUE', 'OTHER_INCOME'],
   EXPENSE: ['COST_OF_SALES', 'OPERATING_EXPENSE', 'OTHER_EXPENSE'],
 };
-
-/** Flattened group options with the parent code shown for a sub-group. */
-export function hierarchyGroupOptions(groups: readonly AccountingGroup[]): Array<{
-  id: string;
-  label: string;
-  group: AccountingGroup;
-}> {
-  const byId = new Map(groups.map((group) => [group.id, group]));
-  return groups.map((group) => {
-    const parent = group.parentId ? byId.get(group.parentId) : undefined;
-    return {
-      id: group.id,
-      group,
-      label: parent
-        ? `${parent.code} / ${group.code} · ${group.name}`
-        : `${group.code} · ${group.name}`,
-    };
-  });
-}
 
 const overlay = 'fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4';
 const panel =
@@ -335,6 +321,9 @@ export const AccountFormDialog: React.FC<{
                     />
                     Control account (party detail lives in a subledger)
                   </label>
+                  <p className="mb-2 text-[10px] text-slate-400">
+                    Use one control account for a receivables or payables family and keep individual parties in subledger books. Do not create a ledger per customer or supplier.
+                  </p>
                   <label className={labelClass} htmlFor="chart-account-subledger">
                     Subledger
                   </label>
@@ -439,20 +428,39 @@ export interface GroupFormValues {
 export const GroupFormDialog: React.FC<{
   mode: 'create' | 'edit';
   group?: AccountingGroup;
+  /** Prefill the parent when the user starts from a group's Add sub-group action. */
+  initialParentId?: string;
   groups: AccountingGroup[];
   busy: boolean;
   error: string;
   onClose: () => void;
   onSubmit: (values: GroupFormValues) => void;
-}> = ({ mode, group, groups, busy, error, onClose, onSubmit }) => {
-  const [parentId, setParentId] = useState(group?.parentId || '');
+}> = ({ mode, group, initialParentId, groups, busy, error, onClose, onSubmit }) => {
+  const startingParentId = group?.parentId || initialParentId || '';
+  const startingParent = startingParentId
+    ? groups.find((candidate) => candidate.id === startingParentId)
+    : undefined;
+  const [parentId, setParentId] = useState(startingParentId);
   const [code, setCode] = useState(group?.code || '');
   const [name, setName] = useState(group?.name || '');
-  const [accountType, setAccountType] = useState<AccountType>(group?.accountType || 'ASSET');
-  const [statementGroup, setStatementGroup] = useState(group?.statementGroup || 'CURRENT_ASSET');
+  const [accountType, setAccountType] = useState<AccountType>(
+    group?.accountType || startingParent?.accountType || 'ASSET'
+  );
+  const [statementGroup, setStatementGroup] = useState(
+    group?.statementGroup || startingParent?.statementGroup || 'CURRENT_ASSET'
+  );
   const [sortOrder, setSortOrder] = useState(String(group?.sortOrder ?? 0));
-  const title = mode === 'create' ? 'New account group' : `Edit ${group?.code || 'group'}`;
-  const parentOptions = groups.filter((candidate) => !candidate.parentId && candidate.id !== group?.id);
+  const title = mode === 'create'
+    ? parentId ? 'New sub-group' : 'New account group'
+    : `Edit ${group?.code || 'group'}`;
+  const blockedParents = new Set<string>();
+  if (group) {
+    blockedParents.add(group.id);
+    for (const id of groupDescendantIds(groups, group.id)) blockedParents.add(id);
+  }
+  const parentOptions = hierarchyGroupOptions(groups).filter(
+    (option) => !blockedParents.has(option.id)
+  );
   const selectedParent = parentId ? groups.find((candidate) => candidate.id === parentId) : undefined;
 
   return (
@@ -468,7 +476,7 @@ export const GroupFormDialog: React.FC<{
           <div>
             <h2 className="text-sm font-bold text-slate-900 dark:text-white">{title}</h2>
             <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-              Groups decide where accounts appear in the trial balance, balance sheet and P&amp;L.
+              Groups decide where accounts appear in the trial balance, balance sheet and P&amp;L. A group can sit under any other group; only ledger accounts receive postings.
             </p>
           </div>
           {error && <div className={errorClass}>{error}</div>}
@@ -522,14 +530,14 @@ export const GroupFormDialog: React.FC<{
               <option value="">None — top-level group</option>
               {parentOptions.map((candidate) => (
                 <option key={candidate.id} value={candidate.id}>
-                  {candidate.code} · {candidate.name} ({candidate.accountType})
+                  {candidate.label} ({candidate.group.accountType})
                 </option>
               ))}
             </select>
             <p className="mt-1 text-[10px] text-slate-400">
               {parentId
-                ? 'A sub-group inherits its parent’s type and statement mapping.'
-                : 'Choose a top-level group to make this a sub-group.'}
+                ? 'A sub-group inherits the nearest parent’s type and statement mapping at any depth.'
+                : 'Choose a parent at any level to make this a sub-group.'}
               {mode === 'edit' && ' Only an empty group (no accounts or sub-groups) can move.'}
             </p>
           </div>
@@ -573,6 +581,9 @@ export const GroupFormDialog: React.FC<{
                   </option>
                 ))}
               </select>
+              <p className="mt-1 text-[10px] text-slate-400">
+                Reports under {statementPresentation(accountType, statementGroup)}.
+              </p>
             </div>
           </div>
           <div>
@@ -588,7 +599,13 @@ export const GroupFormDialog: React.FC<{
               onChange={(event) => setSortOrder(event.target.value)}
             />
           </div>
-          <DialogFooter busy={busy} submitLabel={mode === 'create' ? 'Create group' : 'Save group'} onClose={onClose} />
+          <DialogFooter
+            busy={busy}
+            submitLabel={mode === 'create'
+              ? parentId ? 'Create sub-group' : 'Create group'
+              : 'Save group'}
+            onClose={onClose}
+          />
         </form>
       </ModalPanel>
     </div>

@@ -39,6 +39,9 @@ export const AssetDeployments: React.FC<AssetDeploymentsProps> = ({
 }) => {
   const { alert: alertDialog, confirm: confirmDialog, prompt: promptDialog } = useDialog();
   const [appliedSearch, setAppliedSearch] = useState('');
+  // FilterCard owns the keystroke draft; an export clicked before the debounce
+  // applies must use the text the operator can see, not the previous search.
+  const searchDraftRef = useRef<string | null>(null);
   const [branchFilter, setBranchFilter] = useState('ALL');
   const [locationFilter, setLocationFilter] = useState('ALL');
   const [typeFilter, setTypeFilter] = useState<'ALL' | 'LOCATION' | 'CUSTOMER'>('ALL');
@@ -143,7 +146,10 @@ export const AssetDeployments: React.FC<AssetDeploymentsProps> = ({
     let exportRows = rows;
     let truncated = false;
     try {
-      const exported = await api.getFixedAssetExport(pageParams);
+      const exported = await api.getFixedAssetExport({
+        ...pageParams,
+        query: (searchDraftRef.current ?? appliedSearch) || undefined,
+      });
       exportRows = exported.data;
       truncated = Boolean(exported.truncated);
     } catch {
@@ -211,6 +217,7 @@ export const AssetDeployments: React.FC<AssetDeploymentsProps> = ({
         searchPlaceholder="Search asset tag, name, customer, location, or notes..."
         searchValue={appliedSearch}
         onSearchApply={setAppliedSearch}
+        onSearchDraftChange={(draft) => { searchDraftRef.current = draft; }}
         hasActiveFilters={
           Boolean(appliedSearch) || branchFilter !== 'ALL' || locationFilter !== 'ALL' || typeFilter !== 'ALL'
         }

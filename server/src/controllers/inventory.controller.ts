@@ -146,6 +146,7 @@ import {
   cdrHistoryEntry,
   flipSerialMirror,
 } from '../services/cdrSerialSync';
+import { invalidateCustomerKpis } from '../services/customerKpiCache';
 
 /**
  * Register write for a deployment or exchange, keyed on the device serial.
@@ -3157,6 +3158,10 @@ try {
       }
       setTransactionLogs(withPrepended(transactionLogs, buildAssignmentTxn(quantityBefore, quantityAfter)));
     }
+    // The CPE count upsert above is an INSERT ... ON CONFLICT: for an unknown
+    // customer id it creates the customer_records row (ACTIVE, credit 0), so it
+    // moves the directory's count too, not just assigned_devices_count.
+    if (getPgConnected()) invalidateCustomerKpis();
     const idx = customerDeviceRecords.findIndex((c) => c.id === newRecord.id);
     setCustomerDeviceRecords(idx >= 0
       ? withReplaced(customerDeviceRecords, idx, { ...newRecord, status: nextStatus, branchId })

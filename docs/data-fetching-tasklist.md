@@ -895,7 +895,7 @@ Cross-checks run for this review:
 4. **Sequential batch pairs.** The reports batch runs its branch × FY pairs
    through the new bounded `mapWithConcurrency` (3 at a time, order
    preserved), instead of one after another — kept bounded so nine aggregate
-   queries per pair cannot monopolise the 20-connection pool.
+   queries per pair cannot monopolise the 40-connection pool.
    `tests/mapWithConcurrency.test.ts`.
 
 A follow-up pass over those screens found two missed states and fixed them:

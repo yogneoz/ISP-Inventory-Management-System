@@ -299,9 +299,6 @@ export async function createAccountGroup(
   if (parentId) {
     parent = (await client.query(ACCOUNT_GROUP_BY_ID_SQL, [parentId])).rows[0];
     if (!parent) throw new ApiError(400, 'Parent account group not found.');
-    if (parent.parentId) {
-      throw new ApiError(400, 'A sub-group cannot itself have sub-groups. Choose a top-level group as the parent.');
-    }
   }
 
   // A sub-group inherits its parent's accounting nature; letting a caller send
@@ -361,9 +358,36 @@ export async function createAccountGroup(
 }
 
 /**
- * Correct a group's label or display order. `code`, type and statement mapping
- * are deliberately not editable: they are the report structure every posted
- * account was classified under, so changing them would rewrite history.
+ * A group may move under any other group, but never under itself or one of its
+ * descendants. The move rule already refuses a non-empty group, so this is a
+ * second line of defence for a malformed or concurrently edited tree.
+ */
+async function assertGroupMoveDoesNotCycle(
+  client: AccountingClient,
+  groupId: string,
+  parentId: string
+) {
+  let currentId: string | null = parentId;
+  const seen = new Set<string>();
+  while (currentId) {
+    if (currentId === groupId) {
+      throw new ApiError(400, 'A group cannot be moved under itself or one of its descendants.');
+    }
+    if (seen.has(currentId)) {
+      throw new ApiError(400, 'The account group hierarchy contains a cycle.');
+    }
+    seen.add(currentId);
+    const row: { parentId?: string | null } | undefined = (
+      await client.query(ACCOUNT_GROUP_BY_ID_SQL, [currentId])
+    ).rows[0];
+    currentId = row?.parentId ? String(row.parentId) : null;
+  }
+}
+
+/**
+ * Correct a group's label, parent or display order. `code`, type and statement
+ * mapping are deliberately not editable: they are the report structure every
+ * posted account was classified under, so changing them would rewrite history.
  */
 export async function updateAccountGroup(
   client: AccountingClient,
@@ -387,9 +411,7 @@ export async function updateAccountGroup(
       if (parentId) {
         newParent = (await client.query(ACCOUNT_GROUP_BY_ID_SQL, [parentId])).rows[0];
         if (!newParent) throw new ApiError(400, 'Parent account group not found.');
-        if (newParent.parentId) {
-          throw new ApiError(400, 'A sub-group cannot itself have sub-groups. Choose a top-level group as the parent.');
-        }
+        await assertGroupMoveDoesNotCycle(client, groupId, newParent.id);
       }
       // Moving a group reclassifies every account under it in every past
       // statement, so only an empty branch of the chart may move.

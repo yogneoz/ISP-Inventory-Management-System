@@ -36,11 +36,11 @@ afterEach(() => {
 });
 
 describe('PG pool env knobs (server/db.ts buildPoolConfig)', () => {
-  test('unset → documented defaults (max 20, connect timeout 2000ms)', () => {
+  test('unset → documented defaults (max 40, connect timeout 2000ms)', () => {
     setEnv('PG_POOL_MAX', undefined);
     setEnv('PG_CONNECT_TIMEOUT_MS', undefined);
     const cfg = buildPoolConfig();
-    assert.equal(cfg.max, 20);
+    assert.equal(cfg.max, 40);
     assert.equal(cfg.connectionTimeoutMillis, 2000);
     assert.equal(cfg.idleTimeoutMillis, 30000);
   });
@@ -58,14 +58,14 @@ describe('PG pool env knobs (server/db.ts buildPoolConfig)', () => {
       setEnv('PG_POOL_MAX', bad);
       setEnv('PG_CONNECT_TIMEOUT_MS', bad);
       const cfg = buildPoolConfig();
-      assert.equal(cfg.max, 20, `PG_POOL_MAX=${JSON.stringify(bad)} must fall back to 20`);
+      assert.equal(cfg.max, 40, `PG_POOL_MAX=${JSON.stringify(bad)} must fall back to 40`);
       assert.equal(cfg.connectionTimeoutMillis, 2000, `PG_CONNECT_TIMEOUT_MS=${JSON.stringify(bad)} must fall back to 2000`);
     }
   });
 
   test('values above the safety cap fall back (no accidental 5000-connection pool)', () => {
     setEnv('PG_POOL_MAX', '99999');
-    assert.equal(buildPoolConfig().max, 20);
+    assert.equal(buildPoolConfig().max, 40);
   });
 });
 
