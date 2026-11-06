@@ -78,13 +78,13 @@ export function registerAccountingRoutes(app: Express) {
   app.get('/api/accounting/groups', requirePermission('gl-view'), async (req, res, next) => {
     get_accountGroups(req as any, res as any).catch(next);
   });
-  app.post('/api/accounting/groups', requirePermission('gl-manage'), async (req, res, next) => {
+  app.post('/api/accounting/groups', requirePermission('gl-chart-manage'), async (req, res, next) => {
     post_accountGroup(req as any, res as any).catch(next);
   });
-  app.patch('/api/accounting/groups/:id', requirePermission('gl-manage'), async (req, res, next) => {
+  app.patch('/api/accounting/groups/:id', requirePermission('gl-chart-manage'), async (req, res, next) => {
     patch_accountGroup(req as any, res as any).catch(next);
   });
-  app.delete('/api/accounting/groups/:id', requirePermission('gl-manage'), async (req, res, next) => {
+  app.delete('/api/accounting/groups/:id', requirePermission('gl-chart-manage'), async (req, res, next) => {
     delete_accountGroup(req as any, res as any).catch(next);
   });
   app.get('/api/accounting/accounts', requirePermission('gl-view'), async (req, res, next) => {
@@ -100,13 +100,13 @@ export function registerAccountingRoutes(app: Express) {
       get_settlementAccounts(req as any, res as any).catch(next);
     }
   );
-  app.post('/api/accounting/accounts', requirePermission('gl-manage'), async (req, res, next) => {
+  app.post('/api/accounting/accounts', requirePermission('gl-chart-manage'), async (req, res, next) => {
     post_account(req as any, res as any).catch(next);
   });
-  app.patch('/api/accounting/accounts/:id', requirePermission('gl-manage'), async (req, res, next) => {
+  app.patch('/api/accounting/accounts/:id', requirePermission('gl-chart-manage'), async (req, res, next) => {
     patch_account(req as any, res as any).catch(next);
   });
-  app.delete('/api/accounting/accounts/:id', requirePermission('gl-manage'), async (req, res, next) => {
+  app.delete('/api/accounting/accounts/:id', requirePermission('gl-chart-manage'), async (req, res, next) => {
     delete_account(req as any, res as any).catch(next);
   });
   // Subledger master: one book per control account, plus the chart setup
@@ -117,22 +117,22 @@ export function registerAccountingRoutes(app: Express) {
   app.get('/api/accounting/subledgers/:id/entries', requirePermission('gl-view'), async (req, res, next) => {
     get_subledgerEntries(req as any, res as any).catch(next);
   });
-  app.post('/api/accounting/subledgers/generate', requirePermission('gl-manage'), async (req, res, next) => {
+  app.post('/api/accounting/subledgers/generate', requirePermission('gl-subledger-manage'), async (req, res, next) => {
     post_generateSubledgers(req as any, res as any).catch(next);
   });
-  app.post('/api/accounting/subledgers', requirePermission('gl-manage'), async (req, res, next) => {
+  app.post('/api/accounting/subledgers', requirePermission('gl-subledger-manage'), async (req, res, next) => {
     post_subledger(req as any, res as any).catch(next);
   });
-  app.patch('/api/accounting/subledgers/:id', requirePermission('gl-manage'), async (req, res, next) => {
+  app.patch('/api/accounting/subledgers/:id', requirePermission('gl-subledger-manage'), async (req, res, next) => {
     patch_subledger(req as any, res as any).catch(next);
   });
-  app.delete('/api/accounting/subledgers/:id', requirePermission('gl-manage'), async (req, res, next) => {
+  app.delete('/api/accounting/subledgers/:id', requirePermission('gl-subledger-manage'), async (req, res, next) => {
     delete_subledger(req as any, res as any).catch(next);
   });
   app.get('/api/accounting/chart-health', requirePermission('gl-view'), async (req, res, next) => {
     get_chartHealth(req as any, res as any).catch(next);
   });
-  app.post('/api/accounting/chart-defaults', requirePermission('gl-manage'), async (req, res, next) => {
+  app.post('/api/accounting/chart-defaults', requirePermission('gl-chart-manage'), async (req, res, next) => {
     post_chartDefaults(req as any, res as any).catch(next);
   });
   app.get('/api/accounting/posting-defaults', requirePermission('gl-view'), async (req, res, next) => {
@@ -141,13 +141,13 @@ export function registerAccountingRoutes(app: Express) {
   app.get('/api/accounting/bill-terms', requirePermission('gl-view'), async (req, res, next) => {
     get_billTerms(req as any, res as any).catch(next);
   });
-  app.post('/api/accounting/bill-terms', requirePermission('gl-manage'), async (req, res, next) => {
+  app.post('/api/accounting/bill-terms', requirePermission('gl-bill-terms-manage'), async (req, res, next) => {
     post_billTerm(req as any, res as any).catch(next);
   });
-  app.patch('/api/accounting/bill-terms/:id', requirePermission('gl-manage'), async (req, res, next) => {
+  app.patch('/api/accounting/bill-terms/:id', requirePermission('gl-bill-terms-manage'), async (req, res, next) => {
     patch_billTerm(req as any, res as any).catch(next);
   });
-  app.delete('/api/accounting/bill-terms/:id', requirePermission('gl-manage'), async (req, res, next) => {
+  app.delete('/api/accounting/bill-terms/:id', requirePermission('gl-bill-terms-manage'), async (req, res, next) => {
     delete_billTerm(req as any, res as any).catch(next);
   });
 
@@ -157,25 +157,25 @@ export function registerAccountingRoutes(app: Express) {
   app.get('/api/accounting/cost-centers', requirePermission('gl-view'), async (req, res, next) => {
     get_costCenters(req as any, res as any).catch(next);
   });
-  app.post('/api/accounting/cost-centers', requirePermission('gl-manage'), async (req, res, next) => {
+  app.post('/api/accounting/cost-centers', requirePermission('gl-dimension-manage'), async (req, res, next) => {
     post_costCenter(req as any, res as any).catch(next);
   });
-  app.patch('/api/accounting/cost-centers/:id', requirePermission('gl-manage'), async (req, res, next) => {
+  app.patch('/api/accounting/cost-centers/:id', requirePermission('gl-dimension-manage'), async (req, res, next) => {
     patch_costCenter(req as any, res as any).catch(next);
   });
-  app.delete('/api/accounting/cost-centers/:id', requirePermission('gl-manage'), async (req, res, next) => {
+  app.delete('/api/accounting/cost-centers/:id', requirePermission('gl-dimension-manage'), async (req, res, next) => {
     delete_costCenter(req as any, res as any).catch(next);
   });
   app.get('/api/accounting/narrations', requirePermission('gl-view'), async (req, res, next) => {
     get_narrationTemplates(req as any, res as any).catch(next);
   });
-  app.post('/api/accounting/narrations', requirePermission('gl-manage'), async (req, res, next) => {
+  app.post('/api/accounting/narrations', requirePermission('gl-dimension-manage'), async (req, res, next) => {
     post_narrationTemplate(req as any, res as any).catch(next);
   });
-  app.patch('/api/accounting/narrations/:id', requirePermission('gl-manage'), async (req, res, next) => {
+  app.patch('/api/accounting/narrations/:id', requirePermission('gl-dimension-manage'), async (req, res, next) => {
     patch_narrationTemplate(req as any, res as any).catch(next);
   });
-  app.delete('/api/accounting/narrations/:id', requirePermission('gl-manage'), async (req, res, next) => {
+  app.delete('/api/accounting/narrations/:id', requirePermission('gl-dimension-manage'), async (req, res, next) => {
     delete_narrationTemplate(req as any, res as any).catch(next);
   });
 
@@ -212,7 +212,7 @@ export function registerAccountingRoutes(app: Express) {
 
   // Opening balances: one balanced trial balance per branch, posted into the
   // earliest open period through the same journal helper as everything else.
-  app.post('/api/accounting/opening-balances', requirePermission('gl-post'), async (req, res, next) => {
+  app.post('/api/accounting/opening-balances', requirePermission('gl-opening-post'), async (req, res, next) => {
     post_openingBalances(req as any, res as any).catch(next);
   });
 
@@ -275,10 +275,10 @@ export function registerAccountingRoutes(app: Express) {
   app.get('/api/accounting/cash-close/consolidated', requirePermission('gl-view'), async (req, res, next) => {
     get_dailyCashCloseConsolidated(req as any, res as any).catch(next);
   });
-  app.post('/api/accounting/cash-close', requirePermission('gl-post'), async (req, res, next) => {
+  app.post('/api/accounting/cash-close', requirePermission('gl-cash-close'), async (req, res, next) => {
     post_dailyCashClose(req as any, res as any).catch(next);
   });
-  app.post('/api/accounting/cash-close/:id/reopen', requirePermission('gl-post'), async (req, res, next) => {
+  app.post('/api/accounting/cash-close/:id/reopen', requirePermission('gl-cash-close'), async (req, res, next) => {
     post_reopenDailyCashClose(req as any, res as any).catch(next);
   });
 }

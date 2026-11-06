@@ -63,7 +63,7 @@ function discountLabel(term: BillTerm): string {
 
 export const BillTermsManagement: React.FC<BillTermsManagementProps> = ({ currentUser }) => {
   const { confirm: confirmDialog, alert: alertDialog } = useDialog();
-  const canManage = isOperationAllowed('gl-manage', currentUser?.role);
+  const canManage = isOperationAllowed('gl-bill-terms-manage', currentUser?.role);
   const activationKey = useActivationKey('bill-terms');
 
   const [terms, setTerms] = useState<BillTerm[]>([]);

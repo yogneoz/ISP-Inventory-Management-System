@@ -43,9 +43,9 @@ app.post('/api/admin/recalculate/bs-day-records', requireRole('SUPER_ADMIN'), as
 
 app.post('/api/admin/repair/fiscal-year-links', requireRole('SUPER_ADMIN'), async (req, res, next) => { post_fiscalYearLinks(req as any, res as any).catch(next); });
 
-app.get('/api/document-number-configs', async (req, res, next) => { get_documentNumberConfigs(req as any, res as any).catch(next); });
+app.get('/api/document-number-configs', requirePermission('admin-fiscal'), async (req, res, next) => { get_documentNumberConfigs(req as any, res as any).catch(next); });
 
-app.put('/api/document-number-configs', async (req, res, next) => { put_documentNumberConfigs(req as any, res as any).catch(next); });
+app.put('/api/document-number-configs', requirePermission('admin-fiscal'), async (req, res, next) => { put_documentNumberConfigs(req as any, res as any).catch(next); });
 
 app.post('/api/document-number-configs', requirePermission('admin-fiscal'), async (req, res, next) => { post_documentNumberConfig(req as any, res as any).catch(next); });
 

@@ -1,8 +1,8 @@
 /**
- * Payroll routes. Reads use the ledger's `gl-view` gate, writes use `gl-post`
- * for run posting/payment and `gl-manage` for the employee master, so payroll
- * follows the same permission vocabulary as the rest of finance rather than
- * adding a payroll-only operation nobody can grant.
+ * Payroll routes. Reads use the ledger's `gl-view` gate, employee-master writes
+ * use `gl-payroll-manage`, and run posting/payment uses `gl-payroll-post`, so a
+ * role can maintain payroll without gaining manual-journal posting (or post a
+ * run without being able to edit the employee master).
  */
 import type { Express } from 'express';
 import { requirePermission } from '../middleware';
@@ -23,10 +23,10 @@ export function registerPayrollRoutes(app: Express) {
   app.get('/api/employees', requirePermission('gl-view'), async (req, res, next) => {
     get_employees(req as any, res as any).catch(next);
   });
-  app.post('/api/employees', requirePermission('gl-manage'), async (req, res, next) => {
+  app.post('/api/employees', requirePermission('gl-payroll-manage'), async (req, res, next) => {
     post_employee(req as any, res as any).catch(next);
   });
-  app.patch('/api/employees/:id', requirePermission('gl-manage'), async (req, res, next) => {
+  app.patch('/api/employees/:id', requirePermission('gl-payroll-manage'), async (req, res, next) => {
     patch_employee(req as any, res as any).catch(next);
   });
   app.get('/api/employees/:id/ledger', requirePermission('gl-view'), async (req, res, next) => {
@@ -45,10 +45,10 @@ export function registerPayrollRoutes(app: Express) {
   app.get('/api/payroll-runs/:id/payslips/:employeeId/print', requirePermission('gl-view'), async (req, res, next) => {
     get_payslipPrint(req as any, res as any).catch(next);
   });
-  app.post('/api/payroll-runs', requirePermission('gl-post'), async (req, res, next) => {
+  app.post('/api/payroll-runs', requirePermission('gl-payroll-post'), async (req, res, next) => {
     post_payrollRun(req as any, res as any).catch(next);
   });
-  app.post('/api/payroll-runs/:id/pay', requirePermission('gl-post'), async (req, res, next) => {
+  app.post('/api/payroll-runs/:id/pay', requirePermission('gl-payroll-post'), async (req, res, next) => {
     post_payrollPayment(req as any, res as any).catch(next);
   });
 }

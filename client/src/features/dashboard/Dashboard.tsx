@@ -11,7 +11,7 @@ import {
   Category,
 } from '../../types';
 import { formatDualDate, BS_SEEDING_MENU_PATH, type BsCalendarCoverageStatus } from '../../utils/nepaliCalendar';
-import { getAllowedBranches, getAllowedBranchIds, canUserSeeAllBranches } from '../../utils/permissions';
+import { getAllowedBranches, getAllowedBranchIds, canUserSeeAllBranches, isOperationAllowed } from '../../utils/permissions';
 import { indexStockByProductBranch, stockRowAt } from '../../utils/stockIndex';
 import { formatNPR } from '../../utils/nprFormat';
 import StatCard from '../../components/common/StatCard';
@@ -101,6 +101,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
   bsCalendarCoverage = null,
   bsCalendarSeedTab = 'bs-calendar',
 }) => {
+  // The fixed-asset KPI is a finance read; the overview endpoint enforces the
+  // same assets-view operation, so roles outside finance neither fetch nor
+  // render the card.
+  const canViewAssets = isOperationAllowed('assets-view', currentUser?.role);
   // BS calendar coverage: the seeded Nepali calendar must always run AHEAD of
   // the dates operations use — the day the last mapped BS day passes, every
   // dated operation (invoice, receipt, payment, stock op) is refused until an
@@ -281,7 +285,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // as the registers) instead of filtering a whole fixed-asset table.
   const assetOverview = useFixedAssetOverview(
     { branchId: selectedBranchId, asOf: asOfDateAD },
-    sseRefreshKey
+    sseRefreshKey,
+    canViewAssets
   );
   const totalAssetNBV = assetOverview.overview?.totals.netBookValue ?? 0;
   const activeAssetCount = assetOverview.overview?.total ?? 0;
@@ -409,20 +414,22 @@ export const Dashboard: React.FC<DashboardProps> = ({
           }
         />
 
-        {/* KPI 2: Fixed Assets Value */}
-        <StatCard
-          variant="hero"
-          label="Fixed Asset Net Value"
-          value={formatNPR(totalAssetNBV)}
-          icon={<Landmark className="h-3.5 w-3.5" />}
-          tone="emerald"
-          hint={
-            <span className="flex w-full items-center justify-between">
-              <span>{activeAssetCount.toLocaleString('en-IN')} Active Assets</span>
-              <span className="font-medium text-emerald-600 dark:text-emerald-400">Net Book Value</span>
-            </span>
-          }
-        />
+        {/* KPI 2: Fixed Assets Value — finance read, gated by assets-view. */}
+        {canViewAssets && (
+          <StatCard
+            variant="hero"
+            label="Fixed Asset Net Value"
+            value={formatNPR(totalAssetNBV)}
+            icon={<Landmark className="h-3.5 w-3.5" />}
+            tone="emerald"
+            hint={
+              <span className="flex w-full items-center justify-between">
+                <span>{activeAssetCount.toLocaleString('en-IN')} Active Assets</span>
+                <span className="font-medium text-emerald-600 dark:text-emerald-400">Net Book Value</span>
+              </span>
+            }
+          />
+        )}
 
         {/* KPI 3: Low Stock Warning — clickable, jumps to reorder tracker */}
         <StatCard

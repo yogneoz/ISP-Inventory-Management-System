@@ -1260,7 +1260,7 @@ test('chart maintenance creates, edits, retires and deletes through the mounted 
   const restoreApi = installApiStubs(
     accountingStubs({
       getBootstrapState: async () => bootstrapWithTab('accounting-chart'),
-      getMyPermissions: async () => ({ role: 'ACCOUNTANT', operations: ['gl-view', 'gl-manage'], version: 1 }),
+      getMyPermissions: async () => ({ role: 'ACCOUNTANT', operations: ['gl-view', 'gl-chart-manage'], version: 1 }),
       getAccountingGroups: async () => [...groups, emptyGroup],
       updateAccountingGroup: async (id: string, body: any) => {
         groupUpdates.push({ id, body });
@@ -1398,7 +1398,7 @@ test('chart maintenance creates, edits, retires and deletes through the mounted 
   }
 });
 
-test('chart maintenance is hidden without gl-manage', async () => {
+test('chart maintenance is hidden without gl-chart-manage', async () => {
   const auditor = { ...accountant, id: 'u-auditor', role: 'AUDITOR' } as unknown as User;
   const restored = mountWorkspace(auditor, 'accounting-chart');
   const restoreApi = installApiStubs(

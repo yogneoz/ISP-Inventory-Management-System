@@ -722,7 +722,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       section: 'Tax & assets',
     });
   }
-  if (isOperationAllowed('assets-manage', currentUser?.role)) {
+  if (isOperationAllowed('assets-view', currentUser?.role)) {
     financeChildren.push(
       { id: 'fixed-assets' as NavTab, label: 'Fixed Asset Register', icon: Building, section: 'Tax & assets' },
       { id: 'depreciation-register' as NavTab, label: 'Tax Depreciation Schedule', icon: Calculator, section: 'Tax & assets' }

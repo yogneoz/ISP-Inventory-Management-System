@@ -58,7 +58,7 @@ export const NarrationTemplatesManagement: React.FC<NarrationTemplatesManagement
   currentUser,
 }) => {
   const { confirm: confirmDialog, alert: alertDialog } = useDialog();
-  const canManage = isOperationAllowed('gl-manage', currentUser?.role);
+  const canManage = isOperationAllowed('gl-dimension-manage', currentUser?.role);
   const activationKey = useActivationKey('narration-templates');
 
   const [templates, setTemplates] = useState<NarrationTemplate[]>([]);

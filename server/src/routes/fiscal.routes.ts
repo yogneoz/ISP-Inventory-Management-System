@@ -5,7 +5,7 @@
  */
 import type express from 'express';
 import { pgPool } from '../../db';
-import { requireRole, getUserFromReq } from '../middleware/index';
+import { requirePermission, requireRole, getUserFromReq } from '../middleware/index';
 import { allowedBranchScope } from '../middleware/branchScope';
 import { withTransaction } from '../db/transactions';
 import { logAuditEvent } from './fiscal.auditAccess';
@@ -18,7 +18,7 @@ export function registerLeftoverFiscalRoutes(expressApp: express.Express) {
 // stock as a reference, plus summary stats.
 expressApp.get(
   '/api/fiscal-years/:id/opening-stock',
-  requireRole('SUPER_ADMIN', 'INVENTORY_MANAGER', 'ACCOUNTANT'),
+  requirePermission('opening-stock-view'),
   async (req, res) => {
     const { id } = req.params;
 
@@ -87,7 +87,7 @@ expressApp.get(
 // records old -> new values.
 expressApp.put(
   '/api/fiscal-years/:id/opening-stock',
-  requireRole('SUPER_ADMIN', 'INVENTORY_MANAGER'),
+  requirePermission('opening-stock-edit'),
   async (req, res) => {
     const { id } = req.params;
     const user = getUserFromReq(req);
@@ -240,7 +240,7 @@ expressApp.put(
 // branch row (including zero rows) with names, source, and audit fields.
 expressApp.get(
   '/api/fiscal-years/:id/vendor-opening-balances',
-  requireRole('SUPER_ADMIN', 'INVENTORY_MANAGER', 'ACCOUNTANT'),
+  requirePermission('opening-stock-view'),
   async (req, res) => {
     const { id } = req.params;
 
@@ -307,7 +307,7 @@ expressApp.get(
 // Every touched row is re-stamped as MANUAL_ADJUSTMENT with the authorizing user.
 expressApp.put(
   '/api/fiscal-years/:id/vendor-opening-balances',
-  requireRole('SUPER_ADMIN', 'INVENTORY_MANAGER', 'ACCOUNTANT'),
+  requirePermission('opening-stock-edit'),
   async (req, res) => {
     const { id } = req.params;
     const user = getUserFromReq(req);

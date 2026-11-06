@@ -2,7 +2,7 @@
  * Chart & Defaults register — the chart of accounts, the posting-role defaults
  * each posting service relies on, and control-account reconciliation. Accounts
  * and groups can be added, edited, retired and (when unused) deleted here under
- * the `gl-manage` gate; posted history is never rewritten.
+ * the `gl-chart-manage` gate; posted history is never rewritten.
  */
 import React, { useEffect, useState } from 'react';
 import { ListTree } from 'lucide-react';
@@ -40,7 +40,7 @@ export const ChartOfAccountsRegister: React.FC<AccountingScreenProps> = ({
   const [reloadKey, setReloadKey] = useState(0);
   const activationKey = useActivationKey('accounting-chart');
   const isVisible = useTabActive('accounting-chart') && scope.allowed;
-  const canManage = isOperationAllowed('gl-manage', currentUser?.role);
+  const canManage = isOperationAllowed('gl-chart-manage', currentUser?.role);
 
   useEffect(() => {
     if (!isVisible) return;

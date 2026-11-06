@@ -20,7 +20,8 @@ export interface FixedAssetOverviewState {
 
 export function useFixedAssetOverview(
   params: FixedAssetOverviewParams,
-  refreshToken = 0
+  refreshToken = 0,
+  enabled = true
 ): FixedAssetOverviewState {
   const [overview, setOverview] = useState<FixedAssetOverview | null>(null);
   const [loading, setLoading] = useState(true);
@@ -31,6 +32,12 @@ export function useFixedAssetOverview(
   const { branchId, query, category, asOf, byBranch, groupBy, categories } = params;
 
   useEffect(() => {
+    if (!enabled) {
+      setOverview(null);
+      setLoading(false);
+      setError('');
+      return;
+    }
     const seq = ++requestSeq.current;
     setLoading(true);
     setError('');
@@ -46,7 +53,7 @@ export function useFixedAssetOverview(
         setError(err?.message || 'Could not load the fixed-asset totals.');
         setLoading(false);
       });
-  }, [branchId, query, category, asOf, byBranch, groupBy, categories, refreshToken, retryToken]);
+  }, [branchId, query, category, asOf, byBranch, groupBy, categories, refreshToken, retryToken, enabled]);
 
   return { overview, loading, error, retry: () => setRetryToken((n) => n + 1) };
 }

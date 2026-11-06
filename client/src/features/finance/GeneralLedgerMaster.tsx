@@ -130,7 +130,7 @@ const boolProfile = (account: AccountingAccount | null, key: string): boolean =>
 
 export const GeneralLedgerMaster: React.FC<{ currentUser?: User | null }> = ({ currentUser }) => {
   const { confirm: confirmDialog, alert: alertDialog } = useDialog();
-  const canManage = isOperationAllowed('gl-manage', currentUser?.role);
+  const canManage = isOperationAllowed('gl-chart-manage', currentUser?.role);
   const [groups, setGroups] = useState<AccountingGroup[]>([]);
   const [accounts, setAccounts] = useState<AccountingAccount[]>([]);
   const [selectedId, setSelectedId] = useState('');

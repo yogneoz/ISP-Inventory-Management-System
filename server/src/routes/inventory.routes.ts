@@ -10,6 +10,7 @@ import { get_fixedAssetsPage, get_fixedAssetsOverview, get_fixedAssetsAvailable,
 import {
   handleUpdateSerials,
   requirePermission,
+  requirePermissionAny,
   requireRole,
   requireStockOperationPermission,
 } from '../app';
@@ -46,25 +47,24 @@ app.post('/api/stock/reconcile-audit', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_A
 
 app.post('/api/assets', requirePermission('assets-manage'), async (req, res, next) => { post_assets(req as any, res as any).catch(next); });
 
-app.patch('/api/assets/:id/status', async (req, res, next) => { patch_status(req as any, res as any).catch(next); });
+app.patch('/api/assets/:id/status', requirePermission('assets-manage'), async (req, res, next) => { patch_status(req as any, res as any).catch(next); });
 
 // ASSET-1: fixed assets left the login payload. The registers page through
 // /page, the dashboard/statements/FY-closing aggregates read /overview, the
 // deployment pickers read /available, and a panel resolves one row with
 // /lookup. Branch scope is resolved from the session and applied in SQL, like
 // the paged shipment/customer/device reads.
-app.get('/api/fixed-assets/page', async (req, res, next) => { get_fixedAssetsPage(req as any, res as any).catch(next); });
+app.get('/api/fixed-assets/page', requirePermissionAny('assets-view', 'branch-asset-assign'), async (req, res, next) => { get_fixedAssetsPage(req as any, res as any).catch(next); });
 
-app.get('/api/fixed-assets/overview', async (req, res, next) => { get_fixedAssetsOverview(req as any, res as any).catch(next); });
+app.get('/api/fixed-assets/overview', requirePermission('assets-view'), async (req, res, next) => { get_fixedAssetsOverview(req as any, res as any).catch(next); });
 
-app.get('/api/fixed-assets/available', async (req, res, next) => { get_fixedAssetsAvailable(req as any, res as any).catch(next); });
+app.get('/api/fixed-assets/available', requirePermissionAny('assets-view', 'branch-asset-assign', 'assets-manage'), async (req, res, next) => { get_fixedAssetsAvailable(req as any, res as any).catch(next); });
 
-app.get('/api/fixed-assets/lookup', async (req, res, next) => { get_fixedAssetsLookup(req as any, res as any).catch(next); });
+app.get('/api/fixed-assets/lookup', requirePermissionAny('assets-view', 'branch-asset-assign', 'assets-manage'), async (req, res, next) => { get_fixedAssetsLookup(req as any, res as any).catch(next); });
 
-// The depreciation run is a finance operation: it posts journals, so it is
-// gated on `fin-statements` rather than the stock-level `assets-manage`
-// operation that creates and deploys assets.
-app.post('/api/fixed-assets/depreciation', requirePermission('fin-statements'), async (req, res, next) => { postFixedAssetDepreciation(req as any, res as any).catch(next); });
+// The depreciation run is its own period-end control: a role may read the
+// statements without being allowed to post a depreciation journal.
+app.post('/api/fixed-assets/depreciation', requirePermission('fin-depreciation-post'), async (req, res, next) => { postFixedAssetDepreciation(req as any, res as any).catch(next); });
 
 app.get('/api/stock-operations', async (req, res, next) => { get_stockOperations(req as any, res as any).catch(next); });
 

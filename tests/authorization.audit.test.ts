@@ -362,7 +362,7 @@ describe('authorization audit (AUTHZ-1…13)', () => {
     assert.ok(ownRows.some((r) => r.branchId === 'azq-a'), 'own-branch row is present');
     assert.ok(!ownRows.some((r) => r.branchId === 'azq-b'), 'another branch’s row must not be');
 
-    const foreign = await call('PUT', '/api/fiscal-years/azq-fy/vendor-opening-balances', tokens.acct, {
+    const foreign = await call('PUT', '/api/fiscal-years/azq-fy/vendor-opening-balances', tokens.inv, {
       rows: [{ supplierId: 'azq-sup', branchId: 'azq-b', openingBalance: 5 }],
     });
     assert.equal(foreign.status, 403, 'a batch row for another branch must be refused');
@@ -371,10 +371,29 @@ describe('authorization audit (AUTHZ-1…13)', () => {
     );
     assert.equal(Number(untouched.rows[0]?.opening_balance), 200, 'the refused write changed nothing');
 
-    const ownWrite = await call('PUT', '/api/fiscal-years/azq-fy/vendor-opening-balances', tokens.acct, {
+    const ownWrite = await call('PUT', '/api/fiscal-years/azq-fy/vendor-opening-balances', tokens.inv, {
       rows: [{ supplierId: 'azq-sup', branchId: 'azq-a', openingBalance: 150 }],
     });
     assert.equal(ownWrite.status, 200, 'the own-branch batch write is allowed');
+  });
+
+  test('AUTHZ-14: opening registers follow the matrix, not a hard-coded role list', { skip: skipPositive }, async () => {
+    const auditorRead = await call('GET', '/api/fiscal-years/azq-fy/opening-stock', tokens.auditor);
+    assert.equal(auditorRead.status, 200, 'AUDITOR holds opening-stock-view');
+    const auditorVendorRead = await call('GET', '/api/fiscal-years/azq-fy/vendor-opening-balances', tokens.auditor);
+    assert.equal(auditorVendorRead.status, 200, 'AUDITOR holds opening-stock-view');
+
+    const auditorWrite = await call('PUT', '/api/fiscal-years/azq-fy/opening-stock', tokens.auditor, {
+      rows: [{ productId: 'azq-prod', branchId: 'azq-a', quantityOnHand: 12, damagedQty: 0, unitCost: 1 }],
+    });
+    assert.equal(auditorWrite.status, 403, 'AUDITOR lacks opening-stock-edit');
+    const auditorVendorWrite = await call('PUT', '/api/fiscal-years/azq-fy/vendor-opening-balances', tokens.auditor, {
+      rows: [{ supplierId: 'azq-sup', branchId: 'azq-a', openingBalance: 150 }],
+    });
+    assert.equal(auditorVendorWrite.status, 403, 'AUDITOR lacks opening-stock-edit');
+
+    const frontDeskRead = await call('GET', '/api/fiscal-years/azq-fy/opening-stock', tokens.fd);
+    assert.equal(frontDeskRead.status, 403, 'FRONT_DESK lacks opening-stock-view');
   });
 
   test('ALIGN-1: purchase-invoice delete matches the inv-delete matrix', { skip: skipPositive }, async () => {

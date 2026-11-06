@@ -69,8 +69,11 @@ export const DEFAULT_PERMISSIONS_MATRIX: Record<string, Record<string, boolean>>
   'opening-stock-view': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: true },
   'opening-stock-edit': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: false },
 
+  // Read the asset register separately from capitalising/disposing an asset.
+  'assets-view': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: false, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: true },
   'assets-manage': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: false, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: false },
   'fin-statements': { SUPER_ADMIN: true, INVENTORY_MANAGER: false, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: true },
+  'fin-depreciation-post': { SUPER_ADMIN: true, INVENTORY_MANAGER: false, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: false },
   'vat-register': { SUPER_ADMIN: true, INVENTORY_MANAGER: false, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: true },
   'stock-valuation': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: false, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: true },
   // Accounting ledger: reading is open to finance/audit roles; posting and
@@ -80,7 +83,16 @@ export const DEFAULT_PERMISSIONS_MATRIX: Record<string, Record<string, boolean>>
   // Reversal is a separate accounting control: a role may post journals
   // without being allowed to reverse a posted voucher.
   'gl-reverse': { SUPER_ADMIN: true, INVENTORY_MANAGER: false, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: false },
-  'gl-manage': { SUPER_ADMIN: true, INVENTORY_MANAGER: false, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: false },
+  // Finance masters are separate controls: chart maintenance, subledger books,
+  // analytical dimensions and bill terms no longer travel as one broad grant.
+  'gl-chart-manage': { SUPER_ADMIN: true, INVENTORY_MANAGER: false, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: false },
+  'gl-subledger-manage': { SUPER_ADMIN: true, INVENTORY_MANAGER: false, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: false },
+  'gl-dimension-manage': { SUPER_ADMIN: true, INVENTORY_MANAGER: false, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: false },
+  'gl-bill-terms-manage': { SUPER_ADMIN: true, INVENTORY_MANAGER: false, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: false },
+  'gl-payroll-manage': { SUPER_ADMIN: true, INVENTORY_MANAGER: false, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: false },
+  'gl-payroll-post': { SUPER_ADMIN: true, INVENTORY_MANAGER: false, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: false },
+  'gl-cash-close': { SUPER_ADMIN: true, INVENTORY_MANAGER: false, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: false },
+  'gl-opening-post': { SUPER_ADMIN: true, INVENTORY_MANAGER: false, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: false },
   'gl-close': { SUPER_ADMIN: true, INVENTORY_MANAGER: false, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: false },
 
   'suppliers-manage': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: false, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: true, FIELD_TECHNICIAN: false, AUDITOR: false },

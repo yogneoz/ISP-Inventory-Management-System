@@ -39,7 +39,7 @@ export const ChartView: React.FC<{
   state: ChartState;
   branchId: string;
   loading: boolean;
-  /** `gl-manage`: without it the chart stays readable but has no action buttons. */
+  /** `gl-chart-manage`: without it the chart stays readable but has no action buttons. */
   canManage: boolean;
   /** Re-read the chart after a successful mutation. */
   onChanged: () => void;

@@ -1,6 +1,6 @@
 /**
  * Bill-terms master HTTP surface. The list is readable under `gl-view`; writes
- * require `gl-manage`. A term used by a party or a posted invoice cannot be
+ * require `gl-bill-terms-manage`. A term used by a party or a posted invoice cannot be
  * deleted — retire it instead, so history never points at a missing policy.
  */
 import type { Response } from 'express';

@@ -227,7 +227,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 1949 tests; CI runs
+                                        #   drift/concurrency guards — 1956 tests; CI runs
                                         #   tsc + npm test + the source guards + the
                                         #   production build + the boot-timing gate +
                                         #   npm audit on every push/PR
@@ -280,7 +280,7 @@ ISP-Inventory-Management-System/
 │   │   ├── depreciation.ts            # Fixed asset depreciation calculator
 │   │   │   └── Supports: STRAIGHT_LINE, REDUCING_BALANCE, DECLINING_BALANCE, WRITTEN_DOWN_VALUE
 │   │   ├── documentNumbering.ts       # Auto document number generation (22 doc types)
-│   │   ├── permissionMatrixData.ts    # APP_ROLES (9) + INVENTORY_OPERATIONS (41) + DEFAULT_PERMISSIONS_MATRIX
+│   │   ├── permissionMatrixData.ts    # APP_ROLES (9) + DEFAULT_PERMISSIONS_MATRIX (64)
 │   │   ├── permissions.ts             # RBAC engine
 │   │   │   ├── isOperationAllowed()   # checks server matrix → localStorage → defaults
 │   │   │   ├── canUserSeeAllBranches() / getAllowedBranchIds()
@@ -582,8 +582,8 @@ The server registers ~130 routes. The most important ones:
 | `/api/damage-records` | GET, POST, PUT `:id` | Damage lifecycle |
 | `/api/approval-requests` | GET, POST, `:id/process`, `:id/cancel` | Approval workflow |
 | `/api/serial-log` | GET, POST | Serial register read (role-guarded, branch-scoped) & manual entry |
-| `/api/accounting/subledgers`, `/api/accounting/chart-health`, `/api/accounting/chart-defaults` | GET, POST, PATCH/DELETE `:id` | Subledger master: one named book per control account, bound by `main_account_id` (unique) and typed by that account, with its posted-row count and GL / subledger tie-out. A book can only bind to an active control account of the same type, its code and type are fixed, rebinding is refused once it has rows, and deletion is refused with rows (retire instead). `chart-health` reports control accounts with no book, posting roles no active ledger holds and retired ledgers still claiming a role; `chart-defaults` idempotently seeds missing default groups/accounts/books (`gl-view` read, `gl-manage` write) |
-| `/api/accounting/groups`, `/api/accounting/accounts`, `/api/accounting/settlement-accounts` | GET, POST, PATCH/DELETE `:id`; GET picker | Chart maintenance: statement-mapped groups with a group/sub-group hierarchy of any depth, control/subledger accounts and one posting default per role (`gl-view` read, `gl-manage` write). A sub-group inherits its nearest parent's type and statement mapping; a group's code/type/mapping is fixed, only an empty group may move or be deleted, and an account's code/control nature is fixed, its group only changes before its first posting, retiring it clears its posting role, and an account with posted lines cannot be deleted. `account_kind` classifies extra CASH/BANK ledgers that deliberately carry no posting role; the settlement picker exposes those active ledgers to `gl-view`, `sales-invoice-create` or `inv-pay` |
+| `/api/accounting/subledgers`, `/api/accounting/chart-health`, `/api/accounting/chart-defaults` | GET, POST, PATCH/DELETE `:id` | Subledger master: one named book per control account, bound by `main_account_id` (unique) and typed by that account, with its posted-row count and GL / subledger tie-out. A book can only bind to an active control account of the same type, its code and type are fixed, rebinding is refused once it has rows, and deletion is refused with rows (retire instead). `chart-health` reports control accounts with no book, posting roles no active ledger holds and retired ledgers still claiming a role; `chart-defaults` idempotently seeds missing default groups/accounts/books (`gl-view` read; `gl-chart-manage` for chart-defaults, `gl-subledger-manage` for books) |
+| `/api/accounting/groups`, `/api/accounting/accounts`, `/api/accounting/settlement-accounts` | GET, POST, PATCH/DELETE `:id`; GET picker | Chart maintenance: statement-mapped groups with a group/sub-group hierarchy of any depth, control/subledger accounts and one posting default per role (`gl-view` read, `gl-chart-manage` write). A sub-group inherits its nearest parent's type and statement mapping; a group's code/type/mapping is fixed, only an empty group may move or be deleted, and an account's code/control nature is fixed, its group only changes before its first posting, retiring it clears its posting role, and an account with posted lines cannot be deleted. `account_kind` classifies extra CASH/BANK ledgers that deliberately carry no posting role; the settlement picker exposes those active ledgers to `gl-view`, `sales-invoice-create` or `inv-pay` |
 | `/api/accounting/posting-defaults` | GET | Posting role → account mapping that invoice postings resolve; a missing role refuses the document instead of skipping its journal |
 | `/api/accounting/periods`, `:id/close`, `:id/reopen` | GET, POST | Monthly periods; a closed period refuses postings until reopened (`gl-close`) |
 | `/api/accounting/journals`, `:id`, `:id/reverse` | GET, POST | Branch-scoped journal list / detail, balanced manual posting, and contra reversal; a control-account line must carry its subledger party (`gl-post` post, `gl-reverse` reverse) |
@@ -700,15 +700,15 @@ Every `/api/*` request passes through this middleware chain in order:
 | `FIELD_TECHNICIAN` | Field operations | Single branch |
 | `AUDITOR` | Read-only audit access | Single branch |
 
-### 8.2 Permissions Matrix (55 operations × 9 roles)
+### 8.2 Permissions Matrix (64 operations × 9 roles)
 
-Defined in `src/utils/permissionMatrixData.ts` (`INVENTORY_OPERATIONS`, `APP_ROLES`, `DEFAULT_PERMISSIONS_MATRIX`). Key groups:
+Defined in `src/utils/permissionMatrixData.ts` (`APP_ROLES`, `DEFAULT_PERMISSIONS_MATRIX`). Key groups:
 
 - **Procurement**: `po-create`, `po-receive`, `inv-create`, `inv-pay`, `purchase-return-create`, `po-delete`, `inv-delete`, `branch-procurement-control`
 - **Warehouse**: `shipment-create`, `shipment-cancel`, `wh-receive-pullouts`, `wh-restrict-transfer`, `shipment-history`, `pullout-report-view`
 - **Sales & Branch Operations**: `sales-invoice-create`, `sales-return-create`, `branch-transfer-create`, `branch-transfer-receive`, `branch-transfer-cancel-receive`, `branch-transfer-request-cancel`, `branch-pullout-dispatch`, `branch-damage-mark`, `stock-disposal-writeoff`, `branch-asset-assign`, `stock-out`, `consumable-issue-reverse`
 - **Inventory**: `prod-view`, `prod-edit`, `uom-manage`, `edit-device-serials`, `category-manage`, `product-group-manage`, `stock-import-export`, `opening-stock-view`, `opening-stock-edit`, `warranty-view`, `warranty-edit`
-- **Finance & Accounting**: `gl-view`, `gl-post`, `gl-reverse`, `gl-manage`, `gl-close`, `fin-statements`, `vat-register`, `assets-manage`, `stock-valuation`
+- **Finance & Accounting**: `gl-view`, `gl-post`, `gl-reverse`, `gl-chart-manage`, `gl-subledger-manage`, `gl-dimension-manage`, `gl-bill-terms-manage`, `gl-payroll-manage`, `gl-payroll-post`, `gl-cash-close`, `gl-opening-post`, `gl-close`, `fin-statements`, `fin-depreciation-post`, `vat-register`, `assets-view`, `assets-manage`, `stock-valuation`
 - **Suppliers & Customers**: `suppliers-manage`, `customers-manage`
 - **System Administration**: `admin-users`, `admin-branches`, `admin-audit`, `admin-fiscal`, `auth-switch-user`, `workflow-approval`, `workflow-approval-cancel`
 
@@ -1391,7 +1391,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 1949 tests against a real PostgreSQL 16 service container
+2. `npm test` — 1956 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM
@@ -1593,7 +1593,7 @@ All demo users share password: `Demo@123`
 | Add a new column to a table | `scripts/schema.sql` CREATE TABLE block + `server/src/boot/dbBoot.ts` runtime DDL — BOTH places; `tests/schema.drift.guard.test.ts` fails if they diverge from the live database |
 | Add new UI page | `client/src/features/<module>/<Page>.tsx` + register in `App.tsx` + add to `Sidebar.tsx`. Rarely-used, heavy pages: prefer `React.lazy` (see §13.2) |
 | Add new database table | `scripts/schema.sql` (CREATE TABLE) + `server/src/models/` + route/service wiring + `scripts/setup_db.js` if seeded |
-| Add new permission operation | `client/src/utils/permissionMatrixData.ts` (operation + defaults) + `server/src/app.ts` (matrix seed) + `requirePermission` on routes |
+| Add new permission operation | `client/src/utils/permissionMatrixData.ts` (operation + defaults) + `server/src/boot/dbBoot.ts` (matrix seed) + `requirePermission` on routes |
 | Add new document type | `server/src/config/seedData.ts` (INITIAL_DOCUMENT_NUMBER_CONFIGS) + `scripts/setup_db.js` + `client/src/utils/documentNumbering.ts` |
 | Change serial behavior | `server/src/services/serialEdit.handler.ts` (handleUpdateSerials, lookup/dual) + `client/src/features/inventory/SerialLogRegister.tsx` |
 

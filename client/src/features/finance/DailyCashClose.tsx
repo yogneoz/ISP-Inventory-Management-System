@@ -9,7 +9,7 @@
  *
  * A global account sees every branch and the company total; a branch account
  * sees only its assigned branches, matching the server's branch scope. Close
- * and reopen need `gl-post`; `gl-view` alone is a read-only view of the same
+ * and reopen need `gl-cash-close`; `gl-view` alone is a read-only view of the same
  * figures.
  */
 import React, { useEffect, useMemo, useState } from 'react';
@@ -98,7 +98,7 @@ export const DailyCashClose: React.FC<DailyCashCloseProps> = ({
   currentUser,
 }) => {
   const allowed = isOperationAllowed('gl-view', currentUser?.role);
-  const canClose = isOperationAllowed('gl-post', currentUser?.role);
+  const canClose = isOperationAllowed('gl-cash-close', currentUser?.role);
   const isVisible = useTabActive('cash-position') && allowed;
   const activationKey = useActivationKey('cash-position');
   const scopedBranches = useMemo(
@@ -454,7 +454,7 @@ export const DailyCashClose: React.FC<DailyCashCloseProps> = ({
                     </button>
                   ) : (
                     <p className="pb-1 text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                      Your role can read the cash position but not close it (`gl-post` required).
+                      Your role can read the cash position but not close it (`gl-cash-close` required).
                     </p>
                   )}
                 </div>

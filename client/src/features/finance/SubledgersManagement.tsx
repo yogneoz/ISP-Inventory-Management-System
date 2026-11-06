@@ -83,7 +83,7 @@ export const SubledgersManagement: React.FC<SubledgersManagementProps> = ({
   currentUser,
 }) => {
   const { confirm: confirmDialog, alert: alertDialog } = useDialog();
-  const canManage = isOperationAllowed('gl-manage', currentUser?.role);
+  const canManage = isOperationAllowed('gl-subledger-manage', currentUser?.role);
   const activationKey = useActivationKey('subledgers');
   const scopedBranches = useMemo(
     () => getScopedBranches(currentUser, branches),
