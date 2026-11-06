@@ -27,6 +27,7 @@ EXAMPLE_USER_PASSWORD,
 INITIAL_EXAMPLE_USERS,
 } from '../config/seedData';
 import { DEFAULT_PERMISSIONS_MATRIX } from '../../../client/src/utils/permissionMatrixData';
+import { buildPermissionSeedEntries } from './permissionSeed';
 import {
   PERMISSION_SET_USER_GRANTS_SELECT_SQL,
   USER_PERMISSION_OVERRIDES_SELECT_SQL,
@@ -279,13 +280,16 @@ for (const cfg of INITIAL_DOCUMENT_NUMBER_CONFIGS) {
 
      // Seed the server-side permission matrix from the canonical defaults.
      // Idempotent: only insert operations/roles that are missing so a restart
-     // never silently reverts matrix customizations made via the API.
-     const matrixEntries: Array<[string, string, boolean]> = [];
-     for (const [opId, roles] of Object.entries(DEFAULT_PERMISSIONS_MATRIX)) {
-       for (const [role, allowed] of Object.entries(roles)) {
-         matrixEntries.push([opId, role, allowed]);
-       }
-     }
+     // never silently reverts matrix customizations made via the API. A split
+     // operation that is new to an existing database inherits the legacy
+     // grant the tenant had customized, instead of silently taking the default.
+     const existingPermissionRows = await client.query(
+       'SELECT operation_id AS "operationId", role, allowed FROM permission_matrix'
+     );
+     const matrixEntries = buildPermissionSeedEntries(
+       DEFAULT_PERMISSIONS_MATRIX,
+       existingPermissionRows.rows
+     );
      for (const [opId, role, allowed] of matrixEntries) {
        await client.query(
          `INSERT INTO permission_matrix (operation_id, role, allowed) VALUES ($1, $2, $3) ON CONFLICT (operation_id, role) DO NOTHING`,

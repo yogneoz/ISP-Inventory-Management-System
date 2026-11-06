@@ -115,9 +115,15 @@ describe('register audience contract', () => {
     // The DB seed walks the default matrix's own keys; that is what enrolls a
     // new operation, so a separate operation-id list must never be reintroduced.
     const boot = read('server/src/boot/dbBoot.ts');
+    const seed = read('server/src/boot/permissionSeed.ts');
+    assert.match(
+      boot,
+      /buildPermissionSeedEntries\(\s*DEFAULT_PERMISSIONS_MATRIX\s*,/,
+      'dbBoot must derive the permission seed rows from the default matrix'
+    );
     assert.ok(
-      boot.includes('of Object.entries(DEFAULT_PERMISSIONS_MATRIX)'),
-      'the permission seed must iterate the default matrix keys'
+      seed.includes('Object.entries(matrix)'),
+      'the permission seed helper must iterate the default matrix keys'
     );
     assert.ok(
       !matrix.includes('INVENTORY_OPERATIONS'),

@@ -227,7 +227,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 1956 tests; CI runs
+                                        #   drift/concurrency guards — 1961 tests; CI runs
                                         #   tsc + npm test + the source guards + the
                                         #   production build + the boot-timing gate +
                                         #   npm audit on every push/PR
@@ -1391,7 +1391,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 1956 tests against a real PostgreSQL 16 service container
+2. `npm test` — 1961 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM
@@ -1593,7 +1593,7 @@ All demo users share password: `Demo@123`
 | Add a new column to a table | `scripts/schema.sql` CREATE TABLE block + `server/src/boot/dbBoot.ts` runtime DDL — BOTH places; `tests/schema.drift.guard.test.ts` fails if they diverge from the live database |
 | Add new UI page | `client/src/features/<module>/<Page>.tsx` + register in `App.tsx` + add to `Sidebar.tsx`. Rarely-used, heavy pages: prefer `React.lazy` (see §13.2) |
 | Add new database table | `scripts/schema.sql` (CREATE TABLE) + `server/src/models/` + route/service wiring + `scripts/setup_db.js` if seeded |
-| Add new permission operation | `client/src/utils/permissionMatrixData.ts` (operation + defaults) + `server/src/boot/dbBoot.ts` (matrix seed) + `requirePermission` on routes |
+| Add new permission operation | `client/src/utils/permissionMatrixData.ts` (operation + defaults) + `server/src/boot/dbBoot.ts` (matrix seed) + `server/src/boot/permissionSeed.ts` (legacy-grant inheritance when splitting an existing operation) + `requirePermission` on routes |
 | Add new document type | `server/src/config/seedData.ts` (INITIAL_DOCUMENT_NUMBER_CONFIGS) + `scripts/setup_db.js` + `client/src/utils/documentNumbering.ts` |
 | Change serial behavior | `server/src/services/serialEdit.handler.ts` (handleUpdateSerials, lookup/dual) + `client/src/features/inventory/SerialLogRegister.tsx` |
 
