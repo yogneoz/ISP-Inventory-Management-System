@@ -703,12 +703,13 @@ Every `/api/*` request passes through this middleware chain in order:
 
 Defined in `src/utils/permissionMatrixData.ts` (`INVENTORY_OPERATIONS`, `APP_ROLES`, `DEFAULT_PERMISSIONS_MATRIX`). Key groups:
 
-- **Procurement**: `po-create`, `po-receive`, `inv-create`, `inv-pay`, `po-delete`, `inv-delete`, `branch-procurement-control`
-- **Warehouse**: `shipment-create`, `wh-receive-pullouts`, `wh-restrict-transfer`, `shipment-history`
-- **Branch Ops**: `branch-transfer-create`, `branch-transfer-receive`, `branch-transfer-cancel-receive`, `branch-transfer-request-cancel`, `branch-pullout-dispatch`, `branch-damage-mark`, `stock-disposal-writeoff`, `branch-asset-assign`, `stock-out`
+- **Procurement**: `po-create`, `po-receive`, `inv-create`, `inv-pay`, `purchase-return-create`, `po-delete`, `inv-delete`, `branch-procurement-control`
+- **Warehouse**: `shipment-create`, `shipment-cancel`, `wh-receive-pullouts`, `wh-restrict-transfer`, `shipment-history`, `pullout-report-view`
+- **Sales & Branch Operations**: `sales-invoice-create`, `sales-return-create`, `branch-transfer-create`, `branch-transfer-receive`, `branch-transfer-cancel-receive`, `branch-transfer-request-cancel`, `branch-pullout-dispatch`, `branch-damage-mark`, `stock-disposal-writeoff`, `branch-asset-assign`, `stock-out`, `consumable-issue-reverse`
 - **Inventory**: `prod-view`, `prod-edit`, `uom-manage`, `edit-device-serials`, `category-manage`, `product-group-manage`, `stock-import-export`, `opening-stock-view`, `opening-stock-edit`, `warranty-view`, `warranty-edit`
 - **Finance & Accounting**: `gl-view`, `gl-post`, `gl-reverse`, `gl-manage`, `gl-close`, `fin-statements`, `vat-register`, `assets-manage`, `stock-valuation`
-- **Master/Settings**: `suppliers-manage`, plus admin operations (`admin-users`, `admin-branches`, `admin-audit`, `admin-fiscal`, `auth-switch-user`, `workflow-approval`)
+- **Suppliers & Customers**: `suppliers-manage`, `customers-manage`
+- **System Administration**: `admin-users`, `admin-branches`, `admin-audit`, `admin-fiscal`, `auth-switch-user`, `workflow-approval`, `workflow-approval-cancel`
 
 **Storage (two layers, in precedence order):**
 1. **PostgreSQL `permission_matrix` table** — authoritative, seeded at server startup, editable via the Permission Management UI (`PUT /api/permissions`)

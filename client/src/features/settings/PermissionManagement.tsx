@@ -88,6 +88,12 @@ export const DEFAULT_GROUPS: PermissionGroup[] = [
         permissions: DEFAULT_PERMISSIONS_MATRIX['inv-pay'],
       },
       {
+        id: 'purchase-return-create',
+        operationName: 'Create Purchase Returns',
+        description: 'Raise, post and cancel supplier returns (debit notes) against received bills, reversing stock, payable and input VAT in one transaction',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['purchase-return-create'],
+      },
+      {
         id: 'po-delete',
         operationName: 'Delete Purchase Orders (PO)',
         description: 'Delete eligible purchase orders and reverse outstanding incoming quantities',
@@ -117,6 +123,12 @@ export const DEFAULT_GROUPS: PermissionGroup[] = [
         permissions: DEFAULT_PERMISSIONS_MATRIX['shipment-create'],
       },
       {
+        id: 'shipment-cancel',
+        operationName: 'Cancel Outbound Shipment',
+        description: 'Cancel an in-transit warehouse dispatch before the destination branch receives it, restoring the source stock',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['shipment-cancel'],
+      },
+      {
         id: 'wh-receive-pullouts',
         operationName: 'Receive Branch Stock Pullouts',
         description: 'Receive overstock or damaged stock pullouts sent back from branch stores',
@@ -144,13 +156,25 @@ export const DEFAULT_GROUPS: PermissionGroup[] = [
   },
   {
     id: 'branch-ops',
-    category: 'Branch Operations & Inter-Branch Transfers',
+    category: 'Sales & Branch Operations',
     icon: ArrowRightLeft,
     color: 'text-indigo-600 dark:text-indigo-400',
     bgColor: 'bg-indigo-50 dark:bg-indigo-950/30',
     borderColor: 'border-indigo-200 dark:border-indigo-900',
-    description: 'Inter-store transfers with serial tracking, stock pullouts, damage labeling, and sales',
+    description: 'Customer sales invoices and returns, inter-store transfers with serial tracking, stock pullouts, damage labeling, stock issues and branch assets',
     operations: [
+      {
+        id: 'sales-invoice-create',
+        operationName: 'Create Sales Invoices',
+        description: 'Issue, print and void customer tax invoices, and record or reverse customer payments',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['sales-invoice-create'],
+      },
+      {
+        id: 'sales-return-create',
+        operationName: 'Create Sales Returns',
+        description: 'Raise, post and cancel customer sales returns, restoring the returned stock and customer balance',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['sales-return-create'],
+      },
       {
         id: 'branch-transfer-create',
         operationName: 'Create Inter-Branch Stock Transfer',

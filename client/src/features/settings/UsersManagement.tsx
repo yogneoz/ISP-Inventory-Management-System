@@ -53,17 +53,11 @@ const OPERATION_NAMES: Record<string, string> = (() => {
 })();
 
 /**
- * Operation choices for the register's access filter. The matrix screen's
- * groups cover 51 operations; the catalogue also enforces four ids it does not
- * render. They still appear in every user's effective list, so the filter must
- * offer them too or those accounts could not be found by what they can do.
+ * Operation choices for the register's access filter, in the same groups and
+ * labels as the matrix screen. Every current catalogue operation is grouped;
+ * the fallback keeps a newly added operation searchable here until it gets a
+ * matrix row, so accounts cannot disappear from the filter by capability.
  */
-const UNGROUPED_OPERATION_LABELS: Record<string, string> = {
-  'purchase-return-create': 'Create Purchase Returns',
-  'sales-invoice-create': 'Create Sales Invoices',
-  'sales-return-create': 'Create Sales Returns',
-  'shipment-cancel': 'Cancel Outbound Shipment',
-};
 const GROUPED_OPERATION_IDS = new Set(
   DEFAULT_GROUPS.flatMap((group) => group.operations.map((operation) => operation.id))
 );
@@ -71,10 +65,7 @@ const UNGROUPED_OPERATIONS = Object.keys(DEFAULT_PERMISSIONS_MATRIX)
   .filter((operationId) => !GROUPED_OPERATION_IDS.has(operationId))
   .map((operationId) => ({
     id: operationId,
-    name:
-      OPERATION_NAMES[operationId] ||
-      UNGROUPED_OPERATION_LABELS[operationId] ||
-      operationId.replace(/-/g, ' '),
+    name: OPERATION_NAMES[operationId] || operationId.replace(/-/g, ' '),
   }));
 const OPERATION_FILTER_GROUPS = [
   ...DEFAULT_GROUPS.map((group) => ({
