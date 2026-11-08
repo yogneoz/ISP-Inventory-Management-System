@@ -32,6 +32,7 @@ import { createApp, registerAllRoutes } from '../server/src/app';
 import { issueAuthToken } from '../server/src/middleware/auth';
 import { setPermissionMatrix } from '../server/src/state/runtimeState';
 import { DEFAULT_PERMISSIONS_MATRIX } from '../client/src/utils/permissionMatrixData';
+import { ensureReferenceData } from './fixtures/referenceData';
 
 dotenv.config();
 
@@ -87,6 +88,10 @@ describe('authorization audit (AUTHZ-1…13)', () => {
   before(async () => {
     if (!dbReachable) return;
 
+    // The audit slice is scoped to the active fiscal year, so a schema-only
+    // database needs the same current-year master a booted install has.
+    await ensureReferenceData(pool!);
+
     // Clear leftovers from aborted runs, then seed idempotently.
     await pool!.query("DELETE FROM customer_payments WHERE id LIKE 'azq-%'");
     await pool!.query("DELETE FROM sales_returns WHERE id LIKE 'azq-%'");
@@ -133,9 +138,31 @@ describe('authorization audit (AUTHZ-1…13)', () => {
       "INSERT INTO approval_requests (id, request_number, type, requested_by_email, requested_by_name, requested_by_role, branch_id, reason, status) VALUES " +
       "('azq-ar-1', 'AZQ-AR-1', 'CANCEL_TRANSFER', 'azq-requester@example.com', 'AZQ Requester', 'FRONT_DESK', 'azq-a', 'test', 'PENDING')"
     );
+    // AUTHZ-11: the audit slice is fiscal-year scoped on `timestamp_ad`, which
+    // schema.sql defaults to CURRENT_TIMESTAMP. A schema-only database seeds a
+    // FIXED current year (INITIAL_MASTER_FISCAL_YEARS), so on a date outside it
+    // the default stamp is filtered out of the slice and the gate looks broken
+    // when it is not. Stamp the row inside the year the endpoint resolves, with
+    // pickCurrentFiscalYear's precedence (a current year containing today wins,
+    // else the first current one) — today's own timestamp when it falls inside,
+    // so the row also stays within the slice's 200-row window on a live DB.
+    const todayAD = new Date().toISOString().split('T')[0];
+    const currentYears = (
+      await pool!.query(
+        "SELECT start_date_ad::text AS start, end_date_ad::text AS finish, " +
+          "(start_date_ad + INTERVAL '1 day')::date::text AS stamp " +
+          'FROM fiscal_years WHERE is_current ORDER BY start_date_ad'
+      )
+    ).rows;
+    const auditYear =
+      currentYears.find((fy: any) => todayAD >= fy.start && todayAD <= fy.finish) || currentYears[0];
+    assert.ok(auditYear, 'a current fiscal year must exist to scope the audit slice');
+    const auditStamp =
+      todayAD >= auditYear.start && todayAD <= auditYear.finish ? new Date().toISOString() : auditYear.stamp;
     await pool!.query(
-      "INSERT INTO audit_logs (id, user_email, user_name, action, module, details, timestamp_bs, branch_id) VALUES " +
-      "('azq-audit-1', 'azq-aud@example.com', 'AZQ Auditor', 'AZQ test action', 'SYSTEM', 'audit gate fixture', '2083-06-15 BS', 'azq-a')"
+      'INSERT INTO audit_logs (id, user_email, user_name, action, module, details, timestamp_ad, timestamp_bs, branch_id) VALUES ' +
+        "('azq-audit-1', 'azq-aud@example.com', 'AZQ Auditor', 'AZQ test action', 'SYSTEM', 'audit gate fixture', $1, '2083-06-15 BS', 'azq-a')",
+      [auditStamp]
     );
 
     // Fiscal-year opening registers (AUTHZ-12/13): one product × branch and
