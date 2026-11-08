@@ -9,6 +9,7 @@
 // rows being truncated by CASCADE, then re-linked to the two seeded years.
 // ============================================================================
 import crypto from 'node:crypto';
+import { buildBsDayRecordsForYear, DEFAULT_BS_YEARS_SERVER } from '../../server/src/config/bsCalendar';
 import type { VerificationDataset } from './verificationDataset';
 
 /** Bcrypt-compatible-with-the-server scrypt format: scrypt$<salt>$<hex>. */
@@ -92,18 +93,50 @@ export async function applyVerificationSeed(client: any, dataset: VerificationDa
       is_closed: fy.isClosed, is_demo: fy.isDemo, is_provisional: fy.isProvisional,
     })));
 
-  // The BS calendar survived the wipe; point its days at the two fiscal years.
+  // The wipe preserves the BS calendar, but a database built from
+  // scripts/schema.sql alone starts with none: gl_periods' BS columns are then
+  // NOT NULL with nothing to fill them from, and every dated write fails. Seed
+  // the years the two fiscal years span from the same bundled calendar the
+  // server boots with, then point their days at the fiscal years below.
+  const bsByAdDate = new Map<string, string>();
+  const insideSeededFiscalYear = (ad: string) =>
+    dataset.fiscalYears.some((fy) => ad >= fy.startDateAD && ad <= fy.endDateAD);
+  for (const year of DEFAULT_BS_YEARS_SERVER) {
+    const records = buildBsDayRecordsForYear(year.yearBS, year.daysInMonths, year.startAD);
+    if (!records.some((record) => insideSeededFiscalYear(record.adDate))) continue;
+    await client.query(
+      `INSERT INTO bs_calendar_years (year_bs, days_in_months, start_ad)
+       VALUES ($1, $2::int[], $3::date) ON CONFLICT (year_bs) DO NOTHING`,
+      [year.yearBS, year.daysInMonths, year.startAD]
+    );
+    for (const record of records) {
+      bsByAdDate.set(record.adDate, record.bsDate);
+      await client.query(
+        `INSERT INTO bs_day_records (ad_date, bs_date, bs_year, bs_month, bs_month_name, bs_month_name_np,
+           bs_day, day_of_week_name, day_of_week_name_np, fiscal_year, quarter, is_weekend)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         ON CONFLICT (ad_date) DO NOTHING`,
+        [record.adDate, record.bsDate, record.bsYear, record.bsMonth, record.bsMonthName,
+          record.bsMonthNameNp, record.bsDay, record.dayOfWeekName, record.dayOfWeekNameNp,
+          record.fiscalYear, record.quarter, record.isWeekend]
+      );
+    }
+  }
+
+  // The BS calendar now carries the days; point them at the two fiscal years.
   await client.query(
     `UPDATE bs_day_records b SET fiscal_year_id = fy.id
        FROM fiscal_years fy
       WHERE b.ad_date >= fy.start_date_ad AND b.ad_date <= fy.end_date_ad`
   );
 
+  const bsLabel = (ad: string) => (bsByAdDate.has(ad) ? `${bsByAdDate.get(ad)} BS` : null);
   await insertRows(client, 'gl_periods',
-    ['id', 'fiscal_year_id', 'period_key', 'start_date_ad', 'end_date_ad', 'status'],
+    ['id', 'fiscal_year_id', 'period_key', 'start_date_ad', 'start_date_bs', 'end_date_ad', 'end_date_bs', 'status'],
     count('periods', dataset.periods).map((p) => ({
       id: p.id, fiscal_year_id: p.fiscalYearId, period_key: p.periodKey,
-      start_date_ad: p.startDateAD, end_date_ad: p.endDateAD, status: p.status,
+      start_date_ad: p.startDateAD, start_date_bs: bsLabel(p.startDateAD),
+      end_date_ad: p.endDateAD, end_date_bs: bsLabel(p.endDateAD), status: p.status,
     })));
 
   await insertRows(client, 'users',
@@ -241,14 +274,17 @@ export async function applyVerificationSeed(client: any, dataset: VerificationDa
 
   await insertRows(client, 'fixed_assets',
     ['id', 'tag_number', 'name', 'category', 'branch_id', 'acquisition_date_ad', 'acquisition_date_bs',
-      'purchase_invoice_date_ad', 'purchase_invoice_date_bs', 'capitalization_date_ad', 'placed_in_service_date_ad',
+      'purchase_invoice_date_ad', 'purchase_invoice_date_bs', 'capitalization_date_ad', 'capitalization_date_bs',
+      'placed_in_service_date_ad', 'placed_in_service_date_bs',
       'acquisition_cost', 'depreciation_method', 'depreciation_rate_percent', 'accumulated_depreciation',
       'net_book_value', 'status', 'supplier_name', 'invoice_no', 'product_id', 'fiscal_year_id', 'is_demo', 'created_by'],
     count('fixedAssets', dataset.fixedAssets).map((a) => ({
       id: a.id, tag_number: a.tagNumber, name: a.name, category: a.category, branch_id: a.branchId,
       acquisition_date_ad: a.acquisitionDateAD, acquisition_date_bs: a.acquisitionDateBS,
       purchase_invoice_date_ad: a.purchaseInvoiceDateAD, purchase_invoice_date_bs: a.purchaseInvoiceDateBS,
-      capitalization_date_ad: a.capitalizationDateAD, placed_in_service_date_ad: a.placedInServiceDateAD,
+      capitalization_date_ad: a.capitalizationDateAD, capitalization_date_bs: bsLabel(a.capitalizationDateAD),
+      placed_in_service_date_ad: a.placedInServiceDateAD,
+      placed_in_service_date_bs: bsLabel(a.placedInServiceDateAD),
       acquisition_cost: a.acquisitionCost, depreciation_method: a.depreciationMethod,
       depreciation_rate_percent: a.depreciationRatePercent, accumulated_depreciation: a.accumulatedDepreciation,
       net_book_value: a.netBookValue, status: a.status, supplier_name: a.supplierName, invoice_no: a.invoiceNo,
@@ -332,9 +368,10 @@ export async function applyVerificationSeed(client: any, dataset: VerificationDa
 
   // ---- ledger ------------------------------------------------------------
   await insertRows(client, 'gl_journals',
-    ['id', 'journal_no', 'journal_date_ad', 'fiscal_year_id', 'period_id', 'branch_id', 'source_type', 'source_id', 'memo', 'status', 'posted_by', 'is_demo'],
+    ['id', 'journal_no', 'journal_date_ad', 'journal_date_bs', 'fiscal_year_id', 'period_id', 'branch_id', 'source_type', 'source_id', 'memo', 'status', 'posted_by', 'is_demo'],
     count('journals', dataset.journals).map((j) => ({
-      id: j.id, journal_no: j.journalNo, journal_date_ad: j.journalDateAD, fiscal_year_id: j.fiscalYearId,
+      id: j.id, journal_no: j.journalNo, journal_date_ad: j.journalDateAD,
+      journal_date_bs: bsLabel(j.journalDateAD), fiscal_year_id: j.fiscalYearId,
       period_id: j.periodId, branch_id: j.branchId, source_type: j.sourceType, source_id: j.sourceId,
       memo: j.memo, status: j.status, posted_by: j.postedBy, is_demo: j.isDemo,
     })));
@@ -354,12 +391,12 @@ export async function applyVerificationSeed(client: any, dataset: VerificationDa
     count('journalLines', lineRows));
 
   await insertRows(client, 'gl_subledger_entries',
-    ['id', 'journal_id', 'journal_line_id', 'account_id', 'subledger_id', 'subledger_type', 'party_id', 'party_name', 'branch_id', 'entry_date_ad', 'debit', 'credit'],
+    ['id', 'journal_id', 'journal_line_id', 'account_id', 'subledger_id', 'subledger_type', 'party_id', 'party_name', 'branch_id', 'entry_date_ad', 'entry_date_bs', 'debit', 'credit'],
     dataset.subledgerEntries.map((s) => ({
       id: s.id, journal_id: s.journalId, journal_line_id: s.journalLineId, account_id: `gla-${s.accountCode}`,
       subledger_id: `gls-${s.accountCode}`,
       subledger_type: s.subledgerType, party_id: s.partyId, party_name: s.partyName, branch_id: s.branchId,
-      entry_date_ad: s.entryDateAD, debit: s.debit, credit: s.credit,
+      entry_date_ad: s.entryDateAD, entry_date_bs: bsLabel(s.entryDateAD), debit: s.debit, credit: s.credit,
     })));
 
   return summary;
