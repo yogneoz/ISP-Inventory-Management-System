@@ -27,6 +27,9 @@ import pg from 'pg';
 import dotenv from 'dotenv';
 import { createApp, registerAllRoutes } from '../server/src/app';
 import { issueAuthToken } from '../server/src/middleware/auth';
+import { setPermissionMatrix } from '../server/src/state/runtimeState';
+import { DEFAULT_PERMISSIONS_MATRIX } from '../client/src/utils/permissionMatrixData';
+import { ensureReferenceData } from './fixtures/referenceData';
 
 dotenv.config();
 
@@ -90,6 +93,8 @@ describe('subledger master + chart health', () => {
     );
     await pool.query("DELETE FROM gl_accounts WHERE code LIKE 'SBT-%'");
     await pool.query("DELETE FROM employees WHERE id LIKE 'sbt-employee-%' OR employee_code LIKE 'SBT-%'");
+    await pool.query("DELETE FROM gl_journals WHERE memo = 'SBT seed AR'");
+    await pool.query("DELETE FROM customer_records WHERE id = 'sbt-customer'");
   }
 
   async function call(method: string, urlPath: string, body?: any) {
@@ -108,7 +113,25 @@ describe('subledger master + chart health', () => {
 
   before(async () => {
     if (!dbReachable || !pool) return;
+    // This suite reads the seeded chart (a control account, its books, the
+    // active customer master and posted AR rows), which a booted install has
+    // but CI's database — built from scripts/schema.sql alone — does not. The
+    // August reference data also seeds the BS days the suite's journal dates
+    // need. Branches BR-KTM/BR-PKR are left in place: posted journals reference
+    // them with ON DELETE RESTRICT.
+    await ensureReferenceData(pool, '2026-08-15');
+    setPermissionMatrix(JSON.parse(JSON.stringify(DEFAULT_PERMISSIONS_MATRIX)));
     await cleanup();
+    await pool.query(
+      "INSERT INTO branches (id, code, name, location) VALUES " +
+        "('BR-KTM', 'BR-KTM', 'Kathmandu', 'KTM'), ('BR-PKR', 'BR-PKR', 'Pokhara', 'PKR') " +
+        'ON CONFLICT (id) DO NOTHING'
+    );
+    await pool.query(
+      "INSERT INTO customer_records (id, customer_id, customer_name, username, contact_number, branch_id, status) " +
+        "VALUES ('sbt-customer', 'SBT-CUSTOMER', 'SBT Customer', 'sbt-customer', '9800000000', 'BR-KTM', 'ACTIVE') " +
+        'ON CONFLICT (id) DO NOTHING'
+    );
     const group = await pool.query("SELECT id FROM gl_account_groups ORDER BY code LIMIT 1");
     groupId = group.rows[0]?.id;
     assert.ok(groupId, 'the seeded chart must provide at least one group');
@@ -150,6 +173,25 @@ describe('subledger master + chart health', () => {
       (server as any).closeAllConnections?.();
       server.close(() => done());
     });
+
+    // One posted row on the seeded AR control so the register's entryCount and
+    // the "a book with posted rows cannot be deleted" refusal describe real
+    // postings on a schema-only database too.
+    const cash = await pool.query("SELECT id FROM gl_accounts WHERE posting_role = 'CASH'");
+    assert.ok(cash.rows[0]?.id, 'the seeded chart must hold the cash account');
+    const seededPost = await call('POST', '/api/accounting/journals', {
+      journalDateAD: '2026-08-15',
+      branchId: 'BR-KTM',
+      memo: 'SBT seed AR',
+      lines: [
+        {
+          accountId: seededReceivableAccountId, debit: 25, credit: 0,
+          subledgerType: 'CUSTOMER', partyId: 'SBT-SEED-PARTY', partyName: 'SBT Seed Party',
+        },
+        { accountId: cash.rows[0].id, debit: 0, credit: 25 },
+      ],
+    });
+    assert.equal(seededPost.status, 201, JSON.stringify(seededPost.json));
   });
 
   after(async () => {

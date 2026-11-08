@@ -299,10 +299,10 @@ const AgingSide: React.FC<{
           <p className="mt-1 font-serif text-lg font-bold text-slate-800 dark:text-slate-100">
             {formatMoney(total)}
           </p>
-          <span className="mt-0.5 block text-[9px] font-medium text-slate-400">net open</span>
+          <span className="mt-0.5 block text-[10px] font-medium text-slate-400">net open</span>
         </div>
         <span
-          className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${
+          className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
             data.totals.reconciled
               ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300'
               : 'bg-rose-50 text-rose-700 dark:bg-rose-950/30 dark:text-rose-300'
@@ -331,7 +331,7 @@ const AgingSide: React.FC<{
       </div>
 
       {credits > 0 && (
-        <p className="mt-1 text-[9px] leading-snug text-slate-400 dark:text-slate-500">
+        <p className="mt-1 text-[10px] leading-snug text-slate-400 dark:text-slate-500">
           Bucket bars show gross open charges; the headline nets {formatMoney(credits)} in unapplied credits.
         </p>
       )}
@@ -1453,7 +1453,7 @@ export const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
 
             <div className="mt-3 grid grid-cols-3 gap-2">
               <span className="rounded-lg bg-emerald-50 px-2.5 py-2 dark:bg-emerald-950/20">
-                <span className="block text-[9px] font-bold uppercase tracking-wider text-emerald-700/70 dark:text-emerald-400/70">
+                <span className="block text-[10px] font-bold uppercase tracking-wider text-emerald-700/70 dark:text-emerald-400/70">
                   Receipts
                 </span>
                 <strong className="block font-mono text-xs text-emerald-700 dark:text-emerald-400">
@@ -1461,7 +1461,7 @@ export const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
                 </strong>
               </span>
               <span className="rounded-lg bg-rose-50 px-2.5 py-2 dark:bg-rose-950/20">
-                <span className="block text-[9px] font-bold uppercase tracking-wider text-rose-700/70 dark:text-rose-400/70">
+                <span className="block text-[10px] font-bold uppercase tracking-wider text-rose-700/70 dark:text-rose-400/70">
                   Payments
                 </span>
                 <strong className="block font-mono text-xs text-rose-700 dark:text-rose-400">
@@ -1469,7 +1469,7 @@ export const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
                 </strong>
               </span>
               <span className="rounded-lg bg-slate-50 px-2.5 py-2 dark:bg-slate-800/50">
-                <span className="block text-[9px] font-bold uppercase tracking-wider text-slate-500/80 dark:text-slate-400/80">
+                <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500/80 dark:text-slate-400/80">
                   Net movement
                 </span>
                 <strong className="block font-mono text-xs text-slate-700 dark:text-slate-200">
@@ -1504,7 +1504,7 @@ export const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
                             title={`${month.title} payments: ${formatMoney(month.payments)}`}
                           />
                         </div>
-                        <span className="mt-1 text-[9px] font-semibold text-slate-400 dark:text-slate-500">
+                        <span className="mt-1 text-[10px] font-semibold text-slate-400 dark:text-slate-500">
                           {month.label}
                         </span>
                       </div>
@@ -1526,7 +1526,7 @@ export const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
               caption="Server-computed tie-outs"
               action={
                 <span
-                  className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
                     allControlsTie
                       ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300'
                       : checkedControls.length > 0 && passedControls === checkedControls.length
@@ -1643,7 +1643,7 @@ export const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
                         {formatMoney(n(entry.type === 'RECEIPT' ? entry.debit : entry.credit))}
                       </span>
                     </div>
-                    <div className="mt-1 flex items-baseline justify-between gap-2 text-[9px] text-slate-400 dark:text-slate-500">
+                    <div className="mt-1 flex items-baseline justify-between gap-2 text-[10px] text-slate-400 dark:text-slate-500">
                       <span className="truncate">{entry.memo || entry.sourceType || entry.journalNo}</span>
                       <span className="shrink-0">{formatDualDate(entry.journalDateAD, dateMode)}</span>
                     </div>
