@@ -77,7 +77,7 @@ describe('accounting dimension masters API (real HTTP + PostgreSQL)', { skip: sk
   const del = (path: string, token: string | undefined) => request('DELETE', path, token);
 
   before(async () => {
-    await ensureReferenceData(pool!);
+    await ensureReferenceData(pool!, JOURNAL_DATE);
     await pool!.query("DELETE FROM gl_journals WHERE source_id LIKE 'ACM-TEST-%' OR memo LIKE 'ACM TEST%'");
     await pool!.query("DELETE FROM gl_periods WHERE period_key = $1 AND id LIKE 'glp-%'", ['2027-01']);
     await pool!.query("UPDATE cost_centers SET parent_id = NULL WHERE code LIKE 'ACM-CC-%'");

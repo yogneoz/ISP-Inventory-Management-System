@@ -96,6 +96,7 @@ export const APP_PATHS: Record<NavTab, string> = {
   'accounting-aging': '/finance/accounting/aging',
   'journal-entry': '/finance/accounting/journal-entry',
   'cash-bank-entry': '/finance/accounting/cash-bank-entry',
+  'posted-vouchers': '/finance/accounting/posted-vouchers',
   'accounting-chart': '/finance/accounting/chart',
   'general-ledger': '/finance/accounting/general-ledger',
   subledgers: '/finance/accounting/subledgers',

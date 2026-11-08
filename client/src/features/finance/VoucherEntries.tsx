@@ -7,48 +7,38 @@
  * are converted to NPR at the voucher rate before posting, because the ledger
  * stores base-currency amounts only. The rate and source currency are kept on
  * the voucher for audit.
+ *
+ * The posted-voucher register lives on its own screen (PostedVouchers): this
+ * form is only the posting surface, and every directory field is a search box
+ * rather than a list of every ledger, employee or branch.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
   BookOpen,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
-  Eye,
   Loader2,
   Plus,
   RefreshCw,
-  Search,
   Trash2,
-  Undo2,
   Wallet,
-  X,
 } from 'lucide-react';
 import { PageHeader } from '../../components/common/PageHeader';
 import { useActivationKey } from '../../components/common/KeepMounted';
-import {
-  VoucherDetailDialog,
-  journalStatus,
-  sourceLabel,
-  statusBadgeClass,
-} from '../../components/accounting/VoucherDetailDialog';
 import { CustomerPicker } from '../../components/common/CustomerPicker';
+import { SearchPicker } from '../../components/common/SearchPicker';
+import { SearchSelect, type SearchSelectOption } from '../../components/common/SearchSelect';
 import { btnGhost, btnPrimary, inputClass, labelClass } from '../../components/common/styleConstants';
 import { getActiveBranchId, api } from '../../services/api';
 import type {
   AccountingAccount,
   AccountingEmployee,
-  AccountingJournal,
   SettlementAccount,
 } from '../../services/api/accounting';
 import type { Branch, Supplier, User } from '../../types';
 import { localTodayAD } from '../../utils/localDate';
 import { formatMoney } from '../../utils/nprFormat';
-import {
-  getScopedBranches,
-  isOperationAllowed,
-} from '../../utils/permissions';
+import { getScopedBranches, isOperationAllowed } from '../../utils/permissions';
 
 type VoucherMode = 'JOURNAL' | 'CASH_BANK';
 
@@ -56,8 +46,6 @@ export interface VoucherEntryProps {
   branches: Branch[];
   currentUser?: User | null;
   suppliers?: Supplier[];
-  /** App's transactionLog register counter: journal-writing mutations bump it. */
-  sseRefreshKey?: number;
 }
 
 interface VoucherLine {
@@ -93,6 +81,11 @@ const CASH_VOUCHER_TYPES = [
   { value: 'CASH_PAYMENT', label: 'Cash / Bank Payment' },
 ] as const;
 
+const CURRENCY_CHOICES: SearchSelectOption[] = CURRENCY_OPTIONS.map((code) => ({
+  value: code,
+  label: code,
+}));
+
 let lineSequence = 0;
 
 function blankLine(): VoucherLine {
@@ -119,10 +112,6 @@ function amountOf(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-/** Voucher families the manual entry screens own and may reverse here. */
-const REVERSIBLE_SOURCES = new Set(['MANUAL', 'CASH_RECEIPT', 'CASH_PAYMENT', 'CASH_BANK']);
-const LIST_PAGE_SIZE = 25;
-
 const cellInput =
   'w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-900 focus:border-indigo-500 focus:outline-none dark:border-slate-700 dark:bg-[#0f1218] dark:text-white';
 const panel =
@@ -137,14 +126,11 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
   branches,
   currentUser,
   suppliers = [],
-  sseRefreshKey = 0,
 }) => {
   const isCash = mode === 'CASH_BANK';
   const tabKey = isCash ? 'cash-bank-entry' : 'journal-entry';
   const activationKey = useActivationKey(tabKey);
-  const canView = isOperationAllowed('gl-view', currentUser?.role);
   const canPost = isOperationAllowed('gl-post', currentUser?.role);
-  const canReverse = isOperationAllowed('gl-reverse', currentUser?.role);
   const scopedBranches = useMemo(
     () => getScopedBranches(currentUser, branches).filter((branch) => branch.active),
     [branches, currentUser]
@@ -177,21 +163,8 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
   const [cashAccountId, setCashAccountId] = useState('');
   const [memo, setMemo] = useState('');
   const [lines, setLines] = useState<VoucherLine[]>(() => [blankLine(), blankLine()]);
-  const [accounts, setAccounts] = useState<AccountingAccount[]>([]);
+  const [knownAccounts, setKnownAccounts] = useState<Record<string, AccountingAccount>>({});
   const [settlementAccounts, setSettlementAccounts] = useState<SettlementAccount[]>([]);
-  const [employees, setEmployees] = useState<AccountingEmployee[]>([]);
-  const [recent, setRecent] = useState<AccountingJournal[]>([]);
-  const [searchInput, setSearchInput] = useState('');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [listPage, setListPage] = useState(1);
-  const [listTotal, setListTotal] = useState(0);
-  const [listLoading, setListLoading] = useState(false);
-  const [reversalTarget, setReversalTarget] = useState<AccountingJournal | null>(null);
-  const [reversalDate, setReversalDate] = useState(localTodayAD());
-  const [reversalReason, setReversalReason] = useState('');
-  const [reversalError, setReversalError] = useState('');
-  const [reversing, setReversing] = useState(false);
-  const [detailId, setDetailId] = useState<string | null>(null);
   const [currentBalance, setCurrentBalance] = useState<number | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -199,6 +172,49 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [refreshTick, setRefreshTick] = useState(0);
+
+  const branchOptions = useMemo<SearchSelectOption[]>(
+    () =>
+      scopedBranches.map((branch) => ({
+        value: branch.id,
+        label: `${branch.code} · ${branch.name}`,
+      })),
+    [scopedBranches]
+  );
+
+  const cashAccountOptions = useMemo<SearchSelectOption[]>(
+    () =>
+      settlementAccounts.map((account) => ({
+        value: account.id,
+        label: `${account.code} · ${account.name}`,
+        description: [account.bankName, account.accountNumber].filter(Boolean).join(' · ') || undefined,
+      })),
+    [settlementAccounts]
+  );
+
+  const supplierChoices = useMemo<PartyChoice[]>(
+    () =>
+      suppliers.map((supplier) => ({
+        value: supplier.id,
+        label: supplier.supplierCode
+          ? `${supplier.name} (${supplier.supplierCode})`
+          : supplier.name,
+        name: supplier.name,
+      })),
+    [suppliers]
+  );
+
+  const branchPartyChoices = useMemo<PartyChoice[]>(
+    () =>
+      branches
+        .filter((branch) => branch.active)
+        .map((branch) => ({
+          value: branch.id,
+          label: `${branch.code} · ${branch.name}`,
+          name: branch.name,
+        })),
+    [branches]
+  );
 
   useEffect(() => {
     if (!scopedBranches.some((branch) => branch.id === branchId)) {
@@ -210,71 +226,31 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
     if (currency === 'NPR' && exchangeRate !== '1') setExchangeRate('1');
   }, [currency, exchangeRate]);
 
-  const loadJournals = useCallback(
-    async (term: string, page: number) => {
-      if (!branchId) {
-        setRecent([]);
-        setListTotal(0);
-        setListPage(1);
-        return;
-      }
-      setListLoading(true);
-      try {
-        const result = await api.getAccountingJournals({
-          branchId,
-          query: term || undefined,
-          page,
-          pageSize: LIST_PAGE_SIZE,
-        });
-        setRecent(result.data);
-        setListTotal(result.totalItems);
-        const lastPage = Math.max(1, Math.ceil(result.totalItems / LIST_PAGE_SIZE));
-        if (page > lastPage) setListPage(lastPage);
-      } catch (err: any) {
-        setError(err?.message || 'The posted-voucher list could not be loaded.');
-      } finally {
-        setListLoading(false);
-      }
-    },
-    [branchId]
-  );
-
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const employeePromise = branchId
-        ? api.getAccountingEmployees(branchId)
-        : Promise.resolve([] as AccountingEmployee[]);
-      const settlementPromise = isCash
-        ? api.getSettlementAccounts()
-        : Promise.resolve([] as SettlementAccount[]);
-
-      const [accountRows, employeeRows, settlementRows] = await Promise.all([
-        api.getAccountingAccounts(),
-        employeePromise,
-        settlementPromise,
-      ]);
-
-      setAccounts(accountRows.filter((account) => account.isActive));
-      setEmployees(employeeRows);
-      setSettlementAccounts(settlementRows);
+      // The journal form needs no bulk directory reads: account rows arrive
+      // from the search endpoint as the operator picks them, and employees are
+      // searched per branch. Only the small cash/bank settlement list is loaded
+      // eagerly so the default till is ready on the cash screen.
+      if (isCash) {
+        setSettlementAccounts(await api.getSettlementAccounts());
+      } else {
+        setSettlementAccounts([]);
+      }
     } catch (err: any) {
       setError(err?.message || 'The voucher screen could not load its ledgers.');
     } finally {
       setLoading(false);
     }
-  }, [branchId, isCash, activationKey]);
+  }, [isCash, activationKey]);
 
   useEffect(() => {
-    if (canView) void load();
+    if (!canPost) return;
+    void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canView, load, activationKey]);
-
-  useEffect(() => {
-    if (canView) void loadJournals(searchTerm, listPage);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canView, loadJournals, searchTerm, listPage, activationKey, sseRefreshKey]);
+  }, [canPost, load, activationKey]);
 
   useEffect(() => {
     if (!isCash) return;
@@ -309,39 +285,16 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
     };
   }, [isCash, cashAccountId, branchId, journalDate, refreshTick]);
 
-  const accountsById = useMemo(
-    () => new Map(accounts.map((account) => [account.id, account])),
-    [accounts]
-  );
+  const rememberAccount = useCallback((account: AccountingAccount) => {
+    setKnownAccounts((current) =>
+      current[account.id] === account ? current : { ...current, [account.id]: account }
+    );
+  }, []);
 
-  const accountsSorted = useMemo(
-    () => [...accounts].sort((left, right) => left.code.localeCompare(right.code)),
-    [accounts]
-  );
-
-  const partyChoices = useMemo<Record<string, PartyChoice[]>>(
-    () => ({
-      SUPPLIER: suppliers.map((supplier) => ({
-        value: supplier.id,
-        label: supplier.supplierCode
-          ? `${supplier.name} (${supplier.supplierCode})`
-          : supplier.name,
-        name: supplier.name,
-      })),
-      EMPLOYEE: employees.map((employee) => ({
-        value: employee.id,
-        label: `${employee.name} (${employee.employeeCode})`,
-        name: employee.name,
-      })),
-      INTER_BRANCH: branches
-        .filter((branch) => branch.active)
-        .map((branch) => ({
-          value: branch.id,
-          label: `${branch.code} · ${branch.name}`,
-          name: branch.name,
-        })),
-    }),
-    [branches, employees, suppliers]
+  const searchEmployees = useCallback(
+    (query: string) =>
+      branchId ? api.getAccountingEmployees(branchId, query, 20) : Promise.resolve([]),
+    [branchId]
   );
 
   const rate = Number(exchangeRate);
@@ -397,6 +350,7 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
     setExchangeRate('1');
     setMemo('');
     setLines([blankLine(), blankLine()]);
+    setKnownAccounts({});
     setError('');
     setNotice('');
     if (!keepBranch) setBranchId(scopedBranches[0]?.id || '');
@@ -408,9 +362,10 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
     );
   };
 
-  const chooseAccount = (line: VoucherLine, accountId: string) => {
+  const chooseAccount = (line: VoucherLine, account: AccountingAccount | null) => {
+    if (account) rememberAccount(account);
     updateLine(line.key, {
-      accountId,
+      accountId: account?.id || '',
       partyId: '',
       partyName: '',
     });
@@ -485,7 +440,7 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
     for (let index = 0; index < usable.length; index += 1) {
       const line = usable[index];
       const rowNo = lines.findIndex((row) => row.key === line.key) + 1;
-      const account = accountsById.get(line.accountId);
+      const account = knownAccounts[line.accountId];
       if (!account) {
         setError(`Line ${rowNo}: choose a valid ledger account.`);
         return;
@@ -528,7 +483,7 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
     let sourceType: string;
 
     if (isCash) {
-      const cashAccount = accountsById.get(cashAccountId);
+      const cashAccount = settlementAccounts.find((account) => account.id === cashAccountId);
       if (!cashAccount) {
         setError('The selected cash/bank ledger is not available.');
         return;
@@ -634,10 +589,6 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
       setChequeNo('');
       setChequeDate('');
       setRefreshTick((tick) => tick + 1);
-      setSearchInput('');
-      setSearchTerm('');
-      setListPage(1);
-      if (searchTerm === '' && listPage === 1) void loadJournals('', 1);
     } catch (err: any) {
       setError(err?.message || 'The voucher could not be posted.');
     } finally {
@@ -645,61 +596,7 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
     }
   };
 
-  const submitSearch = (event: React.FormEvent) => {
-    event.preventDefault();
-    const term = searchInput.trim();
-    setSearchTerm(term);
-    setListPage(1);
-    if (term === searchTerm && listPage === 1) void loadJournals(term, 1);
-  };
-
-  const clearSearch = () => {
-    setSearchInput('');
-    setSearchTerm('');
-    setListPage(1);
-    void loadJournals('', 1);
-  };
-
-  const openReversal = (journal: AccountingJournal) => {
-    setReversalTarget(journal);
-    setReversalDate(localTodayAD());
-    setReversalReason('');
-    setReversalError('');
-  };
-
-  const submitReversal = async () => {
-    if (!reversalTarget) return;
-    if (!canReverse) {
-      setReversalError('You do not have permission to reverse vouchers.');
-      return;
-    }
-    if (!reversalDate) {
-      setReversalError('Choose the reversal date.');
-      return;
-    }
-    if (!reversalReason.trim()) {
-      setReversalError('Enter the reason for reversing this voucher.');
-      return;
-    }
-    setReversing(true);
-    setReversalError('');
-    try {
-      const reversal = await api.reverseAccountingJournal(reversalTarget.id, {
-        journalDateAD: reversalDate,
-        reason: reversalReason.trim(),
-      });
-      setNotice(`${reversalTarget.journalNo} reversed by ${reversal.journalNo}.`);
-      setReversalTarget(null);
-      setRefreshTick((tick) => tick + 1);
-      await loadJournals(searchTerm, listPage);
-    } catch (err: any) {
-      setReversalError(err?.message || 'The voucher could not be reversed.');
-    } finally {
-      setReversing(false);
-    }
-  };
-
-  if (!canView) {
+  if (!canPost) {
     return (
       <div className="space-y-4">
         <PageHeader
@@ -709,13 +606,13 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
         />
         <div className={errorBox}>
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>You do not have permission to view accounting ledgers.</span>
+          <span>You do not have permission to post vouchers.</span>
         </div>
       </div>
     );
   }
 
-  const voucherTypes = isCash ? CASH_VOUCHER_TYPES : JOURNAL_VOUCHER_TYPES;
+  const voucherTypes: readonly SearchSelectOption[] = isCash ? CASH_VOUCHER_TYPES : JOURNAL_VOUCHER_TYPES;
   const selectedCash = settlementAccounts.find((account) => account.id === cashAccountId);
   const newBalance = currentBalance == null ? null : roundMoney(currentBalance + totals.netNpr);
 
@@ -731,15 +628,7 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
         icon={isCash ? <Wallet className="h-5 w-5 text-indigo-500" /> : <BookOpen className="h-5 w-5 text-indigo-500" />}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                void load();
-                void loadJournals(searchTerm, listPage);
-              }}
-              disabled={loading}
-              className={btnGhost}
-            >
+            <button type="button" onClick={() => void load()} disabled={loading} className={btnGhost}>
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
             </button>
             <button type="button" onClick={() => resetEntry()} className={btnGhost}>
@@ -770,11 +659,6 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
           <span>{notice}</span>
         </div>
       )}
-      {!canPost && (
-        <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-500/40 dark:bg-amber-950/30 dark:text-amber-200">
-          You can review this form, but your role cannot post vouchers.
-        </div>
-      )}
       {scopedBranches.length === 0 && (
         <div className={errorBox}>
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -785,18 +669,16 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
       <section className={panel}>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <div>
-            <label className={labelClass} htmlFor={`${tabKey}-branch`}>Branch</label>
-            <select
-              id={`${tabKey}-branch`}
-              className={inputClass}
+            <label className={labelClass}>Branch</label>
+            <SearchSelect
               value={branchId}
-              onChange={(event) => setBranchId(event.target.value)}
-            >
-              <option value="">Choose branch…</option>
-              {scopedBranches.map((branch) => (
-                <option key={branch.id} value={branch.id}>{branch.code} · {branch.name}</option>
-              ))}
-            </select>
+              options={branchOptions}
+              onChange={(next) => { if (next) setBranchId(next); }}
+              allowClear={false}
+              placeholder="Search branches…"
+              ariaLabel={`${isCash ? 'Cash and bank' : 'Journal'} voucher branch`}
+              emptyLabel="No branch matches this search."
+            />
           </div>
           <div>
             <label className={labelClass} htmlFor={`${tabKey}-date`}>Voucher Date (AD)</label>
@@ -809,17 +691,16 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
             />
           </div>
           <div>
-            <label className={labelClass} htmlFor={`${tabKey}-voucher-type`}>Voucher Type</label>
-            <select
-              id={`${tabKey}-voucher-type`}
-              className={inputClass}
+            <label className={labelClass}>Voucher Type</label>
+            <SearchSelect
               value={voucherType}
-              onChange={(event) => setVoucherType(event.target.value)}
-            >
-              {voucherTypes.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
+              options={voucherTypes}
+              onChange={(next) => { if (next) setVoucherType(next); }}
+              allowClear={false}
+              placeholder="Search voucher types…"
+              ariaLabel={`${isCash ? 'Cash and bank' : 'Journal'} voucher type`}
+              emptyLabel="No voucher type matches this search."
+            />
           </div>
           <div>
             <label className={labelClass} htmlFor={`${tabKey}-voucher-no`}>Voucher No.</label>
@@ -834,18 +715,16 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
           {isCash ? (
             <>
               <div>
-                <label className={labelClass} htmlFor={`${tabKey}-cash-account`}>Cash / Bank</label>
-                <select
-                  id={`${tabKey}-cash-account`}
-                  className={inputClass}
+                <label className={labelClass}>Cash / Bank</label>
+                <SearchSelect
                   value={cashAccountId}
-                  onChange={(event) => setCashAccountId(event.target.value)}
-                >
-                  <option value="">Choose cash/bank ledger…</option>
-                  {settlementAccounts.map((account) => (
-                    <option key={account.id} value={account.id}>{account.code} · {account.name}</option>
-                  ))}
-                </select>
+                  options={cashAccountOptions}
+                  onChange={(next) => { if (next) setCashAccountId(next); }}
+                  allowClear={false}
+                  placeholder="Search cash/bank ledgers…"
+                  ariaLabel="Cash or bank ledger"
+                  emptyLabel="No cash/bank ledger matches this search."
+                />
               </div>
               <div>
                 <label className={labelClass}>Current Balance</label>
@@ -917,17 +796,16 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
           )}
 
           <div>
-            <label className={labelClass} htmlFor={`${tabKey}-currency`}>Currency</label>
-            <select
-              id={`${tabKey}-currency`}
-              className={inputClass}
+            <label className={labelClass}>Currency</label>
+            <SearchSelect
               value={currency}
-              onChange={(event) => setCurrency(event.target.value)}
-            >
-              {CURRENCY_OPTIONS.map((option) => (
-                <option key={option} value={option}>{option}</option>
-              ))}
-            </select>
+              options={CURRENCY_CHOICES}
+              onChange={(next) => { if (next) setCurrency(next); }}
+              allowClear={false}
+              placeholder="Search currencies…"
+              ariaLabel={`${isCash ? 'Cash and bank' : 'Journal'} voucher currency`}
+              emptyLabel="No currency matches this search."
+            />
           </div>
           <div>
             <label className={labelClass} htmlFor={`${tabKey}-rate`}>
@@ -984,33 +862,43 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {lines.map((line, index) => {
-                const account = accountsById.get(line.accountId);
-                const choices = account?.isControl
-                  ? partyChoices[account.subledgerType] || []
-                  : [];
+                const account = knownAccounts[line.accountId];
                 return (
                   <tr key={line.key} className="align-top">
                     <td className="px-2 py-2 font-mono text-slate-400">{index + 1}</td>
                     <td className="px-2 py-2">
-                      <select
-                        aria-label={`Line ${index + 1} ledger`}
-                        className={cellInput}
-                        value={line.accountId}
-                        onChange={(event) => chooseAccount(line, event.target.value)}
-                      >
-                        <option value="">Choose ledger…</option>
-                        {accountsSorted.map((option) => {
-                          const category =
-                            typeof option.masterProfile?.category === 'string'
-                              ? option.masterProfile.category
-                              : '';
-                          return (
-                            <option key={option.id} value={option.id}>
-                              {option.code} · {option.name}{category ? ` · ${category}` : ''}
-                            </option>
-                          );
-                        })}
-                      </select>
+                      <SearchPicker<AccountingAccount>
+                        value={
+                          account
+                            ? { id: account.id, label: `${account.code} · ${account.name}` }
+                            : null
+                        }
+                        onSelect={(next) => chooseAccount(line, next)}
+                        search={api.searchAccountingAccounts}
+                        itemKey={(row) => row.id}
+                        itemLabel={(row) => `${row.code} · ${row.name}`}
+                        placeholder="Search ledgers…"
+                        inputClassName="h-8 text-[10px]"
+                        ariaLabel={`Line ${index + 1} ledger`}
+                        portal
+                        labels={{
+                          hint: 'Type a code or ledger name to search.',
+                          loading: 'Searching ledgers…',
+                          empty: 'No active ledger matches this search.',
+                          error: 'Could not search the ledger chart.',
+                        }}
+                        renderOption={(row) => (
+                          <div className="min-w-0 pr-2">
+                            <div className="break-words text-xs font-semibold leading-snug text-slate-900 dark:text-white">
+                              {row.code} · {row.name}
+                            </div>
+                            <div className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">
+                              {row.groupCode} · {row.groupName}
+                              {row.isControl ? ` · ${row.subledgerType} control` : ''}
+                            </div>
+                          </div>
+                        )}
+                      />
                     </td>
                     <td className="px-2 py-2">
                       {account?.isControl && account.subledgerType === 'CUSTOMER' ? (
@@ -1034,18 +922,71 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
                         />
                       ) : !account?.isControl ? (
                         <span className="block px-2 py-1.5 text-[11px] text-slate-400">—</span>
-                      ) : choices.length > 0 ? (
-                        <select
-                          aria-label={`Line ${index + 1} party`}
-                          className={cellInput}
+                      ) : account.subledgerType === 'SUPPLIER' ? (
+                        <SearchSelect
                           value={line.partyId}
-                          onChange={(event) => chooseParty(line, event.target.value, choices)}
-                        >
-                          <option value="">Choose {account.subledgerType.toLowerCase()}…</option>
-                          {choices.map((choice) => (
-                            <option key={choice.value} value={choice.value}>{choice.label}</option>
-                          ))}
-                        </select>
+                          options={supplierChoices}
+                          onChange={(next) => chooseParty(line, next, supplierChoices)}
+                          placeholder="Search suppliers…"
+                          inputClassName="h-8 text-[10px]"
+                          ariaLabel={`Line ${index + 1} supplier`}
+                          portal
+                          panelMinWidth={360}
+                          emptyLabel="No supplier matches this search."
+                        />
+                      ) : account.subledgerType === 'INTER_BRANCH' ? (
+                        <SearchSelect
+                          value={line.partyId}
+                          options={branchPartyChoices}
+                          onChange={(next) => chooseParty(line, next, branchPartyChoices)}
+                          placeholder="Search branches…"
+                          inputClassName="h-8 text-[10px]"
+                          ariaLabel={`Line ${index + 1} branch`}
+                          portal
+                          emptyLabel="No branch matches this search."
+                        />
+                      ) : account.subledgerType === 'EMPLOYEE' ? (
+                        <SearchPicker<AccountingEmployee>
+                          value={
+                            line.partyId
+                              ? { id: line.partyId, label: line.partyName || line.partyId }
+                              : null
+                          }
+                          onSelect={(employee) =>
+                            updateLine(line.key, {
+                              partyId: employee?.id || '',
+                              partyName: employee?.name || '',
+                            })
+                          }
+                          search={searchEmployees}
+                          itemKey={(row) => row.id}
+                          itemLabel={(row) => `${row.name} (${row.employeeCode})`}
+                          placeholder="Search employees…"
+                          inputClassName="h-8 text-[10px]"
+                          ariaLabel={`Line ${index + 1} employee`}
+                          portal
+                          labels={{
+                            hint: 'Type a name or employee code to search this branch.',
+                            loading: 'Searching employees…',
+                            empty: 'No employee matches this search.',
+                            error: 'Could not search the employee master.',
+                          }}
+                          renderOption={(row) => (
+                            <div className="min-w-0 pr-2">
+                              <div className="break-words text-xs font-semibold leading-snug text-slate-900 dark:text-white">
+                                {row.name}{' '}
+                                <span className="whitespace-nowrap font-mono text-[10px] text-slate-500 dark:text-slate-400">
+                                  ({row.employeeCode})
+                                </span>
+                              </div>
+                              {(row.department || row.designation) && (
+                                <div className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">
+                                  {[row.department, row.designation].filter(Boolean).join(' · ')}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        />
                       ) : (
                         <input
                           aria-label={`Line ${index + 1} party`}
@@ -1183,213 +1124,6 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
           </div>
         </div>
       </section>
-
-      <section className={panel}>
-        <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Posted vouchers</h3>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              Search this branch&apos;s vouchers and reverse an eligible manual or cash/bank voucher with a contra entry.
-            </p>
-          </div>
-          <span className="text-[11px] font-medium text-slate-400">
-            {listTotal} voucher{listTotal === 1 ? '' : 's'}
-          </span>
-        </div>
-
-        <form onSubmit={submitSearch} className="mb-3 flex flex-wrap items-center gap-2">
-          <div className="relative min-w-[220px] flex-1">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-            <input
-              value={searchInput}
-              onChange={(event) => setSearchInput(event.target.value)}
-              placeholder="Voucher no., remarks or source reference"
-              className="w-full rounded-lg border border-slate-300 bg-white py-1.5 pl-8 pr-2 text-xs text-slate-900 focus:border-indigo-500 focus:outline-none dark:border-slate-700 dark:bg-[#0f1218] dark:text-white"
-            />
-          </div>
-          <button type="submit" className={btnGhost} disabled={listLoading}>
-            <Search className="h-4 w-4" /> Search
-          </button>
-          {(searchTerm || searchInput) && (
-            <button type="button" className={btnGhost} onClick={clearSearch} disabled={listLoading}>
-              <X className="h-4 w-4" /> Clear
-            </button>
-          )}
-        </form>
-
-        {listLoading && recent.length === 0 ? (
-          <p className="px-1 py-4 text-xs text-slate-400">Loading vouchers…</p>
-        ) : recent.length === 0 ? (
-          <p className="px-1 py-4 text-xs text-slate-400">
-            {searchTerm ? 'No voucher matches this search.' : 'No vouchers posted in this branch yet.'}
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[820px] text-left text-xs">
-              <thead className="text-[10px] uppercase tracking-wide text-slate-400">
-                <tr>
-                  <th className="px-2 py-1.5">Date</th>
-                  <th className="px-2 py-1.5">Voucher No.</th>
-                  <th className="px-2 py-1.5">Type</th>
-                  <th className="px-2 py-1.5">Remarks</th>
-                  <th className="px-2 py-1.5 text-right">Debit</th>
-                  <th className="px-2 py-1.5 text-right">Credit</th>
-                  <th className="px-2 py-1.5">Status</th>
-                  <th className="px-2 py-1.5 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {recent.map((journal) => {
-                  const reversalNo = journal.reversalJournalNo;
-                  const status = journalStatus(journal);
-                  const eligible =
-                    canReverse &&
-                    !journal.reversalOfId &&
-                    !reversalNo &&
-                    journal.status === 'POSTED' &&
-                    REVERSIBLE_SOURCES.has(journal.sourceType);
-                  return (
-                    <tr key={journal.id}>
-                      <td className="whitespace-nowrap px-2 py-2 text-slate-500">{journal.journalDateAD}</td>
-                      <td className="whitespace-nowrap px-2 py-2 font-mono font-semibold text-slate-700 dark:text-slate-200">
-                        {journal.journalNo}
-                        {journal.reversalOfNo && (
-                          <span className="block font-sans text-[10px] font-normal text-slate-400">
-                            of {journal.reversalOfNo}
-                          </span>
-                        )}
-                      </td>
-                      <td className="whitespace-nowrap px-2 py-2 text-slate-500">{sourceLabel(journal.sourceType)}</td>
-                      <td className="max-w-[240px] truncate px-2 py-2 text-slate-500" title={journal.memo || ''}>{journal.memo || '—'}</td>
-                      <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums">{formatMoney(journal.totalDebit)}</td>
-                      <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums">{formatMoney(journal.totalCredit)}</td>
-                      <td className="whitespace-nowrap px-2 py-2">
-                        <span
-                          className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusBadgeClass(status)}`}
-                          title={reversalNo ? `Reversed by ${reversalNo}` : undefined}
-                        >
-                          {status}
-                        </span>
-                        {reversalNo && (
-                          <span className="mt-0.5 block font-mono text-[10px] text-slate-400">{reversalNo}</span>
-                        )}
-                      </td>
-                      <td className="whitespace-nowrap px-2 py-2 text-right">
-                        <div className="flex justify-end gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => setDetailId(journal.id)}
-                            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                            title="View voucher lines and any linked reversal"
-                          >
-                            <Eye className="h-3.5 w-3.5" /> View
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openReversal(journal)}
-                            disabled={!eligible}
-                            className="inline-flex items-center gap-1 rounded-lg border border-rose-200 px-2 py-1 text-[11px] font-medium text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300 dark:border-rose-500/30 dark:text-rose-300 dark:hover:bg-rose-950/30 dark:disabled:border-slate-800 dark:disabled:text-slate-600"
-                            title={eligible ? 'Reverse this voucher with a contra entry' : 'This voucher is not eligible for reversal'}
-                          >
-                            <Undo2 className="h-3.5 w-3.5" /> Reverse
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
-          <span>
-            Page {listPage} of {Math.max(1, Math.ceil(listTotal / LIST_PAGE_SIZE))}
-          </span>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              className={btnGhost}
-              disabled={listPage <= 1 || listLoading}
-              onClick={() => setListPage((page) => Math.max(1, page - 1))}
-            >
-              <ChevronLeft className="h-4 w-4" /> Previous
-            </button>
-            <button
-              type="button"
-              className={btnGhost}
-              disabled={listPage >= Math.max(1, Math.ceil(listTotal / LIST_PAGE_SIZE)) || listLoading}
-              onClick={() => setListPage((page) => page + 1)}
-            >
-              Next <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {detailId && (
-        <VoucherDetailDialog journalId={detailId} onClose={() => setDetailId(null)} />
-      )}
-
-      {reversalTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
-          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-700 dark:bg-slate-900">
-            <div className="mb-3 flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Reverse voucher</h3>
-                <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-                  {reversalTarget.journalNo} · {formatMoney(reversalTarget.totalDebit)} · {reversalTarget.journalDateAD}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setReversalTarget(null)}
-                disabled={reversing}
-                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40 dark:hover:bg-slate-800"
-                aria-label="Close reversal dialog"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <p className="mb-3 rounded-xl bg-amber-50 px-3 py-2 text-[11px] text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
-              A contra voucher will be posted for the same amount with debits and credits swapped. The original stays
-              posted and auditable; this action cannot be undone.
-            </p>
-            <label className={labelClass} htmlFor={`${tabKey}-reversal-date`}>Reversal date</label>
-            <input
-              id={`${tabKey}-reversal-date`}
-              type="date"
-              value={reversalDate}
-              onChange={(event) => setReversalDate(event.target.value)}
-              className={inputClass}
-            />
-            <label className={`${labelClass} mt-3`} htmlFor={`${tabKey}-reversal-reason`}>Reason</label>
-            <textarea
-              id={`${tabKey}-reversal-reason`}
-              value={reversalReason}
-              onChange={(event) => setReversalReason(event.target.value)}
-              className={`${inputClass} min-h-[80px]`}
-              placeholder="Why is this voucher being reversed?"
-            />
-            {reversalError && <div className={`${errorBox} mt-3`}>{reversalError}</div>}
-            <div className="mt-4 flex justify-end gap-2">
-              <button type="button" className={btnGhost} onClick={() => setReversalTarget(null)} disabled={reversing}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void submitReversal()}
-                disabled={reversing}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-60"
-              >
-                {reversing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />}
-                {reversing ? 'Reversing…' : 'Post reversal'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

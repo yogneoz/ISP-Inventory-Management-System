@@ -123,6 +123,7 @@ export type NavTab =
   | 'accounting-aging'
   | 'journal-entry'
   | 'cash-bank-entry'
+  | 'posted-vouchers'
   | 'accounting-chart'
   | 'general-ledger'
   | 'subledgers'
@@ -213,6 +214,7 @@ export const NAV_TABS: NavTab[] = [
   'accounting-aging',
   'journal-entry',
   'cash-bank-entry',
+  'posted-vouchers',
   'accounting-chart',
   'general-ledger',
   'subledgers',
@@ -662,10 +664,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
   //    registers (each statement is its own register since the workspace
   //    split), the management overview, ledgers, tax and the asset register.
   const financeChildren: NavChildDef[] = [];
-  if (isOperationAllowed('gl-view', currentUser?.role)) {
+  // Posting screens require the posting operation, not ledger read. A user
+  // who may only read the ledger gets the Posted Vouchers register instead of
+  // an entry form whose Post button would be refused.
+  if (isOperationAllowed('gl-post', currentUser?.role)) {
     financeChildren.push(
       { id: 'journal-entry' as NavTab, label: 'Journal Entry', icon: BookOpen, section: 'Entries' },
-      { id: 'cash-bank-entry' as NavTab, label: 'Cash & Bank Entry', icon: Wallet, section: 'Entries' },
+      { id: 'cash-bank-entry' as NavTab, label: 'Cash & Bank Entry', icon: Wallet, section: 'Entries' }
+    );
+  }
+  if (isOperationAllowed('gl-view', currentUser?.role)) {
+    financeChildren.push(
+      { id: 'posted-vouchers' as NavTab, label: 'Posted Vouchers', icon: ClipboardList, section: 'Entries' },
       { id: 'accounting' as NavTab, label: 'Trial Balance', icon: Scale, section: 'Statements & ledgers' },
       { id: 'accounting-profit-loss' as NavTab, label: 'Profit & Loss', icon: TrendingUp, section: 'Statements & ledgers' },
       { id: 'accounting-balance-sheet' as NavTab, label: 'Balance Sheet', icon: Landmark, section: 'Statements & ledgers' },
@@ -741,12 +751,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
   //    organisation tree. Chart of Accounts is master data, so it lives here;
   //    Finance keeps the registers and reports that read from it.
   const inventorySetupChildren: NavChildDef[] = [
-    ...(isOperationAllowed('gl-view', currentUser?.role)
+    ...(isOperationAllowed('gl-chart-manage', currentUser?.role)
       ? [
           { id: 'accounting-chart' as NavTab, label: 'Chart of Accounts', icon: ListTree, section: 'Accounting' },
           { id: 'general-ledger' as NavTab, label: 'General Ledger Master', icon: ListTree, section: 'Accounting' },
-          { id: 'subledgers' as NavTab, label: 'Subledgers', icon: Layers, section: 'Accounting' },
-          { id: 'bill-terms' as NavTab, label: 'Bill Terms', icon: CalendarClock, section: 'Accounting' },
+        ]
+      : []),
+    ...(isOperationAllowed('gl-subledger-manage', currentUser?.role)
+      ? [{ id: 'subledgers' as NavTab, label: 'Subledgers', icon: Layers, section: 'Accounting' }]
+      : []),
+    ...(isOperationAllowed('gl-bill-terms-manage', currentUser?.role)
+      ? [{ id: 'bill-terms' as NavTab, label: 'Bill Terms', icon: CalendarClock, section: 'Accounting' }]
+      : []),
+    ...(isOperationAllowed('gl-dimension-manage', currentUser?.role)
+      ? [
           { id: 'cost-centers' as NavTab, label: 'Cost Centers', icon: Layers, section: 'Accounting' },
           { id: 'narration-templates' as NavTab, label: 'Narration Templates', icon: FileText, section: 'Accounting' },
         ]

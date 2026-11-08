@@ -14,6 +14,7 @@
  */
 import crypto from 'crypto';
 import { ApiError } from '../errors/ApiError';
+import { bsDateOrThrow, resolveBsDateForLedger } from '../utils/bsDate';
 import { roundMoney } from '../utils/money';
 import {
   CASH_BRANCH_FIGURES_SQL,
@@ -35,6 +36,7 @@ export interface CashCloseRecord {
   id: string;
   branchId: string;
   businessDateAD: string;
+  businessDateBS: string;
   openingCash: number;
   cashIn: number;
   cashOut: number;
@@ -61,6 +63,7 @@ export interface CashCloseBranchRow extends CashBranchFigures {
 
 export interface CashPositionResult {
   dateAD: string;
+  dateBS: string;
   branchId: string | null;
   branches: CashCloseBranchRow[];
   totals: {
@@ -100,6 +103,7 @@ function mapClose(row: any): CashCloseRecord {
     id: String(row.id),
     branchId: String(row.branchId),
     businessDateAD: String(row.businessDateAD).slice(0, 10),
+    businessDateBS: String(row.businessDateBS),
     openingCash: money(row.openingCash),
     cashIn: money(row.cashIn),
     cashOut: money(row.cashOut),
@@ -203,6 +207,7 @@ export async function buildCashPosition(
 
   return {
     dateAD: options.dateAD,
+    dateBS: await resolveBsDateForLedger(options.dateAD, client),
     branchId: options.branchId ?? null,
     branches: merged,
     totals,
@@ -248,6 +253,9 @@ export async function closeCashDay(
   const opening = money(figures.opening);
   const cashIn = money(figures.cashIn);
   const cashOut = money(figures.cashOut);
+  // The close is a persisted business-day record: derive its BS half from the
+  // seeded calendar in this same transaction, never from the request body.
+  const dateBS = await bsDateOrThrow(input.dateAD, client);
 
   const row = existing
     ? (
@@ -255,6 +263,7 @@ export async function closeCashDay(
           DAILY_CASH_CLOSE_UPDATE_CLOSED_SQL,
           cashCloseUpdateParams({
             id: String(existing.id),
+            dateBS,
             opening,
             cashIn,
             cashOut,
@@ -272,6 +281,7 @@ export async function closeCashDay(
             id: `dcc-${crypto.randomUUID()}`,
             branchId: input.branchId,
             dateAD: input.dateAD,
+            dateBS,
             opening,
             cashIn,
             cashOut,

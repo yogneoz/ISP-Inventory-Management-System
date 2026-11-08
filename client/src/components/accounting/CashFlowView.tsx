@@ -3,6 +3,7 @@ import { StatCard } from '../common/StatCard';
 import type { CashFlowResponse } from '../../services/api/accounting';
 import { StatusPill } from './StatementPrimitives';
 import { money } from './statementFormat';
+import { formatDualDate } from '../../utils/nepaliCalendar';
 
 export const CashFlowView: React.FC<{ data: CashFlowResponse }> = ({ data }) => {
   const operating = data.sections.find((section) => section.key === 'OPERATING')?.amount ?? 0;
@@ -30,7 +31,8 @@ export const CashFlowView: React.FC<{ data: CashFlowResponse }> = ({ data }) => 
         <div className="border-b border-slate-200 px-3 py-2 dark:border-slate-800">
           <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200">Statement of cash flows</h3>
           <p className="text-[11px] text-slate-500 dark:text-slate-400">
-            {data.from || 'From inception'} → {data.to}, from posted journal lines.
+            {data.from ? formatDualDate(data.from) : 'From inception'} → {formatDualDate(data.to)},
+            from posted journal lines.
           </p>
         </div>
 

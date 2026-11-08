@@ -1227,7 +1227,16 @@ test('aging register renders buckets and unmatched credits and switches AR/AP', 
 test('chart and defaults register renders accounts, defaults and reconciliation', async () => {
   const restored = mountWorkspace(accountant, 'accounting-chart');
   const restoreApi = installApiStubs(
-    accountingStubs({ getBootstrapState: async () => bootstrapWithTab('accounting-chart') })
+    accountingStubs({
+      getBootstrapState: async () => bootstrapWithTab('accounting-chart'),
+      // The chart is a management screen: its tab is hidden without the
+      // operation its maintenance buttons need.
+      getMyPermissions: async () => ({
+        role: 'ACCOUNTANT',
+        operations: ['gl-view', 'gl-chart-manage'],
+        version: 1,
+      }),
+    })
   );
   const tree = mountAppRouteTree();
 
@@ -1398,7 +1407,7 @@ test('chart maintenance creates, edits, retires and deletes through the mounted 
   }
 });
 
-test('chart maintenance is hidden without gl-chart-manage', async () => {
+test('the chart screen is hidden without gl-chart-manage', async () => {
   const auditor = { ...accountant, id: 'u-auditor', role: 'AUDITOR' } as unknown as User;
   const restored = mountWorkspace(auditor, 'accounting-chart');
   const restoreApi = installApiStubs(
@@ -1411,9 +1420,10 @@ test('chart maintenance is hidden without gl-chart-manage', async () => {
 
   try {
     assert.ok(
-      await settleUntil(() => text(tree.container).includes('Posting defaults')),
-      'an auditor must still read the chart'
+      await settleUntil(() => window.location.pathname === '/dashboard'),
+      'a reader without gl-chart-manage must be redirected away from the chart screen'
     );
+    assert.doesNotMatch(text(tree.container), /Posting defaults/);
     assert.equal(buttonByTextOrNull(tree.container, 'New account'), null);
     assert.equal(tree.container.querySelector('[aria-label="Edit account 1100"]'), null);
   } finally {

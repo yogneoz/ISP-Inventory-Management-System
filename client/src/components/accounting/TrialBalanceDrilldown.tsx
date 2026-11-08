@@ -12,6 +12,7 @@ import type {
 import { ModalPanel } from '../common/ModalPanel';
 import { StatusPill } from './StatementPrimitives';
 import { money } from './statementFormat';
+import { formatDualDate } from '../../utils/nepaliCalendar';
 import { JournalLink, VoucherDetailDialog } from './VoucherDetailDialog';
 
 export type TrialBalanceDrilldownTarget =
@@ -345,7 +346,7 @@ export const TrialBalanceDrilldown: React.FC<TrialBalanceDrilldownProps> = ({
             />
             <LineTable
               title="Period lines"
-              caption={from ? `${from} → ${to}` : `Through ${to}`}
+              caption={from ? `${formatDualDate(from)} → ${formatDualDate(to)}` : `Through ${formatDualDate(to)}`}
               entries={periodEntries}
               totalCount={data.totals.periodEntryCount}
               emptyMessage={

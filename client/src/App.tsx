@@ -177,6 +177,9 @@ const JournalEntry = React.lazy(() =>
 const CashBankEntry = React.lazy(() =>
   import('./features/finance/VoucherEntries').then((m) => ({ default: m.CashBankEntry }))
 );
+const PostedVouchers = React.lazy(() =>
+  import('./features/finance/PostedVouchers').then((m) => ({ default: m.PostedVouchers }))
+);
 const SubledgersManagement = React.lazy(() =>
   import('./features/finance/SubledgersManagement').then((m) => ({ default: m.SubledgersManagement }))
 );
@@ -3327,20 +3330,19 @@ export default function App() {
     )),
     screenRoute('journal-entry', (
       <React.Suspense fallback={<TabLoadingFallback />}>
-        <JournalEntry
-          branches={branches}
-          currentUser={currentUser}
-          suppliers={suppliers}
-          sseRefreshKey={registerRefresh.transactionLog}
-        />
+        <JournalEntry branches={branches} currentUser={currentUser} suppliers={suppliers} />
       </React.Suspense>
     )),
     screenRoute('cash-bank-entry', (
       <React.Suspense fallback={<TabLoadingFallback />}>
-        <CashBankEntry
+        <CashBankEntry branches={branches} currentUser={currentUser} suppliers={suppliers} />
+      </React.Suspense>
+    )),
+    screenRoute('posted-vouchers', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <PostedVouchers
           branches={branches}
           currentUser={currentUser}
-          suppliers={suppliers}
           sseRefreshKey={registerRefresh.transactionLog}
         />
       </React.Suspense>

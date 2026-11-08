@@ -45,6 +45,7 @@ import {
   PAYROLL_RUN_SET_JOURNAL_SQL,
   PAYROLL_RUN_SET_PAID_SQL,
   buildEmployeeListQuery,
+  buildEmployeePickerQuery,
   buildPayrollRunListQuery,
   employeeInsertParams,
   payrollLineInsertParams,
@@ -61,6 +62,7 @@ import {
   postPayrollRunJournal,
   type PayrollPostingLine,
 } from '../services/payrollPosting.service';
+import { bsDateOrThrow } from '../utils/bsDate';
 import { issueNextDocNumber } from '../utils/docNumber';
 import { roundMoney } from '../utils/money';
 
@@ -167,6 +169,28 @@ export async function get_employees(req: any, res: Response): Promise<any> {
     ...options,
     query: text(req.query?.query, 100) || null,
     activeOnly: String(req.query?.activeOnly ?? '') === '1',
+    limit: req.query?.limit ? Number(req.query.limit) : undefined,
+  });
+  return res.json((await pgPool.query(sql, params)).rows);
+}
+
+/** GET /api/employees/search?branchId=&query=&limit= */
+export async function search_employees(req: any, res: Response): Promise<any> {
+  requireDb();
+  const scope = resolveScope(req, res);
+  if (!scope) return;
+  if (scope.empty) return res.json([]);
+  const rawBranch = text(req.query?.branchId, 50);
+  const options =
+    rawBranch && rawBranch !== 'ALL'
+      ? { branchId: rawBranch }
+      : scope.allowed
+        ? { branchScope: [...scope.allowed] }
+        : {};
+  const { sql, params } = buildEmployeePickerQuery({
+    ...options,
+    query: text(req.query?.query, 100) || null,
+    limit: req.query?.limit ? Number(req.query.limit) : undefined,
   });
   return res.json((await pgPool.query(sql, params)).rows);
 }
@@ -377,6 +401,7 @@ export async function post_payrollRun(req: any, res: Response): Promise<any> {
   if (periodKeyForDate(runDateAD) !== periodKey) {
     throw new ApiError(400, `runDateAD must fall inside ${periodKey}.`);
   }
+  const runDateBS = await bsDateOrThrow(runDateAD);
 
   const rawLines = Array.isArray(req.body?.lines) ? req.body.lines : [];
   if (rawLines.length === 0) throw new ApiError(400, 'A payroll run needs at least one employee line.');
@@ -482,6 +507,7 @@ export async function post_payrollRun(req: any, res: Response): Promise<any> {
         branchId,
         periodKey,
         runDateAD,
+        runDateBS,
         grossTotal: totals.gross,
         tdsTotal: totals.tds,
         ssfTotal: totals.ssf,
@@ -576,6 +602,7 @@ export async function post_payrollPayment(req: any, res: Response): Promise<any>
     if (dateAD < String(run.runDateAD)) {
       throw new ApiError(400, `Payment date ${dateAD} cannot precede the run date ${run.runDateAD}.`);
     }
+    const paidDateBS = await bsDateOrThrow(dateAD, client);
 
     const lines = (await client.query(PAYROLL_LINES_BY_RUN_SQL, [id])).rows;
     const journal = await postPayrollPaymentJournal(client, {
@@ -591,7 +618,7 @@ export async function post_payrollPayment(req: any, res: Response): Promise<any>
     if (!journal) {
       throw new ApiError(400, 'This run has no net salary to pay: every employee line is fully deducted.');
     }
-    await client.query(PAYROLL_RUN_SET_PAID_SQL, [id, journal.id, dateAD, paymentMethod]);
+    await client.query(PAYROLL_RUN_SET_PAID_SQL, [id, journal.id, dateAD, paidDateBS, paymentMethod]);
     const updated = (await client.query(PAYROLL_RUN_BY_ID_SQL, [id])).rows[0];
     await logAuditEvent(
       req,

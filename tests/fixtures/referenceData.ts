@@ -204,6 +204,16 @@ export async function ensureReferenceData(
   // so the posting defaults are part of the reference data a schema-only
   // database needs. The seeder is idempotent and additive.
   await ensureDefaultChart(db);
-  const resolved = await ensureBsDayRecords(db, [adDate]);
+  // A finance write persists both halves of the date for the document, its
+  // monthly period and any reference/cheque date. Seed the whole month the
+  // suite's business day falls in, so a period boundary and a nearby voucher
+  // date resolve exactly as they do on a booted install.
+  const [year, month] = adDate.split('-').map(Number);
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const dates = Array.from(
+    { length: daysInMonth },
+    (_, index) => `${adDate.slice(0, 7)}-${String(index + 1).padStart(2, '0')}`
+  );
+  const resolved = await ensureBsDayRecords(db, dates);
   return { adDate, bsDate: resolved.get(adDate)! };
 }

@@ -649,6 +649,21 @@ export async function getAccountingAccounts(includeInactive = false): Promise<Ac
   return fetchJson(`/api/accounting/accounts${includeInactive ? '?includeInactive=1' : ''}`);
 }
 
+/**
+ * Bounded ledger search for the entry-form pickers. The screen no longer loads
+ * the whole chart: each keystroke asks for the matching rows (max 20 by
+ * default), so opening a voucher stays fast on a large chart.
+ */
+export async function searchAccountingAccounts(
+  query: string,
+  options: { kind?: 'CASH' | 'BANK' | 'CASH_BANK'; limit?: number } = {}
+): Promise<AccountingAccount[]> {
+  const params = new URLSearchParams({ q: query.trim() });
+  if (options.kind) params.set('kind', options.kind);
+  if (options.limit) params.set('limit', String(options.limit));
+  return fetchJson(`/api/accounting/accounts/search?${params.toString()}`);
+}
+
 /** Active cash/bank ledgers for payment settlement pickers. */
 export async function getSettlementAccounts(): Promise<SettlementAccount[]> {
   return fetchJson('/api/accounting/settlement-accounts');
@@ -847,6 +862,7 @@ export interface CashCloseRecord {
   id: string;
   branchId: string;
   businessDateAD: string;
+  businessDateBS: string;
   openingCash: number;
   cashIn: number;
   cashOut: number;
@@ -890,6 +906,7 @@ export interface CashPositionTotals {
 
 export interface CashPositionResponse {
   dateAD: string;
+  dateBS: string;
   branchId: string | null;
   branches: CashCloseBranch[];
   totals: CashPositionTotals;
@@ -897,6 +914,7 @@ export interface CashPositionResponse {
 
 export interface CashCloseBranchResponse {
   dateAD: string;
+  dateBS: string;
   branchId: string;
   branch: CashCloseBranch;
   totals: CashPositionTotals;
@@ -1123,11 +1141,15 @@ export interface AccountingEmployee {
 }
 
 export async function getAccountingEmployees(
-  branchId?: string
+  branchId?: string,
+  query?: string,
+  limit?: number
 ): Promise<AccountingEmployee[]> {
-  const params = new URLSearchParams({ activeOnly: '1' });
+  const params = new URLSearchParams();
   if (branchId && branchId !== 'ALL') params.set('branchId', branchId);
-  return fetchJson(`/api/employees?${params.toString()}`);
+  if (query?.trim()) params.set('query', query.trim());
+  if (limit) params.set('limit', String(limit));
+  return fetchJson(`/api/employees/search?${params.toString()}`);
 }
 
 /** A line as posted through the manual journal endpoint. Amounts are NPR. */
@@ -1184,6 +1206,7 @@ export interface AccountingJournalSubledgerEntry {
   partyName: string | null;
   branchId: string;
   entryDateAD: string;
+  entryDateBS: string;
   debit: number;
   credit: number;
 }
@@ -1192,6 +1215,7 @@ export interface AccountingJournal {
   id: string;
   journalNo: string;
   journalDateAD: string;
+  journalDateBS: string;
   fiscalYearId: string;
   fiscalYearCode: string;
   periodId: string;
@@ -1204,8 +1228,10 @@ export interface AccountingJournal {
   voucherClass: string | null;
   referenceNo: string | null;
   referenceDateAD: string | null;
+  referenceDateBS: string | null;
   chequeNo: string | null;
   chequeDateAD: string | null;
+  chequeDateBS: string | null;
   currency: string;
   exchangeRate: number;
   memo: string | null;

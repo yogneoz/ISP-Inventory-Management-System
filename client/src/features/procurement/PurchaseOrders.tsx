@@ -344,6 +344,11 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
         },
         { key: 'expectedDeliveryDateAD', label: 'Expected Delivery (AD)' },
         {
+          key: 'expectedDeliveryDateBS',
+          label: 'Expected Delivery (BS)',
+          formatter: (_: any, row: any) => formatBSDate(row.expectedDeliveryDateAD || row.expectedDeliveryDateBS),
+        },
+        {
           key: 'linkedInvoiceNumber',
           label: 'Vendor Bill #',
           formatter: (_: any, row: any) =>
@@ -359,6 +364,23 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
         { key: 'notes', label: 'Notes' },
       ],
     });
+  };
+
+  const handleDownloadPoPdf = async () => {
+    if (!viewingPO) return;
+    try {
+      const blob = await api.getPurchaseOrderPdf(viewingPO.id);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `purchase-order-${viewingPO.poNumber}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error: any) {
+      alertDialog(error?.message || 'Unable to download this purchase order PDF.');
+    }
   };
 
   const openPoDetail = (po: PurchaseOrder) => {
@@ -921,10 +943,16 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                 PO #{viewingPO.poNumber}
               </div>
               <div className="text-xs text-slate-500 dark:text-slate-400">
-                Order Date: {viewingPO.orderDateAD} ({viewingPO.orderDateBS})
+                Order Date (AD): {viewingPO.orderDateAD}
               </div>
               <div className="text-xs text-slate-500 dark:text-slate-400">
-                Expected Delivery: {viewingPO.expectedDeliveryDateAD}
+                Order Date (BS): {viewingPO.orderDateBS}
+              </div>
+              <div className="text-xs text-slate-500 dark:text-slate-400">
+                Expected Delivery (AD): {viewingPO.expectedDeliveryDateAD || '—'}
+              </div>
+              <div className="text-xs text-slate-500 dark:text-slate-400">
+                Expected Delivery (BS): {viewingPO.expectedDeliveryDateBS || formatBSDate(viewingPO.expectedDeliveryDateAD)}
               </div>
             </div>
           </div>
@@ -1050,6 +1078,15 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
               >
                 <Printer className="h-4 w-4" />
                 <span>Print Document</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleDownloadPoPdf}
+                className="flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                <Download className="h-4 w-4" />
+                <span>Download PDF</span>
               </button>
             </div>
 

@@ -159,7 +159,9 @@ export const PERIOD_COLUMNS = `p.id,
   fy.code AS "fiscalYearCode",
   p.period_key AS "periodKey",
   p.start_date_ad AS "startDateAD",
+  p.start_date_bs AS "startDateBS",
   p.end_date_ad AS "endDateAD",
+  p.end_date_bs AS "endDateBS",
   p.status,
   p.closed_at AS "closedAt",
   p.closed_by AS "closedBy"`;
@@ -167,6 +169,7 @@ export const PERIOD_COLUMNS = `p.id,
 export const JOURNAL_COLUMNS = `j.id,
   j.journal_no AS "journalNo",
   j.journal_date_ad AS "journalDateAD",
+  j.journal_date_bs AS "journalDateBS",
   j.fiscal_year_id AS "fiscalYearId",
   fy.code AS "fiscalYearCode",
   j.period_id AS "periodId",
@@ -179,8 +182,10 @@ export const JOURNAL_COLUMNS = `j.id,
   j.voucher_class AS "voucherClass",
   j.reference_no AS "referenceNo",
   j.reference_date_ad AS "referenceDateAD",
+  j.reference_date_bs AS "referenceDateBS",
   j.cheque_no AS "chequeNo",
   j.cheque_date_ad AS "chequeDateAD",
+  j.cheque_date_bs AS "chequeDateBS",
   j.currency,
   j.exchange_rate AS "exchangeRate",
   j.memo,
@@ -244,6 +249,7 @@ export const JOURNAL_SUBLEDGER_SQL = `SELECT s.id,
   s.party_name AS "partyName",
   s.branch_id AS "branchId",
   s.entry_date_ad AS "entryDateAD",
+  s.entry_date_bs AS "entryDateBS",
   s.debit::numeric AS debit,
   s.credit::numeric AS credit
 FROM gl_subledger_entries s
@@ -323,6 +329,50 @@ export const ACCOUNT_LIST_SQL = `SELECT ${ACCOUNT_COLUMNS}
 FROM gl_accounts a
 JOIN gl_account_groups g ON g.id = a.group_id
 ORDER BY g.sort_order ASC, a.code ASC`;
+
+export interface AccountSearchOptions {
+  /** Code, name or description fragment. Empty means no search. */
+  query?: string | null;
+  /** Narrow to cash/bank custody ledgers for the settlement picker. */
+  kind?: 'CASH' | 'BANK' | 'CASH_BANK' | null;
+  /** Page size; clamped so a picker never asks for the whole chart. */
+  limit?: number;
+}
+
+/**
+ * Bounded ledger lookup for the searchable account pickers. The old screens
+ * loaded every account and filtered in the browser; this returns only the rows
+ * the operator can see in the list, with the same shape as ACCOUNT_LIST_SQL.
+ * The leading-wildcard LIKE is deliberately limited by `limit`, not by a full
+ * chart scan delivered to the client.
+ */
+export function buildAccountSearchQuery(opts: AccountSearchOptions = {}) {
+  const params: unknown[] = [];
+  const conditions = ['a.is_active = TRUE'];
+  const query = typeof opts.query === 'string' ? opts.query.trim().toLowerCase() : '';
+  if (query) {
+    params.push(`%${query}%`);
+    conditions.push(
+      `(lower(a.code) LIKE $${params.length} OR lower(a.name) LIKE $${params.length} OR lower(COALESCE(a.description, '')) LIKE $${params.length})`
+    );
+  }
+  if (opts.kind === 'CASH_BANK') {
+    conditions.push(`a.account_kind IN ('CASH', 'BANK')`);
+  } else if (opts.kind === 'CASH' || opts.kind === 'BANK') {
+    params.push(opts.kind);
+    conditions.push(`a.account_kind = $${params.length}`);
+  }
+  const limit = Math.min(50, Math.max(1, Math.trunc(Number(opts.limit) || 20)));
+  return {
+    sql: `SELECT ${ACCOUNT_COLUMNS}
+FROM gl_accounts a
+JOIN gl_account_groups g ON g.id = a.group_id
+WHERE ${conditions.join(' AND ')}
+ORDER BY a.code ASC
+LIMIT ${limit}`,
+    params,
+  };
+}
 
 export const ACCOUNT_BY_ID_SQL = `SELECT ${ACCOUNT_COLUMNS}
 FROM gl_accounts a JOIN gl_account_groups g ON g.id = a.group_id
@@ -406,8 +456,10 @@ export const JOURNAL_LOCK_BY_ID_SQL = `SELECT j.id,
   j.voucher_class AS "voucherClass",
   j.reference_no AS "referenceNo",
   j.reference_date_ad AS "referenceDateAD",
+  j.reference_date_bs AS "referenceDateBS",
   j.cheque_no AS "chequeNo",
   j.cheque_date_ad AS "chequeDateAD",
+  j.cheque_date_bs AS "chequeDateBS",
   j.currency,
   j.exchange_rate AS "exchangeRate",
   j.memo,
@@ -482,13 +534,13 @@ WHERE ($1::varchar IS NULL OR p.fiscal_year_id = $1)
 ORDER BY p.start_date_ad DESC`;
 
 export const PERIOD_INSERT_SQL = `INSERT INTO gl_periods (
-  id, fiscal_year_id, period_key, start_date_ad, end_date_ad, status
-) VALUES ($1, $2, $3, $4, $5, 'OPEN')`;
+  id, fiscal_year_id, period_key, start_date_ad, start_date_bs, end_date_ad, end_date_bs, status
+) VALUES ($1, $2, $3, $4, $5, $6, $7, 'OPEN')`;
 
 /** Lazily created period for a posting: a concurrent writer may win the key. */
 export const PERIOD_INSERT_IF_MISSING_SQL = `INSERT INTO gl_periods (
-  id, fiscal_year_id, period_key, start_date_ad, end_date_ad, status
-) VALUES ($1, $2, $3, $4, $5, 'OPEN')
+  id, fiscal_year_id, period_key, start_date_ad, start_date_bs, end_date_ad, end_date_bs, status
+) VALUES ($1, $2, $3, $4, $5, $6, $7, 'OPEN')
 ON CONFLICT (fiscal_year_id, period_key) DO NOTHING`;
 
 export const PERIOD_SET_STATUS_SQL = `UPDATE gl_periods SET
@@ -577,13 +629,13 @@ export const BRANCH_EXISTS_SQL = `SELECT id FROM branches WHERE id = $1`;
 export const NEXT_JOURNAL_SEQUENCE_SQL = `SELECT nextval('gl_journal_no_seq')::bigint AS seq`;
 
 export const JOURNAL_INSERT_SQL = `INSERT INTO gl_journals (
-  id, journal_no, journal_date_ad, fiscal_year_id, period_id, branch_id,
-  source_type, source_id, voucher_type, voucher_class, reference_no,
-  reference_date_ad, cheque_no, cheque_date_ad, currency, exchange_rate,
-  memo, status, reversal_of_id, posted_by, is_demo
+  id, journal_no, journal_date_ad, journal_date_bs, fiscal_year_id, period_id,
+  branch_id, source_type, source_id, voucher_type, voucher_class, reference_no,
+  reference_date_ad, reference_date_bs, cheque_no, cheque_date_ad, cheque_date_bs,
+  currency, exchange_rate, memo, status, reversal_of_id, posted_by, is_demo
 ) VALUES (
   $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-  $17, 'POSTED', $18, $19, $20
+  $17, $18, $19, $20, 'POSTED', $21, $22, $23
 )`;
 
 export const JOURNAL_LINE_INSERT_SQL = `INSERT INTO gl_journal_lines (
@@ -592,8 +644,8 @@ export const JOURNAL_LINE_INSERT_SQL = `INSERT INTO gl_journal_lines (
 
 export const SUBLEDGER_INSERT_SQL = `INSERT INTO gl_subledger_entries (
   id, journal_id, journal_line_id, account_id, subledger_id, subledger_type,
-  party_id, party_name, branch_id, entry_date_ad, debit, credit
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`;
+  party_id, party_name, branch_id, entry_date_ad, entry_date_bs, debit, credit
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`;
 
 export interface JournalListOptions {
   branchId?: string;
@@ -1317,6 +1369,7 @@ export interface JournalInsertInput {
   id: string;
   journalNo: string;
   journalDateAD: string;
+  journalDateBS: string;
   fiscalYearId: string;
   periodId: string;
   branchId: string;
@@ -1326,8 +1379,10 @@ export interface JournalInsertInput {
   voucherClass?: string | null;
   referenceNo?: string | null;
   referenceDateAD?: string | null;
+  referenceDateBS?: string | null;
   chequeNo?: string | null;
   chequeDateAD?: string | null;
+  chequeDateBS?: string | null;
   currency?: string | null;
   exchangeRate?: number | null;
   memo?: string | null;
@@ -1341,6 +1396,7 @@ export function journalInsertParams(input: JournalInsertInput): unknown[] {
     input.id,
     input.journalNo,
     input.journalDateAD,
+    input.journalDateBS,
     input.fiscalYearId,
     input.periodId,
     input.branchId,
@@ -1350,8 +1406,10 @@ export function journalInsertParams(input: JournalInsertInput): unknown[] {
     input.voucherClass || null,
     input.referenceNo || null,
     input.referenceDateAD || null,
+    input.referenceDateBS || null,
     input.chequeNo || null,
     input.chequeDateAD || null,
+    input.chequeDateBS || null,
     input.currency || 'NPR',
     input.exchangeRate ?? 1,
     input.memo || null,
@@ -1396,6 +1454,7 @@ export function subledgerInsertParams(input: {
   partyName?: string | null;
   branchId: string;
   entryDateAD: string;
+  entryDateBS: string;
   debit: number;
   credit: number;
 }): unknown[] {
@@ -1410,6 +1469,7 @@ export function subledgerInsertParams(input: {
     input.partyName || null,
     input.branchId,
     input.entryDateAD,
+    input.entryDateBS,
     input.debit,
     input.credit,
   ];

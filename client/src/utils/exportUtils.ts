@@ -38,43 +38,23 @@ export function setExportCompanyProfile(
  * Enhanced CSV / Excel Data Exporter Utility for Inventory Multi-Branch ERP
  * Includes uniform BS exported date (YYYY-MM-DD HH:mm:ss) and report metadata.
  */
-export function exportToCSV<T extends Record<string, any>>(
-  filenameOrOptions: string | CSVExportOptions<T>,
-  maybeData?: T[],
-  maybeColumns?: CSVColumn<T>[],
-  maybeCompanyInfo?: CSVExportOptions<T>['companyInfo']
-) {
-  let filename: string;
-  let data: T[];
-  let columns: CSVColumn<T>[];
-  let reportTitle: string | undefined;
-  let branchName: string | undefined;
-  let generatedBy: string | undefined;
-  let includeMetadataHeader: boolean = true;
-  let companyInfo: CSVExportOptions<T>['companyInfo'] | undefined;
-  if (typeof filenameOrOptions === 'object' && filenameOrOptions !== null) {
-    filename = filenameOrOptions.filename;
-    data = filenameOrOptions.data;
-    columns = filenameOrOptions.columns;
-    reportTitle = filenameOrOptions.reportTitle;
-    branchName = filenameOrOptions.branchName;
-    generatedBy = filenameOrOptions.generatedBy;
-    includeMetadataHeader = filenameOrOptions.includeMetadataHeader ?? true;
-    companyInfo = filenameOrOptions.companyInfo ?? maybeCompanyInfo;
-  } else {
-    filename = typeof filenameOrOptions === 'string' ? filenameOrOptions : 'Report';
-    data = maybeData || [];
-    columns = maybeColumns || [];
-    companyInfo = maybeCompanyInfo;
-    reportTitle = filename.replace(/[_-]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-  }
-  companyInfo = companyInfo || defaultCompanyInfo;
-
-  if (!data || data.length === 0) {
-    utilityAlert('No data available to export.');
-    return;
-  }
-
+/**
+ * Pure CSV builder behind exportToCSV. Exported so report tests can assert the
+ * file contents — including both halves of every business date — without a DOM.
+ */
+export function buildExportCsv<T extends Record<string, any>>(
+  options: CSVExportOptions<T>
+): { content: string; meta: ReturnType<typeof getExportMetadata> } {
+  const {
+    filename,
+    data,
+    columns,
+    reportTitle,
+    branchName,
+    generatedBy,
+    includeMetadataHeader = true,
+    companyInfo,
+  } = options;
   const meta = getExportMetadata(reportTitle || filename, branchName, generatedBy);
 
   const lines: string[] = [];
@@ -124,7 +104,57 @@ export function exportToCSV<T extends Record<string, any>>(
     lines.push(rowContent);
   });
 
-  const csvContent = '\uFEFF' + lines.join('\n'); // UTF-8 BOM for Excel compatibility
+  const content = '\uFEFF' + lines.join('\n'); // UTF-8 BOM for Excel compatibility
+  return { content, meta };
+}
+
+export function exportToCSV<T extends Record<string, any>>(
+  filenameOrOptions: string | CSVExportOptions<T>,
+  maybeData?: T[],
+  maybeColumns?: CSVColumn<T>[],
+  maybeCompanyInfo?: CSVExportOptions<T>['companyInfo']
+) {
+  let filename: string;
+  let data: T[];
+  let columns: CSVColumn<T>[];
+  let reportTitle: string | undefined;
+  let branchName: string | undefined;
+  let generatedBy: string | undefined;
+  let includeMetadataHeader: boolean = true;
+  let companyInfo: CSVExportOptions<T>['companyInfo'] | undefined;
+  if (typeof filenameOrOptions === 'object' && filenameOrOptions !== null) {
+    filename = filenameOrOptions.filename;
+    data = filenameOrOptions.data;
+    columns = filenameOrOptions.columns;
+    reportTitle = filenameOrOptions.reportTitle;
+    branchName = filenameOrOptions.branchName;
+    generatedBy = filenameOrOptions.generatedBy;
+    includeMetadataHeader = filenameOrOptions.includeMetadataHeader ?? true;
+    companyInfo = filenameOrOptions.companyInfo ?? maybeCompanyInfo;
+  } else {
+    filename = typeof filenameOrOptions === 'string' ? filenameOrOptions : 'Report';
+    data = maybeData || [];
+    columns = maybeColumns || [];
+    companyInfo = maybeCompanyInfo;
+    reportTitle = filename.replace(/[_-]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+  companyInfo = companyInfo || defaultCompanyInfo;
+
+  if (!data || data.length === 0) {
+    utilityAlert('No data available to export.');
+    return;
+  }
+
+  const { content: csvContent, meta } = buildExportCsv({
+    filename,
+    data,
+    columns,
+    reportTitle,
+    branchName,
+    generatedBy,
+    includeMetadataHeader,
+    companyInfo,
+  });
 
   const cleanFilename = filename.endsWith('.csv') ? filename.replace('.csv', '') : filename;
   const downloadName = `${cleanFilename}_BS_${meta.exportedDateBS}.csv`;

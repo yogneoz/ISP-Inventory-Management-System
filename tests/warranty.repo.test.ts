@@ -187,7 +187,8 @@ describe('warranty query builders', () => {
     assert.match(normalize(WARRANTY_SUPERSEDE_BY_SOURCE_SQL), /coverage_type = \$1 AND source_type = \$2 AND source_id = \$3 AND is_current = TRUE/);
     assert.match(normalize(WARRANTY_SUPERSEDE_BY_DEVICE_SQL), /coverage_type = 'SELLER' AND device_record_id = \$1 AND is_current = TRUE/);
     assert.match(normalize(WARRANTY_INSERT_SQL), /is_current, is_demo/);
-    assert.match(normalize(WARRANTY_INSERT_SQL), /TRUE, \$20/);
+    assert.match(normalize(WARRANTY_INSERT_SQL), /start_date_bs, end_date_ad, end_date_bs/);
+    assert.match(normalize(WARRANTY_INSERT_SQL), /TRUE, \$22/);
     // A correction retires the row it replaced: the by-id update is the only
     // place the replaced period can stop being current.
     assert.doesNotMatch(normalize(WARRANTY_SUPERSEDE_BY_ID_SQL), /start_date_ad|end_date_ad/);
@@ -205,18 +206,38 @@ describe('warranty query builders', () => {
       endDateAD: '2027-01-01',
       startBasis: 'SALE_DATE',
     });
-    assert.equal(params.length, 22);
+    assert.equal(params.length, 24);
     assert.equal(params[0], 'wrt-cov-1');
     assert.equal(params[1], 'SELLER');
     assert.equal(params[2], 'CPE');
     assert.equal(params[4], 'Router');
     assert.equal(params[14], '2026-01-01');
-    assert.equal(params[15], '2027-01-01');
-    assert.equal(params[16], null);
-    assert.equal(params[17], 'SALE_DATE');
-    assert.equal(params[19], false);
-    assert.equal(params[20], null);
-    assert.equal(params[21], null);
+    assert.equal(params[15], null); // startDateBS is derived at write time
+    assert.equal(params[16], '2027-01-01');
+    assert.equal(params[17], null); // endDateBS is derived at write time
+    assert.equal(params[18], null);
+    assert.equal(params[19], 'SALE_DATE');
+    assert.equal(params[21], false);
+    assert.equal(params[22], null);
+    assert.equal(params[23], null);
+  });
+
+  test('insert params carry a provided BS pair beside the AD dates', () => {
+    const params = warrantyInsertParams({
+      id: 'wrt-cov-2',
+      coverageType: 'VENDOR',
+      itemCategory: 'CPE',
+      productName: 'Router',
+      serialNumber: 'wrt-2',
+      sourceType: 'PURCHASE_INVOICE',
+      startDateAD: '2026-01-01',
+      startDateBS: '2082-09-17 BS',
+      endDateAD: '2027-01-01',
+      endDateBS: '2083-09-17 BS',
+      startBasis: 'INVOICE_DATE',
+    });
+    assert.equal(params[15], '2082-09-17 BS');
+    assert.equal(params[17], '2083-09-17 BS');
   });
 
   test('validCoverageDates accepts only ordered real YYYY-MM-DD values', () => {

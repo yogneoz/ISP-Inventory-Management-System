@@ -49,14 +49,20 @@ export const TAB_PERMISSIONS: Record<string, string | string[]> = {
   'accounting-cash-flow': 'gl-view',
   'accounting-cash-book': 'gl-view',
   'accounting-aging': 'gl-view',
-  'journal-entry': 'gl-view',
-  'cash-bank-entry': 'gl-view',
-  'accounting-chart': 'gl-view',
-  'general-ledger': 'gl-view',
-  subledgers: 'gl-view',
-  'bill-terms': 'gl-view',
-  'cost-centers': 'gl-view',
-  'narration-templates': 'gl-view',
+  // Entry forms are operation screens: a reader without gl-post cannot post,
+  // so the screen is not offered at all. The read-only result lives on
+  // Posted Vouchers under gl-view.
+  'journal-entry': 'gl-post',
+  'cash-bank-entry': 'gl-post',
+  'posted-vouchers': 'gl-view',
+  // Accounting masters are management screens; each is gated by the operation
+  // that its buttons actually require.
+  'accounting-chart': 'gl-chart-manage',
+  'general-ledger': 'gl-chart-manage',
+  'subledgers': 'gl-subledger-manage',
+  'bill-terms': 'gl-bill-terms-manage',
+  'cost-centers': 'gl-dimension-manage',
+  'narration-templates': 'gl-dimension-manage',
   'cash-position': 'gl-view',
   'financial-statements': 'fin-statements',
   'vendor-ledger': 'inv-pay',

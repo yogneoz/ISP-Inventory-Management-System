@@ -6,13 +6,17 @@
  */
 import type { Express } from 'express';
 import { get_purchaseOrders, post_purchaseOrders, put_Id, delete_Id, patch_status, get_purchaseInvoices, post_purchaseInvoices, delete_Id2, post_pay, post_reversePayments, get_vendorPayments, get_payments, post_vendorPayments, post_reverse, get_ledger, get_purchaseReturns, post_purchaseReturns, post_purchaseReturnCancel, post_purchaseReturnApprove } from '../controllers/procurement.controller';
-import { get_purchaseInvoicePrint } from '../controllers/pdf.controller';
+import { get_purchaseInvoicePrint, get_purchaseOrderPrint } from '../controllers/pdf.controller';
 import { requirePermission, requirePermissionAny, requireRole } from '../app';
 import { VENDOR_PAYMENT_SELECT, pgPool } from '../app';
 import type { VendorPayment, VendorPaymentMethod } from '../../../client/src/types';
 
 export function registerProcurementRoutes(app: Express) {
 app.get('/api/purchase-orders', async (req, res, next) => { get_purchaseOrders(req as any, res as any).catch(next); });
+
+// Print is a read-only projection of the PO; it keeps the purchase-order
+// operation gate and the controller repeats the record's branch check.
+app.get('/api/purchase-orders/:id/print', requirePermission('po-create'), async (req, res, next) => { get_purchaseOrderPrint(req as any, res as any).catch(next); });
 
 app.post('/api/purchase-orders', requirePermission('po-create'), async (req, res, next) => { post_purchaseOrders(req as any, res as any).catch(next); });
 

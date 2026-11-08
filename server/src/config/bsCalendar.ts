@@ -143,7 +143,14 @@ export function detectDateTypeMismatch(raw: unknown, fieldName: string): string 
  * PostgreSQL is unreachable. Returns found=false when the date has never been
  * seeded (e.g. its BS month array is missing) so callers can block operations.
  */
-export async function findBsDayRecordForAdDate(adDateStr: string): Promise<{
+export interface BsCalendarQueryable {
+  query(sql: string, params?: any[]): Promise<{ rows: any[] }>;
+}
+
+export async function findBsDayRecordForAdDate(
+  adDateStr: string,
+  db: BsCalendarQueryable = pgPool
+): Promise<{
   found: boolean;
   record: any | null;
   source: 'postgres' | 'memory';
@@ -154,7 +161,7 @@ export async function findBsDayRecordForAdDate(adDateStr: string): Promise<{
   }
 
   try {
-    const result = await pgPool.query(
+    const result = await db.query(
       `SELECT ad_date::text AS "adDate", bs_date AS "bsDate", bs_year AS "bsYear", bs_month AS "bsMonth",
               bs_month_name AS "bsMonthName", bs_month_name_np AS "bsMonthNameNp", bs_day AS "bsDay",
               day_of_week_name AS "dayOfWeekName", day_of_week_name_np AS "dayOfWeekNameNp",
@@ -312,9 +319,11 @@ function coverageFromRecords(records: any[]): BsCalendarCoverage {
   };
 }
 
-export async function getBsCalendarCoverage(): Promise<BsCalendarCoverage> {
+export async function getBsCalendarCoverage(
+  db: BsCalendarQueryable = pgPool
+): Promise<BsCalendarCoverage> {
   try {
-    const result = await pgPool.query(
+    const result = await db.query(
       `SELECT MIN(ad_date)::text AS "minAD", MAX(ad_date)::text AS "maxAD",
               MIN(bs_date) AS "minBS", MAX(bs_date) AS "maxBS", COUNT(*)::int AS "totalDays"
        FROM bs_day_records`

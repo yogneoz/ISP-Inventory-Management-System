@@ -90,9 +90,14 @@ describe('legacy warranty backfill against PostgreSQL', () => {
       await client.query(
         `INSERT INTO warranty_coverages (
            id, coverage_type, item_category, product_name, serial_number, asset_id, branch_id,
-           source_type, start_date_ad, end_date_ad, term_months, start_basis, is_current, is_demo
+           source_type, start_date_ad, start_date_bs, end_date_ad, end_date_bs,
+           term_months, start_basis, is_current, is_demo
          ) VALUES ('wty7-captured-coverage', 'VENDOR', 'FIXED_ASSET', 'Captured probe asset', $1,
-           'wty7-asset-captured', 'WH001', 'MANUAL', $2, $3, 36, 'MANUAL', TRUE, TRUE)`,
+           'wty7-asset-captured', 'WH001', 'MANUAL', $2,
+           COALESCE((SELECT bs_date || ' BS' FROM bs_day_records WHERE ad_date = $2), 'BS not seeded'),
+           $3,
+           COALESCE((SELECT bs_date || ' BS' FROM bs_day_records WHERE ad_date = $3), 'BS not seeded'),
+           36, 'MANUAL', TRUE, TRUE)`,
         [TEST_TAG_CAPTURED, ACQUISITION, addCalendarMonths(ACQUISITION, 36)]
       );
 

@@ -45,14 +45,14 @@ describe('buildPoListSql', () => {
 
   test('selects all aliased columns', () => {
     const { sql } = buildPoListSql();
-    for (const alias of ['"poNumber"', '"orderDateAD"', '"subtotalAmount"', PO_SELECT_COLUMNS.split(' ')[0]]) {
+    for (const alias of ['"poNumber"', '"orderDateAD"', '"expectedDeliveryDateBS"', '"subtotalAmount"', PO_SELECT_COLUMNS.split(' ')[0]]) {
       assert.ok(sql.includes(alias), `missing ${alias}`);
     }
   });
 });
 
 describe('poUpsertParams', () => {
-  test('fills 14 columns with documented defaults', () => {
+  test('fills 15 columns with documented defaults', () => {
     const po = {
       id: 'po-1', poNumber: 'PO-1', branchId: 'WH001',
       orderDateAd: '2026-01-01', orderDateBs: '2083-04-10 BS',
@@ -60,7 +60,7 @@ describe('poUpsertParams', () => {
     };
     assert.deepEqual(poUpsertParams(po, '[]'), [
       'po-1', 'PO-1', null, 'Vendor', 'WH001', '2026-01-01', '2083-04-10 BS',
-      null, 'DRAFT', 100, 13, 113, '', '[]',
+      null, null, 'DRAFT', 100, 13, 113, '', '[]',
     ]);
   });
 
@@ -69,6 +69,7 @@ describe('poUpsertParams', () => {
     assert.equal(poUpsertParams({ ...base, supplierId: 's1', supplierName: 'Acme', status: 'APPROVED' }, '[]')[3], 'Acme');
     assert.equal(poUpsertParams({ ...base, expectedDeliveryDateAD: '2026-02-01' }, '[]')[7], '2026-02-01');
     assert.equal(poUpsertParams({ ...base, expectedDeliveryDateAd: '2026-02-02' }, '[]')[7], '2026-02-02');
+    assert.equal(poUpsertParams({ ...base, expectedDeliveryDateBS: '2082-10-21 BS' }, '[]')[8], '2082-10-21 BS');
   });
 
   test('poUpdateParams appends the id last', () => {

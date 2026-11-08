@@ -240,14 +240,14 @@ export const WARRANTY_FIND_RECORD_BY_ID_SQL = `SELECT ${WARRANTY_RECORD_COLUMNS}
 export const WARRANTY_INSERT_SQL = `INSERT INTO warranty_coverages (
   id, coverage_type, item_category, product_id, product_name, serial_number,
   asset_id, device_record_id, branch_id, party_id, party_name,
-  source_type, source_id, source_number, start_date_ad, end_date_ad,
+  source_type, source_id, source_number, start_date_ad, start_date_bs, end_date_ad, end_date_bs,
   term_months, start_basis, notes, is_current, is_demo, created_by, updated_by,
   created_at, updated_at
 ) VALUES (
   $1, $2, $3, $4, $5, $6,
   $7, $8, $9, $10, $11,
-  $12, $13, $14, $15, $16,
-  $17, $18, $19, TRUE, $20, $21, $22,
+  $12, $13, $14, $15, $16, $17, $18,
+  $19, $20, $21, TRUE, $22, $23, $24,
   CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 )`;
 
@@ -267,7 +267,10 @@ export interface WarrantyInsertInput {
   sourceId?: string | null;
   sourceNumber?: string | null;
   startDateAD: string;
+  /** Derived from bs_day_records at write time; never trusted from a caller. */
+  startDateBS?: string | null;
   endDateAD: string;
+  endDateBS?: string | null;
   termMonths?: number | null;
   startBasis: string;
   notes?: string | null;
@@ -292,7 +295,9 @@ export function warrantyInsertParams(rec: WarrantyInsertInput): unknown[] {
     rec.sourceId || null,
     rec.sourceNumber || null,
     rec.startDateAD,
+    rec.startDateBS || null,
     rec.endDateAD,
+    rec.endDateBS || null,
     rec.termMonths ?? null,
     rec.startBasis,
     rec.notes || null,

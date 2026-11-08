@@ -12,6 +12,7 @@ import {
   resolveWarrantyCoverage,
 } from '../../../shared/warrantyTerm';
 import { warrantyCoverages, setWarrantyCoverages } from '../state/runtimeState';
+import { resolveBsDateForLedger } from '../utils/bsDate';
 import {
   WARRANTY_INSERT_SQL,
   WARRANTY_SUPERSEDE_CURRENT_SQL,
@@ -216,6 +217,22 @@ export async function writeSellerCoveragePlan(
   for (const capture of captures) await recordWarrantyCoverage(executor, capture);
 }
 
+/** Dual-date write: both coverage boundaries come from bs_day_records, never
+ *  from the caller. Warranty terms routinely expire past the seeded calendar
+ *  (a 2031 expiry with a calendar ending in 2029), so an uncovered day stores
+ *  the explicit BS-not-seeded marker instead of refusing the capture — the
+ *  date is display state, not a ledger posting date that must resolve. */
+async function coverageBsPair(
+  executor: { query: (sql: string, params?: any[]) => Promise<any> },
+  input: { startDateAD: string; endDateAD: string }
+): Promise<{ startDateBS: string; endDateBS: string }> {
+  const [startDateBS, endDateBS] = await Promise.all([
+    resolveBsDateForLedger(input.startDateAD, executor as any),
+    resolveBsDateForLedger(input.endDateAD, executor as any),
+  ]);
+  return { startDateBS, endDateBS };
+}
+
 /**
  * Writes one coverage inside the caller's transaction: supersede the unit's
  * current row, then insert the new period. A same-serial reissue therefore
@@ -227,11 +244,13 @@ export async function recordWarrantyCoverage(
 ): Promise<string> {
   const serial = normalizeWarrantySerial(input.serialNumber);
   const id = input.id || newWarrantyCoverageId();
+  const bsPair = await coverageBsPair(executor, input);
   await executor.query(WARRANTY_SUPERSEDE_CURRENT_SQL, [input.coverageType, serial]);
   await executor.query(WARRANTY_INSERT_SQL, warrantyInsertParams({
     ...input,
     id,
     serialNumber: serial,
+    ...bsPair,
   }));
   return id;
 }
@@ -434,6 +453,7 @@ export async function correctWarrantyCoverage(
 ): Promise<string> {
   await executor.query(WARRANTY_SUPERSEDE_BY_ID_SQL, [input.record.id]);
   const id = newWarrantyCoverageId();
+  const bsPair = await coverageBsPair(executor, input);
   await executor.query(WARRANTY_INSERT_SQL, warrantyInsertParams({
     id,
     coverageType: input.record.coverageType,
@@ -451,6 +471,7 @@ export async function correctWarrantyCoverage(
     sourceNumber: input.record.sourceNumber,
     startDateAD: input.startDateAD,
     endDateAD: input.endDateAD,
+    ...bsPair,
     termMonths: input.termMonths ?? null,
     startBasis: 'MANUAL',
     notes: input.notes,

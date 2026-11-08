@@ -150,8 +150,14 @@ describe('warranty coverage API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
         `INSERT INTO warranty_coverages
           (id, coverage_type, item_category, product_name, serial_number, branch_id,
            party_name, source_type, source_id, source_number,
-           start_date_ad, end_date_ad, term_months, start_basis, notes, is_current, is_demo)
-         VALUES ($1, $2, 'CPE', $3, $4, $5, 'WRT Party', 'PURCHASE', $6, $7, $8, $9, 12, 'MANUAL', 'wrt fixture', $10, TRUE)`,
+           start_date_ad, start_date_bs, end_date_ad, end_date_bs,
+           term_months, start_basis, notes, is_current, is_demo)
+         VALUES ($1, $2, 'CPE', $3, $4, $5, 'WRT Party', 'PURCHASE', $6, $7,
+           $8,
+           COALESCE((SELECT bs_date || ' BS' FROM bs_day_records WHERE ad_date = $8), 'BS not seeded'),
+           $9,
+           COALESCE((SELECT bs_date || ' BS' FROM bs_day_records WHERE ad_date = $9), 'BS not seeded'),
+           12, 'MANUAL', 'wrt fixture', $10, TRUE)`,
         [
           f.id,
           f.coverageType,

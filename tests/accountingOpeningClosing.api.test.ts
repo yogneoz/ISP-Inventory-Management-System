@@ -65,13 +65,15 @@ const SCHEMA_SQL_PATH = path.join(ROOT, 'scripts', 'schema.sql');
 const TEST_DB = 'inventory_opening_closing_test';
 const BR = 'OCBR';
 const OTHER_BRANCH = 'WH001';
-const FY_ID = 'oc-fy-2076-77';
-const FY_CODE = '2076-77';
-const FY_START = '2019-07-01';
-const FY_END = '2020-06-30';
-const OPENING_DATE = '2019-07-01';
-const PERIOD_KEY = '2019-07';
-const AS_OF = '2020-06-30';
+const FY_ID = 'oc-fy-2079-80';
+const FY_CODE = '2079-80';
+const FY_START = '2022-07-17';
+const FY_END = '2023-07-16';
+const OPENING_DATE = '2022-07-17';
+const PERIOD_KEY = '2022-07';
+const AS_OF = '2023-07-16';
+const REVENUE_DATE = '2022-08-12';
+const EXPENSE_DATE = '2022-09-12';
 const SUPER_ID = 'oc-super';
 const SUPER_EMAIL = 'oc-super@example.com';
 const SUPER_PASSWORD = 'OcOpening!2076';
@@ -215,13 +217,13 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
     realPoolInstance?.on?.('error', () => undefined);
     assert.equal(await ensurePostgresConnection(), true, 'the throwaway database must be reachable');
 
-    const { ensureReferenceData } = await import('./fixtures/referenceData');
+    const { ensureBsDayRecords, ensureReferenceData } = await import('./fixtures/referenceData');
     const { hashPassword, issueAuthToken } = await import('../server/src/middleware/auth');
     const { setPermissionMatrix } = await import('../server/src/state/runtimeState');
     const { DEFAULT_PERMISSIONS_MATRIX } = await import('../client/src/utils/permissionMatrixData');
 
-    // Branch master, the seeded 2083-84 year, the default chart and a BS row
-    // for today — the reference data every dated write expects.
+    // Branch master, the seeded 2083-84 year and the default chart. The suite
+    // owns a 2079-80 year so its close cannot touch shared history.
     await ensureReferenceData(dbPool);
     await dbPool.query(
       `INSERT INTO branches (id, code, name, location, active, allow_procurement, allow_warehouse_transfer, is_demo)
@@ -230,9 +232,25 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
     );
     await dbPool.query(
       `INSERT INTO fiscal_years (id, code, start_date_ad, end_date_ad, start_date_bs, end_date_bs, is_current, is_closed, is_demo)
-       VALUES ($1, $2, $3, $4, '2076-04-01', '2076-03-31', FALSE, FALSE, FALSE)`,
+       VALUES ($1, $2, $3, $4, '2079-04-01 BS', '2080-03-31 BS', FALSE, FALSE, FALSE)`,
       [FY_ID, FY_CODE, FY_START, FY_END]
     );
+    // The period and every voucher date below must resolve on the seeded BS
+    // calendar before the ledger accepts a dual-dated write.
+    await ensureBsDayRecords(dbPool, [
+      '2022-07-01',
+      FY_START,
+      '2022-07-31',
+      '2022-08-01',
+      REVENUE_DATE,
+      '2022-08-31',
+      '2022-09-01',
+      EXPENSE_DATE,
+      '2022-09-30',
+      '2023-07-01',
+      FY_END,
+      '2023-07-31',
+    ]);
     await dbPool.query(
       `INSERT INTO users (id, email, password, name, role, branch_id, allowed_branch_ids, status, is_demo)
        VALUES ($1, $2, $3, 'OC Super', 'SUPER_ADMIN', NULL, ARRAY[]::text[], 'active', FALSE)`,
@@ -390,7 +408,7 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
 
   test('the year-end close moves the result into retained earnings and leaves the trial balance balanced', async () => {
     const revenue = await post('/api/accounting/journals', tokens.accountant, {
-      journalDateAD: '2019-08-12',
+      journalDateAD: REVENUE_DATE,
       branchId: BR,
       memo: 'OC TEST sale',
       lines: [line(accounts.cash, 5000, 0), line(accounts.sales, 0, 5000)],
@@ -398,7 +416,7 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
     assert.equal(revenue.status, 201, JSON.stringify(revenue.json));
 
     const expense = await post('/api/accounting/journals', tokens.accountant, {
-      journalDateAD: '2019-09-12',
+      journalDateAD: EXPENSE_DATE,
       branchId: BR,
       memo: 'OC TEST expense',
       lines: [line(accounts.expense, 2000, 0), line(accounts.cash, 0, 2000)],

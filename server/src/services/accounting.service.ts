@@ -17,6 +17,7 @@
  */
 import crypto from 'crypto';
 import { ApiError } from '../errors/ApiError';
+import { bsDateOrThrow } from '../utils/bsDate';
 import { roundMoney } from '../utils/money';
 import {
   ACCOUNT_KINDS,
@@ -242,8 +243,20 @@ async function ensureOpenPeriod(client: AccountingClient, date: string): Promise
   if (!period) {
     // Two concurrent first-postings of the same month must both end up on the
     // one period row; the loser's ON CONFLICT no-op is followed by a re-read.
+    // Both bounds carry the BS half before the row exists, so a period can
+    // never be created AD-only by a posting path.
+    const startDateBS = await bsDateOrThrow(startDateAD, client);
+    const endDateBS = await bsDateOrThrow(endDateAD, client);
     const id = `glp-${crypto.randomUUID()}`;
-    await client.query(PERIOD_INSERT_IF_MISSING_SQL, [id, fiscalYear.id, periodKey, startDateAD, endDateAD]);
+    await client.query(PERIOD_INSERT_IF_MISSING_SQL, [
+      id,
+      fiscalYear.id,
+      periodKey,
+      startDateAD,
+      startDateBS,
+      endDateAD,
+      endDateBS,
+    ]);
     period = (await client.query(PERIOD_BY_KEY_SQL, [fiscalYear.id, periodKey])).rows[0];
   }
   if (period.status !== 'OPEN') {
@@ -255,11 +268,30 @@ async function ensureOpenPeriod(client: AccountingClient, date: string): Promise
 /** Explicit period creation for the setup screen. */
 export async function createPeriod(client: AccountingClient, input: { periodKey?: unknown; isDemo?: boolean }) {
   const { periodKey, startDateAD, endDateAD } = periodBounds(input.periodKey);
-  const fiscalYear = await fiscalYearForDate(client, startDateAD);
+  // A Nepali fiscal year begins mid-month (Shrawan 1), so the first calendar
+  // period starts before the fiscal-year start. Resolve the year from the
+  // period start when it falls inside one, otherwise from its end (the first
+  // month), never by assuming the month start is inside the year.
+  const fiscalYear =
+    (await client.query(FISCAL_YEAR_BOUNDS_SQL, [startDateAD])).rows[0] ||
+    (await client.query(FISCAL_YEAR_BOUNDS_SQL, [endDateAD])).rows[0];
+  if (!fiscalYear) {
+    throw new ApiError(400, `No fiscal year contains the period ${periodKey}. Create the fiscal year first.`);
+  }
   const existing = (await client.query(PERIOD_BY_KEY_SQL, [fiscalYear.id, periodKey])).rows[0];
   if (existing) throw new ApiError(409, `Accounting period ${periodKey} already exists.`);
+  const startDateBS = await bsDateOrThrow(startDateAD, client);
+  const endDateBS = await bsDateOrThrow(endDateAD, client);
   const id = `glp-${crypto.randomUUID()}`;
-  await client.query(PERIOD_INSERT_SQL, [id, fiscalYear.id, periodKey, startDateAD, endDateAD]);
+  await client.query(PERIOD_INSERT_SQL, [
+    id,
+    fiscalYear.id,
+    periodKey,
+    startDateAD,
+    startDateBS,
+    endDateAD,
+    endDateBS,
+  ]);
   return (await client.query(PERIOD_BY_ID_SQL, [id])).rows[0];
 }
 
@@ -870,12 +902,23 @@ export async function postJournal(
     throw new ApiError(400, 'Exchange rate must be a positive number.');
   }
   const voucherType = text(input.voucherType, 30).toUpperCase() || 'JOURNAL';
+  const referenceDateAD = optionalDate(input.referenceDateAD, 'Reference date');
+  const chequeDateAD = optionalDate(input.chequeDateAD, 'Cheque date');
+  // Dual date is mandatory: every persisted AD date gets its BS half from the
+  // seeded calendar, inside the same transaction. Client-supplied BS values
+  // are ignored entirely, so they can neither override nor desynchronise it.
+  const journalDateBS = await bsDateOrThrow(journalDateAD, client);
+  const referenceDateBS = referenceDateAD
+    ? await bsDateOrThrow(referenceDateAD, client)
+    : null;
+  const chequeDateBS = chequeDateAD ? await bsDateOrThrow(chequeDateAD, client) : null;
   await client.query(
     JOURNAL_INSERT_SQL,
     journalInsertParams({
       id: journalId,
       journalNo,
       journalDateAD,
+      journalDateBS,
       fiscalYearId: period.fiscalYearId,
       periodId: period.id,
       branchId,
@@ -884,9 +927,11 @@ export async function postJournal(
       voucherType,
       voucherClass: text(input.voucherClass, 50) || null,
       referenceNo: text(input.referenceNo, 100) || null,
-      referenceDateAD: optionalDate(input.referenceDateAD, 'Reference date'),
+      referenceDateAD,
+      referenceDateBS,
       chequeNo: text(input.chequeNo, 100) || null,
-      chequeDateAD: optionalDate(input.chequeDateAD, 'Cheque date'),
+      chequeDateAD,
+      chequeDateBS,
       currency,
       exchangeRate: Math.round(exchangeRate * 1_000_000) / 1_000_000,
       memo: text(input.memo, 1000) || null,
@@ -940,6 +985,7 @@ export async function postJournal(
           partyName: line.partyName,
           branchId,
           entryDateAD: journalDateAD,
+          entryDateBS: journalDateBS,
           debit: line.debit,
           credit: line.credit,
         })

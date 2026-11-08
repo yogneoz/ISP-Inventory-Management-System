@@ -578,12 +578,12 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
 
   test('PurchaseOrders: api surface pinned to the PO paged fetch; wired at every render site', () => {
     const source = readFeatureSource('procurement/PurchaseOrders.tsx');
-    // The ONLY data load is /api/purchase-orders: once as the paged
-    // register fetch (loadPoPage) and once with all:true behind the CSV
-    // export. Create / update / status / delete mutations all arrive as
-    // App callbacks (onCreatePO, onUpdatePO, onUpdatePOStatus,
-    // onDeletePO), so no other api.* method may appear here.
-    assert.deepEqual(serverCallsIn(source), ['getPurchaseOrders']);
+    // The data loads are /api/purchase-orders: the paged register fetch
+    // (loadPoPage), the all:true CSV read, and the explicit PDF download.
+    // Create / update / status / delete mutations all arrive as App
+    // callbacks (onCreatePO, onUpdatePO, onUpdatePOStatus, onDeletePO), so
+    // no other api.* method may appear here.
+    assert.deepEqual(serverCallsIn(source), ['getPurchaseOrderPdf', 'getPurchaseOrders']);
     // Declares the SSE counter prop App feeds...
     assert.match(source, /sseRefreshKey\?: number;/);
     // ...and the paged-fetch effect re-runs when it bumps.
@@ -1008,20 +1008,24 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       'getAccountingGroups',
       'updateAccountingAccount',
     ],
-    // Journal/Cash-Bank entry: the posted-voucher page rides App's
-    // transactionLog counter (sales/procurement/stock/assets all bump it; a
-    // manual accounting event falls back to the full refresh that bumps every
-    // counter), while customer parties use the shared paged picker.
+    // Journal/Cash-Bank entry: ledger and employee lookups are bounded server
+    // searches now, customer parties use the shared paged picker, and the
+    // posted-voucher register moved to its own screen.
     'finance/VoucherEntries.tsx': [
-      'getAccountingAccounts',
       'getAccountingEmployees',
-      'getAccountingJournals',
       'getActiveBranchId',
       'getCashBook',
       'getSettlementAccounts',
       'postAccountingJournal',
-      'reverseAccountingJournal',
+      'searchAccountingAccounts',
       'searchCustomers',
+    ],
+    // Posted Vouchers: the extracted register rides App's transactionLog
+    // counter (sales/procurement/stock/assets all bump it; a manual accounting
+    // event falls back to the full refresh that bumps every counter).
+    'finance/PostedVouchers.tsx': [
+      'getAccountingJournals',
+      'reverseAccountingJournal',
     ],
     'finance/SubledgersManagement.tsx': [
       'createAccountingSubledger',
@@ -1374,7 +1378,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
         // ASSET-1: the asset registers page their own server reads.
         'finance/DepreciationRegister.tsx',
         'finance/FixedAssetRegister.tsx',
-        'finance/VoucherEntries.tsx',
+        'finance/PostedVouchers.tsx',
         'inventory/AssetDeployments.tsx',
         'inventory/SerialLogRegister.tsx',
         'inventory/stockops/ConsumablesRegisterPanel.tsx',

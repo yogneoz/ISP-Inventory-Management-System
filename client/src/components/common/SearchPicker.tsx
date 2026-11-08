@@ -85,6 +85,8 @@ export interface SearchPickerProps<T> {
   labels?: SearchPickerLabels;
   clearTitle?: string;
   openTitle?: string;
+  /** Show the clear button. Required fields pass false to stay valid. */
+  allowClear?: boolean;
   /**
    * Render the listbox in a fixed-position portal. Required inside a table's
    * horizontal scroll container, which otherwise clips an absolute dropdown.
@@ -157,6 +159,7 @@ export function SearchPicker<T>({
   labels = {},
   clearTitle = 'Clear selection',
   openTitle = 'Show search',
+  allowClear = true,
   portal = false,
   checkClassName = 'text-indigo-600 dark:text-indigo-400',
   panelMinWidth = SEARCH_PANEL_MIN_WIDTH,
@@ -525,6 +528,7 @@ export function SearchPicker<T>({
           className={`${inputClass} pl-9 pr-8 ${inputClassName}`.trim()}
         />
         {query ? (
+          allowClear ? (
           <button
             type="button"
             title={clearTitle}
@@ -535,6 +539,7 @@ export function SearchPicker<T>({
           >
             <X className="h-3.5 w-3.5" />
           </button>
+          ) : null
         ) : (
           <button
             type="button"

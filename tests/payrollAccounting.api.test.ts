@@ -23,7 +23,7 @@ import { createApp, registerAllRoutes } from '../server/src/app';
 import { issueAuthToken } from '../server/src/middleware/auth';
 import { setPermissionMatrix } from '../server/src/state/runtimeState';
 import { DEFAULT_PERMISSIONS_MATRIX } from '../client/src/utils/permissionMatrixData';
-import { ensureReferenceData } from './fixtures/referenceData';
+import { ensureBsDayRecords, ensureReferenceData } from './fixtures/referenceData';
 
 dotenv.config();
 
@@ -76,6 +76,7 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
   let emp1: any = null;
   let emp2: any = null;
   let run: any = null;
+  let runDateBS = '';
 
   async function request(
     method: 'GET' | 'POST' | 'PATCH',
@@ -124,7 +125,8 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
     const { rows } = await pool!.query(
       `SELECT id, journal_no AS "journalNo", status, branch_id AS "branchId",
               source_type AS "sourceType", source_id AS "sourceId",
-              journal_date_ad::text AS "journalDateAD"
+              journal_date_ad::text AS "journalDateAD",
+              journal_date_bs AS "journalDateBS"
          FROM gl_journals
         WHERE source_type = $1 AND source_id = $2
         ORDER BY posted_at ASC, journal_no ASC`,
@@ -210,7 +212,9 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
   }
 
   before(async () => {
-    await ensureReferenceData(pool!, RUN_DATE);
+    const reference = await ensureReferenceData(pool!, RUN_DATE);
+    runDateBS = `${reference.bsDate} BS`;
+    await ensureBsDayRecords(pool!, ['2027-06-01', CLOSED_RUN_DATE]);
     await cleanup();
     await pool!.query(
       `INSERT INTO branches (id, code, name, location) VALUES ($1, 'PAYB', 'PAY Test Branch', 'Test')`,
@@ -270,6 +274,76 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
     assert.equal(search.status, 200, JSON.stringify(search.json));
     assert.equal(search.json.length, 1);
     assert.equal(search.json[0].id, emp2.id);
+
+    // The full master still supports the payroll identifiers a viewer may need.
+    const byPan = await get(`/api/employees?branchId=${BR}&query=PAN-PAYT-001`);
+    assert.equal(byPan.status, 200, JSON.stringify(byPan.json));
+    assert.deepEqual(byPan.json.map((row: any) => row.employeeCode), ['PAYT-001']);
+
+    const bySsf = await get(`/api/employees?branchId=${BR}&query=SSF-PAYT-002`);
+    assert.equal(bySsf.status, 200, JSON.stringify(bySsf.json));
+    assert.deepEqual(bySsf.json.map((row: any) => row.employeeCode), ['PAYT-002']);
+  });
+
+  test('the employee picker searches code and name with a slim bounded page', async () => {
+    const byCode = await get(`/api/employees/search?branchId=${BR}&query=PAYT-001`);
+    assert.equal(byCode.status, 200, JSON.stringify(byCode.json));
+    assert.deepEqual(byCode.json.map((row: any) => row.employeeCode), ['PAYT-001']);
+    assert.deepEqual(
+      Object.keys(byCode.json[0]).sort(),
+      ['branchId', 'department', 'designation', 'employeeCode', 'id', 'isActive', 'name']
+    );
+    assert.equal(byCode.json[0].panNumber, undefined);
+    assert.equal(byCode.json[0].ssfNumber, undefined);
+    assert.equal(byCode.json[0].bankAccount, undefined);
+
+    const byName = await get(`/api/employees/search?branchId=${BR}&query=Pay%20Test%20Two`);
+    assert.equal(byName.status, 200, JSON.stringify(byName.json));
+    assert.deepEqual(byName.json.map((row: any) => row.employeeCode), ['PAYT-002']);
+
+    // The picker is for names and codes; a PAN/SSF probe cannot be used to
+    // confirm which employee holds that number.
+    const byPan = await get(`/api/employees/search?branchId=${BR}&query=PAN-PAYT-001`);
+    assert.equal(byPan.status, 200);
+    assert.deepEqual(byPan.json, []);
+    const bySsf = await get(`/api/employees/search?branchId=${BR}&query=SSF-PAYT-002`);
+    assert.equal(bySsf.status, 200);
+    assert.deepEqual(bySsf.json, []);
+
+    const bounded = await get(`/api/employees/search?branchId=${BR}&query=PAYT&limit=1`);
+    assert.equal(bounded.status, 200, JSON.stringify(bounded.json));
+    assert.equal(bounded.json.length, 1);
+    assert.equal(bounded.json[0].employeeCode, 'PAYT-001');
+
+    const empty = await get('/api/employees/search?branchId=NO-SUCH-BRANCH&query=PAYT');
+    assert.equal(empty.status, 200);
+    assert.deepEqual(empty.json, []);
+  });
+
+  test('a gl-post-only role can use the slim employee picker but not the employee master', async () => {
+    const baseline = JSON.parse(JSON.stringify(DEFAULT_PERMISSIONS_MATRIX));
+    const postOnly = JSON.parse(JSON.stringify(baseline));
+    postOnly['gl-view'].INVENTORY_MANAGER = false;
+    postOnly['gl-post'].INVENTORY_MANAGER = true;
+    try {
+      setPermissionMatrix(postOnly);
+
+      const search = await get(`/api/employees/search?branchId=${BR}&query=PAYT&limit=1`, managerToken);
+      assert.equal(search.status, 200, JSON.stringify(search.json));
+      assert.equal(search.json.length, 1);
+      assert.equal(search.json[0].employeeCode, 'PAYT-001');
+      assert.equal(search.json[0].panNumber, undefined);
+      assert.equal(search.json[0].ssfNumber, undefined);
+      assert.equal(search.json[0].bankAccount, undefined);
+
+      // The picker is the only directory read a poster gets; the employee
+      // master, payroll run and employee ledger remain gl-view reads.
+      assert.equal((await get(`/api/employees?branchId=${BR}`, managerToken)).status, 403);
+      assert.equal((await get(`/api/payroll-runs?branchId=${BR}`, managerToken)).status, 403);
+      assert.equal((await get(`/api/employees/${emp1.id}/ledger?branchId=${BR}`, managerToken)).status, 403);
+    } finally {
+      setPermissionMatrix(baseline);
+    }
   });
 
   test('a posted run writes the gross expense and every deduction to the ledger', async () => {
@@ -277,6 +351,7 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
     assert.equal(created.status, 201, JSON.stringify(created.json));
     run = created.json;
     assert.equal(run.status, 'POSTED');
+    assert.equal(run.runDateBS, runDateBS);
     assert.equal(Number(run.grossTotal), 9000);
     assert.equal(Number(run.tdsTotal), 700);
     assert.equal(Number(run.ssfTotal), 990);
@@ -291,6 +366,7 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
     assert.equal(journal.status, 'POSTED');
     assert.equal(journal.branchId, BR);
     assert.equal(journal.journalDateAD, RUN_DATE);
+    assert.equal(journal.journalDateBS, runDateBS);
 
     const lines = await journalLines(journal.id);
     const byCode = (code: string) => lines.filter((line) => line.code === code);
@@ -401,6 +477,7 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
     assert.equal(paid.status, 200, JSON.stringify(paid.json));
     assert.equal(paid.json.status, 'PAID');
     assert.equal(paid.json.paidDateAD, RUN_DATE);
+    assert.equal(paid.json.paidDateBS, runDateBS);
     assert.equal(paid.json.paymentMethod, 'CASH');
     assert.match(paid.json.journalNo, /^MJ-/);
 

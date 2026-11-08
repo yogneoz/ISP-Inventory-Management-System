@@ -118,7 +118,13 @@ export async function get_cashClose(req: any, res: Response): Promise<any> {
   });
   const branch = position.branches.find((row) => row.branchId === scope.branchId);
   if (!branch) throw new ApiError(404, `Branch ${scope.branchId} does not exist.`);
-  return res.json({ dateAD, branchId: scope.branchId, branch, totals: position.totals });
+  return res.json({
+    dateAD,
+    dateBS: position.dateBS,
+    branchId: scope.branchId,
+    branch,
+    totals: position.totals,
+  });
 }
 
 /** GET /api/accounting/cash-close/consolidated?dateAD= */

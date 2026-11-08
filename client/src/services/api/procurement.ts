@@ -127,6 +127,11 @@ export async function getPurchaseOrders(params?: {
   return fetchJson(`/api/purchase-orders${query}`);
 }
 
+export async function getPurchaseOrderPdf(id: string): Promise<Blob> {
+  const { fetchBlob } = await import('./blob');
+  return fetchBlob(`/api/purchase-orders/${encodeURIComponent(id)}/print`);
+}
+
 export async function createPurchaseOrder(po: Omit<PurchaseOrder, 'id' | 'poNumber' | 'subtotalAmount' | 'taxAmount' | 'totalAmount'> & { poNumber?: string }): Promise<PurchaseOrder> {
   // The server issues the PO number via issueNextDocNumber (per-branch daily
   // atomic counter). Only pass one through when the caller explicitly set it.

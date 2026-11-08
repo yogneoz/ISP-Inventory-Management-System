@@ -21,6 +21,7 @@ import {
   JOURNAL_BY_ID_SQL,
   PERIOD_LIST_SQL,
   SETTLEMENT_ACCOUNTS_SQL,
+  buildAccountSearchQuery,
   buildJournalCountQuery,
   buildJournalPageQuery,
   type JournalListOptions,
@@ -176,6 +177,25 @@ export async function get_accounts(req: any, res: Response): Promise<any> {
     (row: any) => includeInactive || row.isActive
   );
   return res.json(rows);
+}
+
+/**
+ * GET /api/accounting/accounts/search?q=&kind=&limit= — bounded ledger lookup
+ * for the searchable pickers. Requires a ledger reader or a manual voucher
+ * poster, because both entry surfaces need the same chart rows.
+ */
+export async function search_accounts(req: any, res: Response): Promise<any> {
+  const query = typeof req.query?.q === 'string' ? req.query.q.trim().slice(0, 100) : '';
+  if (!query) return res.json([]);
+  const rawKind = String(req.query?.kind || '').toUpperCase();
+  const kind =
+    rawKind === 'CASH_BANK' || rawKind === 'CASH' || rawKind === 'BANK' ? rawKind : null;
+  const { sql, params } = buildAccountSearchQuery({
+    query,
+    kind,
+    limit: Number(req.query?.limit) || 20,
+  });
+  return res.json((await pgPool.query(sql, params as any[])).rows);
 }
 
 /**

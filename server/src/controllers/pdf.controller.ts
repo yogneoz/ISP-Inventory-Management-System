@@ -16,7 +16,7 @@ import { branches, getPgConnected, pgPool } from '../app';
 import { ApiError } from '../errors/ApiError';
 import { allowedBranchScope } from '../middleware/branchScope';
 import { COMPANY_PROFILE_SELECT_SQL } from '../models/admin.repo';
-import { PI_FIND_BY_ID_SQL } from '../models/procurement.repo';
+import { PI_FIND_BY_ID_SQL, PO_PRINT_SELECT_SQL } from '../models/procurement.repo';
 import { SI_FIND_ONE_SQL } from '../models/sales.repo';
 import {
   EMPLOYEE_BY_ID_SQL,
@@ -33,9 +33,11 @@ import {
 import {
   buildInvoicePdf,
   buildPayslipPdf,
+  buildPurchaseOrderPdf,
   buildStatementPdf,
   type PdfCompany,
 } from '../services/pdf.service';
+import { isBsDateMissing, resolveBsDateForLedger } from '../utils/bsDate';
 import { resolveBranchScope } from './accounting.controller';
 
 function requireDb(): void {
@@ -118,6 +120,23 @@ export async function get_purchaseInvoicePrint(req: any, res: Response): Promise
   sendPdf(res, buffer, `purchase-bill-${invoice.invoiceNumber}.pdf`);
 }
 
+/** GET /api/purchase-orders/:id/print */
+export async function get_purchaseOrderPrint(req: any, res: Response): Promise<any> {
+  requireDb();
+  const id = text(req.params?.id, 100);
+  if (!id) throw new ApiError(400, 'A purchase order id or number is required.');
+  const po = (await pgPool.query(PO_PRINT_SELECT_SQL, [id])).rows[0];
+  if (!po) throw new ApiError(404, 'Purchase order not found.');
+  if (!canReadRecordBranch(req, res, String(po.branchId))) return;
+
+  const buffer = await buildPurchaseOrderPdf({
+    po,
+    company: await loadCompany(),
+    branchName: branchLabel(String(po.branchId)),
+  });
+  sendPdf(res, buffer, `purchase-order-${po.poNumber}.pdf`);
+}
+
 async function printStatement(req: any, res: Response, mode: PrintableStatementMode): Promise<any> {
   requireDb();
   const scope = resolveBranchScope(req, res);
@@ -133,11 +152,23 @@ async function printStatement(req: any, res: Response, mode: PrintableStatementM
         ? await buildProfitAndLoss(pgPool, window)
         : await buildBalanceSheet(pgPool, window);
 
+  // A printed statement is an official Nepali report: derive both period
+  // boundaries from bs_day_records so the header carries AD and BS. An unseeded
+  // day is omitted (the header shows the AD date alone) — never a fabricated BS.
+  const [toBS, fromBS] = await Promise.all([
+    resolveBsDateForLedger(window.to),
+    window.from ? resolveBsDateForLedger(window.from) : Promise.resolve(null),
+  ]);
+  const bsOrNull = (value: string | null | undefined) =>
+    value && !isBsDateMissing(value) ? value : null;
+
   const buffer = await buildStatementPdf({
     kind: mode,
     statement,
     company: await loadCompany(),
     branchName: scope.branchId ? branchLabel(scope.branchId) : 'All branches',
+    fromBS: bsOrNull(fromBS),
+    toBS: bsOrNull(toBS),
   });
   sendPdf(res, buffer, `${mode.toLowerCase().replace(/_/g, '-')}-${window.to}.pdf`);
 }

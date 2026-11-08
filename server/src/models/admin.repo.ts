@@ -342,7 +342,8 @@ export const USER_RESET_PASSWORD_SQL =
 export const ASSET_RECALC_SELECT_SQL = `SELECT id, tag_number AS "tagNumber", name, category, branch_id AS "branchId",
   acquisition_date_ad AS "acquisitionDateAD", acquisition_date_bs AS "acquisitionDateBS",
   purchase_invoice_date_ad AS "purchaseInvoiceDateAD", purchase_invoice_date_bs AS "purchaseInvoiceDateBS",
-  capitalization_date_ad AS "capitalizationDateAD", placed_in_service_date_ad AS "placedInServiceDateAD",
+  capitalization_date_ad AS "capitalizationDateAD", capitalization_date_bs AS "capitalizationDateBS",
+  placed_in_service_date_ad AS "placedInServiceDateAD", placed_in_service_date_bs AS "placedInServiceDateBS",
         acquisition_cost AS "acquisitionCost", depreciation_method AS "depreciationMethod",
         depreciation_rate_percent AS "depreciationRatePercent", accumulated_depreciation AS "accumulatedDepreciation",
         net_book_value AS "netBookValue", status, supplier_name AS "supplierName", invoice_no AS "invoiceNo"

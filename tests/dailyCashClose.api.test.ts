@@ -86,6 +86,7 @@ describe('daily cash close (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => 
   const branchBToken = issueAuthToken(ACCOUNTANT_B);
   const managerToken = issueAuthToken(MANAGER_NO_LEDGER);
   let closeId = '';
+  let dayBS = '';
 
   async function request(method: 'GET' | 'POST', path: string, body?: unknown, auth = token) {
     const res = await fetch('http://127.0.0.1:' + port + path, {
@@ -135,7 +136,8 @@ describe('daily cash close (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => 
   }
 
   before(async () => {
-    await ensureReferenceData(pool!, DAY);
+    const reference = await ensureReferenceData(pool!, DAY);
+    dayBS = `${reference.bsDate} BS`;
     await cleanup();
     await pool!.query(
       `INSERT INTO branches (id, code, name, location) VALUES
@@ -249,6 +251,7 @@ describe('daily cash close (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => 
     assert.equal(closed.json.variance, -50);
     assert.equal(closed.json.branchId, BR_A);
     assert.equal(closed.json.businessDateAD, DAY);
+    assert.equal(closed.json.businessDateBS, dayBS);
     closeId = closed.json.id;
     assert.ok(closeId);
 
@@ -259,6 +262,8 @@ describe('daily cash close (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => 
     assert.equal(read.json.branch.variance, -50);
     assert.equal(read.json.branch.close.id, closeId);
     assert.equal(read.json.branch.close.expectedClosing, 1700);
+    assert.equal(read.json.branch.close.businessDateBS, dayBS);
+    assert.equal(read.json.dateBS, dayBS);
     assert.equal(read.json.branch.stale, false);
 
     const before = await pool!.query(

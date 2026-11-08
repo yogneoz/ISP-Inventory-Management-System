@@ -136,7 +136,8 @@ export interface LedgerViewProps {
  * lives here.
  */
 const EXPORT_COLUMN_KEYS = {
-  date: 'Date',
+  dateAD: 'DateAD',
+  dateBS: 'DateBS',
   documentNumber: 'Document No',
   type: 'Type',
   debit: 'Debit',
@@ -145,23 +146,41 @@ const EXPORT_COLUMN_KEYS = {
   notes: 'Notes',
 } as const;
 
-/** The export column labels every ledger shares, with the per-screen overrides
- *  applied: the AD/BS date column always honours `dateMode` unless a screen
- *  names it explicitly. */
+/** Columns after the date pair, in file order. */
+const EXPORT_TAIL_KEYS = [
+  'documentNumber',
+  'type',
+  'debit',
+  'credit',
+  'balance',
+  'notes',
+] as const;
+
+/** Labels a screen may override; `date` names both halves of the date pair. */
+export type LedgerExportLabels = Partial<
+  Record<keyof typeof EXPORT_COLUMN_KEYS | 'date', string>
+>;
+
+/** The export column labels every ledger shares. Both halves of the business
+ *  date are always exported — the AD value as stored and the BS value derived
+ *  from the calendar — with `dateMode` only deciding which one leads. */
 export function ledgerExportColumns(
-  labels: Partial<Record<keyof typeof EXPORT_COLUMN_KEYS, string>>,
+  labels: LedgerExportLabels,
   dateMode: 'BS' | 'AD'
 ): CSVColumn<Record<string, any>>[] {
-  return (Object.keys(EXPORT_COLUMN_KEYS) as Array<keyof typeof EXPORT_COLUMN_KEYS>).map((key) => ({
-    key: EXPORT_COLUMN_KEYS[key],
-    label:
-      labels[key] ??
-      (key === 'date'
-        ? dateMode === 'BS'
-          ? 'Nepali (BS) Date'
-          : 'English (AD) Date'
-        : EXPORT_COLUMN_KEYS[key]),
-  }));
+  const dateColumn = (kind: 'AD' | 'BS'): CSVColumn<Record<string, any>> => ({
+    key: kind === 'AD' ? EXPORT_COLUMN_KEYS.dateAD : EXPORT_COLUMN_KEYS.dateBS,
+    label: `${labels.date ?? 'Date'} (${kind})`,
+  });
+  const dateColumns =
+    dateMode === 'BS' ? [dateColumn('BS'), dateColumn('AD')] : [dateColumn('AD'), dateColumn('BS')];
+  return [
+    ...dateColumns,
+    ...EXPORT_TAIL_KEYS.map((key) => ({
+      key: EXPORT_COLUMN_KEYS[key],
+      label: labels[key] ?? EXPORT_COLUMN_KEYS[key],
+    })),
+  ];
 }
 
 export const LedgerView: React.FC<LedgerViewProps> = ({
@@ -194,7 +213,8 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
   const handleExport = () => {
     if (!data) return;
     const rows = data.ledger.map((line) => ({
-      [EXPORT_COLUMN_KEYS.date]: dateMode === 'BS' ? line.dateBS : line.dateAD,
+      [EXPORT_COLUMN_KEYS.dateAD]: line.dateAD,
+      [EXPORT_COLUMN_KEYS.dateBS]: line.dateBS,
       [EXPORT_COLUMN_KEYS.documentNumber]: line.documentNumber,
       [EXPORT_COLUMN_KEYS.type]: line.type,
       [EXPORT_COLUMN_KEYS.debit]: line.debit,
@@ -335,7 +355,7 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-slate-50 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wide">
-                    <th className="px-4 py-3 text-left font-semibold">Date</th>
+                    <th className="px-4 py-3 text-left font-semibold">Date (AD / BS)</th>
                     <th className="px-4 py-3 text-left font-semibold">Document No</th>
                     <th className="px-4 py-3 text-left font-semibold">Type</th>
                     <th className="px-4 py-3 text-right font-semibold">{columns.debit}</th>
@@ -361,7 +381,10 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
                     return (
                       <tr key={`${line.id}-${idx}`} className="border-t border-slate-100 dark:border-slate-700/60">
                         <td className="px-4 py-2 whitespace-nowrap text-slate-700 dark:text-slate-300">
-                          {dateMode === 'BS' ? line.dateBS : line.dateAD}
+                          <span>{dateMode === 'BS' ? line.dateBS : line.dateAD}</span>
+                          <span className="block text-[10px] text-slate-400 dark:text-slate-500">
+                            {dateMode === 'BS' ? line.dateAD : line.dateBS}
+                          </span>
                         </td>
                         <td className="px-4 py-2 font-medium text-slate-800 dark:text-slate-100">{line.documentNumber}</td>
                         <td className="px-4 py-2">

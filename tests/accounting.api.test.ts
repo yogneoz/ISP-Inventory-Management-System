@@ -30,7 +30,7 @@ import { createApp, registerAllRoutes } from '../server/src/app';
 import { issueAuthToken } from '../server/src/middleware/auth';
 import { setPermissionMatrix } from '../server/src/state/runtimeState';
 import { DEFAULT_PERMISSIONS_MATRIX } from '../client/src/utils/permissionMatrixData';
-import { ensureReferenceData } from './fixtures/referenceData';
+import { ensureBsDayRecords, ensureReferenceData } from './fixtures/referenceData';
 
 dotenv.config();
 
@@ -54,6 +54,7 @@ const WH = 'WH001';
 const JOURNAL_DATE = '2026-08-15';
 const PERIOD_KEY = '2026-08';
 const TEST_TAG = 'ACC TEST';
+let journalDateBS = '';
 
 const USERS = {
   super: { id: 'acc-super', email: 'acc-super@example.com', name: 'ACC Super', role: 'SUPER_ADMIN', branchId: 'ALL', allowedBranchIds: [], canSwitchUser: false },
@@ -145,7 +146,16 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
   }
 
   before(async () => {
-    await ensureReferenceData(pool!);
+    const reference = await ensureReferenceData(pool!, JOURNAL_DATE);
+    journalDateBS = `${reference.bsDate} BS`;
+    // Later tests post in September; seed its boundaries and voucher days so
+    // the dual-date period/journal write succeeds on a schema-only database.
+    await ensureBsDayRecords(pool!, [
+      '2026-09-01',
+      '2026-09-10',
+      '2026-09-11',
+      '2026-09-30',
+    ]);
     // FK order: journals cascade lines/subledger; periods then accounts/groups.
     await pool!.query(
       "DELETE FROM gl_journals WHERE reversal_of_id IN (SELECT id FROM gl_journals WHERE source_id LIKE 'ACC-TEST-%' OR memo LIKE 'ACC TEST%')"
@@ -628,6 +638,8 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
     assert.equal(res.json.branchId, BR);
     assert.match(res.json.journalNo, /^MJ-2083-84-\d{5}$/);
     assert.equal(res.json.status, 'POSTED');
+    assert.equal(res.json.journalDateBS, journalDateBS);
+    assert.equal(res.json.subledgerEntries[0].entryDateBS, journalDateBS);
     assert.equal(res.json.totalDebit, 1130);
     assert.equal(res.json.totalCredit, 1130);
     assert.equal(res.json.lines.length, 2);
@@ -659,6 +671,14 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
     assert.equal(detail.status, 200);
     assert.equal(detail.json.lines.length, 2);
     assert.equal(detail.json.subledgerEntries.length, 1);
+    assert.equal(detail.json.subledgerEntries[0].entryDateBS, journalDateBS);
+
+    const period = await pool!.query(
+      'SELECT start_date_bs, end_date_bs FROM gl_periods WHERE id = $1',
+      [res.json.periodId]
+    );
+    assert.equal(period.rows[0].start_date_bs, '2083-04-16 BS');
+    assert.equal(period.rows[0].end_date_bs, '2083-05-15 BS');
   });
 
   test('voucher metadata, foreign currency and cash-bank numbering round-trip', async () => {
@@ -683,8 +703,10 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
     assert.equal(posted.json.voucherType, 'CASH_BANK');
     assert.equal(posted.json.referenceNo, 'ACC-TEST-REF-1');
     assert.equal(posted.json.referenceDateAD, '2026-08-10');
+    assert.match(posted.json.referenceDateBS, /^2083-04-\d{2} BS$/);
     assert.equal(posted.json.chequeNo, 'ACC-TEST-CHQ-1');
     assert.equal(posted.json.chequeDateAD, '2026-08-11');
+    assert.match(posted.json.chequeDateBS, /^2083-04-\d{2} BS$/);
     assert.equal(posted.json.currency, 'USD');
     assert.equal(posted.json.exchangeRate, 130.5);
 
@@ -932,6 +954,87 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
     const ownRead = await get('/api/accounting/journals/' + brJournal.json.id, tokens.accountant);
     assert.equal(ownRead.status, 200);
     assert.equal(ownRead.json.branchId, BR);
+  });
+
+  test('bounded ledger search matches code/name, filters custody ledgers and excludes retired accounts', async () => {
+    const ledgerIds: string[] = [];
+    for (let index = 1; index <= 21; index += 1) {
+      ledgerIds.push(
+        await createAccount({
+          code: `ATC-SRCH-${String(index).padStart(3, '0')}`,
+          name: `ACC Search Ledger ${String(index).padStart(2, '0')}`,
+          groupId: accounts.groupAsset,
+        })
+      );
+    }
+    const cashId = await createAccount({
+      code: 'ATC-SRCH-KIND-CASH',
+      name: 'ACC Search Custody Cash',
+      groupId: accounts.groupAsset,
+      accountKind: 'CASH',
+    });
+    await createAccount({
+      code: 'ATC-SRCH-KIND-OTHER',
+      name: 'ACC Search Non Custody',
+      groupId: accounts.groupAsset,
+    });
+    const retiredId = await createAccount({
+      code: 'ATC-SRCH-RETIRED',
+      name: 'ACC Search Retired Ledger',
+      groupId: accounts.groupAsset,
+    });
+
+    const retired = await patch('/api/accounting/accounts/' + retiredId, tokens.super, { isActive: false });
+    assert.equal(retired.status, 200, JSON.stringify(retired.json));
+
+    const byCode = await get('/api/accounting/accounts/search?q=ATC-SRCH-001', tokens.super);
+    assert.equal(byCode.status, 200, JSON.stringify(byCode.json));
+    assert.equal(byCode.json.length, 1);
+    assert.equal(byCode.json[0].id, ledgerIds[0]);
+    assert.equal(byCode.json[0].code, 'ATC-SRCH-001');
+    assert.equal(byCode.json[0].name, 'ACC Search Ledger 01');
+    assert.equal(byCode.json[0].isActive, true);
+
+    // The picker asks for a page, not the whole chart: 21 matches, 20 rows.
+    const defaultPage = await get('/api/accounting/accounts/search?q=ACC%20Search%20Ledger', tokens.super);
+    assert.equal(defaultPage.status, 200, JSON.stringify(defaultPage.json));
+    assert.equal(defaultPage.json.length, 20, 'the picker default is 20 rows');
+
+    const shortPage = await get('/api/accounting/accounts/search?q=ACC%20Search%20Ledger&limit=5', tokens.super);
+    assert.equal(shortPage.status, 200, JSON.stringify(shortPage.json));
+    assert.equal(shortPage.json.length, 5);
+
+    const custody = await get('/api/accounting/accounts/search?q=ATC-SRCH-KIND&kind=CASH_BANK', tokens.super);
+    assert.equal(custody.status, 200, JSON.stringify(custody.json));
+    assert.deepEqual(custody.json.map((row: any) => row.id), [cashId]);
+
+    const retiredSearch = await get('/api/accounting/accounts/search?q=ATC-SRCH-RETIRED', tokens.super);
+    assert.equal(retiredSearch.status, 200);
+    assert.deepEqual(retiredSearch.json, []);
+
+    assert.deepEqual((await get('/api/accounting/accounts/search?q=', tokens.super)).json, []);
+    assert.equal((await get('/api/accounting/accounts/search?q=ATC-SRCH-001')).status, 401);
+  });
+
+  test('ledger search allows a gl-post-only role while the full chart and payroll reads stay on gl-view', async () => {
+    const baseline = JSON.parse(JSON.stringify(DEFAULT_PERMISSIONS_MATRIX));
+    const postOnly = JSON.parse(JSON.stringify(baseline));
+    postOnly['gl-view'].AUDITOR = false;
+    postOnly['gl-post'].AUDITOR = true;
+    try {
+      setPermissionMatrix(postOnly);
+
+      const search = await get('/api/accounting/accounts/search?q=ATC-5000', tokens.auditor);
+      assert.equal(search.status, 200, JSON.stringify(search.json));
+      assert.ok(search.json.some((row: any) => row.code === 'ATC-5000'));
+
+      // A voucher poster may pick a ledger, but the full chart and the
+      // payroll run register keep their own gl-view gate.
+      assert.equal((await get('/api/accounting/accounts', tokens.auditor)).status, 403);
+      assert.equal((await get(`/api/payroll-runs?branchId=${BR}`, tokens.auditor)).status, 403);
+    } finally {
+      setPermissionMatrix(baseline);
+    }
   });
 
   test('an account with no branch scope gets an empty ledger and cannot post', async () => {

@@ -30,6 +30,7 @@ import {
   ACCOUNTS_BY_POSTING_ROLES_SQL,
   EARLIEST_OPEN_FISCAL_YEAR_SQL,
   EARLIEST_OPEN_PERIOD_SQL,
+  FISCAL_YEAR_BOUNDS_SQL,
   FISCAL_YEAR_CLOSE_LOCK_SQL,
   FISCAL_YEAR_PNL_BALANCE_ROWS_SQL,
   OPENING_BALANCE_EXISTS_SQL,
@@ -93,7 +94,24 @@ export async function postOpeningBalances(
   let journalDateAD: string;
   let periodKey: string;
   if (period) {
-    journalDateAD = String(period.startDateAD).slice(0, 10);
+    const periodStartAD = String(period.startDateAD).slice(0, 10);
+    const periodEndAD = String(period.endDateAD).slice(0, 10);
+    // A Nepali fiscal year starts mid-month, so its first period's calendar
+    // span begins before the year. Post the opening on the year's first day in
+    // that case; the period key is unchanged.
+    const fiscalYearForStart = (
+      await client.query(FISCAL_YEAR_BOUNDS_SQL, [periodStartAD])
+    ).rows[0];
+    if (fiscalYearForStart) {
+      journalDateAD = periodStartAD;
+    } else {
+      const fiscalYearForEnd = (
+        await client.query(FISCAL_YEAR_BOUNDS_SQL, [periodEndAD])
+      ).rows[0];
+      journalDateAD = fiscalYearForEnd
+        ? String(fiscalYearForEnd.startDateAD).slice(0, 10)
+        : periodStartAD;
+    }
     periodKey = String(period.periodKey);
   } else {
     const fiscalYear = (await client.query(EARLIEST_OPEN_FISCAL_YEAR_SQL)).rows[0];

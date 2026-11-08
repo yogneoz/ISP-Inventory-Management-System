@@ -37,6 +37,14 @@ export const setActiveBranchContext = (branchId: string | null) => {
   currentBranchId = branchId;
 };
 
+/** Auth and fiscal-year headers shared by JSON and binary requests. */
+export function apiHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {};
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+  if (currentFiscalYearId) headers['x-fiscal-year-id'] = currentFiscalYearId;
+  return headers;
+}
+
 /**
  * The branch a directory read must be scoped to, or null for a truly global
  * read.
@@ -153,9 +161,7 @@ export async function fetchJson<T>(endpoint: string, options?: RequestInit, conf
     return inFlightRequests.get(cacheKey)! as Promise<T>;
   }
 
-  const userHeaders: Record<string, string> = {};
-  if (authToken) userHeaders.Authorization = `Bearer ${authToken}`;
-  if (currentFiscalYearId) userHeaders['x-fiscal-year-id'] = currentFiscalYearId;
+  const userHeaders = apiHeaders();
 
   const promise = (async () => {
     try {

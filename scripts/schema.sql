@@ -316,7 +316,9 @@ CREATE TABLE IF NOT EXISTS fixed_assets (
     purchase_invoice_date_ad DATE,
     purchase_invoice_date_bs VARCHAR(20),
     capitalization_date_ad DATE,
+    capitalization_date_bs VARCHAR(20),
     placed_in_service_date_ad DATE,
+    placed_in_service_date_bs VARCHAR(20),
     acquisition_cost NUMERIC(12, 2) NOT NULL,
     depreciation_method VARCHAR(50) DEFAULT 'STRAIGHT_LINE',
     depreciation_rate_percent NUMERIC(5, 2) DEFAULT 15.00,
@@ -344,6 +346,9 @@ CREATE TABLE IF NOT EXISTS fixed_assets (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS capitalization_date_bs VARCHAR(20);
+ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS placed_in_service_date_bs VARCHAR(20);
+
 -- ==========================================
 -- 9. Purchase Orders Table (with items JSONB)
 -- ==========================================
@@ -356,6 +361,7 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
     order_date_ad DATE NOT NULL,
     order_date_bs VARCHAR(20) NOT NULL,
     expected_delivery_date_ad DATE,
+    expected_delivery_date_bs VARCHAR(20),
     status VARCHAR(30) DEFAULT 'DRAFT' CHECK (status IN ('DRAFT', 'APPROVED', 'SENT', 'IN_PROGRESS', 'PURCHASED', 'RECEIVED', 'CANCELLED')),
     status_override VARCHAR(30),
     subtotal_amount NUMERIC(14, 2) DEFAULT 0.00,
@@ -959,7 +965,9 @@ CREATE TABLE IF NOT EXISTS warranty_coverages (
     source_id VARCHAR(60),
     source_number VARCHAR(120),
     start_date_ad DATE NOT NULL,
+    start_date_bs VARCHAR(20),
     end_date_ad DATE NOT NULL,
+    end_date_bs VARCHAR(20),
     term_months INT CHECK (term_months IS NULL OR term_months BETWEEN 0 AND 120),
     start_basis VARCHAR(30) NOT NULL DEFAULT 'MANUAL'
       CHECK (start_basis IN ('INVOICE_DATE', 'ACQUISITION_DATE', 'ISSUE_DATE', 'SALE_DATE', 'LEGACY_12_MONTH', 'MANUAL')),
@@ -1545,7 +1553,9 @@ CREATE TABLE IF NOT EXISTS gl_periods (
     fiscal_year_id VARCHAR(50) NOT NULL REFERENCES fiscal_years(id) ON DELETE RESTRICT,
     period_key VARCHAR(7) NOT NULL,
     start_date_ad DATE NOT NULL,
+    start_date_bs VARCHAR(20),
     end_date_ad DATE NOT NULL,
+    end_date_bs VARCHAR(20),
     status VARCHAR(10) NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN', 'CLOSED')),
     closed_at TIMESTAMP WITH TIME ZONE,
     closed_by VARCHAR(150),
@@ -1556,6 +1566,8 @@ CREATE TABLE IF NOT EXISTS gl_periods (
 );
 
 CREATE INDEX IF NOT EXISTS idx_gl_periods_dates ON gl_periods(start_date_ad, end_date_ad);
+ALTER TABLE gl_periods ADD COLUMN IF NOT EXISTS start_date_bs VARCHAR(20);
+ALTER TABLE gl_periods ADD COLUMN IF NOT EXISTS end_date_bs VARCHAR(20);
 
 CREATE SEQUENCE IF NOT EXISTS gl_journal_no_seq AS BIGINT START WITH 1;
 
@@ -1563,6 +1575,7 @@ CREATE TABLE IF NOT EXISTS gl_journals (
     id VARCHAR(50) PRIMARY KEY,
     journal_no VARCHAR(50) UNIQUE NOT NULL,
     journal_date_ad DATE NOT NULL,
+    journal_date_bs VARCHAR(20),
     fiscal_year_id VARCHAR(50) NOT NULL REFERENCES fiscal_years(id) ON DELETE RESTRICT,
     period_id VARCHAR(50) NOT NULL REFERENCES gl_periods(id) ON DELETE RESTRICT,
     branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
@@ -1574,8 +1587,10 @@ CREATE TABLE IF NOT EXISTS gl_journals (
     voucher_class VARCHAR(50),
     reference_no VARCHAR(100),
     reference_date_ad DATE,
+    reference_date_bs VARCHAR(20),
     cheque_no VARCHAR(100),
     cheque_date_ad DATE,
+    cheque_date_bs VARCHAR(20),
     currency VARCHAR(10) NOT NULL DEFAULT 'NPR',
     exchange_rate NUMERIC(14, 6) NOT NULL DEFAULT 1,
     memo TEXT,
@@ -1597,8 +1612,11 @@ ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS voucher_type VARCHAR(30) NOT NU
 ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS voucher_class VARCHAR(50);
 ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS reference_no VARCHAR(100);
 ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS reference_date_ad DATE;
+ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS reference_date_bs VARCHAR(20);
 ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS cheque_no VARCHAR(100);
 ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS cheque_date_ad DATE;
+ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS cheque_date_bs VARCHAR(20);
+ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS journal_date_bs VARCHAR(20);
 ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS currency VARCHAR(10) NOT NULL DEFAULT 'NPR';
 ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS exchange_rate NUMERIC(14, 6) NOT NULL DEFAULT 1;
 -- Opening balances are posted once per branch. The service also takes a
@@ -1645,6 +1663,7 @@ CREATE TABLE IF NOT EXISTS gl_subledger_entries (
     party_name VARCHAR(200),
     branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
     entry_date_ad DATE NOT NULL,
+    entry_date_bs VARCHAR(20),
     debit NUMERIC(14, 2) NOT NULL DEFAULT 0,
     credit NUMERIC(14, 2) NOT NULL DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -1665,6 +1684,7 @@ CREATE INDEX IF NOT EXISTS idx_gl_subledger_journal ON gl_subledger_entries(jour
 -- posting path resolves the book for every new row.
 ALTER TABLE gl_subledger_entries
     ADD COLUMN IF NOT EXISTS subledger_id VARCHAR(50) REFERENCES gl_subledgers(id) ON DELETE RESTRICT;
+ALTER TABLE gl_subledger_entries ADD COLUMN IF NOT EXISTS entry_date_bs VARCHAR(20);
 
 CREATE INDEX IF NOT EXISTS idx_gl_subledger_book ON gl_subledger_entries(subledger_id);
 
@@ -1690,6 +1710,7 @@ CREATE TABLE IF NOT EXISTS daily_cash_closes (
     id VARCHAR(50) PRIMARY KEY,
     branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
     business_date_ad DATE NOT NULL,
+    business_date_bs VARCHAR(20),
     opening_cash NUMERIC(14, 2) NOT NULL DEFAULT 0,
     cash_in NUMERIC(14, 2) NOT NULL DEFAULT 0,
     cash_out NUMERIC(14, 2) NOT NULL DEFAULT 0,
@@ -1711,6 +1732,7 @@ CREATE TABLE IF NOT EXISTS daily_cash_closes (
 );
 
 CREATE INDEX IF NOT EXISTS idx_daily_cash_closes_date ON daily_cash_closes(business_date_ad, branch_id);
+ALTER TABLE daily_cash_closes ADD COLUMN IF NOT EXISTS business_date_bs VARCHAR(20);
 
 -- ============================================================================
 -- 35. Payroll — employee master, posted runs and their per-employee lines
@@ -1747,6 +1769,7 @@ CREATE TABLE IF NOT EXISTS payroll_runs (
     branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
     period_key VARCHAR(7) NOT NULL,
     run_date_ad DATE NOT NULL,
+    run_date_bs VARCHAR(20),
     gross_total NUMERIC(14, 2) NOT NULL DEFAULT 0,
     tds_total NUMERIC(14, 2) NOT NULL DEFAULT 0,
     ssf_total NUMERIC(14, 2) NOT NULL DEFAULT 0,
@@ -1757,6 +1780,7 @@ CREATE TABLE IF NOT EXISTS payroll_runs (
     journal_id VARCHAR(50) REFERENCES gl_journals(id) ON DELETE SET NULL,
     paid_journal_id VARCHAR(50) REFERENCES gl_journals(id) ON DELETE SET NULL,
     paid_date_ad DATE,
+    paid_date_bs VARCHAR(20),
     payment_method VARCHAR(30),
     posted_by VARCHAR(150),
     paid_at TIMESTAMP WITH TIME ZONE,
@@ -1768,6 +1792,8 @@ CREATE TABLE IF NOT EXISTS payroll_runs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_payroll_runs_branch_period ON payroll_runs(branch_id, period_key, run_date_ad);
+ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS run_date_bs VARCHAR(20);
+ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS paid_date_bs VARCHAR(20);
 
 CREATE TABLE IF NOT EXISTS payroll_run_lines (
     id VARCHAR(60) PRIMARY KEY,
@@ -2506,6 +2532,43 @@ BEGIN
     FROM bs_day_records b
     WHERE (o.date_bs IS NULL OR o.date_bs = '') AND b.ad_date = o.date_ad;
 
+  -- Finance/accounting dual dates: the GL header, its period, every control
+  -- subledger row, the cash close, payroll and the remaining fixed-asset dates
+  -- all persist the BS half derived from the operation's own AD date.
+  UPDATE gl_periods p SET start_date_bs = b.bs_date || ' BS'
+    FROM bs_day_records b
+    WHERE (p.start_date_bs IS NULL OR p.start_date_bs = '') AND b.ad_date = p.start_date_ad;
+  UPDATE gl_periods p SET end_date_bs = b.bs_date || ' BS'
+    FROM bs_day_records b
+    WHERE (p.end_date_bs IS NULL OR p.end_date_bs = '') AND b.ad_date = p.end_date_ad;
+  UPDATE gl_journals j SET journal_date_bs = b.bs_date || ' BS'
+    FROM bs_day_records b
+    WHERE (j.journal_date_bs IS NULL OR j.journal_date_bs = '') AND b.ad_date = j.journal_date_ad;
+  UPDATE gl_journals j SET reference_date_bs = b.bs_date || ' BS'
+    FROM bs_day_records b
+    WHERE j.reference_date_ad IS NOT NULL AND (j.reference_date_bs IS NULL OR j.reference_date_bs = '') AND b.ad_date = j.reference_date_ad;
+  UPDATE gl_journals j SET cheque_date_bs = b.bs_date || ' BS'
+    FROM bs_day_records b
+    WHERE j.cheque_date_ad IS NOT NULL AND (j.cheque_date_bs IS NULL OR j.cheque_date_bs = '') AND b.ad_date = j.cheque_date_ad;
+  UPDATE gl_subledger_entries e SET entry_date_bs = b.bs_date || ' BS'
+    FROM bs_day_records b
+    WHERE (e.entry_date_bs IS NULL OR e.entry_date_bs = '') AND b.ad_date = e.entry_date_ad;
+  UPDATE daily_cash_closes c SET business_date_bs = b.bs_date || ' BS'
+    FROM bs_day_records b
+    WHERE (c.business_date_bs IS NULL OR c.business_date_bs = '') AND b.ad_date = c.business_date_ad;
+  UPDATE payroll_runs r SET run_date_bs = b.bs_date || ' BS'
+    FROM bs_day_records b
+    WHERE (r.run_date_bs IS NULL OR r.run_date_bs = '') AND b.ad_date = r.run_date_ad;
+  UPDATE payroll_runs r SET paid_date_bs = b.bs_date || ' BS'
+    FROM bs_day_records b
+    WHERE r.paid_date_ad IS NOT NULL AND (r.paid_date_bs IS NULL OR r.paid_date_bs = '') AND b.ad_date = r.paid_date_ad;
+  UPDATE fixed_assets f SET capitalization_date_bs = b.bs_date || ' BS'
+    FROM bs_day_records b
+    WHERE f.capitalization_date_ad IS NOT NULL AND (f.capitalization_date_bs IS NULL OR f.capitalization_date_bs = '') AND b.ad_date = f.capitalization_date_ad;
+  UPDATE fixed_assets f SET placed_in_service_date_bs = b.bs_date || ' BS'
+    FROM bs_day_records b
+    WHERE f.placed_in_service_date_ad IS NOT NULL AND (f.placed_in_service_date_bs IS NULL OR f.placed_in_service_date_bs = '') AND b.ad_date = f.placed_in_service_date_ad;
+
   -- 2. Tighten constraints only where the backfill left the column clean.
   IF NOT EXISTS (SELECT 1 FROM vendor_payments WHERE payment_date_bs IS NULL OR payment_date_bs = '') THEN
     ALTER TABLE vendor_payments ALTER COLUMN payment_date_bs SET NOT NULL;
@@ -2554,6 +2617,51 @@ BEGIN
     ALTER TABLE customer_payments DROP CONSTRAINT IF EXISTS customer_payments_cheque_bs_required;
     ALTER TABLE customer_payments ADD CONSTRAINT customer_payments_cheque_bs_required CHECK (cheque_date_ad IS NULL OR (cheque_date_bs IS NOT NULL AND cheque_date_bs <> ''));
   END IF;
+
+  -- Finance/accounting write-path dual dates. NOT NULL only where existing
+  -- history is clean; optional AD dates use a conditional CHECK instead.
+  IF NOT EXISTS (SELECT 1 FROM gl_periods WHERE start_date_bs IS NULL OR start_date_bs = '') THEN
+    ALTER TABLE gl_periods ALTER COLUMN start_date_bs SET NOT NULL;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM gl_periods WHERE end_date_bs IS NULL OR end_date_bs = '') THEN
+    ALTER TABLE gl_periods ALTER COLUMN end_date_bs SET NOT NULL;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM gl_journals WHERE journal_date_bs IS NULL OR journal_date_bs = '') THEN
+    ALTER TABLE gl_journals ALTER COLUMN journal_date_bs SET NOT NULL;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM gl_journals WHERE reference_date_ad IS NOT NULL AND (reference_date_bs IS NULL OR reference_date_bs = '')) THEN
+    ALTER TABLE gl_journals DROP CONSTRAINT IF EXISTS gl_journals_reference_bs_required;
+    ALTER TABLE gl_journals ADD CONSTRAINT gl_journals_reference_bs_required CHECK (reference_date_ad IS NULL OR (reference_date_bs IS NOT NULL AND reference_date_bs <> ''));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM gl_journals WHERE cheque_date_ad IS NOT NULL AND (cheque_date_bs IS NULL OR cheque_date_bs = '')) THEN
+    ALTER TABLE gl_journals DROP CONSTRAINT IF EXISTS gl_journals_cheque_bs_required;
+    ALTER TABLE gl_journals ADD CONSTRAINT gl_journals_cheque_bs_required CHECK (cheque_date_ad IS NULL OR (cheque_date_bs IS NOT NULL AND cheque_date_bs <> ''));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM gl_subledger_entries WHERE entry_date_bs IS NULL OR entry_date_bs = '') THEN
+    ALTER TABLE gl_subledger_entries ALTER COLUMN entry_date_bs SET NOT NULL;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM daily_cash_closes WHERE business_date_bs IS NULL OR business_date_bs = '') THEN
+    ALTER TABLE daily_cash_closes ALTER COLUMN business_date_bs SET NOT NULL;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM payroll_runs WHERE run_date_bs IS NULL OR run_date_bs = '') THEN
+    ALTER TABLE payroll_runs ALTER COLUMN run_date_bs SET NOT NULL;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM payroll_runs WHERE paid_date_ad IS NOT NULL AND (paid_date_bs IS NULL OR paid_date_bs = '')) THEN
+    ALTER TABLE payroll_runs DROP CONSTRAINT IF EXISTS payroll_runs_paid_bs_required;
+    ALTER TABLE payroll_runs ADD CONSTRAINT payroll_runs_paid_bs_required CHECK (paid_date_ad IS NULL OR (paid_date_bs IS NOT NULL AND paid_date_bs <> ''));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM fixed_assets WHERE purchase_invoice_date_ad IS NOT NULL AND (purchase_invoice_date_bs IS NULL OR purchase_invoice_date_bs = '')) THEN
+    ALTER TABLE fixed_assets DROP CONSTRAINT IF EXISTS fixed_assets_purchase_invoice_bs_required;
+    ALTER TABLE fixed_assets ADD CONSTRAINT fixed_assets_purchase_invoice_bs_required CHECK (purchase_invoice_date_ad IS NULL OR (purchase_invoice_date_bs IS NOT NULL AND purchase_invoice_date_bs <> ''));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM fixed_assets WHERE capitalization_date_ad IS NOT NULL AND (capitalization_date_bs IS NULL OR capitalization_date_bs = '')) THEN
+    ALTER TABLE fixed_assets DROP CONSTRAINT IF EXISTS fixed_assets_capitalization_bs_required;
+    ALTER TABLE fixed_assets ADD CONSTRAINT fixed_assets_capitalization_bs_required CHECK (capitalization_date_ad IS NULL OR (capitalization_date_bs IS NOT NULL AND capitalization_date_bs <> ''));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM fixed_assets WHERE placed_in_service_date_ad IS NOT NULL AND (placed_in_service_date_bs IS NULL OR placed_in_service_date_bs = '')) THEN
+    ALTER TABLE fixed_assets DROP CONSTRAINT IF EXISTS fixed_assets_placed_in_service_bs_required;
+    ALTER TABLE fixed_assets ADD CONSTRAINT fixed_assets_placed_in_service_bs_required CHECK (placed_in_service_date_ad IS NULL OR (placed_in_service_date_bs IS NOT NULL AND placed_in_service_date_bs <> ''));
+  END IF;
 END $$;
 
 -- ---------------------------------------------------------------------------
@@ -2568,13 +2676,16 @@ END $$;
 INSERT INTO warranty_coverages (
   id, coverage_type, item_category, product_id, product_name, serial_number,
   asset_id, branch_id, party_name, source_type, source_id, source_number,
-  start_date_ad, end_date_ad, term_months, start_basis, is_demo
+  start_date_ad, start_date_bs, end_date_ad, end_date_bs, term_months, start_basis, is_demo
 )
 SELECT
   'wc-legacy-asset-' || a.id, 'VENDOR', 'FIXED_ASSET', a.product_id, a.name,
   UPPER(TRIM(a.tag_number)), a.id, a.branch_id, a.supplier_name,
   'FIXED_ASSET', a.id, a.invoice_no,
-  a.acquisition_date_ad, (a.acquisition_date_ad + INTERVAL '12 months')::date,
+  a.acquisition_date_ad,
+  COALESCE((SELECT b.bs_date || ' BS' FROM bs_day_records b WHERE b.ad_date = a.acquisition_date_ad), 'BS not seeded'),
+  (a.acquisition_date_ad + INTERVAL '12 months')::date,
+  COALESCE((SELECT b.bs_date || ' BS' FROM bs_day_records b WHERE b.ad_date = (a.acquisition_date_ad + INTERVAL '12 months')::date), 'BS not seeded'),
   12, 'LEGACY_12_MONTH', a.is_demo
 FROM fixed_assets a
 WHERE a.acquisition_date_ad IS NOT NULL
@@ -2589,7 +2700,7 @@ ON CONFLICT DO NOTHING;
 INSERT INTO warranty_coverages (
   id, coverage_type, item_category, product_id, product_name, serial_number,
   device_record_id, branch_id, party_id, party_name, source_type, source_id,
-  source_number, start_date_ad, end_date_ad, term_months, start_basis, is_demo
+  source_number, start_date_ad, start_date_bs, end_date_ad, end_date_bs, term_months, start_basis, is_demo
 )
 SELECT
   'wc-legacy-cdr-' || c.id, 'SELLER',
@@ -2597,7 +2708,10 @@ SELECT
   NULL, c.product_name, UPPER(TRIM(c.device_serial)),
   c.id, c.branch_id, c.customer_id, c.customer_name,
   'CUSTOMER_DEVICE', c.id, c.customer_code,
-  c.issued_date_ad, (c.issued_date_ad + INTERVAL '12 months')::date,
+  c.issued_date_ad,
+  COALESCE((SELECT b.bs_date || ' BS' FROM bs_day_records b WHERE b.ad_date = c.issued_date_ad), 'BS not seeded'),
+  (c.issued_date_ad + INTERVAL '12 months')::date,
+  COALESCE((SELECT b.bs_date || ' BS' FROM bs_day_records b WHERE b.ad_date = (c.issued_date_ad + INTERVAL '12 months')::date), 'BS not seeded'),
   12, 'LEGACY_12_MONTH', c.is_demo
 FROM customer_device_records c
 WHERE c.issued_date_ad IS NOT NULL
@@ -2612,13 +2726,16 @@ ON CONFLICT DO NOTHING;
 INSERT INTO warranty_coverages (
   id, coverage_type, item_category, product_id, product_name, serial_number,
   branch_id, party_name, source_type, source_id, source_number,
-  start_date_ad, end_date_ad, term_months, start_basis, is_demo
+  start_date_ad, start_date_bs, end_date_ad, end_date_bs, term_months, start_basis, is_demo
 )
 SELECT
   'wc-legacy-serial-' || s.id, 'VENDOR', 'CPE', s.product_id, COALESCE(s.product_name, ''),
   UPPER(TRIM(s.device_serial)), s.branch_id, pi.supplier_name,
   'PURCHASE_INVOICE', pi.id, pi.invoice_number,
-  pi.invoice_date_ad, (pi.invoice_date_ad + INTERVAL '12 months')::date,
+  pi.invoice_date_ad,
+  COALESCE((SELECT b.bs_date || ' BS' FROM bs_day_records b WHERE b.ad_date = pi.invoice_date_ad), 'BS not seeded'),
+  (pi.invoice_date_ad + INTERVAL '12 months')::date,
+  COALESCE((SELECT b.bs_date || ' BS' FROM bs_day_records b WHERE b.ad_date = (pi.invoice_date_ad + INTERVAL '12 months')::date), 'BS not seeded'),
   12, 'LEGACY_12_MONTH', s.is_demo
 FROM serial_log s
 JOIN purchase_invoices pi ON pi.id = s.source_id
@@ -2696,3 +2813,48 @@ CREATE INDEX IF NOT EXISTS idx_txn_branch_time
   ON transaction_logs (branch_id, timestamp_ad DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_branch_timestamp
   ON audit_logs (branch_id, timestamp_ad DESC);
+
+-- ---------------------------------------------------------------------------
+-- Procurement / warranty dual-date parity (2026-11-07).
+--
+-- expected_delivery_date_ad and the warranty coverage span are business dates
+-- too, so they persist their BS half like every finance date. Columns and
+-- backfill are idempotent; NOT NULL / CHECK apply only where existing history
+-- is clean. This block runs after the legacy warranty backfill above, so the
+-- rows it inserted are covered by the backfill as well.
+-- ---------------------------------------------------------------------------
+DO $$ BEGIN
+  ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS expected_delivery_date_bs VARCHAR(20);
+  ALTER TABLE warranty_coverages ADD COLUMN IF NOT EXISTS start_date_bs VARCHAR(20);
+  ALTER TABLE warranty_coverages ADD COLUMN IF NOT EXISTS end_date_bs VARCHAR(20);
+
+  UPDATE purchase_orders po
+  SET expected_delivery_date_bs = b.bs_date || ' BS'
+  FROM bs_day_records b
+  WHERE b.ad_date = po.expected_delivery_date_ad
+    AND po.expected_delivery_date_ad IS NOT NULL
+    AND (po.expected_delivery_date_bs IS NULL OR po.expected_delivery_date_bs = '');
+
+  UPDATE warranty_coverages w
+  SET start_date_bs = b.bs_date || ' BS'
+  FROM bs_day_records b
+  WHERE b.ad_date = w.start_date_ad
+    AND (w.start_date_bs IS NULL OR w.start_date_bs = '');
+
+  UPDATE warranty_coverages w
+  SET end_date_bs = b.bs_date || ' BS'
+  FROM bs_day_records b
+  WHERE b.ad_date = w.end_date_ad
+    AND (w.end_date_bs IS NULL OR w.end_date_bs = '');
+
+  IF NOT EXISTS (SELECT 1 FROM purchase_orders WHERE expected_delivery_date_ad IS NOT NULL AND (expected_delivery_date_bs IS NULL OR expected_delivery_date_bs = '')) THEN
+    ALTER TABLE purchase_orders DROP CONSTRAINT IF EXISTS purchase_orders_expected_delivery_bs_required;
+    ALTER TABLE purchase_orders ADD CONSTRAINT purchase_orders_expected_delivery_bs_required CHECK (expected_delivery_date_ad IS NULL OR (expected_delivery_date_bs IS NOT NULL AND expected_delivery_date_bs <> ''));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM warranty_coverages WHERE start_date_bs IS NULL OR start_date_bs = '') THEN
+    ALTER TABLE warranty_coverages ALTER COLUMN start_date_bs SET NOT NULL;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM warranty_coverages WHERE end_date_bs IS NULL OR end_date_bs = '') THEN
+    ALTER TABLE warranty_coverages ALTER COLUMN end_date_bs SET NOT NULL;
+  END IF;
+END $$;

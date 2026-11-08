@@ -28,6 +28,7 @@ export interface DailyCashCloseRow {
   id: string;
   branchId: string;
   businessDateAD: string;
+  businessDateBS: string;
   openingCash: number;
   cashIn: number;
   cashOut: number;
@@ -78,6 +79,7 @@ ORDER BY b.code ASC`;
 export const DAILY_CASH_CLOSE_COLUMNS = `c.id,
   c.branch_id AS "branchId",
   c.business_date_ad::text AS "businessDateAD",
+  c.business_date_bs AS "businessDateBS",
   c.opening_cash::numeric AS "openingCash",
   c.cash_in::numeric AS "cashIn",
   c.cash_out::numeric AS "cashOut",
@@ -109,21 +111,22 @@ WHERE c.branch_id = $1 AND c.business_date_ad = $2::date`;
 export const DAILY_CASH_CLOSE_LOCK_SQL = `SELECT pg_advisory_xact_lock(hashtext($1))::text AS lock`;
 
 export const DAILY_CASH_CLOSE_INSERT_SQL = `INSERT INTO daily_cash_closes AS c (
-  id, branch_id, business_date_ad, opening_cash, cash_in, cash_out,
+  id, branch_id, business_date_ad, business_date_bs, opening_cash, cash_in, cash_out,
   expected_closing, counted_closing, variance, status, closed_by, closed_at,
   is_demo
-) VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8, $9, 'CLOSED', $10, CURRENT_TIMESTAMP, FALSE)
+) VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8, $9, $10, 'CLOSED', $11, CURRENT_TIMESTAMP, FALSE)
 RETURNING ${DAILY_CASH_CLOSE_COLUMNS}`;
 
 export const DAILY_CASH_CLOSE_UPDATE_CLOSED_SQL = `UPDATE daily_cash_closes c SET
-  opening_cash = $2,
-  cash_in = $3,
-  cash_out = $4,
-  expected_closing = $5,
-  counted_closing = $6,
-  variance = $7,
+  business_date_bs = $2,
+  opening_cash = $3,
+  cash_in = $4,
+  cash_out = $5,
+  expected_closing = $6,
+  counted_closing = $7,
+  variance = $8,
   status = 'CLOSED',
-  closed_by = $8,
+  closed_by = $9,
   closed_at = CURRENT_TIMESTAMP,
   reopened_by = NULL,
   reopened_at = NULL,
@@ -143,6 +146,7 @@ export function cashCloseInsertParams(input: {
   id: string;
   branchId: string;
   dateAD: string;
+  dateBS: string;
   opening: number;
   cashIn: number;
   cashOut: number;
@@ -155,6 +159,7 @@ export function cashCloseInsertParams(input: {
     input.id,
     input.branchId,
     input.dateAD,
+    input.dateBS,
     input.opening,
     input.cashIn,
     input.cashOut,
@@ -167,6 +172,7 @@ export function cashCloseInsertParams(input: {
 
 export function cashCloseUpdateParams(input: {
   id: string;
+  dateBS: string;
   opening: number;
   cashIn: number;
   cashOut: number;
@@ -177,6 +183,7 @@ export function cashCloseUpdateParams(input: {
 }): unknown[] {
   return [
     input.id,
+    input.dateBS,
     input.opening,
     input.cashIn,
     input.cashOut,

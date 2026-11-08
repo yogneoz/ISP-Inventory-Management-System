@@ -1,11 +1,13 @@
 /**
- * Payroll routes. Reads use the ledger's `gl-view` gate, employee-master writes
- * use `gl-payroll-manage`, and run posting/payment uses `gl-payroll-post`, so a
- * role can maintain payroll without gaining manual-journal posting (or post a
- * run without being able to edit the employee master).
+ * Payroll routes. The employee picker's bounded search accepts `gl-view` or
+ * `gl-post`; the employee master and every other read keep the ledger's
+ * `gl-view` gate. Employee-master writes use `gl-payroll-manage`, and run
+ * posting/payment uses `gl-payroll-post`, so a role can maintain payroll
+ * without gaining manual-journal posting (or post a run without being able to
+ * edit the employee master).
  */
 import type { Express } from 'express';
-import { requirePermission } from '../middleware';
+import { requirePermission, requirePermissionAny } from '../middleware';
 import {
   get_employeeLedger,
   get_employees,
@@ -15,10 +17,17 @@ import {
   post_employee,
   post_payrollPayment,
   post_payrollRun,
+  search_employees,
 } from '../controllers/payroll.controller';
 import { get_payslipPrint } from '../controllers/pdf.controller';
 
 export function registerPayrollRoutes(app: Express) {
+  // Bounded employee picker for the voucher form. A manual poster may search
+  // this slim projection without the employee master; it excludes PAN, SSF and
+  // bank details, and the model clamps the page size.
+  app.get('/api/employees/search', requirePermissionAny('gl-view', 'gl-post'), async (req, res, next) => {
+    search_employees(req as any, res as any).catch(next);
+  });
   // Employee master (branch-scoped by the registry and re-checked in-handler).
   app.get('/api/employees', requirePermission('gl-view'), async (req, res, next) => {
     get_employees(req as any, res as any).catch(next);

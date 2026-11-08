@@ -192,13 +192,22 @@ describe('AR / AP aging API (real HTTP + throwaway PostgreSQL)', { skip: skipNoD
     realPoolInstance?.on?.('error', () => undefined);
     assert.equal(await ensurePostgresConnection(), true, 'the throwaway database must be reachable');
 
-    const { ensureReferenceData } = await import('./fixtures/referenceData');
+    const { ensureReferenceData, ensureBsDayRecords } = await import('./fixtures/referenceData');
     const { ensureDefaultSubledgers } = await import('../server/src/services/accountingSeed.service');
     const { issueAuthToken } = await import('../server/src/middleware/auth');
     const { setPermissionMatrix } = await import('../server/src/state/runtimeState');
     const { DEFAULT_PERMISSIONS_MATRIX } = await import('../client/src/utils/permissionMatrixData');
 
-    await ensureReferenceData(throwaway.pool);
+    // Every journal this suite posts carries a business date in July–October
+    // 2026, and posting now derives the BS half from the calendar table. Seed
+    // the whole span (plus the as-of month) so the gate resolves every voucher.
+    await ensureReferenceData(throwaway.pool, AS_OF);
+    await ensureBsDayRecords(throwaway.pool, [
+      '2026-07-01', '2026-07-18', '2026-07-20', '2026-07-25', '2026-07-31',
+      '2026-08-01', '2026-08-19', '2026-08-24', '2026-08-31',
+      '2026-09-01', '2026-09-10', '2026-09-15', '2026-09-30',
+      '2026-10-01', '2026-10-15', '2026-10-20', '2026-10-22', '2026-10-25', '2026-10-31',
+    ]);
     // schema.sql alone leaves a fresh throwaway chart without books; a real
     // boot seeds one per control account, and posting now requires it.
     await ensureDefaultSubledgers(throwaway.pool as any);

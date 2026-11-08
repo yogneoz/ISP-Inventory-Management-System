@@ -157,6 +157,7 @@ export const api = {
 
   // Purchase Orders
   getPurchaseOrders: procurement.getPurchaseOrders,
+  getPurchaseOrderPdf: procurement.getPurchaseOrderPdf,
   createPurchaseOrder: procurement.createPurchaseOrder,
   updatePurchaseOrder: procurement.updatePurchaseOrder,
   updatePurchaseOrderStatus: procurement.updatePurchaseOrderStatus,
@@ -247,6 +248,7 @@ export const api = {
   updateAccountingGroup: accounting.updateAccountingGroup,
   deleteAccountingGroup: accounting.deleteAccountingGroup,
   getAccountingAccounts: accounting.getAccountingAccounts,
+  searchAccountingAccounts: accounting.searchAccountingAccounts,
   createAccountingAccount: accounting.createAccountingAccount,
   updateAccountingAccount: accounting.updateAccountingAccount,
   deleteAccountingAccount: accounting.deleteAccountingAccount,

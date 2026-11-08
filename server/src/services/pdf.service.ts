@@ -485,6 +485,10 @@ function invoiceItemsTable(items: any[]): Content {
   return {
     table: {
       headerRows: 1,
+      // A long description must move whole to the next page. Without this,
+      // pdfmake can leave a stranded row number at the foot of one page and
+      // continue the same item's text at the top of the next.
+      dontBreakRows: true,
       widths: [20, '*', 42, 65, 55, 72],
       body: [
         [
@@ -609,6 +613,83 @@ export async function buildInvoicePdf(input: {
   return renderPdf(documentDefinition(company, meta, content));
 }
 
+/**
+ * Purchase order. Header totals are the stored aggregates and line amounts
+ * come from the stored line primitives. Both business dates print explicit
+ * AD and BS labels, so a printed order cannot be mistaken for one calendar.
+ */
+export async function buildPurchaseOrderPdf(input: {
+  po: any;
+  company: PdfCompany;
+  branchName: string;
+}): Promise<Buffer> {
+  const { po, company, branchName } = input;
+  const items = itemsOf(po.items);
+  const meta: PdfDocumentMeta = {
+    title: 'Purchase Order',
+    documentNumber: po.poNumber,
+    dateAD: po.orderDateAD ? String(po.orderDateAD).slice(0, 10) : null,
+    dateBS: po.orderDateBS || null,
+    branchName,
+    status: po.status || null,
+  };
+
+  const supplierRows: Array<[string, unknown]> = [
+    ['Supplier', po.supplierName || '—'],
+    ...(po.supplierId ? [['Supplier ID', po.supplierId] as [string, unknown]] : []),
+    ['Branch', branchName],
+  ];
+  const documentRows: Array<[string, unknown]> = [
+    ['Number', po.poNumber],
+    ['Order date (AD)', po.orderDateAD || '—'],
+    ['Order date (BS)', po.orderDateBS || '—'],
+    ['Expected delivery (AD)', po.expectedDeliveryDateAD || '—'],
+    ['Expected delivery (BS)', po.expectedDeliveryDateBS || '—'],
+    ['Status', po.status || '—'],
+  ];
+  const totals: Array<[string, string, boolean?]> = [
+    ['Subtotal', pdfMoney(po.subtotalAmount)],
+    ['VAT', pdfMoney(po.taxAmount)],
+    ['Grand total', pdfMoney(po.totalAmount), true],
+  ];
+
+  const content: Content[] = [
+    {
+      columns: [
+        { width: '*', stack: [sectionTitle('Supplier'), infoTable(supplierRows)] },
+        { width: 240, stack: [sectionTitle('Document'), infoTable(documentRows)] },
+      ],
+      columnGap: 24,
+    },
+    sectionTitle('Items'),
+    invoiceItemsTable(items),
+    {
+      columns: [
+        { width: '*', stack: [] },
+        { width: 250, stack: [summaryTable(totals)] },
+      ],
+    },
+  ];
+
+  if (po.notes) {
+    content.push(sectionTitle('Notes'), pdfText(po.notes, { fontSize: 8, color: MUTED }));
+  }
+  content.push({
+    columns: [
+      { width: '*', text: '', margin: [0, 26, 0, 0] },
+      {
+        width: 180,
+        stack: [
+          { canvas: [{ type: 'line', x1: 0, y1: 0, x2: 180, y2: 0, lineWidth: 0.6, lineColor: LINE }] },
+          { text: 'Authorised signature', fontSize: 7, color: MUTED, alignment: 'center', margin: [0, 3, 0, 0] },
+        ],
+      },
+    ],
+  });
+
+  return renderPdf(documentDefinition(company, meta, content));
+}
+
 /** Payroll payslip for one employee's line in a posted run. */
 export async function buildPayslipPdf(input: {
   run: any;
@@ -623,6 +704,8 @@ export async function buildPayslipPdf(input: {
     title,
     documentNumber: `${run.runNo}/${line.employeeCode}`,
     dateAD: run.runDateAD ? String(run.runDateAD).slice(0, 10) : null,
+    // The header parenthesises this value and appends its own " BS" suffix.
+    dateBS: run.runDateBS ? String(run.runDateBS).replace(/\s*BS$/, '') : null,
     branchName,
     status: run.status,
   };
@@ -654,7 +737,7 @@ export async function buildPayslipPdf(input: {
             infoTable([
               ['Run', run.runNo],
               ['Period', run.periodKey],
-              ['Run date', run.runDateAD],
+              ['Run date', run.runDateBS ? `${run.runDateAD} (${run.runDateBS})` : run.runDateAD],
               ['Branch', branchName],
               ['Status', run.status],
               ...(run.paidDateAD ? [['Paid', run.paidDateAD] as [string, unknown]] : []),
@@ -741,6 +824,33 @@ export function statementSectionsContent(sections: any[]): Content {
 }
 
 /**
+ * The AD/BS period identity a printed statement renders. Exported so dual
+ * dating is testable without decoding a compressed PDF stream: this object is
+ * exactly what documentIdentity() puts in the page header.
+ */
+export function statementPdfMeta(input: {
+  kind: 'TRIAL_BALANCE' | 'PROFIT_AND_LOSS' | 'BALANCE_SHEET';
+  statement: any;
+  fromBS?: string | null;
+  toBS?: string | null;
+}): { dateAD: string; dateBS: string | null; rangeLabel: string } {
+  const { kind, statement, fromBS, toBS } = input;
+  const isTrial = kind === 'TRIAL_BALANCE';
+  const isBalanceSheet = kind === 'BALANCE_SHEET';
+  const dateAD = isTrial ? statement.to : isBalanceSheet ? statement.asOf : statement.to;
+  // The header appends its own " BS" suffix, so dateBS carries the bare date.
+  const bareBS = toBS ? String(toBS).replace(/\s*BS$/, '') : null;
+  const dual = (ad: string, bs?: string | null) => (bs ? `${ad} (${bs})` : ad);
+  return {
+    dateAD,
+    dateBS: bareBS,
+    rangeLabel: isBalanceSheet
+      ? `As of ${dual(statement.asOf, toBS)}`
+      : `${statement.from ? dual(statement.from, fromBS) : 'Inception'} → ${dual(statement.to, toBS)}`,
+  };
+}
+
+/**
  * Trial balance, profit and loss, and balance sheet. The service consumes the
  * statement objects built from posted journal lines, so the printed figures are
  * the same values the JSON endpoint returns.
@@ -750,24 +860,24 @@ export async function buildStatementPdf(input: {
   statement: any;
   company: PdfCompany;
   branchName: string;
+  /** BS halves derived from bs_day_records by the print controller. */
+  fromBS?: string | null;
+  toBS?: string | null;
 }): Promise<Buffer> {
-  const { kind, statement, company, branchName } = input;
+  const { kind, statement, company, branchName, fromBS, toBS } = input;
   const isTrial = kind === 'TRIAL_BALANCE';
   const isBalanceSheet = kind === 'BALANCE_SHEET';
   const title = isTrial ? 'Trial Balance' : isBalanceSheet ? 'Balance Sheet' : 'Profit and Loss';
-  const dateAD = isTrial
-    ? statement.to
-    : isBalanceSheet
-      ? statement.asOf
-      : statement.to;
+  // Dual dating is mandatory on a printed Nepali statement: every period
+  // boundary prints its AD date with the BS half beside it.
+  const identity = statementPdfMeta({ kind, statement, fromBS, toBS });
   const meta: PdfDocumentMeta = {
     title,
-    documentNumber: `${isTrial ? 'TB' : isBalanceSheet ? 'BS' : 'PL'}-${dateAD}`,
-    dateAD,
+    documentNumber: `${isTrial ? 'TB' : isBalanceSheet ? 'BS' : 'PL'}-${identity.dateAD}`,
+    dateAD: identity.dateAD,
+    dateBS: identity.dateBS,
     branchName,
-    rangeLabel: isBalanceSheet
-      ? `As of ${statement.asOf}`
-      : `${statement.from || 'Inception'} → ${statement.to}`,
+    rangeLabel: identity.rangeLabel,
   };
 
   const content: Content[] = [];

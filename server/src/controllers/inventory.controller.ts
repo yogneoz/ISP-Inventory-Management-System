@@ -673,19 +673,22 @@ try {
     const tagNum = req.body.tagNumber || req.body.assetTag || `AST-${Math.floor(1000 + Math.random() * 9000)}`;
     // C4: resolve the BS fallback from the AD date actually being stored.
     const newAssetAcquisitionAD = String(req.body.acquisitionDateAD || req.body.acquisitionDateAd || new Date().toISOString().split('T')[0]).split('T')[0];
-    const newAsset = {
+    const newAsset: Record<string, any> = {
       id: req.body.id || `ast-${Date.now()}`,
       tagNumber: tagNum,
       name: req.body.name || 'Fixed Asset',
       category: req.body.category || 'Equipment',
       branchId: req.body.branchId || branches[0]?.id,
       acquisitionDateAD: req.body.acquisitionDateAD || req.body.acquisitionDateAd || new Date().toISOString().split('T')[0],
-      // C4: BS fallback derives from the actually-stored AD date.
-      acquisitionDateBS: req.body.acquisitionDateBS || req.body.acquisitionDateBs || await resolveBsDateForLedger(newAssetAcquisitionAD),
+      // BS is derived below from each stored AD date; a request body can never
+      // supply the Nepali half (same rule as every journal write).
+      acquisitionDateBS: null,
       purchaseInvoiceDateAD: req.body.purchaseInvoiceDateAD || req.body.purchaseInvoiceDateAd || req.body.acquisitionDateAD || req.body.acquisitionDateAd || new Date().toISOString().split('T')[0],
-      purchaseInvoiceDateBS: req.body.purchaseInvoiceDateBS || req.body.purchaseInvoiceDateBs || req.body.acquisitionDateBS || req.body.acquisitionDateBs || await resolveBsDateForLedger(newAssetAcquisitionAD),
+      purchaseInvoiceDateBS: null,
       capitalizationDateAD: req.body.capitalizationDateAD || req.body.capitalizationDateAd || req.body.acquisitionDateAD || req.body.acquisitionDateAd || new Date().toISOString().split('T')[0],
+      capitalizationDateBS: null,
       placedInServiceDateAD: req.body.placedInServiceDateAD || req.body.placedInServiceDateAd || req.body.acquisitionDateAD || req.body.acquisitionDateAd || new Date().toISOString().split('T')[0],
+      placedInServiceDateBS: null,
       acquisitionCost: Number(req.body.acquisitionCost) || 0,
       depreciationMethod: req.body.depreciationMethod || 'STRAIGHT_LINE',
       depreciationRatePercent: Number(req.body.depreciationRatePercent || req.body.depreciationRate) || 15,
@@ -704,7 +707,7 @@ try {
       assignedLocationId: req.body.assignedLocationId || null,
       assignedLocationName: req.body.assignedLocationName || null,
       assignmentDateAD: req.body.assignmentDateAD || null,
-      assignmentDateBS: req.body.assignmentDateBS || null,
+      assignmentDateBS: null,
       assignmentNotes: req.body.assignmentNotes || null,
       // Serial of the IN_STOCK unit consumed from branch stock (deploy-from-stock flow).
       deviceSerial: req.body.deviceSerial || null,
@@ -757,6 +760,16 @@ try {
       const piBS = await bsDateOr400(res, newAsset.purchaseInvoiceDateAD);
       if (!piBS) return;
       newAsset.purchaseInvoiceDateBS = piBS;
+    }
+    if (newAsset.capitalizationDateAD && !String(newAsset.capitalizationDateBS || '').trim()) {
+      const capBS = await bsDateOr400(res, newAsset.capitalizationDateAD);
+      if (!capBS) return;
+      newAsset.capitalizationDateBS = capBS;
+    }
+    if (newAsset.placedInServiceDateAD && !String(newAsset.placedInServiceDateBS || '').trim()) {
+      const pisBS = await bsDateOr400(res, newAsset.placedInServiceDateAD);
+      if (!pisBS) return;
+      newAsset.placedInServiceDateBS = pisBS;
     }
 
     const computedValues = calculateFixedAssetValues({
@@ -1260,6 +1273,15 @@ try {
       // clearing any of them (unassign) must also reach the database. An
       // asset unassign is already fully written by the lifecycle service.
       const b = req.body || {};
+      const assignmentDateAD = b.assignmentDateAD
+        ? String(b.assignmentDateAD).split('T')[0]
+        : null;
+      let assignmentDateBS: string | null = null;
+      if (assignmentDateAD) {
+        const derived = await bsDateOr400(res, assignmentDateAD);
+        if (!derived) return;
+        assignmentDateBS = derived;
+      }
       await withTransaction(async (client) => {
         await client.query(ASSET_SET_ASSIGNMENT_SQL, [
           b.status || 'ACTIVE',
@@ -1268,8 +1290,8 @@ try {
           b.assignedCustomerName || null,
           b.assignedLocationId || null,
           b.assignedLocationName || null,
-          b.assignmentDateAD || null,
-          b.assignmentDateBS || null,
+          assignmentDateAD,
+          assignmentDateBS,
           b.assignmentNotes || null,
           id,
         ]);

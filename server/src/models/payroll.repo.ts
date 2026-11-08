@@ -24,8 +24,22 @@ export const EMPLOYEE_COLUMNS = `id,
   created_at AS "createdAt",
   updated_at AS "updatedAt"`;
 
+/**
+ * The voucher picker needs a name and code, not payroll identifiers or bank
+ * details. Keep this projection separate from the full employee master.
+ */
+export const EMPLOYEE_PICKER_COLUMNS = `id,
+  employee_code AS "employeeCode",
+  name,
+  branch_id AS "branchId",
+  department,
+  designation,
+  is_active AS "isActive"`;
+
 /** Bounded register read; a branch with more staff pages through the filter. */
 export const EMPLOYEE_LIST_MAX = 1000;
+/** A picker page is deliberately much smaller than the master register. */
+export const EMPLOYEE_PICKER_MAX = 50;
 
 export interface EmployeeListOptions {
   /** A single branch id, or 'ALL'. Ignored when `branchScope` is present. */
@@ -34,6 +48,10 @@ export interface EmployeeListOptions {
   branchScope?: string[] | null;
   query?: string | null;
   activeOnly?: boolean;
+  /** Page size; clamped to the register ceiling. */
+  limit?: number | null;
+  /** Which fields a free-text query matches. Defaults to the full master. */
+  queryFields?: 'master' | 'picker';
 }
 
 /** Shared WHERE for the employee list and its count-free bounded read. */
@@ -59,9 +77,11 @@ export function buildEmployeeWhere(opts: EmployeeListOptions = {}): {
   const query = typeof opts.query === 'string' ? opts.query.trim() : '';
   if (query) {
     params.push(`%${query.toLowerCase()}%`);
-    conditions.push(
-      `lower(employee_code || ' ' || name || ' ' || COALESCE(pan_number, '') || ' ' || COALESCE(ssf_number, '')) LIKE $${params.length}`
-    );
+    const haystack =
+      opts.queryFields === 'picker'
+        ? `lower(employee_code || ' ' || name)`
+        : `lower(employee_code || ' ' || name || ' ' || COALESCE(pan_number, '') || ' ' || COALESCE(ssf_number, ''))`;
+    conditions.push(`${haystack} LIKE $${params.length}`);
   }
   if (opts.activeOnly) conditions.push('is_active = TRUE');
 
@@ -73,8 +93,33 @@ export function buildEmployeeWhere(opts: EmployeeListOptions = {}): {
 
 export function buildEmployeeListQuery(opts: EmployeeListOptions = {}) {
   const { whereSql, params } = buildEmployeeWhere(opts);
+  const limit = Math.min(
+    EMPLOYEE_LIST_MAX,
+    Math.max(1, Math.trunc(Number(opts.limit) || EMPLOYEE_LIST_MAX))
+  );
   return {
-    sql: `SELECT ${EMPLOYEE_COLUMNS} FROM employees${whereSql} ORDER BY employee_code ASC LIMIT ${EMPLOYEE_LIST_MAX}`,
+    sql: `SELECT ${EMPLOYEE_COLUMNS} FROM employees${whereSql} ORDER BY employee_code ASC LIMIT ${limit}`,
+    params,
+  };
+}
+
+/**
+ * Bounded slim employee lookup for the voucher picker: active rows only, a
+ * code/name query, and a 20-row default capped at 50. It never selects PAN,
+ * SSF or bank details.
+ */
+export function buildEmployeePickerQuery(opts: EmployeeListOptions = {}) {
+  const { whereSql, params } = buildEmployeeWhere({
+    ...opts,
+    queryFields: 'picker',
+    activeOnly: true,
+  });
+  const limit = Math.min(
+    EMPLOYEE_PICKER_MAX,
+    Math.max(1, Math.trunc(Number(opts.limit) || 20))
+  );
+  return {
+    sql: `SELECT ${EMPLOYEE_PICKER_COLUMNS} FROM employees${whereSql} ORDER BY employee_code ASC LIMIT ${limit}`,
     params,
   };
 }
@@ -196,6 +241,7 @@ export const PAYROLL_RUN_COLUMNS = `id,
   branch_id AS "branchId",
   period_key AS "periodKey",
   run_date_ad::text AS "runDateAD",
+  run_date_bs AS "runDateBS",
   gross_total::numeric AS "grossTotal",
   tds_total::numeric AS "tdsTotal",
   ssf_total::numeric AS "ssfTotal",
@@ -206,6 +252,7 @@ export const PAYROLL_RUN_COLUMNS = `id,
   journal_id AS "journalId",
   paid_journal_id AS "paidJournalId",
   paid_date_ad::text AS "paidDateAD",
+  paid_date_bs AS "paidDateBS",
   payment_method AS "paymentMethod",
   posted_by AS "postedBy",
   paid_at AS "paidAt",
@@ -311,9 +358,9 @@ ORDER BY l.employee_code ASC`;
 export const PAYROLL_RUN_LOCK_SQL = `SELECT pg_advisory_xact_lock(hashtext($1))::text AS lock`;
 
 export const PAYROLL_RUN_INSERT_SQL = `INSERT INTO payroll_runs (
-  id, run_no, branch_id, period_key, run_date_ad, gross_total, tds_total,
+  id, run_no, branch_id, period_key, run_date_ad, run_date_bs, gross_total, tds_total,
   ssf_total, advance_total, loan_total, net_total, status, posted_by, is_demo
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'POSTED', $12, FALSE)`;
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'POSTED', $13, FALSE)`;
 
 export interface PayrollRunInsertInput {
   id: string;
@@ -321,6 +368,7 @@ export interface PayrollRunInsertInput {
   branchId: string;
   periodKey: string;
   runDateAD: string;
+  runDateBS: string;
   grossTotal: number;
   tdsTotal: number;
   ssfTotal: number;
@@ -337,6 +385,7 @@ export function payrollRunInsertParams(input: PayrollRunInsertInput): unknown[] 
     input.branchId,
     input.periodKey,
     input.runDateAD,
+    input.runDateBS,
     input.grossTotal,
     input.tdsTotal,
     input.ssfTotal,
@@ -395,7 +444,8 @@ export const PAYROLL_RUN_SET_PAID_SQL = `UPDATE payroll_runs SET
   status = 'PAID',
   paid_journal_id = $2,
   paid_date_ad = $3,
-  payment_method = $4,
+  paid_date_bs = $4,
+  payment_method = $5,
   paid_at = CURRENT_TIMESTAMP,
   updated_at = CURRENT_TIMESTAMP
 WHERE id = $1`;

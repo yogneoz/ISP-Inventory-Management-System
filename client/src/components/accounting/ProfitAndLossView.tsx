@@ -3,6 +3,7 @@ import { StatCard } from '../common/StatCard';
 import type { ProfitAndLossResponse, StatementGroupBlock } from '../../services/api/accounting';
 import { SectionBody } from './StatementPrimitives';
 import { money } from './statementFormat';
+import { formatDualDate } from '../../utils/nepaliCalendar';
 
 export const ProfitAndLossView: React.FC<{
   data: ProfitAndLossResponse;
@@ -21,7 +22,8 @@ export const ProfitAndLossView: React.FC<{
       <div className="border-b border-slate-200 px-3 py-2 dark:border-slate-800">
         <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200">Statement of profit or loss</h3>
         <p className="text-[11px] text-slate-500 dark:text-slate-400">
-          Turnover in the period {data.from || 'from inception'} → {data.to}, from posted journal lines.
+          Turnover in the period {data.from ? formatDualDate(data.from) : 'from inception'} →{' '}
+          {formatDualDate(data.to)}, from posted journal lines.
         </p>
       </div>
       <SectionBody sections={data.sections} onOpenGroup={onOpenGroup} />

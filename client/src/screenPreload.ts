@@ -67,6 +67,7 @@ export const SCREEN_PRELOADERS: Readonly<Record<string, ScreenModuleLoader>> = {
   'accounting-aging': () => import('./features/finance/AgingRegister'),
   'journal-entry': () => import('./features/finance/VoucherEntries'),
   'cash-bank-entry': () => import('./features/finance/VoucherEntries'),
+  'posted-vouchers': () => import('./features/finance/PostedVouchers'),
   'accounting-chart': () => import('./features/finance/ChartOfAccountsRegister'),
   'general-ledger': () => import('./features/finance/GeneralLedgerMaster'),
   subledgers: () => import('./features/finance/SubledgersManagement'),

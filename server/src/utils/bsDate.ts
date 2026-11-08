@@ -8,7 +8,8 @@
  * that one day (C4).
  */
 
-import { findBsDayRecordForAdDate, getInMemoryBsDayRecords, getBsCalendarCoverage, type BsCalendarCoverage } from '../config/bsCalendar';
+import { findBsDayRecordForAdDate, getInMemoryBsDayRecords, getBsCalendarCoverage, type BsCalendarCoverage, type BsCalendarQueryable } from '../config/bsCalendar';
+import { ApiError } from '../errors/ApiError';
 
 /**
  * What a BS column or screen gets when the calendar has no day record for the
@@ -38,10 +39,13 @@ export function isBsDateMissing(value?: string | null): boolean {
  * BS_NOT_SEEDED: the operator sees that the day is unseeded, instead of a
  * shaped value that looks like a date nobody can verify.
  */
-export async function resolveBsDateForLedger(adDate?: string | null): Promise<string> {
+export async function resolveBsDateForLedger(
+  adDate?: string | null,
+  db?: BsCalendarQueryable
+): Promise<string> {
   const ad = String(adDate || new Date().toISOString().split('T')[0]).split('T')[0];
   try {
-    const day = await findBsDayRecordForAdDate(ad);
+    const day = await findBsDayRecordForAdDate(ad, db);
     if (day.found && day.record?.bsDate) {
       return `${day.record.bsDate} BS`;
     }
@@ -123,8 +127,34 @@ export function bsDateFailureMessage(
 }
 
 /**
- * Mandatory-BS resolver for persisted operation dates: derives the BS date
- * for the operation's OWN AD date from bs_day_records and, when that
+ * Mandatory-BS resolver for service/repository write paths that do not own an
+ * Express response. The BS half is derived from bs_day_records for the
+ * operation's own AD date, and an unseeded day refuses the write with a 400
+ * instead of persisting a guessed or empty date. Client-supplied BS values
+ * cannot override the derived one. Pass the transaction client so the lookup
+ * is consistent with the write that follows it.
+ */
+export async function bsDateOrThrow(
+  adDate: unknown,
+  db?: BsCalendarQueryable
+): Promise<string> {
+  const ad = String(adDate || '').split('T')[0];
+  try {
+    if (ad) {
+      const day = await findBsDayRecordForAdDate(ad, db);
+      if (day.found && day.record?.bsDate) return `${day.record.bsDate} BS`;
+    }
+  } catch (_err) {
+    // handled by the 400 below
+  }
+  const coverage = await getBsCalendarCoverage(db);
+  const reason = classifyBsDateFailure(ad, coverage);
+  throw new ApiError(400, bsDateFailureMessage(ad, reason, coverage));
+}
+
+/**
+ * Mandatory-BS resolver for persisted operation dates on an Express response
+ * path: derives the BS date for the operation's OWN AD date and, when that
  * calendar day is unseeded, sends a 400 (bsDateMissing) and returns null.
  * Persisted rows must never carry an empty, estimated, or fallback BS date;
  * client-supplied BS values cannot override the derived one (same rule the

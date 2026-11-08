@@ -322,7 +322,9 @@ export interface Asset {
   purchaseInvoiceDateAD?: string;
   purchaseInvoiceDateBS?: string;
   capitalizationDateAD?: string;
+  capitalizationDateBS?: string;
   placedInServiceDateAD?: string;
+  placedInServiceDateBS?: string;
   acquisitionCost: number;
   depreciationMethod: 'STRAIGHT_LINE' | 'REDUCING_BALANCE' | 'DECLINING_BALANCE' | 'WRITTEN_DOWN_VALUE';
   depreciationRatePercent: number;
@@ -427,6 +429,7 @@ export interface PurchaseOrder {
   orderDateAD: string;
   orderDateBS: string;
   expectedDeliveryDateAD: string;
+  expectedDeliveryDateBS?: string;
   status: 'DRAFT' | 'APPROVED' | 'SENT' | 'IN_PROGRESS' | 'PURCHASED' | 'RECEIVED' | 'CANCELLED';
   items: POLineItem[];
   subtotalAmount: number;

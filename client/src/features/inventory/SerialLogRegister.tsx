@@ -3,6 +3,7 @@ import { Branch, SerialLog, SerialLookupResult, User } from '../../types';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { isOperationAllowed } from '../../utils/permissions';
 import { exportToCSV } from '../../utils/exportUtils';
+import { buildSerialLogExportRows, serialLogExportColumns } from '../../utils/serialLogExport';
 import { api } from '../../services/api';
 import { DateField } from '../../components/DateField';
 import {
@@ -223,28 +224,8 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
       reportTitle: 'Serial Log Register (one row per serial)',
       branchName: filterBranch === 'ALL' ? 'All Branches' : branches.find((b) => b.id === filterBranch)?.name || filterBranch,
       generatedBy: currentUser?.name ? `${currentUser.name} (${currentUser.role})` : currentUser?.email || 'System User',
-      data: exportRows.map((d) => ({
-        deviceSerial: d.deviceSerial,
-        ponSerial: d.ponSerial || '-',
-        macAddress: d.macAddress || '-',
-        productName: d.productName || '-',
-        status: d.status,
-        branchName: d.branchName || '-',
-        customerName: d.customerName || 'Unassigned Stock',
-        historyEvents: (d.history || []).length,
-        lastUpdated: d.updatedAt || d.createdAt || '-',
-      })),
-      columns: [
-        { key: 'deviceSerial', label: 'Device Serial' },
-        { key: 'ponSerial', label: 'PON Serial' },
-        { key: 'macAddress', label: 'MAC Address' },
-        { key: 'productName', label: 'Product Name' },
-        { key: 'status', label: 'Status' },
-        { key: 'branchName', label: 'Branch' },
-        { key: 'customerName', label: 'Customer (if assigned)' },
-        { key: 'historyEvents', label: 'History Events' },
-        { key: 'lastUpdated', label: 'Last Updated' },
-      ],
+      data: buildSerialLogExportRows(exportRows),
+      columns: serialLogExportColumns(),
     });
   };
 

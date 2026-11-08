@@ -13,7 +13,7 @@
 // ---------------------------------------------------------------------------
 
 export const PO_SELECT_COLUMNS =
-  'id, po_number AS "poNumber", supplier_id AS "supplierId", supplier_name AS "supplierName", branch_id AS "branchId", order_date_ad AS "orderDateAD", order_date_bs AS "orderDateBS", expected_delivery_date_ad AS "expectedDeliveryDateAD", status, subtotal_amount AS "subtotalAmount", tax_amount AS "taxAmount", total_amount AS "totalAmount", notes, items';
+  'id, po_number AS "poNumber", supplier_id AS "supplierId", supplier_name AS "supplierName", branch_id AS "branchId", order_date_ad AS "orderDateAD", order_date_bs AS "orderDateBS", expected_delivery_date_ad AS "expectedDeliveryDateAD", expected_delivery_date_bs AS "expectedDeliveryDateBS", status, subtotal_amount AS "subtotalAmount", tax_amount AS "taxAmount", total_amount AS "totalAmount", notes, items';
 
 export function buildPoListSql(branchId?: unknown): { sql: string; params: unknown[] } {
   const filter = branchId && branchId !== 'ALL';
@@ -122,8 +122,8 @@ export function buildPurchaseOrderPagedQuery(opts: PurchaseOrderQueryOptions, pa
 }
 
 export const PO_UPSERT_SQL = `INSERT INTO purchase_orders (
-   id, po_number, supplier_id, supplier_name, branch_id, order_date_ad, order_date_bs, expected_delivery_date_ad, status, subtotal_amount, tax_amount, total_amount, notes, items
- ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+   id, po_number, supplier_id, supplier_name, branch_id, order_date_ad, order_date_bs, expected_delivery_date_ad, expected_delivery_date_bs, status, subtotal_amount, tax_amount, total_amount, notes, items
+ ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
  ON CONFLICT (id) DO UPDATE SET
    status = EXCLUDED.status,
    subtotal_amount = EXCLUDED.subtotal_amount,
@@ -142,6 +142,7 @@ export function poUpsertParams(po: Record<string, any>, itemsJson: string): unkn
     po.orderDateAd,
     po.orderDateBs,
     po.expectedDeliveryDateAD || po.expectedDeliveryDateAd || null,
+    po.expectedDeliveryDateBS || null,
     po.status || 'DRAFT',
     po.subtotalAmount,
     po.taxAmount,
@@ -176,6 +177,10 @@ export const PO_DELETE_SQL = 'DELETE FROM purchase_orders WHERE id = $1';
 
 export const PO_FIND_BY_REF_SQL =
   'SELECT id, po_number AS "poNumber", supplier_name AS "supplierName", branch_id AS "branchId", status, items FROM purchase_orders WHERE id = $1 OR po_number = $1 LIMIT 1';
+
+/** Print read: every header field the PDF prints, including both dates. */
+export const PO_PRINT_SELECT_SQL =
+  `SELECT ${PO_SELECT_COLUMNS} FROM purchase_orders WHERE id = $1 OR po_number = $1 LIMIT 1`;
 
 export const PO_MARK_STATUS_SQL = 'UPDATE purchase_orders SET status = $1 WHERE id = $2 OR po_number = $2';
 

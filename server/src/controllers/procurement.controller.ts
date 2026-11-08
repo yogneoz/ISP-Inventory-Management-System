@@ -150,6 +150,15 @@ try {
 
     const poBranchId = req.body.branchId || 'WH001';
     const poOrderDate = req.body.orderDateAD || req.body.orderDateAd || new Date().toISOString().split('T')[0];
+    // Both PO business dates are derived from bs_day_records: a client-supplied
+    // BS value cannot override the calendar, and an unseeded day refuses the PO.
+    const poOrderDateBS = await bsDateOr400(res, poOrderDate);
+    if (!poOrderDateBS) return;
+    const expectedDeliveryDateAD = req.body.expectedDeliveryDateAD || req.body.expectedDeliveryDateAd || null;
+    const expectedDeliveryDateBS = expectedDeliveryDateAD
+      ? await bsDateOr400(res, expectedDeliveryDateAD)
+      : null;
+    if (expectedDeliveryDateAD && !expectedDeliveryDateBS) return;
     const poNumber = req.body.poNumber || (await issueNextDocNumber(poBranchId, 'PO', poOrderDate));
 
     const newPO = {
@@ -157,7 +166,9 @@ try {
       poNumber,
       ...req.body,
       orderDateAd: poOrderDate,
-      orderDateBs: req.body.orderDateBS || req.body.orderDateBs,
+      orderDateBs: poOrderDateBS,
+      expectedDeliveryDateAD,
+      expectedDeliveryDateBS,
       // C1: recomputed totals are applied AFTER the body spread so a
       // client-supplied subtotalAmount/taxAmount/totalAmount can never win.
       subtotalAmount,

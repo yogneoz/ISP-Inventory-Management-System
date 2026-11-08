@@ -168,7 +168,7 @@ describe('fixed-asset ledger posting (real HTTP + PostgreSQL)', { skip: skipNoDb
 
   before(async () => {
     await ensureReferenceData(pool!, ACQ);
-    await ensureBsDayRecords(pool!, [ACQ, MONTH_END]);
+    await ensureBsDayRecords(pool!, [ACQ, '2026-09-01', MONTH_END]);
     await cleanup();
 
     await pool!.query(
@@ -213,6 +213,15 @@ describe('fixed-asset ledger posting (real HTTP + PostgreSQL)', { skip: skipNoDb
       assetBody('fad-cash', 'FAD-CASH', { paymentMethod: 'CASH' })
     );
     assert.equal(created.status, 201, JSON.stringify(created.json));
+
+    const stored = await pool!.query(
+      `SELECT acquisition_date_bs, capitalization_date_bs, placed_in_service_date_bs
+         FROM fixed_assets WHERE id = $1`,
+      ['fad-cash']
+    );
+    assert.match(stored.rows[0].acquisition_date_bs, /^2083-04-\d{2} BS$/);
+    assert.equal(stored.rows[0].capitalization_date_bs, stored.rows[0].acquisition_date_bs);
+    assert.equal(stored.rows[0].placed_in_service_date_bs, stored.rows[0].acquisition_date_bs);
 
     const [journal] = await journalFor('FIXED_ASSET_ACQUISITION', 'fad-cash');
     assert.ok(journal, 'capitalisation must write a journal in the asset transaction');

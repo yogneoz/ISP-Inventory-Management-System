@@ -34,6 +34,7 @@ import {
   post_period,
   post_reverseJournal,
   post_reopenPeriod,
+  search_accounts,
 } from '../controllers/accounting.controller';
 import {
   delete_billTerm,
@@ -90,12 +91,22 @@ export function registerAccountingRoutes(app: Express) {
   app.get('/api/accounting/accounts', requirePermission('gl-view'), async (req, res, next) => {
     get_accounts(req as any, res as any).catch(next);
   });
-  // Payment forms need the cash/bank picker without the full chart. Any of the
-  // three operations may read it: ledger viewers, receipt writers and payment
-  // writers. The response is only the active CASH/BANK ledgers.
+  // Bounded ledger lookup for searchable pickers. A manual voucher poster may
+  // read it without holding the full chart-read grant, because the entry form
+  // cannot be completed without choosing a ledger.
+  app.get(
+    '/api/accounting/accounts/search',
+    requirePermissionAny('gl-view', 'gl-post'),
+    async (req, res, next) => {
+      search_accounts(req as any, res as any).catch(next);
+    }
+  );
+  // Payment and voucher forms need the cash/bank picker without the full
+  // chart. Ledger viewers, manual voucher posters, receipt writers and payment
+  // writers may read it. The response is only the active CASH/BANK ledgers.
   app.get(
     '/api/accounting/settlement-accounts',
-    requirePermissionAny('gl-view', 'sales-invoice-create', 'inv-pay'),
+    requirePermissionAny('gl-view', 'gl-post', 'sales-invoice-create', 'inv-pay'),
     async (req, res, next) => {
       get_settlementAccounts(req as any, res as any).catch(next);
     }
