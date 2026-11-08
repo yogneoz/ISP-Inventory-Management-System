@@ -98,7 +98,7 @@ function readGroup(tree: ReturnType<typeof render>, id: string) {
 const EXPECTED: Record<string, { sections: string[]; items: string[] }> = {
   dashboard: {
     sections: [],
-    items: ['dashboard', 'approvals'],
+    items: ['dashboard', 'financial-statements', 'approvals'],
   },
   inventory: {
     sections: ['Registers', 'Forms', 'Reports & exports'],
@@ -137,7 +137,7 @@ const EXPECTED: Record<string, { sections: string[]; items: string[] }> = {
       'journal-entry', 'cash-bank-entry', 'posted-vouchers',
       'accounting', 'accounting-profit-loss', 'accounting-balance-sheet', 'accounting-cash-flow',
       'accounting-cash-book', 'accounting-aging',
-      'cash-position', 'financial-statements', 'vendor-ledger', 'customer-ledger', 'vendor-opening-balances',
+      'cash-position', 'vendor-ledger', 'customer-ledger', 'vendor-opening-balances',
       'vat-register', 'fixed-assets', 'depreciation-register',
     ],
   },

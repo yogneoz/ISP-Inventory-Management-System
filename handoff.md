@@ -352,7 +352,7 @@ ISP-Inventory-Management-System/
 │       │
 │       ├── finance/
 │       │   ├── FixedAssetRegister.tsx       # Fixed assets & depreciation
-│       │   ├── FinancialStatements.tsx      # Income statement, balance sheet, trial balance
+│       │   ├── FinanceDashboard.tsx         # Ledger-backed finance landing dashboard
 │       │   ├── VatRegister.tsx              # VAT purchase register
 │       │   ├── DepreciationRegister.tsx     # Depreciation schedule reports
 │       │   ├── VendorLedger.tsx             # Vendor ledger & payments report
@@ -1289,14 +1289,19 @@ The sidebar is a single always-visible column (`client/src/components/layout/Sid
 - Global search (press `/`) filters items across all groups and labels each hit `Group · Section`.
 - Base width 288 px. A visible splitter on the right edge resizes the rail between 240–520 px (pointer drag, ArrowLeft/Right in 16 px steps, Home/End to the bounds, double-click resets); the width persists in `localStorage` (`inventory_sidebar_width_px`) and the rail is capped at `85vw`. Labels wrap (`break-words`) with their full text in `title` — they never ellipsize, so the minimum width stays readable.
 
-### 15.5 Financial Overview — management view, NOT statutory (important)
+### 15.5 Finance Dashboard — ledger-backed, moved to Overview
 
-The `financial-statements` tab (menu label: **Financial Overview**, permission key `fin-statements`) is still compiled from **operational registers** (stock × cost, asset register NBV, vendor openings/invoices/payments, posted sales). The statutory statements live elsewhere: `GET /api/accounting/statements/*` read the posted journal lines, and every value document now posts — sales/purchase invoices, customer receipts and supplier payments, stock adjustments/damage/pullouts/consumables/exchanges/audit counts, returns, inter-branch shipments, CPE deployment/collection, and fixed-asset capitalisation/depreciation/disposal. This management screen has **not** switched to the ledger: equity is still a balancing figure, there are no cash/receivables/capital lines derived from the GL here, and the P&L stops at gross surplus.
+The `financial-statements` tab (menu label: **Finance Dashboard**, permission key `fin-statements`, path `/finance/overview`) lives in the **Overview** sidebar group. It replaces the old management matrix with a ledger-backed dashboard: net profit, revenue, cash and bank, working capital, income allocation, monthly cash-book movement, AR/AP aging and server-computed ledger controls. Prior-year comparisons use the prior fiscal year's same elapsed period. All figures come from `GET /api/accounting/statements/*`, `/api/accounting/cash-book` and `/api/accounting/aging` — never from the operational registers.
+
+Governance and analysis additions:
+- **Branch comparison** reads each scoped branch's own posted P&L and balance sheet (plus the consolidated row when the scope is `ALL`) through the existing statement APIs. It loads only while the comparison view is active; it is deliberately not part of the initial dashboard batch.
+- **Drill-through** opens a shared posted-line drawer from every KPI card and every ledger control. Statement KPIs use `GET /api/accounting/statements/group-lines`; controls use `GET /api/accounting/statements/account-lines`, which includes opening lines before the period (the drawer labels opening vs period and links each journal to the full voucher).
+- **Print** renders a print-only, non-interactive summary (global print CSS hides buttons) for the active view. **Export CSV** writes the active mode: the KPI/income/cash/aging/control schedule for Overview, or the branch rows for Branch comparison.
 
 Deliberate decisions (do not revert):
-- Keep the wording management-honest until the statements read the ledger: "Statement of Financial Position" / "Trading Summary" with an amber "Management View — not a statutory balance sheet" tag; line items say "Net Asset Position", "Vendor Payables", "SOURCES OF FUNDS". Never rename back to "Balance Sheet"/"Net Equity" before the GL-backed statements land.
-- ERP-standard layout: **Statement view** = one entity (branch or consolidated) via dropdown, columns are fiscal PERIODS (current | prior | variance; prior-FY NBV evaluated at the prior FY's end date). **Branch Comparison view** = rows are branches (scales downward), KPI columns, consolidated row. Table width never grows with branch count.
-- Tab id and permission key unchanged from the original `financial-statements`/`fin-statements`.
+- Keep the tab id `financial-statements`, permission key `fin-statements` and canonical path `/finance/overview`; they are saved in preferences, notification payloads and the RBAC matrix.
+- The dashboard is keep-mounted. It reads only while its tab is active and re-runs on reactivation, Retry or a register refresh; hidden tabs must not poll the ledger.
+- The server owns every tie-out: balance-sheet balance, cash-flow reconciliation and AR/AP control agreement. A failed optional panel is named in the amber partial-read warning instead of taking down the whole dashboard.
 
 ### 15.6 Date Handling
 
@@ -1486,8 +1491,7 @@ so any unwired new fetch fails the suite instead of shipping:
   table pins the 76 screens not covered above (the other 11 are pinned by the dedicated
   tests); an unpinned new screen fails coverage, and each pinned screen must match its
   exact surface. Surfaces use `serverCallsIn` = `api.*` methods **plus named
-  `services/api` imports** — the audit found FinancialStatements.tsx imports
-  `getFinancialSummary` directly, which a bare `api.*` scan would miss, so every pin uses
+  `services/api` imports** — a bare `api.*` scan would miss a named helper, so every pin uses
   the combined helper.
 - **Tripwires** — raw `fetch(`/axios/EventSource are banned in every screen; a hardcoded
   BS date literal is refused in BOTH trees by `tests/bs_date.guard.test.ts` (the server's
@@ -1496,7 +1500,7 @@ so any unwired new fetch fails the suite instead of shipping:
   allowlist, and the two scanners share one pattern so they cannot drift); a `pageSize:`
   request key is allowed ONLY in the six wired registers (a seventh server-paged fetch = a
   register missing its sseRefreshKey); the 11 mount/selection self-fetch screens (ledgers,
-  BS calendars, Category/Uom/Locations, doc numbering, FinancialStatements) are pinned as
+  BS calendars, Category/Uom/Locations, doc numbering, FinanceDashboard) are pinned as
   whole-list and
   unwired **by design** — and since the keep-mounted tab container
   (components/common/KeepMounted.tsx, 2026-10-05) they no longer remount on

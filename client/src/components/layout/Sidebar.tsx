@@ -412,12 +412,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
   //   5. Every item keeps its own permission gate, badge and screen.
   const groups: NavGroupDef[] = [];
 
-  // 1. Overview — the landing page and the one cross-module inbox.
+  // 1. Overview — the two landing pages and the cross-module inbox.
+  const canViewFinanceDashboard = isOperationAllowed('fin-statements', currentUser?.role);
   const canApproveWorkflow =
     isOperationAllowed('workflow-approval', currentUser?.role) ||
     isOperationAllowed('workflow-approval-cancel', currentUser?.role);
   const dashboardChildren: NavChildDef[] = [
     { id: 'dashboard' as NavTab, label: 'Executive Dashboard', icon: LayoutDashboard },
+    ...(canViewFinanceDashboard
+      ? [
+          {
+            id: 'financial-statements' as NavTab,
+            label: 'Finance Dashboard',
+            icon: Landmark,
+          },
+        ]
+      : []),
     ...(canApproveWorkflow
       ? [
           {
@@ -662,7 +672,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // 6. Finance & Accounting — voucher forms first, then the accounting
   //    registers (each statement is its own register since the workspace
-  //    split), the management overview, ledgers, tax and the asset register.
+  //    split), ledgers, tax and the asset register. The finance landing page
+  //    lives in Overview; every entry here remains a working register.
   const financeChildren: NavChildDef[] = [];
   // Posting screens require the posting operation, not ledger read. A user
   // who may only read the ledger gets the Posted Vouchers register instead of
@@ -689,14 +700,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'cash-position' as NavTab,
       label: 'Daily Cash Close',
       icon: Wallet,
-      section: 'Statements & ledgers',
-    });
-  }
-  if (isOperationAllowed('fin-statements', currentUser?.role)) {
-    financeChildren.push({
-      id: 'financial-statements' as NavTab,
-      label: 'Financial Overview',
-      icon: Scale,
       section: 'Statements & ledgers',
     });
   }

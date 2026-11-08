@@ -139,9 +139,7 @@ const listFeatureScreens = (): string[] => {
 
 /**
  * Named fetch helpers imported straight from services/api — the bypass a
- * bare api.* scan misses (FinancialStatements.tsx imports getFinancialSummary
- * instead of calling api.getFinancialSummary). The `api` namespace import
- * itself is not a call.
+ * bare api.* scan misses. The `api` namespace import itself is not a call.
  */
 const namedApiImportsIn = (source: string) => {
   const names: string[] = [];
@@ -965,10 +963,9 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
   //    table entries make no server call of their own.
   //
   // SCREEN_SURFACE_PINS pins every one of those screens to the EXACT server
-  // calls it makes today — api.* methods AND named services/api imports,
-  // because FinancialStatements.tsx imports getFinancialSummaries instead of
-  // calling api.* — so ANY new fetch (paged or not, wired or not) fails
-  // until it is pinned here with an explicit wiring decision. A new
+  // calls it makes today — api.* methods AND named services/api imports —
+  // so ANY new fetch (paged or not, wired or not) fails until it is pinned
+  // here with an explicit wiring decision. A new
   // SERVER-PAGED fetch additionally trips the paged-tripwire test below,
   // which allows it only in the six registers that carry a register key.
 
@@ -1051,7 +1048,13 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       'getDocumentNumberConfigs',
       'updateDocumentNumberConfig',
     ],
-    'finance/FinancialStatements.tsx': ['getFinancialSummaries', 'getFixedAssetOverview'],
+    'finance/FinanceDashboard.tsx': [
+      'getAging',
+      'getBalanceSheet',
+      'getCashBook',
+      'getCashFlow',
+      'getProfitAndLoss',
+    ],
     // FY closing wizard: scoped reads for the selected closing year, not the
     // header-scoped purchase/shipment bootstrap slices.
     'finance/FiscalYearClosingWizard.tsx': ['getPurchaseInvoices', 'getPurchaseOrders', 'getShipments'],
@@ -1281,7 +1284,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'finance/BsCalendarUtility.tsx',
     'finance/CustomerLedger.tsx',
     'finance/DocumentNumbering.tsx',
-    'finance/FinancialStatements.tsx',
+    'finance/FinanceDashboard.tsx',
     'finance/FiscalYearClosingWizard.tsx',
     'finance/NepaliFiscalManagement.tsx',
     'finance/OpeningStockManager.tsx',
@@ -1450,7 +1453,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'finance/BsCalendarUtility.tsx': 'bs-calendar',
     'finance/CustomerLedger.tsx': 'customer-ledger',
     'finance/DocumentNumbering.tsx': 'fiscal-year-management',
-    'finance/FinancialStatements.tsx': 'financial-statements',
+    'finance/FinanceDashboard.tsx': 'financial-statements',
     'finance/FiscalYearClosingWizard.tsx': 'fiscal-year-closing',
     'finance/NepaliFiscalManagement.tsx': 'nepali-fiscal',
     'finance/OpeningStockManager.tsx': 'opening-stock',

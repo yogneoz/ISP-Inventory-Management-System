@@ -134,7 +134,7 @@ export function useTabActive(tabKey: NavTab): boolean {
  * continuously until this was fixed).
  *
  * All 13 mount-refetch screens (ledgers, BS calendars, Category/Uom/
- * Locations, doc numbering, FinancialStatements, ProductManagement — see
+ * Locations, doc numbering, FinanceDashboard, ProductManagement — see
  * MOUNT_REFETCH_SCREENS + MOUNT_REFETCH_ACTIVATION_TABS in the test
  * guards) pass their activation key into their fetch effect's deps.
  *

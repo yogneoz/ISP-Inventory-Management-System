@@ -141,25 +141,24 @@ describe('DF-12 wiring', () => {
     }
   });
 
-  test('statements fetch every branch × FY in one batch request', () => {
-    const source = read('client/src/features/finance/FinancialStatements.tsx');
-    assert.ok(source.includes('getFinancialSummaries('), 'the batch read must be used');
+  test('the finance dashboard batches its posted-ledger reads', () => {
+    const source = read('client/src/features/finance/FinanceDashboard.tsx');
     assert.ok(
-      !/getFinancialSummary\(/.test(source),
-      'the per-pair single read must be gone'
+      source.includes('Promise.allSettled('),
+      'the independent posted-ledger reads must be requested together'
     );
+    for (const call of [
+      'api.getProfitAndLoss(',
+      'api.getBalanceSheet(',
+      'api.getCashFlow(',
+      'api.getCashBook(',
+      'api.getAging(',
+    ]) {
+      assert.ok(source.includes(call), `${call} must be part of the dashboard batch`);
+    }
     assert.ok(
-      !source.includes('Promise.all('),
-      'the per-pair fan-out must be gone, not just hidden behind a helper'
-    );
-    assert.ok(
-      source.includes("'Failed to load per-branch financials"),
-      'a failed batch must still surface the error line'
-    );
-    const service = read('server/src/controllers/reports.controller.ts');
-    assert.ok(
-      service.includes('fetchFinancialSummaryFromDb(pgPool, scope)'),
-      'the report path must use the shared aggregate producer'
+      source.includes("'Failed to load the finance dashboard.'"),
+      'a failed core read must still surface the error line'
     );
   });
 

@@ -195,8 +195,8 @@ const NarrationTemplatesManagement = React.lazy(() =>
 const DailyCashClose = React.lazy(() =>
   import('./features/finance/DailyCashClose').then((m) => ({ default: m.DailyCashClose }))
 );
-const FinancialStatements = React.lazy(() =>
-  import('./features/finance/FinancialStatements').then((m) => ({ default: m.FinancialStatements }))
+const FinanceDashboard = React.lazy(() =>
+  import('./features/finance/FinanceDashboard').then((m) => ({ default: m.FinanceDashboard }))
 );
 const VatRegister = React.lazy(() =>
   import('./features/finance/VatRegister').then((m) => ({ default: m.VatRegister }))
@@ -3384,17 +3384,14 @@ export default function App() {
     )),
     screenRoute('financial-statements', (
       <React.Suspense fallback={<TabLoadingFallback />}>
-        <FinancialStatements
-          financialSummary={financialSummary}
-          refreshToken={registerRefresh.fixedAssets}
-          invoices={purchaseInvoices}
-          dateMode={dateMode}
-          asOfDateAD={assetReportAsOfDateAD}
-          companyProfile={companyProfile}
+        <FinanceDashboard
           branches={branches}
+          dateMode={dateMode}
+          currentUser={currentUser}
           fiscalYears={fiscalYears}
-          currentFiscalYear={resolveDefaultFiscalYear(fiscalYears) || null}
-          fiscalYearId={resolveDefaultFiscalYear(fiscalYears)?.id}
+          currentFiscalYear={selectedFiscalYear || resolveDefaultFiscalYear(fiscalYears) || null}
+          refreshToken={Object.values(registerRefresh).reduce((sum, value) => sum + value, 0)}
+          onNavigateTab={handleSelectTab}
         />
       </React.Suspense>
     )),

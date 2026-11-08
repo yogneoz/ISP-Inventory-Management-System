@@ -1,31 +1,27 @@
 /**
- * DF-13 — Financial Statements follows the live financial summary.
+ * DF-13 — the finance landing screen follows its live tab and avoids hidden
+ * reads.
  *
- * The screen's per-branch matrix used to be fetched only on tab activation and
- * was preferred over the `financialSummary` prop in `figuresFor`. DF-05 keeps
- * that prop fresh on every domain that moves it, so the old map shadowed the
- * live value and the statements stayed at activation-time numbers.
+ * The screen is keep-mounted. Its posted-ledger reads must run on first
+ * activation, skip while the tab is hidden, and re-run when a register refresh
+ * or the Retry action bumps its keys. The source pin covers the fetch shape
+ * that keeps an open dashboard current without polling a hidden tab.
  *
- * PROVES (source pin — the screen's fetch lives behind an ESM API import and
- * there is no behavioural harness for it; see A6):
- *   1. The batch effect re-runs when `financialSummary` changes, so an open
- *      Statements tab follows a sale/payment/purchase posted elsewhere.
- *   2. The read is skipped while the keep-mounted tab is hidden; the next
- *      activation re-runs it, so a hidden tab cannot issue a batch for every
- *      stock edit nobody is looking at.
- *   3. The memoized statement/comparison tables depend on `financialSummary`
- *      as well, so the fallback path (a failed batch, or a branch missing from
- *      the map) repaints from the live prop instead of a stale closure.
- *   4. The activation/Retry triggers are still wired.
+ * PROVES (source pin — the screen fetches through ESM API methods and there is
+ * no behavioural harness for the full dashboard; see A6):
+ *   1. The screen knows whether its keep-mounted tab is visible.
+ *   2. The load effect exits while the tab is hidden.
+ *   3. Re-activation/Retry/refresh keys are in the effect dependencies.
+ *   4. The independent posted-ledger reads are loaded as one batch.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-test('DF-13: statements batch follows the live summary and skips hidden reads', () => {
+test('DF-13: finance dashboard skips hidden reads and follows activation/refresh', () => {
   const source = fs.readFileSync(
-    path.resolve('client/src/features/finance/FinancialStatements.tsx'),
+    path.resolve('client/src/features/finance/FinanceDashboard.tsx'),
     'utf8'
   );
 
@@ -35,27 +31,50 @@ test('DF-13: statements batch follows the live summary and skips hidden reads', 
   );
   assert.ok(
     /useEffect\(\(\) => \{\s*\n\s*if \(!isActive\) return;/.test(source),
-    'the batch must not run while the tab is hidden'
-  );
-  assert.ok(
-    source.includes('activationKey, summariesRetryKey, financialSummary])'),
-    'the batch effect must re-run on a refreshed financialSummary and keep the activation/retry triggers'
-  );
-  assert.ok(
-    source.includes('assetTotalsByBranch, priorAssetTotalsByBranch, activeBranches, financialSummary])'),
-    'the statement table memo must depend on the live summary and the server asset totals'
-  );
-  assert.match(
-    source,
-    /summaryMap, assetTotalsByBranch, priorAssetTotalsByBranch, financialSummary\]\)/,
-    'the branch comparison memo must depend on the live summary and the server asset totals'
-  );
-  assert.ok(
-    source.includes('getFinancialSummaries('),
-    'the batch read must remain the screen\'s only fetch'
+    'the posted-ledger batch must not run while the tab is hidden'
   );
   assert.ok(
     source.includes("useActivationKey('financial-statements')"),
     're-activation must still trigger the batch'
+  );
+  assert.match(
+    source,
+    /activationKey,\s*\n\s*reloadKey,\s*\n\s*refreshToken,/,
+    'activation, retry and register-refresh keys must re-run the batch'
+  );
+  assert.ok(
+    source.includes('Promise.allSettled('),
+    'the independent posted-ledger reads must be batched'
+  );
+  for (const call of [
+    'api.getProfitAndLoss(',
+    'api.getBalanceSheet(',
+    'api.getCashFlow(',
+    'api.getCashBook(',
+    'api.getAging(',
+  ]) {
+    assert.ok(source.includes(call), `${call} must remain part of the dashboard read`);
+  }
+
+  // Branch comparison reuses the same posted-ledger reads per branch, while
+  // the drilldowns fetch the exact journal lines behind a KPI/control.
+  assert.ok(source.includes('FinanceBranchComparison'), 'the branch-comparison mode must remain wired');
+  assert.ok(source.includes("view === 'comparison'"), 'the comparison view must remain selectable');
+  assert.ok(source.includes('LedgerDrilldownDialog'), 'KPI/control drill-through must remain wired');
+  assert.ok(source.includes('window.print()'), 'the print action must remain available');
+  assert.ok(source.includes('exportToCSV('), 'the CSV export action must remain available');
+
+  // The dialog owns the line reads, so pin that surface where it lives.
+  const drilldown = fs.readFileSync(
+    path.resolve('client/src/components/accounting/LedgerDrilldownDialog.tsx'),
+    'utf8'
+  );
+  assert.ok(
+    drilldown.includes('api.getStatementGroupLines('),
+    'statement drill-through must read posted group lines'
+  );
+  assert.ok(
+    drilldown.includes('api.getTrialBalanceAccountLines('),
+    'account/control drill-through must read posted account lines'
   );
 });

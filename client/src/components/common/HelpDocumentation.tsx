@@ -160,20 +160,21 @@ const USER_GUIDES: UserGuide[] = [
   },
   {
     id: 'financial-overview',
-    title: 'Reading the Financial Overview & VAT Register',
-    goal: 'Get management figures for a branch or the whole company, and print them with sources & limitations.',
+    title: 'Reading the Finance Dashboard & Tax Registers',
+    goal: 'See ledger-backed profitability, cash, working capital, aging and control health for a branch or the whole company.',
     requires: 'Accountant or Super Admin (fin-statements permission).',
-    caution: 'These are MANAGEMENT figures from operational registers — not statutory accounting. The printed cover note says exactly what is and isn\'t included.',
+    caution: 'Every figure is computed from POSTED journal lines. If a control does not tie, fix the underlying ledger or aging entry before relying on that figure.',
     steps: [
-      'Open Finance & Accounting → Financial Overview.',
-      'Statement view: pick the entity from "Statement of" — a single branch or All Branches (Consolidated). The table always shows period columns for the header\'s fiscal year.',
-      'Click "Compare with <prior year>" to add prior-year closing columns and a signed variance column (+green / −red).',
-      'Switch to the "Branch Comparison" tab to see every branch as a ROW with KPI columns (assets, payables, net position, revenue…) and a CONSOLIDATED row — this is the branch-vs-branch report.',
-      'Print Statement: the printout includes a cover note listing data sources and limitations — hand it to management as-is.',
+      'Open Overview → Finance Dashboard.',
+      'Pick the branch and as-of date. All Branches shows the company-level roll-up; a single branch scopes every panel.',
+      'Read the KPI row: net profit, revenue, cash & bank and working capital, including the prior-year comparison where available.',
+      'Income allocation shows where posted income went — cost of sales, operating expenses, other expenses and the net result. The margin chips put each figure in context.',
+      'Cash movement charts monthly cash-book receipts and payments; use the net movement rather than gross turnover when judging liquidity.',
+      'Receivables & payables aging shows overdue and 90+ balances. Ledger controls marks the balance sheet, cash flow and AR/AP tie-outs. Open the linked register when a control differs.',
       'VAT: Finance & Accounting → VAT Sales & Purchase Register shows claimable input tax credit from purchase invoices for the selected fiscal year.',
       'Depreciation: the Depreciation Register computes SLM/WDV per asset from its placed-in-service date; the Tax Depreciation Schedule shows the yearly amounts.',
     ],
-    result: 'Reliable management numbers per branch or group, printed with an honest cover note; VAT input tax ready to hand to your accountant.',
+    result: 'A current, ledger-backed finance view with the same control totals as the statutory statements; VAT input tax and depreciation schedules remain one click away.',
   },
   {
     id: 'year-end',
@@ -484,9 +485,9 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
           step: 1,
           title: 'Pre-Closing Audit & Financial Review',
           role: 'Accountant / Super Admin',
-          description: 'Review the Financial Overview (management view), Stock Movement Ledger opening balances, and VAT registers. Note: figures are from operational registers — no trial balance or general ledger exists.',
+          description: 'Review the Finance Dashboard and the statutory statements, then check Stock Movement Ledger opening balances and VAT registers. The dashboard is computed from posted journal lines.',
           actionTab: 'financial-statements',
-          keyOutputs: ['Reviewed Management Figures', 'Verified VAT Liability'],
+          keyOutputs: ['Reviewed Ledger Figures', 'Verified VAT Liability'],
         },
         {
           step: 2,
@@ -857,7 +858,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
                       <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> ONU / Router Serial Number Tracker</li>
                       <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> Physical Stock Count Audit</li>
                       <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> 6-Step BS Fiscal Year Closing Wizard</li>
-                      <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> Financial Overview (Management View)</li>
+                      <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> Finance Dashboard (Ledger-Backed)</li>
                     </ul>
                   </div>
 

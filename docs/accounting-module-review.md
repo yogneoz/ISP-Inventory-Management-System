@@ -125,7 +125,7 @@ screens in:
   Closing (moved from Admin)
 - **Assets & Payroll** — Fixed Asset Register, Depreciation Schedule, Payroll
 - **Tax** — VAT Register
-- **Management** — Financial Overview (kept, still labeled a management view)
+- **Overview** — Finance Dashboard (moved out of Finance & Accounting on 2026-11-08; ledger-backed profitability, cash, aging and control health)
 
 Inventory, procurement and sales stay their own domains. This is a navigation
 change, not an architecture inversion.
@@ -199,5 +199,7 @@ current inventory business to close its books.
 2. Does the Swastik chart need to be importable, or only reproducible manually?
 3. Cash flow: direct method from cash lines — **implemented 2026-11-06**. The
    remaining choice is whether to add an indirect reconciliation alongside it.
-4. Should the flat “Financial Overview” management screen survive alongside the
-   statutory statement registers, or be folded into Statements?
+4. ~~Should the flat “Financial Overview” management screen survive alongside the
+   statutory statement registers?~~ **Resolved 2026-11-08:** it was replaced by the
+   ledger-backed **Finance Dashboard** under Overview; the statutory registers stay
+   in Finance & Accounting.

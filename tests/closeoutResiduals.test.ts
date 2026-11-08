@@ -121,19 +121,19 @@ describe('BS calendar health — latest read wins', () => {
 });
 
 describe('review follow-up — retry state reachable from the screen', () => {
-  test('a failed batch summary read has its own Retry, not just a tab switch', () => {
-    const source = read('client/src/features/finance/FinancialStatements.tsx');
+  test('a failed dashboard read has its own Retry, not just a tab switch', () => {
+    const source = read('client/src/features/finance/FinanceDashboard.tsx');
     assert.ok(
-      source.includes('setSummariesRetryKey((k) => k + 1)'),
+      source.includes('onRetry={() => setReloadKey((key) => key + 1)}'),
       'the error line must offer a retry'
     );
     assert.ok(
-      source.includes('activationKey, summariesRetryKey, financialSummary])'),
-      'the retry key must re-run the batch effect'
+      source.includes('setReloadKey((key) => key + 1)'),
+      'the retry key must re-run the posted-ledger batch'
     );
     assert.ok(
-      source.includes('disabled={summariesLoading}'),
-      'the retry must be disabled while the batch is already running'
+      source.includes('loading={loading}'),
+      'the shell must show the read state while the retry runs'
     );
   });
 

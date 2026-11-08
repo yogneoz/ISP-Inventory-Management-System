@@ -338,8 +338,8 @@ export const DEFAULT_GROUPS: PermissionGroup[] = [
       },
       {
         id: 'fin-statements',
-        operationName: 'Generate Financial Overview',
-        description: 'Access the Financial Overview (management view: financial position, trading summary, branch comparison) — not statutory accounting',
+        operationName: 'Open Finance Dashboard',
+        description: 'Access the ledger-backed Finance Dashboard (profitability, cash and bank, working capital, cash movement, AR/AP aging and control health)',
         permissions: DEFAULT_PERMISSIONS_MATRIX['fin-statements'],
       },
       {
