@@ -28,13 +28,17 @@ import {
   DEFAULT_CHART_SUBLEDGERS,
 } from '../config/defaultChart';
 
-/** Deterministic ids make a re-run and a concurrent run address the same row. */
+/**
+ * Deterministic ids make a re-run and a concurrent run address the same row.
+ * They also follow the chart's `<prefix>-<code>` convention, matching rows made
+ * through Chart & Defaults rather than introducing a second id style.
+ */
 function groupId(code: string): string {
-  return `glg-default-${code}`;
+  return `glg-${code}`;
 }
 
 function accountId(code: string): string {
-  return `gla-default-${code}`;
+  return `gla-${code}`;
 }
 
 function subledgerId(accountCode: string): string {

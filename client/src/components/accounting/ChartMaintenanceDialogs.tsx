@@ -19,8 +19,8 @@ import {
  * The chart is report structure, so the forms expose exactly what may change:
  * a group's label and order (never its code/type/statement mapping), and an
  * account's name/description/group/posting role. The server enforces the rest —
- * a used account cannot move groups, and an account with posted lines cannot be
- * deleted at all.
+ * a posted account can move only within the same accounting nature, and an
+ * account with posted lines cannot be deleted at all.
  */
 
 export const SUBLEDGER_TYPE_OPTIONS = [
@@ -252,7 +252,7 @@ export const AccountFormDialog: React.FC<{
               </div>
               <div>
                 <label className={labelClass} htmlFor="chart-account-group">
-                  Account group
+                  Account group / sub-group
                 </label>
                 <select
                   id="chart-account-group"
@@ -269,7 +269,8 @@ export const AccountFormDialog: React.FC<{
                 </select>
                 {mode === 'edit' && (
                   <p className="mt-1 text-[10px] text-slate-400">
-                    A group change is refused once the account has posted entries.
+                    A posted account can move only to a group with the same account type,
+                    statement group and normal balance.
                   </p>
                 )}
               </div>

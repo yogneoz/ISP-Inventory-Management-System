@@ -354,6 +354,7 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
       code: 'ATC-9000', name: 'ACC Vehicle Assets', accountType: 'ASSET', statementGroup: 'NON_CURRENT_ASSET', sortOrder: 30,
     });
     assert.equal(createdGroup.status, 201, JSON.stringify(createdGroup.json));
+    assert.equal(createdGroup.json.id, 'glg-ATC-9000', 'new groups must follow the seeded glg-<code> id pattern');
     assert.equal(createdGroup.json.accountType, 'ASSET');
     assert.equal(createdGroup.json.statementGroup, 'NON_CURRENT_ASSET');
 
@@ -378,6 +379,7 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
     const createdAccount = await createAccount({
       code: 'ATC-9001', name: 'ACC Delivery Van', groupId: createdGroup.json.id,
     });
+    assert.equal(createdAccount, 'gla-ATC-9001', 'new accounts must follow the seeded gla-<code> id pattern');
     const roleHolder = await releaseRole('INTER_BRANCH_CLEARING');
     const editedAccount = await patch('/api/accounting/accounts/' + createdAccount, tokens.super, {
       name: 'ACC Delivery Van 2026', groupId: accounts.groupAsset, description: 'ACC TEST van',
@@ -522,6 +524,33 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
     const blockedMove = await patch('/api/accounting/groups/' + child.json.id, tokens.super, { parentId: null });
     assert.equal(blockedMove.status, 409, JSON.stringify(blockedMove.json));
     assert.match(blockedMove.json.message, /still has 1 account/i);
+
+    // A posted account may be regrouped when the destination preserves its
+    // account type, statement group and normal balance. This is the safe path
+    // for moving Cash Book / Bank Account under a Cash & Bank sub-group.
+    const movedPostedAccount = await patch('/api/accounting/accounts/' + parentAccount, tokens.super, {
+      groupId: child.json.id,
+    });
+    assert.equal(movedPostedAccount.status, 200, JSON.stringify(movedPostedAccount.json));
+    assert.equal(movedPostedAccount.json.groupId, child.json.id, 'a same-nature regroup must move a posted account');
+
+    // A move that would change the statement classification of posted history
+    // remains refused, and the refusal must leave the account where it was.
+    const liabilityGroup = await post('/api/accounting/groups', tokens.super, {
+      code: 'ATC-9140', name: 'ACC Cross-nature Liabilities', accountType: 'LIABILITY', statementGroup: 'CURRENT_LIABILITY', sortOrder: 8,
+    });
+    assert.equal(liabilityGroup.status, 201, JSON.stringify(liabilityGroup.json));
+    const refusedCrossNature = await patch('/api/accounting/accounts/' + parentAccount, tokens.super, {
+      groupId: liabilityGroup.json.id,
+    });
+    assert.equal(refusedCrossNature.status, 409, JSON.stringify(refusedCrossNature.json));
+    assert.match(refusedCrossNature.json.message, /same account type, statement group and normal balance/i);
+    const afterRefusedMove = await get('/api/accounting/accounts?includeInactive=1', tokens.super);
+    assert.equal(
+      afterRefusedMove.json.find((account: any) => account.code === 'ATC-9101').groupId,
+      child.json.id,
+      'a refused cross-nature move must write nothing'
+    );
 
     // An empty sub-group may move to the top level and then be removed.
     const moved = await patch('/api/accounting/groups/' + emptyChild.json.id, tokens.super, { parentId: null });

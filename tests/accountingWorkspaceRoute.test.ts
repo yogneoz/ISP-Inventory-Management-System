@@ -1380,6 +1380,11 @@ test('chart maintenance creates, edits, retires and deletes through the mounted 
 
     clickAria(tree.container, 'Edit account 1100');
     assert.ok(await settleUntil(() => Boolean(tree.container.querySelector('#chart-account-name'))));
+    assert.match(
+      text(tree.container.querySelector('[role="dialog"]') as HTMLElement),
+      /same account type, statement group and normal balance/i,
+      'the account form must explain the same-nature move rule'
+    );
     setInputValue(tree.container.querySelector('#chart-account-name') as HTMLInputElement, 'Trade Receivables');
     const editDialog = tree.container.querySelector('[role="dialog"]') as HTMLElement;
     inAct(() => buttonByText(editDialog, 'Save account').click());

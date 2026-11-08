@@ -591,7 +591,10 @@ export interface AccountingAccountPatch {
   name?: string;
   description?: string | null;
   masterProfile?: Record<string, unknown>;
-  /** Refused once the account has posted lines, so history keeps its mapping. */
+  /**
+   * A posted account may move only to a group with the same account type,
+   * statement group and normal balance, so history keeps its classification.
+   */
   groupId?: string;
   postingRole?: string | null;
   accountKind?: AccountKind;

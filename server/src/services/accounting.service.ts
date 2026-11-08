@@ -370,7 +370,9 @@ export async function createAccountGroup(
   if ((await client.query(ACCOUNT_GROUP_BY_CODE_SQL, [code])).rows[0]) {
     throw new ApiError(409, `Account group code ${code} already exists.`);
   }
-  const id = `glg-${crypto.randomUUID()}`;
+  // Seeded groups use `glg-<code>`; keep runtime-created groups on the same
+  // convention so every row can be traced back to its human-readable code.
+  const id = `glg-${code}`;
   const sortOrder = Math.trunc(Number(input.sortOrder));
   await client.query(
     ACCOUNT_GROUP_INSERT_SQL,
@@ -580,7 +582,8 @@ export async function createAccount(
     throw new ApiError(409, `Posting role ${postingRole} is already assigned to another account.`);
   }
 
-  const id = `gla-${crypto.randomUUID()}`;
+  // Accounts follow the chart's `gla-<code>` convention, matching the seed.
+  const id = `gla-${code}`;
   await client.query(
     ACCOUNT_INSERT_SQL,
     accountInsertParams({
@@ -603,8 +606,9 @@ export async function createAccount(
 
 /**
  * Edit an account's name, description, group, posting default or active flag.
- * The group may only move while the account has no posted lines, so a
- * reorganisation cannot silently reclassify a past statement.
+ * A posted account may still move between groups that preserve its account
+ * type, statement group and normal balance; changing that accounting nature
+ * would silently reclassify historical statements, so it remains blocked.
  */
 export async function updateAccount(
   client: AccountingClient,
@@ -676,10 +680,14 @@ export async function updateAccount(
     if (!group) throw new ApiError(400, 'Account group not found.');
     if (groupId !== existing.groupId) {
       const used = Number((await client.query(ACCOUNT_JOURNAL_LINE_COUNT_SQL, [accountId])).rows[0]?.count) || 0;
-      if (used > 0) {
+      const preservesNature =
+        group.accountType === existing.accountType &&
+        group.statementGroup === existing.statementGroup &&
+        group.normalBalance === existing.normalBalance;
+      if (used > 0 && !preservesNature) {
         throw new ApiError(
           409,
-          `Account ${existing.code} already has posted entries, so its group cannot be changed. Create a new account for the new classification.`
+          `Account ${existing.code} has posted entries and can only move to a group with the same account type, statement group and normal balance. ${group.code} is ${group.accountType}/${group.statementGroup}/${group.normalBalance}; the account is ${existing.accountType}/${existing.statementGroup}/${existing.normalBalance}.`
         );
       }
     }
