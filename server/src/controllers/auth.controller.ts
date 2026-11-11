@@ -11,18 +11,21 @@
  */
 import type { Request, Response } from 'express';
 import { ApiError } from '../errors/ApiError';
-import { getPgConnected, setActiveUser, users, verifyPassword, issueAuthToken, branches, hashPassword, setUsers, withReplaced, withPrepended, logAuditEvent, withAppended, setAuditTrail, auditTrail } from '../app';
+import { getPgConnected, setActiveUser, users, verifyPassword, issueAuthToken, branches, hashPassword, setUsers, withReplaced, withPrepended, logAuditEvent, withAppended, setAuditTrail, auditTrail, withTransaction } from '../app';
+import { consumeSetupToken, setupTokenFromRequest, verifySetupToken } from '../boot/setupToken';
 import { pgPool } from '../app';
 import {
   USER_FIND_BY_EMAIL_SQL,
   USER_UPDATE_PASSWORD_SQL,
   USER_COUNT_SQL,
   USER_SUPER_ADMIN_EXISTS_SQL,
-  USER_FIND_FOR_SETUP_SQL,
-  USER_SUPER_ADMIN_UPDATE_SQL,
-  USER_SUPER_ADMIN_INSERT_SQL,
+  USER_EMAIL_TAKEN_SQL,
+  SUPER_ADMIN_SETUP_LOCK_SQL,
+  USER_SUPER_ADMIN_CLAIM_SQL,
   superAdminInsertParams,
   USER_FIND_BY_ID_OR_EMAIL_SQL,
+  USER_EMAIL_TAKEN_BY_OTHER_SQL,
+  USER_UPDATE_PROFILE_SQL,
   userUpdatePasswordParams,
 } from '../models/auth.repo';
 import type { AuditLog, User } from '../../../client/src/types';
@@ -99,62 +102,87 @@ if (getPgConnected()) {
 
 /** Forwarded from auth.routes.ts (post_setupSuperadmin). */
 export async function post_setupSuperadmin(req: any, res: Response): Promise<any> {
-const { name, email, password, branchId } = req.body;
-  if (!name || !email || !password) {
+  const { name, email, password, branchId } = req.body || {};
+  const cleanName = typeof name === 'string' ? name.trim() : '';
+  const cleanEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+  if (!cleanName || !cleanEmail || !password) {
     res.status(400).json({ message: 'Name, email, and password are required.' });
     return;
   }
 
   const hqBranchId = branchId || branches[0]?.id || 'WH001';
-  const cleanEmail = email.trim().toLowerCase();
   const allowedBranches = branches.map((b) => b.id);
-  let targetId = `usr-sa-${Date.now()}`;
 
   if (getPgConnected()) {
+    // An installed system answers 409 before the token is even considered: a
+    // request that could never be authorized must not be told which secret it
+    // was missing.
+    let existingAdmin: any;
     try {
-      const existingAdmin = await pgPool.query(USER_SUPER_ADMIN_EXISTS_SQL);
-      if (existingAdmin.rowCount) {
-        res.status(409).json({ message: 'Super Admin setup is already complete. Please sign in instead.' });
-        return;
-      }
-      const dbCheck = await pgPool.query(USER_FIND_FOR_SETUP_SQL, [cleanEmail]);
+      existingAdmin = await pgPool.query(USER_SUPER_ADMIN_EXISTS_SQL);
+    } catch (err: any) {
+      console.error('Super Admin setup probe failed:', err?.message || err);
+      return res.status(503).json({
+        message: 'Unable to verify setup state because PostgreSQL is unavailable. Try again when the database is online.',
+      });
+    }
+    if (existingAdmin.rowCount) {
+      return res.status(409).json({ message: 'Super Admin setup is already complete. Please sign in instead.' });
+    }
 
-      let savedUser: User;
-      if (dbCheck.rows.length > 0) {
-        targetId = dbCheck.rows[0].id;
-        const upRes = await pgPool.query(
-          USER_SUPER_ADMIN_UPDATE_SQL,
-          [cleanEmail, hashPassword(password), name.trim(), hqBranchId, allowedBranches, targetId]
+    // C1: this endpoint is public because the first account has to come from
+    // somewhere, so possession of the one-time boot token is what proves the
+    // caller can reach the server's console. Without it, anyone who can reach
+    // the URL could create the highest-privilege account.
+    if (!verifySetupToken(setupTokenFromRequest(req))) {
+      return res.status(403).json({
+        message:
+          'A setup token is required to create the first Super Admin. It was printed in the server log at boot, or is set as SETUP_TOKEN in the environment.',
+        setupTokenRequired: true,
+      });
+    }
+
+    try {
+      const claim = await withTransaction(async (client: any) => {
+        // Serialises concurrent first-launch claims; the statement itself
+        // repeats both guards, so exactly one caller can ever create the first
+        // account and an existing row is never adopted.
+        await client.query(SUPER_ADMIN_SETUP_LOCK_SQL);
+        const emailTaken = await client.query(USER_EMAIL_TAKEN_SQL, [cleanEmail]);
+        if (emailTaken.rowCount) return { status: 'email-taken' as const };
+        const inserted = await client.query(
+          USER_SUPER_ADMIN_CLAIM_SQL,
+          superAdminInsertParams(
+            `usr-sa-${Date.now()}`,
+            cleanEmail,
+            hashPassword(password),
+            cleanName,
+            hqBranchId,
+            allowedBranches
+          )
         );
-        savedUser = upRes.rows[0];
-        if (!savedUser) {
-          const retryRes = await pgPool.query(
-            USER_SUPER_ADMIN_INSERT_SQL,
-            superAdminInsertParams(targetId, cleanEmail, hashPassword(password), name.trim(), hqBranchId, allowedBranches)
-          );
-          savedUser = retryRes.rows[0];
-        }
-      } else {
-        const insRes = await pgPool.query(
-          USER_SUPER_ADMIN_INSERT_SQL,
-          superAdminInsertParams(targetId, cleanEmail, hashPassword(password), name.trim(), hqBranchId, allowedBranches)
-        );
-        savedUser = insRes.rows[0];
+        if (!inserted.rows[0]) return { status: 'already' as const };
+        return { status: 'created' as const, user: inserted.rows[0] as User };
+      });
+
+      if (claim.status === 'email-taken') {
+        return res.status(409).json({
+          message:
+            'That email already belongs to an account. Sign in with it, or use a different address for the Super Admin.',
+        });
+      }
+      if (claim.status === 'already') {
+        return res.status(409).json({ message: 'Super Admin setup is already complete. Please sign in instead.' });
       }
 
-      if (!savedUser) {
-        throw new Error('Database did not return the Super Admin record after setup. Verify the users table schema and database connection.');
-      }
-
-      const idx = users.findIndex((u) => u.id === savedUser.id || u.email.toLowerCase() === cleanEmail || u.role === 'SUPER_ADMIN');
-      setUsers(idx !== -1 ? withReplaced(users, idx, savedUser) : withPrepended(users, savedUser));
-
+      const savedUser = claim.user;
+      consumeSetupToken();
+      setUsers(withPrepended(users, savedUser));
       setActiveUser(savedUser);
-      logAuditEvent(req, 'CREATE_SUPER_ADMIN', 'AUTH', `Super Admin account initialized/updated: ${name} (${cleanEmail})`);
+      logAuditEvent(req, 'CREATE_SUPER_ADMIN', 'AUTH', `Super Admin account initialized: ${savedUser.name} (${savedUser.email})`);
 
       const { password: _, ...userWithoutPass } = savedUser;
-      res.status(201).json({ user: userWithoutPass, token: issueAuthToken(savedUser) });
-      return;
+      return res.status(201).json({ user: userWithoutPass, token: issueAuthToken(savedUser) });
     } catch (err: any) {
       console.error('Error setting up Super Admin in DB:', err);
       return res.status(503).json({
@@ -163,28 +191,39 @@ const { name, email, password, branchId } = req.body;
     }
   }
 
-  if (users.some((u) => u.role === 'SUPER_ADMIN')) {
-    res.status(409).json({ message: 'Super Admin setup is already complete. Please sign in instead.' });
-    return;
+  // Demo mode (PostgreSQL down): the same token gate and the same "never adopt
+  // an existing account" rule, applied to the in-memory user list.
+  if (!verifySetupToken(setupTokenFromRequest(req))) {
+    return res.status(403).json({
+      message:
+        'A setup token is required to create the first Super Admin. It was printed in the server log at boot, or is set as SETUP_TOKEN in the environment.',
+      setupTokenRequired: true,
+    });
   }
-  const existingUser = users.find((u) => u.email.toLowerCase() === cleanEmail);
+  if (users.some((u) => u.role === 'SUPER_ADMIN')) {
+    return res.status(409).json({ message: 'Super Admin setup is already complete. Please sign in instead.' });
+  }
+  if (users.some((u) => String(u.email || '').toLowerCase() === cleanEmail)) {
+    return res.status(409).json({
+      message: 'That email already belongs to an account. Sign in with it, or use a different address for the Super Admin.',
+    });
+  }
+
   const localUser: User = {
-    id: existingUser?.id || targetId,
+    id: `usr-sa-${Date.now()}`,
     email: cleanEmail,
     password: hashPassword(password),
-    name: name.trim(),
+    name: cleanName,
     role: 'SUPER_ADMIN',
     branchId: hqBranchId,
     allowedBranchIds: allowedBranches,
     canSwitchUser: true,
   };
-  const existingIdx = existingUser ? users.indexOf(existingUser) : -1;
-  setUsers(existingIdx !== -1 ? withReplaced(users, existingIdx, localUser) : withPrepended(users, localUser));
+  consumeSetupToken();
+  setUsers(withPrepended(users, localUser));
   setActiveUser(localUser);
   const { password: _, ...localUserWithoutPass } = localUser;
-  res.status(201).json({ user: localUserWithoutPass, token: issueAuthToken(localUser) });
-  return;
-
+  return res.status(201).json({ user: localUserWithoutPass, token: issueAuthToken(localUser) });
 }
 
 /** Forwarded from auth.routes.ts (post_forgotPassword). */
@@ -321,30 +360,161 @@ export async function post_switchProfile(req: any, res: Response): Promise<any> 
 
 /** Forwarded from auth.routes.ts (put_profile). */
 export async function put_profile(req: any, res: Response): Promise<any> {
-const authenticatedUser = (req as any).user;
+  const authenticatedUser = (req as any).user;
   if (!authenticatedUser) {
     res.status(401).json({ message: 'Not authenticated' });
     return;
   }
-  const { name, email, branchId, newPassword } = req.body;
 
-  const idx = users.findIndex((u) => u.id === authenticatedUser.id);
-  if (idx !== -1) {
-    if (name) users[idx].name = name;
-    if (email) users[idx].email = email;
-    if (branchId) users[idx].branchId = branchId;
-    if (newPassword) users[idx].password = hashPassword(newPassword);
-    setActiveUser(users[idx]);
+  const { name, email, branchId, newPassword, currentPassword } = req.body || {};
+  const cleanName = typeof name === 'string' ? name.trim() : '';
+  const cleanEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+  const cleanBranchId = typeof branchId === 'string' ? branchId.trim() : '';
+  const nextPassword = typeof newPassword === 'string' ? newPassword : '';
 
-    if (newPassword && getPgConnected()) {
-      pgPool.query(USER_UPDATE_PASSWORD_SQL, userUpdatePasswordParams(users[idx].password || '', users[idx].id))
-        .catch((err) => console.error('Error updating profile password:', err));
+  const wantsName = Boolean(cleanName) && cleanName !== String(authenticatedUser.name || '');
+  const wantsEmail =
+    Boolean(cleanEmail) && cleanEmail !== String(authenticatedUser.email || '').toLowerCase();
+  const wantsBranch =
+    Boolean(cleanBranchId) && cleanBranchId !== String(authenticatedUser.branchId || '');
+  const wantsPassword = nextPassword.length > 0;
+
+  if (!wantsName && !wantsEmail && !wantsBranch && !wantsPassword) {
+    const { ver: _ver, ...unchanged } = authenticatedUser;
+    return res.json(unchanged);
+  }
+
+  if (wantsPassword && nextPassword.length < 8) {
+    return res.status(400).json({ message: 'The new password must be at least 8 characters long.' });
+  }
+
+  // Identity, scope and credential changes require proof of the CURRENT
+  // password. A signed token lives eight hours, so without this a stolen token
+  // could rewrite the address the account signs in with.
+  const requiresCurrentPassword = wantsEmail || wantsPassword || wantsBranch;
+  if (requiresCurrentPassword && !currentPassword) {
+    return res.status(400).json({
+      message: 'Enter your current password to change your email, branch or password.',
+      currentPasswordRequired: true,
+    });
+  }
+
+  // PostgreSQL is the authority for the stored credential; the in-memory cache
+  // mirrors it, so demo mode (database down) still has a row to check.
+  let stored: any = null;
+  if (getPgConnected()) {
+    try {
+      stored =
+        (await pgPool.query(USER_FIND_BY_ID_OR_EMAIL_SQL, [String(authenticatedUser.id), ''])).rows[0] ||
+        null;
+    } catch (err: any) {
+      console.error('Profile read failed:', err?.message || err);
+      return res.status(503).json({
+        message: 'Unable to read your account because PostgreSQL is unavailable. Try again when the database is online.',
+      });
+    }
+    if (!stored) {
+      return res.status(401).json({ message: 'Your account no longer exists. Sign in again.' });
+    }
+  } else {
+    stored = users.find((u) => u.id === authenticatedUser.id) || null;
+    if (!stored) {
+      return res.status(401).json({ message: 'Your account no longer exists. Sign in again.' });
     }
   }
 
-  const responseUser = idx !== -1 ? users[idx] : authenticatedUser;
-  const { password: _, ...userWithoutPass } = responseUser;
-  res.json(userWithoutPass);
+  if (requiresCurrentPassword) {
+    const check = verifyPassword(String(currentPassword || ''), String(stored.password || ''));
+    if (!check.valid) {
+      return res.status(401).json({ message: 'The current password is incorrect.', currentPasswordInvalid: true });
+    }
+  }
 
+  const passwordHash = wantsPassword ? hashPassword(nextPassword) : null;
+  let savedUser: User;
+
+  if (getPgConnected()) {
+    try {
+      savedUser = await withTransaction(async (client: any) => {
+        if (wantsEmail) {
+          const taken = await client.query(USER_EMAIL_TAKEN_BY_OTHER_SQL, [
+            cleanEmail,
+            String(authenticatedUser.id),
+          ]);
+          if (taken.rowCount) {
+            throw new ApiError(409, 'That email already belongs to another account.');
+          }
+        }
+        // One statement for the whole profile: name, address, branch and
+        // credential commit together or not at all.
+        const result = await client.query(USER_UPDATE_PROFILE_SQL, [
+          String(authenticatedUser.id),
+          wantsName ? cleanName : null,
+          wantsEmail ? cleanEmail : null,
+          wantsBranch ? cleanBranchId : null,
+          passwordHash,
+        ]);
+        if (!result.rows[0]) throw new ApiError(404, 'Your account no longer exists.');
+        return result.rows[0] as User;
+      });
+    } catch (err: any) {
+      // A deliberate refusal (duplicate address, vanished account) is a status
+      // the caller must see, not an exception for the error middleware.
+      if (err instanceof ApiError) {
+        return res.status(err.status).json({ message: err.message });
+      }
+      // The unique constraint is the race-safe backstop behind the probe above.
+      if ((err as any)?.code === '23505') {
+        return res.status(409).json({ message: 'That email already belongs to another account.' });
+      }
+      console.error('Profile update failed:', err?.message || err);
+      return res.status(503).json({
+        message: 'Unable to save your profile because PostgreSQL is unavailable. Try again when the database is online.',
+      });
+    }
+  } else {
+    const idx = users.findIndex((u) => u.id === authenticatedUser.id);
+    if (idx === -1) {
+      return res.status(401).json({ message: 'Your account no longer exists. Sign in again.' });
+    }
+    if (
+      wantsEmail &&
+      users.some(
+        (u) => u.id !== authenticatedUser.id && String(u.email || '').toLowerCase() === cleanEmail
+      )
+    ) {
+      return res.status(409).json({ message: 'That email already belongs to another account.' });
+    }
+    savedUser = {
+      ...users[idx],
+      name: wantsName ? cleanName : users[idx].name,
+      email: wantsEmail ? cleanEmail : users[idx].email,
+      branchId: wantsBranch ? cleanBranchId : users[idx].branchId,
+      password: passwordHash || users[idx].password,
+    } as User;
+  }
+
+  // Mirror the committed row into the operational cache through the setter (the
+  // old code mutated the shared array in place, which the type system forbids
+  // and which silently diverged from PostgreSQL).
+  const cachedIdx = users.findIndex((u) => u.id === savedUser.id);
+  setUsers(
+    cachedIdx === -1 ? withPrepended(users, savedUser) : withReplaced(users, cachedIdx, savedUser)
+  );
+  setActiveUser(savedUser);
+
+  logAuditEvent(
+    req,
+    'UPDATE_OWN_PROFILE',
+    'AUTH',
+    `Profile updated for ${savedUser.email}${wantsName ? ' (name)' : ''}${wantsEmail ? ' (email)' : ''}` +
+      `${wantsBranch ? ` (branch → ${savedUser.branchId})` : ''}${wantsPassword ? ' (password changed)' : ''}`
+  );
+
+  // The session fingerprint covers email, role, branch and password, so this
+  // edit retires every other live token. Hand the caller a fresh one so they
+  // are not signed out by their own change.
+  const { password: _password, ver: _ver, ...userWithoutPass } = savedUser as any;
+  return res.json({ ...userWithoutPass, token: issueAuthToken(savedUser) });
 }
 

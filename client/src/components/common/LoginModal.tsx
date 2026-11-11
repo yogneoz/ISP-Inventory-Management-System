@@ -20,7 +20,7 @@ import { api } from '../../services/api';
 
 interface LoginModalProps {
   onLoginSuccess: (email: string, pass: string) => Promise<void>;
-  onSetupSuperAdmin?: (data: { name: string; email: string; password: string; branchId?: string }) => Promise<void>;
+  onSetupSuperAdmin?: (data: { name: string; email: string; password: string; branchId?: string; setupToken?: string }) => Promise<void>;
   branches?: Branch[];
   /** Why the operator is seeing this screen, when it was not their choice (for
    *  example a demo-data clear that deleted the account they were signed in as). */
@@ -47,6 +47,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [setupPassword, setSetupPassword] = useState('');
   const [setupConfirmPassword, setSetupConfirmPassword] = useState('');
   const [setupBranchId, setSetupBranchId] = useState(branches[0]?.id || 'WH001');
+  // One-time boot token (audit C1): printed in the server console at first
+  // boot, or set as SETUP_TOKEN in .env. Required to create the first account.
+  const [setupToken, setSetupToken] = useState('');
 
   // Forgot Password State
   const [forgotEmail, setForgotEmail] = useState('');
@@ -115,6 +118,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
           email: setupEmail,
           password: setupPassword,
           branchId: setupBranchId,
+          setupToken,
         });
       } else {
         await api.setupSuperAdmin({
@@ -122,6 +126,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
           email: setupEmail,
           password: setupPassword,
           branchId: setupBranchId,
+          setupToken,
         });
         await onLoginSuccess(setupEmail, setupPassword);
       }
@@ -336,6 +341,35 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         {/* MODE 2: FIRST TIME SETUP (CREATE SUPER ADMIN) */}
         {mode === 'FIRST_TIME_SETUP' && (
           <form onSubmit={handleSetupSubmit} className="p-6 space-y-3.5">
+            {/* The endpoint is public because the first account has to come
+                from somewhere; this token is what proves the caller can reach
+                the server. It is consumed by the first successful claim. */}
+            <div>
+              <label
+                htmlFor="setup-token"
+                className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1"
+              >
+                Setup Token
+              </label>
+              <div className="relative">
+                <KeyRound className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <input
+                  id="setup-token"
+                  type="text"
+                  required
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={setupToken}
+                  onChange={(e) => setSetupToken(e.target.value)}
+                  placeholder="Printed in the server console at first boot"
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 pl-10 pr-3.5 py-2.5 text-xs font-mono text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
+                />
+              </div>
+              <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
+                Printed once in the server log at startup, or set <code>SETUP_TOKEN</code> in <code>.env</code>.
+                Only someone with server access can read it.
+              </p>
+            </div>
             <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
               <div className="flex items-center gap-2 text-xs font-bold text-slate-900 dark:text-white">
                 <Crown className="h-4 w-4 text-amber-500" />

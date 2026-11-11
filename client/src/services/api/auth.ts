@@ -10,6 +10,8 @@ export async function setupSuperAdmin(data: {
   email: string;
   password: string;
   branchId?: string;
+  /** One-time boot token printed by the server (or SETUP_TOKEN in .env). */
+  setupToken?: string;
 }): Promise<{ user: User; token: string }> {
   return fetchJson('/api/auth/setup-superadmin', {
     method: 'POST',
@@ -41,7 +43,14 @@ export async function switchProfile(
   });
 }
 
-export async function updateProfile(data: Partial<User> & { newPassword?: string }): Promise<User> {
+/**
+ * Self-service profile edit. The server requires `currentPassword` for any
+ * change to email, branch or password, and returns a fresh `token` because the
+ * edit retires every session issued before it.
+ */
+export async function updateProfile(
+  data: Partial<User> & { newPassword?: string; currentPassword?: string }
+): Promise<User & { token?: string }> {
   return fetchJson('/api/auth/profile', {
     method: 'PUT',
     body: JSON.stringify(data),

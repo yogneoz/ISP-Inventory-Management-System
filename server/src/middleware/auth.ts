@@ -34,6 +34,9 @@ export type SessionUser = Partial<User> & { ver?: string };
 export function sessionFingerprint(user: Partial<User> & { status?: string }): string {
   const material = [
     user.password || '',
+    // The address is part of the identity a token names: changing it must
+    // retire the tokens issued under the old one.
+    user.email || '',
     user.role || '',
     user.branchId || '',
     (user.allowedBranchIds || []).join(','),

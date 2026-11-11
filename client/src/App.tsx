@@ -1774,14 +1774,21 @@ export default function App() {
     }
   };
 
-  const handleUpdateProfile = async (data: Partial<User> & { newPassword?: string }) => {
-    const updatedUser = await api.updateProfile(data);
+  const handleUpdateProfile = async (
+    data: Partial<User> & { newPassword?: string; currentPassword?: string }
+  ) => {
+    const { token, ...updatedUser } = await api.updateProfile(data);
     setCurrentUser(updatedUser);
     const nextRoot = rootUser && rootUser.id === updatedUser.id ? updatedUser : rootUser;
     if (rootUser && rootUser.id === updatedUser.id) {
       setRootUser(updatedUser);
     }
-    saveUserSession(updatedUser, nextRoot);
+    // A profile edit retires every token issued before it (the session
+    // fingerprint covers email, branch and password), so the caller continues
+    // on the fresh token the server returned instead of being signed out by
+    // their own change.
+    if (token) setAuthToken(token);
+    saveUserSession(updatedUser, nextRoot, token);
     await refreshAllData();
   };
 

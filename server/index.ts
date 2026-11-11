@@ -6,6 +6,7 @@ import { PORT, syncDatabaseAndIndexes, createApp, registerAllRoutes } from './sr
 import { realPoolInstance } from './db';
 import { createLifecycle } from './src/boot/lifecycle';
 import { validateAuthSecret } from './src/boot/authSecret';
+import { resolveSetupToken } from './src/boot/setupToken';
 
 /**
  * Every terminal exit of this process goes through ONE lifecycle:
@@ -59,6 +60,30 @@ const authSecretCheck = validateAuthSecret({
   AUTH_TOKEN_SECRET: process.env.AUTH_TOKEN_SECRET,
 });
 if (!authSecretCheck.ok) failBoot(new Error(authSecretCheck.message));
+
+// First-launch gate (audit finding C1). The setup endpoint has to be reachable
+// before anyone can sign in, so the proof that a caller is not anonymous is a
+// one-time token only someone with server access can read: SETUP_TOKEN when the
+// deployment sets one, otherwise a value generated and printed here. It is
+// consumed by the first successful claim and never re-armed.
+const setupTokenCheck = (() => {
+  try {
+    return resolveSetupToken({ SETUP_TOKEN: process.env.SETUP_TOKEN });
+  } catch (err) {
+    return failBoot(err);
+  }
+})();
+if (setupTokenCheck.source === 'generated') {
+  console.log('');
+  console.log('=================================================================');
+  console.log(' Super Admin setup token (first launch only)');
+  console.log(`   ${setupTokenCheck.token}`);
+  console.log(' Enter it on the first-launch screen. It is consumed as soon as');
+  console.log(' the Super Admin account is created; set SETUP_TOKEN in .env to');
+  console.log(' choose it yourself instead.');
+  console.log('=================================================================');
+  console.log('');
+}
 
 async function startServer() {
   const app = createApp();

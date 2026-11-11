@@ -28,35 +28,41 @@ export const USER_COUNT_SQL =
 export const USER_SUPER_ADMIN_EXISTS_SQL =
   "SELECT 1 FROM users WHERE role = 'SUPER_ADMIN' LIMIT 1";
 
-/** Super-admin setup lookup: existing row by email or any SUPER_ADMIN row. */
-export const USER_FIND_FOR_SETUP_SQL = `SELECT ${USER_SELECT_COLUMNS}
-         FROM users
-         WHERE LOWER(email) = LOWER($1) OR role = 'SUPER_ADMIN'
-         ORDER BY created_at ASC LIMIT 1`;
+/**
+ * Is this email already an account? First-launch setup must never adopt an
+ * existing row: promoting a known employee's address to SUPER_ADMIN — with a
+ * password the caller chooses — is account takeover, and it was exactly what
+ * the old setup path did (audit finding C1).
+ */
+export const USER_EMAIL_TAKEN_SQL =
+  'SELECT 1 FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1';
 
-/** Super-admin upsert-by-id path (when a candidate row was found). */
-export const USER_SUPER_ADMIN_UPDATE_SQL = `UPDATE users SET
-             email = $1,
-             password = $2,
-             name = $3,
-             role = 'SUPER_ADMIN',
-             branch_id = $4,
-             allowed_branch_ids = $5,
-             can_switch_user = true
-           WHERE id = $6
-           RETURNING ${USER_SELECT_COLUMNS}`;
+/**
+ * Serialises concurrent first-launch claims. `pg_advisory_xact_lock` is held
+ * until the claim transaction commits or rolls back, so two requests that both
+ * passed the (necessarily racy) existence probe cannot both insert.
+ */
+export const SUPER_ADMIN_SETUP_LOCK_SQL =
+  "SELECT pg_advisory_xact_lock(hashtext('users.super_admin.setup'))";
 
-/** Super-admin insert-or-revive path (fallback and no-candidate paths). */
-export const USER_SUPER_ADMIN_INSERT_SQL = `INSERT INTO users (id, email, password, name, role, branch_id, allowed_branch_ids, can_switch_user)
-           VALUES ($1, $2, $3, $4, 'SUPER_ADMIN', $5, $6, true)
-           ON CONFLICT (email) DO UPDATE SET
-             password = EXCLUDED.password,
-             name = EXCLUDED.name,
-             role = 'SUPER_ADMIN',
-             branch_id = EXCLUDED.branch_id,
-             allowed_branch_ids = EXCLUDED.allowed_branch_ids,
-             can_switch_user = true
-           RETURNING ${USER_SELECT_COLUMNS}`;
+/**
+ * The one-time Super Admin claim.
+ *
+ * One INSERT … SELECT that fails closed in three ways:
+ *   - `WHERE NOT EXISTS (role = 'SUPER_ADMIN')` — a second claim inserts nothing,
+ *     even if it somehow runs outside the advisory lock;
+ *   - `WHERE NOT EXISTS (LOWER(email) = LOWER($2))` — an existing account is
+ *     never promoted or overwritten;
+ *   - no `ON CONFLICT … DO UPDATE` — a duplicate email is an error, not an
+ *     upsert onto somebody else's row.
+ *
+ * A zero-row result is therefore "someone else got here first", never a success.
+ */
+export const USER_SUPER_ADMIN_CLAIM_SQL = `INSERT INTO users (id, email, password, name, role, branch_id, allowed_branch_ids, can_switch_user)
+SELECT $1, $2, $3, $4, 'SUPER_ADMIN', $5, $6, true
+WHERE NOT EXISTS (SELECT 1 FROM users WHERE role = 'SUPER_ADMIN')
+  AND NOT EXISTS (SELECT 1 FROM users WHERE LOWER(email) = LOWER($2))
+RETURNING ${USER_SELECT_COLUMNS}`;
 
 export function superAdminInsertParams(
   targetId: string,
@@ -68,6 +74,28 @@ export function superAdminInsertParams(
 ): unknown[] {
   return [targetId, cleanEmail, passwordHash, name, hqBranchId, allowedBranches];
 }
+
+/**
+ * Is this email already another account's? Self-service profile edits must not
+ * be able to claim an address somebody else signs in with (audit finding H2).
+ * The `users.email` unique constraint is the race-safe backstop.
+ */
+export const USER_EMAIL_TAKEN_BY_OTHER_SQL =
+  'SELECT 1 FROM users WHERE LOWER(email) = LOWER($1) AND id <> $2 LIMIT 1';
+
+/**
+ * One statement for a self-service profile edit: every supplied field is
+ * COALESCEd over the stored value, so name/email/branch/password move together
+ * and a half-applied profile (the old in-memory-only write) is impossible.
+ */
+export const USER_UPDATE_PROFILE_SQL = `UPDATE users SET
+  name = COALESCE($2, name),
+  email = COALESCE($3, email),
+  branch_id = COALESCE($4, branch_id),
+  password = COALESCE($5, password),
+  updated_at = CURRENT_TIMESTAMP
+WHERE id = $1
+RETURNING ${USER_SELECT_COLUMNS}`;
 
 /** Profile-switch lookup: by id or case-insensitive email. */
 export const USER_FIND_BY_ID_OR_EMAIL_SQL =

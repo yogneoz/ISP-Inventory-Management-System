@@ -7,6 +7,7 @@ import {
   User as UserIcon,
   Building2,
   CheckCircle2,
+  AlertCircle,
   RefreshCw,
   LogOut,
   Mail,
@@ -27,7 +28,9 @@ interface ProfileSwitchModalProps {
   users: User[];
   branches: Branch[];
   onSwitchProfile: (targetUserId: string) => Promise<void>;
-  onUpdateProfile: (data: Partial<User> & { newPassword?: string }) => Promise<void>;
+  onUpdateProfile: (
+    data: Partial<User> & { newPassword?: string; currentPassword?: string }
+  ) => Promise<void>;
   onLogout: () => void;
 }
 
@@ -51,6 +54,11 @@ export const ProfileSwitchModal: React.FC<ProfileSwitchModalProps> = ({
   const [editName, setEditName] = useState(currentUser?.name || '');
   const [editEmail, setEditEmail] = useState(currentUser?.email || '');
   const [editPassword, setEditPassword] = useState('');
+  // The server requires the current password for any identity, scope or
+  // credential change, so the form asks for it up front instead of letting a
+  // save fail with a 400 the operator cannot see.
+  const [editCurrentPassword, setEditCurrentPassword] = useState('');
+  const [updateError, setUpdateError] = useState('');
   const [updateSuccess, setUpdateSuccess] = useState(false);
   const [updating, setUpdating] = useState(false);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -71,6 +79,8 @@ export const ProfileSwitchModal: React.FC<ProfileSwitchModalProps> = ({
     setEditName(currentUser.name);
     setEditEmail(currentUser.email);
     setEditPassword('');
+    setEditCurrentPassword('');
+    setUpdateError('');
   }, [isOpen, currentUser?.id, currentUser?.name, currentUser?.email]);
 
   if (!isOpen || !currentUser) return null;
@@ -120,17 +130,22 @@ export const ProfileSwitchModal: React.FC<ProfileSwitchModalProps> = ({
     e.preventDefault();
     setUpdating(true);
     setUpdateSuccess(false);
+    setUpdateError('');
     try {
       await onUpdateProfile({
         name: editName,
         email: editEmail,
         ...(editPassword ? { newPassword: editPassword } : {}),
+        ...(editCurrentPassword ? { currentPassword: editCurrentPassword } : {}),
       });
       setUpdateSuccess(true);
       setEditPassword('');
+      setEditCurrentPassword('');
       setTimeout(() => setUpdateSuccess(false), 3000);
-    } catch (err) {
-      console.error('Failed to update profile:', err);
+    } catch (err: any) {
+      // Surface the server's reason (wrong current password, address already in
+      // use) instead of leaving the operator with a form that silently fails.
+      setUpdateError(err?.message || 'Could not update the profile.');
     } finally {
       setUpdating(false);
     }
@@ -413,6 +428,16 @@ export const ProfileSwitchModal: React.FC<ProfileSwitchModalProps> = ({
                 </div>
               )}
 
+              {updateError && (
+                <div
+                  role="alert"
+                  className="flex items-center gap-2 rounded-xl bg-rose-50 dark:bg-rose-950/50 p-3 text-xs text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800"
+                >
+                  <AlertCircle className="h-4 w-4 text-rose-600" />
+                  <span>{updateError}</span>
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Full Name
@@ -440,6 +465,23 @@ export const ProfileSwitchModal: React.FC<ProfileSwitchModalProps> = ({
                     required
                     value={editEmail}
                     onChange={(e) => setEditEmail(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 pl-10 pr-3.5 py-2 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Current Password
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <input
+                    type="password"
+                    value={editCurrentPassword}
+                    onChange={(e) => setEditCurrentPassword(e.target.value)}
+                    placeholder="Required to change your email or password"
+                    autoComplete="current-password"
                     className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 pl-10 pr-3.5 py-2 text-xs text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                   />
                 </div>
