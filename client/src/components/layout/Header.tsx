@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Branch, User, CompanyProfile, FiscalYear } from '../../types';
 import { convertADToBS } from '../../utils/nepaliCalendar';
 import { canUserSwitchProfiles } from '../../utils/permissions';
+import { subscribeSelfPhotoChanged } from '../../utils/selfPhoto';
 import { NavTab } from './Sidebar';
 import { ViewScopeControls } from '../common/ViewScopeControls';
 import { useDarkMode } from '../../contexts/DarkModeContext';
@@ -97,6 +98,15 @@ export const Header: React.FC<HeaderProps> = ({
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
   const [userSearch, setUserSearch] = useState('');
   const [isSwitchingId, setIsSwitchingId] = useState<string | null>(null);
+  // The linked employee's photo arrives with the session user; a self-service
+  // save on My Profile pushes the new value through the event below.
+  const [avatarPhoto, setAvatarPhoto] = useState<string | null>(currentUser?.avatarUrl || null);
+
+  useEffect(() => {
+    setAvatarPhoto(currentUser?.avatarUrl || null);
+  }, [currentUser?.id, currentUser?.avatarUrl]);
+
+  useEffect(() => subscribeSelfPhotoChanged(setAvatarPhoto), []);
 
   const profileDropdownRef = useRef<HTMLDivElement>(null);
   const profileChipRef = useRef<HTMLButtonElement>(null);
@@ -355,8 +365,12 @@ export const Header: React.FC<HeaderProps> = ({
               className={`flex items-center gap-2 rounded-xl px-2.5 py-1 text-xs font-semibold transition-all cursor-pointer border bg-white/20 text-white border-white/30 hover:bg-white/30 backdrop-blur-xs dark:bg-slate-800/90 dark:text-white dark:border-slate-700 dark:hover:bg-slate-700 dark:hover:border-slate-600`}
             >
               <div className="relative flex-shrink-0">
-                <div className="h-6 w-6 rounded-lg bg-indigo-500/90 flex items-center justify-center font-extrabold text-[10px] text-white shadow-xs border border-white/20">
-                  {currentUser.name.split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase()}
+                <div className="h-6 w-6 overflow-hidden rounded-lg bg-indigo-500/90 flex items-center justify-center font-extrabold text-[10px] text-white shadow-xs border border-white/20">
+                  {avatarPhoto ? (
+                    <img src={avatarPhoto} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    currentUser.name.split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase()
+                  )}
                 </div>
                 {isSwitchedSession && (
                   <span
@@ -380,8 +394,12 @@ export const Header: React.FC<HeaderProps> = ({
                 {/* Active User Header */}
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 mb-3">
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="h-9 w-9 rounded-xl bg-indigo-600 flex items-center justify-center font-extrabold text-xs text-white flex-shrink-0 shadow-xs">
-                      {currentUser.name.split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase()}
+                    <div className="h-9 w-9 overflow-hidden rounded-xl bg-indigo-600 flex items-center justify-center font-extrabold text-xs text-white flex-shrink-0 shadow-xs">
+                      {avatarPhoto ? (
+                        <img src={avatarPhoto} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        currentUser.name.split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase()
+                      )}
                     </div>
                     <div className="min-w-0">
                       <div className="font-bold text-xs text-slate-900 dark:text-white truncate">{currentUser.name}</div>

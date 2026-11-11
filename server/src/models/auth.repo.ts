@@ -12,6 +12,15 @@
 export const USER_SELECT_COLUMNS =
   'id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser", status';
 
+/**
+ * The signed-in account's avatar: the photo on the employee linked to it.
+ * Read separately from the users row so login/switch can attach it to the user
+ * payload without widening USER_SELECT_COLUMNS (which also feeds RETURNING
+ * clauses, where a subquery is not allowed).
+ */
+export const USER_LINKED_AVATAR_SQL =
+  'SELECT profile_photo AS "avatarUrl" FROM employees WHERE user_id = $1 LIMIT 1';
+
 /** Login lookup: case-insensitive match on email. */
 export const USER_FIND_BY_EMAIL_SQL =
   `SELECT ${USER_SELECT_COLUMNS} FROM users WHERE LOWER(email) = LOWER($1)`;

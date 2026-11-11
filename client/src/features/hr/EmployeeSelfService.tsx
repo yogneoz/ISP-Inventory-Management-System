@@ -27,6 +27,8 @@ import type { HrSelfProfile } from '../../services/api';
 import type { User } from '../../types';
 import { formatMoneyPrecise } from '../../utils/nprFormat';
 import { isOperationAllowed } from '../../utils/permissions';
+import { broadcastSelfPhotoChanged } from '../../utils/selfPhoto';
+import { patchStoredUser } from '../../utils/sessionCache';
 import { EmployeeSelfServicePhotoDialog } from './EmployeeSelfServicePhotoDialog';
 
 interface EmployeeSelfServiceProps {
@@ -214,6 +216,10 @@ export const EmployeeSelfService: React.FC<EmployeeSelfServiceProps> = ({ curren
     const source = editing ? draft : draftFrom(profile);
     const next = await api.saveMyHrProfile(payloadFrom(source, dataUrl));
     setProfile(next);
+    // The shell header reads the same photo from the session user: update it
+    // now for this session and in the stored session so a reload keeps it.
+    patchStoredUser({ avatarUrl: next.profilePhoto ?? undefined });
+    broadcastSelfPhotoChanged(next.profilePhoto ?? null);
     setPhotoOpen(false);
     setSavedNote(dataUrl ? 'Profile picture updated.' : 'Profile picture removed.');
   };

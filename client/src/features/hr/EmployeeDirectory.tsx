@@ -483,7 +483,23 @@ export const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({
                     </td>
                     <td className="px-2.5 py-1.5 font-bold text-slate-900 dark:text-white">
                       <div className="flex items-center gap-1.5">
-                        <Users className="h-3.5 w-3.5 text-slate-400" />
+                        {employee.profilePhoto ? (
+                          <img
+                            src={employee.profilePhoto}
+                            alt=""
+                            className="h-6 w-6 shrink-0 rounded-full border border-slate-200 object-cover dark:border-slate-700"
+                          />
+                        ) : (
+                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                            {employee.name
+                              .split(/\s+/)
+                              .filter(Boolean)
+                              .slice(0, 2)
+                              .map((part) => part[0])
+                              .join('')
+                              .toUpperCase()}
+                          </span>
+                        )}
                         <span>{employee.name}</span>
                       </div>
                       {employee.department ? (

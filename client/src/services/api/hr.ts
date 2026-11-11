@@ -29,6 +29,8 @@ export interface EmployeeRecord {
   bankAccount: string | null;
   monthlySalary: string | number | null;
   isActive: boolean;
+  /** Square JPEG data URL from self-service; null when the employee has none. */
+  profilePhoto: string | null;
   isDemo: boolean;
   createdAt: string;
   updatedAt: string;

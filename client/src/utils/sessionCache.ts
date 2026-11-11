@@ -86,6 +86,25 @@ export function saveUserSession(currentUser: User | null, rootUser: User | null,
   }
 }
 
+/**
+ * Patch the cached session user in place.
+ *
+ * Used when a field on the shell's user chip changes without a new login —
+ * currently the employee profile photo. `saveUserSession` cannot be reused for
+ * this: passing a null root user would erase the stored root profile.
+ */
+export function patchStoredUser(patch: Partial<User>): void {
+  try {
+    if (localStorage.getItem(LOGGED_OUT_FLAG_KEY) === 'true') return;
+    const raw = localStorage.getItem(LOGGED_USER_STORAGE_KEY);
+    if (!raw) return;
+    const stored = JSON.parse(raw) as User;
+    localStorage.setItem(LOGGED_USER_STORAGE_KEY, JSON.stringify({ ...stored, ...patch }));
+  } catch (_e) {
+    // Storage disabled or full: the header still updates for this session.
+  }
+}
+
 // Load logged-in user session with strict check against logged-out state
 export function loadUserSession(): { currentUser: User | null; rootUser: User | null; token: string | null } {
   let currentUser: User | null = null;

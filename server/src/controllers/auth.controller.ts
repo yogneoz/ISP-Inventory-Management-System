@@ -24,6 +24,7 @@ import {
   USER_SUPER_ADMIN_CLAIM_SQL,
   superAdminInsertParams,
   USER_FIND_BY_ID_OR_EMAIL_SQL,
+  USER_LINKED_AVATAR_SQL,
   USER_EMAIL_TAKEN_BY_OTHER_SQL,
   USER_UPDATE_PROFILE_SQL,
   userUpdatePasswordParams,
@@ -51,9 +52,16 @@ export async function login(req: Request, res: Response): Promise<void> {
         await pgPool.query(USER_UPDATE_PASSWORD_SQL, userUpdatePasswordParams(passwordCheck.upgradedHash, dbUser.id));
         dbUser.password = passwordCheck.upgradedHash;
       }
+      // The header avatar is the linked employee's self-service photo. It is
+      // read here, not in USER_SELECT_COLUMNS, so the RETURNING-based setup and
+      // profile statements keep working unchanged.
+      const avatar = (await pgPool.query(USER_LINKED_AVATAR_SQL, [dbUser.id])).rows[0];
       setActiveUser(dbUser);
       const { password: _, ...userWithoutPass } = dbUser;
-      res.json({ user: userWithoutPass, token: issueAuthToken(dbUser) });
+      res.json({
+        user: { ...userWithoutPass, avatarUrl: avatar?.avatarUrl ?? null },
+        token: issueAuthToken(dbUser),
+      });
       return;
     }
 
@@ -353,8 +361,13 @@ export async function post_switchProfile(req: any, res: Response): Promise<any> 
     timestampBS: todayBs(), // C4: from bs_day_records cache, not a hardcoded date
   } as AuditLog));
 
+  // A switched profile carries its own linked employee photo.
+  const avatar = (await pgPool.query(USER_LINKED_AVATAR_SQL, [user.id])).rows[0];
   const { password: _, ...userWithoutPass } = user;
-  res.json({ user: userWithoutPass, token: issueAuthToken(user, sessionRoot) });
+  res.json({
+    user: { ...userWithoutPass, avatarUrl: avatar?.avatarUrl ?? null },
+    token: issueAuthToken(user, sessionRoot),
+  });
 
 }
 
