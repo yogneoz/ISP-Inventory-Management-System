@@ -276,6 +276,15 @@ try {
 export async function post_users(req: any, res: Response): Promise<any> {
 try {
     const role = validateRole(req.body.role);
+    // Role assignment is an administrative act. HR (or any other operational
+    // role) may hand out HR Self Service and nothing else; only a Super Admin or
+    // Sub Super Admin assigns any other role.
+    const actorRole = String((req as any).user?.role || '');
+    if (actorRole !== 'SUPER_ADMIN' && actorRole !== 'HEAD_OFFICE_ADMIN' && role !== 'HR_SELF_SERVICE') {
+      return res.status(403).json({
+        message: 'Only a Super Admin or Sub Super Admin can assign that role. An HR Manager may assign HR Self Service only.',
+      });
+    }
     const newUser = {
       id: req.body.id || `usr-${Date.now()}`,
       ...req.body,
@@ -311,6 +320,17 @@ try {
 
     const existingRole = (users[idx] || {}).role || 'FRONT_DESK';
     const role = req.body.role !== undefined ? validateRole(req.body.role) : existingRole;
+    const actorRole = String((req as any).user?.role || '');
+    if (existingRole === 'SUPER_ADMIN' && actorRole !== 'SUPER_ADMIN') {
+      return res.status(403).json({ message: 'Only a Super Admin can change a Super Admin account.' });
+    }
+    if (actorRole !== 'SUPER_ADMIN' && actorRole !== 'HEAD_OFFICE_ADMIN') {
+      if (role !== 'HR_SELF_SERVICE' || existingRole !== 'HR_SELF_SERVICE') {
+        return res.status(403).json({
+          message: 'Only a Super Admin or Sub Super Admin can assign roles. An HR Manager may assign HR Self Service only.',
+        });
+      }
+    }
     const updatedUser = {
       ...(users[idx] || {}),
       ...req.body,

@@ -152,7 +152,7 @@ approval, posting and payment keep `gl-payroll-post`, while run reads accept
 | `hr-employee-manage` / `gl-payroll-manage` (generated run) | Generate or discard a draft payroll run; run reads also accept `gl-view` | SUPER_ADMIN, HEAD_OFFICE_ADMIN, HR_MANAGER (legacy grant also accepted) |
 | `gl-payroll-post` (run lifecycle) | Approve, post and pay a generated run | SUPER_ADMIN, HEAD_OFFICE_ADMIN, ACCOUNTANT |
 | `gl-view` / HR grants (outputs) | Read posted payslips and the payroll register; drafts are refused | same as run reads |
-| `hr-self-service` | ESS: own profile, POSTED/PAID payslips, leave balances/history and recent attendance (delivered read-only); documents follow | every role (per-user) |
+| `hr-self-service` | ESS: own profile, POSTED/PAID payslips, leave balances/history and recent attendance (delivered read-only); documents follow | every role, including `HR_SELF_SERVICE` (per-user) |
 
 Leave decisions reuse `hr-attendance-manage` rather than a separate
 `hr-leave-approve` operation, so a view-only HR officer can read requests
@@ -165,6 +165,19 @@ custom matrices do not lock anyone out.
 `HR_MANAGER` and `HR_OFFICER` are registered in the `users.role` whitelist and
 carry a default matrix row for every operation. `HR_MANAGER` holds view + manage;
 `HR_OFFICER` holds view only, so employee reads are masked for officers.
+
+`HR_SELF_SERVICE` is the twelfth role and the only one with a single grant: it
+is `true` for `hr-self-service` and `false` for every other operation, so an
+account on it can read its own ESS surfaces and nothing in the directory,
+registers or administration. It exists so an employee can be given a login
+without being given HR's register. HR assigns it — and only it — from the
+employee record (`POST`/`PATCH /api/employees`, `loginRole`); a Super Admin or
+Sub Super Admin (`HEAD_OFFICE_ADMIN`, the stored value) assigns every other
+role from **Settings → Users** and writes per-user overrides, with the single
+refusal that only a Super Admin may change a Super Admin account. The employee
+form's `loginRole` list deliberately excludes both administrator roles, and
+`USER_SET_ROLE_SQL` refuses those targets even if a caller gets past the
+controller.
 
 ## 5. Phases and acceptance criteria
 

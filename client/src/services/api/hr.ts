@@ -115,8 +115,13 @@ export interface EmployeeLoginHandoff {
   temporaryPassword: string;
 }
 
-/** Roles a login created from the employee record may take. */
+/**
+ * Roles a login created or edited from the employee record may take. Admin
+ * roles are deliberately absent: HR can hand out operational access, never an
+ * administrator's, and the server enforces the same list.
+ */
 export const HR_LOGIN_ROLES: string[] = [
+  'HR_SELF_SERVICE',
   'FRONT_DESK',
   'FIELD_TECHNICIAN',
   'INVENTORY_MANAGER',
@@ -125,9 +130,7 @@ export const HR_LOGIN_ROLES: string[] = [
   'BRANCH_MANAGER',
   'HR_OFFICER',
   'HR_MANAGER',
-  'HEAD_OFFICE_ADMIN',
   'AUDITOR',
-  'SUPER_ADMIN',
 ];
 
 export interface EmployeeQuery {

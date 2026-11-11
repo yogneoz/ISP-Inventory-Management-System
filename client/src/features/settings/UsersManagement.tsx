@@ -125,6 +125,13 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
 }) => {
   const { confirm: confirmDialog, alert: alertDialog } = useDialog();
   const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
+  /**
+   * Super Admin and Sub Super Admin assign roles and manage access. Everyone
+   * else who reaches this screen (HR) may only hand out HR Self Service, and
+   * the server enforces the same rule.
+   */
+  const isSubSuperAdmin = currentUser?.role === 'HEAD_OFFICE_ADMIN';
+  const canAdministerAccounts = isSuperAdmin || isSubSuperAdmin;
   const activationKey = useActivationKey('users');
   const [search, setSearch] = useState('');
   // A shared link may already name an access scope and/or operation.
@@ -336,7 +343,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
   // The modal summary is a read, never a second editor. It is only offered to
   // a Super Admin for an account whose access can actually change.
   useEffect(() => {
-    if (!isModalOpen || !editingUser || !isSuperAdmin || editingUser.role === 'SUPER_ADMIN') {
+    if (!isModalOpen || !editingUser || !canAdministerAccounts || editingUser.role === 'SUPER_ADMIN') {
       setAccessSummary(null);
       setAccessSummaryError('');
       setAccessSummaryLoading(false);
@@ -584,7 +591,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
         password.length > 0)
   );
   const canShowAccess = Boolean(
-    editingUser && isSuperAdmin && editingUser.role !== 'SUPER_ADMIN' && onManageAccess
+    editingUser && canAdministerAccounts && editingUser.role !== 'SUPER_ADMIN' && onManageAccess
   );
 
   const handleManageAccess = () => {
@@ -1055,7 +1062,12 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                     onChange={(e) => setRole(e.target.value)}
                     className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2"
                   >
-                    {APP_ROLES.map((r) => (
+                    {APP_ROLES.filter(
+                      (r) =>
+                        canAdministerAccounts ||
+                        r === 'HR_SELF_SERVICE' ||
+                        (editingUser !== null && r === editingUser.role)
+                    ).map((r) => (
                       <option key={r} value={r}>
                         {APP_ROLE_LABELS[r] || r}
                       </option>
@@ -1102,7 +1114,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
 
                 {role === 'SUPER_ADMIN' || role === 'INVENTORY_MANAGER' || role === 'HEAD_OFFICE_ADMIN' ? (
                   <div className="p-3 rounded-lg border border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/30 text-purple-900 dark:text-purple-300 text-[11px]">
-                    🔒 <strong>Super Admin, Stock Manager & Head Office Admin</strong> automatically have full operational and data visibility access across ALL branches in the company.
+                    🔒 <strong>Super Admin, Stock Manager & Sub Super Admin</strong> automatically have full operational and data visibility access across ALL branches in the company.
                   </div>
                 ) : (
                   <div className="space-y-1.5 p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 max-h-36 overflow-y-auto">

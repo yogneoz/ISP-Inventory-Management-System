@@ -8,7 +8,7 @@
  */
 import React, { useState } from 'react';
 import { KeyRound } from 'lucide-react';
-import { api } from '../../services/api';
+import { api, setAuthToken } from '../../services/api';
 import type { User } from '../../types';
 
 interface ForcePasswordChangeProps {
@@ -48,9 +48,12 @@ export const ForcePasswordChange: React.FC<ForcePasswordChangeProps> = ({
     }
     setSaving(true);
     try {
-      await api.updateProfile({ currentPassword, newPassword });
-      // Changing the password retires every issued token: sign in again with
-      // the credential the employee just chose.
+      const saved = await api.updateProfile({ currentPassword, newPassword });
+      // The change retires every earlier token and the response carries the
+      // replacement. Install it BEFORE anything else fires, so no request runs
+      // on the retired credential and no stale 401 ends the new session.
+      if (saved?.token) setAuthToken(saved.token);
+      // Sign in again with the credential the employee just chose.
       const res = await api.login(user.email, newPassword);
       await onDone(res.user, res.token);
     } catch (err: any) {

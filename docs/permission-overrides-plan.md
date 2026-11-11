@@ -1,7 +1,7 @@
 # Per-user permission overrides — design plan and recommendation
 
 Status: **phases 1–2 implemented 2026-11-01** — table, resolver,
-`/api/permissions/me`, the Super Admin-only override endpoints (21 tests), and
+`/api/permissions/me`, the administrator-only override endpoints (21 tests), and
 the `Settings → User Permissions` screen with the client effective-set
 integration (14 tests). The reusable permission sets (§10, "Phase 2 — reusable
 sets") are still open.
@@ -194,14 +194,20 @@ not a new guarantee.
 | Method | Path | Who | Purpose |
 | --- | --- | --- | --- |
 | GET | `/api/permissions/me` | any signed-in user | `{ operations: string[], version, role }` — the effective set for the current session. |
-| GET | `/api/users/:id/permission-overrides` | SUPER_ADMIN | base role matrix, override rows, and resolved effective set for one user. |
-| PUT | `/api/users/:id/permission-overrides` | SUPER_ADMIN | Replace this user’s override rows atomically; body `{ overrides: [{ operationId, effect, reason, expiresAt? }] }`. |
+| GET | `/api/users/:id/permission-overrides` | `SUPER_ADMIN`, `HEAD_OFFICE_ADMIN` (Sub Super Admin) | base role matrix, override rows, and resolved effective set for one user. |
+| PUT | `/api/users/:id/permission-overrides` | `SUPER_ADMIN`, `HEAD_OFFICE_ADMIN` (Sub Super Admin) | Replace this user’s override rows atomically; body `{ overrides: [{ operationId, effect, reason, expiresAt? }] }`. |
 | GET | `/api/bootstrap` | any signed-in user | Adds `effectivePermissions` and `permissionsVersion` to the existing payload. |
 
-Put the write behind **SUPER_ADMIN only**, deliberately not behind
-`admin-users`: a Head Office Admin who manages staff must not be able to grant
-themselves operations. The screen lives in Settings next to the matrix and is
-hidden for every other role.
+Put the write behind **Super Admin and Sub Super Admin**
+(`requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN')`), deliberately not behind
+`admin-users`: branch-level user management should not imply the ability to
+rewrite the effective permission set. The target refusal is enforced in the
+controller: nobody may write an override on a `SUPER_ADMIN` account. A Sub
+Super Admin is a delegated owner and may write exceptions for any other
+non-Super-Admin account, including their own — the hard guard is the Super
+Admin target, not self-granting, so `HEAD_OFFICE_ADMIN` is owner-equivalent
+trust. The screen lives in Settings next to the matrix and is hidden for every
+other role.
 
 Validation on PUT:
 

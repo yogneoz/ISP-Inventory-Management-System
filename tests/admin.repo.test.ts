@@ -264,7 +264,9 @@ describe('user params', () => {
 
   test('list SQL never exposes password; reset stamps updated_at', () => {
     assert.ok(!USER_SELECT_SQL.includes('password'));
-    assert.match(USER_SELECT_SQL, / FROM users ORDER BY created_at ASC$/);
+    // The list joins employees for the avatar, so the ordering is qualified.
+    assert.match(USER_SELECT_SQL, /LEFT JOIN employees e ON e\.user_id = u\.id\nORDER BY u\.created_at ASC$/);
+    assert.match(USER_SELECT_SQL, /ORDER BY u\.created_at ASC$/);
     assert.equal(
       USER_RESET_PASSWORD_SQL,
       'UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING email, name'

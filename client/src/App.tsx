@@ -24,7 +24,7 @@ import {
   DamageRecord,
   LocationRecord,
 } from './types';
-import { api, setAuthToken, setFiscalYearContext, setUserContext, setActiveBranchContext, subscribeToSyncStream, getSyncVersion, broadcastLogoutToOtherTabs } from './services/api';
+import { api, setAuthToken, setFiscalYearContext, setUserContext, setActiveBranchContext, subscribeToSyncStream, getSyncVersion, broadcastLogoutToOtherTabs, getAuthToken } from './services/api';
 import { seedBSYearCalendar, getBsCalendarCoverage, type BsCalendarCoverageStatus } from './utils/nepaliCalendar';
 import { NAVIGATE_TAB_EVENT } from './services/api/http';
 import {
@@ -1669,8 +1669,9 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    // Multi-tab relay (#6): sign sibling tabs out in step.
-    broadcastLogoutToOtherTabs();
+    // Multi-tab relay (#6): sign sibling tabs out in step — but name the
+    // session that is ending, so a tab already on a newer token stays signed in.
+    broadcastLogoutToOtherTabs(getAuthToken());
     setCurrentUser(null);
     setRootUser(null);
     setAuthToken(null);

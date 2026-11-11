@@ -52,12 +52,13 @@ CREATE TABLE IF NOT EXISTS users (
     email VARCHAR(150) UNIQUE NOT NULL,
     password VARCHAR(255) NOT NULL,
     name VARCHAR(150) NOT NULL,
-    role VARCHAR(50) NOT NULL CHECK (role IN ('SUPER_ADMIN', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'FRONT_DESK', 'ACCOUNTANT', 'HEAD_OFFICE_ADMIN', 'HR_MANAGER', 'HR_OFFICER', 'PROCUREMENT_OFFICER', 'FIELD_TECHNICIAN', 'AUDITOR')),
+    role VARCHAR(50) NOT NULL CHECK (role IN ('SUPER_ADMIN', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'FRONT_DESK', 'ACCOUNTANT', 'HEAD_OFFICE_ADMIN', 'HR_SELF_SERVICE', 'HR_MANAGER', 'HR_OFFICER', 'PROCUREMENT_OFFICER', 'FIELD_TECHNICIAN', 'AUDITOR')),
     branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE SET NULL,
     allowed_branch_ids TEXT[],
     status VARCHAR(30) DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'suspended', 'locked')),
     can_switch_user BOOLEAN DEFAULT FALSE,
     is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -75,7 +76,7 @@ BEGIN
   END IF;
   ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN (
     'SUPER_ADMIN', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'FRONT_DESK',
-    'ACCOUNTANT', 'HEAD_OFFICE_ADMIN', 'HR_MANAGER', 'HR_OFFICER',
+    'ACCOUNTANT', 'HEAD_OFFICE_ADMIN', 'HR_SELF_SERVICE', 'HR_MANAGER', 'HR_OFFICER',
     'PROCUREMENT_OFFICER', 'FIELD_TECHNICIAN', 'AUDITOR'
   ));
 END $$;
@@ -1327,6 +1328,27 @@ CREATE TABLE IF NOT EXISTS permission_matrix (
 );
 
 CREATE INDEX IF NOT EXISTS idx_permission_matrix_role ON permission_matrix(role);
+
+-- Sub Super Admin (stored as HEAD_OFFICE_ADMIN) manages accounts and roles.
+-- Applied once, during the upgrade that introduces HR Self Service, so a tenant
+-- that later turns it off for that role keeps its own decision.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM permission_matrix WHERE role = 'HR_SELF_SERVICE') THEN
+    UPDATE permission_matrix SET allowed = true
+    WHERE operation_id = 'admin-users' AND role = 'HEAD_OFFICE_ADMIN';
+  END IF;
+END $$;
+
+-- HR Self Service is the one role that reads its own HR record and nothing else.
+-- The row set is derived from an existing role so the new role has an explicit
+-- decision for every operation, with only the self-service ones open. Existing
+-- tenants therefore gain it without an administrator re-saving the matrix.
+INSERT INTO permission_matrix (operation_id, role, allowed)
+SELECT DISTINCT operation_id, 'HR_SELF_SERVICE', (operation_id LIKE 'hr-self%')
+FROM permission_matrix
+WHERE role = 'SUPER_ADMIN'
+ON CONFLICT (operation_id, role) DO NOTHING;
 
 -- ============================================================================
 -- 30b. Per-user Permission Overrides (plan: docs/permission-overrides-plan.md)

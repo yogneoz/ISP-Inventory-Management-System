@@ -28,6 +28,14 @@ export const USER_RESTORE_SQL =
   "UPDATE users SET status = 'active', updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND status = 'inactive' RETURNING id, status";
 
 /**
+ * The login role an employee's record may change. Administrator accounts are
+ * excluded in the statement itself, so the employee form can never demote a
+ * Super Admin or Sub Super Admin even if a caller gets past the controller.
+ */
+export const USER_SET_ROLE_SQL =
+  "UPDATE users SET role = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND role NOT IN ('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN') RETURNING id, email, role";
+
+/**
  * The signed-in account's avatar: the photo on the employee linked to it.
  * Read separately from the users row so login/switch can attach it to the user
  * payload without widening USER_SELECT_COLUMNS (which also feeds RETURNING

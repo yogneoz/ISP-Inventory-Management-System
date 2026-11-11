@@ -35,6 +35,7 @@ export type UserRole =
   | 'FRONT_DESK'
   | 'ACCOUNTANT'
   | 'HEAD_OFFICE_ADMIN'
+  | 'HR_SELF_SERVICE'
   | 'HR_MANAGER'
   | 'HR_OFFICER'
   | 'PROCUREMENT_OFFICER'

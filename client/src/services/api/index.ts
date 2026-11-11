@@ -41,7 +41,7 @@ import * as warranty from './warranty';
 import * as warrantyClaims from './warrantyClaims';
 import * as hr from './hr';
 
-export { API_BASE, fetchJson, setAuthToken, setUserContext, setFiscalYearContext, setActiveBranchContext, getActiveBranchId } from './http';
+export { API_BASE, fetchJson, setAuthToken, getAuthToken, setUserContext, setFiscalYearContext, setActiveBranchContext, getActiveBranchId } from './http';
 export { subscribeToSyncStream, getSyncVersion, broadcastLogoutToOtherTabs } from './sync';
 export type { SyncRelayMessage } from './sync';
 export type {

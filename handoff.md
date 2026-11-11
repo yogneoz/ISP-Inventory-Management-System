@@ -631,7 +631,7 @@ The server registers ~130 routes. The most important ones:
 | `/api/admin/repair/fiscal-year-links` | POST | Re-link missing fiscal_year_id references (SUPER_ADMIN) |
 | `/api/permissions` | GET, PUT | Read / persist the permission matrix (PostgreSQL-backed) |
 | `/api/permissions/me` | GET | Effective operations for the signed-in account (role matrix + per-user exceptions) |
-| `/api/users/:id/permission-overrides` | GET, PUT | Read / replace one user's grants and denies (SUPER_ADMIN only) |
+| `/api/users/:id/permission-overrides` | GET, PUT | Read / replace one user's grants and denies (`SUPER_ADMIN` or `HEAD_OFFICE_ADMIN`; never on a Super Admin) |
 
 ### 6.8 Request Headers
 
@@ -687,21 +687,24 @@ Every `/api/*` request passes through this middleware chain in order:
 
 ## 8. Role-Based Access Control (RBAC)
 
-### 8.1 Roles (9 defined in database constraint)
+### 8.1 Roles (12 defined in database constraint)
 
 | Role | Description | Branch Access |
 |---|---|---|
-| `SUPER_ADMIN` | Full system access, all branches | ALL |
-| `HEAD_OFFICE_ADMIN` | HQ admin, branch management | ALL |
+| `SUPER_ADMIN` | Full system access, all branches; the only role that may change another Super Admin | ALL |
+| `HEAD_OFFICE_ADMIN` | Displayed as **Sub Super Admin** (stored value unchanged): HQ admin, branch management, role assignment and per-user overrides on non-Super-Admin accounts | ALL |
 | `INVENTORY_MANAGER` | Inventory, products, stock, assets | ALL |
 | `BRANCH_MANAGER` | Branch-scoped operations | Single branch |
 | `FRONT_DESK` | Customer-facing operations, stock out | Single branch |
 | `ACCOUNTANT` | Financials, invoices, payments | Single branch |
+| `HR_MANAGER` | Employee master, attendance/leave, payroll runs; assigns `HR_SELF_SERVICE` only | Single branch |
+| `HR_OFFICER` | Read-only HR register with PII masked | Single branch |
+| `HR_SELF_SERVICE` | Own HR record only (`hr-self-service`): profile, payslips, leave, attendance, documents | Single branch |
 | `PROCUREMENT_OFFICER` | POs, invoices, receiving | Single branch |
 | `FIELD_TECHNICIAN` | Field operations | Single branch |
 | `AUDITOR` | Read-only audit access | Single branch |
 
-### 8.2 Permissions Matrix (64 operations × 9 roles)
+### 8.2 Permissions Matrix (68 operations × 12 roles)
 
 Defined in `src/utils/permissionMatrixData.ts` (`APP_ROLES`, `DEFAULT_PERMISSIONS_MATRIX`). Key groups:
 
@@ -725,8 +728,9 @@ and an optional future expiry. Resolution is Super Admin → user row → role
 matrix; an expired or unknown-operation row is ignored (fail closed).
 `requirePermissionAny`, the bootstrap audit-log gate, the approval-cancel check
 and the shipment receiving-lane check all call the same resolver. The admin
-read/write API is SUPER_ADMIN-only, and every write is audited as
-`UPDATE_USER_PERMISSIONS`. The Super Admin-only `Settings → User Permissions`
+read/write API admits `SUPER_ADMIN` and `HEAD_OFFICE_ADMIN` and refuses a Super
+Admin target, and every write is audited as
+`UPDATE_USER_PERMISSIONS`. The administrator-only `Settings → User Permissions`
 screen (`client/src/features/settings/UserPermissions.tsx`) edits one account's
 exceptions with a tri-state Inherit/Grant/Deny, the role's base answer always
 visible, a required reason, optional AD/BS expiry and an effective preview. The
@@ -734,6 +738,50 @@ client reads `/api/permissions/me` on sign-in, profile switch and matrix
 republish; `isOperationAllowed` uses that resolved set only for the role it was
 resolved for, and clears it at every session boundary (plan §10–§11). Reusable
 permission sets remain future work.
+
+### 8.3 Role assignment and permission overrides
+
+Two roles administer access: `SUPER_ADMIN` and `HEAD_OFFICE_ADMIN`, the latter
+displayed as **Sub Super Admin** (the stored value is deliberately unchanged,
+so existing rows, audits and checks keep working).
+
+| Actor | Assignable roles | Overrides |
+|---|---|---|
+| `SUPER_ADMIN` | any role, including another Super Admin | any non-Super-Admin account |
+| `HEAD_OFFICE_ADMIN` (Sub Super Admin) | any role on a non-Super-Admin account | any non-Super-Admin account |
+| `HR_MANAGER` | `HR_SELF_SERVICE` only, from the employee record | none |
+| everyone else | none | none |
+
+- **Nobody but a Super Admin can change a Super Admin account.** The target
+  check runs before any write in the users update handler and in both override
+  handlers, so a Sub Super Admin cannot demote the owner.
+- **Administrator roles are never handed out from the employee record.**
+  `POST`/`PATCH /api/employees` accept `loginRole` for a linked account, but
+  only from `EMPLOYEE_LOGIN_ROLES` (the operational roles plus
+  `HR_SELF_SERVICE`); `USER_SET_ROLE_SQL` also refuses a `SUPER_ADMIN` or
+  `HEAD_OFFICE_ADMIN` target in the statement itself, so a controller mistake
+  cannot demote an administrator.
+- **HR Manager is a one-role delegator.** It may create a login, or re-role an
+  existing non-admin login, to `HR_SELF_SERVICE` and nothing else. The admin
+  Users screen stays behind `admin-users`, which HR does not hold.
+- **`HR_SELF_SERVICE` holds exactly one operation.** Its matrix row is `true`
+  for `hr-self-service` and `false` for every other operation, so the account
+  reaches `/people/profile`, `/people/payslips`, `/people/leave`,
+  `/people/attendance` and `/people/documents` and no register or admin
+  surface. The ESS endpoints resolve the employee from `employees.user_id`,
+  never from a request id.
+- **The matrix enumerates every role for every operation.** A missing cell is
+  not "inherit": `isOperationAllowed` reads it as denied. Adding a role means
+  adding a cell per operation, which `DEFAULT_PERMISSIONS_MATRIX` normalises and
+  `scripts/schema.sql` backfills for existing tenants (the HR Self Service rows
+  are derived from the Super Admin set with only `hr-self-*` open).
+- **Residual trust:** a Sub Super Admin is a delegated owner and may also write
+  exceptions for their own account. The hard refusal is a Super Admin target,
+  not self-granting, so treat `HEAD_OFFICE_ADMIN` as owner-equivalent access.
+
+Routes that write the matrix and the overrides use
+`requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN')`; the Users CRUD keeps
+`admin-users`, which Sub Super Admin holds by default.
 
 ---
 
@@ -1031,7 +1079,7 @@ calculateFixedAssetValues({
 
 ### 12.4 `utils/permissions.ts` + `permissionMatrixData.ts`
 
-- `DEFAULT_PERMISSIONS_MATRIX` — 50 operation keys × 9 roles
+- `DEFAULT_PERMISSIONS_MATRIX` — 68 operation keys × 12 roles
 - `isOperationAllowed(opId, userRole, ...)` — server matrix → localStorage → defaults
 - `canUserSeeAllBranches(user)` — SUPER_ADMIN, INVENTORY_MANAGER, HEAD_OFFICE_ADMIN
 - `getAllowedBranchIds(user, branches)` — resolves accessible branch list

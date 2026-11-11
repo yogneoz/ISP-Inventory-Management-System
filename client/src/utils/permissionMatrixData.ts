@@ -4,7 +4,8 @@ export const APP_ROLE_LABELS: Record<string, string> = {
   BRANCH_MANAGER: 'Branch Manager',
   FRONT_DESK: 'Front Desk',
   ACCOUNTANT: 'Accountant',
-  HEAD_OFFICE_ADMIN: 'Head Office Admin',
+  HEAD_OFFICE_ADMIN: 'Sub Super Admin',
+  HR_SELF_SERVICE: 'HR Self Service',
   HR_MANAGER: 'HR Manager',
   HR_OFFICER: 'HR Officer',
   PROCUREMENT_OFFICER: 'Procurement Officer',
@@ -19,6 +20,7 @@ export const APP_ROLES = [
   'FRONT_DESK',
   'ACCOUNTANT',
   'HEAD_OFFICE_ADMIN',
+  'HR_SELF_SERVICE',
   'HR_MANAGER',
   'HR_OFFICER',
   'PROCUREMENT_OFFICER',
@@ -139,3 +141,18 @@ DEFAULT_PERMISSIONS_MATRIX['hr-attendance-manage'].HR_MANAGER = true;
 // Self-service is every role's own-record read, including both HR roles.
 DEFAULT_PERMISSIONS_MATRIX['hr-self-service'].HR_MANAGER = true;
 DEFAULT_PERMISSIONS_MATRIX['hr-self-service'].HR_OFFICER = true;
+
+// The one role that exists to view its own HR record and nothing else. Every
+// operation enumerates every role (the seed migration writes one row per pair),
+// so the new role is filled in as `false` everywhere and opened only on the
+// self-service operations.
+for (const operationRow of Object.values(DEFAULT_PERMISSIONS_MATRIX)) {
+  for (const role of APP_ROLES) {
+    if (!(role in operationRow)) operationRow[role] = false;
+  }
+}
+for (const [operationId, operationRow] of Object.entries(DEFAULT_PERMISSIONS_MATRIX)) {
+  if (operationId === 'hr-self-service' || operationId.startsWith('hr-self-')) {
+    operationRow.HR_SELF_SERVICE = true;
+  }
+}

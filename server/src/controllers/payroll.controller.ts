@@ -76,7 +76,7 @@ import {
   payrollRunInsertParams,
 } from '../models/payroll.repo';
 import { USER_INSERT_TEMP_PASSWORD_SQL } from '../models/admin.repo';
-import { USER_RESTORE_SQL, USER_SUSPEND_SQL } from '../models/auth.repo';
+import { USER_RESTORE_SQL, USER_SET_ROLE_SQL, USER_SUSPEND_SQL } from '../models/auth.repo';
 import {
   HR_PAYROLL_ADJUSTMENTS_BY_BRANCH_PERIOD_SQL,
   HR_PAYROLL_INPUT_LIST_SQL,
@@ -327,9 +327,13 @@ async function assertEmployeeUserLinkable(
   }
 }
 
+/**
+ * Roles an employee's login may hold. Administrator roles are absent on
+ * purpose: the employee form can hand out operational access, never an
+ * administrator's, and the server enforces the same list.
+ */
 const EMPLOYEE_LOGIN_ROLES = new Set([
-  'SUPER_ADMIN',
-  'HEAD_OFFICE_ADMIN',
+  'HR_SELF_SERVICE',
   'HR_MANAGER',
   'HR_OFFICER',
   'BRANCH_MANAGER',
@@ -340,6 +344,18 @@ const EMPLOYEE_LOGIN_ROLES = new Set([
   'FRONT_DESK',
   'AUDITOR',
 ]);
+
+/**
+ * Today's AD date in Nepal, compared lexically with the stored YYYY-MM-DD
+ * values. A separation date only closes employment once it has arrived: a
+ * future contract end is not a separation yet.
+ */
+function todayAd(): string {
+  return new Date(Date.now() + 5.75 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+/** Only these roles may hand out a role other than HR Self Service. */
+const ADMINISTRATOR_ROLES = new Set(['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN']);
 
 interface EmployeeLoginHandoff {
   email: string;
@@ -375,6 +391,12 @@ async function createEmployeeLogin(
   }
   if (!EMPLOYEE_LOGIN_ROLES.has(role)) {
     throw new ApiError(400, 'Choose a valid role for the new login.');
+  }
+  if (!ADMINISTRATOR_ROLES.has(String(req.user?.role || '')) && role !== 'HR_SELF_SERVICE') {
+    throw new ApiError(
+      403,
+      'Only a Super Admin or Sub Super Admin can assign that role. An HR Manager may assign HR Self Service only.'
+    );
   }
   const temporaryPassword = crypto.randomBytes(12).toString('base64url').slice(0, 14);
   const userId = `usr-${crypto.randomUUID()}`;
@@ -561,10 +583,11 @@ export async function post_employee(req: any, res: Response): Promise<any> {
           personalEmail: optionalText(req.body?.personalEmail, 150),
           monthlySalary: optionalAmount(req.body?.monthlySalary, 'Monthly salary'),
           ssfEligible: optionalBoolean(req.body?.ssfEligible) ?? false,
-          // A record created with a separation date starts closed: the person
-          // is no longer employed, so the login (if any) must not start open.
+          // A record created with a separation date that has already passed
+          // starts closed: the person is no longer employed, so the login (if
+          // any) must not start open. A future contract end stays employed.
           isActive:
-            separationDateAD && req.body?.isActive !== true
+            separationDateAD && separationDateAD <= todayAd() && req.body?.isActive !== true
               ? false
               : typeof req.body?.isActive === 'boolean'
                 ? req.body.isActive
@@ -647,7 +670,8 @@ export async function patch_employee(req: any, res: Response): Promise<any> {
     // below. An explicit isActive:true in the same request wins, so a date
     // entered by mistake can be corrected without a second call; clearing the
     // date never re-opens access on its own.
-    const separated = has('separationDateAD') && Boolean(nextSeparationDateAD);
+    const separated =
+      Boolean(nextSeparationDateAD) && nextSeparationDateAD! <= todayAd();
     const requestedActive = typeof req.body?.isActive === 'boolean' ? req.body.isActive : null;
     const nextActive = separated && requestedActive !== true ? false : requestedActive;
     let updated = (
@@ -702,6 +726,49 @@ export async function patch_employee(req: any, res: Response): Promise<any> {
       client
     );
     await syncEmployeeLoginStatus(client, req, updated, existing.isActive);
+    // The login role is editable from the employee record, between non-admin
+    // roles only. A Super Admin or Sub Super Admin account is never demoted
+    // from here: the statement below refuses those targets outright.
+    const requestedLoginRole = optionalText(req.body?.loginRole, 40);
+    const currentLogin = updated.userId
+      ? (await client.query(HR_USER_BY_ID_SQL, [updated.userId])).rows[0]
+      : null;
+    if (
+      requestedLoginRole &&
+      updated.userId &&
+      currentLogin &&
+      currentLogin.role !== requestedLoginRole
+    ) {
+      if (!EMPLOYEE_LOGIN_ROLES.has(requestedLoginRole)) {
+        throw new ApiError(400, 'Choose a valid role for the login.');
+      }
+      if (
+        !ADMINISTRATOR_ROLES.has(String(req.user?.role || '')) &&
+        requestedLoginRole !== 'HR_SELF_SERVICE'
+      ) {
+        throw new ApiError(
+          403,
+          'Only a Super Admin or Sub Super Admin can assign that role. An HR Manager may assign HR Self Service only.'
+        );
+      }
+      const changed = (
+        await client.query(USER_SET_ROLE_SQL, [updated.userId, requestedLoginRole])
+      ).rows[0];
+      if (!changed) {
+        throw new ApiError(
+          403,
+          'An administrator login cannot be changed from the employee record.'
+        );
+      }
+      await logAuditEvent(
+        req,
+        'UPDATE_USER',
+        'AUTH',
+        `Changed the login role of ${updated.employeeCode} ${updated.name} to ${requestedLoginRole}`,
+        String(updated.branchId),
+        client
+      );
+    }
     const login =
       req.body?.createLogin === true
         ? await createEmployeeLogin(

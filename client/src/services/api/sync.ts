@@ -25,7 +25,8 @@ const SYNC_CHANNEL_NAME = 'inventory-sync';
 /** A payload relayed between tabs: a live sync event or a LOGOUT notice. */
 export type SyncRelayMessage =
   | { kind: 'event'; event: any }
-  | { kind: 'logout' };
+  /** `token` identifies the session that ended, so a tab on a newer one survives. */
+  | { kind: 'logout'; token?: string | null };
 
 export function subscribeToSyncStream(
   onEvent: (data: any) => void,
@@ -65,6 +66,16 @@ export function subscribeToSyncStream(
         const payload = message.data as SyncRelayMessage | undefined;
         if (!payload || !isAuthed()) return;
         if (payload.kind === 'logout') {
+          // A sibling tab that lost an OLD token must not sign out a tab that
+          // has since signed in on a new one — a password change retires every
+          // earlier token and hands the changing tab a replacement, and those
+          // other tabs 401 moments later. Relay the logout only to tabs still
+          // holding the session that actually ended.
+          const mine =
+            typeof localStorage !== 'undefined'
+              ? localStorage.getItem('inventory_auth_token')
+              : null;
+          if (payload.token && mine && payload.token !== mine) return;
           window.dispatchEvent(new CustomEvent('inventory_sync_logout'));
           return;
         }
@@ -176,11 +187,11 @@ export function subscribeToSyncStream(
  * (multi-tab relay #6) so they sign out in step instead of sitting on
  * a dead session until their next 401.
  */
-export function broadcastLogoutToOtherTabs(): void {
+export function broadcastLogoutToOtherTabs(token?: string | null): void {
   try {
     if (typeof BroadcastChannel !== 'undefined') {
       const channel = new BroadcastChannel(SYNC_CHANNEL_NAME);
-      channel.postMessage({ kind: 'logout' } as SyncRelayMessage);
+      channel.postMessage({ kind: 'logout', token: token ?? null } as SyncRelayMessage);
       channel.close();
     }
   } catch (_e) {}

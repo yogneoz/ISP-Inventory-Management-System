@@ -21,6 +21,9 @@ export const setAuthToken = (token: string | null) => {
   authToken = token;
 };
 
+/** The token requests are signed with right now (null when signed out). */
+export const getAuthToken = () => authToken;
+
 export const setUserContext = (user: User | null) => {
   currentUserContext = user;
 };
@@ -162,6 +165,9 @@ export async function fetchJson<T>(endpoint: string, options?: RequestInit, conf
   }
 
   const userHeaders = apiHeaders();
+  // Which session this request speaks for. A later 401 only means "signed
+  // out" if the app has not already moved to a different token.
+  const issuedWithToken = authToken;
 
   const promise = (async () => {
     try {
@@ -221,9 +227,14 @@ export async function fetchJson<T>(endpoint: string, options?: RequestInit, conf
           }
         }
         (error as any).toast = toastIntent;
-        // Dispatch auth expiration event on 401 so App can force logout
+        // Dispatch auth expiration event on 401 so App can force logout.
+        // Only when the 401 belongs to the session still in use: a password
+        // change retires the old token and hands back a new one, and the old
+        // token's in-flight refusals must not sign the new session out.
         if (res.status === 401) {
-          window.dispatchEvent(new CustomEvent('inventory_auth_expired', { detail: { message: error.message } }));
+          if (authToken === issuedWithToken) {
+            window.dispatchEvent(new CustomEvent('inventory_auth_expired', { detail: { message: error.message } }));
+          }
         } else if (!isGet && typeof window !== 'undefined' && !config?.silent) {
           window.dispatchEvent(new CustomEvent(API_TOAST_EVENT, { detail: toastIntent }));
         }

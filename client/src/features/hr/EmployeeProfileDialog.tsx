@@ -25,6 +25,7 @@ import type {
   EmployeeLoginHandoff,
 } from '../../services/api';
 import { HR_BLOOD_GROUPS, HR_LOGIN_ROLES, HR_PROFILE_MAX_ROWS } from '../../services/api/hr';
+import { APP_ROLE_LABELS } from '../../utils/permissionMatrixData';
 import { EmployeeSelfServicePhotoDialog } from './EmployeeSelfServicePhotoDialog';
 
 interface EmployeeProfileDialogProps {
@@ -264,6 +265,23 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
   const [references, setReferences] = useState<ReferenceDraft[]>([]);
 
   const readOnly = !canManage || masked;
+  // The account an employee is linked to. Its role is editable from here, but
+  // only between non-admin roles — the server refuses admin targets.
+  const linkedLogin = record.userId
+    ? userOptions.find((option) => option.id === record.userId)
+    : undefined;
+  // An administrator login linked to this employee is read-only here: the
+  // server refuses to re-role a Super Admin or Sub Super Admin account, so the
+  // dialog shows the real role instead of a picker that cannot save.
+  const canEditLinkedRole = Boolean(linkedLogin && HR_LOGIN_ROLES.includes(linkedLogin.role));
+
+  useEffect(() => {
+    // An administrator login linked to this employee cannot be re-roled from
+    // here, so never prefill an option the picker does not offer.
+    if (linkedLogin && HR_LOGIN_ROLES.includes(linkedLogin.role)) {
+      setLoginRole(linkedLogin.role);
+    }
+  }, [linkedLogin?.role, record.userId]);
 
   const applyResponse = (data: HrEmployeeProfileResponse) => {
     setMasked(Boolean(data.masked));
@@ -497,6 +515,9 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
         bankAccount: nullable(record.bankAccount),
         monthlySalary,
         isActive: record.isActive,
+        // A linked account keeps its role here; the server refuses admin roles
+        // and never demotes a Super Admin or Sub Super Admin from this form.
+        ...(canEditLinkedRole && HR_LOGIN_ROLES.includes(loginRole) ? { loginRole } : {}),
       };
 
       if (isCreate) {
@@ -520,8 +541,13 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
         return;
       }
 
-      const saved = await api.saveEmployeeProfile(employee.id, payload, employee.branchId);
-      applyResponse(saved);
+      // A failed profile read means the F1 sections are unknown; writing them
+      // back would blank the employee's paper form. Save the master only and
+      // let the operator retry the read.
+      if (!loadError) {
+        const saved = await api.saveEmployeeProfile(employee.id, payload, employee.branchId);
+        applyResponse(saved);
+      }
       // Same Save, second resource: the master fields the dialog owns. A login
       // is created here too when the employee had none, so HR never has to
       // leave the employee record to give someone access.
@@ -592,18 +618,23 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
 
         {loading ? (
           <p className="py-10 text-center text-xs text-slate-500">Loading the profile…</p>
-        ) : loadError ? (
-          <div className="space-y-3 py-6 text-center">
-            <p className="text-xs text-rose-600 dark:text-rose-400">{loadError}</p>
-            <button
-              onClick={() => void load()}
-              className="cursor-pointer rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-semibold dark:border-slate-700"
-            >
-              Retry
-            </button>
-          </div>
         ) : (
           <div className="space-y-6 text-xs">
+            {loadError ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-rose-200 bg-rose-50/60 px-3 py-2 text-[11px] text-rose-800 dark:border-rose-900/60 dark:bg-rose-950/20 dark:text-rose-200">
+                <span>
+                  The F1 profile could not be read ({loadError}). Every field below is still
+                  open; saving keeps only the master fields until the profile loads.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void load()}
+                  className="cursor-pointer rounded-lg border border-rose-300 px-2 py-1 font-semibold dark:border-rose-800"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : null}
             {masked ? (
               <p className="rounded-xl border border-amber-200 bg-amber-50/60 px-3 py-2 text-[11px] text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-200">
                 Your role can read the employee master but not its personal profile. Ask an HR
@@ -855,7 +886,7 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
                     className={inputClass}
                   />
                   <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
-                    Setting a separation date deactivates the employee and disables their
+                    A separation date that has already arrived deactivates the employee and disables their
                     login.
                   </p>
                 </div>
@@ -1578,40 +1609,79 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
               </div>
             </Section>
 
-            {!readOnly && !createdLogin && (isCreate || !employee?.userId) ? (
+            {!readOnly && !createdLogin ? (
               <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
-                <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold">
-                  <input
-                    type="checkbox"
-                    checked={createLogin}
-                    onChange={(event) => setCreateLogin(event.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 text-indigo-600"
-                  />
-                  Create a login for this employee
-                </label>
-                {createLogin ? (
-                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                    <div>
-                      <label className={labelClass}>Login role</label>
-                      <select
-                        value={loginRole}
-                        onChange={(event) => setLoginRole(event.target.value)}
-                        className={inputClass}
-                      >
-                        {HR_LOGIN_ROLES.map((role) => (
-                          <option key={role} value={role}>
-                            {role.replace(/_/g, ' ')}
-                          </option>
-                        ))}
-                      </select>
+                {record.userId ? (
+                  canEditLinkedRole ? (
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      <div>
+                        <label className={labelClass}>Login role</label>
+                        <select
+                          value={loginRole}
+                          onChange={(event) => setLoginRole(event.target.value)}
+                          className={inputClass}
+                        >
+                          {HR_LOGIN_ROLES.map((role) => (
+                            <option key={role} value={role}>
+                              {APP_ROLE_LABELS[role] || role.replace(/_/g, ' ')}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <p className="self-end text-[11px] text-slate-500 sm:col-span-2 dark:text-slate-400">
+                        {linkedLogin ? `${linkedLogin.name} · ${linkedLogin.email}. ` : ''}
+                        The role saves with the employee. Administrator roles cannot be assigned
+                        from here.
+                      </p>
                     </div>
-                    <p className="self-end text-[11px] text-slate-500 sm:col-span-2 dark:text-slate-400">
-                      The internal (or personal) e-mail becomes the username. The one-time
-                      password is shown once after saving; the employee must replace it at
-                      first sign-in.
+                  ) : (
+                    <p className="text-[11px] text-slate-600 dark:text-slate-300">
+                      {linkedLogin ? `${linkedLogin.name} · ${linkedLogin.email}` : 'Linked login'} —{' '}
+                      <span className="font-semibold">
+                        {linkedLogin
+                          ? APP_ROLE_LABELS[linkedLogin.role] || linkedLogin.role.replace(/_/g, ' ')
+                          : 'unknown role'}
+                      </span>
+                      . This is an administrator account, so its role is not editable from the
+                      employee record.
                     </p>
-                  </div>
-                ) : null}
+                  )
+                ) : (
+                  <>
+                    <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold">
+                      <input
+                        type="checkbox"
+                        checked={createLogin}
+                        onChange={(event) => setCreateLogin(event.target.checked)}
+                        className="h-4 w-4 rounded border-slate-300 text-indigo-600"
+                      />
+                      Create a login for this employee
+                    </label>
+                    {createLogin ? (
+                      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                        <div>
+                          <label className={labelClass}>Login role</label>
+                          <select
+                            value={loginRole}
+                            onChange={(event) => setLoginRole(event.target.value)}
+                            className={inputClass}
+                          >
+                            {HR_LOGIN_ROLES.map((role) => (
+                              <option key={role} value={role}>
+                                {role.replace(/_/g, ' ')}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <p className="self-end text-[11px] text-slate-500 sm:col-span-2 dark:text-slate-400">
+                          The internal (or personal) e-mail becomes the username. The one-time
+                          password is shown once after saving; the employee must replace it at
+                          first sign-in.
+                        </p>
+                      </div>
+                    ) : null}
+                  </>
+                )}
               </div>
             ) : null}
 

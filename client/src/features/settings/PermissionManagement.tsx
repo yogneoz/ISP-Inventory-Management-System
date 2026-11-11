@@ -564,12 +564,13 @@ const ROLES: { key: string; title: string; badgeColor: string }[] = [
   { key: 'BRANCH_MANAGER', title: 'Branch Manager', badgeColor: 'bg-indigo-600 text-white dark:bg-indigo-500' },
   { key: 'FRONT_DESK', title: 'Front Desk', badgeColor: 'bg-teal-600 text-white dark:bg-teal-500' },
   { key: 'ACCOUNTANT', title: 'Accountant', badgeColor: 'bg-amber-600 text-white dark:bg-amber-500' },
-  { key: 'HEAD_OFFICE_ADMIN', title: 'Head Office Admin', badgeColor: 'bg-cyan-600 text-white dark:bg-cyan-500' },
+  { key: 'HEAD_OFFICE_ADMIN', title: 'Sub Super Admin', badgeColor: 'bg-cyan-600 text-white dark:bg-cyan-500' },
   { key: 'HR_MANAGER', title: 'HR Manager', badgeColor: 'bg-emerald-600 text-white dark:bg-emerald-500' },
   { key: 'HR_OFFICER', title: 'HR Officer', badgeColor: 'bg-lime-600 text-white dark:bg-lime-500' },
   { key: 'PROCUREMENT_OFFICER', title: 'Procurement Officer', badgeColor: 'bg-rose-600 text-white dark:bg-rose-500' },
   { key: 'FIELD_TECHNICIAN', title: 'Field Technician', badgeColor: 'bg-emerald-600 text-white dark:bg-emerald-500' },
   { key: 'AUDITOR', title: 'Auditor', badgeColor: 'bg-violet-600 text-white dark:bg-violet-500' },
+  { key: 'HR_SELF_SERVICE', title: 'HR Self Service', badgeColor: 'bg-slate-600 text-white dark:bg-slate-500' },
 ];
 
 interface PermissionManagementProps {
