@@ -424,6 +424,10 @@ export interface HrReportPayrollCostAmounts {
   runCount: number;
   lineCount: number;
   gross: number;
+  /** Employer SSF share: a company cost, not withheld from the employee. */
+  employerSsf: number;
+  /** Gross wages plus employer SSF — what the run costs the company. */
+  totalCost: number;
   basic: number;
   allowances: number;
   overtime: number;
@@ -510,6 +514,61 @@ export interface HrReportStatutory {
   byPeriod: HrReportStatutoryPeriodRow[];
 }
 
+/** One employee's share of the SSF payable tie-out. */
+export interface HrReportSsfEmployeeRow {
+  employeeId: string;
+  employeeCode: string;
+  employeeName: string;
+  branchId: string;
+  branchName: string;
+  lineCount: number;
+  employeeSsf: number;
+  employerSsf: number;
+  payable: number;
+  configuredEmployeeSsf: number;
+  configuredEmployerSsf: number;
+  configured: number;
+  controlBalance: number;
+  difference: number;
+  rateMismatchLines: number;
+  unconfiguredLines: number;
+  matches: boolean;
+  ratesMatch: boolean;
+}
+
+/**
+ * SSF payable tie-out: posted contributions (employee + employer) against the
+ * rates configured for each run and the SSF payable control account balance.
+ * `matches` is null when the chart has no SSF_PAYABLE posting default.
+ */
+export interface HrReportSsfReconciliation {
+  available: boolean;
+  employeeSsf: number;
+  employerSsf: number;
+  payable: number;
+  configuredEmployeeSsf: number;
+  configuredEmployerSsf: number;
+  configured: number;
+  controlAccount: { code: string; name: string } | null;
+  controlBalance: number | null;
+  controlLineCount: number;
+  difference: number | null;
+  rateMismatchLines: number;
+  unconfiguredLines: number;
+  /** Per-employee rows, largest absolute difference first. */
+  byEmployee: HrReportSsfEmployeeRow[];
+  /** Control balance no employee row claims; null when the account is unmapped. */
+  unattributedControl: number | null;
+  /** Does the control account carry exactly the posted payable? */
+  matches: boolean | null;
+  /** Do the posted snapshots still agree with the run's current configured rates? */
+  ratesMatch: boolean;
+  /** Why the control account does not tie, or null when it does. */
+  reason: string | null;
+  /** Why the configured comparison differs, or null when it agrees. */
+  rateNote: string | null;
+}
+
 export interface HrPayrollReport {
   period: HrWorkforceReportPeriod;
   asOf: string;
@@ -521,6 +580,7 @@ export interface HrPayrollReport {
   payrollCost: HrReportPayrollCost;
   overtime: HrReportOvertime;
   statutory: HrReportStatutory;
+  ssf: HrReportSsfReconciliation;
 }
 
 /** Session-scoped workforce headings; no client employee or tenant selector. */

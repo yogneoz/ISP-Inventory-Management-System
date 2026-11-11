@@ -724,9 +724,11 @@ describe('generated payroll run lifecycle (real HTTP + PostgreSQL)', { skip: ski
 
     const runJournal = posted.json.journal;
     const runTotals = await journalTotals(runJournal.id);
-    assert.equal(runTotals.debit, 158166.67);
-    assert.equal(runTotals.credit, 158166.67);
-    assert.equal(runTotals.lines, 9);
+    // Salary cost = gross 158,166.67 + employer SSF 11,600.00. The employer
+    // share is credited to SSF payable per employee, so it adds two lines.
+    assert.equal(runTotals.debit, 169766.67);
+    assert.equal(runTotals.credit, 169766.67);
+    assert.equal(runTotals.lines, 10);
 
     const postedList = await get(
       `/api/payroll-runs?branchId=${BRANCH}&status=POSTED`,
@@ -765,6 +767,66 @@ describe('generated payroll run lifecycle (real HTTP + PostgreSQL)', { skip: ski
     const paymentTotals = await journalTotals(paid.json.journal.id);
     assert.equal(paymentTotals.debit, 138630);
     assert.equal(paymentTotals.credit, 138630);
+
+    // The posted journal must leave SSF payable holding exactly the employee
+    // share withheld plus the employer share the company owes, and the payroll
+    // report must tie that control balance back cleanly (no rate disagreement,
+    // no unconfigured run, no difference).
+    const ssfCredits = await pool!.query(
+      `SELECT j.id AS "journalId", j.source_id AS "sourceId", jl.line_no AS "lineNo",
+              jl.memo AS "memo", s.debit::numeric AS debit, s.credit::numeric AS credit
+         FROM gl_subledger_entries s
+         JOIN gl_journals j ON j.id = s.journal_id
+         JOIN gl_accounts a ON a.id = s.account_id
+         LEFT JOIN gl_journal_lines jl ON jl.id = s.journal_line_id
+        WHERE a.posting_role = 'SSF_PAYABLE'
+          AND s.party_id = $1
+        ORDER BY j.id, jl.line_no`,
+      [empA.id]
+    );
+    const runSsfRows = ssfCredits.rows.filter((row: any) => row.sourceId === draftRun.id);
+    const runSsfTotal = runSsfRows.reduce(
+      (sum: number, row: any) => sum + Number(row.credit) - Number(row.debit),
+      0
+    );
+    assert.equal(
+      runSsfTotal.toFixed(2),
+      '17400.00',
+      JSON.stringify(runSsfRows)
+    );
+
+    const ssfDate = String(posted.json.journal?.journalDateAD || RUN_DATE).slice(0, 10);
+    const ssfReport = await get(
+      `/api/hr/reports/payroll?branchId=${BRANCH}&dateFrom=${ssfDate}&dateTo=${ssfDate}`,
+      hrToken
+    );
+    assert.equal(ssfReport.status, 200, JSON.stringify(ssfReport.json));
+    const ssf = ssfReport.json.ssf;
+    assert.equal(ssf.employeeSsf, 5800);
+    assert.equal(ssf.employerSsf, 11600);
+    assert.equal(ssf.payable, 17400);
+    // The ledger tie-out is clean: the control account holds exactly the
+    // employee share withheld plus the employer share owed.
+    assert.equal(ssf.controlBalance, 17400);
+    assert.equal(ssf.difference, 0);
+    assert.equal(ssf.matches, true, JSON.stringify(ssf));
+    assert.equal(ssf.reason, null);
+    // The test edits the statutory rule between preparing and posting (10% →
+    // 12%). The line snapshots the rate it was paid at, so the configured
+    // contribution stays exact instead of following the edited config.
+    assert.equal(ssf.configured, 17400);
+    assert.equal(ssf.rateMismatchLines, 0);
+    assert.equal(ssf.unconfiguredLines, 0);
+    assert.equal(ssf.ratesMatch, true);
+    assert.equal(ssf.rateNote, null);
+    assert.equal(ssf.byEmployee.length, 1, 'only the SSF-eligible employee belongs here');
+    assert.equal(ssf.byEmployee[0].employeeCode, 'PRD-01');
+    assert.equal(ssf.byEmployee[0].payable, 17400);
+    assert.equal(ssf.byEmployee[0].controlBalance, 17400);
+    assert.equal(ssf.byEmployee[0].difference, 0);
+    assert.equal(ssf.byEmployee[0].matches, true);
+    assert.equal(ssf.byEmployee[0].ratesMatch, true);
+    assert.equal(ssf.unattributedControl, 0);
 
     const paidList = await get(
       `/api/payroll-runs?branchId=${BRANCH}&status=PAID`,
@@ -887,8 +949,11 @@ describe('generated payroll run lifecycle (real HTTP + PostgreSQL)', { skip: ski
     assert.equal(Number(row.advanceTotal).toFixed(2), '1500.00');
     assert.equal(Number(row.loanTotal).toFixed(2), '2000.00');
     assert.equal(Number(row.netTotal).toFixed(2), '138630.00');
-    assert.equal(Number(row.journalDebit).toFixed(2), '158166.67');
-    assert.equal(Number(row.journalCredit).toFixed(2), '158166.67');
+    // The posting now debits the full salary cost: gross wages 158,166.67 plus
+    // the employer's SSF share 11,600.00 (a company cost, credited to SSF
+    // payable). It used to stop at gross, which understated salary expense.
+    assert.equal(Number(row.journalDebit).toFixed(2), '169766.67');
+    assert.equal(Number(row.journalCredit).toFixed(2), '169766.67');
     assert.equal(Number(row.paymentDebit).toFixed(2), '138630.00');
     assert.equal(Number(row.paymentCredit).toFixed(2), '138630.00');
     assert.ok(row.journalNo);
@@ -1003,8 +1068,8 @@ describe('generated payroll run lifecycle (real HTTP + PostgreSQL)', { skip: ski
     assert.equal(register.json.statutory.employeeSsf, 5800);
     assert.equal(register.json.statutory.employerSsf, 11600);
     assert.equal(register.json.statutory.tds, 10236.67);
-    assert.equal(register.json.journal.totalDebit, 158166.67);
-    assert.equal(register.json.journal.totalCredit, 158166.67);
+    assert.equal(register.json.journal.totalDebit, 169766.67);
+    assert.equal(register.json.journal.totalCredit, 169766.67);
     assert.equal(register.json.paymentJournal.totalDebit, 138630);
     assert.equal(register.json.paymentJournal.totalCredit, 138630);
     assert.equal(register.json.reconciliation.matchesRun, true);

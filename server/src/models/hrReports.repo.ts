@@ -103,6 +103,7 @@ export const HR_REPORTS_PAYROLL_COST_BY_BRANCH_SQL = `SELECT
   COUNT(DISTINCT r.id)::int AS "runCount",
   COUNT(*)::int AS "lineCount",
   COALESCE(SUM(l.gross_amount), 0)::numeric AS "gross",
+  COALESCE(SUM(l.employer_ssf_amount), 0)::numeric AS "employerSsf",
   COALESCE(SUM(l.basic_amount), 0)::numeric AS "basic",
   COALESCE(SUM(
     l.gross_amount - l.basic_amount - l.overtime_amount - l.incentive_amount
@@ -130,6 +131,7 @@ export const HR_REPORTS_PAYROLL_COST_BY_PERIOD_SQL = `SELECT
   COUNT(DISTINCT r.id)::int AS "runCount",
   COUNT(*)::int AS "lineCount",
   COALESCE(SUM(l.gross_amount), 0)::numeric AS "gross",
+  COALESCE(SUM(l.employer_ssf_amount), 0)::numeric AS "employerSsf",
   COALESCE(SUM(l.basic_amount), 0)::numeric AS "basic",
   COALESCE(SUM(
     l.gross_amount - l.basic_amount - l.overtime_amount - l.incentive_amount
@@ -150,6 +152,164 @@ WHERE r.status IN ('POSTED', 'PAID')
   AND ($3::varchar[] IS NULL OR r.branch_id = ANY($3::varchar[]))
 GROUP BY r.period_key
 ORDER BY r.period_key ASC`;
+
+/**
+ * The SSF payable tie-out, in one read: what the posted runs say the fund is
+ * owed, what the configured rates say it should be, and what the control
+ * account actually carries.
+ *
+ * `ssf_amount` / `employer_ssf_amount` are the snapshots taken when the run was
+ * generated, so they are what the journal credited. The configured side applies
+ * each run's own `hr_statutory_configs` rates to the line's basic pay — only for
+ * lines that actually contributed, because an employee outside the SSF scheme
+ * legitimately carries zero at the same basic. `rateMismatchLines` therefore
+ * counts a real disagreement between snapshot and configuration, not an
+ * ineligible employee.
+ *
+ * The control side is credit − debit (a payable grows by credit) over POSTED
+ * journals only, in the same period and branch scope. A reversed journal stops
+ * contributing because its status is no longer POSTED.
+ */
+export const HR_REPORTS_SSF_RECONCILIATION_SQL = `WITH period_lines AS (
+  SELECT
+    l.basic_amount,
+    l.ssf_amount,
+    l.employer_ssf_amount,
+    -- The rate the line itself was paid at; a legacy row without one falls back
+    -- to the run's current configuration.
+    COALESCE(l.employee_ssf_percent, c.employee_ssf_percent) AS employee_ssf_percent,
+    COALESCE(l.employer_ssf_percent, c.employer_ssf_percent) AS employer_ssf_percent
+  FROM payroll_runs r
+  JOIN payroll_run_lines l ON l.run_id = r.id
+  LEFT JOIN hr_statutory_configs c ON c.id = r.statutory_config_id
+  WHERE r.status IN ('POSTED', 'PAID')
+    AND r.run_date_ad BETWEEN $1::date AND $2::date
+    AND ($3::varchar[] IS NULL OR r.branch_id = ANY($3::varchar[]))
+),
+control AS (
+  SELECT
+    COALESCE(SUM(l.credit - l.debit), 0)::numeric AS balance,
+    COUNT(*)::int AS "lineCount"
+  FROM gl_journal_lines l
+  JOIN gl_journals j ON j.id = l.journal_id
+  JOIN gl_accounts a ON a.id = l.account_id
+  WHERE a.posting_role = 'SSF_PAYABLE'
+    AND j.status = 'POSTED'
+    AND j.journal_date_ad BETWEEN $1::date AND $2::date
+    AND ($3::varchar[] IS NULL OR l.branch_id = ANY($3::varchar[]))
+)
+SELECT
+  COALESCE(SUM(p.ssf_amount), 0)::numeric AS "employeeSsf",
+  COALESCE(SUM(p.employer_ssf_amount), 0)::numeric AS "employerSsf",
+  COALESCE(SUM(
+    CASE WHEN p.employee_ssf_percent IS NOT NULL
+      AND (p.ssf_amount > 0 OR p.employer_ssf_amount > 0)
+    THEN ROUND(p.basic_amount * p.employee_ssf_percent / 100, 2) ELSE 0 END
+  ), 0)::numeric AS "configuredEmployeeSsf",
+  COALESCE(SUM(
+    CASE WHEN p.employer_ssf_percent IS NOT NULL
+      AND (p.ssf_amount > 0 OR p.employer_ssf_amount > 0)
+    THEN ROUND(p.basic_amount * p.employer_ssf_percent / 100, 2) ELSE 0 END
+  ), 0)::numeric AS "configuredEmployerSsf",
+  (COUNT(*) FILTER (
+    WHERE p.employee_ssf_percent IS NOT NULL
+      AND (p.ssf_amount > 0 OR p.employer_ssf_amount > 0)
+      AND (
+        ROUND(p.basic_amount * p.employee_ssf_percent / 100, 2) <> p.ssf_amount
+        OR ROUND(p.basic_amount * p.employer_ssf_percent / 100, 2) <> p.employer_ssf_amount
+      )
+  ))::int AS "rateMismatchLines",
+  (COUNT(*) FILTER (
+    WHERE (p.ssf_amount > 0 OR p.employer_ssf_amount > 0)
+      AND p.employee_ssf_percent IS NULL
+  ))::int AS "unconfiguredLines",
+  (SELECT balance FROM control) AS "controlBalance",
+  (SELECT "lineCount" FROM control) AS "controlLineCount",
+  (SELECT a.code FROM gl_accounts a WHERE a.posting_role = 'SSF_PAYABLE' LIMIT 1)
+    AS "controlAccountCode",
+  (SELECT a.name FROM gl_accounts a WHERE a.posting_role = 'SSF_PAYABLE' LIMIT 1)
+    AS "controlAccountName"
+FROM period_lines p`;
+
+/**
+ * The same SSF tie-out, one row per employee who contributed.
+ *
+ * The control side comes from `gl_subledger_entries` rather than the journal
+ * lines: payroll stamps every SSF credit with an EMPLOYEE subledger party, so
+ * the employee's own book is what the employee ledger and the generic control
+ * reconciliation already read. Ordering puts the largest absolute difference
+ * first, so a branch-level gap opens on the lines that explain it; the cap
+ * therefore drops clean rows, never the ones worth looking at.
+ */
+export const HR_REPORTS_SSF_BY_EMPLOYEE_SQL = `WITH period_lines AS (
+  SELECT
+    l.employee_id,
+    l.employee_code,
+    l.employee_name,
+    r.branch_id,
+    l.basic_amount,
+    l.ssf_amount,
+    l.employer_ssf_amount,
+    -- The rate the line itself was paid at; a legacy row without one falls back
+    -- to the run's current configuration.
+    COALESCE(l.employee_ssf_percent, c.employee_ssf_percent) AS employee_ssf_percent,
+    COALESCE(l.employer_ssf_percent, c.employer_ssf_percent) AS employer_ssf_percent
+  FROM payroll_runs r
+  JOIN payroll_run_lines l ON l.run_id = r.id
+  LEFT JOIN hr_statutory_configs c ON c.id = r.statutory_config_id
+  WHERE r.status IN ('POSTED', 'PAID')
+    AND r.run_date_ad BETWEEN $1::date AND $2::date
+    AND ($3::varchar[] IS NULL OR r.branch_id = ANY($3::varchar[]))
+    AND (l.ssf_amount > 0 OR l.employer_ssf_amount > 0)
+),
+control AS (
+  SELECT
+    s.party_id,
+    COALESCE(SUM(s.credit - s.debit), 0)::numeric AS balance
+  FROM gl_subledger_entries s
+  JOIN gl_journals j ON j.id = s.journal_id
+  JOIN gl_accounts a ON a.id = s.account_id
+  WHERE a.posting_role = 'SSF_PAYABLE'
+    AND j.status = 'POSTED'
+    AND j.journal_date_ad BETWEEN $1::date AND $2::date
+    AND ($3::varchar[] IS NULL OR s.branch_id = ANY($3::varchar[]))
+  GROUP BY s.party_id
+)
+SELECT
+  p.employee_id AS "employeeId",
+  MAX(p.employee_code) AS "employeeCode",
+  MAX(p.employee_name) AS "employeeName",
+  p.branch_id AS "branchId",
+  COALESCE(MAX(b.name), p.branch_id) AS "branchName",
+  COUNT(*)::int AS "lineCount",
+  COALESCE(SUM(p.ssf_amount), 0)::numeric AS "employeeSsf",
+  COALESCE(SUM(p.employer_ssf_amount), 0)::numeric AS "employerSsf",
+  COALESCE(SUM(
+    CASE WHEN p.employee_ssf_percent IS NOT NULL
+    THEN ROUND(p.basic_amount * p.employee_ssf_percent / 100, 2) ELSE 0 END
+  ), 0)::numeric AS "configuredEmployeeSsf",
+  COALESCE(SUM(
+    CASE WHEN p.employer_ssf_percent IS NOT NULL
+    THEN ROUND(p.basic_amount * p.employer_ssf_percent / 100, 2) ELSE 0 END
+  ), 0)::numeric AS "configuredEmployerSsf",
+  (COUNT(*) FILTER (
+    WHERE p.employee_ssf_percent IS NOT NULL
+      AND (
+        ROUND(p.basic_amount * p.employee_ssf_percent / 100, 2) <> p.ssf_amount
+        OR ROUND(p.basic_amount * p.employer_ssf_percent / 100, 2) <> p.employer_ssf_amount
+      )
+  ))::int AS "rateMismatchLines",
+  (COUNT(*) FILTER (WHERE p.employee_ssf_percent IS NULL))::int AS "unconfiguredLines",
+  COALESCE(MAX(ct.balance), 0)::numeric AS "controlBalance"
+FROM period_lines p
+LEFT JOIN control ct ON ct.party_id = p.employee_id
+LEFT JOIN branches b ON b.id = p.branch_id
+GROUP BY p.employee_id, p.branch_id
+ORDER BY ABS(
+  COALESCE(MAX(ct.balance), 0)
+    - (COALESCE(SUM(p.ssf_amount), 0) + COALESCE(SUM(p.employer_ssf_amount), 0))
+) DESC, MAX(p.employee_code) ASC
+LIMIT 2000`;
 
 /**
  * Overtime is read from the same immutable run-line snapshot that pays it:

@@ -29,8 +29,11 @@ import {
   HR_REPORTS_OVERTIME_BY_EMPLOYEE_SQL,
   HR_REPORTS_PAYROLL_COST_BY_BRANCH_SQL,
   HR_REPORTS_PAYROLL_COST_BY_PERIOD_SQL,
+  HR_REPORTS_SSF_BY_EMPLOYEE_SQL,
+  HR_REPORTS_SSF_RECONCILIATION_SQL,
   HR_REPORTS_STATUTORY_BY_PERIOD_SQL,
 } from '../models/hrReports.repo';
+import { buildSsfReconciliation } from '../services/ssfReconciliation.service';
 
 const REPORT_FILTERS = new Set(['branchId', 'dateFrom', 'dateTo']);
 
@@ -282,6 +285,11 @@ function payrollCostRow(row: any) {
     runCount: Number(row.runCount ?? 0),
     lineCount: Number(row.lineCount ?? 0),
     gross: num(row.gross),
+    // The employer's SSF share is a company cost the fund is owed, so payroll
+    // cost is gross wages plus it — the same total the payroll journal debits
+    // to salary expense. It is never withheld from the employee.
+    employerSsf: num(row.employerSsf),
+    totalCost: num(num(row.gross) + num(row.employerSsf)),
     basic: num(row.basic),
     allowances: num(row.allowances),
     overtime: num(row.overtime),
@@ -306,7 +314,8 @@ export async function get_hrPayrollReport(req: any, res: Response): Promise<any>
   const filters = readFilters(req);
   const scope = readScope(req, filters.branchId);
 
-  const [branchResult, periodResult, overtimeResult, statutoryResult] = await Promise.all([
+  const [branchResult, periodResult, overtimeResult, statutoryResult, ssfResult, ssfEmployeeResult] =
+    await Promise.all([
     pgPool.query(HR_REPORTS_PAYROLL_COST_BY_BRANCH_SQL, [
       filters.dateFrom,
       filters.dateTo,
@@ -323,6 +332,16 @@ export async function get_hrPayrollReport(req: any, res: Response): Promise<any>
       scope.branchIds,
     ]),
     pgPool.query(HR_REPORTS_STATUTORY_BY_PERIOD_SQL, [
+      filters.dateFrom,
+      filters.dateTo,
+      scope.branchIds,
+    ]),
+    pgPool.query(HR_REPORTS_SSF_RECONCILIATION_SQL, [
+      filters.dateFrom,
+      filters.dateTo,
+      scope.branchIds,
+    ]),
+    pgPool.query(HR_REPORTS_SSF_BY_EMPLOYEE_SQL, [
       filters.dateFrom,
       filters.dateTo,
       scope.branchIds,
@@ -344,6 +363,8 @@ export async function get_hrPayrollReport(req: any, res: Response): Promise<any>
       totals.lineCount += row.lineCount;
       for (const key of [
         'gross',
+        'employerSsf',
+        'totalCost',
         'basic',
         'allowances',
         'overtime',
@@ -361,6 +382,8 @@ export async function get_hrPayrollReport(req: any, res: Response): Promise<any>
       runCount: 0,
       lineCount: 0,
       gross: 0,
+      employerSsf: 0,
+      totalCost: 0,
       basic: 0,
       allowances: 0,
       overtime: 0,
@@ -487,5 +510,8 @@ export async function get_hrPayrollReport(req: any, res: Response): Promise<any>
       totals: statutoryTotals,
       byPeriod: statutoryByPeriod,
     },
+    // What the posted runs owe the fund, what the configured rates imply, and
+    // what the SSF payable control account carries — tied out for this period.
+    ssf: buildSsfReconciliation(ssfResult.rows[0] || {}, ssfEmployeeResult.rows),
   });
 }

@@ -633,6 +633,7 @@ describe('HR workforce reports (real HTTP + PostgreSQL)', { skip: skipNoDb }, ()
       'payrollCost',
       'period',
       'scope',
+      'ssf',
       'statutory',
     ]);
     assert.deepEqual(response.json.period, {
@@ -650,6 +651,8 @@ describe('HR workforce reports (real HTTP + PostgreSQL)', { skip: skipNoDb }, ()
       runCount: 3,
       lineCount: 4,
       gross: 4080,
+      employerSsf: 520,
+      totalCost: 4600,
       basic: 3300,
       allowances: 400,
       overtime: 320,
@@ -659,6 +662,12 @@ describe('HR workforce reports (real HTTP + PostgreSQL)', { skip: skipNoDb }, ()
       deductions: 596,
       net: 3484,
     });
+    // Employer cost is gross wages plus the employer SSF share — the same total
+    // the payroll journal debits to salary expense.
+    assert.equal(
+      response.json.payrollCost.totals.totalCost,
+      response.json.payrollCost.totals.gross + response.json.payrollCost.totals.employerSsf
+    );
     assert.deepEqual(response.json.payrollCost.byBranch, [
       {
         branchId: BRANCH_A,
@@ -666,6 +675,8 @@ describe('HR workforce reports (real HTTP + PostgreSQL)', { skip: skipNoDb }, ()
         runCount: 2,
         lineCount: 3,
         gross: 3060,
+        employerSsf: 340,
+        totalCost: 3400,
         basic: 2500,
         allowances: 300,
         overtime: 200,
@@ -681,6 +692,8 @@ describe('HR workforce reports (real HTTP + PostgreSQL)', { skip: skipNoDb }, ()
         runCount: 1,
         lineCount: 1,
         gross: 1020,
+        employerSsf: 180,
+        totalCost: 1200,
         basic: 800,
         allowances: 100,
         overtime: 120,
@@ -697,6 +710,8 @@ describe('HR workforce reports (real HTTP + PostgreSQL)', { skip: skipNoDb }, ()
         runCount: 2,
         lineCount: 3,
         gross: 3380,
+        employerSsf: 380,
+        totalCost: 3760,
         basic: 2600,
         allowances: 400,
         overtime: 320,
@@ -711,6 +726,8 @@ describe('HR workforce reports (real HTTP + PostgreSQL)', { skip: skipNoDb }, ()
         runCount: 1,
         lineCount: 1,
         gross: 700,
+        employerSsf: 140,
+        totalCost: 840,
         basic: 700,
         allowances: 0,
         overtime: 0,
@@ -809,6 +826,38 @@ describe('HR workforce reports (real HTTP + PostgreSQL)', { skip: skipNoDb }, ()
     assert.equal(a.json.scope.branchId, BRANCH_A);
     assert.equal(a.json.payrollCost.totals.gross, 3060);
     assert.equal(a.json.payrollCost.totals.runCount, 2);
+
+    // Branch A's posted lines withheld 110 + 77 employee SSF and 200 + 140
+    // employer SSF; none of those runs carries a statutory config, and the
+    // fixture posts no journal, so the tie-out must say so rather than pass.
+    assert.equal(a.json.ssf.employeeSsf, 187);
+    assert.equal(a.json.ssf.employerSsf, 340);
+    assert.equal(a.json.ssf.payable, 527);
+    assert.equal(a.json.ssf.configured, 0);
+    assert.equal(a.json.ssf.unconfiguredLines, 2);
+    assert.equal(a.json.ssf.rateMismatchLines, 0);
+    assert.equal(a.json.ssf.matches, false);
+    assert.ok(
+      a.json.ssf.controlBalance === null || a.json.ssf.controlBalance === 0,
+      'the fixture posts no SSF journal in this branch'
+    );
+
+    // The branch gap must be traceable to the two contributing employees.
+    assert.equal(a.json.ssf.byEmployee.length, 2);
+    const ssfAlice = a.json.ssf.byEmployee.find((row: any) => row.employeeCode === 'RPT-A1');
+    const ssfCara = a.json.ssf.byEmployee.find((row: any) => row.employeeCode === 'RPT-A3');
+    assert.equal(ssfAlice.employeeSsf, 110);
+    assert.equal(ssfAlice.employerSsf, 200);
+    assert.equal(ssfAlice.payable, 310);
+    assert.equal(ssfAlice.difference, -310);
+    assert.equal(ssfAlice.matches, false);
+    assert.equal(ssfCara.payable, 217);
+    assert.equal(ssfCara.difference, -217);
+    assert.equal(
+      a.json.ssf.byEmployee.reduce((sum: number, row: any) => sum + row.payable, 0),
+      a.json.ssf.payable,
+      'the employee rows must add up to the branch payable'
+    );
     assert.deepEqual(
       a.json.payrollCost.byBranch.map((row: any) => row.branchId),
       [BRANCH_A]

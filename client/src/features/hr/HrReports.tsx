@@ -195,7 +195,7 @@ const LeaveTable: React.FC<{ rows: HrReportLeaveTypeRow[] }> = ({ rows }) => (
 
 const AttritionTable: React.FC<{ rows: HrReportAttritionBranchRow[] }> = ({ rows }) => (
   <div className="mt-3 overflow-x-auto">
-    <table className="w-full min-w-[560px] text-left text-xs">
+    <table className="w-full min-w-[680px] text-left text-xs">
       <thead>
         <tr className="border-b border-slate-100 text-[10px] uppercase tracking-wide text-slate-400 dark:border-slate-800">
           <th className="px-1 py-2 font-semibold">Branch</th>
@@ -226,15 +226,17 @@ const AttritionTable: React.FC<{ rows: HrReportAttritionBranchRow[] }> = ({ rows
 
 const PayrollCostBranchTable: React.FC<{ rows: HrReportPayrollCostBranchRow[] }> = ({ rows }) => (
   <div className="mt-2 overflow-x-auto">
-    <table className="w-full min-w-[560px] text-left text-xs">
+    <table className="w-full min-w-[680px] text-left text-xs">
       <thead>
         <tr className="border-b border-slate-100 text-[10px] uppercase tracking-wide text-slate-400 dark:border-slate-800">
           <th className="px-1 py-2 font-semibold">Branch</th>
           <th className="px-1 py-2 text-right font-semibold">Runs</th>
           <th className="px-1 py-2 text-right font-semibold">Gross</th>
+          <th className="px-1 py-2 text-right font-semibold">Employer SSF</th>
           <th className="px-1 py-2 text-right font-semibold">Allowances</th>
           <th className="px-1 py-2 text-right font-semibold">Deductions</th>
           <th className="px-1 py-2 text-right font-semibold">Net</th>
+          <th className="px-1 py-2 text-right font-semibold">Cost</th>
         </tr>
       </thead>
       <tbody>
@@ -246,6 +248,9 @@ const PayrollCostBranchTable: React.FC<{ rows: HrReportPayrollCostBranchRow[] }>
               {formatMoney(row.gross)}
             </td>
             <td className="px-1 py-2 text-right text-slate-600 dark:text-slate-300">
+              {formatMoney(row.employerSsf)}
+            </td>
+            <td className="px-1 py-2 text-right text-slate-600 dark:text-slate-300">
               {formatMoney(row.allowances)}
             </td>
             <td className="px-1 py-2 text-right text-slate-600 dark:text-slate-300">
@@ -253,6 +258,9 @@ const PayrollCostBranchTable: React.FC<{ rows: HrReportPayrollCostBranchRow[] }>
             </td>
             <td className="px-1 py-2 text-right font-medium text-slate-700 dark:text-slate-200">
               {formatMoney(row.net)}
+            </td>
+            <td className="px-1 py-2 text-right font-semibold text-slate-700 dark:text-slate-200">
+              {formatMoney(row.totalCost)}
             </td>
           </tr>
         ))}
@@ -263,15 +271,17 @@ const PayrollCostBranchTable: React.FC<{ rows: HrReportPayrollCostBranchRow[] }>
 
 const PayrollCostPeriodTable: React.FC<{ rows: HrReportPayrollCostPeriodRow[] }> = ({ rows }) => (
   <div className="mt-2 overflow-x-auto">
-    <table className="w-full min-w-[560px] text-left text-xs">
+    <table className="w-full min-w-[680px] text-left text-xs">
       <thead>
         <tr className="border-b border-slate-100 text-[10px] uppercase tracking-wide text-slate-400 dark:border-slate-800">
           <th className="px-1 py-2 font-semibold">Pay period</th>
           <th className="px-1 py-2 text-right font-semibold">Runs</th>
           <th className="px-1 py-2 text-right font-semibold">Gross</th>
+          <th className="px-1 py-2 text-right font-semibold">Employer SSF</th>
           <th className="px-1 py-2 text-right font-semibold">Allowances</th>
           <th className="px-1 py-2 text-right font-semibold">Deductions</th>
           <th className="px-1 py-2 text-right font-semibold">Net</th>
+          <th className="px-1 py-2 text-right font-semibold">Cost</th>
         </tr>
       </thead>
       <tbody>
@@ -283,6 +293,9 @@ const PayrollCostPeriodTable: React.FC<{ rows: HrReportPayrollCostPeriodRow[] }>
               {formatMoney(row.gross)}
             </td>
             <td className="px-1 py-2 text-right text-slate-600 dark:text-slate-300">
+              {formatMoney(row.employerSsf)}
+            </td>
+            <td className="px-1 py-2 text-right text-slate-600 dark:text-slate-300">
               {formatMoney(row.allowances)}
             </td>
             <td className="px-1 py-2 text-right text-slate-600 dark:text-slate-300">
@@ -290,6 +303,9 @@ const PayrollCostPeriodTable: React.FC<{ rows: HrReportPayrollCostPeriodRow[] }>
             </td>
             <td className="px-1 py-2 text-right font-medium text-slate-700 dark:text-slate-200">
               {formatMoney(row.net)}
+            </td>
+            <td className="px-1 py-2 text-right font-semibold text-slate-700 dark:text-slate-200">
+              {formatMoney(row.totalCost)}
             </td>
           </tr>
         ))}
@@ -592,7 +608,7 @@ export const HrReports: React.FC<HrReportsProps> = ({ currentUser }) => {
             />
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <SummaryCard
               label="Gross payroll"
               value={formatMoney(payroll.payrollCost.totals.gross)}
@@ -600,6 +616,14 @@ export const HrReports: React.FC<HrReportsProps> = ({ currentUser }) => {
                 payroll.payrollCost.totals.runCount === 1 ? '' : 's'
               }`}
               icon={<Wallet className="h-4 w-4" />}
+            />
+            <SummaryCard
+              label="Employment cost"
+              value={formatMoney(payroll.payrollCost.totals.totalCost)}
+              hint={`Gross ${formatMoney(payroll.payrollCost.totals.gross)} + employer SSF ${formatMoney(
+                payroll.payrollCost.totals.employerSsf
+              )}`}
+              icon={<Landmark className="h-4 w-4" />}
             />
             <SummaryCard
               label="Overtime"
@@ -751,7 +775,9 @@ export const HrReports: React.FC<HrReportsProps> = ({ currentUser }) => {
                 </p>
               </div>
               <span className="text-[10px] text-slate-400">
-                {formatMoney(payroll.payrollCost.totals.gross)} gross
+                {formatMoney(payroll.payrollCost.totals.totalCost)} cost ·{' '}
+                {formatMoney(payroll.payrollCost.totals.gross)} gross +{' '}
+                {formatMoney(payroll.payrollCost.totals.employerSsf)} employer SSF
               </span>
             </div>
             {payroll.payrollCost.totals.lineCount === 0 ? (
@@ -770,12 +796,16 @@ export const HrReports: React.FC<HrReportsProps> = ({ currentUser }) => {
                     <PayrollCostPeriodTable rows={payroll.payrollCost.byPeriod} />
                   </div>
                 </div>
-                <div className="mt-3 grid gap-2 text-[10px] text-slate-400 sm:grid-cols-3">
+                <div className="mt-3 grid gap-2 text-[10px] text-slate-400 sm:grid-cols-2 lg:grid-cols-5">
                   <span>Basic: {formatMoney(payroll.payrollCost.totals.basic)}</span>
                   <span>
                     Overtime: {formatMoney(payroll.payrollCost.totals.overtime)}
                   </span>
+                  <span>
+                    Employer SSF: {formatMoney(payroll.payrollCost.totals.employerSsf)}
+                  </span>
                   <span>Net: {formatMoney(payroll.payrollCost.totals.net)}</span>
+                  <span>Cost: {formatMoney(payroll.payrollCost.totals.totalCost)}</span>
                 </div>
               </>
             )}
@@ -822,6 +852,168 @@ export const HrReports: React.FC<HrReportsProps> = ({ currentUser }) => {
             <p className={`mt-3 ${mutedText}`}>
               Hours and pay come from the same payroll line snapshot. Department is the employee's
               current department; payroll lines snapshot employee name and code, not department.
+            </p>
+          </section>
+
+          <section className={panel}>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                  SSF payable reconciliation
+                </h3>
+                <p className={`mt-0.5 ${mutedText}`}>
+                  Posted contributions vs the configured rates and the control account · {periodLabel}
+                </p>
+              </div>
+              <span
+                className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                  payroll.ssf.matches === null
+                    ? 'border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-400'
+                    : payroll.ssf.matches
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300'
+                      : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300'
+                }`}
+              >
+                {payroll.ssf.matches === null
+                  ? 'Not configured'
+                  : payroll.ssf.matches
+                    ? 'Reconciled'
+                    : 'Needs review'}
+              </span>
+            </div>
+            <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+              <div>
+                <p className={labelClass}>Employee SSF</p>
+                <p className="font-medium text-slate-700 dark:text-slate-200">
+                  {formatMoney(payroll.ssf.employeeSsf)}
+                </p>
+              </div>
+              <div>
+                <p className={labelClass}>Employer SSF</p>
+                <p className="font-medium text-slate-700 dark:text-slate-200">
+                  {formatMoney(payroll.ssf.employerSsf)}
+                </p>
+              </div>
+              <div>
+                <p className={labelClass}>Payable (employee + employer)</p>
+                <p className="font-medium text-slate-700 dark:text-slate-200">
+                  {formatMoney(payroll.ssf.payable)}
+                </p>
+              </div>
+              <div>
+                <p className={labelClass}>Configured contribution</p>
+                <p className="font-medium text-slate-700 dark:text-slate-200">
+                  {formatMoney(payroll.ssf.configured)}
+                </p>
+              </div>
+            </div>
+            <div className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
+              <div>
+                <p className={labelClass}>Control account</p>
+                <p className="font-medium text-slate-700 dark:text-slate-200">
+                  {payroll.ssf.controlAccount
+                    ? `${payroll.ssf.controlAccount.code} ${payroll.ssf.controlAccount.name}`
+                    : '—'}
+                </p>
+              </div>
+              <div>
+                <p className={labelClass}>Control balance</p>
+                <p className="font-medium text-slate-700 dark:text-slate-200">
+                  {payroll.ssf.controlBalance === null
+                    ? '—'
+                    : formatMoney(payroll.ssf.controlBalance)}
+                </p>
+              </div>
+              <div>
+                <p className={labelClass}>Difference</p>
+                <p className="font-medium text-slate-700 dark:text-slate-200">
+                  {payroll.ssf.difference === null
+                    ? '—'
+                    : formatMoney(payroll.ssf.difference)}
+                </p>
+              </div>
+            </div>
+            {payroll.ssf.byEmployee.length > 0 && (
+              <>
+                <p className={`mt-4 ${labelClass}`}>SSF payable by employee</p>
+                <div className="mt-2 overflow-x-auto">
+                  <table className="w-full min-w-[760px] text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-100 text-[10px] uppercase tracking-wide text-slate-400 dark:border-slate-800">
+                        <th className="px-1 py-2 font-semibold">Employee</th>
+                        <th className="px-1 py-2 font-semibold">Code</th>
+                        <th className="px-1 py-2 text-right font-semibold">Employee SSF</th>
+                        <th className="px-1 py-2 text-right font-semibold">Employer SSF</th>
+                        <th className="px-1 py-2 text-right font-semibold">Payable</th>
+                        <th className="px-1 py-2 text-right font-semibold">Configured</th>
+                        <th className="px-1 py-2 text-right font-semibold">Control</th>
+                        <th className="px-1 py-2 text-right font-semibold">Difference</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {payroll.ssf.byEmployee.map((row) => (
+                        <tr
+                          key={`${row.employeeId}-${row.branchId}`}
+                          className="border-b border-slate-100 last:border-0 dark:border-slate-800"
+                        >
+                          <td className="px-1 py-2 text-slate-600 dark:text-slate-300">
+                            {row.employeeName}
+                            <span className="block text-[10px] text-slate-400">{row.branchName}</span>
+                          </td>
+                          <td className="px-1 py-2 font-mono text-slate-500 dark:text-slate-400">
+                            {row.employeeCode}
+                          </td>
+                          <td className="px-1 py-2 text-right text-slate-600 dark:text-slate-300">
+                            {formatMoney(row.employeeSsf)}
+                          </td>
+                          <td className="px-1 py-2 text-right text-slate-600 dark:text-slate-300">
+                            {formatMoney(row.employerSsf)}
+                          </td>
+                          <td className="px-1 py-2 text-right text-slate-600 dark:text-slate-300">
+                            {formatMoney(row.payable)}
+                          </td>
+                          <td className="px-1 py-2 text-right text-slate-600 dark:text-slate-300">
+                            {formatMoney(row.configured)}
+                          </td>
+                          <td className="px-1 py-2 text-right text-slate-600 dark:text-slate-300">
+                            {formatMoney(row.controlBalance)}
+                          </td>
+                          <td
+                            className={`px-1 py-2 text-right font-semibold ${
+                              row.matches
+                                ? 'text-slate-700 dark:text-slate-200'
+                                : 'text-amber-700 dark:text-amber-300'
+                            }`}
+                          >
+                            {formatMoney(row.difference)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {payroll.ssf.unattributedControl !== null &&
+                  payroll.ssf.unattributedControl !== 0 && (
+                    <p className="mt-2 text-[10px] text-amber-700 dark:text-amber-300">
+                      Unattributed control balance:{' '}
+                      {formatMoney(payroll.ssf.unattributedControl)} — posted to SSF payable without
+                      an employee party, so no row above claims it.
+                    </p>
+                  )}
+              </>
+            )}
+            {payroll.ssf.reason && (
+              <p className="mt-3 text-[10px] text-amber-700 dark:text-amber-300">{payroll.ssf.reason}</p>
+            )}
+            {payroll.ssf.rateNote && (
+              <p className="mt-2 text-[10px] text-slate-500 dark:text-slate-400">
+                {payroll.ssf.rateNote}
+              </p>
+            )}
+            <p className={`mt-3 ${mutedText}`}>
+              Employee and employer SSF are credited to SSF payable when a run is posted. The control
+              balance is that account's credits less debits for POSTED journals in this period and branch
+              scope; the configured contribution applies each run's own SSF rates to basic pay.
             </p>
           </section>
 
