@@ -220,7 +220,7 @@ export const EmployeeSelfServicePhotoDialog: React.FC<EmployeeSelfServicePhotoDi
                 src={source}
                 alt="Photo crop preview"
                 draggable={false}
-                className="absolute select-none"
+                className="absolute max-w-none select-none"
                 style={{
                   width: (size?.width || 0) * displayScale,
                   height: (size?.height || 0) * displayScale,
