@@ -1280,6 +1280,15 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       'getEmployeeDocuments',
       'uploadEmployeeDocument',
     ],
+    // The F1 profile dialog reads and writes one resource: the employee's
+    // profile. It mounts per employee, so it re-fetches on open rather than
+    // carrying a register key, and its two constants mirror the server bounds.
+    'hr/EmployeeProfileDialog.tsx': [
+      'HR_BLOOD_GROUPS',
+      'HR_PROFILE_MAX_ROWS',
+      'getEmployeeProfile',
+      'saveEmployeeProfile',
+    ],
     'hr/EmployeeImportDialog.tsx': ['importEmployees'],
     'hr/OrgMasters.tsx': ['createHrOrgMaster', 'getHrOrgMasters', 'updateHrOrgMaster'],
     'hr/Payroll.tsx': [

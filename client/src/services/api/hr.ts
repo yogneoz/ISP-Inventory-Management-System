@@ -717,6 +717,112 @@ export async function deleteEmployeeDocument(
   );
 }
 
+/** F1 Employee Profile — personal, family, experience, qualification, medical
+ * and reference sections. The server replaces the whole profile on PUT, so the
+ * client always sends every section back. */
+export interface HrEmployeeFamilyMember {
+  id: string;
+  sortOrder: number;
+  name: string;
+  age: number | null;
+  occupation: string | null;
+  relation: string | null;
+}
+
+export interface HrEmployeeExperienceRow {
+  id: string;
+  sortOrder: number;
+  organization: string;
+  fromAD: string | null;
+  toAD: string | null;
+  designation: string | null;
+}
+
+export interface HrEmployeeQualificationRow {
+  id: string;
+  sortOrder: number;
+  examPassed: string;
+  boardUniversity: string | null;
+  percentage: string | number | null;
+}
+
+export interface HrEmployeeReferenceRow {
+  id: string;
+  sortOrder: number;
+  name: string;
+  organization: string | null;
+  contact: string | null;
+  relation: string | null;
+}
+
+/** Mirrors the server ceilings checked before the request is sent. */
+export const HR_PROFILE_MAX_ROWS = {
+  familyMembers: 20,
+  experience: 20,
+  qualifications: 20,
+  references: 10,
+} as const;
+
+/** Mirrors the server's accepted blood groups. */
+export const HR_BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'] as const;
+
+export interface HrEmployeeProfileFields {
+  fatherName: string | null;
+  grandfatherName: string | null;
+  permanentAddress: string | null;
+  localAddress: string | null;
+  emergencyContactAddress: string | null;
+  emergencyContactRelation: string | null;
+  bloodGroup: string | null;
+  medicalConditions: string | null;
+  medicalDetails: string | null;
+  accidentDetails: string | null;
+  caseDetails: string | null;
+  declarationDateAD: string | null;
+  declarationName: string | null;
+}
+
+export interface HrEmployeeProfileResponse {
+  employeeId: string;
+  employeeCode: string;
+  name: string;
+  branchId: string;
+  /** True when the caller may read the employee master but not its PII. */
+  masked: boolean;
+  profile: HrEmployeeProfileFields;
+  familyMembers: HrEmployeeFamilyMember[];
+  experience: HrEmployeeExperienceRow[];
+  qualifications: HrEmployeeQualificationRow[];
+  references: HrEmployeeReferenceRow[];
+}
+
+export type HrEmployeeProfileInput = HrEmployeeProfileFields & {
+  familyMembers: Array<Omit<HrEmployeeFamilyMember, 'id' | 'sortOrder'>>;
+  experience: Array<Omit<HrEmployeeExperienceRow, 'id' | 'sortOrder'>>;
+  qualifications: Array<Omit<HrEmployeeQualificationRow, 'id' | 'sortOrder'>>;
+  references: Array<Omit<HrEmployeeReferenceRow, 'id' | 'sortOrder'>>;
+};
+
+export async function getEmployeeProfile(
+  employeeId: string,
+  branchId?: string | null
+): Promise<HrEmployeeProfileResponse> {
+  return fetchJson(
+    `/api/employees/${encodeURIComponent(employeeId)}/profile${documentQuery(branchId)}`
+  );
+}
+
+export async function saveEmployeeProfile(
+  employeeId: string,
+  input: HrEmployeeProfileInput,
+  branchId?: string | null
+): Promise<HrEmployeeProfileResponse> {
+  return fetchJson(
+    `/api/employees/${encodeURIComponent(employeeId)}/profile${documentQuery(branchId)}`,
+    { method: 'PUT', body: JSON.stringify(input) }
+  );
+}
+
 export async function createEmployee(input: EmployeeInput): Promise<EmployeeRecord> {
   return fetchJson('/api/employees', {
     method: 'POST',

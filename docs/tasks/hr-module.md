@@ -54,6 +54,30 @@ Their data is reference for the schema only; no personal rows are committed.
       and address are masked on list, detail and ledger reads for `hr-employee-view`
       only; `hr-employee-manage` and legacy `gl-payroll-manage` see full data.
 
+## Phase 5 — F1 Employee Profile
+
+- [x] Schema: the F1 scalar answers on `employees` (`father_name`,
+      `grandfather_name`, `permanent_address`, `local_address`,
+      `emergency_contact_address`, `emergency_contact_relation`, `blood_group`,
+      `medical_conditions`, `medical_details`, `accident_details`,
+      `case_details`, `declaration_date_ad`, `declaration_name`) plus four
+      repeating tables — `hr_employee_family_members`,
+      `hr_employee_experience`, `hr_employee_qualifications`,
+      `hr_employee_references`. Each cascades with its employee, carries
+      `sort_order` assigned by the server, and keeps no branch column: branch
+      custody stays on the employee row.
+- [x] API: `GET /api/employees/:id/profile` (view grant; masked shape for a
+      caller who may not see employee PII) and `PUT /api/employees/:id/profile`
+      (manage grant) — one transaction that writes the scalars and replaces all
+      four blocks, with one `UPDATE_EMPLOYEE_PROFILE` audit row. Bounded at
+      20/20/20/10 rows; ages 0–150; percentages 0–100; experience end on or
+      after its start; blood group from the accepted list; dates AD-only.
+- [x] Client: the F1 Profile dialog on the Employee Directory row, read-only
+      when the role lacks the manage grant or the server masked the payload.
+- [x] The document vault still covers the form's submitted-documents section;
+      the declaration's signature stays on paper (the date and typed name are
+      recorded).
+
 ### Verification — slices 1–3
 
 - `npx tsc --noEmit` — clean.

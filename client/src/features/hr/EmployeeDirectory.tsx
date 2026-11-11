@@ -15,6 +15,7 @@ import {
   Briefcase,
   Building2,
   CalendarDays,
+  ClipboardList,
   Edit2,
   FileText,
   Landmark,
@@ -43,6 +44,7 @@ import type {
 import { isOperationAllowed } from '../../utils/permissions';
 import type { Branch, User } from '../../types';
 import { EmployeeDocumentsDialog } from './EmployeeDocumentsDialog';
+import { EmployeeProfileDialog } from './EmployeeProfileDialog';
 import { EmployeeImportDialog } from './EmployeeImportDialog';
 
 interface EmployeeDirectoryProps {
@@ -151,6 +153,7 @@ export const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({
   const [userOptions, setUserOptions] = useState<EmployeeUserOption[]>([]);
   const [orgMasters, setOrgMasters] = useState<HrOrgMasterRecord[]>([]);
   const [documentsFor, setDocumentsFor] = useState<EmployeeRecord | null>(null);
+  const [profileFor, setProfileFor] = useState<EmployeeRecord | null>(null);
   const [importOpen, setImportOpen] = useState(false);
 
   const loadEmployees = async () => {
@@ -560,6 +563,13 @@ export const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({
                     <td className="px-2.5 py-1.5">
                       <div className="flex items-center justify-center gap-1">
                         <button
+                          onClick={() => setProfileFor(employee)}
+                          title={`F1 profile for ${employee.name}`}
+                          className="cursor-pointer rounded-lg p-1 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                        >
+                          <ClipboardList className="h-3.5 w-3.5" />
+                        </button>
+                        <button
                           onClick={() => setDocumentsFor(employee)}
                           title={`Documents for ${employee.name}`}
                           className="cursor-pointer rounded-lg p-1 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
@@ -965,6 +975,14 @@ export const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({
         <EmployeeImportDialog
           onClose={() => setImportOpen(false)}
           onImported={loadEmployees}
+        />
+      ) : null}
+
+      {profileFor ? (
+        <EmployeeProfileDialog
+          employee={profileFor}
+          canManage={canManage}
+          onClose={() => setProfileFor(null)}
         />
       ) : null}
 

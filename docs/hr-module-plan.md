@@ -96,8 +96,11 @@ Phase 0 added `user_id` (ESS link). Phase 3 added the nullable
 it is entered, so status stays an explicit separate action. Later phases add
 `manager_id`, `department_id`,
 `designation_id`, `cost_center_id`, `employment_status` and
-the profile-form fields (father/grandfather, family, qualifications, medical,
-documents).
+the profile-form fields. The F1 Employee Profile is delivered: father and
+grandfather names, permanent/local address, the emergency address and relation,
+blood group, medical, accident/case, the declaration date and typed name, and
+the four repeating tables (family, experience, qualifications, references); the
+submitted documents live in the document vault.
 
 ### 3.2 New HR tables
 

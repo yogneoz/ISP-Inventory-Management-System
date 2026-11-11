@@ -78,6 +78,13 @@ export type {
   HrDocumentType,
   HrEmployeeDocument,
   HrEmployeeDocumentInput,
+  HrEmployeeExperienceRow,
+  HrEmployeeFamilyMember,
+  HrEmployeeProfileFields,
+  HrEmployeeProfileInput,
+  HrEmployeeProfileResponse,
+  HrEmployeeQualificationRow,
+  HrEmployeeReferenceRow,
   HrOrgMasterInput,
   HrOrgMasterKind,
   HrOrgMasterPatch,
@@ -217,7 +224,7 @@ export type {
   HrShiftInput,
   HrShiftRecord,
 } from './hr';
-export { HR_DOCUMENT_MAX_BYTES } from './hr';
+export { HR_BLOOD_GROUPS, HR_DOCUMENT_MAX_BYTES, HR_PROFILE_MAX_ROWS } from './hr';
 export type {
   AccountingAccount,
   AccountingAccountInput,
@@ -463,6 +470,8 @@ export const api = {
   getHrPayrollReport: hr.getHrPayrollReport,
   createEmployee: hr.createEmployee,
   updateEmployee: hr.updateEmployee,
+  getEmployeeProfile: hr.getEmployeeProfile,
+  saveEmployeeProfile: hr.saveEmployeeProfile,
   importEmployees: hr.importEmployees,
   getHrOrgMasters: hr.getHrOrgMasters,
   createHrOrgMaster: hr.createHrOrgMaster,

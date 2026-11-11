@@ -2270,6 +2270,19 @@ CREATE TABLE IF NOT EXISTS employees (
     emergency_contact_number VARCHAR(30),
     internal_email VARCHAR(150),
     personal_email VARCHAR(150),
+    father_name VARCHAR(200),
+    grandfather_name VARCHAR(200),
+    permanent_address TEXT,
+    local_address TEXT,
+    emergency_contact_address TEXT,
+    emergency_contact_relation VARCHAR(80),
+    blood_group VARCHAR(10),
+    medical_conditions VARCHAR(300),
+    medical_details TEXT,
+    accident_details TEXT,
+    case_details TEXT,
+    declaration_date_ad DATE,
+    declaration_name VARCHAR(200),
     monthly_salary NUMERIC(12, 2),
     ssf_eligible BOOLEAN NOT NULL DEFAULT FALSE,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -2303,6 +2316,22 @@ ALTER TABLE employees ADD COLUMN IF NOT EXISTS internal_email VARCHAR(150);
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS personal_email VARCHAR(150);
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS monthly_salary NUMERIC(12, 2);
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS ssf_eligible BOOLEAN NOT NULL DEFAULT FALSE;
+-- F1 Employee Profile scalar answers (the repeating blocks are the four
+-- hr_employee_* tables below). Master dates stay AD-only, like the other
+-- employee dates; the declaration date is the form's own signature date.
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS father_name VARCHAR(200);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS grandfather_name VARCHAR(200);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS permanent_address TEXT;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS local_address TEXT;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS emergency_contact_address TEXT;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS emergency_contact_relation VARCHAR(80);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS blood_group VARCHAR(10);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS medical_conditions VARCHAR(300);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS medical_details TEXT;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS accident_details TEXT;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS case_details TEXT;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS declaration_date_ad DATE;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS declaration_name VARCHAR(200);
 -- ESS link: one login account maps to at most one employee. The partial unique
 -- index is what makes the link one-to-one; ON DELETE SET NULL keeps the
 -- employee record (and payroll history) when a login is removed.
@@ -2373,6 +2402,73 @@ CREATE INDEX IF NOT EXISTS idx_hr_employee_documents_employee
   ON hr_employee_documents(employee_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_hr_employee_documents_expiry
   ON hr_employee_documents(expires_on_ad) WHERE expires_on_ad IS NOT NULL;
+
+-- F1 Employee Profile repeating blocks. The scalar answers (father/grandfather,
+-- permanent/local address, emergency address/relation, blood group, medical,
+-- accident/case, declaration) live on employees; these four tables hold the
+-- form's repeating sections. Rows cascade with their employee and are scoped
+-- through employee_id, so branch custody stays on the employee row and is not
+-- duplicated here. sort_order preserves the order the form was filled in; the
+-- server assigns it, so two rows can never claim the same position.
+CREATE TABLE IF NOT EXISTS hr_employee_family_members (
+    id VARCHAR(60) PRIMARY KEY,
+    employee_id VARCHAR(50) NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    sort_order INTEGER NOT NULL DEFAULT 1,
+    name VARCHAR(200) NOT NULL,
+    age INTEGER CHECK (age IS NULL OR (age >= 0 AND age <= 150)),
+    occupation VARCHAR(150),
+    relation VARCHAR(80),
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_hr_employee_family_employee
+  ON hr_employee_family_members(employee_id, sort_order);
+
+CREATE TABLE IF NOT EXISTS hr_employee_experience (
+    id VARCHAR(60) PRIMARY KEY,
+    employee_id VARCHAR(50) NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    sort_order INTEGER NOT NULL DEFAULT 1,
+    organization VARCHAR(200) NOT NULL,
+    from_ad DATE,
+    to_ad DATE,
+    designation VARCHAR(150),
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CHECK (from_ad IS NULL OR to_ad IS NULL OR to_ad >= from_ad)
+);
+CREATE INDEX IF NOT EXISTS idx_hr_employee_experience_employee
+  ON hr_employee_experience(employee_id, sort_order);
+
+CREATE TABLE IF NOT EXISTS hr_employee_qualifications (
+    id VARCHAR(60) PRIMARY KEY,
+    employee_id VARCHAR(50) NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    sort_order INTEGER NOT NULL DEFAULT 1,
+    exam_passed VARCHAR(200) NOT NULL,
+    board_university VARCHAR(200),
+    percentage NUMERIC(5, 2) CHECK (percentage IS NULL OR (percentage >= 0 AND percentage <= 100)),
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_hr_employee_qualifications_employee
+  ON hr_employee_qualifications(employee_id, sort_order);
+
+CREATE TABLE IF NOT EXISTS hr_employee_references (
+    id VARCHAR(60) PRIMARY KEY,
+    employee_id VARCHAR(50) NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    sort_order INTEGER NOT NULL DEFAULT 1,
+    name VARCHAR(200) NOT NULL,
+    organization VARCHAR(200),
+    contact VARCHAR(120),
+    relation VARCHAR(80),
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_hr_employee_references_employee
+  ON hr_employee_references(employee_id, sort_order);
 
 -- Phase 4 recruitment. A requisition is branch custody; candidates inherit
 -- that branch from their requisition and interviews/offers inherit it from the

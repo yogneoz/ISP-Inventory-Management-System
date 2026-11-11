@@ -16,6 +16,10 @@ import {
   get_hrEmployeeDocuments,
   post_hrEmployeeDocument,
 } from '../controllers/hrDocuments.controller';
+import {
+  get_hrEmployeeProfile,
+  put_hrEmployeeProfile,
+} from '../controllers/hrEmployeeProfile.controller';
 import { HR_DOCUMENT_MAX_BYTES } from '../models/hrDocuments.repo';
 import { HR_RECRUITMENT_RESUME_MAX_BYTES } from '../models/hrRecruitment.repo';
 import {
@@ -417,6 +421,25 @@ export function registerHrRoutes(app: Express) {
     requirePermissionAny('hr-employee-manage', 'gl-payroll-manage'),
     async (req, res, next) => {
       delete_hrEmployeeDocument(req as any, res as any).catch(next);
+    }
+  );
+
+  // F1 Employee Profile. The payload is personal data end to end (father and
+  // grandfather names, both addresses, the emergency address/relation, blood
+  // group, medical, accident/case and the declaration), so a view-only HR
+  // caller receives the masked shape and only the manage grant can write it.
+  app.get(
+    '/api/employees/:id/profile',
+    requirePermissionAny('hr-employee-view', 'gl-payroll-manage'),
+    async (req, res, next) => {
+      get_hrEmployeeProfile(req as any, res as any).catch(next);
+    }
+  );
+  app.put(
+    '/api/employees/:id/profile',
+    requirePermissionAny(...HR_SALARY_WRITE),
+    async (req, res, next) => {
+      put_hrEmployeeProfile(req as any, res as any).catch(next);
     }
   );
 
