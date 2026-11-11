@@ -93,6 +93,9 @@ export function issueAuthToken(user: User, sessionRoot?: Partial<User> | null): 
     branchId: user.branchId || '',
     allowedBranchIds: user.allowedBranchIds || [],
     canSwitchUser: Boolean(user.canSwitchUser),
+    // A login issued from the employee record starts on a one-time password;
+    // the flag rides the token so the gate needs no extra read per request.
+    mustChangePassword: Boolean((user as any).mustChangePassword),
     rootId: root?.id || '',
     rootEmail: root?.email || '',
     rootCanSwitchUser: Boolean(root?.canSwitchUser),
@@ -158,6 +161,7 @@ export function verifyAuthToken(token: string): SessionUser | null {
       branchId: parsed.branchId || '',
       allowedBranchIds: Array.isArray(parsed.allowedBranchIds) ? parsed.allowedBranchIds : [],
       canSwitchUser: Boolean(parsed.canSwitchUser),
+      mustChangePassword: Boolean(parsed.mustChangePassword),
       rootId: parsed.rootId || '',
       rootEmail: parsed.rootEmail || '',
       rootCanSwitchUser: Boolean(parsed.rootCanSwitchUser),

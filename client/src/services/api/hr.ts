@@ -78,6 +78,10 @@ export interface EmployeeInput {
   name: string;
   branchId: string;
   userId?: string | null;
+  /** Creates a login for this employee in the same save (create or first link). */
+  createLogin?: boolean;
+  /** Role the new login starts with. Defaults to FRONT_DESK on the server. */
+  loginRole?: string | null;
   department?: string | null;
   designation?: string | null;
   designationCode?: string | null;
@@ -103,6 +107,28 @@ export interface EmployeeInput {
   /** Square JPEG data URL; null clears the picture. HR sets it for any employee. */
   profilePhoto?: string | null;
 }
+
+/** The one-time credential handed back when a login is created from HR. */
+export interface EmployeeLoginHandoff {
+  email: string;
+  role: string;
+  temporaryPassword: string;
+}
+
+/** Roles a login created from the employee record may take. */
+export const HR_LOGIN_ROLES: string[] = [
+  'FRONT_DESK',
+  'FIELD_TECHNICIAN',
+  'INVENTORY_MANAGER',
+  'PROCUREMENT_OFFICER',
+  'ACCOUNTANT',
+  'BRANCH_MANAGER',
+  'HR_OFFICER',
+  'HR_MANAGER',
+  'HEAD_OFFICE_ADMIN',
+  'AUDITOR',
+  'SUPER_ADMIN',
+];
 
 export interface EmployeeQuery {
   branchId?: string;
@@ -851,7 +877,9 @@ export async function saveEmployeeProfile(
   );
 }
 
-export async function createEmployee(input: EmployeeInput): Promise<EmployeeRecord> {
+export async function createEmployee(
+  input: EmployeeInput
+): Promise<EmployeeRecord & { login?: EmployeeLoginHandoff | null }> {
   return fetchJson('/api/employees', {
     method: 'POST',
     body: JSON.stringify(input),
@@ -862,7 +890,7 @@ export async function createEmployee(input: EmployeeInput): Promise<EmployeeReco
 export async function updateEmployee(
   id: string,
   patch: Partial<Omit<EmployeeInput, 'employeeCode' | 'branchId'>>
-): Promise<EmployeeRecord> {
+): Promise<EmployeeRecord & { login?: EmployeeLoginHandoff | null }> {
   return fetchJson(`/api/employees/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     body: JSON.stringify(patch),

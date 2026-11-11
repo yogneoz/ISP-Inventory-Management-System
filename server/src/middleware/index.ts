@@ -113,6 +113,20 @@ export function requireAuth(req: any, res: any, next: any) {
       sessionRevoked: Boolean(req.sessionRevoked),
     });
   }
+  // A login created from the employee directory starts on a one-time password.
+  // Until the employee replaces it, only the endpoints needed to sign in, read
+  // their own account and change it are reachable — no data access at all.
+  if ((user as any).mustChangePassword) {
+    const path = String(req.path || '');
+    const allowed =
+      path.endsWith('/auth/me') || path.endsWith('/auth/profile') || path.endsWith('/auth/logout');
+    if (!allowed) {
+      return res.status(403).json({
+        message: 'Set a new password before using the application.',
+        mustChangePassword: true,
+      });
+    }
+  }
   req.user = user;
   next();
 }

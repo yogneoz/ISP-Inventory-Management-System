@@ -56,6 +56,7 @@ import { invalidateAvailableFixedAssets, resetAvailableFixedAssets } from './ser
 import { invalidateBranchStock, resetBranchStock } from './services/branchStockCache';
 import { invalidateExchangeDevices, resetExchangeDevices } from './services/exchangeDeviceCache';
 import { LoginModal } from './components/common/LoginModal';
+import { ForcePasswordChange } from './components/auth/ForcePasswordChange';
 import { Dashboard } from './features/dashboard/Dashboard';
 import { ProductManagement } from './features/inventory/ProductManagement';
 import { PurchaseOrders, OrderFormLine } from './features/procurement/PurchaseOrders';
@@ -2230,6 +2231,24 @@ export default function App() {
           }}
         />
       </div>
+    );
+  }
+
+  // A login created from the employee record starts on a one-time password; the
+  // server refuses every other endpoint, so the only next step is to replace it.
+  if (currentUser.mustChangePassword) {
+    return (
+      <ForcePasswordChange
+        user={currentUser}
+        onDone={async (user, token) => {
+          setAuthToken(token);
+          setCurrentUser(user);
+          setRootUser(user);
+          saveUserSession(user, user, token);
+          refreshAllData();
+        }}
+        onLogout={handleLogout}
+      />
     );
   }
 

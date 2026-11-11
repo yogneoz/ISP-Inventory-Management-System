@@ -2339,6 +2339,8 @@ ALTER TABLE employees ADD COLUMN IF NOT EXISTS declaration_name VARCHAR(200);
 -- ESS link: one login account maps to at most one employee. The partial unique
 -- index is what makes the link one-to-one; ON DELETE SET NULL keeps the
 -- employee record (and payroll history) when a login is removed.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;
+
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS user_id VARCHAR(50);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_employees_user_id ON employees(user_id) WHERE user_id IS NOT NULL;
 DO $$

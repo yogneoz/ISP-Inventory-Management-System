@@ -28,6 +28,7 @@ import {
   USER_EMAIL_TAKEN_BY_OTHER_SQL,
   USER_UPDATE_PROFILE_SQL,
   userUpdatePasswordParams,
+  USER_CLEAR_MUST_CHANGE_SQL,
 } from '../models/auth.repo';
 import type { AuditLog, User } from '../../../client/src/types';
 import { todayBs } from '../utils/bsDate';
@@ -46,6 +47,13 @@ export async function login(req: Request, res: Response): Promise<void> {
       const passwordCheck = dbUser ? verifyPassword(String(password || ''), dbUser.password) : { valid: false };
       if (!dbUser || !passwordCheck.valid) {
         throw new ApiError(401, 'Invalid email or password.');
+      }
+      // A valid password on a deactivated account is still a refusal: an
+      // employee's login is suspended with their employment record, and a
+      // suspended or locked account stays closed until an administrator opens
+      // it. Without this, deactivation only ended the current session.
+      if (String(dbUser.status || 'active') !== 'active') {
+        throw new ApiError(403, 'This account is not active. Contact an administrator.');
       }
 
       if (passwordCheck.upgradedHash) {
@@ -69,6 +77,9 @@ export async function login(req: Request, res: Response): Promise<void> {
     const passwordCheck = localUser ? verifyPassword(String(password || ''), localUser.password || '') : { valid: false };
     if (!localUser || !passwordCheck.valid) {
       throw new ApiError(401, 'Invalid email or password.');
+    }
+    if (String(localUser.status || 'active') !== 'active') {
+      throw new ApiError(403, 'This account is not active. Contact an administrator.');
     }
     if (passwordCheck.upgradedHash) localUser.password = passwordCheck.upgradedHash;
     setActiveUser(localUser);
@@ -468,7 +479,11 @@ export async function put_profile(req: any, res: Response): Promise<any> {
           passwordHash,
         ]);
         if (!result.rows[0]) throw new ApiError(404, 'Your account no longer exists.');
-        return result.rows[0] as User;
+        // Replacing the one-time password clears the first-sign-in requirement.
+        if (wantsPassword) {
+          await client.query(USER_CLEAR_MUST_CHANGE_SQL, [String(authenticatedUser.id)]);
+        }
+        return { ...(result.rows[0] as User), mustChangePassword: wantsPassword ? false : (result.rows[0] as any).mustChangePassword };
       });
     } catch (err: any) {
       // A deliberate refusal (duplicate address, vanished account) is a status
@@ -504,6 +519,7 @@ export async function put_profile(req: any, res: Response): Promise<any> {
       email: wantsEmail ? cleanEmail : users[idx].email,
       branchId: wantsBranch ? cleanBranchId : users[idx].branchId,
       password: passwordHash || users[idx].password,
+      mustChangePassword: wantsPassword ? false : users[idx].mustChangePassword,
     } as User;
   }
 

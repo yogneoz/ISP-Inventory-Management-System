@@ -10,7 +10,22 @@
 
 /** Column list every users row read must return (camelCase aliased). */
 export const USER_SELECT_COLUMNS =
-  'id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser", status';
+  'id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser", must_change_password AS "mustChangePassword", status';
+
+/** A password change or reset clears the first-sign-in requirement. */
+export const USER_CLEAR_MUST_CHANGE_SQL =
+  'UPDATE users SET must_change_password = FALSE, updated_at = CURRENT_TIMESTAMP WHERE id = $1';
+
+/**
+ * An employee's login follows their employment. Deactivation suspends an
+ * active account; reactivation restores only an account this rule suspended,
+ * so an administrator's deliberate lock is never lifted by an HR edit.
+ */
+export const USER_SUSPEND_SQL =
+  "UPDATE users SET status = 'inactive', updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND status = 'active' RETURNING id, status";
+
+export const USER_RESTORE_SQL =
+  "UPDATE users SET status = 'active', updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND status = 'inactive' RETURNING id, status";
 
 /**
  * The signed-in account's avatar: the photo on the employee linked to it.

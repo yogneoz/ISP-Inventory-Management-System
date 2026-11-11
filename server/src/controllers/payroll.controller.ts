@@ -20,13 +20,16 @@ import {
   getPgConnected,
   permissionMatrix,
   pgPool,
+  setUsers,
+  users,
+  withReplaced,
   userPermissionOverrides,
   userPermissionSetGrants,
 } from '../app';
 import { effectivePermission } from '../services/permissionOverrides.service';
 import { withTransaction } from '../db/transactions';
 import { logAuditEvent } from '../services/audit.service';
-import { getUserFromReq } from '../middleware/auth';
+import { getUserFromReq, hashPassword } from '../middleware/auth';
 import { allowedBranchScope } from '../middleware/branchScope';
 import { ApiError } from '../errors/ApiError';
 import {
@@ -72,6 +75,8 @@ import {
   payrollLineInsertParams,
   payrollRunInsertParams,
 } from '../models/payroll.repo';
+import { USER_INSERT_TEMP_PASSWORD_SQL } from '../models/admin.repo';
+import { USER_RESTORE_SQL, USER_SUSPEND_SQL } from '../models/auth.repo';
 import {
   HR_PAYROLL_ADJUSTMENTS_BY_BRANCH_PERIOD_SQL,
   HR_PAYROLL_INPUT_LIST_SQL,
@@ -322,6 +327,115 @@ async function assertEmployeeUserLinkable(
   }
 }
 
+const EMPLOYEE_LOGIN_ROLES = new Set([
+  'SUPER_ADMIN',
+  'HEAD_OFFICE_ADMIN',
+  'HR_MANAGER',
+  'HR_OFFICER',
+  'BRANCH_MANAGER',
+  'INVENTORY_MANAGER',
+  'ACCOUNTANT',
+  'PROCUREMENT_OFFICER',
+  'FIELD_TECHNICIAN',
+  'FRONT_DESK',
+  'AUDITOR',
+]);
+
+interface EmployeeLoginHandoff {
+  email: string;
+  role: string;
+  temporaryPassword: string;
+}
+
+/**
+ * Creates the login that belongs to this employee, in the employee's own
+ * transaction. The account starts on a one-time password that HR reads once and
+ * hands over; `must_change_password` blocks every screen but the password
+ * change until the employee replaces it, so no administrator ever knows the
+ * credential in use.
+ */
+async function createEmployeeLogin(
+  client: any,
+  req: any,
+  target: { id: string; name: string; branchId: string; internalEmail?: string | null; personalEmail?: string | null },
+  role: string
+): Promise<EmployeeLoginHandoff> {
+  const existing = (await client.query(EMPLOYEE_BY_ID_SQL, [target.id])).rows[0];
+  if (existing?.userId) {
+    throw new ApiError(409, `${existing.employeeCode} already has a login. Use the linked account instead.`);
+  }
+  if (existing && existing.isActive === false) {
+    throw new ApiError(400, 'Reactivate the employee before creating a login for them.');
+  }
+  const email = String(target.internalEmail || target.personalEmail || '')
+    .trim()
+    .toLowerCase();
+  if (!email) {
+    throw new ApiError(400, 'Add an internal or personal e-mail before creating a login.');
+  }
+  if (!EMPLOYEE_LOGIN_ROLES.has(role)) {
+    throw new ApiError(400, 'Choose a valid role for the new login.');
+  }
+  const temporaryPassword = crypto.randomBytes(12).toString('base64url').slice(0, 14);
+  const userId = `usr-${crypto.randomUUID()}`;
+  try {
+    await client.query(USER_INSERT_TEMP_PASSWORD_SQL, [
+      userId,
+      email,
+      hashPassword(temporaryPassword),
+      target.name,
+      role,
+      target.branchId,
+      [target.branchId],
+    ]);
+  } catch (err: any) {
+    if (err?.code === '23505') throw new ApiError(409, `A login already exists for ${email}.`);
+    throw err;
+  }
+  await client.query(EMPLOYEE_SET_USER_SQL, [target.id, userId, actorOf(req)]);
+  await logAuditEvent(
+    req,
+    'CREATE_USER',
+    'AUTH',
+    `Created login ${email} (${role}, one-time password) for employee ${existing?.employeeCode || target.id}`,
+    target.branchId,
+    client
+  );
+  return { email, role, temporaryPassword };
+}
+
+/**
+ * An employee's login follows their employment, in the same transaction as the
+ * HR edit: deactivation suspends the account (the session fingerprint covers
+ * status, so every token dies with it), reactivation restores it. A deliberate
+ * lock or suspension stays: the SQL only moves active → inactive and back.
+ */
+async function syncEmployeeLoginStatus(
+  client: any,
+  req: any,
+  employee: any,
+  wasActive: boolean
+): Promise<void> {
+  if (!employee?.userId || Boolean(employee.isActive) === Boolean(wasActive)) return;
+  const result = await client.query(employee.isActive ? USER_RESTORE_SQL : USER_SUSPEND_SQL, [
+    employee.userId,
+  ]);
+  const row = result.rows[0];
+  if (!row) return;
+  const idx = users.findIndex((user) => user.id === employee.userId);
+  if (idx !== -1) {
+    setUsers(withReplaced(users, idx, { ...users[idx], status: row.status } as any));
+  }
+  await logAuditEvent(
+    req,
+    'UPDATE_USER',
+    'AUTH',
+    `${employee.isActive ? 'Restored' : 'Suspended'} the login of ${employee.employeeCode} ${employee.name} with the employee record`,
+    String(employee.branchId),
+    client
+  );
+}
+
 /** GET /api/employees?branchId=&query=&activeOnly=1 */
 export async function get_employees(req: any, res: Response): Promise<any> {
   requireDb();
@@ -407,6 +521,7 @@ export async function post_employee(req: any, res: Response): Promise<any> {
     throw new ApiError(400, 'Separation date must be on or after the joining date.');
   }
 
+  let employeeLogin: EmployeeLoginHandoff | null = null;
   const employee = await withTransaction(async (client) => {
     if (!(await client.query(BRANCH_EXISTS_SQL, [branchId])).rows[0]) {
       throw new ApiError(400, `Branch ${branchId} does not exist.`);
@@ -446,7 +561,14 @@ export async function post_employee(req: any, res: Response): Promise<any> {
           personalEmail: optionalText(req.body?.personalEmail, 150),
           monthlySalary: optionalAmount(req.body?.monthlySalary, 'Monthly salary'),
           ssfEligible: optionalBoolean(req.body?.ssfEligible) ?? false,
-          isActive: typeof req.body?.isActive === 'boolean' ? req.body.isActive : true,
+          // A record created with a separation date starts closed: the person
+          // is no longer employed, so the login (if any) must not start open.
+          isActive:
+            separationDateAD && req.body?.isActive !== true
+              ? false
+              : typeof req.body?.isActive === 'boolean'
+                ? req.body.isActive
+                : true,
           createdBy: actorOf(req),
         })
       )
@@ -459,12 +581,20 @@ export async function post_employee(req: any, res: Response): Promise<any> {
       branchId,
       client
     );
+    if (req.body?.createLogin === true) {
+      employeeLogin = await createEmployeeLogin(
+        client,
+        req,
+        created,
+        String(req.body?.loginRole || 'FRONT_DESK')
+      );
+    }
     return created;
   }).catch((err) => {
     if (isUniqueViolation(err)) throw new ApiError(409, `Employee code ${employeeCode} already exists.`);
     throw err;
   });
-  return res.status(201).json(employee);
+  return res.status(201).json({ ...employee, login: employeeLogin });
 }
 
 /** Mirrors the client's PROFILE_PHOTO_MAX_BYTES; the self-service route enforces the same limit. */
@@ -512,6 +642,14 @@ export async function patch_employee(req: any, res: Response): Promise<any> {
     if (nextJoiningDateAD && nextSeparationDateAD && nextSeparationDateAD < nextJoiningDateAD) {
       throw new ApiError(400, 'Separation date must be on or after the joining date.');
     }
+    // A separation date closes the employment relationship, so the record is
+    // deactivated in the same update — which also suspends the linked login
+    // below. An explicit isActive:true in the same request wins, so a date
+    // entered by mistake can be corrected without a second call; clearing the
+    // date never re-opens access on its own.
+    const separated = has('separationDateAD') && Boolean(nextSeparationDateAD);
+    const requestedActive = typeof req.body?.isActive === 'boolean' ? req.body.isActive : null;
+    const nextActive = separated && requestedActive !== true ? false : requestedActive;
     let updated = (
       await client.query(EMPLOYEE_UPDATE_SQL, [
         id,
@@ -521,7 +659,7 @@ export async function patch_employee(req: any, res: Response): Promise<any> {
         has('panNumber') ? optionalText(req.body.panNumber, 50) : null,
         has('ssfNumber') ? optionalText(req.body.ssfNumber, 50) : null,
         has('bankAccount') ? optionalText(req.body.bankAccount, 80) : null,
-        typeof req.body?.isActive === 'boolean' ? req.body.isActive : null,
+        nextActive,
         has('bankName') ? optionalText(req.body.bankName, 150) : null,
         has('employmentType') ? optionalText(req.body.employmentType, 30) : null,
         has('joiningDateAD') ? optionalDate(req.body.joiningDateAD, 'Joining date') : null,
@@ -563,10 +701,20 @@ export async function patch_employee(req: any, res: Response): Promise<any> {
       String(updated.branchId),
       client
     );
-    return updated;
+    await syncEmployeeLoginStatus(client, req, updated, existing.isActive);
+    const login =
+      req.body?.createLogin === true
+        ? await createEmployeeLogin(
+            client,
+            req,
+            { ...updated, internalEmail: updated.internalEmail ?? req.body?.internalEmail },
+            String(req.body?.loginRole || 'FRONT_DESK')
+          )
+        : null;
+    return { row: updated, login };
   });
   if (!employee) return; // assertInScope already wrote the 403
-  return res.json(employee);
+  return res.json({ ...employee.row, login: employee.login });
 }
 
 /** GET /api/employees/:id/ledger?branchId=&from=&to= */

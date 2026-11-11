@@ -53,6 +53,11 @@ export interface User {
   canSwitchUser?: boolean;
   /** Account status. Anything other than 'active' ends the session server-side. */
   status?: string;
+  /**
+   * A login created from the employee record starts on a one-time password.
+   * While this is set the server allows only reading and changing the account.
+   */
+  mustChangePassword?: boolean;
   // Session root marker (set only when this profile is an impersonated child
   // of another account via profile switching). Lets a switched session switch
   // back to the account that originally signed in.

@@ -22,8 +22,9 @@ import type {
   HrEmployeeProfileResponse,
   HrOrgMasterKind,
   HrOrgMasterRecord,
+  EmployeeLoginHandoff,
 } from '../../services/api';
-import { HR_BLOOD_GROUPS, HR_PROFILE_MAX_ROWS } from '../../services/api/hr';
+import { HR_BLOOD_GROUPS, HR_LOGIN_ROLES, HR_PROFILE_MAX_ROWS } from '../../services/api/hr';
 import { EmployeeSelfServicePhotoDialog } from './EmployeeSelfServicePhotoDialog';
 
 interface EmployeeProfileDialogProps {
@@ -250,6 +251,11 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
   // F1 sections, so editing a person is one dialog instead of two.
   const [photo, setPhoto] = useState<string | null>(employee?.profilePhoto ?? null);
   const [photoOpen, setPhotoOpen] = useState(false);
+  // A login created with this save. There is no mailer, so the one-time
+  // password is shown here exactly once: HR reads it and hands it over.
+  const [createLogin, setCreateLogin] = useState(false);
+  const [loginRole, setLoginRole] = useState('FRONT_DESK');
+  const [createdLogin, setCreatedLogin] = useState<EmployeeLoginHandoff | null>(null);
   const [record, setRecord] = useState<RecordDraft>(() => recordFrom(employee, defaultBranchId));
   const [scalars, setScalars] = useState<ScalarDraft>(EMPTY_SCALARS);
   const [family, setFamily] = useState<FamilyDraft[]>([]);
@@ -500,19 +506,34 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
           employeeCode,
           branchId: record.branchId,
           ...master,
+          ...(createLogin ? { createLogin: true, loginRole } : {}),
         });
         await api.saveEmployeeProfile(created.id, payload, created.branchId);
         if (photo) await api.updateEmployee(created.id, { profilePhoto: photo });
         await onRecordSaved?.();
+        if (created.login) {
+          // Keep the dialog open: the one-time password is not shown again.
+          setCreatedLogin(created.login);
+          return;
+        }
         onClose();
         return;
       }
 
       const saved = await api.saveEmployeeProfile(employee.id, payload, employee.branchId);
       applyResponse(saved);
-      // Same Save, second resource: the master fields the dialog owns.
-      await api.updateEmployee(employee.id, master);
+      // Same Save, second resource: the master fields the dialog owns. A login
+      // is created here too when the employee had none, so HR never has to
+      // leave the employee record to give someone access.
+      const savedRow = await api.updateEmployee(employee.id, {
+        ...master,
+        ...(createLogin ? { createLogin: true, loginRole } : {}),
+      });
       await onRecordSaved?.();
+      if (savedRow.login) {
+        setCreatedLogin(savedRow.login);
+        return;
+      }
       setSavedNote('Profile saved.');
     } catch (err: any) {
       alertDialog(`Failed to save the employee: ${err?.message || 'Database error'}`);
@@ -833,6 +854,10 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
                     }
                     className={inputClass}
                   />
+                  <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
+                    Setting a separation date deactivates the employee and disables their
+                    login.
+                  </p>
                 </div>
                 <div>
                   <label className={labelClass}>Work station</label>
@@ -1553,6 +1578,57 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
               </div>
             </Section>
 
+            {!readOnly && !createdLogin && (isCreate || !employee?.userId) ? (
+              <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+                <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold">
+                  <input
+                    type="checkbox"
+                    checked={createLogin}
+                    onChange={(event) => setCreateLogin(event.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-indigo-600"
+                  />
+                  Create a login for this employee
+                </label>
+                {createLogin ? (
+                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    <div>
+                      <label className={labelClass}>Login role</label>
+                      <select
+                        value={loginRole}
+                        onChange={(event) => setLoginRole(event.target.value)}
+                        className={inputClass}
+                      >
+                        {HR_LOGIN_ROLES.map((role) => (
+                          <option key={role} value={role}>
+                            {role.replace(/_/g, ' ')}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <p className="self-end text-[11px] text-slate-500 sm:col-span-2 dark:text-slate-400">
+                      The internal (or personal) e-mail becomes the username. The one-time
+                      password is shown once after saving; the employee must replace it at
+                      first sign-in.
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {createdLogin ? (
+              <div className="rounded-xl border border-emerald-300 bg-emerald-50/70 px-3 py-2 text-[11px] text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200">
+                <p className="font-bold">Login created for {createdLogin.email}</p>
+                <p className="mt-0.5">
+                  One-time password:{' '}
+                  <span className="font-mono text-sm font-bold">{createdLogin.temporaryPassword}</span>
+                </p>
+                <p className="mt-0.5">
+                  Hand it over now — it is not shown again. The employee must set a new
+                  password at first sign-in.
+                </p>
+              </div>
+            ) : null}
+
             <div className="flex items-center justify-end gap-3 border-t border-slate-100 pt-4 dark:border-slate-800">
               {savedNote ? <span className="text-[11px] text-emerald-600">{savedNote}</span> : null}
               <button
@@ -1560,9 +1636,9 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
                 onClick={onClose}
                 className="cursor-pointer rounded-xl border border-slate-300 px-3 py-1.5 font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
               >
-                {readOnly ? 'Close' : 'Cancel'}
+                {readOnly || createdLogin ? 'Close' : 'Cancel'}
               </button>
-              {readOnly ? null : (
+              {readOnly || createdLogin ? null : (
                 <button
                   type="button"
                   onClick={() => void handleSave()}

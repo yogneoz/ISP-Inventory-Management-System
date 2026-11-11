@@ -308,6 +308,18 @@ ORDER BY u.created_at ASC`;
 
 export const USER_EXISTS_SQL = 'SELECT * FROM users WHERE id = $1';
 
+/**
+ * A login created from the employee record. It starts on a one-time password
+ * (must_change_password) so nobody but the employee ever sets the credential
+ * they keep using.
+ */
+export const USER_INSERT_TEMP_PASSWORD_SQL = `INSERT INTO users
+  (id, email, password, name, role, branch_id, allowed_branch_ids, can_switch_user, must_change_password)
+VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE, TRUE)
+RETURNING id, email, name, role, branch_id AS "branchId",
+  allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser",
+  must_change_password AS "mustChangePassword"`;
+
 export const USER_UPSERT_SQL = `INSERT INTO users (id, email, password, name, role, branch_id, allowed_branch_ids, can_switch_user)
  VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
  ON CONFLICT (email) DO UPDATE SET

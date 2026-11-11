@@ -162,8 +162,8 @@ export const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({
     if (
       !(await confirmDialog(
         next
-          ? `Reactivate ${employee.name} (${employee.employeeCode})?`
-          : `Deactivate ${employee.name} (${employee.employeeCode})? Payroll history is kept; the employee stops appearing in new runs.`
+          ? `Reactivate ${employee.name} (${employee.employeeCode})?${employee.userId ? ' Their login is enabled again.' : ''}`
+          : `Deactivate ${employee.name} (${employee.employeeCode})? Payroll history is kept and the employee stops appearing in new runs.${employee.userId ? ' Their login is disabled at the same time.' : ''}`
       ))
     ) {
       return;

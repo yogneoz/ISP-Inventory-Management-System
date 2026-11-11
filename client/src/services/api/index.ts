@@ -72,6 +72,7 @@ export type {
   EmployeeImportResult,
   EmployeeImportRowResult,
   EmployeeInput,
+  EmployeeLoginHandoff,
   EmployeeQuery,
   EmployeeRecord,
   EmployeeUserOption,
@@ -224,7 +225,7 @@ export type {
   HrShiftInput,
   HrShiftRecord,
 } from './hr';
-export { HR_BLOOD_GROUPS, HR_DOCUMENT_MAX_BYTES, HR_PROFILE_MAX_ROWS } from './hr';
+export { HR_BLOOD_GROUPS, HR_DOCUMENT_MAX_BYTES, HR_LOGIN_ROLES, HR_PROFILE_MAX_ROWS } from './hr';
 export type {
   AccountingAccount,
   AccountingAccountInput,

@@ -1290,6 +1290,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     // login, active) through the same employee update endpoint.
     'hr/EmployeeProfileDialog.tsx': [
       'HR_BLOOD_GROUPS',
+      'HR_LOGIN_ROLES',
       'HR_PROFILE_MAX_ROWS',
       'createEmployee',
       'getEmployeeProfile',
