@@ -48,7 +48,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 - **Hardened HTTP Surface**:
   - **helmet security headers** on every response (CSP, nosniff, frame protection, cross-origin policies) — configured LAN-safe (no HSTS/`upgrade-insecure-requests` on plain HTTP; re-enable behind a TLS proxy).
   - **Authenticated SSE**: `/api/sync/stream` and `/api/sync/version` require the app's HMAC token via `Authorization: Bearer` header or `?token=` query parameter (EventSource cannot send headers; the client attaches the stored token automatically). Rejections happen before any stream handshake.
-  - **Login rate limiting**: sliding-window limiter with per-IP and global per-account (failure-only) buckets — 429 + `Retry-After` after `AUTH_RATE_LIMIT_MAX` failures (default 10 / 15 min).
+  - **Login rate limiting**: sliding-window limiter with per-IP and global per-account (failure-only) buckets — 429 + `Retry-After` after `AUTH_RATE_LIMIT_MAX` failures per account (default 4 / 1 min) or `AUTH_RATE_LIMIT_IP_MAX` attempts per address (default 10 / 1 min). Every admission reports `X-Auth-Attempts-Remaining`, so the sign-in screen warns before the cutoff and counts a block down; an `admin-users` account can list and release blocks immediately (`GET /api/auth/rate-limit`, `POST /api/auth/rate-limit/release`) — the buckets are process-local, so only the running server can lift one.
   - **SSE connection cap**: at most `SSE_MAX_CONNECTIONS_PER_IP` (default 6) concurrent streams per address, with slots freed on disconnect — even valid credentials cannot exhaust sockets.
   - **JSON body limit**: `JSON_BODY_LIMIT` (default 1mb) enforced with a proper 413 response.
 
@@ -188,8 +188,9 @@ POSTGRES_PASSWORD="<YOUR_DB_PASSWORD>"
 # start with a missing, template or <32-character value; dev/test fall back to an
 # ephemeral secret and log a warning)
 AUTH_TOKEN_SECRET=<long-random-string>   # persistent HMAC secret for login tokens (32+ chars)
-AUTH_RATE_LIMIT_MAX=10                   # login/forgot-password attempts per window
-AUTH_RATE_LIMIT_WINDOW_MS=900000         # 15 minutes
+AUTH_RATE_LIMIT_MAX=4                    # login/forgot-password FAILURES per account per window
+AUTH_RATE_LIMIT_IP_MAX=10                # login/forgot-password attempts per address per window
+AUTH_RATE_LIMIT_WINDOW_MS=60000          # 1 minute
 JSON_BODY_LIMIT=25mb                     # express.json limit (default 1mb)
 SSE_MAX_CONNECTIONS_PER_IP=6             # concurrent SSE streams per address
 ```
@@ -754,7 +755,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 2229-test suite against a PostgreSQL 16 service container (zero DB skips;
+  full 2241-test suite against a PostgreSQL 16 service container (zero DB skips;
   the two unconditional skips are Windows-only real-signal checks, which CI runs,
   and the live-drain check runs under `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1` so its
   preconditions cannot silently skip it) →

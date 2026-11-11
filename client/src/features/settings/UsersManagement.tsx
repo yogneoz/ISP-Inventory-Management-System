@@ -602,6 +602,63 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
     onManageAccess(userId);
   };
 
+  // ---- Login locks -------------------------------------------------------
+  // The sign-in limiter keeps its buckets in the server's memory, so a block is
+  // released through the API — a restart or an outside script cannot do it.
+  // Guarded by `admin-users`, the permission that already governs accounts.
+  const [loginLocksOpen, setLoginLocksOpen] = useState(false);
+  const [loginLocks, setLoginLocks] = useState<
+    Array<{
+      scope: string;
+      kind: 'account' | 'ip';
+      target: string;
+      attempts: number;
+      limit: number;
+      retryAfterSec: number;
+    }>
+  >([]);
+  const [loginLocksBusy, setLoginLocksBusy] = useState(false);
+  const [loginLocksError, setLoginLocksError] = useState('');
+  const [loginLocksNotice, setLoginLocksNotice] = useState('');
+
+  const refreshLoginLocks = async () => {
+    setLoginLocksBusy(true);
+    setLoginLocksError('');
+    try {
+      const res = await api.getRateLimitBlocks();
+      setLoginLocks(res.blocks || []);
+    } catch (err: any) {
+      setLoginLocksError(err?.message || 'Could not read the sign-in limiter.');
+    } finally {
+      setLoginLocksBusy(false);
+    }
+  };
+
+  const openLoginLocks = () => {
+    setLoginLocksNotice('');
+    setLoginLocksError('');
+    setLoginLocksOpen(true);
+    void refreshLoginLocks();
+  };
+
+  const handleReleaseLoginLock = async (payload: { email?: string; ip?: string; all?: boolean }) => {
+    setLoginLocksBusy(true);
+    setLoginLocksError('');
+    setLoginLocksNotice('');
+    try {
+      const res = await api.releaseRateLimit(payload);
+      setLoginLocksNotice(
+        res.released > 0
+          ? `${res.released} lock${res.released === 1 ? '' : 's'} released. Affected users can sign in now.`
+          : 'Nothing to release — those buckets were already clear.'
+      );
+      await refreshLoginLocks();
+    } catch (err: any) {
+      setLoginLocksError(err?.message || 'The release was refused.');
+      setLoginLocksBusy(false);
+    }
+  };
+
   if (!isOperationAllowed('admin-users', currentUser?.role)) {
     return (
       <div className={`p-10 rounded-3xl border text-center space-y-4 max-w-2xl mx-auto my-8 bg-rose-50 border-rose-200 text-rose-900 dark:bg-rose-950/20 dark:border-rose-900/40 dark:text-rose-300`}>
@@ -621,15 +678,119 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
         description="Add, update roles, assign branches, or reset user passwords in case staff forget credentials."
         icon={<Users className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />}
         actions={
-          <button
-            onClick={handleOpenAddModal}
-            className="flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 text-xs font-bold text-white shadow-xs transition-colors cursor-pointer"
-          >
-            <Plus className="h-4 w-4" />
-            <span>Add New User</span>
-          </button>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <button
+              onClick={openLoginLocks}
+              className="flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-xs transition-colors hover:bg-slate-50 cursor-pointer dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              <Lock className="h-4 w-4 text-amber-500" />
+              <span>Login Locks</span>
+            </button>
+            <button
+              onClick={handleOpenAddModal}
+              className="flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 text-xs font-bold text-white shadow-xs transition-colors cursor-pointer"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Add New User</span>
+            </button>
+          </div>
         }
       />
+
+      {loginLocksOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="login-locks-title"
+        >
+          <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl border border-slate-200 dark:border-slate-800 dark:bg-slate-900">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-200 p-4 dark:border-slate-800">
+              <div>
+                <h3
+                  id="login-locks-title"
+                  className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-white"
+                >
+                  <Lock className="h-4 w-4 text-amber-500" />
+                  Login locks
+                </h3>
+                <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                  Accounts and addresses the sign-in limiter is holding closed. Releasing clears their attempt
+                  counters immediately, without waiting out the one-minute window.
+                </p>
+              </div>
+              <button
+                onClick={() => setLoginLocksOpen(false)}
+                className="rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-bold text-slate-600 hover:bg-slate-50 cursor-pointer dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="max-h-[55vh] space-y-2 overflow-y-auto p-4">
+              {loginLocksError && <p className="text-xs text-rose-600 dark:text-rose-400">{loginLocksError}</p>}
+              {loginLocksNotice && <p className="text-xs text-emerald-600 dark:text-emerald-400">{loginLocksNotice}</p>}
+              {loginLocksBusy && <p className="text-xs text-slate-500 dark:text-slate-400">Reading limiter state…</p>}
+              {!loginLocksBusy && loginLocks.length === 0 && (
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  No account or address is currently locked. Sign-in throttling clears itself within a minute.
+                </p>
+              )}
+              {loginLocks.map((block) => (
+                <div
+                  key={`${block.scope}:${block.kind}:${block.target}`}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3 dark:border-slate-800"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-bold text-slate-800 dark:text-slate-100">
+                      {block.kind === 'account' ? block.target : `Address ${block.target}`}
+                    </p>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                      {block.kind === 'account' ? 'failed sign-ins' : 'sign-in attempts'} · {block.attempts}/
+                      {block.limit} in the window · clears in {block.retryAfterSec}s ·{' '}
+                      {block.scope === 'auth-login' ? 'sign-in' : 'password reset'}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() =>
+                      handleReleaseLoginLock(
+                        block.kind === 'account' ? { email: block.target } : { ip: block.target }
+                      )
+                    }
+                    disabled={loginLocksBusy}
+                    className="shrink-0 rounded-lg bg-amber-500 px-2.5 py-1.5 text-[11px] font-bold text-white hover:bg-amber-600 disabled:opacity-60 cursor-pointer"
+                  >
+                    Release
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 p-4 dark:border-slate-800">
+              <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                Releasing an address frees every account behind it.
+              </span>
+              <div className="flex gap-2">
+                <button
+                  onClick={refreshLoginLocks}
+                  disabled={loginLocksBusy}
+                  className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60 cursor-pointer dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  Refresh
+                </button>
+                <button
+                  onClick={() => handleReleaseLoginLock({ all: true })}
+                  disabled={loginLocksBusy}
+                  className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[11px] font-bold text-rose-700 hover:bg-rose-100 disabled:opacity-60 cursor-pointer dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300"
+                >
+                  Release all
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Search + access filter */}
       <div className={`p-4 rounded-xl border ${cardBg}`}>

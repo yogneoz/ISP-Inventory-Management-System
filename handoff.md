@@ -230,7 +230,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 2229 tests; CI runs
+                                        #   drift/concurrency guards — 2241 tests; CI runs
                                         #   tsc + npm test + the source guards + the
                                         #   production build + the boot-timing gate +
                                         #   npm audit on every push/PR
@@ -527,6 +527,8 @@ The server registers ~130 routes. The most important ones:
 | `POST` | `/api/auth/setup-superadmin` | Create initial Super Admin account |
 | `POST` | `/api/auth/forgot-password` | Password reset request (logged; reset performed by an admin in User Management) |
 | `POST` | `/api/auth/login` | Email + password → signed token |
+| `GET` | `/api/auth/rate-limit` | Sign-in limiter blocks, with retry times (`admin-users`) |
+| `POST` | `/api/auth/rate-limit/release` | Release an account / address / all blocks (`admin-users`) |
 
 ### 6.2 Authenticated Endpoints
 
@@ -667,7 +669,7 @@ The server registers ~130 routes. The most important ones:
 - **Token**: Custom HMAC-signed JWT-like token (not a JWT library), **8-hour TTL** (`AUTH_TOKEN_TTL_SECONDS = 8 * 60 * 60`)
 - **Signing secret**: `AUTH_TOKEN_SECRET` env var. **Production refuses to boot without a usable one** (`server/src/boot/authSecret.ts`, wired in `server/index.ts` before the database connects): missing/blank, the `.env.example` template value, or anything under 32 characters exits 1 with a generation command. Outside production the module still falls back to a per-process `crypto.randomBytes(32)` secret and logs a warning, so **every restart invalidates all login tokens and a second instance cannot verify the first instance's tokens** — fine for `tsx watch`, never for a real install. `.env.example` documents it; CI sets a test-only value — see §15.11.
 - **Plaintext fallback**: Legacy plaintext passwords are auto-upgraded to scrypt on successful login
-- **Login rate limiting**: `createAuthRateLimit` (middleware/authRateLimit.ts) guards `/api/auth/login` and `/api/auth/forgot-password` with two sliding-window buckets — per-IP (counts all attempts) and a GLOBAL per-account bucket counting only failures (a successful login revokes its own hit, so attackers cannot lock accounts out). 429 + `Retry-After` when either bucket fills; configured via `AUTH_RATE_LIMIT_MAX` / `AUTH_RATE_LIMIT_WINDOW_MS` / `AUTH_RATE_LIMIT_DISABLED`; fails open if the limiter itself errors
+- **Login rate limiting**: `createAuthRateLimit` (middleware/authRateLimit.ts) guards `/api/auth/login` and `/api/auth/forgot-password` with two sliding-window buckets — per-IP (counts all attempts) and a GLOBAL per-account bucket counting only failures (a successful login revokes its own hit, so attackers cannot lock accounts out). 429 + `Retry-After` when either bucket fills; configured via `AUTH_RATE_LIMIT_MAX` (per-account failures) / `AUTH_RATE_LIMIT_IP_MAX` (per-IP attempts) / `AUTH_RATE_LIMIT_WINDOW_MS` (1 minute) / `AUTH_RATE_LIMIT_DISABLED`; fails open if the limiter itself errors. Every admission reports `X-Auth-Attempts-Remaining` (a failed body also carries `attemptsRemaining`) so the sign-in screen warns before the cutoff and counts a block down instead of showing a red credential error, and an `admin-users` account can list and release blocks immediately (`GET /api/auth/rate-limit`, `POST /api/auth/rate-limit/release`, audited as `RELEASE_LOGIN_LOCK`) — the buckets are process-local, so only the running server can lift one
 
 ### 7.2 Authorization Chain
 
@@ -786,6 +788,22 @@ so existing rows, audits and checks keep working).
 Routes that write the matrix and the overrides use
 `requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN')`; the Users CRUD keeps
 `admin-users`, which Sub Super Admin holds by default.
+
+The screens behind these rules — the twelve-card Role Permission Defaults, the
+User Access cards, the Add System User role picker, and the employee record's
+login-role control in both its editable and administrator read-only forms — are
+captured in `docs/hr-module-plan.md` §9 (`docs/screenshots/`).
+
+The verification seed ships one worked example per layer, so a fresh install
+shows the model without anyone editing anything: `frontdesk@example.com` holds a
+personal grant of `gl-view` (its role denies it), `auditor@example.com` holds a
+personal deny of `gl-view` (its role allows it, and the deny also outranks the
+auditor set's grant of the same operation), and the set "Demo Branch Finance
+Read" is assigned to `ktm.manager@example.com` where every grant is one the
+Branch Manager role lacks. `tests/demoPermissionFixtures.test.ts` fails if an
+example stops changing effective access — the two older sets deliberately grant
+only what their roles already had, so they demonstrate the set workflow without
+widening anyone.
 
 ---
 
@@ -1163,8 +1181,9 @@ POSTGRES_USER="inventory_user"
 POSTGRES_PASSWORD="securepassword"
 
 # Rate limiting (login brute-force mitigation)
-AUTH_RATE_LIMIT_MAX=10            # attempts per window (default 10)
-AUTH_RATE_LIMIT_WINDOW_MS=900000  # 15 minutes (default)
+AUTH_RATE_LIMIT_MAX=4             # per-account FAILURES per window (default 4)
+AUTH_RATE_LIMIT_IP_MAX=10         # per-IP attempts per window (default 10)
+AUTH_RATE_LIMIT_WINDOW_MS=60000   # 1 minute (default)
 AUTH_RATE_LIMIT_DISABLED=false    # disable entirely (tests/dev only)
 
 # HTTP hardening
@@ -1449,7 +1468,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 2229 tests against a real PostgreSQL 16 service container
+2. `npm test` — 2241 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM

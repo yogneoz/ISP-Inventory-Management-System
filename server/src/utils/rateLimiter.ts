@@ -107,6 +107,43 @@ export class RateLimiter {
     if (bucket.hits.length === 0) this.buckets.delete(key);
   }
 
+  /**
+   * Buckets currently at or over the limit, without recording an attempt.
+   * Read-only view for the admin "login locks" panel: it answers "who is
+   * blocked right now and for how much longer" without touching the state.
+   */
+  snapshot(): Array<{ key: string; count: number; limit: number; retryAfterMs: number }> {
+    const nowMs = this.now();
+    const windowStart = nowMs - this.windowMs;
+    const blocked: Array<{ key: string; count: number; limit: number; retryAfterMs: number }> = [];
+    for (const [key, bucket] of this.buckets) {
+      const live = bucket.hits.filter((hit) => hit > windowStart);
+      if (live.length < this.max) continue;
+      blocked.push({
+        key,
+        count: live.length,
+        limit: this.max,
+        retryAfterMs: live[0] + this.windowMs - nowMs,
+      });
+    }
+    return blocked;
+  }
+
+  /**
+   * Removes every bucket whose key matches (authorised manual release). Returns
+   * the keys that were cleared, so the caller can report and audit exactly what
+   * was lifted.
+   */
+  clearMatching(match: (key: string) => boolean): string[] {
+    const cleared: string[] = [];
+    for (const key of [...this.buckets.keys()]) {
+      if (!match(key)) continue;
+      this.buckets.delete(key);
+      cleared.push(key);
+    }
+    return cleared;
+  }
+
   /** Number of live buckets (observable for tests/ops). */
   get size(): number {
     return this.buckets.size;

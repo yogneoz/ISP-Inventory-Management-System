@@ -1178,9 +1178,14 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     // loads that account's exception rows on demand. The edit modal keeps its
     // own read-only summary. Permissions are still edited on the User Access
     // screen.
+    // The register still renders bootstrap-slice props; the two limiter calls
+    // belong to the "Login Locks" dialog, which reads live server state (not a
+    // paged register) only when an administrator opens it.
     'settings/UsersManagement.tsx': [
+      'getRateLimitBlocks',
       'getUserAccessSummaries',
       'getUserPermissionOverrides',
+      'releaseRateLimit',
       'resetUserPassword',
     ],
 

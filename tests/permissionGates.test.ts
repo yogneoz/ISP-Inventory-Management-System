@@ -140,6 +140,15 @@ describe('password reset for another account', () => {
     assert.ok(line, 'the reset-password route must exist');
     assert.match(line!, /requirePermission\('admin-users'\)/, 'reset-password must stay gated on admin-users');
   });
+
+  test('the login-lock report and release routes carry the admin-users gate in source', () => {
+    const routes = read('server/src/routes/auth.routes.ts');
+    for (const path of ['/api/auth/rate-limit', '/api/auth/rate-limit/release']) {
+      const line = routes.split('\n').find((row) => row.includes(`'${path}'`));
+      assert.ok(line, `the ${path} route must exist`);
+      assert.match(line!, /requirePermission\('admin-users'\)/, `${path} must stay gated on admin-users`);
+    }
+  });
 });
 
 describe('bootstrap user list', () => {

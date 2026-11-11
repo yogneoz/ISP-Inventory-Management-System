@@ -26,6 +26,34 @@ export async function forgotPassword(email: string): Promise<{ success: boolean;
   });
 }
 
+/** A login bucket the server limiter is currently holding closed. */
+export interface AuthRateLimitBlock {
+  scope: string;
+  kind: 'account' | 'ip';
+  /** Account email, or client address for an ip bucket. */
+  target: string;
+  attempts: number;
+  limit: number;
+  retryAfterSec: number;
+}
+
+/** Who the sign-in limiter is blocking right now (admin-users). */
+export async function getRateLimitBlocks(): Promise<{ blocks: AuthRateLimitBlock[]; scopes: string[] }> {
+  return fetchJson('/api/auth/rate-limit');
+}
+
+/** Lifts a block immediately (admin-users). `all` clears every bucket. */
+export async function releaseRateLimit(input: {
+  email?: string;
+  ip?: string;
+  all?: boolean;
+}): Promise<{ released: number }> {
+  return fetchJson('/api/auth/rate-limit/release', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
 export async function login(email: string, password: string): Promise<{ user: User; token: string }> {
   return fetchJson('/api/auth/login', {
     method: 'POST',

@@ -7,7 +7,11 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { RateLimiter, buildRateLimitKey, buildAccountRateLimitKey } from '../server/src/utils/rateLimiter';
-import { createAuthRateLimit } from '../server/src/middleware/authRateLimit';
+import {
+  createAuthRateLimit,
+  listAuthRateLimitBlocks,
+  releaseAuthRateLimit,
+} from '../server/src/middleware/authRateLimit';
 
 describe('RateLimiter core (sliding window)', () => {
   test('allows up to max attempts, then rejects with retry time', () => {
@@ -175,13 +179,14 @@ describe('auth rate-limit middleware', () => {
 
   test('account bucket is GLOBAL and FAILURE-ONLY: rotating ips are throttled, successes revoke', () => {
     const middleware = createAuthRateLimit({ scope: 'unit-pair', accountFrom: (req) => req.body.email });
-    // 10 FAILED attempts (handler responds 401) against ONE account from
-    // DIFFERENT addresses — a distributed brute force.
-    for (let i = 0; i < 10; i++) {
+    // 4 FAILED attempts (handler responds 401) against ONE account from
+    // DIFFERENT addresses — a distributed brute force. 4 is the shipped
+    // per-account budget (AUTH_RATE_LIMIT_MAX), so this pins it.
+    for (let i = 0; i < 4; i++) {
       const { req, res } = fakeReqRes({ ip: `10.0.${i}.1`, email: 'victim@example.com' });
       middleware(req, res, () => { res.status(401).json({ message: 'Invalid email or password.' }); });
     }
-    // An 11th attempt from yet another address hits the account bucket.
+    // A 5th attempt from yet another address hits the account bucket.
     const blocked = fakeReqRes({ ip: '10.9.9.9', email: 'victim@example.com' });
     middleware(blocked.req, blocked.res, () => {});
     assert.equal(blocked.res.statusCode, 429);
@@ -217,7 +222,7 @@ describe('auth rate-limit middleware', () => {
 
   test('rejections do not extend the account block (429s are not recorded)', () => {
     const middleware = createAuthRateLimit({ scope: 'unit-noext', accountFrom: (req) => req.body.email });
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 4; i++) {
       const { req, res } = fakeReqRes({ ip: `10.1.${i}.1`, email: 'victim@example.com' });
       middleware(req, res, () => { res.status(401).json({}); });
     }
@@ -251,5 +256,89 @@ describe('auth rate-limit middleware', () => {
     let nextCalled = false;
     forgot(req, res, () => { nextCalled = true; });
     assert.equal(nextCalled, true);
+  });
+
+  test('reports attempts remaining on a failure and zero once blocked', () => {
+    const middleware = createAuthRateLimit({ scope: 'unit-remaining', accountFrom: (req) => req.body.email });
+    const seen: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      const { req, res } = fakeReqRes({ ip: `10.51.0.${i}`, email: 'remaining@example.com' });
+      middleware(req, res, () => { res.status(401).json({ message: 'Invalid email or password.' }); });
+      assert.equal(res.statusCode, 401);
+      seen.push(Number(res.headers['X-Auth-Attempts-Remaining']));
+      assert.equal(res.body.attemptsRemaining, seen[seen.length - 1], 'the body must carry the same count');
+    }
+    assert.deepEqual(seen, [3, 2, 1, 0], 'each failure must count down from the per-account budget');
+
+    const blocked = fakeReqRes({ ip: '10.51.0.99', email: 'remaining@example.com' });
+    middleware(blocked.req, blocked.res, () => {});
+    assert.equal(blocked.res.statusCode, 429);
+    assert.equal(blocked.res.headers['X-Auth-Attempts-Remaining'], '0');
+    assert.equal(blocked.res.body.attemptsRemaining, 0);
+  });
+
+  test('an authorised release frees the account bucket immediately', () => {
+    const middleware = createAuthRateLimit({ scope: 'unit-release', accountFrom: (req) => req.body.email });
+    for (let i = 0; i < 4; i++) {
+      const { req, res } = fakeReqRes({ ip: '10.61.0.1', email: 'locked@example.com' });
+      middleware(req, res, () => { res.status(401).json({}); });
+    }
+    const probe = fakeReqRes({ ip: '10.61.0.2', email: 'locked@example.com' });
+    middleware(probe.req, probe.res, () => {});
+    assert.equal(probe.res.statusCode, 429, 'the account bucket must be closed before the release');
+    assert.ok(
+      listAuthRateLimitBlocks().some(
+        (block) => block.scope === 'unit-release' && block.kind === 'account' && block.target === 'locked@example.com'
+      ),
+      'the panel must be able to see the blocked account'
+    );
+
+    // Case-insensitive, because the release normalises what an operator types.
+    const { released } = releaseAuthRateLimit({ email: 'LOCKED@example.com' });
+    assert.ok(released >= 1);
+    assert.equal(
+      listAuthRateLimitBlocks().some(
+        (block) => block.scope === 'unit-release' && block.kind === 'account' && block.target === 'locked@example.com'
+      ),
+      false
+    );
+
+    const after = fakeReqRes({ ip: '10.61.0.3', email: 'locked@example.com' });
+    let passed = false;
+    middleware(after.req, after.res, () => { passed = true; });
+    assert.equal(passed, true, 'the released account must be admitted on the next attempt');
+  });
+
+  test('a release by address clears the per-IP bucket for every account behind it', () => {
+    const middleware = createAuthRateLimit({ scope: 'unit-ip-release', accountFrom: (req) => req.body.email });
+    for (let i = 0; i < 10; i++) {
+      const { req, res } = fakeReqRes({ ip: '10.62.0.1', email: `spray${i}@example.com` });
+      middleware(req, res, () => { res.status(401).json({}); });
+    }
+    const blocked = fakeReqRes({ ip: '10.62.0.1', email: 'another@example.com' });
+    middleware(blocked.req, blocked.res, () => {});
+    assert.equal(blocked.res.statusCode, 429, 'ten attempts must exhaust the address budget');
+
+    const listed = listAuthRateLimitBlocks().filter(
+      (block) => block.scope === 'unit-ip-release' && block.kind === 'ip' && block.target === '10.62.0.1'
+    );
+    assert.equal(listed.length, 1, 'the address must be listed once, not once per account');
+
+    releaseAuthRateLimit({ ip: '10.62.0.1' });
+    assert.equal(
+      listAuthRateLimitBlocks().some(
+        (block) => block.scope === 'unit-ip-release' && block.kind === 'ip' && block.target === '10.62.0.1'
+      ),
+      false
+    );
+
+    const after = fakeReqRes({ ip: '10.62.0.1', email: 'another@example.com' });
+    let passed = false;
+    middleware(after.req, after.res, () => { passed = true; });
+    assert.equal(passed, true, 'the address must be admitted again after the release');
+  });
+
+  test('a release with no target is refused rather than clearing everything', () => {
+    assert.throws(() => releaseAuthRateLimit({}), /email, an ip, or all/);
   });
 });

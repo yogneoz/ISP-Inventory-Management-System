@@ -23,6 +23,11 @@ import {
   withReplaced,
 } from '../app';
 import { createAuthRateLimit } from '../middleware/authRateLimit';
+import { requirePermission } from '../middleware';
+import {
+  get_authRateLimitBlocks,
+  post_releaseAuthRateLimit,
+} from '../controllers/authRateLimit.controller';
 import { login as forwardLogin } from '../controllers/auth.controller';
 import type { AuditLog, User } from '../../../client/src/types';
 
@@ -41,6 +46,13 @@ app.post('/api/auth/login',
   (req, res, next) => {
     forwardLogin(req as any, res as any).catch((err) => next(err));
   });
+
+// Manual release for the sign-in limiter (authorised people only). The buckets
+// live in this process's memory, so this endpoint is the only way to lift a
+// block before its one-minute window elapses.
+app.get('/api/auth/rate-limit', requirePermission('admin-users'), (req, res) => get_authRateLimitBlocks(req, res));
+
+app.post('/api/auth/rate-limit/release', requirePermission('admin-users'), (req, res) => post_releaseAuthRateLimit(req, res));
 
 app.get('/api/auth/me', async (req, res, next) => { get_me(req as any, res as any).catch(next); });
 

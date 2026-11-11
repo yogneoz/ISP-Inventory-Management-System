@@ -204,6 +204,15 @@ export async function fetchJson<T>(endpoint: string, options?: RequestInit, conf
         const error = new Error(errorBody.message || `Request failed with status ${res.status}`);
         // Attach status code for 401 detection
         (error as any).status = res.status;
+        // Throttle context, so screens can warn BEFORE the cutoff and count a
+        // block down instead of guessing: every auth admission reports how many
+        // attempts remain, and a 429 carries Retry-After.
+        const retryAfterHeader = res.headers.get('retry-after');
+        const remainingHeader = res.headers.get('x-auth-attempts-remaining');
+        (error as any).retryAfterSec =
+          retryAfterHeader !== null ? Number(retryAfterHeader) : errorBody?.retryAfterSec;
+        (error as any).attemptsRemaining =
+          remainingHeader !== null ? Number(remainingHeader) : errorBody?.attemptsRemaining;
         // ...and the parsed body, because some refusals carry a machine-readable
         // reason a caller has to act on rather than just display:
         // noCurrentFiscalYear (409 bootstrap → offer the fiscal-year screen),

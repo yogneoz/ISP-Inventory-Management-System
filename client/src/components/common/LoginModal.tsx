@@ -18,6 +18,12 @@ import {
 import { Branch } from '../../types';
 import { api } from '../../services/api';
 
+/**
+ * The live block, kept across reloads. Rejections never extend a block, but a
+ * reload would otherwise lose the countdown and invite another attempt.
+ */
+const LOGIN_LOCK_STORAGE_KEY = 'inventory_login_lock_until';
+
 interface LoginModalProps {
   onLoginSuccess: (email: string, pass: string) => Promise<void>;
   onSetupSuperAdmin?: (data: { name: string; email: string; password: string; branchId?: string; setupToken?: string }) => Promise<void>;
@@ -60,6 +66,22 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Sign-in throttling. The server reports attempts left after a failure and a
+  // retry window on 429; warning before the cutoff is the point, and the
+  // countdown releases the screen on its own so it is never a dead end.
+  const [attemptsRemaining, setAttemptsRemaining] = useState<number | null>(null);
+  const [lock, setLock] = useState<{ until: number; durationMs: number } | null>(() => {
+    try {
+      const raw = sessionStorage.getItem(LOGIN_LOCK_STORAGE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return typeof parsed?.until === 'number' && parsed.until > Date.now() ? parsed : null;
+    } catch {
+      return null;
+    }
+  });
+  const [clock, setClock] = useState(() => Date.now());
+
   // Check setup status on load
   useEffect(() => {
     async function checkStatus() {
@@ -83,13 +105,61 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     checkStatus();
   }, []);
 
+  // One tick per second only while a block is live.
+  useEffect(() => {
+    if (!lock) return;
+    const id = setInterval(() => setClock(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [lock]);
+
+  const lockSecondsLeft = lock ? Math.max(0, Math.ceil((lock.until - clock) / 1000)) : 0;
+  const isLocked = lockSecondsLeft > 0;
+
+  // The block is the server's one-minute window. When it elapses the screen
+  // unlocks itself; access is still decided by the server on the next attempt.
+  useEffect(() => {
+    if (!lock || lockSecondsLeft > 0) return;
+    setLock(null);
+    try {
+      sessionStorage.removeItem(LOGIN_LOCK_STORAGE_KEY);
+    } catch {
+      /* private mode: nothing to clear */
+    }
+  }, [lock, lockSecondsLeft]);
+
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
       await onLoginSuccess(email, password);
+      setAttemptsRemaining(null);
+      setLock(null);
+      try {
+        sessionStorage.removeItem(LOGIN_LOCK_STORAGE_KEY);
+      } catch {
+        /* private mode: nothing to clear */
+      }
     } catch (err: any) {
+      const status = Number(err?.status);
+      const retryAfterSec = Number(err?.retryAfterSec);
+      const remaining = Number(err?.attemptsRemaining);
+      if (status === 429 && Number.isFinite(retryAfterSec) && retryAfterSec > 0) {
+        // A throttle is not a credential error: show the countdown instead of
+        // a red "invalid password" banner that suggests the password is wrong.
+        const next = { until: Date.now() + retryAfterSec * 1000, durationMs: retryAfterSec * 1000 };
+        setLock(next);
+        setClock(Date.now());
+        setAttemptsRemaining(0);
+        setError('');
+        try {
+          sessionStorage.setItem(LOGIN_LOCK_STORAGE_KEY, JSON.stringify(next));
+        } catch {
+          /* private mode: the countdown still works for this page */
+        }
+        return;
+      }
+      if (Number.isFinite(remaining)) setAttemptsRemaining(remaining);
       setError(err.message || 'Invalid credentials. Please verify your email and password.');
     } finally {
       setLoading(false);
@@ -233,6 +303,53 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               </div>
             )}
 
+            {!isLocked && attemptsRemaining !== null && attemptsRemaining <= 2 && (
+              <div
+                id="login-attempts-warning"
+                role="status"
+                className="flex items-start gap-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 p-3 text-xs text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-900"
+              >
+                <AlertTriangle className="h-4 w-4 flex-shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+                <span className="font-medium leading-relaxed">
+                  {attemptsRemaining === 0
+                    ? 'No attempts left in this window — the next sign-in will be paused briefly.'
+                    : attemptsRemaining === 1
+                      ? '1 attempt left before sign-in pauses for a minute.'
+                      : `${attemptsRemaining} attempts left before sign-in pauses for a minute.`}{' '}
+                  An administrator can release the lock immediately from User Access &amp; Role Administration.
+                </span>
+              </div>
+            )}
+
+            {isLocked && lock && (
+              <div
+                id="login-locked"
+                role="alert"
+                aria-live="polite"
+                className="rounded-xl border border-amber-300 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/40 p-3.5 space-y-2"
+              >
+                <div className="flex items-center gap-2 text-xs font-bold text-amber-900 dark:text-amber-100">
+                  <Lock className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                  <span>Sign-in paused for a moment</span>
+                </div>
+                <p className="text-[11px] text-amber-800 dark:text-amber-200 leading-relaxed">
+                  Too many attempts. You can try again in{' '}
+                  <strong aria-label={`${lockSecondsLeft} seconds remaining`}>{lockSecondsLeft}s</strong>.
+                </p>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-amber-200 dark:bg-amber-900">
+                  <div
+                    className="h-full rounded-full bg-amber-500 transition-all duration-1000 ease-linear"
+                    style={{
+                      width: `${Math.max(0, Math.min(100, ((lock.durationMs - lockSecondsLeft * 1000) / lock.durationMs) * 100))}%`,
+                    }}
+                  />
+                </div>
+                <p className="text-[10px] text-amber-700 dark:text-amber-300">
+                  This is a temporary throttle, not a locked account. Someone with User Management access can release it immediately.
+                </p>
+              </div>
+            )}
+
             <div>
               <label
                 htmlFor="login-email"
@@ -319,10 +436,16 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || isLocked}
+              aria-disabled={loading || isLocked}
               className="w-full flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white py-3 text-xs font-bold transition-all cursor-pointer shadow-lg shadow-indigo-600/25 disabled:opacity-70 disabled:cursor-not-allowed mt-2"
             >
-              {loading ? (
+              {isLocked ? (
+                <span className="flex items-center gap-2">
+                  <Lock className="h-4 w-4" />
+                  <span>Retry in {lockSecondsLeft}s</span>
+                </span>
+              ) : loading ? (
                 <span className="flex items-center gap-2">
                   <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                   <span>Verifying Credentials...</span>

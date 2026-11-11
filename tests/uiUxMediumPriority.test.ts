@@ -177,6 +177,77 @@ describe('UIX-8 — login keyboard order and error announcement', () => {
       tree.unmount();
     }
   });
+
+  test('throttling warns before the cutoff and gets a countdown, not a credential error', async () => {
+    const submitWith = async (
+      tree: any,
+      failure: () => Error
+    ) => {
+      const form = tree.container.querySelector('form') as HTMLFormElement;
+      setInputValue(tree.container.querySelector('#login-email') as HTMLInputElement, 'operator@example.com');
+      setInputValue(tree.container.querySelector('#login-password') as HTMLInputElement, 'wrong-password');
+      await act(async () => {
+        form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    };
+
+    // One attempt left: a warning, before anything is blocked.
+    const warningTree = mountTree(
+      h(LoginModal, {
+        onLoginSuccess: async () => {
+          const err: any = new Error('Invalid email or password.');
+          err.status = 401;
+          err.attemptsRemaining = 1;
+          throw err;
+        },
+      })
+    );
+    try {
+      await settle();
+      await submitWith(warningTree, () => new Error('unused'));
+      const warning = warningTree.container.querySelector('#login-attempts-warning') as HTMLElement | null;
+      assert.ok(warning, 'a low attempt count must warn before the cutoff');
+      assert.match(warning!.textContent || '', /1 attempt left/i);
+      assert.match(warning!.textContent || '', /administrator can release/i);
+    } finally {
+      warningTree.unmount();
+    }
+
+    // Blocked: its own panel, a disabled submit and a live countdown.
+    const lockedTree = mountTree(
+      h(LoginModal, {
+        onLoginSuccess: async () => {
+          const err: any = new Error('Too many attempts. Please try again in 42 seconds.');
+          err.status = 429;
+          err.retryAfterSec = 42;
+          throw err;
+        },
+      })
+    );
+    try {
+      await settle();
+      await submitWith(lockedTree, () => new Error('unused'));
+      const panel = lockedTree.container.querySelector('#login-locked') as HTMLElement | null;
+      assert.ok(panel, 'a 429 must render the countdown panel');
+      assert.match(panel!.textContent || '', /try again in\s*4[0-2]s/i);
+      const submit = lockedTree.container.querySelector('button[type="submit"]') as HTMLButtonElement;
+      assert.equal(submit.disabled, true, 'the submit button must stay disabled while blocked');
+      assert.match(submit.textContent || '', /Retry in 4[0-2]s/i);
+      assert.equal(
+        lockedTree.container.querySelector('#login-error'),
+        null,
+        'a throttle must not be presented as a wrong password'
+      );
+    } finally {
+      lockedTree.unmount();
+      try {
+        sessionStorage.removeItem('inventory_login_lock_until');
+      } catch {
+        /* jsdom without storage */
+      }
+    }
+  });
 });
 
 describe('UIX-4 — one notification source for badge, drawer and Clear All', () => {

@@ -299,6 +299,8 @@ export const api = {
   login: auth.login,
   switchProfile: auth.switchProfile,
   updateProfile: auth.updateProfile,
+  getRateLimitBlocks: auth.getRateLimitBlocks,
+  releaseRateLimit: auth.releaseRateLimit,
 
   // Branches / Suppliers / Users / Products (procurement masterdata)
   createBranch: procurement.createBranch,
