@@ -787,11 +787,11 @@ export const HrReports: React.FC<HrReportsProps> = ({ currentUser }) => {
             ) : (
               <>
                 <div className="mt-3 grid gap-4 xl:grid-cols-2">
-                  <div>
+                  <div className="min-w-0">
                     <p className={labelClass}>By branch</p>
                     <PayrollCostBranchTable rows={payroll.payrollCost.byBranch} />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <p className={labelClass}>By pay period</p>
                     <PayrollCostPeriodTable rows={payroll.payrollCost.byPeriod} />
                   </div>
