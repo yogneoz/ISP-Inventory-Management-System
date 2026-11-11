@@ -10,7 +10,10 @@
  *   3. employee/user selectors and an `ALL` branch widening are refused;
  *   4. an employee linked to a branch outside the account's allowed scope is
  *      refused, so branch scoping is enforced server-side;
- *   5. reads never mutate the employee row and there is no write path.
+ *   5. reads never mutate the employee row;
+ *   6. the one write is the caller's own contact card/photo: HR-owned columns
+ *      and unknown fields are refused by name, malformed values and an
+ *      oversized/non-image photo are refused, and each save audits once.
  */
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -93,6 +96,7 @@ const PROFILE_KEYS = [
   'panNumber',
   'personalContact',
   'personalEmail',
+  'profilePhoto',
   'ssfEligible',
   'ssfNumber',
   'updatedAt',
@@ -114,7 +118,7 @@ describe('employee self-service profile (real HTTP + PostgreSQL)', { skip: skipN
   let empCross: any = null;
 
   async function request(
-    method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     path: string,
     body?: unknown,
     auth?: string | null
@@ -344,5 +348,205 @@ describe('employee self-service profile (real HTTP + PostgreSQL)', { skip: skipN
     assert.equal(noPatch.status, 404, 'the route has no PATCH write path');
     const noDelete = await request('DELETE', '/api/hr/self-service/profile', undefined, userAToken);
     assert.equal(noDelete.status, 404, 'the route has no DELETE write path');
+  });
+
+  test('a permitted save changes only the contact card and the photo', async () => {
+    const columns = `monthly_salary::text AS salary, bank_account, bank_name, pan_number,
+      ssf_number, designation, designation_code, employment_type, personal_contact,
+      personal_email, address, emergency_contact_person, emergency_contact_number,
+      profile_photo`;
+    const before = (await pool!.query(`SELECT ${columns} FROM employees WHERE id = $1`, [empA.id]))
+      .rows[0];
+
+    const photo = `data:image/jpeg;base64,${Buffer.from('resized-square-photo').toString('base64')}`;
+    const saved = await request(
+      'PUT',
+      '/api/hr/self-service/profile',
+      {
+        personalContact: '9811111111',
+        personalEmail: 'new.address@example.com',
+        address: 'Pokhara, Nepal',
+        emergencyContactPerson: 'New Emergency Contact',
+        emergencyContactNumber: '9822222222',
+        profilePhoto: photo,
+      },
+      userAToken
+    );
+    assert.equal(saved.status, 200, JSON.stringify(saved.json));
+    assert.equal(saved.json.id, empA.id, 'the write returns the caller own row');
+    assert.equal(saved.json.personalContact, '9811111111');
+    assert.equal(saved.json.personalEmail, 'new.address@example.com');
+    assert.equal(saved.json.address, 'Pokhara, Nepal');
+    assert.equal(saved.json.emergencyContactPerson, 'New Emergency Contact');
+    assert.equal(saved.json.emergencyContactNumber, '9822222222');
+    assert.equal(saved.json.profilePhoto, photo);
+
+    // HR-owned columns come back from the same row, untouched.
+    assert.equal(saved.json.monthlySalary, '123456.78');
+    assert.equal(saved.json.panNumber, '900000001');
+    assert.equal(saved.json.bankAccount, 'ACC-ESS-1');
+    assert.equal(saved.json.designation, 'ESS Analyst');
+
+    const after = (await pool!.query(`SELECT ${columns} FROM employees WHERE id = $1`, [empA.id]))
+      .rows[0];
+    for (const column of ['salary', 'bank_account', 'bank_name', 'pan_number', 'ssf_number', 'designation', 'designation_code', 'employment_type']) {
+      assert.deepEqual(after[column], before[column], `${column} must not change from self-service`);
+    }
+    assert.equal(after.profile_photo, photo);
+
+    // A null photo clears the picture; the other fields save as given.
+    const cleared = await request(
+      'PUT',
+      '/api/hr/self-service/profile',
+      {
+        personalContact: null,
+        personalEmail: null,
+        address: null,
+        emergencyContactPerson: null,
+        emergencyContactNumber: null,
+        profilePhoto: null,
+      },
+      userAToken
+    );
+    assert.equal(cleared.status, 200, JSON.stringify(cleared.json));
+    assert.equal(cleared.json.personalContact, null);
+    assert.equal(cleared.json.profilePhoto, null);
+
+    // Put the fixture values back for the later cases.
+    const restored = await request(
+      'PUT',
+      '/api/hr/self-service/profile',
+      {
+        personalContact: '9800000001',
+        personalEmail: 'ess-001@personal.example',
+        address: 'Kathmandu, Nepal',
+        emergencyContactPerson: 'ESS Emergency',
+        emergencyContactNumber: '9800000002',
+        profilePhoto: null,
+      },
+      userAToken
+    );
+    assert.equal(restored.status, 200);
+    assert.equal(restored.json.address, 'Kathmandu, Nepal');
+  });
+
+  test('HR-only, malformed and oversized values are refused without writing', async () => {
+    const before = (await pool!.query(
+      'SELECT personal_contact, personal_email, profile_photo FROM employees WHERE id = $1',
+      [empA.id]
+    )).rows[0];
+    const auditsBefore = (
+      await pool!.query(
+        "SELECT COUNT(*)::int AS count FROM audit_logs WHERE action = 'UPDATE_SELF_SERVICE_PROFILE'"
+      )
+    ).rows[0].count;
+
+    const cases: Array<[string, unknown, number]> = [
+      ['salary', { monthlySalary: 999999 }, 400],
+      ['bank account', { bankAccount: 'ACC-HACK' }, 400],
+      ['designation', { designation: 'CEO' }, 400],
+      ['employee code', { employeeCode: 'HACK-1' }, 400],
+      // The branch guard answers before the controller: a body naming another
+      // branch is refused as out-of-scope, not as an unknown field.
+      ['branch', { branchId: OTHER_BRANCH }, 403],
+      ['unknown field', { nickname: 'x' }, 400],
+      ['bad phone', { personalContact: 'call-me' }, 400],
+      ['bad e-mail', { personalEmail: 'not-an-email' }, 400],
+      ['bad photo type', { profilePhoto: 'data:text/plain;base64,AAAA' }, 400],
+      ['oversized photo', { profilePhoto: `data:image/jpeg;base64,${'A'.repeat(300 * 1024)}` }, 413],
+    ];
+
+    for (const [label, body, status] of cases) {
+      const refused = await request('PUT', '/api/hr/self-service/profile', body, userAToken);
+      assert.equal(refused.status, status, `${label}: ${JSON.stringify(refused.json)}`);
+    }
+
+    const after = (await pool!.query(
+      'SELECT personal_contact, personal_email, profile_photo FROM employees WHERE id = $1',
+      [empA.id]
+    )).rows[0];
+    assert.deepEqual(after, before, 'a refused save must change nothing');
+    const auditsAfter = (
+      await pool!.query(
+        "SELECT COUNT(*)::int AS count FROM audit_logs WHERE action = 'UPDATE_SELF_SERVICE_PROFILE'"
+      )
+    ).rows[0].count;
+    assert.equal(auditsAfter, auditsBefore, 'a refused save must not audit');
+  });
+
+  test('the write needs the grant, and branch scope still applies', async () => {
+    const deniedMatrix = JSON.parse(JSON.stringify(DEFAULT_PERMISSIONS_MATRIX));
+    deniedMatrix['hr-self-service'].FRONT_DESK = false;
+    setPermissionMatrix(deniedMatrix);
+    try {
+      const denied = await request(
+        'PUT',
+        '/api/hr/self-service/profile',
+        { personalContact: '9800000001' },
+        userAToken
+      );
+      assert.equal(denied.status, 403, 'a role without hr-self-service must not write');
+    } finally {
+      setPermissionMatrix(JSON.parse(JSON.stringify(DEFAULT_PERMISSIONS_MATRIX)));
+    }
+
+    const unauthenticated = await request(
+      'PUT',
+      '/api/hr/self-service/profile',
+      { personalContact: '9800000001' },
+      null
+    );
+    assert.equal(unauthenticated.status, 401);
+
+    // The linked employee sits in a branch this account may not act on.
+    const cross = await request(
+      'PUT',
+      '/api/hr/self-service/profile',
+      { personalContact: '9800000001' },
+      crossToken
+    );
+    assert.equal(cross.status, 403, 'a cross-branch linked employee must be refused');
+
+    // A selector cannot redirect the write to a colleague
+    const selector = await request(
+      'PUT',
+      '/api/hr/self-service/profile?employeeId=' + encodeURIComponent(empB.id),
+      { personalContact: '9800000001' },
+      userAToken
+    );
+    assert.equal(selector.status, 403, 'employee selectors are refused on write too');
+  });
+
+  test('each successful save writes exactly one self-service audit row', async () => {
+    const count = async (): Promise<number> =>
+      Number(
+        (
+          await pool!.query(
+            "SELECT COUNT(*)::int AS count FROM audit_logs WHERE action = 'UPDATE_SELF_SERVICE_PROFILE'"
+          )
+        ).rows[0].count
+      );
+    const before = await count();
+    const saved = await request(
+      'PUT',
+      '/api/hr/self-service/profile',
+      {
+        personalContact: '9800000001',
+        personalEmail: 'ess-001@personal.example',
+        address: 'Kathmandu, Nepal',
+        emergencyContactPerson: 'ESS Emergency',
+        emergencyContactNumber: '9800000002',
+        profilePhoto: null,
+      },
+      userAToken
+    );
+    assert.equal(saved.status, 200, JSON.stringify(saved.json));
+    assert.equal((await count()) - before, 1, 'one audit row per save');
+
+    const row = (await pool!.query(
+      "SELECT module, branch_id FROM audit_logs WHERE action = 'UPDATE_SELF_SERVICE_PROFILE' ORDER BY timestamp_ad DESC LIMIT 1"
+    )).rows[0];
+    assert.equal(row.module, 'AUTH');
+    assert.equal(row.branch_id, BRANCH);
   });
 });

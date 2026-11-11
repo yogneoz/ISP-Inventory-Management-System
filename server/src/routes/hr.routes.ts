@@ -97,6 +97,7 @@ import {
   get_hrSelfServiceLeave,
   get_hrSelfServicePayslips,
   get_hrSelfServiceProfile,
+  put_hrSelfServiceProfile,
 } from '../controllers/hrSelfService.controller';
 import {
   get_hrSalaryStructure,
@@ -136,6 +137,16 @@ export function registerHrRoutes(app: Express) {
     requirePermissionAny('hr-self-service'),
     async (req, res, next) => {
       get_hrSelfServiceProfile(req as any, res as any).catch(next);
+    }
+  );
+  // The one self-service write: the employee's own contact card and photo.
+  // Same grant as the read, no employee/branch selector, and the controller
+  // refuses every HR-only column by name.
+  app.put(
+    '/api/hr/self-service/profile',
+    requirePermissionAny('hr-self-service'),
+    async (req, res, next) => {
+      put_hrSelfServiceProfile(req as any, res as any).catch(next);
     }
   );
   app.get(

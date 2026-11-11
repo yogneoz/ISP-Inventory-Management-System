@@ -388,6 +388,38 @@ Their data is reference for the schema only; no personal rows are committed.
   check:no-raw-dialogs` clean (229 client files), `git diff --check` clean.
 - The new screen has not been visually inspected in a browser.
 
+## Phase 6 — self-service profile card, photo and narrow editing
+
+`My Profile` is no longer read-only. The page now carries a profile picture and
+an **Edit information** mode that writes only the five fields an employee owns:
+personal contact, personal e-mail, address, emergency contact person and
+emergency contact number.
+
+- **Server**: `PUT /api/hr/self-service/profile` (`hr-self-service`), the same
+grant as the read. The controller refuses every HR-owned column by name
+  (`monthlySalary`, `panNumber`, `ssfNumber`, `bankName`, `bankAccount`,
+  `designation`, `department`, `employmentType`, `isActive`, …) and every
+  unknown key with a 400 instead of ignoring it, validates the phone/e-mail
+  formats, and bounds the photo to a 150 KB JPEG/PNG/WebP data URL (413 above
+  that). The write is keyed by `employees.user_id` in the SQL itself, so a
+  stale id cannot touch another record, and each save writes one
+  `UPDATE_SELF_SERVICE_PROFILE` audit row (`AUTH` module).
+- **Storage**: `employees.profile_photo TEXT` holds the client-resized square
+  JPEG data URL. Nothing else about the employee row changed; salary, statutory
+  ids and bank details stay on the HR master and are shown read-only with a
+  lock on the page.
+- **Photo pipeline** (`client/src/utils/photoCrop.ts` +
+  `EmployeeSelfServicePhotoDialog.tsx`): pick a JPEG/PNG/WebP, drag to pan and
+  zoom (1–3×), and the dialog draws the square crop onto a canvas at 320×320,
+  stepping quality (0.85/0.75/0.65) and then the output square (320/256/224)
+  until the data URL fits 150 KB. Panning clamps inside the image, so no blank
+  corners; the byte maths is unit-tested without a DOM.
+- **Tests**: four API cases on the real route (only the five fields change and
+  HR columns are byte-identical; HR-only/unknown/malformed/oversized values are
+  refused with nothing written; grant, branch scope and selectors are enforced;
+  one audit row per save), three rendered dialog cases for the F1 profile
+  (masked read-only, add/remove rows, save payload) and three crop-maths cases.
+
 ## Phase 1 — attendance and leave
 
 - [x] `hr_shifts`, `hr_holidays`, `hr_attendance`, `hr_leave_types` foundation:

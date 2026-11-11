@@ -38,7 +38,9 @@ import {
   HR_SELF_LEAVE_REQUESTS_SQL,
   HR_SELF_PAYSLIPS_SQL,
   HR_SELF_PROFILE_SQL,
+  HR_SELF_PROFILE_UPDATE_SQL,
 } from '../models/hrSelfService.repo';
+import { logAuditEvent } from '../services/audit.service';
 
 function holdsPermission(req: any, operation: string): boolean {
   const user = req.user || getUserFromReq(req);
@@ -281,4 +283,157 @@ export async function get_hrSelfServiceAttendance(req: any, res: Response): Prom
     summary,
     records,
   });
+}
+
+/**
+ * The fields an employee owns about themselves. Everything else on the row is
+ * HR's: a PUT naming one of those fields is refused, not silently ignored, so a
+ * client cannot believe it changed a salary or a bank account.
+ */
+export const HR_SELF_EDITABLE_FIELDS = [
+  'personalContact',
+  'personalEmail',
+  'address',
+  'emergencyContactPerson',
+  'emergencyContactNumber',
+  'profilePhoto',
+] as const;
+
+/** Mirrors the client's PROFILE_PHOTO_MAX_BYTES (utils/photoCrop). */
+export const HR_SELF_PHOTO_MAX_BYTES = 150 * 1024;
+
+const HR_SELF_HR_ONLY_FIELDS = [
+  'employeeCode',
+  'name',
+  'employeeId',
+  'userId',
+  'branchId',
+  'role',
+  'status',
+  'isActive',
+  'department',
+  'designation',
+  'designationCode',
+  'employmentType',
+  'workStation',
+  'joiningDateAD',
+  'contractExpiryAD',
+  'dateOfBirthAD',
+  'internalEmail',
+  'panNumber',
+  'ssfNumber',
+  'ssfEligible',
+  'bankName',
+  'bankAccount',
+  'monthlySalary',
+] as const;
+
+const PHONE_PATTERN = /^[0-9+()\-\s]{6,30}$/;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHOTO_DATA_URL = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
+
+/** Trimmed text or null; a blank field clears the stored value. */
+function editableText(
+  value: unknown,
+  max: number,
+  label: string,
+  pattern?: RegExp
+): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string') throw new ApiError(400, `${label} must be text.`);
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.length > max) {
+    throw new ApiError(400, `${label} is longer than ${max} characters.`);
+  }
+  if (pattern && !pattern.test(trimmed)) {
+    throw new ApiError(400, `${label} has an unexpected format.`);
+  }
+  return trimmed;
+}
+
+/**
+ * PUT /api/hr/self-service/profile — the caller edits their own contact card
+ * and photo.
+ *
+ * The record still comes from the session (`employees.user_id`), never from the
+ * body, and the write runs under the same branch scope as the read. The photo
+ * must be a JPEG/PNG/WebP data URL within the size the client produces, so a
+ * caller cannot park an arbitrary blob in the column.
+ */
+export async function put_hrSelfServiceProfile(req: any, res: Response): Promise<any> {
+  const user = requireSelfService(req);
+  const employee = await resolveOwnEmployee(req, user);
+
+  const body = req.body;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new ApiError(400, 'A profile object is required.');
+  }
+
+  for (const field of HR_SELF_HR_ONLY_FIELDS) {
+    if (Object.hasOwn(body, field)) {
+      throw new ApiError(400, `${field} is managed by HR and cannot be edited from self-service.`);
+    }
+  }
+  const unknown = Object.keys(body).filter(
+    (key) => !(HR_SELF_EDITABLE_FIELDS as readonly string[]).includes(key)
+  );
+  if (unknown.length) {
+    throw new ApiError(
+      400,
+      `These fields cannot be edited from self-service: ${unknown.join(', ')}.`
+    );
+  }
+
+  const personalContact = editableText(body.personalContact, 30, 'Personal contact', PHONE_PATTERN);
+  const personalEmail = editableText(body.personalEmail, 150, 'Personal e-mail', EMAIL_PATTERN);
+  const address = editableText(body.address, 500, 'Address');
+  const emergencyContactPerson = editableText(
+    body.emergencyContactPerson,
+    150,
+    'Emergency contact person'
+  );
+  const emergencyContactNumber = editableText(
+    body.emergencyContactNumber,
+    30,
+    'Emergency contact number',
+    PHONE_PATTERN
+  );
+
+  let profilePhoto: string | null = null;
+  if (body.profilePhoto !== null && body.profilePhoto !== undefined) {
+    if (typeof body.profilePhoto !== 'string' || !PHOTO_DATA_URL.test(body.profilePhoto)) {
+      throw new ApiError(400, 'The profile photo must be a JPEG, PNG or WebP data URL.');
+    }
+    const base64 = body.profilePhoto.slice(body.profilePhoto.indexOf(',') + 1);
+    const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+    const bytes = Math.floor((base64.length * 3) / 4) - padding;
+    if (bytes > HR_SELF_PHOTO_MAX_BYTES) {
+      throw new ApiError(413, 'The profile photo is larger than 150 KB after resizing.');
+    }
+    profilePhoto = body.profilePhoto;
+  }
+
+  await pgPool.query(HR_SELF_PROFILE_UPDATE_SQL, [
+    employee.id,
+    personalContact,
+    personalEmail,
+    address,
+    emergencyContactPerson,
+    emergencyContactNumber,
+    profilePhoto,
+    user.id,
+  ]);
+
+  await logAuditEvent(
+    req,
+    'UPDATE_SELF_SERVICE_PROFILE',
+    'AUTH',
+    `Updated own self-service contact details${profilePhoto ? ' and profile photo' : ''}`,
+    String(employee.branchId)
+  );
+
+  const refreshed = (await pgPool.query(HR_SELF_PROFILE_SQL, [user.id])).rows[0];
+  res.setHeader('Cache-Control', 'private, no-store');
+  return res.json(refreshed);
 }

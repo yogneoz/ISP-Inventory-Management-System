@@ -2283,6 +2283,7 @@ CREATE TABLE IF NOT EXISTS employees (
     case_details TEXT,
     declaration_date_ad DATE,
     declaration_name VARCHAR(200),
+    profile_photo TEXT,
     monthly_salary NUMERIC(12, 2),
     ssf_eligible BOOLEAN NOT NULL DEFAULT FALSE,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -2315,6 +2316,9 @@ ALTER TABLE employees ADD COLUMN IF NOT EXISTS emergency_contact_number VARCHAR(
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS internal_email VARCHAR(150);
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS personal_email VARCHAR(150);
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS monthly_salary NUMERIC(12, 2);
+-- Self-service profile photo: a client-resized square JPEG data URL (<= 150 KB),
+-- written only by the employee's own PUT and never by the HR master forms.
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS profile_photo TEXT;
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS ssf_eligible BOOLEAN NOT NULL DEFAULT FALSE;
 -- F1 Employee Profile scalar answers (the repeating blocks are the four
 -- hr_employee_* tables below). Master dates stay AD-only, like the other

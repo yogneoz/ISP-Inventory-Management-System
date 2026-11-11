@@ -65,6 +65,8 @@ export interface HrSelfProfile {
   bankAccount: string | null;
   monthlySalary: string | number | null;
   isActive: boolean;
+  /** Square JPEG data URL written by self-service; null when none is set. */
+  profilePhoto: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -194,6 +196,28 @@ export async function getEmployeeUserOptions(): Promise<EmployeeUserOption[]> {
  */
 export async function getMyHrProfile(): Promise<HrSelfProfile> {
   return fetchJson('/api/hr/self-service/profile');
+}
+
+/**
+ * The fields self-service may change. The server refuses every other column by
+ * name, so this interface is the client half of the same allow-list — salary,
+ * statutory ids, bank details and employment terms are deliberately absent.
+ */
+export interface HrSelfProfileInput {
+  personalContact: string | null;
+  personalEmail: string | null;
+  address: string | null;
+  emergencyContactPerson: string | null;
+  emergencyContactNumber: string | null;
+  profilePhoto: string | null;
+}
+
+/** Writes the caller's own contact card/photo and returns the stored row. */
+export async function saveMyHrProfile(input: HrSelfProfileInput): Promise<HrSelfProfile> {
+  return fetchJson('/api/hr/self-service/profile', {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
 }
 
 /**

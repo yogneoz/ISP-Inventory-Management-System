@@ -1212,7 +1212,10 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       'updateHrLeaveType',
       'updateHrShift',
     ],
-    'hr/EmployeeSelfService.tsx': ['getMyHrProfile'],
+    'hr/EmployeeSelfService.tsx': ['getMyHrProfile', 'saveMyHrProfile'],
+    // The photo dialog owns the crop/resize canvas only; the screen behind it
+    // saves the data URL through saveMyHrProfile.
+    'hr/EmployeeSelfServicePhotoDialog.tsx': [],
     'hr/EmployeePayslips.tsx': ['getMyHrPayslips'],
     'hr/EmployeeLeave.tsx': ['getMyHrLeave'],
     'hr/EmployeeAttendance.tsx': ['getMyHrAttendance'],

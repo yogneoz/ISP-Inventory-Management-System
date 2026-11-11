@@ -52,6 +52,7 @@ const profile: HrSelfProfile = {
   bankName: 'Test Bank',
   bankAccount: '000111222333',
   monthlySalary: '98765.40',
+  profilePhoto: null,
   isActive: true,
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-02T00:00:00.000Z',

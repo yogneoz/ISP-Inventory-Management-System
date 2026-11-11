@@ -461,6 +461,7 @@ export const api = {
   getEmployees: hr.getEmployees,
   getEmployeeUserOptions: hr.getEmployeeUserOptions,
   getMyHrProfile: hr.getMyHrProfile,
+  saveMyHrProfile: hr.saveMyHrProfile,
   getMyHrPayslips: hr.getMyHrPayslips,
   getMyHrLeave: hr.getMyHrLeave,
   getMyHrAttendance: hr.getMyHrAttendance,

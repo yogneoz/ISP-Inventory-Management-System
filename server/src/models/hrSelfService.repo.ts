@@ -37,11 +37,34 @@ export const HR_SELF_PROFILE_SQL = `SELECT
   e.monthly_salary AS "monthlySalary",
   e.is_active AS "isActive",
   e.created_at AS "createdAt",
-  e.updated_at AS "updatedAt"
+  e.updated_at AS "updatedAt",
+  e.profile_photo AS "profilePhoto"
 FROM employees e
 LEFT JOIN branches b ON b.id = e.branch_id
 WHERE e.user_id = $1
 LIMIT 1`;
+
+/**
+ * The ONLY write self-service exposes on the employee row.
+ *
+ * The column list IS the allow-list: contact details, address, emergency
+ * contact and the photo belong to the employee. Salary, PAN/SSF ids, bank
+ * details, designation and employment terms are absent by construction, so no
+ * controller mistake can widen them.
+ *
+ * `user_id = $8` repeats the ownership check in SQL: even a stale employee id
+ * from the session resolution cannot update a record this login does not own.
+ */
+export const HR_SELF_PROFILE_UPDATE_SQL = `UPDATE employees SET
+  personal_contact = $2,
+  personal_email = $3,
+  address = $4,
+  emergency_contact_person = $5,
+  emergency_contact_number = $6,
+  profile_photo = $7,
+  updated_at = CURRENT_TIMESTAMP
+WHERE id = $1 AND user_id = $8
+RETURNING id`;
 
 /**
  * The signed-in employee's own posted/paid payslips. The join starts at
