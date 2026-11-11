@@ -5,6 +5,7 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { useDialog } from '../common/DialogProvider';
 import { api } from '../../services/api';
 import type {
   CashFlowForecastDirection,
@@ -56,6 +57,7 @@ export const CashFlowForecastSources: React.FC<CashFlowForecastSourcesProps> = (
   currentUser,
   onChanged,
 }) => {
+  const { confirm: confirmDialog } = useDialog();
   const canPost = isOperationAllowed('gl-post', currentUser?.role);
   const scopedBranches = useMemo(
     () => branches.filter((branch) => branch.active && branch.id !== 'ALL'),
@@ -140,9 +142,7 @@ export const CashFlowForecastSources: React.FC<CashFlowForecastSourcesProps> = (
   };
 
   const remove = async (input: CashFlowManualInput) => {
-    if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
-      if (!window.confirm(`Delete "${input.description}" from the forecast?`)) return;
-    }
+    if (!(await confirmDialog(`Delete "${input.description}" from the forecast?`))) return;
     setSaving(true);
     setError('');
     setNotice('');

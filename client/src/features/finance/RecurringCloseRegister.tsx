@@ -23,6 +23,7 @@ import {
   X,
 } from 'lucide-react';
 import { PageHeader } from '../../components/common/PageHeader';
+import { useDialog } from '../../components/common/DialogProvider';
 import { useActivationKey } from '../../components/common/KeepMounted';
 import { btnGhost, btnPrimary, inputClass, labelClass } from '../../components/common/styleConstants';
 import { api, getActiveBranchId } from '../../services/api';
@@ -103,6 +104,7 @@ export const RecurringCloseRegister: React.FC<RecurringCloseRegisterProps> = ({
   currentUser,
 }) => {
   const activationKey = useActivationKey('recurring-close');
+  const { confirm: confirmDialog } = useDialog();
   const canPost = isOperationAllowed('gl-post', currentUser?.role);
   const canClose = isOperationAllowed('gl-close', currentUser?.role);
   const scopedBranches = useMemo(
@@ -359,7 +361,7 @@ export const RecurringCloseRegister: React.FC<RecurringCloseRegisterProps> = ({
   }
 
   async function removeTemplate(template: RecurringTemplate) {
-    if (!window.confirm(`Delete recurring template ${template.code}?`)) return;
+    if (!(await confirmDialog(`Delete recurring template ${template.code}?`))) return;
     setError('');
     try {
       await api.deleteRecurringTemplate(template.id);

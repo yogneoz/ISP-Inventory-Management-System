@@ -79,8 +79,13 @@ const ASSETS = path.join(DIST, 'assets');
 // screen itself is lazy. The 6 B overflow moves the entry gate 20.5 -> 20.625 kB
 // (21,120 B; 122 B headroom). Startup measured 313.3 kB against the unchanged
 // 320 kB total.
+// 2026-11-11 (module rollout): measured entry 20.8 kB after the HR, budget and
+// warranty permission rows, sidebar items, canonical paths, tab gates and API
+// barrel additions. The shell wiring is required for the new registers; the
+// entry gate moves to 21 kB (21,504 B) while startup measures 315.3 kB against
+// the unchanged 320 kB total.
 const BUDGETS = {
-  entryGz: 20.625 * 1024, // entry chunk alone
+  entryGz: 21 * 1024, // entry chunk alone
   startupTotalGz: 320 * 1024, // entry + all statically-imported chunks
 };
 
