@@ -2,7 +2,8 @@
 // lock, RBAC, matrix-based operation permissions, and branch access scoping.
 // Extracted verbatim from app.ts (isPgConnected now read via accessors).
 import { pgPool, realPoolInstance, ensurePostgresConnection, getIsPgConnected, setIsPgConnected } from '../../db';
-import { branches, users, permissionMatrix, userPermissionOverrides, userPermissionSetGrants, getPgConnected, setPgConnected } from '../app';
+import { branches, users, permissionMatrix, userPermissionOverrides, userPermissionSetGrants, fiscalYears, logAuditEvent, getPgConnected, setPgConnected } from '../app';
+import { evaluateFiscalYearWriteGate } from './fiscalWriteGate';
 import { effectivePermission } from '../services/permissionOverrides.service';
 import { getUserFromReq, sessionStillValid, verifyAuthToken } from './auth';
 import { BRANCH_SCOPED_READ_PATHS, COLLECTION_SEGMENTS, findBranchScopedResource } from './branchScope';
@@ -52,29 +53,51 @@ export async function requirePostgres(req: any, res: any, next: any) {
 }
 
 /**
- * Fiscal year chosen in the UI is a view context. Mutations against a closed
- * context are restricted to the two roles permitted to make audited changes.
+ * Closed-fiscal-year write gate.
+ *
+ * The year is derived from the DOCUMENT's own date (fiscalWriteGate), never from
+ * the `x-fiscal-year-id` view header: that header was caller-supplied, so
+ * omitting it skipped the check and made the IRD period lock advisory. A closed
+ * year now refuses every write except a Super Admin override, which must carry
+ * a written reason and is audit-logged here.
  */
 export async function enforceFiscalYearWriteAccess(req: any, res: any, next: any) {
-  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
-  if (req.path.startsWith('/auth/') || req.path.startsWith('/fiscal-years/') || req.path.startsWith('/sync/')) return next();
+  const role = (req.user || getUserFromReq(req)).role;
+  const verdict = evaluateFiscalYearWriteGate({
+    method: req.method,
+    path: req.path,
+    body: req.body,
+    role,
+    fiscalYears,
+  });
 
-  const fiscalYearId = typeof req.headers['x-fiscal-year-id'] === 'string' ? req.headers['x-fiscal-year-id'] : '';
-  if (!fiscalYearId) return next();
+  if (verdict.kind === 'allow') return next();
 
-  try {
-    const result = await pgPool.query('SELECT is_closed AS "isClosed" FROM fiscal_years WHERE id = $1;', [fiscalYearId]);
-    const fiscalYear = result.rows[0];
-    if (!fiscalYear?.isClosed) return next();
-
-    const role = (req.user || getUserFromReq(req)).role;
-    if (role === 'SUPER_ADMIN' || role === 'INVENTORY_MANAGER') return next();
+  if (verdict.kind === 'closed') {
     return res.status(423).json({
-      message: 'This fiscal year is closed. Only Super Admin or Inventory Manager can make an audited adjustment.',
+      message: verdict.requiresReason
+        ? `Fiscal year ${verdict.fiscalYearCode} is closed. Posting into it needs a Super Admin override with a written reason (at least 10 characters).`
+        : `Fiscal year ${verdict.fiscalYearCode} is closed. Only a Super Admin can post an audited adjustment into it.`,
+      fiscalYearClosed: true,
+      requiresOverrideReason: verdict.requiresReason,
+      fiscalYearCode: verdict.fiscalYearCode,
     });
-  } catch (error: any) {
-    return res.status(503).json({ message: `Unable to verify fiscal-year access: ${error.message}` });
   }
+
+  // Super Admin override: record who wrote into a locked period and why before
+  // the write proceeds. The audit row is best-effort — a logging failure must
+  // not silently convert the operator's authorized action into a 500.
+  const audit = logAuditEvent(
+    req,
+    'CLOSED_PERIOD_OVERRIDE',
+    'FISCAL_YEAR',
+    `Super Admin wrote into closed fiscal year ${verdict.fiscalYearCode} via ${req.method} ${req.path}` +
+      `${verdict.dateAD ? ` (document date ${verdict.dateAD})` : ' (no document date — current year)'}: ${verdict.reason}`
+  );
+  if (audit && typeof (audit as any).then === 'function') {
+    await (audit as any).catch(() => undefined);
+  }
+  return next();
 }
 
 /**
