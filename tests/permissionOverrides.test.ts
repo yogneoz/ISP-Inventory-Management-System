@@ -700,4 +700,35 @@ describe('per-user permission override API', () => {
     assert.ok(Object.keys(DEFAULT_PERMISSIONS_MATRIX).length >= 50);
     assert.equal(typeof DEFAULT_PERMISSIONS_MATRIX['inv-pay'], 'object');
   });
+
+  // Declared last on purpose: these two write an override row, and the suites
+  // above assert the fixture's clean starting state.
+  test('a Sub Super Admin cannot write their own exceptions', async (t) => {
+    if (!(await needsDb(t))) return;
+    // The token names the target row itself: delegation must not become a
+    // second owner by granting operations to the same account.
+    const selfToken = issueAuthToken({ ...TARGET, role: 'HEAD_OFFICE_ADMIN' });
+    const res = await call('PUT', '/api/users/pov-target/permission-overrides', selfToken, {
+      overrides: [{ operationId: 'inv-delete', effect: 'grant', reason: 'self grant attempt' }],
+    });
+    assert.equal(res.status, 403, JSON.stringify(res.json));
+    assert.match(String(res.json?.message), /your own permission exceptions/i);
+  });
+
+  test('a Sub Super Admin may still write exceptions for another account', async (t) => {
+    if (!(await needsDb(t))) return;
+    const subToken = issueAuthToken({ ...SUPER_CALLER, id: 'pov-sub-caller', role: 'HEAD_OFFICE_ADMIN' });
+    const res = await call('PUT', '/api/users/pov-target/permission-overrides', subToken, {
+      overrides: [{ operationId: 'inv-delete', effect: 'grant', reason: 'delegated admin grant' }],
+    });
+    assert.equal(res.status, 200, JSON.stringify(res.json));
+    assert.equal(res.json.operations.includes('inv-delete'), true);
+
+    // Leave the fixture exactly as it was found.
+    const cleared = await call('PUT', '/api/users/pov-target/permission-overrides', subToken, {
+      overrides: [],
+    });
+    assert.equal(cleared.status, 200, JSON.stringify(cleared.json));
+    assert.deepEqual(cleared.json.overrides, []);
+  });
 });

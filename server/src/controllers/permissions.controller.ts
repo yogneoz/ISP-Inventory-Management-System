@@ -504,8 +504,9 @@ export async function get_user_permission_overrides(req: any, res: Response): Pr
 
 /**
  * PUT /api/users/:id/permission-overrides — replace one user's exceptions.
- * SUPER_ADMIN only (route layer). A Super Admin target is refused: that role is
- * immutable, so an override could only create a misleading row.
+ * Administrator-only (route layer). A Super Admin target is refused: that role
+ * is immutable, so an override could only create a misleading row. A delegated
+ * administrator also cannot target their own account.
  */
 export async function put_user_permission_overrides(req: any, res: Response): Promise<any> {
   const userId = String(req.params?.id || '');
@@ -528,6 +529,16 @@ export async function put_user_permission_overrides(req: any, res: Response): Pr
     if (target.role === 'SUPER_ADMIN') {
       res.status(400).json({
         message: 'Super Admin always has every operation; overrides do not apply to this account.',
+      });
+      return;
+    }
+    // Delegated administrators may edit anyone else's exceptions, never their
+    // own: a Sub Super Admin who could grant themselves operations would be a
+    // second owner by another route.
+    const actor = getUserFromReq(req);
+    if (actor.id === target.id && actor.role !== 'SUPER_ADMIN') {
+      res.status(403).json({
+        message: 'You cannot change your own permission exceptions; ask a Super Admin.',
       });
       return;
     }
@@ -741,6 +752,15 @@ export async function put_user_permission_sets(req: any, res: Response): Promise
     if (target.role === 'SUPER_ADMIN') {
       res.status(400).json({
         message: 'Super Admin always has every operation; permission sets do not apply to this account.',
+      });
+      return;
+    }
+    // Same rule as the override write: sets grant operations, so a delegated
+    // administrator must not be able to assign one to their own account.
+    const actor = getUserFromReq(req);
+    if (actor.id === target.id && actor.role !== 'SUPER_ADMIN') {
+      res.status(403).json({
+        message: 'You cannot change your own permission sets; ask a Super Admin.',
       });
       return;
     }

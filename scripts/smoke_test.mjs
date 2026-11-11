@@ -182,6 +182,17 @@ check('read: /api/bootstrap returns every expected payload section', async () =>
 check('read: /api/health and /api/db/status are healthy', async () => {
   const h = await HTTP.get('/api/health');
   ok(h.status === 200, `health expected 200, got ${h.status}`);
+  // Monitoring reads contention from this endpoint; a missing or malformed
+  // block would silently blind it (the counters themselves are allowed to be 0).
+  const tr = h.data && h.data.transactionRetries;
+  ok(tr && typeof tr === 'object', 'health missing transactionRetries counters');
+  ok(
+    Number.isFinite(tr.total) && Number.isFinite(tr.deadlock) && Number.isFinite(tr.serializationFailure),
+    `transactionRetries counters must be numbers: ${JSON.stringify(tr)}`
+  );
+  ok(tr.deadlock + tr.serializationFailure <= tr.total, `retry counters exceed total: ${JSON.stringify(tr)}`);
+  ok(tr.lastRetryAt === null || typeof tr.lastRetryAt === 'string', 'lastRetryAt must be null or an ISO string');
+  ok(tr.lastCode === null || typeof tr.lastCode === 'string', 'lastCode must be null or a SQLSTATE');
   const d = await HTTP.get('/api/db/status');
   ok(d.status === 200, `db/status expected 200, got ${d.status}`);
   ok(d.data && 'isConnected' in d.data, 'db/status missing isConnected');

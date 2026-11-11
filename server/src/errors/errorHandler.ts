@@ -41,7 +41,13 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
       res.status(409).json({ message: 'This record references something that no longer exists. Reload and try again.' });
       return;
     }
-    console.error('Unhandled database error:', err);
+    // PostgreSQL's `detail` names the two sides of the lock cycle; without it a
+    // deadlock report only says "deadlock detected" and cannot be diagnosed.
+    const detail = (err as any)?.detail;
+    console.error(
+      'Unhandled database error:',
+      detail ? `${(err as any)?.message ?? err} — ${detail}` : err
+    );
     res.status(500).json({ message: 'The database refused this change. The server log has the details.' });
     return;
   }

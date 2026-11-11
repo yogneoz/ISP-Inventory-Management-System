@@ -202,12 +202,13 @@ Put the write behind **Super Admin and Sub Super Admin**
 (`requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN')`), deliberately not behind
 `admin-users`: branch-level user management should not imply the ability to
 rewrite the effective permission set. The target refusal is enforced in the
-controller: nobody may write an override on a `SUPER_ADMIN` account. A Sub
-Super Admin is a delegated owner and may write exceptions for any other
-non-Super-Admin account, including their own — the hard guard is the Super
-Admin target, not self-granting, so `HEAD_OFFICE_ADMIN` is owner-equivalent
-trust. The screen lives in Settings next to the matrix and is hidden for every
-other role.
+controller: nobody may write an override on a `SUPER_ADMIN` account, and a
+Sub Super Admin may not write one on their **own** account either (the same
+check guards permission-set assignment, since a set grants operations).
+Delegated administrators edit any other non-Super-Admin account, so the
+privilege cannot become a second owner by granting itself operations. The
+screen lives in Settings next to the matrix and is hidden for every other
+role.
 
 Validation on PUT:
 

@@ -785,6 +785,81 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
                     <span className="font-semibold">Active employee</span>
                   </label>
                 </div>
+                {!readOnly && !createdLogin ? (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3 sm:col-span-3 dark:border-slate-700 dark:bg-slate-900/40">
+                    {record.userId ? (
+                      canEditLinkedRole ? (
+                        <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-3">
+                          <div>
+                            <label className={labelClass}>Login role</label>
+                            <select
+                              value={loginRole}
+                              onChange={(event) => setLoginRole(event.target.value)}
+                              className={inputClass}
+                            >
+                              {HR_LOGIN_ROLES.map((role) => (
+                                <option key={role} value={role}>
+                                  {APP_ROLE_LABELS[role] || role.replace(/_/g, ' ')}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <p className="text-[11px] text-slate-500 sm:col-span-2 dark:text-slate-400">
+                            {linkedLogin ? `${linkedLogin.name} · ${linkedLogin.email}. ` : ''}
+                            This role saves with the employee. Administrator roles cannot be
+                            assigned from here.
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="text-[11px] text-slate-600 dark:text-slate-300">
+                          {linkedLogin ? `${linkedLogin.name} · ${linkedLogin.email}` : 'Linked login'} —{' '}
+                          <span className="font-semibold">
+                            {linkedLogin
+                              ? APP_ROLE_LABELS[linkedLogin.role] || linkedLogin.role.replace(/_/g, ' ')
+                              : 'unknown role'}
+                          </span>
+                          . This is an administrator account, so its role is not editable from the
+                          employee record.
+                        </p>
+                      )
+                    ) : (
+                      <>
+                        <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold">
+                          <input
+                            type="checkbox"
+                            checked={createLogin}
+                            onChange={(event) => setCreateLogin(event.target.checked)}
+                            className="h-4 w-4 rounded border-slate-300 text-indigo-600"
+                          />
+                          Create a login for this employee
+                        </label>
+                        {createLogin ? (
+                          <div className="mt-2 grid grid-cols-1 items-end gap-2 sm:grid-cols-3">
+                            <div>
+                              <label className={labelClass}>Login role</label>
+                              <select
+                                value={loginRole}
+                                onChange={(event) => setLoginRole(event.target.value)}
+                                className={inputClass}
+                              >
+                                {HR_LOGIN_ROLES.map((role) => (
+                                  <option key={role} value={role}>
+                                    {APP_ROLE_LABELS[role] || role.replace(/_/g, ' ')}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <p className="text-[11px] text-slate-500 sm:col-span-2 dark:text-slate-400">
+                              The internal (or personal) e-mail becomes the username. The one-time
+                              password is shown once after saving; the employee must replace it at
+                              first sign-in.
+                            </p>
+                          </div>
+                        ) : null}
+                      </>
+                    )}
+                  </div>
+                ) : null}
                 <div>
                   <label className={labelClass}>Department</label>
                   <input
@@ -1608,82 +1683,6 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
                 </div>
               </div>
             </Section>
-
-            {!readOnly && !createdLogin ? (
-              <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
-                {record.userId ? (
-                  canEditLinkedRole ? (
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                      <div>
-                        <label className={labelClass}>Login role</label>
-                        <select
-                          value={loginRole}
-                          onChange={(event) => setLoginRole(event.target.value)}
-                          className={inputClass}
-                        >
-                          {HR_LOGIN_ROLES.map((role) => (
-                            <option key={role} value={role}>
-                              {APP_ROLE_LABELS[role] || role.replace(/_/g, ' ')}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <p className="self-end text-[11px] text-slate-500 sm:col-span-2 dark:text-slate-400">
-                        {linkedLogin ? `${linkedLogin.name} · ${linkedLogin.email}. ` : ''}
-                        The role saves with the employee. Administrator roles cannot be assigned
-                        from here.
-                      </p>
-                    </div>
-                  ) : (
-                    <p className="text-[11px] text-slate-600 dark:text-slate-300">
-                      {linkedLogin ? `${linkedLogin.name} · ${linkedLogin.email}` : 'Linked login'} —{' '}
-                      <span className="font-semibold">
-                        {linkedLogin
-                          ? APP_ROLE_LABELS[linkedLogin.role] || linkedLogin.role.replace(/_/g, ' ')
-                          : 'unknown role'}
-                      </span>
-                      . This is an administrator account, so its role is not editable from the
-                      employee record.
-                    </p>
-                  )
-                ) : (
-                  <>
-                    <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold">
-                      <input
-                        type="checkbox"
-                        checked={createLogin}
-                        onChange={(event) => setCreateLogin(event.target.checked)}
-                        className="h-4 w-4 rounded border-slate-300 text-indigo-600"
-                      />
-                      Create a login for this employee
-                    </label>
-                    {createLogin ? (
-                      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                        <div>
-                          <label className={labelClass}>Login role</label>
-                          <select
-                            value={loginRole}
-                            onChange={(event) => setLoginRole(event.target.value)}
-                            className={inputClass}
-                          >
-                            {HR_LOGIN_ROLES.map((role) => (
-                              <option key={role} value={role}>
-                                {role.replace(/_/g, ' ')}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <p className="self-end text-[11px] text-slate-500 sm:col-span-2 dark:text-slate-400">
-                          The internal (or personal) e-mail becomes the username. The one-time
-                          password is shown once after saving; the employee must replace it at
-                          first sign-in.
-                        </p>
-                      </div>
-                    ) : null}
-                  </>
-                )}
-              </div>
-            ) : null}
 
             {createdLogin ? (
               <div className="rounded-xl border border-emerald-300 bg-emerald-50/70 px-3 py-2 text-[11px] text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200">

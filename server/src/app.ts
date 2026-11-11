@@ -104,6 +104,7 @@ export {
   hydrateOperationalData, refreshOperationalCache,
 } from './state/runtimeState';
 export { withTransaction, withConnection } from './db/transactions';
+import { transactionRetryMetrics } from './db/transactionMetrics';
 export { sseClients, broadcastChange } from './realtime/sse';
 export { logAuditEvent } from './services/audit.service';
 export { generateStandardTransactionId, normalizeDocTypeCode, padSequence, issueNextDocNumber } from './utils/docNumber';
@@ -266,7 +267,14 @@ export function createApp(): express.Express {
 
   // Health & Control Plane Endpoints FIRST before any other routes or middleware
   app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+    // Retry counters ride along with the liveness check: this endpoint stays
+    // reachable when PostgreSQL is down, which is exactly when monitoring
+    // needs to see contention. They are counts only — no request data.
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      transactionRetries: transactionRetryMetrics(),
+    });
   });
 
   // Global Backend Authentication Middleware for all API routes

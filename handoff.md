@@ -131,6 +131,8 @@
 - **SSE (Server-Sent Events)** for real-time sync: all connected clients get a `broadcastChange()` notification on any mutation, triggering a re-fetch. Every mutation broadcast is tagged with a client `domain` (`server/src/syncDomains.ts`); a recognized domain re-fetches ONLY its bootstrap slice, any unrecognized event falls back to a full bootstrap. Reliability (2026-10-05 sync improvements): reconnects back off exponentially (1s→30s ±20% jitter) with immediate retry on tab-visibility/network recovery; on reconnect and during stream outages (30s `/api/sync/version` polling) the client reconciles the server `dataVersion` against the last applied version and refreshes if mutations were missed; a `BroadcastChannel` relays events + logout across tabs of the same browser; permission-matrix, app-settings, document-number and audit-trail mutations broadcast their own domains so those slices never lag.
 - **Server-side permission matrix**: the authoritative matrix lives in the `permission_matrix` table (seeded from the same defaults as the client at startup); clients cache it via the bootstrap payload.
 - **Repository layer**: all SQL lives in `server/src/models/*.repo.ts`; controllers execute repo-owned constants and builders only. Enforced in CI by the no-inline-SQL guard (§15.8).
+- **Transaction-retry counters for monitoring** (`db/transactionMetrics.ts`): every replay is counted (`total`, `deadlock`, `serializationFailure`, `lastRetryAt`, `lastCode`) and reported on the public liveness endpoint `GET /api/health` under `transactionRetries`, because that endpoint stays reachable while PostgreSQL is down — which is when contention matters. Counters are process-local rate signals (reset on restart), counts only, never request data.
+- **Deadlock replay in `withTransaction`** (`db/transactions.ts`): PostgreSQL aborts one participant of a deadlock (SQLSTATE `40P01`) or a serialization conflict (`40001`) by design — nothing that attempt wrote survives — so the runner replays the whole callback, up to three attempts with a short jittered backoff, and logs a warning per retry. Accounting postings contend on shared fiscal-year/period rows; without this, one of two correct concurrent requests surfaced as a 500 (and made `accounting.api` flaky in the parallel suite). Callbacks must stay replay-safe: DB work only, no external side effects. `errorHandler.ts` keeps PostgreSQL's lock-cycle `detail` in the log so an exhausted retry is diagnosable.
 - **HTTP hardening**: helmet security headers (LAN-safe config — HSTS off on plain HTTP), enforced `JSON_BODY_LIMIT` with 413 passthrough in the error handler, authenticated SSE (`sseAuth.ts` accepts header or `?token=` for EventSource), per-IP concurrent SSE cap (`sseRateLimit.ts`), and login/forgot-password rate limiting (`authRateLimit.ts`) with per-IP + failure-only global per-account buckets.
 - **Schema integrity**: `tests/schema.drift.guard.test.ts` compares every `scripts/schema.sql` CREATE TABLE block against the live database's columns on every test run (skips without a DB), so runtime DDL and the schema script can never silently diverge. When adding a column, update BOTH schema.sql and `boot/dbBoot.ts`.
 
@@ -228,7 +230,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 2222 tests; CI runs
+                                        #   drift/concurrency guards — 2229 tests; CI runs
                                         #   tsc + npm test + the source guards + the
                                         #   production build + the boot-timing gate +
                                         #   npm audit on every push/PR
@@ -519,7 +521,7 @@ The server registers ~130 routes. The most important ones:
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| `GET` | `/api/health` | Health check |
+| `GET` | `/api/health` | Liveness check plus process-local `transactionRetries` counters (`total`, `deadlock`, `serializationFailure`, `lastRetryAt`, `lastCode`) |
 | `GET` | `/api/db/status` | PostgreSQL connection status + table count |
 | `GET` | `/api/auth/setup-status` | First-launch detection (has Super Admin?) |
 | `POST` | `/api/auth/setup-superadmin` | Create initial Super Admin account |
@@ -775,9 +777,11 @@ so existing rows, audits and checks keep working).
   adding a cell per operation, which `DEFAULT_PERMISSIONS_MATRIX` normalises and
   `scripts/schema.sql` backfills for existing tenants (the HR Self Service rows
   are derived from the Super Admin set with only `hr-self-*` open).
-- **Residual trust:** a Sub Super Admin is a delegated owner and may also write
-  exceptions for their own account. The hard refusal is a Super Admin target,
-  not self-granting, so treat `HEAD_OFFICE_ADMIN` as owner-equivalent access.
+- **Delegation has a floor.** A Sub Super Admin writes exceptions and assigns
+  permission sets for any *other* non-Super-Admin account, but never for their
+  own: both write handlers refuse `actor.id === target.id` for every role
+  except `SUPER_ADMIN`. Without that, delegation would be a second owner by
+  another route. The other refusal is any Super Admin target.
 
 Routes that write the matrix and the overrides use
 `requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN')`; the Users CRUD keeps
@@ -1445,7 +1449,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 2222 tests against a real PostgreSQL 16 service container
+2. `npm test` — 2229 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM
