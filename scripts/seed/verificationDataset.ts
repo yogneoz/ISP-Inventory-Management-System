@@ -69,6 +69,32 @@ export const BRANCHES = [
   { id: 'BR-DHN', code: 'DHN', name: 'Dharan Branch', location: 'Dharan', phone: '9801000004', isHeadquarters: false },
 ] as const;
 
+/**
+ * Company-wide department dimensions for the demo dataset. They are global
+ * (no branch_id), active and demo-owned so Clear Demo Data removes them. They
+ * tag manual journal lines; they do not allocate budget amounts.
+ */
+export const COST_CENTERS = [
+  { id: 'cc-demo-exec', code: 'CC-01-EXEC', name: 'Executive Management', parentId: null, branchId: null, active: true, isDemo: true },
+  { id: 'cc-demo-fin', code: 'CC-02-FIN', name: 'Finance & Administration', parentId: null, branchId: null, active: true, isDemo: true },
+  { id: 'cc-demo-ops', code: 'CC-03-OPS', name: 'Operations & Network Engineering', parentId: null, branchId: null, active: true, isDemo: true },
+  { id: 'cc-demo-comm', code: 'CC-04-COMM', name: 'Commercial & Business Development', parentId: null, branchId: null, active: true, isDemo: true },
+  { id: 'cc-demo-cx', code: 'CC-05-CX', name: 'Customer Experience & Support', parentId: null, branchId: null, active: true, isDemo: true },
+] as const;
+
+/**
+ * The demo ledger has no employee/team dimension beyond these three expense
+ * accounts. Keep the tag deterministic and defensible: network cost of sales
+ * and staff costs sit in Operations; office rent sits in Finance & Admin.
+ * Other expense accounts stay untagged, so the preview's unallocated row still
+ * represents genuinely unclassified spend.
+ */
+export const COST_CENTER_BY_EXPENSE_ACCOUNT: Record<string, string> = {
+  '5000': 'cc-demo-ops',
+  '6100': 'cc-demo-fin',
+  '6400': 'cc-demo-ops',
+};
+
 /** The two fiscal years the brief asks for; 2083-84 is the current one today. */
 export const FISCAL_YEARS = [
   { id: 'fy-2082', code: '2082-83', startDateAD: '2025-07-17', endDateAD: '2026-07-16', startDateBS: '2082-04-01 BS', endDateBS: '2083-03-32 BS', isCurrent: false },
@@ -247,6 +273,7 @@ const UNIT_FIXED_ASSETS = [
 export interface VerificationDataset {
   company: any;
   branches: any[];
+  costCenters: any[];
   fiscalYears: any[];
   periods: any[];
   users: any[];
@@ -844,7 +871,7 @@ export function buildVerificationDataset(): VerificationDataset {
     sourceType: string;
     sourceId: string | null;
     memo: string;
-    lines: { code: string; debit?: number; credit?: number; memo?: string; partyId?: string; partyName?: string }[];
+    lines: { code: string; debit?: number; credit?: number; memo?: string; partyId?: string; partyName?: string; costCenterId?: string }[];
   }) => {
     journalSeq += 1;
     const fy = fiscalYearFor(args.date);
@@ -874,6 +901,7 @@ export function buildVerificationDataset(): VerificationDataset {
         lineNo: lineSeq,
         accountCode: line.code,
         branchId: args.branchId,
+        costCenterId: line.costCenterId ?? COST_CENTER_BY_EXPENSE_ACCOUNT[line.code] ?? null,
         debit: line.debit ?? 0,
         credit: line.credit ?? 0,
         memo: line.memo ?? args.memo,
@@ -1022,6 +1050,7 @@ export function buildVerificationDataset(): VerificationDataset {
       notes: 'Seeded by scripts/seed_verification_data.ts for application verification.',
     },
     branches: BRANCHES.map((b) => ({ ...b, active: true, allowProcurement: true, allowWarehouseTransfer: true, isDemo: true })),
+    costCenters: COST_CENTERS.map((center) => ({ ...center })),
     fiscalYears: FISCAL_YEARS.map((fy) => ({ ...fy, isClosed: false, isProvisional: false, isDemo: true })),
     periods,
     users: USERS.map((u) => ({

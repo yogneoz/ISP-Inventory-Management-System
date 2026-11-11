@@ -44,6 +44,7 @@
 - 5-step fiscal year closing wizard with IRD audit certificate
 - Demo data seeding (`is_demo` flag system) vs. real production data
 - Real-time SSE-based multi-user synchronization
+- People & HR: employee master, documents, attendance/leave, effective-dated salary structures and the generated payroll run with payslips, register, bank file and the read-only Finance payroll-postings register. Employee self-service has a read-only **My Profile** at `/people/profile`, **My Payslips** at `/people/payslips`, **My Leave** at `/people/leave`, **My Attendance** at `/people/attendance` and **My Documents** at `/people/documents`, all gated on `hr-self-service`: the profile API resolves `employees.user_id` from the session, the payslip API returns only that employee's POSTED/PAID run snapshots and excludes DRAFT/APPROVED runs, the leave API returns only that employee's balances (usage derived from approved requests) and request history, the attendance API returns only that employee's records for the rolling 90 days ending today, and the documents API returns only that employee's vault metadata with a 30-day expiry state and a summary derived from the same rows. All refuse employee/user and document selectors and branch widening, re-apply branch scope and have no write path. The vault has no issue-date column, so `issuedOnAD` is explicitly null rather than using the upload time; downloads reuse the existing authenticated content route with an own-employee check. The HR management register now lives at `/people/attendance-register`. **HR Reports** at `/people/reports` is the read-only analytics screen: session-scoped active headcount by branch/department, current-year leave balances in days, payroll cost by branch/pay period (gross, allowances, deductions, net), overtime by employee/branch/department, and SSF/TDS filing per pay period, all from stored POSTED/PAID payroll run-line snapshots (drafts and approved runs excluded). Attrition counts employees whose stored `separation_date_ad` falls in the selected period, divides by period-start headcount, and returns a null rate with a reason when joining dates make that baseline incomplete; dates are grouped by the employee's current branch and entry does not auto-deactivate the employee. Both report endpoints refuse employee/user/tenant/document selectors and branch widening. **Onboarding & Offboarding** at `/people/lifecycle` completes Phase 4: checklists inherit the employee's branch, offboarding generates the employee's assigned-asset return and linked-account deactivation items, and completing the checklist locks every later write.
 
 ---
 
@@ -227,7 +228,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 1995 tests; CI runs
+                                        #   drift/concurrency guards — 2148 tests; CI runs
                                         #   tsc + npm test + the source guards + the
                                         #   production build + the boot-timing gate +
                                         #   npm audit on every push/PR
@@ -1396,7 +1397,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 1995 tests against a real PostgreSQL 16 service container
+2. `npm test` — 2148 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM
@@ -1483,12 +1484,12 @@ so any unwired new fetch fails the suite instead of shipping:
   remount refreshes it). Each test pins the effect deps carrying the refresh key and EVERY App.tsx render
   site passing it (2 PO, 2 PI, 1 SerialLogRegister, 11 StockOperations, 4 ReturnsRegister,
   2 SalesInvoices) — a newly added unwired mount fails.
-- **Feature-screen coverage (2026-10-03 audit, all 87 screens — the §G StockOperations
+- **Feature-screen coverage (2026-10-03 audit, all 106 screens — the §G StockOperations
   split added 12 tab panels plus the extracted tab-bar chrome, the BS-calendar
   integrity work added the Calendar Health panel, the permission-sets editor
   added its own panel, the daily cash close added its own screen, and the accounting
   workspace split into seven statement registers, and the General Ledger Master screen)** — a `SCREEN_SURFACE_PINS`
-  table pins the 76 screens not covered above (the other 11 are pinned by the dedicated
+  table pins the 95 screens not covered above (the other 11 are pinned by the dedicated
   tests); an unpinned new screen fails coverage, and each pinned screen must match its
   exact surface. Surfaces use `serverCallsIn` = `api.*` methods **plus named
   `services/api` imports** — a bare `api.*` scan would miss a named helper, so every pin uses

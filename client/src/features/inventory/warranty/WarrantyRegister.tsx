@@ -35,6 +35,8 @@ import { LoadStateNotice } from '../../../components/common/LoadStateNotice';
 import { PageHeader } from '../../../components/common/PageHeader';
 import { DateField } from '../../../components/DateField';
 import { WarrantyEditModal } from './WarrantyEditModal';
+import { WarrantyClaimsPanel } from '../../../components/inventory/warranty/WarrantyClaimsPanel';
+import { WarrantyRecoveryPanel } from '../../../components/inventory/warranty/WarrantyRecoveryPanel';
 
 export type WarrantyCoverageSide = 'VENDOR' | 'SELLER';
 
@@ -125,6 +127,7 @@ export const WarrantyRegister: React.FC<WarrantyRegisterProps> = ({
   const [pageSize, setPageSize] = useState(15);
   const [editing, setEditing] = useState<WarrantyCoverageRow | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [view, setView] = useState<'COVERAGE' | 'CLAIMS' | 'RECOVERY'>('COVERAGE');
 
   useFilterPageReset(
     `${coverageType}|${selectedBranchId}|${searchQuery}|${status}|${category}|${startFrom}|${startTo}`,
@@ -300,6 +303,29 @@ export const WarrantyRegister: React.FC<WarrantyRegisterProps> = ({
           )
         }
       />
+
+      <div className="flex gap-1 rounded-xl border border-slate-200 bg-slate-100/80 p-1 dark:border-slate-800 dark:bg-slate-900/70">
+        {([
+          ['COVERAGE', 'Coverage register'],
+          ['CLAIMS', 'Claims / RMA'],
+          ['RECOVERY', 'Recovery'],
+        ] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setView(key)}
+            className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${
+              view === key
+                ? 'bg-white text-slate-900 shadow-xs dark:bg-slate-800 dark:text-white'
+                : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div className={view === 'COVERAGE' ? 'space-y-3' : 'hidden'}>
 
       {loadError && (
         <LoadStateNotice
@@ -646,6 +672,26 @@ export const WarrantyRegister: React.FC<WarrantyRegisterProps> = ({
           dateMode={dateMode}
           onClose={closeEdit}
           onSaved={afterSaved}
+        />
+      )}
+      </div>
+
+      {view === 'CLAIMS' && (
+        <WarrantyClaimsPanel
+          coverageType={coverageType}
+          selectedBranchId={selectedBranchId}
+          dateMode={dateMode}
+          currentUser={currentUser}
+          refreshKey={refreshKey}
+        />
+      )}
+
+      {view === 'RECOVERY' && (
+        <WarrantyRecoveryPanel
+          coverageType={coverageType}
+          selectedBranchId={selectedBranchId}
+          dateMode={dateMode}
+          refreshKey={refreshKey}
         />
       )}
     </div>

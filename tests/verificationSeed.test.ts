@@ -12,16 +12,89 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  COST_CENTER_BY_EXPENSE_ACCOUNT,
   TARGETS,
   buildVerificationDataset,
   checkDatasetInvariants,
 } from '../scripts/seed/verificationDataset';
+import { buildDemoModuleFixtures } from '../scripts/seed/demoModuleFixtures';
 
 const dataset = buildVerificationDataset();
 
 describe('verification dataset', () => {
   test('satisfies every rule the seeder asserts at run time', () => {
     assert.deepEqual(checkDatasetInvariants(dataset), []);
+
+    const modules = buildDemoModuleFixtures(dataset);
+    assert.equal(modules.finance.budgets.length, 4, 'one budget per branch');
+    assert.equal(modules.finance.budgetLines.length, 144, '12 periods x 3 accounts x 4 branches');
+    assert.equal(modules.finance.allocationProfiles.length, 4, 'one allocation profile per branch');
+    assert.equal(modules.finance.allocationLines.length, 20, 'five cost centres in each branch profile');
+    for (const branch of dataset.branches) {
+      const branchLines = modules.finance.budgetLines.filter(
+        (line) => line.budget_id === `demo-budget-${branch.code.toLowerCase()}-2083`
+      );
+      assert.equal(branchLines.length, 36);
+      assert.equal(
+        branchLines.reduce((sum, line) => sum + Number(line.amount), 0),
+        3_960_000,
+        `${branch.code} demo budget must total 3,960,000`
+      );
+      const profile = modules.finance.allocationProfiles.find(
+        (row) => row.branch_id === branch.id
+      );
+      assert.ok(profile, `${branch.code} must have an allocation profile`);
+      const ruleLines = modules.finance.allocationLines.filter(
+        (line) => line.profile_id === profile.id
+      );
+      assert.equal(ruleLines.length, 5, `${branch.code} must allocate all five demo centres`);
+      assert.equal(
+        ruleLines.reduce((sum, line) => sum + Number(line.percentage_bp), 0),
+        10_000,
+        `${branch.code} demo allocation must total exactly 100.00%`
+      );
+    }
+    assert.equal(modules.finance.openingStock.length, 80, '5 opening units for every stocked product/branch');
+    assert.ok(modules.operations.customerDevices.length > 0);
+    assert.ok(modules.operations.warranties.length > 0);
+    assert.ok(modules.operations.damage.length > 0);
+    assert.ok(modules.operations.purchaseOrders.length > 0);
+    assert.ok(modules.operations.shipments.length > 0);
+    assert.equal(modules.hr.employees.length, 5);
+    assert.equal(modules.hr.attendance.length, 10);
+    assert.equal(modules.hr.payrollLines.length, 2);
+    const payrollDebit = modules.hr.journalLines.reduce((sum, line) => sum + Number(line.debit), 0);
+    const payrollCredit = modules.hr.journalLines.reduce((sum, line) => sum + Number(line.credit), 0);
+    assert.equal(payrollDebit, 167_000, 'demo payroll journal debits');
+    assert.equal(payrollCredit, 167_000, 'demo payroll journal must balance');
+    assert.equal(
+      modules.hr.payrollLines.reduce((sum, line) => sum + Number(line.net_amount), 0),
+      modules.hr.payrollRuns[0].net_total,
+      'run line nets must equal the posted run total'
+    );
+    assert.equal(modules.permissions.sets.length, 2);
+    assert.ok(modules.permissions.matrix.length > 0);
+  });
+
+  test('tags every demo expense line deterministically and leaves other lines untagged', () => {
+    const expenseLines = dataset.journalLines.filter(
+      (line) => COST_CENTER_BY_EXPENSE_ACCOUNT[line.accountCode]
+    );
+    assert.ok(expenseLines.length > 0, 'the demo ledger must contain expense lines');
+    for (const line of expenseLines) {
+      assert.equal(
+        line.costCenterId,
+        COST_CENTER_BY_EXPENSE_ACCOUNT[line.accountCode],
+        `${line.accountCode} line ${line.id} must carry its deterministic cost centre`
+      );
+    }
+    assert.equal(
+      dataset.journalLines.filter(
+        (line) => !COST_CENTER_BY_EXPENSE_ACCOUNT[line.accountCode] && line.costCenterId
+      ).length,
+      0,
+      'non-expense lines must not be tagged by the demo seed'
+    );
   });
 
   test('has the requested masters: two fiscal years, four branches, 20 customers each', () => {
@@ -38,6 +111,24 @@ describe('verification dataset', () => {
       );
     }
     assert.equal(dataset.customers.length, 80);
+
+    assert.deepEqual(
+      dataset.costCenters.map((center) => [center.code, center.name]),
+      [
+        ['CC-01-EXEC', 'Executive Management'],
+        ['CC-02-FIN', 'Finance & Administration'],
+        ['CC-03-OPS', 'Operations & Network Engineering'],
+        ['CC-04-COMM', 'Commercial & Business Development'],
+        ['CC-05-CX', 'Customer Experience & Support'],
+      ],
+      'the five demo departments must be global cost centres in display order'
+    );
+    assert.ok(
+      dataset.costCenters.every(
+        (center) => center.branchId === null && center.active && center.isDemo
+      ),
+      'demo cost centres must be active, global and removable as demo data'
+    );
   });
 
   test('stocks 5 pcs of every stock product below 100 and no service item', () => {

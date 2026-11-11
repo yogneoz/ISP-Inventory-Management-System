@@ -261,6 +261,152 @@ export interface CashFlowResponse {
   sections: CashFlowSection[];
 }
 
+export type CashFlowForecastSource = 'AR' | 'AP' | 'RECURRING' | 'PAYROLL' | 'MANUAL';
+export type CashFlowForecastDirection = 'INFLOW' | 'OUTFLOW';
+export type CashFlowForecastItemKind =
+  | 'INVOICE'
+  | 'ADJUSTMENT'
+  | 'CREDIT'
+  | 'RECURRING'
+  | 'PAYROLL'
+  | 'MANUAL';
+
+export interface CashFlowForecastQuery {
+  branchId?: string;
+  /** As-of date; the server defaults to today. */
+  asOf?: string;
+  /** Number of 7-day buckets, 1–26. Defaults to 13. */
+  weeks?: number;
+  /** Closing cash below this figure raises the warning. Defaults to 0. */
+  minCash?: number;
+}
+
+export interface CashFlowForecastItem {
+  kind: CashFlowForecastItemKind;
+  source: CashFlowForecastSource;
+  direction: CashFlowForecastDirection;
+  documentId: string | null;
+  documentNo: string | null;
+  partyId: string;
+  partyName: string;
+  dueDateAD: string;
+  bucketKey: string | null;
+  bucketIndex: number | null;
+  overdue: boolean;
+  description: string;
+  amount: number;
+}
+
+export interface CashFlowForecastBucket {
+  key: string;
+  label: string;
+  fromAD: string;
+  toAD: string;
+  receipts: number;
+  customerCredits: number;
+  payments: number;
+  supplierCredits: number;
+  recurringInflows: number;
+  recurringOutflows: number;
+  payrollOutflows: number;
+  manualInflows: number;
+  manualOutflows: number;
+  inflows: number;
+  outflows: number;
+  netCashFlow: number;
+  closingCash: number;
+  belowMinimum: boolean;
+  itemCount: number;
+}
+
+export interface CashFlowForecastTieOut {
+  grossTotal: number;
+  unappliedCredit: number;
+  total: number;
+  controlBalance: number;
+  difference: number;
+  reconciled: boolean;
+  openItemCount: number;
+  overdueAmount: number;
+}
+
+export interface CashFlowForecastSourceSummary {
+  scheduledCount: number;
+  scheduledAmount: number;
+  includedCount: number;
+  includedAmount: number;
+  overdueAmount: number;
+  beyondHorizon: { count: number; amount: number };
+  closedPeriodExcluded: { count: number; amount: number };
+}
+
+export interface CashFlowManualInput {
+  id: string;
+  branchId: string;
+  branchCode: string;
+  branchName: string;
+  expectedDateAD: string;
+  expectedDateBS: string;
+  direction: CashFlowForecastDirection;
+  amountFormula: string;
+  amount: number;
+  description: string;
+  closedPeriod: boolean;
+  createdBy: string | null;
+  updatedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CashFlowManualInputInput {
+  branchId?: string;
+  expectedDateAD: string;
+  direction: CashFlowForecastDirection;
+  amountFormula: string;
+  description: string;
+}
+
+export interface CashFlowManualInputsResponse {
+  inputs: CashFlowManualInput[];
+  count: number;
+}
+
+export interface CashFlowForecastResponse {
+  statement: 'CASH_FLOW_FORECAST';
+  basis: 'WEEKLY';
+  branchId: string | null;
+  asOf: string;
+  weeks: number;
+  minCash: number;
+  openingCash: number;
+  totalInflows: number;
+  totalOutflows: number;
+  netCashFlow: number;
+  closingCash: number;
+  minimumClosingCash: number;
+  openingBelowMinimum: boolean;
+  warning: boolean;
+  firstBreach: { bucketKey: string; closingCash: number } | null;
+  breaches: string[];
+  buckets: CashFlowForecastBucket[];
+  items: CashFlowForecastItem[];
+  manualInputs: CashFlowManualInput[];
+  ar: CashFlowForecastTieOut;
+  ap: CashFlowForecastTieOut;
+  sources: {
+    recurring: CashFlowForecastSourceSummary;
+    payroll: CashFlowForecastSourceSummary;
+    manual: CashFlowForecastSourceSummary;
+  };
+  beyondHorizon: {
+    ar: { count: number; amount: number };
+    ap: { count: number; amount: number };
+    recurring: { count: number; amount: number };
+    payroll: { count: number; amount: number };
+    manual: { count: number; amount: number };
+  };
+}
+
 export type StatementGroupDrilldownStatement = 'PROFIT_AND_LOSS' | 'BALANCE_SHEET';
 
 /** One POSTED journal line behind a statement group subtotal. */
@@ -446,6 +592,157 @@ export interface CashBookResponse {
   receipts: number;
   payments: number;
   closing: number;
+}
+
+export interface BankReconciliationAccount {
+  accountId: string;
+  code: string;
+  name: string;
+  bankName: string | null;
+  bankBranch: string | null;
+  accountNumber: string | null;
+  accountHolder: string | null;
+  isActive: boolean;
+}
+
+export interface BankBookEntry {
+  journalLineId: string;
+  journalId: string;
+  journalNo: string;
+  journalDateAD: string;
+  sourceType: string;
+  sourceId: string | null;
+  journalMemo: string | null;
+  memo: string | null;
+  debit: number;
+  credit: number;
+  /** Positive when the bank ledger was debited (money in). */
+  amount: number;
+  branchId: string;
+  branchCode: string;
+  branchName: string;
+  matchedStatementLineId: string | null;
+}
+
+export interface BankStatementLine {
+  id: string;
+  statementDate: string;
+  statementDateBS: string;
+  description: string;
+  reference: string | null;
+  /** Positive = deposit, negative = withdrawal. */
+  amount: number;
+  importBatchId: string;
+  importSource: 'CSV' | 'OFX';
+  matchedJournalLineId: string | null;
+  matchedAt: string | null;
+  matchedBy: string | null;
+  matchedJournalNo: string | null;
+  matchedJournalDate: string | null;
+  matchedBranchId: string | null;
+  matchedBranchCode: string | null;
+  matchedBranchName: string | null;
+  suggestedJournalLineId: string | null;
+}
+
+export interface BankReconciliationSession {
+  id: string;
+  bankAccountId: string;
+  periodStart: string;
+  periodEnd: string;
+  periodStartBS: string;
+  periodEndBS: string;
+  openingStatementBalance: number;
+  closingStatementBalance: number;
+  status: 'OPEN' | 'LOCKED';
+  lockedAt: string | null;
+  lockedBy: string | null;
+  reopenedAt: string | null;
+  reopenedBy: string | null;
+  reopenReason: string | null;
+  createdBy: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface BankReconciliationResponse {
+  from: string;
+  to: string;
+  accounts: BankReconciliationAccount[];
+  account: BankReconciliationAccount | null;
+  session: BankReconciliationSession | null;
+  statement: {
+    openingBalance: number;
+    closingBalance: number;
+    movement: number;
+    lineCount: number;
+    matchedCount: number;
+    unmatchedCount: number;
+    unmatchedAmount: number;
+  };
+  book: {
+    openingBalance: number;
+    closingBalance: number;
+    movement: number;
+    lineCount: number;
+    entries: BankBookEntry[];
+    truncated: boolean;
+  };
+  difference: number;
+  reconciled: boolean;
+  lines: BankStatementLine[];
+  linesTruncated: boolean;
+}
+
+export interface BankReconciliationQuery {
+  accountId?: string;
+  from?: string;
+  to?: string;
+}
+
+export interface BankStatementImportIssue {
+  row: number;
+  message: string;
+}
+
+export interface BankStatementImportResponse {
+  batchId: string;
+  parsed: number;
+  imported: number;
+  duplicates: number;
+  errors: BankStatementImportIssue[];
+  source: 'CSV' | 'OFX';
+  workspace: BankReconciliationResponse;
+}
+
+export interface BankReconciliationActionContext extends BankReconciliationQuery {
+  accountId: string;
+}
+
+export interface BankReconciliationImportInput extends BankReconciliationActionContext {
+  content: string;
+  format?: 'CSV' | 'OFX';
+  fileName?: string;
+}
+
+export interface BankReconciliationSessionInput extends BankReconciliationActionContext {
+  openingStatementBalance: number;
+  closingStatementBalance: number;
+}
+
+export interface BankReconciliationSessionActionResponse {
+  session: BankReconciliationSession;
+  workspace: BankReconciliationResponse;
+  changed?: boolean;
+  reason?: string;
+}
+
+export interface BankReconciliationMatchResponse {
+  lineId: string;
+  journalLineId: string;
+  journalNo: string;
+  amount: number;
+  workspace: BankReconciliationResponse;
 }
 
 export type AgingType = 'AR' | 'AP';
@@ -786,6 +1083,586 @@ export async function deleteNarrationTemplate(
   return fetchJson(`/api/accounting/narrations/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
+export type BudgetAccountType = 'INCOME' | 'EXPENSE';
+
+export interface BudgetQuery {
+  fiscalYearId: string;
+  /** Omit or pass ALL for the company roll-up (variance reads only). */
+  branchId?: string;
+  from?: string;
+  to?: string;
+}
+
+export interface BudgetLine {
+  periodKey: string;
+  accountId: string;
+  amount: number;
+  code?: string;
+  name?: string;
+  accountType?: BudgetAccountType;
+}
+
+export interface BudgetPeriodOption {
+  periodKey: string;
+  startDateAD: string;
+  endDateAD: string;
+  status: 'OPEN' | 'CLOSED';
+}
+
+export interface BudgetAccountOption {
+  id: string;
+  code: string;
+  name: string;
+  accountType: BudgetAccountType;
+  statementGroup: string;
+}
+
+export interface BudgetResponse {
+  fiscalYearId: string;
+  fiscalYearCode: string;
+  branchId: string;
+  branchName: string;
+  budgetId: string | null;
+  locked: boolean;
+  lockedBy: string | null;
+  lockedAt: string | null;
+  updatedAt: string | null;
+  periods: BudgetPeriodOption[];
+  accounts: BudgetAccountOption[];
+  lines: BudgetLine[];
+}
+
+export interface BudgetSaveInput {
+  fiscalYearId: string;
+  branchId: string;
+  lines: Array<{ periodKey: string; accountId: string; amount: number }>;
+}
+
+export interface BudgetLockInput {
+  fiscalYearId: string;
+  branchId: string;
+  locked: boolean;
+}
+
+export interface BudgetLockResponse {
+  status: 'LOCKED' | 'UNLOCKED' | 'UNCHANGED';
+  budget: BudgetResponse;
+}
+
+export type BudgetVersionSource =
+  | 'BASELINE'
+  | 'SAVE'
+  | 'COPY'
+  | 'COPY_REPLACE'
+  | 'IMPORT'
+  | 'IMPORT_REPLACE'
+  | 'RESTORE';
+
+export interface BudgetVersionSummary {
+  id: string;
+  version: number;
+  actor: string | null;
+  createdAt: string;
+  source: BudgetVersionSource;
+  sourceDetail: string | null;
+  lineCount: number;
+  totalAmount: number;
+}
+
+export interface BudgetHistoryResponse {
+  fiscalYearId: string;
+  fiscalYearCode: string;
+  branchId: string;
+  branchName: string;
+  versions: BudgetVersionSummary[];
+}
+
+export interface BudgetVersionDetail extends BudgetVersionSummary {
+  lines: BudgetLine[];
+}
+
+export interface BudgetVersionResponse extends BudgetHistoryResponse {
+  version: BudgetVersionDetail;
+}
+
+export interface BudgetRestoreResponse {
+  status: 'RESTORED';
+  restoredVersion: number;
+  snapshot: BudgetVersionSummary;
+  budget: BudgetResponse;
+}
+
+export interface BudgetCopyInput {
+  targetFiscalYearId: string;
+  branchId: string;
+  sourceFiscalYearId?: string;
+  replace?: boolean;
+}
+
+export interface BudgetSkippedAccount {
+  accountId: string;
+  code: string | null;
+  name: string | null;
+  reason: 'MISSING_FROM_CHART' | 'NOT_PROFIT_AND_LOSS';
+}
+
+export interface BudgetPeriodMapping {
+  sourcePeriodKey: string;
+  targetPeriodKey: string;
+  sourceStartDateAD: string;
+  targetStartDateAD: string;
+}
+
+export interface BudgetCopyResponse {
+  status: 'COPIED' | 'REPLACED' | 'UNCHANGED';
+  sourceFiscalYearId: string;
+  sourceFiscalYearCode: string;
+  targetFiscalYearId: string;
+  targetFiscalYearCode: string;
+  branchId: string;
+  branchName: string;
+  sourceLines: number;
+  mappedLines: number;
+  copiedLines: number;
+  skippedAccounts: BudgetSkippedAccount[];
+  periodMapping: BudgetPeriodMapping[];
+  unmappedPeriods: string[];
+  replacedExisting: boolean;
+  budget: BudgetResponse;
+}
+
+export interface BudgetImportInput {
+  fiscalYearId: string;
+  branchId: string;
+  csv: string;
+  replace?: boolean;
+}
+
+export interface BudgetImportError {
+  row: number;
+  message: string;
+}
+
+export interface BudgetImportResponse {
+  status: 'IMPORTED' | 'REPLACED' | 'UNCHANGED' | 'REFUSED';
+  httpStatus: number;
+  importedLines: number;
+  replacedExisting: boolean;
+  errors: BudgetImportError[];
+  budget: BudgetResponse | null;
+}
+
+export interface BudgetVarianceRow {
+  accountId: string;
+  code: string;
+  name: string;
+  accountType: BudgetAccountType;
+  statementGroup: string;
+  budget: number;
+  actual: number;
+  /** budget - actual; positive is remaining, negative is over budget. */
+  variance: number;
+  /** variance / budget * 100; null when the budget is zero. */
+  variancePercent: number | null;
+}
+
+export interface BudgetVarianceResponse {
+  fiscalYearId: string;
+  fiscalYearCode: string;
+  branchId: string;
+  from: string;
+  to: string;
+  rows: BudgetVarianceRow[];
+  totals: {
+    budget: number;
+    actual: number;
+    variance: number;
+    variancePercent: number | null;
+  };
+}
+
+export interface BudgetOverspendAlert {
+  accountId: string;
+  code: string;
+  name: string;
+  accountType: 'EXPENSE';
+  statementGroup: string;
+  budget: number;
+  actual: number;
+  variance: number;
+  variancePercent: number | null;
+  /** actual - budget; always positive for an alert. */
+  overBy: number;
+  overPercent: number;
+  utilisationPercent: number;
+}
+
+export interface BudgetOverspendAlertsQuery extends BudgetQuery {
+  limit?: number;
+}
+
+export interface BudgetOverspendAlertsResponse {
+  fiscalYearId: string;
+  fiscalYearCode: string;
+  branchId: string;
+  from: string;
+  to: string;
+  alerts: BudgetOverspendAlert[];
+  totals: {
+    alertCount: number;
+    budget: number;
+    actual: number;
+    overBy: number;
+  };
+  tieOut: {
+    sourceBudget: number;
+    sourceActual: number;
+    alertBudget: number;
+    alertActual: number;
+    budgetDifference: number;
+    actualDifference: number;
+    reconciled: boolean;
+  };
+  truncated: boolean;
+  limit: number;
+}
+
+export interface BudgetBranchUtilisationRow {
+  branchId: string;
+  code: string;
+  name: string;
+  budget: number;
+  actual: number;
+  /** budget - actual; positive is remaining, negative is over plan. */
+  variance: number;
+  variancePercent: number | null;
+  /** actual / budget * 100; null when the branch has no budget in the window. */
+  utilisationPercent: number | null;
+}
+
+export interface BudgetBranchUtilisationResponse {
+  fiscalYearId: string;
+  fiscalYearCode: string;
+  branchId: string;
+  from: string;
+  to: string;
+  branches: BudgetBranchUtilisationRow[];
+  totals: BudgetVarianceResponse['totals'];
+  tieOut: {
+    budget: number;
+    actual: number;
+    cardBudget: number;
+    cardActual: number;
+    budgetDifference: number;
+    actualDifference: number;
+    reconciled: boolean;
+  };
+}
+
+export interface BudgetVarianceLine {
+  id: string;
+  journalId: string;
+  journalNo: string;
+  journalDateAD: string;
+  sourceType: string;
+  sourceId: string | null;
+  branchId: string;
+  accountId: string;
+  accountCode: string;
+  accountName: string;
+  lineNo: number;
+  memo: string | null;
+  journalMemo: string | null;
+  debit: number;
+  credit: number;
+  /** Natural-side actual: expense debit − credit, income credit − debit. */
+  amount: number;
+}
+
+export interface BudgetVarianceLinesQuery extends BudgetQuery {
+  accountId: string;
+  limit?: number;
+}
+
+export interface BudgetVarianceLinesResponse {
+  fiscalYearId: string;
+  fiscalYearCode: string;
+  branchId: string;
+  from: string;
+  to: string;
+  account: BudgetVarianceRow;
+  entries: BudgetVarianceLine[];
+  totals: {
+    debit: number;
+    credit: number;
+    actual: number;
+    entryCount: number;
+  };
+  tieOut: {
+    budget: number;
+    actual: number;
+    variance: number;
+    variancePercent: number | null;
+    lineActual: number;
+    difference: number;
+    reconciled: boolean;
+  };
+  truncated: boolean;
+  limit: number;
+}
+
+export type BudgetAllocationStatus = 'MISSING' | 'READY';
+
+export interface BudgetAllocationRule {
+  accountGroup: string;
+  costCenterId: string;
+  percentage: number;
+  percentageBp: number;
+  code: string;
+  name: string;
+  branchId: string | null;
+  active: boolean;
+}
+
+export interface BudgetAllocationGroup {
+  accountGroup: string;
+  label: string;
+  budget: number;
+  hasOverride: boolean;
+  rules: BudgetAllocationRule[];
+}
+
+export interface BudgetAllocationCentre {
+  id: string;
+  code: string;
+  name: string;
+  branchId: string | null;
+  parentId: string | null;
+  active: boolean;
+}
+
+export interface BudgetAllocationResponse {
+  fiscalYearId: string;
+  fiscalYearCode: string;
+  branchId: string;
+  branchName: string;
+  profileId: string | null;
+  status: BudgetAllocationStatus;
+  locked: boolean;
+  lockedBy: string | null;
+  lockedAt: string | null;
+  updatedBy: string | null;
+  updatedAt: string | null;
+  totalExpenseBudget: number;
+  rules: BudgetAllocationRule[];
+  groups: BudgetAllocationGroup[];
+  centres: BudgetAllocationCentre[];
+}
+
+export interface BudgetAllocationInput {
+  fiscalYearId: string;
+  branchId: string;
+  rules: Array<{ accountGroup: string; costCenterId: string; percentage: number }>;
+}
+
+export interface BudgetDepartmentRow {
+  costCenterId: string;
+  code: string;
+  name: string;
+  budget: number;
+  actual: number;
+  variance: number;
+  variancePercent: number | null;
+  utilisationPercent: number | null;
+  lineCount: number;
+  inAllocation: boolean;
+}
+
+export interface BudgetDepartmentResponse {
+  fiscalYearId: string;
+  fiscalYearCode: string;
+  branchId: string;
+  branchName: string;
+  profileId: string | null;
+  status: BudgetAllocationStatus;
+  from: string;
+  to: string;
+  departments: BudgetDepartmentRow[];
+  groups: Array<{
+    accountGroup: string;
+    label: string;
+    budget: number;
+    hasOverride: boolean;
+  }>;
+  totals: {
+    expenseBudget: number;
+    allocatedBudget: number;
+    expenseActual: number;
+    taggedActual: number;
+    unallocatedActual: number;
+  };
+  coverage: {
+    totalExpenseLines: number;
+    taggedExpenseLines: number;
+    untaggedExpenseLines: number;
+    taggedPercent: number | null;
+  };
+  unallocated: {
+    actual: number;
+    lineCount: number;
+  };
+  tieOut: {
+    budgetDifference: number;
+    actualDifference: number;
+    reconciled: boolean;
+  };
+}
+
+function budgetQueryString(query: BudgetQuery): string {
+  const params = new URLSearchParams({ fiscalYearId: query.fiscalYearId });
+  if (query.branchId && query.branchId !== 'ALL') params.set('branchId', query.branchId);
+  if (query.from) params.set('from', query.from);
+  if (query.to) params.set('to', query.to);
+  return `?${params.toString()}`;
+}
+
+export async function getAccountingBudget(query: BudgetQuery): Promise<BudgetResponse> {
+  return fetchJson(`/api/accounting/budgets${budgetQueryString(query)}`);
+}
+
+export async function saveAccountingBudget(input: BudgetSaveInput): Promise<BudgetResponse> {
+  return fetchJson('/api/accounting/budgets', {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function setAccountingBudgetLock(
+  input: BudgetLockInput
+): Promise<BudgetLockResponse> {
+  return fetchJson('/api/accounting/budgets/lock', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function getAccountingBudgetHistory(
+  query: Pick<BudgetQuery, 'fiscalYearId' | 'branchId'>
+): Promise<BudgetHistoryResponse> {
+  return fetchJson(`/api/accounting/budgets/history${budgetQueryString(query)}`);
+}
+
+export async function getAccountingBudgetVersion(query: {
+  fiscalYearId: string;
+  branchId?: string;
+  versionId: string;
+}): Promise<BudgetVersionResponse> {
+  const base = budgetQueryString(query);
+  return fetchJson(
+    `/api/accounting/budgets/history/${encodeURIComponent(query.versionId)}${base}`
+  );
+}
+
+export async function restoreAccountingBudgetVersion(input: {
+  fiscalYearId: string;
+  branchId: string;
+  versionId: string;
+}): Promise<BudgetRestoreResponse> {
+  return fetchJson(
+    `/api/accounting/budgets/history/${encodeURIComponent(input.versionId)}/restore`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        fiscalYearId: input.fiscalYearId,
+        branchId: input.branchId,
+      }),
+    }
+  );
+}
+
+export async function getAccountingBudgetVariance(
+  query: BudgetQuery
+): Promise<BudgetVarianceResponse> {
+  return fetchJson(`/api/accounting/budgets/variance${budgetQueryString(query)}`);
+}
+
+export async function getAccountingBudgetAlerts(
+  query: BudgetOverspendAlertsQuery
+): Promise<BudgetOverspendAlertsResponse> {
+  const base = budgetQueryString(query);
+  return fetchJson(
+    `/api/accounting/budgets/variance/alerts${base}${query.limit ? `&limit=${query.limit}` : ''}`
+  );
+}
+
+export async function getAccountingBudgetVarianceUtilisation(
+  query: BudgetQuery
+): Promise<BudgetBranchUtilisationResponse> {
+  return fetchJson(`/api/accounting/budgets/variance/utilisation${budgetQueryString(query)}`);
+}
+
+export async function getAccountingBudgetVarianceLines(
+  query: BudgetVarianceLinesQuery
+): Promise<BudgetVarianceLinesResponse> {
+  const params = new URLSearchParams({
+    fiscalYearId: query.fiscalYearId,
+    accountId: query.accountId,
+  });
+  if (query.branchId && query.branchId !== 'ALL') params.set('branchId', query.branchId);
+  if (query.from) params.set('from', query.from);
+  if (query.to) params.set('to', query.to);
+  if (query.limit) params.set('limit', String(query.limit));
+  return fetchJson(`/api/accounting/budgets/variance/lines?${params.toString()}`);
+}
+
+export async function getAccountingBudgetAllocation(
+  query: Pick<BudgetQuery, 'fiscalYearId' | 'branchId'>
+): Promise<BudgetAllocationResponse> {
+  return fetchJson(`/api/accounting/budgets/allocation${budgetQueryString(query)}`);
+}
+
+export async function saveAccountingBudgetAllocation(
+  input: BudgetAllocationInput
+): Promise<BudgetAllocationResponse> {
+  return fetchJson('/api/accounting/budgets/allocation', {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function getAccountingBudgetDepartmentVariance(
+  query: BudgetQuery
+): Promise<BudgetDepartmentResponse> {
+  return fetchJson(`/api/accounting/budgets/variance/departments${budgetQueryString(query)}`);
+}
+
+export async function copyAccountingBudget(
+  input: BudgetCopyInput
+): Promise<BudgetCopyResponse> {
+  return fetchJson('/api/accounting/budgets/copy', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+/** The structured refusal body carries row errors; suppress the generic toast. */
+export async function importAccountingBudgetCsv(
+  input: BudgetImportInput
+): Promise<BudgetImportResponse> {
+  return fetchJson(
+    '/api/accounting/budgets/import',
+    { method: 'POST', body: JSON.stringify(input) },
+    { silent: true }
+  );
+}
+
+export async function getAccountingBudgetCsv(
+  query: Pick<BudgetQuery, 'fiscalYearId' | 'branchId'>
+): Promise<Blob> {
+  const { fetchBlob } = await import('./blob');
+  return fetchBlob(`/api/accounting/budgets/export${budgetQueryString(query)}`);
+}
+
 export async function getTrialBalance(query: StatementQuery = {}): Promise<TrialBalanceResponse> {
   return fetchJson(`/api/accounting/statements/trial-balance${statementQuery(query)}`);
 }
@@ -800,6 +1677,78 @@ export async function getBalanceSheet(query: StatementQuery = {}): Promise<Balan
 
 export async function getCashFlow(query: StatementQuery = {}): Promise<CashFlowResponse> {
   return fetchJson(`/api/accounting/statements/cash-flow${statementQuery(query)}`);
+}
+
+/** The same direct cash-flow statement, rendered server-side as a PDF. */
+export async function getCashFlowPdf(query: StatementQuery = {}): Promise<Blob> {
+  const { fetchBlob } = await import('./blob');
+  return fetchBlob(`/api/accounting/statements/cash-flow/print${statementQuery(query)}`);
+}
+
+function cashFlowForecastQueryString(query: CashFlowForecastQuery = {}): string {
+  const params = new URLSearchParams();
+  if (query.branchId && query.branchId !== 'ALL') params.set('branchId', query.branchId);
+  if (query.asOf) params.set('asOf', query.asOf);
+  if (query.weeks) params.set('weeks', String(query.weeks));
+  if (query.minCash !== undefined && query.minCash !== null) {
+    params.set('minCash', String(query.minCash));
+  }
+  const suffix = params.toString();
+  return suffix ? `?${suffix}` : '';
+}
+
+export async function getCashFlowForecast(
+  query: CashFlowForecastQuery = {}
+): Promise<CashFlowForecastResponse> {
+  return fetchJson(
+    `/api/accounting/statements/cash-flow/forecast${cashFlowForecastQueryString(query)}`
+  );
+}
+
+/** The same forecast as CSV, exported through the authenticated blob route. */
+export async function getCashFlowForecastCsv(
+  query: CashFlowForecastQuery = {}
+): Promise<Blob> {
+  const { fetchBlob } = await import('./blob');
+  return fetchBlob(
+    `/api/accounting/statements/cash-flow/forecast/export${cashFlowForecastQueryString(query)}`
+  );
+}
+
+export async function getCashFlowManualInputs(
+  query: Pick<CashFlowForecastQuery, 'branchId'> = {}
+): Promise<CashFlowManualInputsResponse> {
+  const params = new URLSearchParams();
+  if (query.branchId && query.branchId !== 'ALL') params.set('branchId', query.branchId);
+  const suffix = params.toString();
+  return fetchJson(`/api/accounting/cash-flow/manual-inputs${suffix ? `?${suffix}` : ''}`);
+}
+
+export async function createCashFlowManualInput(
+  input: CashFlowManualInputInput
+): Promise<CashFlowManualInput> {
+  return fetchJson('/api/accounting/cash-flow/manual-inputs', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateCashFlowManualInput(
+  id: string,
+  input: Partial<CashFlowManualInputInput>
+): Promise<CashFlowManualInput> {
+  return fetchJson(`/api/accounting/cash-flow/manual-inputs/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteCashFlowManualInput(
+  id: string
+): Promise<{ deleted: true; id: string }> {
+  return fetchJson(`/api/accounting/cash-flow/manual-inputs/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
 }
 
 export async function getStatementGroupLines(
@@ -843,6 +1792,81 @@ export async function getTrialBalanceAccountLines(
 
 export async function getCashBook(query: StatementQuery = {}): Promise<CashBookResponse> {
   return fetchJson(`/api/accounting/cash-book${statementQuery(query)}`);
+}
+
+function bankReconciliationQueryString(query: BankReconciliationQuery = {}): string {
+  const params = new URLSearchParams();
+  if (query.accountId) params.set('accountId', query.accountId);
+  if (query.from) params.set('from', query.from);
+  if (query.to) params.set('to', query.to);
+  const suffix = params.toString();
+  return suffix ? `?${suffix}` : '';
+}
+
+export async function getBankReconciliation(
+  query: BankReconciliationQuery = {}
+): Promise<BankReconciliationResponse> {
+  return fetchJson(`/api/accounting/bank-reconciliation${bankReconciliationQueryString(query)}`);
+}
+
+export async function importBankStatement(
+  input: BankReconciliationImportInput
+): Promise<BankStatementImportResponse> {
+  return fetchJson('/api/accounting/bank-reconciliation/import', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function matchBankStatementLine(
+  lineId: string,
+  journalLineId: string,
+  context: BankReconciliationActionContext
+): Promise<BankReconciliationMatchResponse> {
+  return fetchJson(
+    `/api/accounting/bank-reconciliation/lines/${encodeURIComponent(lineId)}/match`,
+    { method: 'POST', body: JSON.stringify({ ...context, journalLineId }) }
+  );
+}
+
+export async function unmatchBankStatementLine(
+  lineId: string,
+  context: BankReconciliationActionContext
+): Promise<Omit<BankReconciliationMatchResponse, 'journalLineId' | 'journalNo'> & { previousJournalLineId: string }> {
+  return fetchJson(
+    `/api/accounting/bank-reconciliation/lines/${encodeURIComponent(lineId)}/unmatch`,
+    { method: 'POST', body: JSON.stringify(context) }
+  );
+}
+
+export async function saveBankReconciliationSession(
+  input: BankReconciliationSessionInput
+): Promise<BankReconciliationSessionActionResponse> {
+  return fetchJson('/api/accounting/bank-reconciliation/sessions', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function lockBankReconciliationSession(
+  sessionId: string,
+  context: BankReconciliationActionContext
+): Promise<BankReconciliationSessionActionResponse> {
+  return fetchJson(
+    `/api/accounting/bank-reconciliation/sessions/${encodeURIComponent(sessionId)}/lock`,
+    { method: 'POST', body: JSON.stringify(context) }
+  );
+}
+
+export async function reopenBankReconciliationSession(
+  sessionId: string,
+  reason: string,
+  context: BankReconciliationActionContext
+): Promise<BankReconciliationSessionActionResponse> {
+  return fetchJson(
+    `/api/accounting/bank-reconciliation/sessions/${encodeURIComponent(sessionId)}/reopen`,
+    { method: 'POST', body: JSON.stringify({ ...context, reason }) }
+  );
 }
 
 export async function getAging(query: AgingQuery): Promise<AgingResponse> {

@@ -80,6 +80,8 @@ const ROLE_LABELS: Record<string, string> = {
   FRONT_DESK: 'Front Desk',
   ACCOUNTANT: 'Accountant',
   HEAD_OFFICE_ADMIN: 'Head Office Admin',
+  HR_MANAGER: 'HR Manager',
+  HR_OFFICER: 'HR Officer',
   PROCUREMENT_OFFICER: 'Procurement Officer',
   FIELD_TECHNICIAN: 'Field Technician',
   AUDITOR: 'Auditor',

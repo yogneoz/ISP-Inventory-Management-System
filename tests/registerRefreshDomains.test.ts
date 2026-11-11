@@ -989,8 +989,29 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'finance/TrialBalanceRegister.tsx': ['getTrialBalance'],
     'finance/ProfitAndLossRegister.tsx': ['getProfitAndLoss'],
     'finance/BalanceSheetRegister.tsx': ['getBalanceSheet'],
-    'finance/CashFlowRegister.tsx': ['getCashFlow'],
+    'finance/CashFlowRegister.tsx': [
+      'getCashFlow',
+      'getCashFlowForecast',
+      'getCashFlowForecastCsv',
+      'getCashFlowPdf',
+    ],
     'finance/CashBookRegister.tsx': ['getCashBook'],
+    'finance/RecurringCloseRegister.tsx': [
+      'closeAccountingPeriod',
+      'createRecurringTemplate',
+      'deleteRecurringTemplate',
+      'getAccountingAccounts',
+      'getAccountingPeriods',
+      'getActiveBranchId',
+      'getCloseChecklist',
+      'getRecurringTemplate',
+      'getRecurringTemplates',
+      'previewRecurringTemplate',
+      'reopenAccountingPeriod',
+      'runRecurringTemplate',
+      'updateCloseChecklistItem',
+      'updateRecurringTemplate',
+    ],
     'finance/AgingRegister.tsx': ['getAging'],
     'finance/ChartOfAccountsRegister.tsx': [
       'getAccountingAccounts',
@@ -1024,6 +1045,9 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       'getAccountingJournals',
       'reverseAccountingJournal',
     ],
+    // Finance payroll postings: read-only run snapshot register, refreshed on
+    // tab re-activation so a newly posted run appears without a live SSE key.
+    'finance/PayrollPostingsRegister.tsx': ['getHrPayrollPostings'],
     'finance/SubledgersManagement.tsx': [
       'createAccountingSubledger',
       'deleteAccountingSubledger',
@@ -1160,12 +1184,134 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       'resetUserPassword',
     ],
 
+    // — HR Phase 2: employee, attendance/leave, org-master and payroll screens.
+    //   AttendanceLeave and Payroll are whole-list mount/selection screens;
+    //   the two dialogs are opened by EmployeeDirectory and only mutate/read
+    //   the selected employee's documents or import file.
+    'hr/AttendanceLeave.tsx': [
+      'approveHrLeaveRequest',
+      'cancelHrLeaveRequest',
+      'createHrHoliday',
+      'createHrLeaveBalance',
+      'createHrLeaveRequest',
+      'createHrLeaveType',
+      'createHrShift',
+      'getEmployees',
+      'getHrAttendance',
+      'getHrHolidays',
+      'getHrLeaveBalances',
+      'getHrLeaveRequests',
+      'getHrLeaveTypes',
+      'getHrPayrollInputs',
+      'getHrShifts',
+      'importHrAttendance',
+      'rejectHrLeaveRequest',
+      'saveHrAttendance',
+      'saveHrPayrollInput',
+      'updateHrLeaveBalance',
+      'updateHrLeaveType',
+      'updateHrShift',
+    ],
+    'hr/EmployeeSelfService.tsx': ['getMyHrProfile'],
+    'hr/EmployeePayslips.tsx': ['getMyHrPayslips'],
+    'hr/EmployeeLeave.tsx': ['getMyHrLeave'],
+    'hr/EmployeeAttendance.tsx': ['getMyHrAttendance'],
+    'hr/EmployeeDocuments.tsx': ['downloadMyHrDocument', 'getMyHrDocuments'],
+    // Two read-only aggregates; the session, not the screen, owns branch scope.
+    'hr/HrReports.tsx': ['getHrPayrollReport', 'getHrWorkforceReport'],
+    // The pipeline reads and writes every recruitment family; the resume
+    // download is the one binary read and the hire action is the only
+    // candidate-to-employee conversion.
+    'hr/Recruitment.tsx': [
+      'createHrRecruitmentCandidate',
+      'createHrRecruitmentInterview',
+      'createHrRecruitmentOffer',
+      'createHrRecruitmentRequisition',
+      'downloadHrRecruitmentResume',
+      'getHrRecruitmentCandidates',
+      'getHrRecruitmentInterviews',
+      'getHrRecruitmentOffers',
+      'getHrRecruitmentRequisitions',
+      'hireHrRecruitmentCandidate',
+      'updateHrRecruitmentCandidate',
+      'updateHrRecruitmentOffer',
+      'updateHrRecruitmentRequisition',
+      'uploadHrRecruitmentResume',
+    ],
+    // Cycles, goals and 360 feedback are one self-fetching workspace; the
+    // employee picker is the only auxiliary read. Sign-off is its one
+    // irreversible write.
+    'hr/Performance.tsx': [
+      'createHrGoal',
+      'createHrPerformanceFeedback',
+      'createHrReviewCycle',
+      'getEmployees',
+      'getHrGoals',
+      'getHrPerformanceFeedback',
+      'getHrReviewCycles',
+      'signOffHrReviewCycle',
+      'updateHrGoal',
+      'updateHrReviewCycle',
+    ],
+    // Onboarding/offboarding reads the branch-scoped checklist list and the
+    // selected checklist (items + eligible assets). Every mutation is an
+    // explicit lifecycle action; the employee picker is the only auxiliary read.
+    'hr/Lifecycle.tsx': [
+      'addHrLifecycleChecklistItem',
+      'completeHrLifecycleChecklist',
+      'completeHrLifecycleChecklistItem',
+      'createHrLifecycleChecklist',
+      'getEmployees',
+      'getHrLifecycleChecklist',
+      'getHrLifecycleChecklists',
+      'updateHrLifecycleChecklist',
+    ],
+    'hr/EmployeeDirectory.tsx': [
+      'createEmployee',
+      'getEmployeeUserOptions',
+      'getEmployees',
+      'getHrOrgMasters',
+      'updateEmployee',
+    ],
+    'hr/EmployeeDocumentsDialog.tsx': [
+      'HR_DOCUMENT_MAX_BYTES',
+      'deleteEmployeeDocument',
+      'downloadEmployeeDocument',
+      'getEmployeeDocuments',
+      'uploadEmployeeDocument',
+    ],
+    'hr/EmployeeImportDialog.tsx': ['importEmployees'],
+    'hr/OrgMasters.tsx': ['createHrOrgMaster', 'getHrOrgMasters', 'updateHrOrgMaster'],
+    'hr/Payroll.tsx': [
+      'approveHrPayrollRun',
+      'createHrPayrollRunDraft',
+      'createHrSalaryStructure',
+      'createHrStatutoryConfig',
+      'discardHrPayrollRunDraft',
+      'getHrPayrollRun',
+      'getHrPayrollRuns',
+      'getHrSalaryStructures',
+      'getHrStatutoryConfigs',
+      'payHrPayrollRun',
+      'postHrPayrollRun',
+      'updateHrSalaryStructure',
+      'updateHrStatutoryConfig',
+    ],
+    'hr/PayrollOutputsModal.tsx': [
+      'downloadHrPayrollBankFile',
+      'getHrPayrollPayslips',
+      'getHrPayrollRegister',
+    ],
+
     // — prop-rendered screens: zero server calls of their own —
     //   (mutations flow through App.tsx callbacks, list data through the
     //   bootstrap slices App re-fetches on SSE events)
     // VOL-1a: the recent-activity strip reads its own eight rows from the
     // scoped transaction-log endpoint; the rest of the dashboard is props.
     'dashboard/Dashboard.tsx': ['getTransactionLogs'],
+    // The overspend card is a lazy child of Dashboard; it owns its finance
+    // read so the eager dashboard chunk stays inside its bundle budget.
+    'dashboard/DashboardBudgetAlerts.tsx': ['getAccountingBudgetAlerts'],
     'dev/StatCardShowcase.tsx': [],
     // getAuditTrail: the register lists bootstrap-slice rows, but the serial
     // focus is a deliberate server read — a unit's claim/refusal history can
@@ -1274,6 +1420,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'finance/BalanceSheetRegister.tsx',
     'finance/CashFlowRegister.tsx',
     'finance/CashBookRegister.tsx',
+    'finance/RecurringCloseRegister.tsx',
     'finance/AgingRegister.tsx',
     'finance/ChartOfAccountsRegister.tsx',
     'finance/GeneralLedgerMaster.tsx',
@@ -1288,6 +1435,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'finance/FiscalYearClosingWizard.tsx',
     'finance/NepaliFiscalManagement.tsx',
     'finance/OpeningStockManager.tsx',
+    'finance/PayrollPostingsRegister.tsx',
     'finance/VendorLedger.tsx',
     'finance/VendorOpeningBalances.tsx',
     'inventory/CategoryManagement.tsx',
@@ -1298,6 +1446,19 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     // The Users register fetches one bulk access summary on mount/activation;
     // its cards otherwise render bootstrap-slice props.
     'settings/UsersManagement.tsx',
+    'hr/AttendanceLeave.tsx',
+    'hr/EmployeeDirectory.tsx',
+    'hr/EmployeeSelfService.tsx',
+    'hr/EmployeePayslips.tsx',
+    'hr/EmployeeLeave.tsx',
+    'hr/EmployeeAttendance.tsx',
+    'hr/EmployeeDocuments.tsx',
+    'hr/HrReports.tsx',
+    'hr/Recruitment.tsx',
+    'hr/Performance.tsx',
+    'hr/Lifecycle.tsx',
+    'hr/OrgMasters.tsx',
+    'hr/Payroll.tsx',
   ];
 
   test('every feature screen is accounted for — a new screen must be pinned', () => {
@@ -1443,6 +1604,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'finance/BalanceSheetRegister.tsx': 'accounting-balance-sheet',
     'finance/CashFlowRegister.tsx': 'accounting-cash-flow',
     'finance/CashBookRegister.tsx': 'accounting-cash-book',
+    'finance/RecurringCloseRegister.tsx': 'recurring-close',
     'finance/AgingRegister.tsx': 'accounting-aging',
     'finance/ChartOfAccountsRegister.tsx': 'accounting-chart',
     'finance/GeneralLedgerMaster.tsx': 'general-ledger',
@@ -1457,6 +1619,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'finance/FiscalYearClosingWizard.tsx': 'fiscal-year-closing',
     'finance/NepaliFiscalManagement.tsx': 'nepali-fiscal',
     'finance/OpeningStockManager.tsx': 'opening-stock',
+    'finance/PayrollPostingsRegister.tsx': 'finance-payroll-postings',
     'finance/VendorLedger.tsx': 'vendor-ledger',
     'finance/VendorOpeningBalances.tsx': 'vendor-opening-balances',
     'inventory/CategoryManagement.tsx': 'category-management',
@@ -1465,6 +1628,19 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'inventory/UomManagement.tsx': 'uom-management',
     'settings/LocationsManagement.tsx': 'locations',
     'settings/UsersManagement.tsx': 'users',
+    'hr/AttendanceLeave.tsx': 'hr-attendance',
+    'hr/EmployeeDirectory.tsx': 'employees',
+    'hr/EmployeeSelfService.tsx': 'hr-self-service',
+    'hr/EmployeePayslips.tsx': 'hr-self-payslips',
+    'hr/EmployeeLeave.tsx': 'hr-self-leave',
+    'hr/EmployeeAttendance.tsx': 'hr-self-attendance',
+    'hr/EmployeeDocuments.tsx': 'hr-self-documents',
+    'hr/HrReports.tsx': 'hr-reports',
+    'hr/Recruitment.tsx': 'hr-recruitment',
+    'hr/Performance.tsx': 'hr-performance',
+    'hr/Lifecycle.tsx': 'hr-lifecycle',
+    'hr/OrgMasters.tsx': 'hr-org-masters',
+    'hr/Payroll.tsx': 'hr-payroll',
   };
 
   test('each mount-refetch screen opts in to refetch-on-reactivation via useActivationKey', () => {

@@ -564,7 +564,9 @@ describe('stock operations post value to the ledger (real HTTP + PostgreSQL)', {
     const period = periods.json.find((entry: any) => entry.periodKey === TODAY.slice(0, 7));
     assert.ok(period, 'the opening journal must have created this month');
 
-    const closed = await post(`/api/accounting/periods/${period.id}/close`, {});
+    const closed = await post(`/api/accounting/periods/${period.id}/close`, {
+      overrideReason: 'SA TEST close without checklist',
+    });
     assert.equal(closed.status, 200, JSON.stringify(closed.json));
     assert.equal(closed.json.status, 'CLOSED');
 

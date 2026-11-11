@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS users (
     email VARCHAR(150) UNIQUE NOT NULL,
     password VARCHAR(255) NOT NULL,
     name VARCHAR(150) NOT NULL,
-    role VARCHAR(50) NOT NULL CHECK (role IN ('SUPER_ADMIN', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'FRONT_DESK', 'ACCOUNTANT', 'HEAD_OFFICE_ADMIN', 'PROCUREMENT_OFFICER', 'FIELD_TECHNICIAN', 'AUDITOR')),
+    role VARCHAR(50) NOT NULL CHECK (role IN ('SUPER_ADMIN', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'FRONT_DESK', 'ACCOUNTANT', 'HEAD_OFFICE_ADMIN', 'HR_MANAGER', 'HR_OFFICER', 'PROCUREMENT_OFFICER', 'FIELD_TECHNICIAN', 'AUDITOR')),
     branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE SET NULL,
     allowed_branch_ids TEXT[],
     status VARCHAR(30) DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'suspended', 'locked')),
@@ -61,6 +61,24 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Existing tenants keep their users table; replace the role whitelist so the
+-- two HR roles can be assigned without a manual migration.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'users_role_check'
+      AND conrelid = 'users'::regclass
+  ) THEN
+    ALTER TABLE users DROP CONSTRAINT users_role_check;
+  END IF;
+  ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN (
+    'SUPER_ADMIN', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'FRONT_DESK',
+    'ACCOUNTANT', 'HEAD_OFFICE_ADMIN', 'HR_MANAGER', 'HR_OFFICER',
+    'PROCUREMENT_OFFICER', 'FIELD_TECHNICIAN', 'AUDITOR'
+  ));
+END $$;
 
 -- ==========================================
 -- 3. Fiscal Years Table (declared early: many
@@ -334,6 +352,8 @@ CREATE TABLE IF NOT EXISTS fixed_assets (
     assigned_customer_name VARCHAR(200),
     assigned_location_id VARCHAR(50),
     assigned_location_name VARCHAR(200),
+    assigned_employee_id VARCHAR(50),
+    assigned_employee_name VARCHAR(200),
     assignment_date_ad DATE,
     assignment_date_bs VARCHAR(20),
     assignment_notes TEXT,
@@ -348,6 +368,10 @@ CREATE TABLE IF NOT EXISTS fixed_assets (
 
 ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS capitalization_date_bs VARCHAR(20);
 ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS placed_in_service_date_bs VARCHAR(20);
+ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS assigned_employee_id VARCHAR(50);
+ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS assigned_employee_name VARCHAR(200);
+CREATE INDEX IF NOT EXISTS idx_fixed_assets_assigned_employee
+  ON fixed_assets(assigned_employee_id);
 
 -- ==========================================
 -- 9. Purchase Orders Table (with items JSONB)
@@ -1003,6 +1027,82 @@ ALTER TABLE warranty_coverages ADD COLUMN IF NOT EXISTS retired_reason VARCHAR(4
 ALTER TABLE warranty_coverages ADD COLUMN IF NOT EXISTS retired_ref VARCHAR(120);
 
 -- ==========================================
+-- 17a-1. Warranty Claims / RMA Lifecycle
+-- ==========================================
+-- A claim is opened against one current coverage period and owns its status
+-- history. The partial unique index is the business rule: one unit cannot be
+-- in two open claims for the same side of the warranty. REPLACED/REPAIRED/
+-- CREDITED remain open until CLOSED, so a second claim cannot be opened while
+-- the replacement or vendor credit is still in flight.
+CREATE TABLE IF NOT EXISTS warranty_claims (
+    id VARCHAR(60) PRIMARY KEY,
+    claim_no VARCHAR(50) UNIQUE NOT NULL,
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+    coverage_id VARCHAR(60) REFERENCES warranty_coverages(id) ON DELETE SET NULL,
+    coverage_type VARCHAR(10) NOT NULL CHECK (coverage_type IN ('VENDOR', 'SELLER')),
+    customer_id VARCHAR(50),
+    customer_name VARCHAR(200),
+    serial_number VARCHAR(100) NOT NULL,
+    product_id VARCHAR(50) REFERENCES products(id) ON DELETE SET NULL,
+    product_name VARCHAR(255) NOT NULL,
+    reported_date_ad DATE NOT NULL,
+    reported_date_bs VARCHAR(20),
+    symptom TEXT NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'REPORTED' CHECK (status IN (
+        'REPORTED', 'APPROVED', 'REJECTED', 'SENT_TO_VENDOR',
+        'REPLACED', 'REPAIRED', 'CREDITED', 'CLOSED'
+    )),
+    resolution VARCHAR(20) CHECK (resolution IS NULL OR resolution IN ('REPLACED', 'REPAIRED', 'CREDITED')),
+    vendor_id VARCHAR(50),
+    vendor_name VARCHAR(200),
+    vendor_claim_ref VARCHAR(120),
+    expected_credit NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (expected_credit >= 0),
+    received_credit NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (received_credit >= 0),
+    credit_note_no VARCHAR(120),
+    journal_id VARCHAR(60),
+    replacement_serial VARCHAR(100),
+    rma_reference VARCHAR(120),
+    sent_to_vendor_date_ad DATE,
+    resolved_date_ad DATE,
+    closed_date_ad DATE,
+    notes TEXT,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR(150),
+    updated_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_warranty_claim_open_unit
+  ON warranty_claims (coverage_type, serial_number)
+  WHERE status NOT IN ('CLOSED', 'REJECTED');
+CREATE INDEX IF NOT EXISTS idx_warranty_claim_branch_status
+  ON warranty_claims (branch_id, status, reported_date_ad);
+CREATE INDEX IF NOT EXISTS idx_warranty_claim_serial
+  ON warranty_claims ((lower(trim(serial_number))));
+CREATE INDEX IF NOT EXISTS idx_warranty_claim_recovery_rma
+  ON warranty_claims (branch_id, sent_to_vendor_date_ad)
+  WHERE status = 'SENT_TO_VENDOR';
+CREATE INDEX IF NOT EXISTS idx_warranty_claim_recovery_credit
+  ON warranty_claims (branch_id, coverage_type, expected_credit, received_credit);
+
+CREATE TABLE IF NOT EXISTS warranty_claim_events (
+    id VARCHAR(60) PRIMARY KEY,
+    claim_id VARCHAR(60) NOT NULL REFERENCES warranty_claims(id) ON DELETE CASCADE,
+    from_status VARCHAR(20),
+    status VARCHAR(20) NOT NULL CHECK (status IN (
+        'REPORTED', 'APPROVED', 'REJECTED', 'SENT_TO_VENDOR',
+        'REPLACED', 'REPAIRED', 'CREDITED', 'CLOSED'
+    )),
+    note TEXT,
+    actor VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_warranty_claim_event_claim
+  ON warranty_claim_events (claim_id, created_at);
+
+-- ==========================================
 -- 17b. Serial Log (one row per unique serial — consolidated register)
 -- ==========================================
 CREATE TABLE IF NOT EXISTS serial_log (
@@ -1569,6 +1669,138 @@ CREATE INDEX IF NOT EXISTS idx_gl_periods_dates ON gl_periods(start_date_ad, end
 ALTER TABLE gl_periods ADD COLUMN IF NOT EXISTS start_date_bs VARCHAR(20);
 ALTER TABLE gl_periods ADD COLUMN IF NOT EXISTS end_date_bs VARCHAR(20);
 
+-- Budgets: one header per fiscal year and branch, with a monthly amount per
+-- profit-and-loss account. Cost-centre budgeting is deliberately not modelled
+-- yet; the variance read is account-level and reconciles to posted journals.
+CREATE TABLE IF NOT EXISTS gl_budgets (
+    id VARCHAR(50) PRIMARY KEY,
+    fiscal_year_id VARCHAR(50) NOT NULL REFERENCES fiscal_years(id) ON DELETE RESTRICT,
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    locked_at TIMESTAMP WITH TIME ZONE,
+    locked_by VARCHAR(150),
+    created_by VARCHAR(150),
+    updated_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (fiscal_year_id, branch_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_gl_budgets_scope ON gl_budgets(fiscal_year_id, branch_id);
+
+-- An explicit whole-budget lock sits above the per-period CLOSED status. It
+-- stops the save, copy and CSV-import paths without hiding the budget or its
+-- variance; unlocking is audited and leaves the stored lines untouched.
+ALTER TABLE gl_budgets ADD COLUMN IF NOT EXISTS locked_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE gl_budgets ADD COLUMN IF NOT EXISTS locked_by VARCHAR(150);
+
+CREATE TABLE IF NOT EXISTS gl_budget_lines (
+    id VARCHAR(60) PRIMARY KEY,
+    budget_id VARCHAR(50) NOT NULL REFERENCES gl_budgets(id) ON DELETE CASCADE,
+    period_key VARCHAR(7) NOT NULL,
+    account_id VARCHAR(50) NOT NULL REFERENCES gl_accounts(id) ON DELETE RESTRICT,
+    amount NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (amount >= 0),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (budget_id, period_key, account_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_gl_budget_lines_account ON gl_budget_lines(account_id);
+
+-- Immutable budget history. A row is the prior state of a budget, written
+-- before the amount lines change; restore writes another row rather than
+-- updating an older one. `lines` is the exact stored line snapshot, including
+-- the chart code/name at that point in time. The source says which path made
+-- the version (manual save, copy, import, replace, restore or the baseline).
+CREATE TABLE IF NOT EXISTS gl_budget_versions (
+    id VARCHAR(60) PRIMARY KEY,
+    budget_id VARCHAR(50) NOT NULL REFERENCES gl_budgets(id) ON DELETE CASCADE,
+    version_no INTEGER NOT NULL CHECK (version_no > 0),
+    actor VARCHAR(150),
+    source VARCHAR(20) NOT NULL CHECK (source IN (
+        'BASELINE', 'SAVE', 'COPY', 'COPY_REPLACE',
+        'IMPORT', 'IMPORT_REPLACE', 'RESTORE'
+    )),
+    source_detail VARCHAR(200),
+    lines JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (budget_id, version_no)
+);
+
+CREATE INDEX IF NOT EXISTS idx_gl_budget_versions_budget
+    ON gl_budget_versions(budget_id, version_no DESC);
+
+-- Upgrade path for budgets saved before history existed: one immutable
+-- baseline snapshot of their current lines. Guarded so every boot/schema
+-- application is a no-op once the budget has any version.
+INSERT INTO gl_budget_versions (
+    id, budget_id, version_no, actor, source, source_detail, lines
+)
+SELECT 'glbv-baseline-' || b.id,
+    b.id,
+    1,
+    COALESCE(b.updated_by, b.created_by),
+    'BASELINE',
+    'Existing budget baseline',
+    COALESCE(
+        jsonb_agg(jsonb_build_object(
+            'periodKey', bl.period_key,
+            'accountId', bl.account_id,
+            'amount', bl.amount,
+            'code', a.code,
+            'name', a.name,
+            'accountType', g.account_type
+        ) ORDER BY bl.period_key, a.code)
+        FILTER (WHERE bl.id IS NOT NULL),
+        '[]'::jsonb
+    )
+FROM gl_budgets b
+LEFT JOIN gl_budget_lines bl ON bl.budget_id = b.id
+LEFT JOIN gl_accounts a ON a.id = bl.account_id
+LEFT JOIN gl_account_groups g ON g.id = a.group_id
+WHERE NOT EXISTS (
+    SELECT 1 FROM gl_budget_versions v WHERE v.budget_id = b.id
+)
+GROUP BY b.id, b.updated_by, b.created_by
+ON CONFLICT DO NOTHING;
+
+-- Cost-centre allocation for operating-expense budgets. A profile belongs to
+-- one fiscal year + branch. Its DEFAULT rules apply to every expense statement
+-- group; an optional group-specific override (for example OPERATING_EXPENSE)
+-- replaces the default for that group. Percentages are stored in basis points
+-- so a profile can prove it totals exactly 100.00% without floating-point
+-- ambiguity. This is a management-allocation setting; it never posts a journal
+-- or changes the account-level budget lines.
+CREATE TABLE IF NOT EXISTS gl_budget_allocation_profiles (
+    id VARCHAR(60) PRIMARY KEY,
+    fiscal_year_id VARCHAR(50) NOT NULL REFERENCES fiscal_years(id) ON DELETE CASCADE,
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+    created_by VARCHAR(150),
+    updated_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (fiscal_year_id, branch_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_gl_budget_allocation_profiles_branch
+    ON gl_budget_allocation_profiles(branch_id, fiscal_year_id);
+
+CREATE TABLE IF NOT EXISTS gl_budget_allocation_lines (
+    id VARCHAR(60) PRIMARY KEY,
+    profile_id VARCHAR(60) NOT NULL REFERENCES gl_budget_allocation_profiles(id) ON DELETE CASCADE,
+    account_group VARCHAR(50) NOT NULL DEFAULT 'DEFAULT',
+    cost_center_id VARCHAR(50) NOT NULL REFERENCES cost_centers(id) ON DELETE RESTRICT,
+    percentage_bp INTEGER NOT NULL CHECK (percentage_bp >= 0 AND percentage_bp <= 10000),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CHECK (btrim(account_group) <> ''),
+    UNIQUE (profile_id, account_group, cost_center_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_gl_budget_allocation_lines_profile
+    ON gl_budget_allocation_lines(profile_id, account_group);
+CREATE INDEX IF NOT EXISTS idx_gl_budget_allocation_lines_cost_center
+    ON gl_budget_allocation_lines(cost_center_id);
+
 CREATE SEQUENCE IF NOT EXISTS gl_journal_no_seq AS BIGINT START WITH 1;
 
 CREATE TABLE IF NOT EXISTS gl_journals (
@@ -1735,6 +1967,277 @@ CREATE INDEX IF NOT EXISTS idx_daily_cash_closes_date ON daily_cash_closes(busin
 ALTER TABLE daily_cash_closes ADD COLUMN IF NOT EXISTS business_date_bs VARCHAR(20);
 
 -- ============================================================================
+-- 34b. Bank reconciliation — imported bank statement lines and the period
+-- sessions that lock a bank-account reconciliation. A BANK ledger is the
+-- account master (the chart already stores bank name/number/holder); these
+-- tables hold statement-side facts for that account. All branches post to the
+-- same company bank account and the bank issues one statement, so neither
+-- table carries a branch: branch is a posting dimension on journal lines.
+-- `amount` is signed from the bank statement perspective: positive = deposit
+-- into the bank, negative = withdrawal. The book side remains the posted
+-- debit/credit in gl_journal_lines. A statement line can claim at most one
+-- posted book line, and fingerprint uniqueness makes re-importing the same
+-- statement idempotent.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS bank_statement_lines (
+    id VARCHAR(60) PRIMARY KEY,
+    bank_account_id VARCHAR(50) NOT NULL REFERENCES gl_accounts(id) ON DELETE RESTRICT,
+    statement_date DATE NOT NULL,
+    statement_date_bs VARCHAR(20) NOT NULL,
+    description VARCHAR(300) NOT NULL,
+    reference VARCHAR(150),
+    amount NUMERIC(14, 2) NOT NULL,
+    import_batch_id VARCHAR(60) NOT NULL,
+    import_source VARCHAR(10) NOT NULL CHECK (import_source IN ('CSV', 'OFX')),
+    fingerprint VARCHAR(64) NOT NULL,
+    matched_journal_line_id VARCHAR(60) REFERENCES gl_journal_lines(id) ON DELETE RESTRICT,
+    matched_at TIMESTAMP WITH TIME ZONE,
+    matched_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT bank_statement_lines_amount_check CHECK (amount <> 0),
+    UNIQUE (bank_account_id, fingerprint)
+);
+
+-- Upgrade the original branch-scoped shape. A statement belongs to the bank
+-- account, so retaining branch_id would let the same statement be imported
+-- once per branch and split one real bank statement into several sessions.
+-- The local install had no statement rows when this correction shipped; an
+-- install with rows must review them before applying because the account-level
+-- uniqueness and session uniqueness intentionally merge branch duplicates.
+DROP INDEX IF EXISTS idx_bank_statement_lines_scope;
+ALTER TABLE bank_statement_lines DROP COLUMN IF EXISTS branch_id;
+
+ALTER TABLE bank_statement_lines
+    ADD COLUMN IF NOT EXISTS statement_date_bs VARCHAR(20) NOT NULL DEFAULT 'BS not seeded';
+ALTER TABLE bank_statement_lines ALTER COLUMN statement_date_bs DROP DEFAULT;
+UPDATE bank_statement_lines s SET statement_date_bs = b.bs_date || ' BS'
+    FROM bs_day_records b
+    WHERE b.ad_date = s.statement_date AND s.statement_date_bs = 'BS not seeded';
+
+CREATE INDEX IF NOT EXISTS idx_bank_statement_lines_scope
+    ON bank_statement_lines(bank_account_id, statement_date);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bank_statement_lines_journal_line
+    ON bank_statement_lines(matched_journal_line_id)
+    WHERE matched_journal_line_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS bank_reconciliation_sessions (
+    id VARCHAR(60) PRIMARY KEY,
+    bank_account_id VARCHAR(50) NOT NULL REFERENCES gl_accounts(id) ON DELETE RESTRICT,
+    period_start DATE NOT NULL,
+    period_end DATE NOT NULL,
+    period_start_bs VARCHAR(20) NOT NULL,
+    period_end_bs VARCHAR(20) NOT NULL,
+    opening_statement_balance NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    closing_statement_balance NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    status VARCHAR(10) NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN', 'LOCKED')),
+    locked_at TIMESTAMP WITH TIME ZONE,
+    locked_by VARCHAR(150),
+    reopened_at TIMESTAMP WITH TIME ZONE,
+    reopened_by VARCHAR(150),
+    reopen_reason TEXT,
+    created_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT bank_reconciliation_sessions_period_check CHECK (period_start <= period_end),
+    UNIQUE (bank_account_id, period_start, period_end)
+);
+
+-- Existing installs may still have the old branch-aware unique constraint.
+-- Drop it before removing the column; the account/period unique constraint is
+-- added after the column is gone so re-running this section stays idempotent.
+DO $$
+DECLARE constraint_name text;
+BEGIN
+    FOR constraint_name IN
+        SELECT con.conname
+        FROM pg_constraint con
+        JOIN pg_class rel ON rel.oid = con.conrelid
+        WHERE rel.relname = 'bank_reconciliation_sessions'
+          AND con.contype = 'u'
+          AND pg_get_constraintdef(con.oid) LIKE '%branch_id%'
+    LOOP
+        EXECUTE format('ALTER TABLE bank_reconciliation_sessions DROP CONSTRAINT %I', constraint_name);
+    END LOOP;
+END $$;
+DROP INDEX IF EXISTS idx_bank_reconciliation_sessions_scope;
+ALTER TABLE bank_reconciliation_sessions DROP COLUMN IF EXISTS branch_id;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'bank_reconciliation_sessions_account_period_key'
+          AND conrelid = 'bank_reconciliation_sessions'::regclass
+    ) THEN
+        ALTER TABLE bank_reconciliation_sessions
+            ADD CONSTRAINT bank_reconciliation_sessions_account_period_key
+            UNIQUE (bank_account_id, period_start, period_end);
+    END IF;
+END $$;
+
+ALTER TABLE bank_reconciliation_sessions
+    ADD COLUMN IF NOT EXISTS period_start_bs VARCHAR(20) NOT NULL DEFAULT 'BS not seeded';
+ALTER TABLE bank_reconciliation_sessions
+    ADD COLUMN IF NOT EXISTS period_end_bs VARCHAR(20) NOT NULL DEFAULT 'BS not seeded';
+ALTER TABLE bank_reconciliation_sessions ALTER COLUMN period_start_bs DROP DEFAULT;
+ALTER TABLE bank_reconciliation_sessions ALTER COLUMN period_end_bs DROP DEFAULT;
+UPDATE bank_reconciliation_sessions s SET period_start_bs = b.bs_date || ' BS'
+    FROM bs_day_records b
+    WHERE b.ad_date = s.period_start AND s.period_start_bs = 'BS not seeded';
+UPDATE bank_reconciliation_sessions s SET period_end_bs = b.bs_date || ' BS'
+    FROM bs_day_records b
+    WHERE b.ad_date = s.period_end AND s.period_end_bs = 'BS not seeded';
+
+CREATE INDEX IF NOT EXISTS idx_bank_reconciliation_sessions_scope
+    ON bank_reconciliation_sessions(bank_account_id, period_start, period_end);
+
+-- ============================================================================
+-- 34c. Recurring journals — a branch-owned template with formula-driven lines
+-- and a durable per-template/per-date run record. The run record is the
+-- idempotency key: a second request for the same due date returns the first
+-- journal instead of posting again. Generated journals go through the normal
+-- balanced-journal service, so closed periods and branch scope behave exactly
+-- like a manual voucher.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS gl_recurring_templates (
+    id VARCHAR(60) PRIMARY KEY,
+    code VARCHAR(30) UNIQUE NOT NULL,
+    name VARCHAR(150) NOT NULL,
+    description TEXT,
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    frequency VARCHAR(10) NOT NULL CHECK (frequency IN ('MONTHLY', 'QUARTERLY', 'YEARLY')),
+    start_date_ad DATE NOT NULL,
+    end_date_ad DATE,
+    next_run_date DATE NOT NULL,
+    last_run_date DATE,
+    last_journal_id VARCHAR(50) REFERENCES gl_journals(id) ON DELETE SET NULL,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_by VARCHAR(150),
+    updated_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT gl_recurring_templates_date_order CHECK (
+        end_date_ad IS NULL OR end_date_ad >= start_date_ad
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_gl_recurring_templates_due
+    ON gl_recurring_templates(active, next_run_date, branch_id);
+
+CREATE TABLE IF NOT EXISTS gl_recurring_template_lines (
+    id VARCHAR(60) PRIMARY KEY,
+    template_id VARCHAR(60) NOT NULL REFERENCES gl_recurring_templates(id) ON DELETE CASCADE,
+    line_no INTEGER NOT NULL CHECK (line_no > 0),
+    account_id VARCHAR(50) NOT NULL REFERENCES gl_accounts(id) ON DELETE RESTRICT,
+    side VARCHAR(6) NOT NULL CHECK (side IN ('DEBIT', 'CREDIT')),
+    amount_formula VARCHAR(200) NOT NULL,
+    memo VARCHAR(300),
+    party_id VARCHAR(100),
+    party_name VARCHAR(200),
+    cost_center_id VARCHAR(50) REFERENCES cost_centers(id) ON DELETE RESTRICT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (template_id, line_no)
+);
+
+CREATE INDEX IF NOT EXISTS idx_gl_recurring_template_lines_template
+    ON gl_recurring_template_lines(template_id, line_no);
+
+CREATE TABLE IF NOT EXISTS gl_recurring_runs (
+    id VARCHAR(60) PRIMARY KEY,
+    template_id VARCHAR(60) NOT NULL REFERENCES gl_recurring_templates(id) ON DELETE CASCADE,
+    run_date DATE NOT NULL,
+    journal_id VARCHAR(50) NOT NULL REFERENCES gl_journals(id) ON DELETE RESTRICT,
+    generated_by VARCHAR(150),
+    generated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (template_id, run_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_gl_recurring_runs_template
+    ON gl_recurring_runs(template_id, run_date DESC);
+
+-- ============================================================================
+-- 34d. Month-end close checklist — company-wide, ordered tasks per period.
+-- The templates are the default checklist every period starts with; each
+-- period owns its status/owner/note/evidence rows, so the state survives a
+-- refresh and every update can be audited independently. `LOCK_PERIOD` is
+-- optional because the close action itself marks it done; the other four are
+-- required and gate the close unless an explicit override reason is supplied.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS gl_close_task_templates (
+    id VARCHAR(60) PRIMARY KEY,
+    code VARCHAR(40) UNIQUE NOT NULL,
+    title VARCHAR(200) NOT NULL,
+    description TEXT,
+    required BOOLEAN NOT NULL DEFAULT TRUE,
+    sort_order INTEGER NOT NULL DEFAULT 100,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS gl_close_checklist_items (
+    id VARCHAR(60) PRIMARY KEY,
+    period_id VARCHAR(50) NOT NULL REFERENCES gl_periods(id) ON DELETE CASCADE,
+    task_code VARCHAR(40) NOT NULL,
+    title VARCHAR(200) NOT NULL,
+    required BOOLEAN NOT NULL DEFAULT TRUE,
+    sort_order INTEGER NOT NULL DEFAULT 100,
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING'
+        CHECK (status IN ('PENDING', 'IN_PROGRESS', 'DONE', 'NOT_APPLICABLE')),
+    owner VARCHAR(150),
+    note TEXT,
+    evidence_url VARCHAR(500),
+    completed_at TIMESTAMP WITH TIME ZONE,
+    completed_by VARCHAR(150),
+    updated_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (period_id, task_code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_gl_close_checklist_items_period
+    ON gl_close_checklist_items(period_id, sort_order, task_code);
+
+-- ============================================================================
+-- 34e. Forward cash-flow manual inputs — branch-owned adjustments against a
+-- dated forecast. The amount is stored as a safe arithmetic formula (evaluated
+-- by the same parser as recurring journals); no amount column can drift from
+-- the formula. The BS half is derived from bs_day_records on write, and the
+-- forecast excludes a row whose date falls in a CLOSED accounting period.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS gl_cash_flow_manual_inputs (
+    id VARCHAR(60) PRIMARY KEY,
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    expected_date_ad DATE NOT NULL,
+    expected_date_bs VARCHAR(20) NOT NULL,
+    direction VARCHAR(7) NOT NULL CHECK (direction IN ('INFLOW', 'OUTFLOW')),
+    amount_formula VARCHAR(200) NOT NULL,
+    description VARCHAR(300) NOT NULL,
+    created_by VARCHAR(150),
+    updated_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_gl_cash_flow_manual_inputs_scope
+    ON gl_cash_flow_manual_inputs(branch_id, expected_date_ad);
+
+INSERT INTO gl_close_task_templates (id, code, title, description, required, sort_order)
+VALUES
+    ('glct-bank-reconcile', 'BANK_RECONCILE', 'Reconcile bank statements',
+     'Import each bank statement and match it to the company book for the period.', TRUE, 10),
+    ('glct-post-depreciation', 'POST_DEPRECIATION', 'Post depreciation',
+     'Run the fixed-asset depreciation posting for the period.', TRUE, 20),
+    ('glct-review-aging', 'REVIEW_AGING', 'Review AR / AP aging',
+     'Review receivables and payables and explain material overdue balances.', TRUE, 30),
+    ('glct-accrue-expenses', 'ACCRUE_EXPENSES', 'Accrue expenses',
+     'Post known expenses that belong to the period but are not yet invoiced.', TRUE, 40),
+    ('glct-lock-period', 'LOCK_PERIOD', 'Lock period',
+     'Mark the period locked after the checklist is complete.', FALSE, 50)
+ON CONFLICT (code) DO NOTHING;
+
+-- ============================================================================
 -- 35. Payroll — employee master, posted runs and their per-employee lines
 -- ============================================================================
 -- Payroll deliberately stores no salary calculation: the run's amounts are
@@ -1747,11 +2250,28 @@ CREATE TABLE IF NOT EXISTS employees (
     employee_code VARCHAR(50) UNIQUE NOT NULL,
     name VARCHAR(200) NOT NULL,
     branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    user_id VARCHAR(50) REFERENCES users(id) ON DELETE SET NULL,
     department VARCHAR(120),
     designation VARCHAR(120),
     pan_number VARCHAR(50),
     ssf_number VARCHAR(50),
     bank_account VARCHAR(80),
+    bank_name VARCHAR(150),
+    employment_type VARCHAR(30),
+    joining_date_ad DATE,
+    date_of_birth_ad DATE,
+    contract_expiry_ad DATE,
+    separation_date_ad DATE,
+    designation_code VARCHAR(30),
+    work_station VARCHAR(150),
+    address TEXT,
+    personal_contact VARCHAR(30),
+    emergency_contact_person VARCHAR(150),
+    emergency_contact_number VARCHAR(30),
+    internal_email VARCHAR(150),
+    personal_email VARCHAR(150),
+    monthly_salary NUMERIC(12, 2),
+    ssf_eligible BOOLEAN NOT NULL DEFAULT FALSE,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     is_demo BOOLEAN NOT NULL DEFAULT FALSE,
     created_by VARCHAR(150),
@@ -1762,6 +2282,628 @@ CREATE TABLE IF NOT EXISTS employees (
 
 CREATE INDEX IF NOT EXISTS idx_employees_branch ON employees(branch_id, is_active);
 CREATE INDEX IF NOT EXISTS idx_employees_name ON employees(lower(name));
+
+-- HR master fields supplied by the business's Employee Master Sheet. Master
+-- dates stay AD-only: joining/DOB/contract dates predate the seeded BS span, so
+-- requiring a derived BS value would reject valid history.
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS bank_name VARCHAR(150);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS employment_type VARCHAR(30);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS joining_date_ad DATE;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS date_of_birth_ad DATE;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS contract_expiry_ad DATE;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS separation_date_ad DATE;
+CREATE INDEX IF NOT EXISTS idx_employees_branch_separation ON employees(branch_id, separation_date_ad);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS designation_code VARCHAR(30);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS work_station VARCHAR(150);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS address TEXT;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS personal_contact VARCHAR(30);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS emergency_contact_person VARCHAR(150);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS emergency_contact_number VARCHAR(30);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS internal_email VARCHAR(150);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS personal_email VARCHAR(150);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS monthly_salary NUMERIC(12, 2);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS ssf_eligible BOOLEAN NOT NULL DEFAULT FALSE;
+-- ESS link: one login account maps to at most one employee. The partial unique
+-- index is what makes the link one-to-one; ON DELETE SET NULL keeps the
+-- employee record (and payroll history) when a login is removed.
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS user_id VARCHAR(50);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_employees_user_id ON employees(user_id) WHERE user_id IS NOT NULL;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'employees_user_id_fkey'
+      AND conrelid = 'employees'::regclass
+  ) THEN
+    ALTER TABLE employees ADD CONSTRAINT employees_user_id_fkey
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM employees WHERE monthly_salary < 0) THEN
+    ALTER TABLE employees DROP CONSTRAINT IF EXISTS employees_monthly_salary_non_negative;
+    ALTER TABLE employees ADD CONSTRAINT employees_monthly_salary_non_negative
+      CHECK (monthly_salary IS NULL OR monthly_salary >= 0);
+  END IF;
+END $$;
+
+-- The organisation catalogue is deliberately label-only: employees keep
+-- their text department/designation/work-station values, so renaming or
+-- retiring a master never rewrites a historical payroll row.
+CREATE TABLE IF NOT EXISTS hr_org_masters (
+    id VARCHAR(50) PRIMARY KEY,
+    kind VARCHAR(20) NOT NULL CHECK (kind IN ('DEPARTMENT', 'DESIGNATION', 'WORK_STATION')),
+    name VARCHAR(120) NOT NULL,
+    code VARCHAR(30),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR(150),
+    updated_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_hr_org_masters_kind ON hr_org_masters(kind, is_active, lower(name));
+CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_org_masters_kind_name ON hr_org_masters(kind, lower(name));
+CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_org_masters_kind_code ON hr_org_masters(kind, lower(code)) WHERE code IS NOT NULL;
+
+-- Employee document vault. The bytes live in this same database so a document
+-- and its metadata commit or roll back together; the size ceiling is enforced
+-- here as well as in the upload handler. `storage_key` is a generated id, never
+-- derived from the employee or the uploaded name, so it carries no PII.
+CREATE TABLE IF NOT EXISTS hr_employee_documents (
+    id VARCHAR(60) PRIMARY KEY,
+    employee_id VARCHAR(50) NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    doc_type VARCHAR(40) NOT NULL,
+    original_name VARCHAR(200) NOT NULL,
+    mime_type VARCHAR(120) NOT NULL,
+    byte_size INTEGER NOT NULL CHECK (byte_size > 0 AND byte_size <= 5242880),
+    storage_key VARCHAR(80) NOT NULL UNIQUE,
+    expires_on_ad DATE,
+    notes VARCHAR(500),
+    content BYTEA NOT NULL,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    uploaded_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_hr_employee_documents_employee
+  ON hr_employee_documents(employee_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_hr_employee_documents_expiry
+  ON hr_employee_documents(expires_on_ad) WHERE expires_on_ad IS NOT NULL;
+
+-- Phase 4 recruitment. A requisition is branch custody; candidates inherit
+-- that branch from their requisition and interviews/offers inherit it from the
+-- candidate, so a stale branch claim cannot drift onto a child row. Dates are
+-- transactional and therefore keep the AD/BS pair. Resume bytes live with the
+-- candidate row (bounded in the schema as well as the upload handler); the
+-- columns are all-or-none so a half-uploaded resume cannot look complete.
+CREATE TABLE IF NOT EXISTS hr_recruitment_requisitions (
+    id VARCHAR(60) PRIMARY KEY,
+    requisition_no VARCHAR(50) UNIQUE NOT NULL,
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    title VARCHAR(150) NOT NULL,
+    department VARCHAR(120),
+    designation VARCHAR(120),
+    employment_type VARCHAR(30),
+    openings INTEGER NOT NULL DEFAULT 1 CHECK (openings >= 1 AND openings <= 999),
+    status VARCHAR(20) NOT NULL DEFAULT 'DRAFT'
+      CHECK (status IN ('DRAFT', 'OPEN', 'ON_HOLD', 'CLOSED')),
+    opened_on_ad DATE,
+    opened_on_bs VARCHAR(20),
+    closes_on_ad DATE,
+    closes_on_bs VARCHAR(20),
+    description VARCHAR(2000),
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR(150),
+    updated_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CHECK (closes_on_ad IS NULL OR opened_on_ad IS NULL OR closes_on_ad >= opened_on_ad)
+);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_requisitions_branch_status
+  ON hr_recruitment_requisitions(branch_id, status, opened_on_ad DESC);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_requisitions_opened
+  ON hr_recruitment_requisitions(opened_on_ad DESC) WHERE opened_on_ad IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS hr_recruitment_candidates (
+    id VARCHAR(60) PRIMARY KEY,
+    candidate_no VARCHAR(50) UNIQUE NOT NULL,
+    requisition_id VARCHAR(60) NOT NULL REFERENCES hr_recruitment_requisitions(id) ON DELETE RESTRICT,
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    name VARCHAR(200) NOT NULL,
+    email VARCHAR(150),
+    phone VARCHAR(30),
+    source VARCHAR(80),
+    current_employer VARCHAR(150),
+    status VARCHAR(20) NOT NULL DEFAULT 'NEW'
+      CHECK (status IN ('NEW', 'SCREENING', 'INTERVIEW', 'OFFER', 'HIRED', 'REJECTED', 'WITHDRAWN')),
+    notes VARCHAR(1000),
+    resume_file_name VARCHAR(200),
+    resume_mime_type VARCHAR(120),
+    resume_byte_size INTEGER CHECK (resume_byte_size > 0 AND resume_byte_size <= 5242880),
+    resume_content BYTEA,
+    resume_uploaded_at TIMESTAMP WITH TIME ZONE,
+    hired_employee_id VARCHAR(50) UNIQUE REFERENCES employees(id) ON DELETE SET NULL,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR(150),
+    updated_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CHECK (
+      (resume_file_name IS NULL AND resume_mime_type IS NULL AND resume_byte_size IS NULL AND resume_content IS NULL AND resume_uploaded_at IS NULL)
+      OR
+      (resume_file_name IS NOT NULL AND resume_mime_type IS NOT NULL AND resume_byte_size IS NOT NULL AND resume_content IS NOT NULL AND resume_uploaded_at IS NOT NULL)
+    )
+);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_candidates_branch_status
+  ON hr_recruitment_candidates(branch_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_candidates_requisition
+  ON hr_recruitment_candidates(requisition_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_recruitment_candidates_requisition_email
+  ON hr_recruitment_candidates(requisition_id, lower(email)) WHERE email IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS hr_recruitment_interviews (
+    id VARCHAR(60) PRIMARY KEY,
+    candidate_id VARCHAR(60) NOT NULL REFERENCES hr_recruitment_candidates(id) ON DELETE CASCADE,
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    round_name VARCHAR(60) NOT NULL,
+    scheduled_on_ad DATE NOT NULL,
+    scheduled_on_bs VARCHAR(20),
+    interviewer VARCHAR(150),
+    mode VARCHAR(20) NOT NULL DEFAULT 'VIDEO' CHECK (mode IN ('IN_PERSON', 'PHONE', 'VIDEO')),
+    status VARCHAR(20) NOT NULL DEFAULT 'SCHEDULED'
+      CHECK (status IN ('SCHEDULED', 'COMPLETED', 'CANCELLED')),
+    rating INTEGER CHECK (rating IS NULL OR (rating >= 1 AND rating <= 5)),
+    notes VARCHAR(1000),
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR(150),
+    updated_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_interviews_candidate
+  ON hr_recruitment_interviews(candidate_id, scheduled_on_ad DESC);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_interviews_branch_date
+  ON hr_recruitment_interviews(branch_id, scheduled_on_ad DESC);
+
+CREATE TABLE IF NOT EXISTS hr_recruitment_offers (
+    id VARCHAR(60) PRIMARY KEY,
+    offer_no VARCHAR(50) UNIQUE NOT NULL,
+    candidate_id VARCHAR(60) UNIQUE NOT NULL REFERENCES hr_recruitment_candidates(id) ON DELETE CASCADE,
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    position_title VARCHAR(150) NOT NULL,
+    monthly_salary NUMERIC(12, 2) NOT NULL DEFAULT 0
+      CHECK (monthly_salary >= 0 AND monthly_salary <= 100000000),
+    start_date_ad DATE NOT NULL,
+    start_date_bs VARCHAR(20),
+    offered_on_ad DATE NOT NULL,
+    offered_on_bs VARCHAR(20),
+    status VARCHAR(20) NOT NULL DEFAULT 'DRAFT'
+      CHECK (status IN ('DRAFT', 'SENT', 'ACCEPTED', 'DECLINED', 'WITHDRAWN')),
+    responded_on_ad DATE,
+    notes VARCHAR(1000),
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR(150),
+    updated_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_offers_branch_status
+  ON hr_recruitment_offers(branch_id, status, offered_on_ad DESC);
+
+-- Phase 4 performance. A review cycle is branch custody: goals and 360
+-- feedback inherit their branch from the cycle and never take a branch claim
+-- from the browser. Sign-off is the lock boundary; the controller refuses
+-- every cycle, goal and feedback write once signed_off_at is set.
+CREATE TABLE IF NOT EXISTS hr_review_cycles (
+    id VARCHAR(60) PRIMARY KEY,
+    cycle_no VARCHAR(50) UNIQUE NOT NULL,
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    name VARCHAR(150) NOT NULL,
+    period_start_ad DATE NOT NULL,
+    period_start_bs VARCHAR(20),
+    period_end_ad DATE NOT NULL,
+    period_end_bs VARCHAR(20),
+    status VARCHAR(20) NOT NULL DEFAULT 'DRAFT'
+      CHECK (status IN ('DRAFT', 'OPEN', 'SIGNED_OFF')),
+    instructions VARCHAR(2000),
+    signed_off_by VARCHAR(150),
+    signed_off_at TIMESTAMP WITH TIME ZONE,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR(150),
+    updated_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CHECK (period_end_ad >= period_start_ad)
+);
+CREATE INDEX IF NOT EXISTS idx_hr_review_cycles_branch_status
+  ON hr_review_cycles(branch_id, status, period_start_ad DESC);
+
+CREATE TABLE IF NOT EXISTS hr_goals (
+    id VARCHAR(60) PRIMARY KEY,
+    goal_no VARCHAR(50) UNIQUE NOT NULL,
+    cycle_id VARCHAR(60) NOT NULL REFERENCES hr_review_cycles(id) ON DELETE CASCADE,
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    employee_id VARCHAR(50) NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    title VARCHAR(200) NOT NULL,
+    description VARCHAR(1000),
+    weight NUMERIC(5, 2) NOT NULL DEFAULT 100
+      CHECK (weight > 0 AND weight <= 100),
+    target_value VARCHAR(200),
+    achievement VARCHAR(500),
+    status VARCHAR(20) NOT NULL DEFAULT 'NOT_STARTED'
+      CHECK (status IN ('NOT_STARTED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED')),
+    self_rating NUMERIC(3, 2) CHECK (self_rating IS NULL OR (self_rating >= 1 AND self_rating <= 5)),
+    manager_rating NUMERIC(3, 2) CHECK (manager_rating IS NULL OR (manager_rating >= 1 AND manager_rating <= 5)),
+    final_rating NUMERIC(3, 2) CHECK (final_rating IS NULL OR (final_rating >= 1 AND final_rating <= 5)),
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR(150),
+    updated_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_hr_goals_branch_employee
+  ON hr_goals(branch_id, employee_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_hr_goals_cycle
+  ON hr_goals(cycle_id, employee_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_goals_cycle_employee_title
+  ON hr_goals(cycle_id, employee_id, lower(title));
+
+CREATE TABLE IF NOT EXISTS hr_review_feedback (
+    id VARCHAR(60) PRIMARY KEY,
+    cycle_id VARCHAR(60) NOT NULL REFERENCES hr_review_cycles(id) ON DELETE CASCADE,
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    employee_id VARCHAR(50) NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    reviewer_employee_id VARCHAR(50) NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    relationship VARCHAR(20) NOT NULL
+      CHECK (relationship IN ('SELF', 'MANAGER', 'PEER', 'REPORT')),
+    rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
+    strengths VARCHAR(1000),
+    improvements VARCHAR(1000),
+    comments VARCHAR(2000),
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    submitted_by VARCHAR(150),
+    submitted_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (cycle_id, employee_id, reviewer_employee_id),
+    CHECK ((relationship = 'SELF' AND employee_id = reviewer_employee_id) OR (relationship <> 'SELF' AND employee_id <> reviewer_employee_id))
+);
+CREATE INDEX IF NOT EXISTS idx_hr_review_feedback_branch_employee
+  ON hr_review_feedback(branch_id, employee_id, submitted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_hr_review_feedback_cycle
+  ON hr_review_feedback(cycle_id, employee_id, submitted_at DESC);
+
+-- Phase 4 onboarding/offboarding. The checklist is branch custody derived
+-- from the employee; items never carry a branch claim of their own. Asset and
+-- account items point at the real fixed-asset and user records and completing
+-- them reconciles that record inside the same transaction. The header is the
+-- lock boundary: completed checklists refuse every later write.
+CREATE TABLE IF NOT EXISTS hr_lifecycle_checklists (
+    id VARCHAR(60) PRIMARY KEY,
+    checklist_no VARCHAR(50) UNIQUE NOT NULL,
+    employee_id VARCHAR(50) NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    checklist_type VARCHAR(20) NOT NULL
+      CHECK (checklist_type IN ('ONBOARDING', 'OFFBOARDING')),
+    status VARCHAR(20) NOT NULL DEFAULT 'DRAFT'
+      CHECK (status IN ('DRAFT', 'OPEN', 'COMPLETED')),
+    effective_date_ad DATE NOT NULL,
+    effective_date_bs VARCHAR(20),
+    notes VARCHAR(2000),
+    completed_by VARCHAR(150),
+    completed_at TIMESTAMP WITH TIME ZONE,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR(150),
+    updated_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_hr_lifecycle_checklists_branch_status
+  ON hr_lifecycle_checklists(branch_id, checklist_type, status, effective_date_ad DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_lifecycle_checklists_active_employee
+  ON hr_lifecycle_checklists(employee_id, checklist_type)
+  WHERE status <> 'COMPLETED';
+
+CREATE TABLE IF NOT EXISTS hr_lifecycle_checklist_items (
+    id VARCHAR(60) PRIMARY KEY,
+    checklist_id VARCHAR(60) NOT NULL REFERENCES hr_lifecycle_checklists(id) ON DELETE CASCADE,
+    category VARCHAR(20) NOT NULL
+      CHECK (category IN ('DOCUMENT', 'ASSET', 'ACCOUNT', 'ACCESS', 'OTHER')),
+    title VARCHAR(200) NOT NULL,
+    description VARCHAR(1000),
+    required BOOLEAN NOT NULL DEFAULT TRUE,
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING'
+      CHECK (status IN ('PENDING', 'DONE')),
+    action VARCHAR(30) NOT NULL DEFAULT 'NONE'
+      CHECK (action IN ('NONE', 'ISSUE_ASSET', 'RETURN_ASSET', 'ACTIVATE_ACCOUNT', 'DEACTIVATE_ACCOUNT')),
+    asset_id VARCHAR(60) REFERENCES fixed_assets(id) ON DELETE SET NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    completed_by VARCHAR(150),
+    completed_at TIMESTAMP WITH TIME ZONE,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CHECK ((category = 'ASSET' AND action IN ('ISSUE_ASSET', 'RETURN_ASSET') AND asset_id IS NOT NULL) OR (category = 'ACCOUNT' AND action IN ('ACTIVATE_ACCOUNT', 'DEACTIVATE_ACCOUNT') AND asset_id IS NULL) OR (category NOT IN ('ASSET', 'ACCOUNT') AND action = 'NONE' AND asset_id IS NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_hr_lifecycle_items_checklist
+  ON hr_lifecycle_checklist_items(checklist_id, sort_order, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_lifecycle_items_asset
+  ON hr_lifecycle_checklist_items(checklist_id, asset_id)
+  WHERE asset_id IS NOT NULL;
+-- One account reconciliation per checklist. Multiple assets are allowed:
+-- each asset is already unique per checklist through ux_hr_lifecycle_items_asset,
+-- and an offboarding checklist generates one RETURN_ASSET item per assigned asset.
+DROP INDEX IF EXISTS ux_hr_lifecycle_items_action;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_lifecycle_items_action
+  ON hr_lifecycle_checklist_items(checklist_id, action)
+  WHERE action IN ('ACTIVATE_ACCOUNT', 'DEACTIVATE_ACCOUNT');
+
+-- Attendance foundation. Shifts and leave types are company-wide catalogues;
+-- holidays and attendance rows are branch custody. An attendance row is keyed
+-- by employee + date, so a CSV re-import updates the same day instead of
+-- creating duplicate punches. The AD date is authoritative; its BS display is
+-- stored beside it for the register and payroll extract.
+CREATE TABLE IF NOT EXISTS hr_shifts (
+    id VARCHAR(50) PRIMARY KEY,
+    code VARCHAR(30) NOT NULL,
+    name VARCHAR(120) NOT NULL,
+    start_time TIME NOT NULL,
+    end_time TIME NOT NULL,
+    grace_minutes INTEGER NOT NULL DEFAULT 0 CHECK (grace_minutes >= 0 AND grace_minutes <= 240),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR(150),
+    updated_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_shifts_code ON hr_shifts(lower(code));
+CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_shifts_name ON hr_shifts(lower(name));
+
+CREATE TABLE IF NOT EXISTS hr_leave_types (
+    id VARCHAR(50) PRIMARY KEY,
+    code VARCHAR(30) NOT NULL,
+    name VARCHAR(120) NOT NULL,
+    annual_quota_days NUMERIC(5, 1) NOT NULL DEFAULT 0 CHECK (annual_quota_days >= 0 AND annual_quota_days <= 366),
+    is_paid BOOLEAN NOT NULL DEFAULT TRUE,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR(150),
+    updated_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_leave_types_code ON hr_leave_types(lower(code));
+CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_leave_types_name ON hr_leave_types(lower(name));
+
+CREATE TABLE IF NOT EXISTS hr_holidays (
+    id VARCHAR(50) PRIMARY KEY,
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    holiday_date_ad DATE NOT NULL,
+    holiday_date_bs VARCHAR(20),
+    name VARCHAR(120) NOT NULL,
+    is_paid BOOLEAN NOT NULL DEFAULT TRUE,
+    notes VARCHAR(500),
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR(150),
+    updated_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (branch_id, holiday_date_ad)
+);
+CREATE INDEX IF NOT EXISTS idx_hr_holidays_branch_date
+  ON hr_holidays(branch_id, holiday_date_ad DESC);
+
+CREATE TABLE IF NOT EXISTS hr_attendance (
+    id VARCHAR(50) PRIMARY KEY,
+    employee_id VARCHAR(50) NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    attendance_date_ad DATE NOT NULL,
+    attendance_date_bs VARCHAR(20),
+    shift_id VARCHAR(50) REFERENCES hr_shifts(id) ON DELETE SET NULL,
+    status VARCHAR(20) NOT NULL CHECK (status IN ('PRESENT', 'ABSENT', 'LEAVE', 'HALF_DAY', 'HOLIDAY', 'WEEKEND')),
+    check_in_time TIME,
+    check_out_time TIME,
+    overtime_hours NUMERIC(5, 2) NOT NULL DEFAULT 0 CHECK (overtime_hours >= 0 AND overtime_hours <= 24),
+    notes VARCHAR(500),
+    source VARCHAR(10) NOT NULL DEFAULT 'MANUAL' CHECK (source IN ('MANUAL', 'IMPORT')),
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    recorded_by VARCHAR(150),
+    updated_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (employee_id, attendance_date_ad)
+);
+CREATE INDEX IF NOT EXISTS idx_hr_attendance_branch_date
+  ON hr_attendance(branch_id, attendance_date_ad DESC);
+CREATE INDEX IF NOT EXISTS idx_hr_attendance_employee_date
+  ON hr_attendance(employee_id, attendance_date_ad DESC);
+
+-- Leave ledger. A balance row is one employee + leave type + calendar year.
+-- Usage is DERIVED from APPROVED requests, so rejecting or cancelling a request
+-- returns the days without a second write that could drift out of step.
+-- Entitlement and adjustment are the only stored numbers.
+CREATE TABLE IF NOT EXISTS hr_leave_balances (
+    id VARCHAR(50) PRIMARY KEY,
+    employee_id VARCHAR(50) NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    leave_type_id VARCHAR(50) NOT NULL REFERENCES hr_leave_types(id) ON DELETE RESTRICT,
+    balance_year INTEGER NOT NULL CHECK (balance_year BETWEEN 2000 AND 2100),
+    entitlement_days NUMERIC(6, 2) NOT NULL DEFAULT 0 CHECK (entitlement_days >= 0 AND entitlement_days <= 366),
+    adjustment_days NUMERIC(6, 2) NOT NULL DEFAULT 0 CHECK (adjustment_days >= -366 AND adjustment_days <= 366),
+    notes VARCHAR(500),
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR(150),
+    updated_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (employee_id, leave_type_id, balance_year)
+);
+CREATE INDEX IF NOT EXISTS idx_hr_leave_balances_branch_year
+  ON hr_leave_balances(branch_id, balance_year DESC);
+CREATE INDEX IF NOT EXISTS idx_hr_leave_balances_employee_year
+  ON hr_leave_balances(employee_id, balance_year DESC);
+
+CREATE TABLE IF NOT EXISTS hr_leave_requests (
+    id VARCHAR(50) PRIMARY KEY,
+    request_no VARCHAR(50) UNIQUE NOT NULL,
+    employee_id VARCHAR(50) NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    leave_type_id VARCHAR(50) NOT NULL REFERENCES hr_leave_types(id) ON DELETE RESTRICT,
+    start_date_ad DATE NOT NULL,
+    end_date_ad DATE NOT NULL,
+    start_date_bs VARCHAR(20),
+    end_date_bs VARCHAR(20),
+    days_count NUMERIC(6, 2) NOT NULL CHECK (days_count > 0 AND days_count <= 366),
+    reason VARCHAR(500),
+    status VARCHAR(12) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'CANCELLED')),
+    decided_by VARCHAR(150),
+    decided_at TIMESTAMP WITH TIME ZONE,
+    decision_note VARCHAR(500),
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR(150),
+    updated_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CHECK (end_date_ad >= start_date_ad)
+);
+CREATE INDEX IF NOT EXISTS idx_hr_leave_requests_branch_status
+  ON hr_leave_requests(branch_id, status, start_date_ad DESC);
+CREATE INDEX IF NOT EXISTS idx_hr_leave_requests_employee_dates
+  ON hr_leave_requests(employee_id, start_date_ad DESC, end_date_ad DESC);
+
+-- Phase 2 payroll structure. A structure is effective-dated: a newer row
+-- supersedes an older one from its effective_from, while history is retained so
+-- payroll for an earlier period can resolve the structure in force then. The
+-- monthly amounts live in hr_salary_components (BASIC/HRA by default); the
+-- header carries the run inputs that are not a monthly amount.
+CREATE TABLE IF NOT EXISTS hr_employee_salary (
+    id VARCHAR(50) PRIMARY KEY,
+    employee_id VARCHAR(50) NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    effective_from DATE NOT NULL,
+    ssf_eligible BOOLEAN NOT NULL DEFAULT FALSE,
+    overtime_rate NUMERIC(12, 2) NOT NULL DEFAULT 0 CHECK (overtime_rate >= 0 AND overtime_rate <= 100000),
+    tds_monthly NUMERIC(12, 2) NOT NULL DEFAULT 0 CHECK (tds_monthly >= 0 AND tds_monthly <= 10000000),
+    notes VARCHAR(500),
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR(150),
+    updated_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (employee_id, effective_from)
+);
+CREATE INDEX IF NOT EXISTS idx_hr_employee_salary_branch_effective
+  ON hr_employee_salary(branch_id, effective_from DESC);
+CREATE INDEX IF NOT EXISTS idx_hr_employee_salary_employee_effective
+  ON hr_employee_salary(employee_id, effective_from DESC);
+
+CREATE TABLE IF NOT EXISTS hr_salary_components (
+    id VARCHAR(60) PRIMARY KEY,
+    salary_id VARCHAR(50) NOT NULL REFERENCES hr_employee_salary(id) ON DELETE CASCADE,
+    component_code VARCHAR(30) NOT NULL,
+    component_name VARCHAR(120) NOT NULL,
+    kind VARCHAR(24) NOT NULL DEFAULT 'EARNING' CHECK (kind IN ('EARNING', 'DEDUCTION', 'EMPLOYER_CONTRIBUTION')),
+    amount NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (amount >= 0 AND amount <= 100000000),
+    is_taxable BOOLEAN NOT NULL DEFAULT TRUE,
+    is_ssf_applicable BOOLEAN NOT NULL DEFAULT FALSE,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (salary_id, component_code)
+);
+CREATE INDEX IF NOT EXISTS idx_hr_salary_components_salary
+  ON hr_salary_components(salary_id, sort_order);
+
+-- Phase 2 statutory deductions. A configuration is versioned by fiscal year:
+-- one row per fiscal year holds the SSF rates, and its child slabs hold the
+-- progressive monthly TDS bands. Payroll resolves the fiscal year from the
+-- as-of date, so a new Finance Act is a new year's configuration rather than
+-- an edit that rewrites history.
+CREATE TABLE IF NOT EXISTS hr_statutory_configs (
+    id VARCHAR(50) PRIMARY KEY,
+    fiscal_year_id VARCHAR(50) NOT NULL REFERENCES fiscal_years(id) ON DELETE CASCADE,
+    employee_ssf_percent NUMERIC(5, 2) NOT NULL DEFAULT 11 CHECK (employee_ssf_percent >= 0 AND employee_ssf_percent <= 100),
+    employer_ssf_percent NUMERIC(5, 2) NOT NULL DEFAULT 20 CHECK (employer_ssf_percent >= 0 AND employer_ssf_percent <= 100),
+    notes VARCHAR(500),
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR(150),
+    updated_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (fiscal_year_id)
+);
+CREATE INDEX IF NOT EXISTS idx_hr_statutory_configs_year
+  ON hr_statutory_configs(fiscal_year_id);
+
+CREATE TABLE IF NOT EXISTS hr_tds_slabs (
+    id VARCHAR(60) PRIMARY KEY,
+    config_id VARCHAR(50) NOT NULL REFERENCES hr_statutory_configs(id) ON DELETE CASCADE,
+    slab_order INTEGER NOT NULL CHECK (slab_order >= 1 AND slab_order <= 20),
+    lower_bound NUMERIC(14, 2) NOT NULL CHECK (lower_bound >= 0),
+    upper_bound NUMERIC(14, 2) CHECK (upper_bound IS NULL OR upper_bound > lower_bound),
+    rate_percent NUMERIC(5, 2) NOT NULL CHECK (rate_percent >= 0 AND rate_percent <= 100),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (config_id, slab_order),
+    UNIQUE (config_id, lower_bound)
+);
+CREATE INDEX IF NOT EXISTS idx_hr_tds_slabs_config
+  ON hr_tds_slabs(config_id, slab_order);
+
+-- Real Nepal resident-natural-person values for FY 2083/84, expressed as the
+-- monthly bands the payroll run applies: 1% to 83,333.33; 10% to 125,000;
+-- 20% to 208,333.33; 27% to 333,333.33; 29% above. SSF is 11% employee / 20%
+-- employer. The insert is idempotent and never overwrites an operator's edit.
+INSERT INTO hr_statutory_configs (
+  id, fiscal_year_id, employee_ssf_percent, employer_ssf_percent, notes, is_demo
+)
+SELECT 'hr-stat-2083-84', f.id, 11, 20,
+       'Nepal FY 2083/84 resident natural person; monthly bands; SSF 11% / 20%.', FALSE
+FROM fiscal_years f
+WHERE f.code = '2083-84'
+ON CONFLICT (fiscal_year_id) DO NOTHING;
+
+INSERT INTO hr_tds_slabs (id, config_id, slab_order, lower_bound, upper_bound, rate_percent)
+SELECT v.id, c.id, v.slab_order, v.lower_bound, v.upper_bound, v.rate_percent
+FROM (VALUES
+  ('hr-tds-2083-84-1', 1, 0.00::numeric, 83333.33::numeric, 1.00::numeric),
+  ('hr-tds-2083-84-2', 2, 83333.33::numeric, 125000.00::numeric, 10.00::numeric),
+  ('hr-tds-2083-84-3', 3, 125000.00::numeric, 208333.33::numeric, 20.00::numeric),
+  ('hr-tds-2083-84-4', 4, 208333.33::numeric, 333333.33::numeric, 27.00::numeric),
+  ('hr-tds-2083-84-5', 5, 333333.33::numeric, NULL::numeric, 29.00::numeric)
+) AS v(id, slab_order, lower_bound, upper_bound, rate_percent)
+JOIN fiscal_years f ON f.code = '2083-84'
+JOIN hr_statutory_configs c ON c.fiscal_year_id = f.id
+WHERE NOT EXISTS (SELECT 1 FROM hr_tds_slabs s WHERE s.config_id = c.id)
+ON CONFLICT (config_id, slab_order) DO NOTHING;
+
+-- Period-scoped payroll inputs that are not part of an effective-dated salary
+-- structure: one-off incentives, arrears paid this month, and recoveries. The
+-- generated draft copies these into the run line; editing this table later
+-- must not rewrite an existing run. Branch ownership is derived from the
+-- employee, so a transfer cannot leave a second, stale branch claim here.
+CREATE TABLE IF NOT EXISTS hr_payroll_adjustments (
+    id VARCHAR(60) PRIMARY KEY,
+    employee_id VARCHAR(50) NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    period_key VARCHAR(7) NOT NULL,
+    incentive_amount NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (incentive_amount >= 0 AND incentive_amount <= 100000000),
+    arrears_amount NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (arrears_amount >= 0 AND arrears_amount <= 100000000),
+    advance_amount NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (advance_amount >= 0 AND advance_amount <= 100000000),
+    loan_amount NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (loan_amount >= 0 AND loan_amount <= 100000000),
+    notes VARCHAR(500),
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR(150),
+    updated_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT hr_payroll_adjustments_period_shape CHECK (period_key ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+    UNIQUE (employee_id, period_key)
+);
+CREATE INDEX IF NOT EXISTS idx_hr_payroll_adjustments_period
+  ON hr_payroll_adjustments(period_key, employee_id);
 
 CREATE TABLE IF NOT EXISTS payroll_runs (
     id VARCHAR(50) PRIMARY KEY,
@@ -1775,14 +2917,21 @@ CREATE TABLE IF NOT EXISTS payroll_runs (
     ssf_total NUMERIC(14, 2) NOT NULL DEFAULT 0,
     advance_total NUMERIC(14, 2) NOT NULL DEFAULT 0,
     loan_total NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    incentive_total NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    arrears_total NUMERIC(14, 2) NOT NULL DEFAULT 0,
     net_total NUMERIC(14, 2) NOT NULL DEFAULT 0,
-    status VARCHAR(10) NOT NULL DEFAULT 'POSTED' CHECK (status IN ('POSTED', 'PAID')),
+    status VARCHAR(10) NOT NULL DEFAULT 'POSTED' CHECK (status IN ('DRAFT', 'APPROVED', 'POSTED', 'PAID')),
     journal_id VARCHAR(50) REFERENCES gl_journals(id) ON DELETE SET NULL,
     paid_journal_id VARCHAR(50) REFERENCES gl_journals(id) ON DELETE SET NULL,
     paid_date_ad DATE,
     paid_date_bs VARCHAR(20),
     payment_method VARCHAR(30),
     posted_by VARCHAR(150),
+    prepared_by VARCHAR(150),
+    prepared_at TIMESTAMP WITH TIME ZONE,
+    approved_by VARCHAR(150),
+    approved_at TIMESTAMP WITH TIME ZONE,
+    statutory_config_id VARCHAR(50) REFERENCES hr_statutory_configs(id) ON DELETE SET NULL,
     paid_at TIMESTAMP WITH TIME ZONE,
     is_demo BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -1794,6 +2943,16 @@ CREATE TABLE IF NOT EXISTS payroll_runs (
 CREATE INDEX IF NOT EXISTS idx_payroll_runs_branch_period ON payroll_runs(branch_id, period_key, run_date_ad);
 ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS run_date_bs VARCHAR(20);
 ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS paid_date_bs VARCHAR(20);
+ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS prepared_by VARCHAR(150);
+ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS prepared_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS approved_by VARCHAR(150);
+ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS statutory_config_id VARCHAR(50) REFERENCES hr_statutory_configs(id) ON DELETE SET NULL;
+ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS incentive_total NUMERIC(14, 2) NOT NULL DEFAULT 0;
+ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS arrears_total NUMERIC(14, 2) NOT NULL DEFAULT 0;
+ALTER TABLE payroll_runs DROP CONSTRAINT IF EXISTS payroll_runs_status_check;
+ALTER TABLE payroll_runs ADD CONSTRAINT payroll_runs_status_check
+  CHECK (status IN ('DRAFT', 'APPROVED', 'POSTED', 'PAID'));
 
 CREATE TABLE IF NOT EXISTS payroll_run_lines (
     id VARCHAR(60) PRIMARY KEY,
@@ -1801,10 +2960,22 @@ CREATE TABLE IF NOT EXISTS payroll_run_lines (
     employee_id VARCHAR(50) NOT NULL REFERENCES employees(id) ON DELETE RESTRICT,
     employee_code VARCHAR(50) NOT NULL,
     employee_name VARCHAR(200) NOT NULL,
+    bank_name VARCHAR(150),
+    bank_account VARCHAR(80),
     period_key VARCHAR(7) NOT NULL,
+    salary_id VARCHAR(50) REFERENCES hr_employee_salary(id) ON DELETE SET NULL,
+    basic_amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    payable_days NUMERIC(6, 2) NOT NULL DEFAULT 0,
+    lop_days NUMERIC(6, 2) NOT NULL DEFAULT 0,
+    lop_deduction NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    overtime_hours NUMERIC(8, 2) NOT NULL DEFAULT 0,
+    overtime_amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    incentive_amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    arrears_amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
     gross_amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
     tds_amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
     ssf_amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    employer_ssf_amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
     advance_deduction NUMERIC(14, 2) NOT NULL DEFAULT 0,
     loan_deduction NUMERIC(14, 2) NOT NULL DEFAULT 0,
     net_amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
@@ -1821,6 +2992,47 @@ CREATE TABLE IF NOT EXISTS payroll_run_lines (
 
 CREATE INDEX IF NOT EXISTS idx_payroll_run_lines_run ON payroll_run_lines(run_id);
 CREATE INDEX IF NOT EXISTS idx_payroll_run_lines_period ON payroll_run_lines(period_key, employee_id);
+ALTER TABLE payroll_run_lines ADD COLUMN IF NOT EXISTS salary_id VARCHAR(50) REFERENCES hr_employee_salary(id) ON DELETE SET NULL;
+ALTER TABLE payroll_run_lines ADD COLUMN IF NOT EXISTS basic_amount NUMERIC(14, 2) NOT NULL DEFAULT 0;
+ALTER TABLE payroll_run_lines ADD COLUMN IF NOT EXISTS payable_days NUMERIC(6, 2) NOT NULL DEFAULT 0;
+ALTER TABLE payroll_run_lines ADD COLUMN IF NOT EXISTS lop_days NUMERIC(6, 2) NOT NULL DEFAULT 0;
+ALTER TABLE payroll_run_lines ADD COLUMN IF NOT EXISTS lop_deduction NUMERIC(14, 2) NOT NULL DEFAULT 0;
+ALTER TABLE payroll_run_lines ADD COLUMN IF NOT EXISTS overtime_hours NUMERIC(8, 2) NOT NULL DEFAULT 0;
+ALTER TABLE payroll_run_lines ADD COLUMN IF NOT EXISTS overtime_amount NUMERIC(14, 2) NOT NULL DEFAULT 0;
+ALTER TABLE payroll_run_lines ADD COLUMN IF NOT EXISTS incentive_amount NUMERIC(14, 2) NOT NULL DEFAULT 0;
+ALTER TABLE payroll_run_lines ADD COLUMN IF NOT EXISTS arrears_amount NUMERIC(14, 2) NOT NULL DEFAULT 0;
+ALTER TABLE payroll_run_lines ADD COLUMN IF NOT EXISTS employer_ssf_amount NUMERIC(14, 2) NOT NULL DEFAULT 0;
+
+-- Bank details are part of the run-line snapshot, not a live employee read:
+-- changing an employee's bank account after preparation must not change a
+-- posted bank file or payslip. Existing databases get the columns and a
+-- one-time backfill from the employee master; fresh databases already have
+-- the columns in the CREATE above and no rows to backfill.
+DO $$
+DECLARE added_columns BOOLEAN := FALSE;
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'payroll_run_lines' AND column_name = 'bank_name'
+  ) THEN
+    ALTER TABLE payroll_run_lines ADD COLUMN bank_name VARCHAR(150);
+    added_columns := TRUE;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'payroll_run_lines' AND column_name = 'bank_account'
+  ) THEN
+    ALTER TABLE payroll_run_lines ADD COLUMN bank_account VARCHAR(80);
+    added_columns := TRUE;
+  END IF;
+  IF added_columns THEN
+    UPDATE payroll_run_lines l
+    SET bank_name = e.bank_name,
+        bank_account = e.bank_account
+    FROM employees e
+    WHERE e.id = l.employee_id;
+  END IF;
+END $$;
 
 -- ============================================================================
 -- v3.0 MIGRATION for databases created with schema v2.x

@@ -71,10 +71,13 @@ describe('TRIM-1 global search', () => {
       "INSERT INTO branches (id, code, name, location) VALUES ($1, 'GSRB', 'GSR Branch', 'T'), ($2, 'GSRB2', 'GSR Other', 'T')",
       [OWN, OTHER]
     );
+    // Keep the fixture years far outside real posting dates. A year covering
+    // 2026 lets a concurrently running accounting suite lazily attach its
+    // gl_periods to this fixture, and the FK is RESTRICT.
     await pool!.query(
       `INSERT INTO fiscal_years (id, code, start_date_ad, end_date_ad, start_date_bs, end_date_bs, is_current)
-       VALUES ($1, 'GSR 83/84', '2026-07-17', '2027-07-16', '2083-04-01', '2084-03-31', FALSE),
-              ($2, 'GSR 84/85', '2027-07-17', '2028-07-16', '2084-04-01', '2085-03-31', FALSE)`,
+       VALUES ($1, 'GSR 92/93', '2035-07-17', '2036-07-16', '2092-04-01', '2093-03-31', FALSE),
+              ($2, 'GSR 93/94', '2036-07-17', '2037-07-16', '2093-04-01', '2094-03-31', FALSE)`,
       [FY, FY2]
     );
     await pool!.query(
@@ -156,6 +159,7 @@ describe('TRIM-1 global search', () => {
     await pool.query("DELETE FROM inventory_stock WHERE id LIKE 'gsr-%'");
     await pool.query("DELETE FROM products WHERE id = 'gsr-prod'");
     await pool.query("DELETE FROM branches WHERE id LIKE 'gsr-%'");
+    await pool.query("DELETE FROM gl_periods WHERE fiscal_year_id LIKE 'gsr-%'");
     await pool.query("DELETE FROM fiscal_years WHERE id LIKE 'gsr-%'");
   }
 

@@ -529,7 +529,7 @@ export function AppShell(props: AppShellProps) {
 
   return (
     <div
-      className={`h-screen w-screen overflow-hidden font-sans flex flex-col antialiased transition-colors duration-200 bg-[#f0f2f5] text-slate-800 dark:bg-[#0a0c10] dark:text-slate-300`}
+      className="app-shell"
     >
       {/* Header + notices share one anchored block: the notices are absolutely
           positioned below the header, so arriving/leaving never changes the

@@ -40,6 +40,21 @@ const BUSINESS_DATE_COLUMN = /_date(_ad)?$/;
 export const TABLE_EXEMPTIONS = new Map<string, string>([
   ['bs_day_records', 'the BS calendar source itself: ad_date/bs_date ARE the mapping'],
   ['document_sequence_daily', 'daily document-number counter keyed by date; not a business-date record'],
+  ['gl_recurring_templates', 'recurring schedule metadata: start/end/next/last run are AD planning dates; the generated journal carries the posted dual date'],
+  ['gl_recurring_runs', 'idempotency log keyed by the posted journal date; the journal itself carries the business dual date'],
+]);
+
+/**
+ * Columns whose date is intentionally AD-only. Employee master dates predate
+ * or fall outside the seeded BS calendar, so forcing a BS half would reject a
+ * valid joining date (and is not a finance posting date). The exemption is
+ * per column, so a new date on the same table is still guarded.
+ */
+export const COLUMN_EXEMPTIONS = new Map<string, string>([
+  ['employees.joining_date_ad', 'employee master joining date is intentionally AD-only'],
+  ['employees.date_of_birth_ad', 'employee master date of birth is intentionally AD-only'],
+  ['employees.contract_expiry_ad', 'employee master contract expiry is intentionally AD-only'],
+  ['employees.separation_date_ad', 'employee master separation date is intentionally AD-only'],
 ]);
 
 /**
@@ -65,6 +80,7 @@ export function findUnpairedBusinessDates(
       const line = source.slice(0, match.index).split(/\r?\n/).length;
       for (const column of columns) {
         if (!BUSINESS_DATE_COLUMN.test(column)) continue;
+        if (COLUMN_EXEMPTIONS.has(`${table}.${column}`)) continue;
         const expectedBsColumn = `${column.replace(/_ad$/, '')}_bs`;
         if (columns.includes(expectedBsColumn)) continue;
         violations.push({ file, table, line, adColumn: column, expectedBsColumn });
@@ -129,11 +145,16 @@ describe('finance dual-date guard: INSERT columns must pair AD business dates wi
     );
   });
 
-  test('exempts only the calendar source and the numbering key', () => {
+  test('exempts the calendar, numbering key and AD-only employee master dates', () => {
     const violations = findUnpairedBusinessDates([
       { file: 'a.ts', source: 'INSERT INTO bs_day_records (ad_date, bs_date) VALUES ($1, $2)' },
       { file: 'b.ts', source: 'INSERT INTO document_sequence_daily (date_ad) VALUES ($1)' },
       { file: 'c.ts', source: 'INSERT INTO payroll_runs (run_date_ad) VALUES ($1)' },
+      {
+        file: 'd.ts',
+        source:
+          'INSERT INTO employees (joining_date_ad, date_of_birth_ad, contract_expiry_ad, separation_date_ad) VALUES ($1, $2, $3, $4)',
+      },
     ]);
     assert.deepEqual(
       violations.map((violation) => violation.table),

@@ -142,10 +142,13 @@ describe('voucher entry and posted-voucher screens', () => {
       /app\.get\('\/api\/employees\/search', requirePermissionAny\('gl-view', 'gl-post'\)/,
       'the slim employee picker must accept a voucher poster as well as a ledger reader'
     );
+    // The employee master moved behind the HR gates: reading it is
+    // hr-employee-view (or the legacy payroll grant), not a ledger grant, and
+    // the slim picker above is what a voucher poster needs.
     assert.match(
       payrollRoutes,
-      /app\.get\('\/api\/employees', requirePermission\('gl-view'\)/,
-      'the employee master must stay a full gl-view read'
+      /app\.get\('\/api\/employees', requirePermissionAny\('hr-employee-view', 'gl-payroll-manage'\)/,
+      'the employee master must stay behind the HR read gate'
     );
     assert.match(
       payrollRoutes,

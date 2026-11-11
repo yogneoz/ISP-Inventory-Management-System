@@ -694,11 +694,12 @@ export async function buildPurchaseOrderPdf(input: {
 export async function buildPayslipPdf(input: {
   run: any;
   line: any;
+  payslip?: any;
   employee?: any;
   company: PdfCompany;
   branchName: string;
 }): Promise<Buffer> {
-  const { run, line, employee, company, branchName } = input;
+  const { run, line, payslip, employee, company, branchName } = input;
   const title = 'Payslip';
   const meta: PdfDocumentMeta = {
     title,
@@ -719,6 +720,12 @@ export async function buildPayslipPdf(input: {
     ['Bank account', employee?.bankAccount || '—'],
   ];
   const earningsRows: Array<[string, string, boolean?]> = [
+    ['Basic salary', pdfMoney(payslip?.basicAmount ?? line.basicAmount)],
+    ['Allowances', pdfMoney(payslip?.allowances ?? 0)],
+    ['Overtime', pdfMoney(payslip?.overtimeAmount ?? line.overtimeAmount)],
+    ['Incentive', pdfMoney(payslip?.incentive ?? line.incentive)],
+    ['Arrears', pdfMoney(payslip?.arrears ?? line.arrears)],
+    ['LOP deduction', `(${pdfMoney(payslip?.lopDeduction ?? line.lopDeduction)})`],
     ['Gross salary', pdfMoney(line.gross)],
     ['TDS', `(${pdfMoney(line.tds)})`],
     ['SSF', `(${pdfMoney(line.ssf)})`],
@@ -824,12 +831,60 @@ export function statementSectionsContent(sections: any[]): Content {
 }
 
 /**
+ * Cash-flow section table for the printable direct-method statement. Each
+ * section lists the posted cash movements classified under it, with the same
+ * subtotal the JSON endpoint returns, so the printed statement cannot regroup
+ * or round a movement differently from the screen. Exported for the PDF
+ * content test.
+ */
+export function cashFlowSectionsContent(sections: any[]): Content {
+  const body: TableCell[][] = [];
+  for (const section of sections) {
+    body.push([
+      { text: section.label, bold: true, fillColor: SOFT, fontSize: 8, colSpan: 2 },
+      {},
+      { text: pdfAmount(section.amount), alignment: 'right', bold: true, fontSize: 8, fillColor: SOFT },
+    ]);
+    const lines = section.lines || [];
+    for (const line of lines) {
+      body.push([
+        pdfText(`${line.accountCode}  ${line.accountName}`, { fontSize: 7.5 }),
+        pdfText(`${line.groupName} · ${line.journalCount} journal${line.journalCount === 1 ? '' : 's'}`, {
+          fontSize: 7,
+          color: MUTED,
+        }),
+        { text: pdfAmount(line.amount), alignment: 'right', fontSize: 7.5 },
+      ]);
+    }
+    if (lines.length === 0) {
+      body.push([
+        { text: 'No cash movement in this section.', fontSize: 7.5, color: MUTED, colSpan: 3 },
+        {},
+        {},
+      ]);
+    }
+    body.push([
+      { text: `Net ${section.label}`, alignment: 'right', bold: true, colSpan: 2, fontSize: 8 },
+      {},
+      { text: pdfAmount(section.amount), alignment: 'right', bold: true, fontSize: 8 },
+    ]);
+  }
+  if (body.length === 0) {
+    return { text: 'No cash movement in this window.', fontSize: 8, color: MUTED } as Content;
+  }
+  return {
+    table: { widths: ['*', 150, 90], body },
+    layout: tableLayout,
+  } as Content;
+}
+
+/**
  * The AD/BS period identity a printed statement renders. Exported so dual
  * dating is testable without decoding a compressed PDF stream: this object is
  * exactly what documentIdentity() puts in the page header.
  */
 export function statementPdfMeta(input: {
-  kind: 'TRIAL_BALANCE' | 'PROFIT_AND_LOSS' | 'BALANCE_SHEET';
+  kind: 'TRIAL_BALANCE' | 'PROFIT_AND_LOSS' | 'BALANCE_SHEET' | 'CASH_FLOW';
   statement: any;
   fromBS?: string | null;
   toBS?: string | null;
@@ -856,7 +911,7 @@ export function statementPdfMeta(input: {
  * the same values the JSON endpoint returns.
  */
 export async function buildStatementPdf(input: {
-  kind: 'TRIAL_BALANCE' | 'PROFIT_AND_LOSS' | 'BALANCE_SHEET';
+  kind: 'TRIAL_BALANCE' | 'PROFIT_AND_LOSS' | 'BALANCE_SHEET' | 'CASH_FLOW';
   statement: any;
   company: PdfCompany;
   branchName: string;
@@ -867,13 +922,20 @@ export async function buildStatementPdf(input: {
   const { kind, statement, company, branchName, fromBS, toBS } = input;
   const isTrial = kind === 'TRIAL_BALANCE';
   const isBalanceSheet = kind === 'BALANCE_SHEET';
-  const title = isTrial ? 'Trial Balance' : isBalanceSheet ? 'Balance Sheet' : 'Profit and Loss';
+  const isCashFlow = kind === 'CASH_FLOW';
+  const title = isTrial
+    ? 'Trial Balance'
+    : isBalanceSheet
+      ? 'Balance Sheet'
+      : isCashFlow
+        ? 'Cash Flow'
+        : 'Profit and Loss';
   // Dual dating is mandatory on a printed Nepali statement: every period
   // boundary prints its AD date with the BS half beside it.
   const identity = statementPdfMeta({ kind, statement, fromBS, toBS });
   const meta: PdfDocumentMeta = {
     title,
-    documentNumber: `${isTrial ? 'TB' : isBalanceSheet ? 'BS' : 'PL'}-${identity.dateAD}`,
+    documentNumber: `${isTrial ? 'TB' : isBalanceSheet ? 'BS' : isCashFlow ? 'CF' : 'PL'}-${identity.dateAD}`,
     dateAD: identity.dateAD,
     dateBS: identity.dateBS,
     branchName,
@@ -1012,6 +1074,29 @@ export async function buildStatementPdf(input: {
         text: statement.balanced ? 'Assets equal liabilities plus equity.' : 'THE BALANCE SHEET DOES NOT BALANCE.',
         bold: !statement.balanced,
         color: statement.balanced ? '#047857' : '#b91c1c',
+        fontSize: 8,
+        margin: [0, 8, 0, 0],
+      }
+    );
+  } else if (isCashFlow) {
+    const closingDifference = Number(statement.cashBookClosing) - Number(statement.closingCash);
+    content.push(
+      sectionTitle('Statement of cash flows — direct method'),
+      cashFlowSectionsContent(statement.sections || []),
+      sectionTitle('Cash position'),
+      summaryTable([
+        ['Opening cash', pdfMoney(statement.openingCash)],
+        ['Net cash flow', pdfMoney(statement.netCashFlow)],
+        ['Closing cash', pdfMoney(statement.closingCash), true],
+        ['Cash book closing', pdfMoney(statement.cashBookClosing)],
+        ['Difference from cash book', pdfMoney(closingDifference)],
+      ]),
+      {
+        text: statement.reconciled
+          ? 'Closing cash ties to the cash book.'
+          : 'CLOSING CASH DOES NOT TIE TO THE CASH BOOK.',
+        bold: !statement.reconciled,
+        color: statement.reconciled ? '#047857' : '#b91c1c',
         fontSize: 8,
         margin: [0, 8, 0, 0],
       }

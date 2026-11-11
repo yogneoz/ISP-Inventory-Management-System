@@ -19,10 +19,12 @@ import {
   Inbox,
   Layers,
   ArrowUpRight,
+  BarChart3,
   HeartOff,
   Wrench,
   Settings,
   Building2,
+  Briefcase,
   Users,
   UserCheck,
   ShieldAlert,
@@ -115,15 +117,30 @@ export type NavTab =
   | 'import-customers'
   | 'permissions'
   | 'user-permissions'
+  | 'employees'
+  | 'hr-attendance'
+  | 'hr-recruitment'
+  | 'hr-performance'
+  | 'hr-lifecycle'
+  | 'hr-payroll'
+  | 'hr-reports'
+  | 'hr-org-masters'
+  | 'hr-self-service'
+  | 'hr-self-payslips'
+  | 'hr-self-leave'
+  | 'hr-self-attendance'
+  | 'hr-self-documents'
   | 'accounting'
   | 'accounting-profit-loss'
   | 'accounting-balance-sheet'
   | 'accounting-cash-flow'
   | 'accounting-cash-book'
+  | 'recurring-close'
   | 'accounting-aging'
   | 'journal-entry'
   | 'cash-bank-entry'
   | 'posted-vouchers'
+  | 'finance-payroll-postings'
   | 'accounting-chart'
   | 'general-ledger'
   | 'subledgers'
@@ -206,15 +223,30 @@ export const NAV_TABS: NavTab[] = [
   'import-customers',
   'permissions',
   'user-permissions',
+  'employees',
+  'hr-attendance',
+  'hr-recruitment',
+  'hr-performance',
+  'hr-lifecycle',
+  'hr-payroll',
+  'hr-reports',
+  'hr-org-masters',
+  'hr-self-service',
+  'hr-self-payslips',
+  'hr-self-leave',
+  'hr-self-attendance',
+  'hr-self-documents',
   'accounting',
   'accounting-profit-loss',
   'accounting-balance-sheet',
   'accounting-cash-flow',
   'accounting-cash-book',
+  'recurring-close',
   'accounting-aging',
   'journal-entry',
   'cash-bank-entry',
   'posted-vouchers',
+  'finance-payroll-postings',
   'accounting-chart',
   'general-ledger',
   'subledgers',
@@ -687,11 +719,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   if (isOperationAllowed('gl-view', currentUser?.role)) {
     financeChildren.push(
       { id: 'posted-vouchers' as NavTab, label: 'Posted Vouchers', icon: ClipboardList, section: 'Entries' },
+      { id: 'finance-payroll-postings' as NavTab, label: 'Payroll Postings', icon: Wallet, section: 'Statements & ledgers' },
       { id: 'accounting' as NavTab, label: 'Trial Balance', icon: Scale, section: 'Statements & ledgers' },
       { id: 'accounting-profit-loss' as NavTab, label: 'Profit & Loss', icon: TrendingUp, section: 'Statements & ledgers' },
       { id: 'accounting-balance-sheet' as NavTab, label: 'Balance Sheet', icon: Landmark, section: 'Statements & ledgers' },
       { id: 'accounting-cash-flow' as NavTab, label: 'Cash Flow', icon: TrendingUp, section: 'Statements & ledgers' },
       { id: 'accounting-cash-book' as NavTab, label: 'Cash & Bank Book', icon: Wallet, section: 'Statements & ledgers' },
+      { id: 'recurring-close' as NavTab, label: 'Recurring & Close', icon: CalendarClock, section: 'Statements & ledgers' },
       { id: 'accounting-aging' as NavTab, label: 'AR / AP Aging', icon: Clock, section: 'Statements & ledgers' }
     );
   }
@@ -747,6 +781,106 @@ export const Sidebar: React.FC<SidebarProps> = ({
       title: 'Finance & Accounting',
       icon: DollarSign,
       children: financeChildren,
+    });
+  }
+
+  // 6b. People & HR — the employee master payroll and asset assignment read.
+  //     Payroll posting stays in Finance; this group owns the people records.
+  const hrChildren: NavChildDef[] = [];
+  // Self-service is independent of the employee-master grants, so an ordinary
+  // employee still gets the People & HR group with only their own profile.
+  if (isOperationAllowed('hr-self-service', currentUser?.role)) {
+    hrChildren.push(
+      {
+        id: 'hr-self-service',
+        label: 'My Profile',
+        icon: UserCheck,
+        section: 'People',
+      },
+      {
+        id: 'hr-self-payslips',
+        label: 'My Payslips',
+        icon: FileText,
+        section: 'People',
+      },
+      {
+        id: 'hr-self-leave',
+        label: 'My Leave',
+        icon: CalendarDays,
+        section: 'People',
+      },
+      {
+        id: 'hr-self-attendance',
+        label: 'My Attendance',
+        icon: Clock,
+        section: 'People',
+      },
+      {
+        id: 'hr-self-documents',
+        label: 'My Documents',
+        icon: FileText,
+        section: 'People',
+      }
+    );
+  }
+  if (
+    isOperationAllowed('hr-employee-view', currentUser?.role) ||
+    isOperationAllowed('gl-payroll-manage', currentUser?.role)
+  ) {
+    hrChildren.push({
+      id: 'employees' as NavTab,
+      label: 'Employee Directory',
+      icon: Users,
+      section: 'People',
+    }, {
+      id: 'hr-attendance' as NavTab,
+      label: 'Attendance & Leave',
+      icon: CalendarDays,
+      section: 'People',
+    }, {
+      id: 'hr-recruitment' as NavTab,
+      label: 'Recruitment',
+      icon: Briefcase,
+      section: 'People',
+    }, {
+      id: 'hr-performance' as NavTab,
+      label: 'Performance',
+      icon: TrendingUp,
+      section: 'People',
+    }, {
+      id: 'hr-lifecycle' as NavTab,
+      label: 'Onboarding',
+      icon: ClipboardCheck,
+      section: 'People',
+    }, {
+      id: 'hr-payroll' as NavTab,
+      label: 'Payroll & Salary',
+      icon: Wallet,
+      section: 'People',
+    }, {
+      id: 'hr-reports' as NavTab,
+      label: 'HR Reports',
+      icon: BarChart3,
+      section: 'People',
+    });
+  }
+  if (
+    isOperationAllowed('hr-employee-manage', currentUser?.role) ||
+    isOperationAllowed('gl-payroll-manage', currentUser?.role)
+  ) {
+    hrChildren.push({
+      id: 'hr-org-masters' as NavTab,
+      label: 'Org Masters',
+      icon: Layers,
+      section: 'People',
+    });
+  }
+  if (hrChildren.length > 0) {
+    groups.push({
+      id: 'people',
+      title: 'People & HR',
+      icon: Users,
+      children: hrChildren,
     });
   }
 

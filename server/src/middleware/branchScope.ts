@@ -68,9 +68,16 @@ export const BRANCH_SCOPED_RESOURCES: readonly BranchScopedResource[] = [
   // reach another branch's register (WTY-2). The list reads name their own
   // scope in the controller, so they are not in BRANCH_SCOPED_READ_PATHS.
   { prefix: '/warranties', table: 'warranty_coverages', columns: ['branch_id'] },
+  // Claims own the branch. The list/detail resolve the session scope in the
+  // controller; this by-id entry closes a direct status PATCH from another
+  // branch. Events are children of the guarded claim.
+  { prefix: '/warranty-claims', table: 'warranty_claims', columns: ['branch_id'] },
   // Journals are branch-bound; the header carries the owning branch. Lines and
   // subledger entries are only reachable through their guarded header.
   { prefix: '/accounting/journals', table: 'gl_journals', columns: ['branch_id'] },
+  // Forecast adjustments are branch-owned; the list filters by the caller's
+  // scope and the by-id guard refuses an edit/delete from another branch.
+  { prefix: '/accounting/cash-flow/manual-inputs', table: 'gl_cash_flow_manual_inputs', columns: ['branch_id'] },
   // Sales territories are branch custody when they name a branch; global areas
   // (NULL branch_id) are limited to global accounts by the controller.
   { prefix: '/sales/areas', table: 'areas', columns: ['branch_id'] },
@@ -84,10 +91,44 @@ export const BRANCH_SCOPED_RESOURCES: readonly BranchScopedResource[] = [
   // from `/employees/:id/ledger`.
   { prefix: '/employees', table: 'employees', columns: ['branch_id'] },
   { prefix: '/payroll-runs', table: 'payroll_runs', columns: ['branch_id'] },
+  // Attendance days and holidays are filed under one branch. The HR controllers
+  // filter lists by the caller's allowedBranchScope; this by-id entry closes
+  // the direct-delete path as well.
+  { prefix: '/hr/attendance', table: 'hr_attendance', columns: ['branch_id'] },
+  { prefix: '/hr/holidays', table: 'hr_holidays', columns: ['branch_id'] },
+  // Leave balances and requests carry the employee's branch. The controllers
+  // filter lists and refuse out-of-scope employees; these by-id entries close
+  // the direct edit/decide paths as well.
+  { prefix: '/hr/leave-balances', table: 'hr_leave_balances', columns: ['branch_id'] },
+  { prefix: '/hr/leave-requests', table: 'hr_leave_requests', columns: ['branch_id'] },
+  // Salary structures are filed under the employee's branch; a by-id edit must
+  // not reach another branch's structure. Lists are filtered by the controller.
+  { prefix: '/hr/employee-salaries', table: 'hr_employee_salary', columns: ['branch_id'] },
+  // Recruitment is branch custody from the requisition down: candidates inherit
+  // the requisition branch and interviews/offers inherit the candidate branch.
+  // The controllers also intersect every list with allowedBranchScope; these
+  // by-id entries close direct edits on another branch.
+  { prefix: '/hr/recruitment/requisitions', table: 'hr_recruitment_requisitions', columns: ['branch_id'] },
+  { prefix: '/hr/recruitment/candidates', table: 'hr_recruitment_candidates', columns: ['branch_id'] },
+  { prefix: '/hr/recruitment/interviews', table: 'hr_recruitment_interviews', columns: ['branch_id'] },
+  { prefix: '/hr/recruitment/offers', table: 'hr_recruitment_offers', columns: ['branch_id'] },
+  // Performance follows the same custody: the cycle owns the branch and its
+  // goals/feedback inherit it. These by-id entries close direct edits on a
+  // cycle or child row from another branch.
+  { prefix: '/hr/performance/cycles', table: 'hr_review_cycles', columns: ['branch_id'] },
+  { prefix: '/hr/performance/goals', table: 'hr_goals', columns: ['branch_id'] },
+  { prefix: '/hr/performance/feedback', table: 'hr_review_feedback', columns: ['branch_id'] },
+  // Lifecycle checklists are branch custody derived from the employee. Items
+  // live under this header and carry no branch column of their own.
+  { prefix: '/hr/lifecycle-checklists', table: 'hr_lifecycle_checklists', columns: ['branch_id'] },
   // Daily cash closes are one row per branch and business day; the close
   // endpoint resolves the branch from the session, and the reopen path is
   // guarded by this by-id lookup as well.
   { prefix: '/accounting/cash-close', table: 'daily_cash_closes', columns: ['branch_id'] },
+  // Bank statement lines and reconciliation sessions are branch custody. The
+  // Bank reconciliation is deliberately absent: a bank statement and its
+  // period session belong to the bank account, not a branch. The controller
+  // enforces company-wide scope instead.
 ];
 
 /**
@@ -105,6 +146,11 @@ export const BRANCH_SCOPE_EXEMPTIONS: readonly BranchScopeExemption[] = [
     table: 'damage_records',
     reason:
       'Written by the guarded stock-operation/damage service and read through the branch-scoped bootstrap slice; there is no /damage-records/:id route.',
+  },
+  {
+    table: 'gl_recurring_templates',
+    reason:
+      'Branch-owned recurring templates are scoped in recurringClose.controller: the list filters by the caller branch, and detail/update/delete/run assert the template branch before acting. Generation posts through the branch-bound journal service.',
   },
   {
     table: 'fiscal_year_opening_stock',
@@ -140,6 +186,16 @@ export const BRANCH_SCOPE_EXEMPTIONS: readonly BranchScopeExemption[] = [
     table: 'gl_subledger_entries',
     reason:
       'Generic subledger rows are created inside the same transaction as their guarded journal and are read through the reconciliation endpoint, which resolves branch scope from the session. No by-id route exists.',
+  },
+  {
+    table: 'gl_budgets',
+    reason:
+      'Budgets are one header per fiscal year + branch and are addressed by that scope, never by a record id: GET/PUT /api/accounting/budgets resolve the branch from the session (or an authorized branch body) and the variance read applies the same scope in SQL. No by-id route exists.',
+  },
+  {
+    table: 'gl_budget_allocation_profiles',
+    reason:
+      'Allocation profiles are one row per fiscal year + branch and are addressed only through /api/accounting/budgets/allocation, which resolves the branch from the session (or an authorized branch body) and applies the same scope in SQL. No by-id route exists.',
   },
 ];
 
@@ -181,6 +237,9 @@ export const COLLECTION_SEGMENTS: ReadonlySet<string> = new Set([
   'bulk-reorder-levels',
   'reconcile-audit',
   'consolidated',
+  // Generated payroll is a collection action (`POST /payroll-runs/draft`), not
+  // a lookup of a run whose id happens to be "draft".
+  'draft',
 ]);
 
 /** Finds the guarded resource for a path, matching whole segments only. */

@@ -38,7 +38,6 @@ import {
   readJournal,
   reconcileControlAccount,
   reverseJournal,
-  setPeriodStatus,
   updateAccount,
   updateAccountGroup,
 } from '../services/accounting.service';
@@ -56,7 +55,15 @@ import {
 } from '../services/accountingStatements.service';
 import { buildCashBook } from '../services/accountingCashBook.service';
 import { buildAging, type AgingType } from '../services/accountingAging.service';
+import {
+  buildCashFlowForecast,
+  cashFlowForecastCsv,
+} from '../services/accountingCashFlowForecast.service';
 import { postOpeningBalances } from '../services/accountingClosing.service';
+import {
+  closePeriodWithChecklist,
+  reopenPeriodWithChecklist,
+} from '../services/recurringClose.service';
 
 export interface BranchScope {
   /** The concrete filter/default branch; undefined for a global account. */
@@ -71,9 +78,14 @@ export interface BranchScope {
  * Global accounts may use a concrete branch or ALL; branch accounts are pinned
  * to a branch they are assigned to, defaulting to their primary branch.
  */
-export function resolveBranchScope(req: any, res: Response): BranchScope | null {
+export function resolveBranchScope(
+  req: any,
+  res: Response,
+  branchIdOverride?: unknown
+): BranchScope | null {
   const user = req.user;
-  const raw = typeof req.query?.branchId === 'string' ? req.query.branchId.trim() : '';
+  const requested = branchIdOverride !== undefined ? branchIdOverride : req.query?.branchId;
+  const raw = typeof requested === 'string' ? requested.trim() : '';
   if (!user || user.role === 'SUPER_ADMIN' || user.role === 'HEAD_OFFICE_ADMIN' || user.branchId === 'ALL') {
     return { branchId: raw && raw !== 'ALL' ? raw : undefined };
   }
@@ -312,42 +324,61 @@ export async function post_period(req: any, res: Response): Promise<any> {
   return res.status(201).json(period);
 }
 
-/** POST /api/accounting/periods/:id/close */
+/**
+ * POST /api/accounting/periods/:id/close
+ *
+ * The close checklist is part of the close transaction, not a client-side
+ * warning. Required tasks must be DONE; an override reason is the only way to
+ * close with them open, and that override is audited separately.
+ */
 export async function post_closePeriod(req: any, res: Response): Promise<any> {
   const periodId = String(req.params?.id || '').trim();
   if (!periodId) throw new ApiError(400, 'A period id is required.');
-  const period = await inTransaction(async (client) => {
-    const closing = await setPeriodStatus(client, periodId, 'CLOSED', actorOf(req));
+  const closing = await inTransaction(async (client) => {
+    const result = await closePeriodWithChecklist(
+      client,
+      periodId,
+      actorOf(req),
+      req.body?.overrideReason
+    );
     await logAuditEvent(
       req,
-      'CLOSE_ACCOUNTING_PERIOD',
+      result.overridden
+        ? 'CLOSE_ACCOUNTING_PERIOD_OVERRIDE'
+        : 'CLOSE_ACCOUNTING_PERIOD',
       'ACCOUNTING',
-      `Closed accounting period ${closing.periodKey}`,
+      result.overridden
+        ? `Closed accounting period ${result.period.periodKey} with checklist override: ${result.overrideReason}`
+        : `Closed accounting period ${result.period.periodKey}`,
       undefined,
       client
     );
-    return closing;
+    return result;
   });
-  return res.json(period);
+  return res.json({
+    ...closing.period,
+    overridden: closing.overridden,
+    incompleteRequired: closing.incompleteRequired,
+  });
 }
 
 /** POST /api/accounting/periods/:id/reopen */
 export async function post_reopenPeriod(req: any, res: Response): Promise<any> {
   const periodId = String(req.params?.id || '').trim();
   if (!periodId) throw new ApiError(400, 'A period id is required.');
-  const period = await inTransaction(async (client) => {
-    const reopening = await setPeriodStatus(client, periodId, 'OPEN', actorOf(req));
+  const reopening = await inTransaction(async (client) => {
+    const result = await reopenPeriodWithChecklist(client, periodId, actorOf(req));
     await logAuditEvent(
       req,
       'REOPEN_ACCOUNTING_PERIOD',
       'ACCOUNTING',
-      `Reopened accounting period ${reopening.periodKey}`,
+      `Reopened accounting period ${result.period.periodKey}`,
       undefined,
       client
     );
-    return reopening;
+    return result;
   });
-  return res.json(period);
+  return res.json(reopening.period);
 }
 
 /** GET /api/accounting/journals — branch-scoped page, newest first. */
@@ -559,6 +590,56 @@ export async function get_cashFlow(req: any, res: Response): Promise<any> {
   const window = await statementWindow(req, res, 'CASH_FLOW');
   if (!window) return;
   return res.json(await buildCashFlow(pgPool, window));
+}
+
+function forecastMinCash(value: unknown): number {
+  if (value === undefined || value === null || value === '') return 0;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new ApiError(400, 'Minimum cash must be a non-negative number.');
+  }
+  return parsed;
+}
+
+/**
+ * GET /api/accounting/statements/cash-flow/forecast — forward weekly cash flow
+ * from the same aging open items and posted cash balance as the statement. A
+ * balance-sheet window gives the as-of date and rejects a period start, so the
+ * forecast cannot silently use a different date from the cash position it
+ * opens at.
+ */
+export async function get_cashFlowForecast(req: any, res: Response): Promise<any> {
+  const window = await statementWindow(req, res, 'BALANCE_SHEET');
+  if (!window) return;
+  return res.json(
+    await buildCashFlowForecast(pgPool, {
+      asOf: window.to,
+      branchId: window.branchId,
+      empty: window.empty,
+      weeks: req.query?.weeks,
+      minCash: forecastMinCash(req.query?.minCash),
+    })
+  );
+}
+
+/** GET /api/accounting/statements/cash-flow/forecast/export — the same forecast as CSV. */
+export async function get_cashFlowForecastExport(req: any, res: Response): Promise<any> {
+  const window = await statementWindow(req, res, 'BALANCE_SHEET');
+  if (!window) return;
+  const forecast = await buildCashFlowForecast(pgPool, {
+    asOf: window.to,
+    branchId: window.branchId,
+    empty: window.empty,
+    weeks: req.query?.weeks,
+    minCash: forecastMinCash(req.query?.minCash),
+  });
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="cash-flow-forecast-${forecast.asOf}.csv"`
+  );
+  res.setHeader('Cache-Control', 'private, no-store');
+  return res.send(cashFlowForecastCsv(forecast));
 }
 
 /**

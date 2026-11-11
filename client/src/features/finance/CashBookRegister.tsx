@@ -14,6 +14,7 @@ import {
 } from '../../components/accounting/AccountingRegisterShell';
 import type { AccountingScreenProps } from '../../components/accounting/AccountingRegisterShell';
 import { CashBookView } from '../../components/accounting/CashBookView';
+import { BankReconciliationPanel } from '../../components/accounting/BankReconciliationPanel';
 import { VoucherDetailDialog } from '../../components/accounting/VoucherDetailDialog';
 
 export const CashBookRegister: React.FC<AccountingScreenProps> = ({
@@ -27,6 +28,7 @@ export const CashBookRegister: React.FC<AccountingScreenProps> = ({
   const [error, setError] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [view, setView] = useState<'book' | 'reconcile'>('book');
   const activationKey = useActivationKey('accounting-cash-book');
   const isVisible = useTabActive('accounting-cash-book') && scope.allowed;
 
@@ -56,18 +58,49 @@ export const CashBookRegister: React.FC<AccountingScreenProps> = ({
   return (
     <>
     <AccountingRegisterShell
-      title="Cash & Bank Book"
-      description="Every posted cash and bank movement with a running balance for the selected branch and date."
+      title={view === 'book' ? 'Cash & Bank Book' : 'Bank Reconciliation'}
+      description={
+        view === 'book'
+          ? 'Every posted cash and bank movement with a running balance for the selected branch and date.'
+          : 'Reconcile one bank account company-wide: import its statement, match every branch’s posted bank-ledger lines and lock the period.'
+      }
       icon={<Wallet className="h-5 w-5 text-indigo-500" />}
-      registerName="cash and bank book"
+      registerName={view === 'book' ? 'cash and bank book' : 'bank reconciliation workspace'}
       scope={scope}
       dateMode={dateMode}
-      loading={loading}
-      error={error}
+      loading={view === 'book' ? loading : false}
+      error={view === 'book' ? error : ''}
       onRefresh={() => setReloadKey((key) => key + 1)}
       onRetry={() => setReloadKey((key) => key + 1)}
     >
-      {data ? (
+      <div role="tablist" aria-label="Cash and bank views" className="mb-3 inline-flex rounded-xl border border-slate-200 bg-slate-100 p-1 dark:border-slate-800 dark:bg-slate-900/60">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === 'book'}
+          onClick={() => setView('book')}
+          className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${view === 'book' ? 'bg-white text-indigo-700 shadow-sm dark:bg-slate-800 dark:text-indigo-300' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'}`}
+        >
+          Cash book
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === 'reconcile'}
+          onClick={() => setView('reconcile')}
+          className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${view === 'reconcile' ? 'bg-white text-indigo-700 shadow-sm dark:bg-slate-800 dark:text-indigo-300' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'}`}
+        >
+          Bank reconciliation
+        </button>
+      </div>
+      {view === 'reconcile' ? (
+        <BankReconciliationPanel
+          branchId={scope.branchId}
+          to={scope.asOfDate}
+          dateMode={dateMode}
+          currentUser={currentUser}
+        />
+      ) : data ? (
         <CashBookView data={data} dateMode={dateMode} onOpenVoucher={setDetailId} />
       ) : (
         !loading &&

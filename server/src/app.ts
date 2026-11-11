@@ -76,6 +76,7 @@ import { registerShipmentsRoutes } from './routes/shipments.routes';
 import { registerReportsRoutes } from './routes/reports.routes';
 import { registerAccountingRoutes } from './routes/accounting.routes';
 import { registerPayrollRoutes } from './routes/payroll.routes';
+import { registerHrRoutes } from './routes/hr.routes';
 import { registerLeftoverFiscalRoutes } from './routes/fiscal.routes';
 import { setLogAuditEvent } from './routes/fiscal.auditAccess';
 import { cacheRefreshHook } from './middleware/cacheRefreshHook';
@@ -323,6 +324,7 @@ export function registerAllRoutes(expressApp: express.Express) {
   registerReportsRoutes(expressApp);
   registerAccountingRoutes(expressApp);
   registerPayrollRoutes(expressApp);
+  registerHrRoutes(expressApp);
 
   // Central structured-error handler must be registered LAST so every route's
   // thrown ApiError is converted to a standard JSON response.

@@ -20,10 +20,27 @@ import type { Asset, Branch, CompanyProfile, DocumentNumberConfig, FiscalYear, U
  * rows are removed (FK cascades would otherwise hide them).
  */
 export const DEMO_DATA_TABLES = [
+  // Warranty claims reference coverages and serials. Clear them before either
+  // parent so the count card sees the claim footprint before an FK cascade.
+  'warranty_claims',
   // WTY-7: warranty_coverages references products, fixed_assets, serial_log's
   // units and customer_device_records. It is cleared FIRST so its is_demo rows
   // are counted before an FK cascade from a parent could remove them.
   'warranty_coverages',
+  // Recruitment children next: a demo requisition deletion cascades to its
+  // candidates and then to interviews/offers, so count the child rows before
+  // that cascade can hide them.
+  'hr_recruitment_interviews',
+  'hr_recruitment_offers',
+  'hr_recruitment_candidates',
+  'hr_recruitment_requisitions',
+  // Performance children before the cycle that owns them, for the same reason.
+  'hr_review_feedback',
+  'hr_goals',
+  'hr_review_cycles',
+  // Lifecycle items cascade from their checklist header.
+  'hr_lifecycle_checklist_items',
+  'hr_lifecycle_checklists',
   'transaction_logs',
   'audit_logs',
   'vendor_payments',

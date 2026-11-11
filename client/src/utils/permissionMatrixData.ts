@@ -5,6 +5,8 @@ export const APP_ROLE_LABELS: Record<string, string> = {
   FRONT_DESK: 'Front Desk',
   ACCOUNTANT: 'Accountant',
   HEAD_OFFICE_ADMIN: 'Head Office Admin',
+  HR_MANAGER: 'HR Manager',
+  HR_OFFICER: 'HR Officer',
   PROCUREMENT_OFFICER: 'Procurement Officer',
   FIELD_TECHNICIAN: 'Field Technician',
   AUDITOR: 'Auditor',
@@ -17,6 +19,8 @@ export const APP_ROLES = [
   'FRONT_DESK',
   'ACCOUNTANT',
   'HEAD_OFFICE_ADMIN',
+  'HR_MANAGER',
+  'HR_OFFICER',
   'PROCUREMENT_OFFICER',
   'FIELD_TECHNICIAN',
   'AUDITOR',
@@ -95,6 +99,19 @@ export const DEFAULT_PERMISSIONS_MATRIX: Record<string, Record<string, boolean>>
   'gl-opening-post': { SUPER_ADMIN: true, INVENTORY_MANAGER: false, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: false },
   'gl-close': { SUPER_ADMIN: true, INVENTORY_MANAGER: false, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: false },
 
+  // HR master: reading PII and changing the employee record are separate from
+  // payroll posting. `gl-payroll-manage` remains accepted as a legacy alias on
+  // the employee routes until every payroll manager has the hr-* grants.
+  'hr-employee-view': { SUPER_ADMIN: true, INVENTORY_MANAGER: false, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: true },
+  'hr-employee-manage': { SUPER_ADMIN: true, INVENTORY_MANAGER: false, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: false },
+  // Attendance is a separate write control from the employee master: a branch
+  // HR officer may read the register but not change a shift, holiday or day.
+  'hr-attendance-manage': { SUPER_ADMIN: true, INVENTORY_MANAGER: false, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: false },
+  // Employee self-service is the one HR grant every role holds by default: it
+  // reads only the employee linked to the signed-in account. A per-user
+  // override can deny it without touching the employee-master grants.
+  'hr-self-service': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: true, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: true, FIELD_TECHNICIAN: true, AUDITOR: true },
+
   'suppliers-manage': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: false, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: true, FIELD_TECHNICIAN: false, AUDITOR: false },
   'customers-manage': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: true, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: true, FIELD_TECHNICIAN: true, AUDITOR: false },
 
@@ -106,3 +123,19 @@ export const DEFAULT_PERMISSIONS_MATRIX: Record<string, Record<string, boolean>>
   'admin-audit': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: true },
   'admin-fiscal': { SUPER_ADMIN: true, INVENTORY_MANAGER: false, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: false },
 };
+
+// HR roles join an existing catalogue without rewriting every operation row.
+// They default to denied everywhere, then receive only the HR-master grants:
+// managers can read PII and maintain the master; officers can read the masked
+// master. The explicit keys keep the seed, UI columns and API resolver aligned.
+for (const permissions of Object.values(DEFAULT_PERMISSIONS_MATRIX)) {
+  permissions.HR_MANAGER = false;
+  permissions.HR_OFFICER = false;
+}
+DEFAULT_PERMISSIONS_MATRIX['hr-employee-view'].HR_MANAGER = true;
+DEFAULT_PERMISSIONS_MATRIX['hr-employee-view'].HR_OFFICER = true;
+DEFAULT_PERMISSIONS_MATRIX['hr-employee-manage'].HR_MANAGER = true;
+DEFAULT_PERMISSIONS_MATRIX['hr-attendance-manage'].HR_MANAGER = true;
+// Self-service is every role's own-record read, including both HR roles.
+DEFAULT_PERMISSIONS_MATRIX['hr-self-service'].HR_MANAGER = true;
+DEFAULT_PERMISSIONS_MATRIX['hr-self-service'].HR_OFFICER = true;

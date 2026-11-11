@@ -35,6 +35,8 @@ export type UserRole =
   | 'FRONT_DESK'
   | 'ACCOUNTANT'
   | 'HEAD_OFFICE_ADMIN'
+  | 'HR_MANAGER'
+  | 'HR_OFFICER'
   | 'PROCUREMENT_OFFICER'
   | 'FIELD_TECHNICIAN'
   | 'AUDITOR';
@@ -648,6 +650,155 @@ export interface WarrantyCoveragePage {
   pageSize: number;
   totalItems: number;
   counts: WarrantyCoverageCounts;
+}
+
+/** Warranty claims / RMA lifecycle (shared status vocabulary). */
+export type WarrantyClaimStatus =
+  | 'REPORTED'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'SENT_TO_VENDOR'
+  | 'REPLACED'
+  | 'REPAIRED'
+  | 'CREDITED'
+  | 'CLOSED';
+
+export type WarrantyClaimResolution = 'REPLACED' | 'REPAIRED' | 'CREDITED';
+
+export interface WarrantyClaimEvent {
+  id: string;
+  claimId: string;
+  fromStatus: WarrantyClaimStatus | null;
+  status: WarrantyClaimStatus;
+  note?: string | null;
+  actor?: string | null;
+  createdAt: string;
+}
+
+export interface WarrantyClaimRow {
+  id: string;
+  claimNo: string;
+  branchId: string;
+  branchName?: string;
+  coverageId?: string | null;
+  coverageType: 'VENDOR' | 'SELLER';
+  customerId?: string | null;
+  customerName?: string | null;
+  serialNumber: string;
+  productId?: string | null;
+  productName: string;
+  reportedDateAD: string;
+  reportedDateBS?: string | null;
+  symptom: string;
+  status: WarrantyClaimStatus;
+  resolution?: WarrantyClaimResolution | null;
+  vendorId?: string | null;
+  vendorName?: string | null;
+  vendorClaimRef?: string | null;
+  expectedCredit: number;
+  receivedCredit: number;
+  creditNoteNo?: string | null;
+  journalId?: string | null;
+  replacementSerial?: string | null;
+  rmaReference?: string | null;
+  sentToVendorDateAD?: string | null;
+  resolvedDateAD?: string | null;
+  closedDateAD?: string | null;
+  notes?: string | null;
+  isDemo?: boolean;
+  createdBy?: string | null;
+  createdAt: string;
+  slaDays: number;
+  open: boolean;
+}
+
+export interface WarrantyClaimCounts {
+  total: number;
+  open: number;
+  reported: number;
+  withVendor: number;
+  resolved: number;
+  closed: number;
+  rejected: number;
+}
+
+export interface WarrantyClaimPage {
+  data: WarrantyClaimRow[];
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  counts: WarrantyClaimCounts;
+}
+
+export interface WarrantyClaimVendorCredit {
+  journalId: string;
+  journalNo: string;
+  amount: number;
+  reconciled: boolean;
+}
+
+export interface WarrantyClaimDetail extends WarrantyClaimRow {
+  events: WarrantyClaimEvent[];
+  vendorCredit?: WarrantyClaimVendorCredit | null;
+  transition?: { status: WarrantyClaimStatus };
+}
+
+export type WarrantyRecoveryState =
+  | 'NONE'
+  | 'PENDING'
+  | 'PARTIAL'
+  | 'POSTING_MISMATCH'
+  | 'RECONCILED';
+
+export type WarrantyRmaAgingBucket = '0-7' | '8-14' | '15-30' | '31+';
+
+export interface WarrantyRecoveryRow extends WarrantyClaimRow {
+  rmaAgeDays: number | null;
+  agingBucket: WarrantyRmaAgingBucket | null;
+  postedCredit: number;
+  shortfall: number;
+  creditState: WarrantyRecoveryState;
+}
+
+export interface WarrantyRecoverySummary {
+  claims: number;
+  openClaims: number;
+  outstandingRmas: number;
+  expectedCredit: number;
+  receivedCredit: number;
+  postedCredit: number;
+  shortfall: number;
+  shortfallClaims: number;
+  postingExceptions: number;
+  reconciled: boolean;
+}
+
+export interface WarrantyRecoveryAging {
+  bucket: WarrantyRmaAgingBucket;
+  label: string;
+  claims: number;
+  expectedCredit: number;
+  receivedCredit: number;
+  shortfall: number;
+}
+
+export interface WarrantyRecoveryVendor {
+  vendorName: string;
+  claims: number;
+  expectedCredit: number;
+  receivedCredit: number;
+  postedCredit: number;
+  shortfall: number;
+}
+
+export interface WarrantyRecoveryPage {
+  data: WarrantyRecoveryRow[];
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  summary: WarrantyRecoverySummary;
+  aging: WarrantyRecoveryAging[];
+  vendors: WarrantyRecoveryVendor[];
 }
 
 export interface PurchaseInvoice {

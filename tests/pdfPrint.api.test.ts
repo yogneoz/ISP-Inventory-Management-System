@@ -25,7 +25,12 @@ import { issueAuthToken } from '../server/src/middleware/auth';
 import { setPermissionMatrix } from '../server/src/state/runtimeState';
 import { DEFAULT_PERMISSIONS_MATRIX } from '../client/src/utils/permissionMatrixData';
 import { ensureReferenceData } from './fixtures/referenceData';
-import { resolvePdfFonts, scriptRuns, statementSectionsContent } from '../server/src/services/pdf.service';
+import {
+  cashFlowSectionsContent,
+  resolvePdfFonts,
+  scriptRuns,
+  statementSectionsContent,
+} from '../server/src/services/pdf.service';
 
 dotenv.config();
 
@@ -289,7 +294,7 @@ describe('PDF reporting (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => {
     );
   });
 
-  test('the three statements print from the same posted-line builders', async () => {
+  test('the four statements print from the same posted-line builders', async () => {
     const trial = await get(
       `/api/accounting/statements/trial-balance/print?branchId=${BR}&asOf=${TODAY}`,
       TOKENS.accountant
@@ -310,6 +315,13 @@ describe('PDF reporting (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => {
     );
     assertPdf(balance, 'balance sheet print');
     assert.match(balance.disposition, /balance-sheet-/, 'the balance sheet filename stays stable');
+
+    const cashFlow = await get(
+      `/api/accounting/statements/cash-flow/print?branchId=${BR}&from=${TODAY}&to=${TODAY}`,
+      TOKENS.accountant
+    );
+    assertPdf(cashFlow, 'cash flow print');
+    assert.match(cashFlow.disposition, /cash-flow-/, 'the cash flow filename stays stable');
   });
 
   test('a payslip prints from the posted run line and employee record', async () => {
@@ -348,6 +360,34 @@ describe('PDF reporting (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => {
 });
 
 describe('PDF statement hierarchy', () => {
+  test('a cash-flow section prints its posted lines and subtotal', () => {
+    const content: any = cashFlowSectionsContent([
+      {
+        key: 'OPERATING',
+        label: 'Operating activities',
+        amount: 3600,
+        lines: [
+          {
+            accountId: 'a-sales',
+            accountCode: '4000',
+            accountName: 'Sales',
+            groupCode: 'REV',
+            groupName: 'Revenue',
+            amount: 3600,
+            journalCount: 2,
+          },
+        ],
+      },
+    ]);
+    const rows = content.table.body;
+    assert.equal(rows.length, 3, 'section header, movement line and subtotal rows');
+    assert.match(JSON.stringify(rows[0]), /Operating activities/);
+    assert.match(JSON.stringify(rows[1]), /4000/);
+    assert.match(JSON.stringify(rows[1]), /Sales/);
+    assert.match(JSON.stringify(rows[1]), /2 journals/);
+    assert.match(JSON.stringify(rows[2]), /Net Operating activities/);
+  });
+
   test('a nested statement prints parent and sub-group subtotal rows', () => {
     const content = statementSectionsContent([
       {

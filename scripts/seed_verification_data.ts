@@ -21,6 +21,7 @@ import {
   wipeOperationalData,
 } from './seed/applyVerificationSeed';
 import { buildVerificationDataset, checkDatasetInvariants } from './seed/verificationDataset';
+import { applyDemoModuleFixtures } from './seed/demoModuleFixtures';
 
 dotenv.config({ quiet: true } as any);
 
@@ -69,6 +70,9 @@ async function main() {
 
     console.log('🌱 Seeding masters, documents, stock and ledger...');
     const summary = await applyVerificationSeed(client, dataset);
+    console.log('🌱 Seeding demo module screens (budgets, operations, HR, settings)...');
+    const moduleSummary = await applyDemoModuleFixtures(client, dataset);
+    Object.assign(summary, moduleSummary);
     console.log(`✅ Seeded: ${JSON.stringify(summary)}`);
     console.log(`🔑 Login accounts: superadmin@example.com … auditor@example.com (password Demo@123)`);
 

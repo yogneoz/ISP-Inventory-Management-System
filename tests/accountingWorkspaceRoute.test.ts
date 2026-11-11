@@ -16,7 +16,10 @@ import type {
   AccountingGroup,
   AgingResponse,
   BalanceSheetResponse,
+  BankReconciliationResponse,
   CashBookResponse,
+  CashFlowForecastBucket,
+  CashFlowForecastResponse,
   CashFlowResponse,
   ControlReconciliationResponse,
   ProfitAndLossResponse,
@@ -57,6 +60,14 @@ const branchManager = {
   role: 'BRANCH_MANAGER',
   branchId: 'WH001',
   isActive: true,
+} as unknown as User;
+
+const branchAccountant = {
+  ...accountant,
+  id: 'u-branch-accountant',
+  name: 'Asha Branch Accountant',
+  email: 'branch-accountant@example.com',
+  branchId: 'WH001',
 } as unknown as User;
 
 const BRANCHES = [
@@ -588,6 +599,129 @@ const cashBook: CashBookResponse = {
   closing: 1300,
 };
 
+const bankReconciliation: BankReconciliationResponse = {
+  from: '2026-11-01',
+  to: '2026-11-02',
+  accounts: [
+    {
+      accountId: 'a-bank',
+      code: '1020',
+      name: 'Nabil Bank',
+      bankName: 'Nabil Bank',
+      bankBranch: 'Kathmandu',
+      accountNumber: '0123456789',
+      accountHolder: 'Smoke Test Networks',
+      isActive: true,
+    },
+  ],
+  account: {
+    accountId: 'a-bank',
+    code: '1020',
+    name: 'Nabil Bank',
+    bankName: 'Nabil Bank',
+    bankBranch: 'Kathmandu',
+    accountNumber: '0123456789',
+    accountHolder: 'Smoke Test Networks',
+    isActive: true,
+  },
+  session: null,
+  statement: {
+    openingBalance: 0,
+    closingBalance: 5000,
+    movement: 5000,
+    lineCount: 2,
+    matchedCount: 1,
+    unmatchedCount: 1,
+    unmatchedAmount: 5000,
+  },
+  book: {
+    openingBalance: 0,
+    closingBalance: 4800,
+    movement: 4800,
+    lineCount: 2,
+    entries: [
+      {
+        journalLineId: 'gll-1',
+        journalId: 'gj-1',
+        journalNo: 'MJ-0001',
+        journalDateAD: '2026-11-02',
+        sourceType: 'MANUAL',
+        sourceId: 'smoke-1',
+        journalMemo: 'Customer deposit',
+        memo: 'Customer deposit',
+        debit: 5000,
+        credit: 0,
+        amount: 5000,
+        branchId: 'WH001',
+        branchCode: 'BKRB',
+        branchName: 'Bank Reconciliation Branch',
+        matchedStatementLineId: null,
+      },
+      {
+        journalLineId: 'gll-2',
+        journalId: 'gj-2',
+        journalNo: 'MJ-0002',
+        journalDateAD: '2026-11-02',
+        sourceType: 'MANUAL',
+        sourceId: 'smoke-2',
+        journalMemo: 'Vendor payment from another branch',
+        memo: 'Vendor payment from another branch',
+        debit: 0,
+        credit: 200,
+        amount: -200,
+        branchId: 'BRH01',
+        branchCode: 'BKRO',
+        branchName: 'Bank Reconciliation Other',
+        matchedStatementLineId: 'bsl-2',
+      },
+    ],
+    truncated: false,
+  },
+  difference: 200,
+  reconciled: false,
+  lines: [
+    {
+      id: 'bsl-1',
+      statementDate: '2026-11-02',
+      statementDateBS: '2083-07-17 BS',
+      description: 'Customer deposit',
+      reference: 'DEP-1',
+      amount: 5000,
+      importBatchId: 'bksb-1',
+      importSource: 'CSV',
+      matchedJournalLineId: null,
+      matchedAt: null,
+      matchedBy: null,
+      matchedJournalNo: null,
+      matchedJournalDate: null,
+      matchedBranchId: null,
+      matchedBranchCode: null,
+      matchedBranchName: null,
+      suggestedJournalLineId: null,
+    },
+    {
+      id: 'bsl-2',
+      statementDate: '2026-11-02',
+      statementDateBS: '2083-07-17 BS',
+      description: 'Vendor payment',
+      reference: 'PAY-1',
+      amount: -200,
+      importBatchId: 'bksb-1',
+      importSource: 'CSV',
+      matchedJournalLineId: 'gll-2',
+      matchedAt: '2026-11-10T09:00:00.000Z',
+      matchedBy: 'accountant@example.com',
+      matchedJournalNo: 'MJ-0002',
+      matchedJournalDate: '2026-11-02',
+      matchedBranchId: 'BRH01',
+      matchedBranchCode: 'BKRO',
+      matchedBranchName: 'Bank Reconciliation Other',
+      suggestedJournalLineId: 'gll-2',
+    },
+  ],
+  linesTruncated: false,
+};
+
 const cashFlow: CashFlowResponse = {
   statement: 'CASH_FLOW',
   method: 'DIRECT',
@@ -636,6 +770,140 @@ const cashFlow: CashFlowResponse = {
     },
     { key: 'FINANCING', label: 'Financing activities', amount: 0, lines: [] },
   ],
+};
+
+const cashFlowForecastBuckets: CashFlowForecastBucket[] = Array.from(
+  { length: 13 },
+  (_, index) => ({
+    key: `W${index + 1}`,
+    label: index === 0 ? '03 Nov – 09 Nov' : '10 Nov – 16 Nov',
+    fromAD: index === 0 ? '2026-11-03' : '2026-11-10',
+    toAD: index === 0 ? '2026-11-09' : '2026-11-16',
+    receipts: index === 0 ? 1000 : 0,
+    customerCredits: index === 0 ? 100 : 0,
+    payments: index === 0 ? 1200 : 0,
+    supplierCredits: index === 0 ? 100 : 0,
+    recurringInflows: 0,
+    recurringOutflows: 0,
+    payrollOutflows: 0,
+    manualInflows: 0,
+    manualOutflows: 0,
+    inflows: index === 0 ? 900 : 0,
+    outflows: index === 0 ? 1100 : 0,
+    netCashFlow: index === 0 ? -200 : 0,
+    closingCash: 800,
+    belowMinimum: index === 0,
+    itemCount: index === 0 ? 5 : 0,
+  })
+);
+
+const cashFlowForecast: CashFlowForecastResponse = {
+  statement: 'CASH_FLOW_FORECAST',
+  basis: 'WEEKLY',
+  branchId: 'ALL',
+  asOf: '2026-11-02',
+  weeks: 13,
+  minCash: 900,
+  openingCash: 1000,
+  totalInflows: 900,
+  totalOutflows: 1100,
+  netCashFlow: -200,
+  closingCash: 800,
+  minimumClosingCash: 800,
+  openingBelowMinimum: false,
+  warning: true,
+  firstBreach: { bucketKey: 'W1', closingCash: 800 },
+  breaches: ['W1'],
+  buckets: cashFlowForecastBuckets,
+  manualInputs: [],
+  items: [
+    {
+      kind: 'INVOICE',
+      source: 'AR',
+      direction: 'INFLOW',
+      documentId: 'si-1',
+      documentNo: 'SI-1',
+      partyId: 'c-1',
+      partyName: 'Himalayan Traders',
+      dueDateAD: '2026-11-05',
+      bucketKey: 'W1',
+      bucketIndex: 0,
+      overdue: false,
+      description: 'Customer invoice',
+      amount: 1000,
+    },
+    {
+      kind: 'INVOICE',
+      source: 'AP',
+      direction: 'OUTFLOW',
+      documentId: 'pi-1',
+      documentNo: 'PI-1',
+      partyId: 's-1',
+      partyName: 'Everest Supply',
+      dueDateAD: '2026-11-06',
+      bucketKey: 'W1',
+      bucketIndex: 0,
+      overdue: false,
+      description: 'Supplier bill',
+      amount: 1200,
+    },
+  ],
+  ar: {
+    grossTotal: 1200,
+    unappliedCredit: 100,
+    total: 1100,
+    controlBalance: 1100,
+    difference: 0,
+    reconciled: true,
+    openItemCount: 3,
+    overdueAmount: 100,
+  },
+  ap: {
+    grossTotal: 1200,
+    unappliedCredit: 100,
+    total: 1100,
+    controlBalance: 1100,
+    difference: 0,
+    reconciled: true,
+    openItemCount: 2,
+    overdueAmount: 1200,
+  },
+  sources: {
+    recurring: {
+      scheduledCount: 0,
+      scheduledAmount: 0,
+      includedCount: 0,
+      includedAmount: 0,
+      overdueAmount: 0,
+      beyondHorizon: { count: 0, amount: 0 },
+      closedPeriodExcluded: { count: 0, amount: 0 },
+    },
+    payroll: {
+      scheduledCount: 0,
+      scheduledAmount: 0,
+      includedCount: 0,
+      includedAmount: 0,
+      overdueAmount: 0,
+      beyondHorizon: { count: 0, amount: 0 },
+      closedPeriodExcluded: { count: 0, amount: 0 },
+    },
+    manual: {
+      scheduledCount: 0,
+      scheduledAmount: 0,
+      includedCount: 0,
+      includedAmount: 0,
+      overdueAmount: 0,
+      beyondHorizon: { count: 0, amount: 0 },
+      closedPeriodExcluded: { count: 0, amount: 0 },
+    },
+  },
+  beyondHorizon: {
+    ar: { count: 0, amount: 0 },
+    ap: { count: 0, amount: 0 },
+    recurring: { count: 0, amount: 0 },
+    payroll: { count: 0, amount: 0 },
+    manual: { count: 0, amount: 0 },
+  },
 };
 
 const agingAr: AgingResponse = {
@@ -872,10 +1140,13 @@ function accountingStubs(overrides: Record<string, unknown> = {}) {
     getProfitAndLoss: async () => profitAndLoss,
     getBalanceSheet: async () => balanceSheet,
     getCashFlow: async () => cashFlow,
+    getCashFlowForecast: async () => cashFlowForecast,
     getStatementGroupLines: async () => profitGroupLines,
     getCashBook: async () => cashBook,
+    getBankReconciliation: async () => bankReconciliation,
     getAging: async () => agingAr,
     getControlReconciliation: async () => reconciliation,
+    getAccountingBudgetVarianceUtilisation: async () => budgetUtilisation,
     ...overrides,
   };
 }
@@ -1136,8 +1407,48 @@ test('cash and bank book register renders the endpoint figures', async () => {
   }
 });
 
-test('cash flow register renders sections and sends the period start', async () => {
+test('bank reconciliation view imports the company-wide workspace and exports unmatched lines', async () => {
+  const calls: any[] = [];
+  const restored = mountWorkspace(accountant, 'accounting-cash-book');
+  const restoreApi = installApiStubs(
+    accountingStubs({
+      getBootstrapState: async () => bootstrapWithTab('accounting-cash-book'),
+      getBankReconciliation: async (query: any) => {
+        calls.push(query);
+        return bankReconciliation;
+      },
+    })
+  );
+  const tree = mountAppRouteTree();
+
+  try {
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes('Cash in Hand')),
+      'the cash book view must load before switching tabs'
+    );
+    inAct(() => buttonByText(tree.container, 'Bank reconciliation').click());
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes('Statement lines')),
+      'the reconciliation tab must load the statement workspace'
+    );
+    assert.match(text(tree.container), /Company-wide/);
+    assert.match(text(tree.container), /Customer deposit/);
+    assert.match(text(tree.container), /Vendor payment/);
+    assert.match(text(tree.container), /BKRB/);
+    assert.match(text(tree.container), /BKRO/);
+    assert.match(text(tree.container), /STATEMENT CLOSING/);
+    assert.ok(text(tree.container).includes('Export unmatched CSV'));
+    assert.equal(calls[0].branchId, undefined, 'reconciliation must not send a branch filter');
+  } finally {
+    tree.unmount();
+    restoreApi();
+    restored.restoreEventSource();
+  }
+});
+
+test('cash flow register renders sections, forecast and sends the period start', async () => {
   const calls: StatementQuery[] = [];
+  const forecastCalls: Array<{ branchId?: string; asOf?: string; weeks?: number; minCash?: number }> = [];
   const restored = mountWorkspace(accountant, 'accounting-cash-flow');
   const restoreApi = installApiStubs(
     accountingStubs({
@@ -1145,6 +1456,10 @@ test('cash flow register renders sections and sends the period start', async () 
       getCashFlow: async (query: StatementQuery = {}) => {
         calls.push(query);
         return cashFlow;
+      },
+      getCashFlowForecast: async (query: any = {}) => {
+        forecastCalls.push(query);
+        return cashFlowForecast;
       },
     })
   );
@@ -1157,6 +1472,19 @@ test('cash flow register renders sections and sends the period start', async () 
     );
     assert.ok(text(tree.container).includes('Plant and machinery'));
     assert.ok(text(tree.container).includes('Ties to cash book'));
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes('Forward cash-flow forecast')),
+      'the forward forecast panel must load'
+    );
+    assert.ok(text(tree.container).includes('Minimum cash breached'));
+    assert.ok(text(tree.container).includes('Himalayan Traders'));
+    assert.ok(text(tree.container).includes('Forecast inputs'));
+    assert.ok(text(tree.container).includes('Recurring journals'));
+    assert.ok(text(tree.container).includes('Payroll commitments'));
+    assert.ok(text(tree.container).includes('No manual forecast inputs in this scope.'));
+    assert.equal(forecastCalls[0]?.asOf, localTodayAD());
+    assert.equal(forecastCalls[0]?.weeks, 13);
+    assert.equal(forecastCalls[0]?.minCash, 0);
 
     const fromInput = tree.container.querySelector(
       'input[aria-label="Accounting period start"]'
@@ -1530,6 +1858,960 @@ test('a role without gl-view is refused on an accounting register, not shown an 
       false,
       'the refused register must not leave its content on screen'
     );
+  } finally {
+    tree.unmount();
+    restoreApi();
+    restored.restoreEventSource();
+  }
+});
+
+const budgetVariance = {
+  fiscalYearId: 'fy-smoke',
+  fiscalYearCode: '2083/84',
+  branchId: 'WH001',
+  from: '2026-07-17',
+  to: '2027-07-16',
+  rows: [
+    {
+      accountId: 'a-exp-a',
+      code: 'BGT-6100',
+      name: 'BGT Budget With No Actual',
+      accountType: 'EXPENSE',
+      statementGroup: 'OPERATING_EXPENSE',
+      budget: 1000,
+      actual: 0,
+      variance: 1000,
+      variancePercent: 100,
+    },
+    {
+      accountId: 'a-exp-b',
+      code: 'BGT-6200',
+      name: 'BGT Over Budget Expense',
+      accountType: 'EXPENSE',
+      statementGroup: 'OPERATING_EXPENSE',
+      budget: 500,
+      actual: 700,
+      variance: -200,
+      variancePercent: -40,
+    },
+    {
+      accountId: 'a-exp-c',
+      code: 'BGT-6300',
+      name: 'BGT Exactly On Budget',
+      accountType: 'EXPENSE',
+      statementGroup: 'OPERATING_EXPENSE',
+      budget: 400,
+      actual: 400,
+      variance: 0,
+      variancePercent: 0,
+    },
+    {
+      accountId: 'a-exp-d',
+      code: 'BGT-6400',
+      name: 'BGT Actual Without Budget',
+      accountType: 'EXPENSE',
+      statementGroup: 'OPERATING_EXPENSE',
+      budget: 0,
+      actual: 250,
+      variance: -250,
+      variancePercent: null,
+    },
+  ],
+  totals: { budget: 1900, actual: 1350, variance: 550, variancePercent: 28.95 },
+};
+
+const budgetUtilisation = {
+  fiscalYearId: 'fy-smoke',
+  fiscalYearCode: '2083/84',
+  branchId: 'ALL',
+  from: '2026-07-17',
+  to: '2027-07-16',
+  branches: [
+    {
+      branchId: 'WH001',
+      code: 'WH001',
+      name: 'Warehouse',
+      budget: 1900,
+      actual: 1350,
+      variance: 550,
+      variancePercent: 28.95,
+      utilisationPercent: 71.1,
+    },
+    {
+      branchId: 'BRH01',
+      code: 'BRH01',
+      name: 'Branch 2',
+      budget: 500,
+      actual: 700,
+      variance: -200,
+      variancePercent: -40,
+      utilisationPercent: 140,
+    },
+  ],
+  totals: budgetVariance.totals,
+  tieOut: {
+    budget: 1900,
+    actual: 1350,
+    cardBudget: 1900,
+    cardActual: 1350,
+    budgetDifference: 0,
+    actualDifference: 0,
+    reconciled: true,
+  },
+};
+
+const budgetSetup = {
+  fiscalYearId: 'fy-smoke',
+  fiscalYearCode: '2083/84',
+  branchId: 'WH001',
+  branchName: 'Warehouse',
+  budgetId: 'bgt-1',
+  locked: false,
+  lockedBy: null,
+  lockedAt: null,
+  updatedAt: null,
+  periods: [
+    { periodKey: '2026-07', startDateAD: '2026-07-01', endDateAD: '2026-07-31', status: 'OPEN' },
+    { periodKey: '2026-08', startDateAD: '2026-08-01', endDateAD: '2026-08-31', status: 'OPEN' },
+  ],
+  accounts: [
+    { id: 'a-exp-a', code: 'BGT-6100', name: 'BGT Budget With No Actual', accountType: 'EXPENSE', statementGroup: 'OPERATING_EXPENSE' },
+    { id: 'a-exp-b', code: 'BGT-6200', name: 'BGT Over Budget Expense', accountType: 'EXPENSE', statementGroup: 'OPERATING_EXPENSE' },
+  ],
+  lines: [
+    { periodKey: '2026-07', accountId: 'a-exp-a', amount: 1000, code: 'BGT-6100', name: 'BGT Budget With No Actual', accountType: 'EXPENSE' },
+  ],
+};
+
+const budgetAllocation = {
+  fiscalYearId: 'fy-smoke',
+  fiscalYearCode: '2083/84',
+  branchId: 'WH001',
+  branchName: 'Warehouse',
+  profileId: 'alloc-1',
+  status: 'READY' as const,
+  locked: false,
+  lockedBy: null,
+  lockedAt: null,
+  updatedBy: 'budget@example.com',
+  updatedAt: null,
+  totalExpenseBudget: 1900,
+  rules: [
+    {
+      accountGroup: 'DEFAULT',
+      costCenterId: 'cc-ops',
+      percentage: 100,
+      percentageBp: 10000,
+      code: 'CC-01',
+      name: 'Operations',
+      branchId: null,
+      active: true,
+    },
+  ],
+  groups: [
+    {
+      accountGroup: 'OPERATING_EXPENSE',
+      label: 'Operating expenses',
+      budget: 1900,
+      hasOverride: false,
+      rules: [
+        {
+          accountGroup: 'DEFAULT',
+          costCenterId: 'cc-ops',
+          percentage: 100,
+          percentageBp: 10000,
+          code: 'CC-01',
+          name: 'Operations',
+          branchId: null,
+          active: true,
+        },
+      ],
+    },
+  ],
+  centres: [
+    { id: 'cc-ops', code: 'CC-01', name: 'Operations', branchId: null, parentId: null, active: true },
+  ],
+};
+
+const budgetDepartments = {
+  fiscalYearId: 'fy-smoke',
+  fiscalYearCode: '2083/84',
+  branchId: 'WH001',
+  branchName: 'Warehouse',
+  profileId: 'alloc-1',
+  status: 'READY' as const,
+  from: '2026-07-17',
+  to: '2027-07-16',
+  departments: [
+    {
+      costCenterId: 'cc-ops',
+      code: 'CC-01',
+      name: 'Operations',
+      budget: 1900,
+      actual: 1350,
+      variance: 550,
+      variancePercent: 28.95,
+      utilisationPercent: 71.05,
+      lineCount: 2,
+      inAllocation: true,
+    },
+  ],
+  groups: [
+    { accountGroup: 'OPERATING_EXPENSE', label: 'Operating expenses', budget: 1900, hasOverride: false },
+  ],
+  totals: {
+    expenseBudget: 1900,
+    allocatedBudget: 1900,
+    expenseActual: 1400,
+    taggedActual: 1350,
+    unallocatedActual: 50,
+  },
+  coverage: {
+    totalExpenseLines: 3,
+    taggedExpenseLines: 2,
+    untaggedExpenseLines: 1,
+    taggedPercent: 66.67,
+  },
+  unallocated: { actual: 50, lineCount: 1 },
+  tieOut: { budgetDifference: 0, actualDifference: 0, reconciled: true },
+};
+
+test('budget vs actual renders the server variance and saves a hand-entered line', async () => {
+  const branchAccountant = {
+    ...accountant,
+    id: 'u-budget-accountant',
+    email: 'budget.accountant@example.com',
+    branchId: 'WH001',
+  } as unknown as User;
+  const restored = mountWorkspace(branchAccountant, 'financial-statements');
+  let saved: any = null;
+  const restoreApi = installApiStubs(
+    accountingStubs({
+      getBootstrapState: async () => bootstrapWithTab('financial-statements'),
+      getMyPermissions: async () => ({
+        role: 'ACCOUNTANT',
+        operations: ['gl-view', 'gl-chart-manage', 'fin-statements'],
+        version: 1,
+      }),
+      getAccountingBudgetVariance: async () => budgetVariance,
+      getAccountingBudget: async () => budgetSetup,
+      saveAccountingBudget: async (input: any) => {
+        saved = input;
+        return {
+          ...budgetSetup,
+          lines: input.lines.map((line: any) => ({
+            ...line,
+            code: budgetSetup.accounts.find((account) => account.id === line.accountId)?.code,
+            name: budgetSetup.accounts.find((account) => account.id === line.accountId)?.name,
+            accountType: 'EXPENSE',
+          })),
+        };
+      },
+    })
+  );
+  const tree = mountAppRouteTree();
+
+  try {
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes('Budget vs actual')),
+      'the dashboard must offer the budget view'
+    );
+    inAct(() => buttonByText(tree.container, 'Budget vs actual').click());
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes('BGT Over Budget Expense')),
+      'the budget rows must render'
+    );
+    assert.match(text(tree.container), /2 of 4/, 'two accounts are over budget');
+    assert.ok(text(tree.container).includes(formatNPR(1000)), 'a budget with no actual renders its remaining amount');
+    assert.ok(text(tree.container).includes(formatNPR(-200)), 'an overspend renders as a negative variance');
+    assert.match(text(tree.container), /—/, 'a zero budget renders no invented variance percentage');
+
+    const accountSelect = tree.container.querySelector('select[aria-label="Budget account"]') as HTMLSelectElement | null;
+    const periodSelect = tree.container.querySelector('select[aria-label="Budget period"]') as HTMLSelectElement | null;
+    const amountInput = tree.container.querySelector('input[aria-label="Budget amount"]') as HTMLInputElement | null;
+    assert.ok(accountSelect && periodSelect && amountInput, 'the editor must expose account, period and amount controls');
+    setSelectValue(accountSelect, 'a-exp-b');
+    setSelectValue(periodSelect, '2026-08');
+    setInputValue(amountInput, '1250');
+    inAct(() => buttonByText(tree.container, 'Add line').click());
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes(formatNPR(1250))),
+      'the new line must appear in the draft before saving'
+    );
+
+    inAct(() => buttonByText(tree.container, 'Save budget').click());
+    assert.ok(await settleUntil(() => saved !== null), 'saving must send the budget payload');
+    assert.equal(saved.fiscalYearId, 'fy-smoke');
+    assert.equal(saved.branchId, 'WH001');
+    assert.deepEqual(saved.lines, [
+      { periodKey: '2026-07', accountId: 'a-exp-a', amount: 1000 },
+      { periodKey: '2026-08', accountId: 'a-exp-b', amount: 1250 },
+    ]);
+  } finally {
+    tree.unmount();
+    restoreApi();
+    restored.restoreEventSource();
+  }
+});
+
+test('the allocation card previews departments and saves the branch default', async () => {
+  const branchAccountant = {
+    ...accountant,
+    id: 'u-budget-allocation',
+    email: 'budget.allocation@example.com',
+    branchId: 'WH001',
+  } as unknown as User;
+  const restored = mountWorkspace(branchAccountant, 'financial-statements');
+  let savedAllocation: any = null;
+  const restoreApi = installApiStubs(
+    accountingStubs({
+      getBootstrapState: async () => bootstrapWithTab('financial-statements'),
+      getMyPermissions: async () => ({
+        role: 'ACCOUNTANT',
+        operations: ['gl-view', 'gl-chart-manage', 'fin-statements'],
+        version: 1,
+      }),
+      getAccountingBudgetVariance: async () => budgetVariance,
+      getAccountingBudget: async () => budgetSetup,
+      getAccountingBudgetAllocation: async () => budgetAllocation,
+      getAccountingBudgetDepartmentVariance: async () => budgetDepartments,
+      saveAccountingBudgetAllocation: async (input: any) => {
+        savedAllocation = input;
+        return budgetAllocation;
+      },
+    })
+  );
+  const tree = mountAppRouteTree();
+
+  try {
+    assert.ok(await settleUntil(() => text(tree.container).includes('Budget vs actual')));
+    inAct(() => buttonByText(tree.container, 'Budget vs actual').click());
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes('Cost-centre allocation')),
+      'the allocation card must render'
+    );
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes('Department preview')),
+      'the department preview must render'
+    );
+    assert.match(text(tree.container), /Unallocated actual/);
+    assert.match(text(tree.container), /CC-01/);
+    assert.match(text(tree.container), /READY · 1 rule/);
+    assert.match(text(tree.container), /Reconciled/);
+    assert.match(text(tree.container), /Zero variance/);
+
+    inAct(() => buttonByText(tree.container, 'Edit allocation').click());
+    const percentage = tree.container.querySelector(
+      'input[aria-label="Allocation percentage for CC-01"]'
+    ) as HTMLInputElement | null;
+    assert.ok(percentage, 'the editor must expose the cost-centre percentage');
+    setInputValue(percentage, '100');
+    inAct(() => buttonByText(tree.container, 'Save allocation').click());
+
+    assert.ok(await settleUntil(() => savedAllocation !== null), 'save must send the allocation');
+    assert.equal(savedAllocation.fiscalYearId, 'fy-smoke');
+    assert.equal(savedAllocation.branchId, 'WH001');
+    assert.deepEqual(savedAllocation.rules, [
+      { accountGroup: 'DEFAULT', costCenterId: 'cc-ops', percentage: 100 },
+    ]);
+  } finally {
+    tree.unmount();
+    restoreApi();
+    restored.restoreEventSource();
+  }
+});
+
+test('the budget view copies the previous year and exposes explicit replace', async () => {
+  const branchAccountant = {
+    ...accountant,
+    id: 'u-budget-copy',
+    email: 'budget.copy@example.com',
+    branchId: 'WH001',
+  } as unknown as User;
+  const restored = mountWorkspace(branchAccountant, 'financial-statements');
+  let copied: any = null;
+  const restoreApi = installApiStubs(
+    accountingStubs({
+      getBootstrapState: async () => bootstrapWithTab('financial-statements'),
+      getMyPermissions: async () => ({
+        role: 'ACCOUNTANT',
+        operations: ['gl-view', 'gl-chart-manage', 'fin-statements'],
+        version: 1,
+      }),
+      getAccountingBudgetVariance: async () => budgetVariance,
+      getAccountingBudget: async () => budgetSetup,
+      copyAccountingBudget: async (input: any) => {
+        copied = input;
+        return {
+          status: 'COPIED',
+          sourceFiscalYearId: 'fy-prev',
+          sourceFiscalYearCode: '2082/83',
+          targetFiscalYearId: 'fy-smoke',
+          targetFiscalYearCode: '2083/84',
+          branchId: 'WH001',
+          branchName: 'Warehouse',
+          sourceLines: 2,
+          mappedLines: 2,
+          copiedLines: 2,
+          skippedAccounts: [
+            { accountId: 'a-old', code: 'OLD-1', name: 'Retired expense', reason: 'MISSING_FROM_CHART' },
+          ],
+          periodMapping: [
+            {
+              sourcePeriodKey: '2025-07',
+              targetPeriodKey: '2026-07',
+              sourceStartDateAD: '2025-07-01',
+              targetStartDateAD: '2026-07-01',
+            },
+          ],
+          unmappedPeriods: [],
+          replacedExisting: false,
+          budget: {
+            ...budgetSetup,
+            lines: [
+              { periodKey: '2026-07', accountId: 'a-exp-a', amount: 1200, code: 'BGT-6100', name: 'BGT Budget With No Actual', accountType: 'EXPENSE' },
+              { periodKey: '2026-08', accountId: 'a-exp-b', amount: 300, code: 'BGT-6200', name: 'BGT Over Budget Expense', accountType: 'EXPENSE' },
+            ],
+          },
+        };
+      },
+    })
+  );
+  const tree = mountAppRouteTree();
+
+  try {
+    assert.ok(await settleUntil(() => text(tree.container).includes('Budget vs actual')));
+    inAct(() => buttonByText(tree.container, 'Budget vs actual').click());
+    assert.ok(await settleUntil(() => text(tree.container).includes('Copy from previous year')));
+    const replace = tree.container.querySelector(
+      'input[aria-label="Replace existing budget"]'
+    ) as HTMLInputElement | null;
+    assert.ok(replace, 'the replace affordance must be visible');
+    inAct(() => replace.click());
+    inAct(() => buttonByText(tree.container, 'Copy from previous year').click());
+
+    assert.ok(await settleUntil(() => copied !== null), 'copy must send the target year and branch');
+    assert.deepEqual(copied, { targetFiscalYearId: 'fy-smoke', branchId: 'WH001', replace: true });
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes('Copied 2 lines from FY 2082/83')),
+      'the result must state what was copied'
+    );
+    assert.match(text(tree.container), /1 account skipped/);
+  } finally {
+    tree.unmount();
+    restoreApi();
+    restored.restoreEventSource();
+  }
+});
+
+test('the budget variance account row opens its posted actual lines and tie-out', async () => {
+  const branchAccountant = {
+    ...accountant,
+    id: 'u-budget-drill',
+    email: 'budget.drill@example.com',
+    branchId: 'WH001',
+  } as unknown as User;
+  const restored = mountWorkspace(branchAccountant, 'financial-statements');
+  let drillRequest: any = null;
+  const restoreApi = installApiStubs(
+    accountingStubs({
+      getBootstrapState: async () => bootstrapWithTab('financial-statements'),
+      getMyPermissions: async () => ({
+        role: 'ACCOUNTANT',
+        operations: ['gl-view', 'gl-chart-manage', 'fin-statements'],
+        version: 1,
+      }),
+      getAccountingBudgetVariance: async () => budgetVariance,
+      getAccountingBudget: async () => budgetSetup,
+      getAccountingBudgetVarianceLines: async (input: any) => {
+        drillRequest = input;
+        return {
+          fiscalYearId: 'fy-smoke',
+          fiscalYearCode: '2083/84',
+          branchId: 'WH001',
+          from: '2026-07-17',
+          to: '2027-07-16',
+          account: budgetVariance.rows[1],
+          entries: [
+            {
+              id: 'bgt-drill-1',
+              journalId: 'j-bgt-drill-1',
+              journalNo: 'JV-BGT-1',
+              journalDateAD: '2026-08-10',
+              sourceType: 'MANUAL',
+              sourceId: null,
+              branchId: 'WH001',
+              accountId: 'a-exp-b',
+              accountCode: 'BGT-6200',
+              accountName: 'BGT Over Budget Expense',
+              lineNo: 1,
+              memo: 'BGT over-budget August',
+              journalMemo: null,
+              debit: 400,
+              credit: 0,
+              amount: 400,
+            },
+            {
+              id: 'bgt-drill-2',
+              journalId: 'j-bgt-drill-2',
+              journalNo: 'JV-BGT-2',
+              journalDateAD: '2026-09-05',
+              sourceType: 'MANUAL',
+              sourceId: null,
+              branchId: 'WH001',
+              accountId: 'a-exp-b',
+              accountCode: 'BGT-6200',
+              accountName: 'BGT Over Budget Expense',
+              lineNo: 1,
+              memo: 'BGT over-budget September',
+              journalMemo: null,
+              debit: 300,
+              credit: 0,
+              amount: 300,
+            },
+          ],
+          totals: { debit: 700, credit: 0, actual: 700, entryCount: 2 },
+          tieOut: {
+            budget: 500,
+            actual: 700,
+            variance: -200,
+            variancePercent: -40,
+            lineActual: 700,
+            difference: 0,
+            reconciled: true,
+          },
+          truncated: false,
+          limit: 500,
+        };
+      },
+    })
+  );
+  const tree = mountAppRouteTree();
+
+  try {
+    assert.ok(await settleUntil(() => text(tree.container).includes('Budget vs actual')));
+    inAct(() => buttonByText(tree.container, 'Budget vs actual').click());
+    assert.ok(
+      await settleUntil(() =>
+        tree.container.querySelector(
+          'button[aria-label="View posted journal lines for BGT-6200 BGT Over Budget Expense"]'
+        ) !== null
+      )
+    );
+    clickAria(
+      tree.container,
+      'View posted journal lines for BGT-6200 BGT Over Budget Expense'
+    );
+
+    assert.ok(await settleUntil(() => text(tree.container).includes('Ties to budget actual')));
+    assert.equal(drillRequest.fiscalYearId, 'fy-smoke');
+    assert.equal(drillRequest.branchId, 'WH001');
+    assert.equal(drillRequest.accountId, 'a-exp-b');
+    assert.match(text(tree.container), /JV-BGT-1/);
+    assert.match(text(tree.container), /BGT over-budget August/);
+  } finally {
+    tree.unmount();
+    restoreApi();
+    restored.restoreEventSource();
+  }
+});
+
+test('branch utilisation cards show each branch and tie back to the variance total', async () => {
+  const restored = mountWorkspace(accountant, 'financial-statements');
+  let utilisationRequest: any = null;
+  const restoreApi = installApiStubs(
+    accountingStubs({
+      getBootstrapState: async () => bootstrapWithTab('financial-statements'),
+      getMyPermissions: async () => ({
+        role: 'ACCOUNTANT',
+        operations: ['gl-view', 'gl-chart-manage', 'fin-statements'],
+        version: 1,
+      }),
+      getAccountingBudgetVariance: async () => ({ ...budgetVariance, branchId: 'ALL' }),
+      getAccountingBudgetVarianceUtilisation: async (input: any) => {
+        utilisationRequest = input;
+        return { ...budgetUtilisation, branchId: 'ALL' };
+      },
+    })
+  );
+  const tree = mountAppRouteTree();
+
+  try {
+    assert.ok(await settleUntil(() => text(tree.container).includes('Budget vs actual')));
+    inAct(() => buttonByText(tree.container, 'Budget vs actual').click());
+    assert.ok(await settleUntil(() => text(tree.container).includes('Branch utilisation')));
+    assert.equal(utilisationRequest.fiscalYearId, 'fy-smoke');
+    assert.equal(utilisationRequest.branchId, 'ALL');
+    assert.equal(utilisationRequest.from, '2026-07-17');
+    assert.equal(utilisationRequest.to, '2027-07-16');
+
+    assert.ok(
+      tree.container.querySelector('article[aria-label="Branch utilisation WH001"]'),
+      'the first branch card must render'
+    );
+    assert.ok(
+      tree.container.querySelector('article[aria-label="Branch utilisation BRH01"]'),
+      'the second branch card must render'
+    );
+    assert.match(text(tree.container), /Warehouse/);
+    assert.match(text(tree.container), /Branch 2/);
+    assert.match(text(tree.container), /71\.1% used/);
+    assert.match(text(tree.container), /140\.0% used/);
+    assert.match(text(tree.container), /Ties to variance total/);
+  } finally {
+    tree.unmount();
+    restoreApi();
+    restored.restoreEventSource();
+  }
+});
+
+test('the budget view shows every refused CSV row and sends no partial import', async () => {
+  const branchAccountant = {
+    ...accountant,
+    id: 'u-budget-import',
+    email: 'budget.import@example.com',
+    branchId: 'WH001',
+  } as unknown as User;
+  const restored = mountWorkspace(branchAccountant, 'financial-statements');
+  let imported: any = null;
+  const restoreApi = installApiStubs(
+    accountingStubs({
+      getBootstrapState: async () => bootstrapWithTab('financial-statements'),
+      getMyPermissions: async () => ({
+        role: 'ACCOUNTANT',
+        operations: ['gl-view', 'gl-chart-manage', 'fin-statements'],
+        version: 1,
+      }),
+      getAccountingBudgetVariance: async () => budgetVariance,
+      getAccountingBudget: async () => budgetSetup,
+      importAccountingBudgetCsv: async (input: any) => {
+        imported = input;
+        const error: any = new Error('The CSV import was refused. No budget lines were changed.');
+        error.status = 400;
+        error.body = {
+          status: 'REFUSED',
+          errors: [
+            { row: 2, message: 'Unknown chart account "BGT-9999".' },
+            { row: 3, message: 'Period "2099-01" does not belong to fiscal year 2083/84.' },
+          ],
+        };
+        throw error;
+      },
+    })
+  );
+  const tree = mountAppRouteTree();
+
+  try {
+    assert.ok(await settleUntil(() => text(tree.container).includes('Budget vs actual')));
+    inAct(() => buttonByText(tree.container, 'Budget vs actual').click());
+    assert.ok(await settleUntil(() => text(tree.container).includes('Import CSV')));
+    const fileInput = tree.container.querySelector(
+      'input[aria-label="Budget CSV file"]'
+    ) as HTMLInputElement | null;
+    assert.ok(fileInput, 'the CSV file input must exist');
+    const csv = 'account_code,period_key,amount\nBGT-9999,2026-07,100\nBGT-6100,2099-01,200';
+    Object.defineProperty(fileInput, 'files', {
+      configurable: true,
+      value: [{ name: 'budget.csv', text: async () => csv }],
+    });
+    inAct(() => fileInput.dispatchEvent(new window.Event('change', { bubbles: true })));
+
+    assert.ok(await settleUntil(() => imported !== null), 'the selected file contents must be sent');
+    assert.equal(imported.fiscalYearId, 'fy-smoke');
+    assert.equal(imported.branchId, 'WH001');
+    assert.equal(imported.csv, csv);
+    assert.equal(imported.replace, false);
+    assert.ok(
+      await settleUntil(() =>
+        tree.container.querySelector('ul[aria-label="Budget CSV errors"]') !== null
+      ),
+      'the row errors must be rendered'
+    );
+    const errorList = tree.container.querySelector(
+      'ul[aria-label="Budget CSV errors"]'
+    ) as HTMLElement;
+    assert.match(text(errorList), /Row 2: Unknown chart account/);
+    assert.match(text(errorList), /Row 3: Period/);
+    assert.match(text(tree.container), /No budget lines were changed/);
+  } finally {
+    tree.unmount();
+    restoreApi();
+    restored.restoreEventSource();
+  }
+});
+
+test('the consolidated budget view is read-only and does not load a branch editor', async () => {
+  const restored = mountWorkspace(accountant, 'financial-statements');
+  let branchBudgetReads = 0;
+  const restoreApi = installApiStubs(
+    accountingStubs({
+      getBootstrapState: async () => bootstrapWithTab('financial-statements'),
+      getMyPermissions: async () => ({
+        role: 'ACCOUNTANT',
+        operations: ['gl-view', 'gl-chart-manage', 'fin-statements'],
+        version: 1,
+      }),
+      getAccountingBudgetVariance: async () => ({ ...budgetVariance, branchId: 'ALL' }),
+      getAccountingBudget: async () => {
+        branchBudgetReads += 1;
+        return budgetSetup;
+      },
+    })
+  );
+  const tree = mountAppRouteTree();
+
+  try {
+    assert.ok(await settleUntil(() => text(tree.container).includes('Budget vs actual')));
+    inAct(() => buttonByText(tree.container, 'Budget vs actual').click());
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes('consolidated read-only view')),
+      'the ALL view must explain that editing needs a concrete branch'
+    );
+    assert.equal(branchBudgetReads, 0, 'the ALL view must not load a branch budget editor');
+    assert.equal(
+      tree.container.querySelector('select[aria-label="Budget account"]'),
+      null,
+      'the consolidated view must not offer the editor'
+    );
+  } finally {
+    tree.unmount();
+    restoreApi();
+    restored.restoreEventSource();
+  }
+});
+
+test('the budget view locks and unlocks its editor explicitly', async () => {
+  const branchAccountant = {
+    ...accountant,
+    id: 'u-budget-lock',
+    email: 'budget.lock@example.com',
+    branchId: 'WH001',
+  } as unknown as User;
+  const restored = mountWorkspace(branchAccountant, 'financial-statements');
+  const lockCalls: any[] = [];
+  const restoreApi = installApiStubs(
+    accountingStubs({
+      getBootstrapState: async () => bootstrapWithTab('financial-statements'),
+      getMyPermissions: async () => ({
+        role: 'ACCOUNTANT',
+        operations: ['gl-view', 'gl-chart-manage', 'fin-statements'],
+        version: 1,
+      }),
+      getAccountingBudgetVariance: async () => budgetVariance,
+      getAccountingBudget: async () => budgetSetup,
+      setAccountingBudgetLock: async (input: any) => {
+        lockCalls.push(input);
+        return {
+          status: input.locked ? 'LOCKED' : 'UNLOCKED',
+          budget: {
+            ...budgetSetup,
+            locked: input.locked,
+            lockedBy: input.locked ? 'Asha Accountant' : null,
+            lockedAt: input.locked ? '2026-11-10T10:00:00.000Z' : null,
+          },
+        };
+      },
+    })
+  );
+  const tree = mountAppRouteTree();
+
+  try {
+    assert.ok(await settleUntil(() => text(tree.container).includes('Budget vs actual')));
+    inAct(() => buttonByText(tree.container, 'Budget vs actual').click());
+    assert.ok(await settleUntil(() => text(tree.container).includes('Save budget')));
+    assert.equal(buttonByText(tree.container, 'Save budget').disabled, false);
+    assert.equal(buttonByText(tree.container, 'Lock budget').disabled, false);
+
+    inAct(() => buttonByText(tree.container, 'Lock budget').click());
+    assert.ok(
+      await settleUntil(
+        () => lockCalls.length === 1 && text(tree.container).includes('Unlock budget')
+      ),
+      'locking must persist and switch the action to unlock'
+    );
+    assert.deepEqual(lockCalls[0], {
+      fiscalYearId: 'fy-smoke',
+      branchId: 'WH001',
+      locked: true,
+    });
+    assert.match(text(tree.container), /Locked by Asha Accountant/);
+    assert.equal(buttonByText(tree.container, 'Save budget').disabled, true);
+    assert.equal(buttonByText(tree.container, 'Copy from previous year').disabled, true);
+    assert.equal(buttonByText(tree.container, 'Import CSV').disabled, true);
+    assert.equal(
+      (tree.container.querySelector('input[aria-label="Replace existing budget"]') as HTMLInputElement).disabled,
+      true
+    );
+    assert.equal(
+      (tree.container.querySelector('select[aria-label="Budget account"]') as HTMLSelectElement).disabled,
+      true
+    );
+    assert.equal(
+      (tree.container.querySelector('input[aria-label="Budget amount"]') as HTMLInputElement).disabled,
+      true
+    );
+
+    inAct(() => buttonByText(tree.container, 'Unlock budget').click());
+    assert.ok(
+      await settleUntil(
+        () => lockCalls.length === 2 && text(tree.container).includes('Lock budget')
+      ),
+      'unlocking must restore the editor'
+    );
+    assert.deepEqual(lockCalls[1], {
+      fiscalYearId: 'fy-smoke',
+      branchId: 'WH001',
+      locked: false,
+    });
+    assert.equal(buttonByText(tree.container, 'Save budget').disabled, false);
+  } finally {
+    tree.unmount();
+    restoreApi();
+    restored.restoreEventSource();
+  }
+});
+
+test('the budget history opens a stored version and restores it', async () => {
+  const branchAccountant = {
+    ...accountant,
+    id: 'u-budget-history',
+    email: 'budget.history@example.com',
+    branchId: 'WH001',
+  } as unknown as User;
+  const restored = mountWorkspace(branchAccountant, 'financial-statements');
+  const history = {
+    fiscalYearId: 'fy-smoke',
+    fiscalYearCode: '2083/84',
+    branchId: 'WH001',
+    branchName: 'Warehouse',
+    versions: [
+      {
+        id: 'bgt-v2',
+        version: 2,
+        actor: 'Asha Accountant',
+        createdAt: '2026-11-10T10:00:00.000Z',
+        source: 'SAVE',
+        sourceDetail: null,
+        lineCount: 1,
+        totalAmount: 1000,
+      },
+      {
+        id: 'bgt-v1',
+        version: 1,
+        actor: 'Asha Accountant',
+        createdAt: '2026-11-09T10:00:00.000Z',
+        source: 'BASELINE',
+        sourceDetail: 'Initial budget baseline',
+        lineCount: 0,
+        totalAmount: 0,
+      },
+    ],
+  };
+  const versionDetail = {
+    ...history,
+    version: {
+      ...history.versions[0],
+      lines: [
+        {
+          periodKey: '2026-07',
+          accountId: 'a-exp-a',
+          amount: 1000,
+          code: 'BGT-6100',
+          name: 'BGT Budget With No Actual',
+          accountType: 'EXPENSE',
+        },
+      ],
+    },
+  };
+  let historyReads = 0;
+  const restoreCalls: any[] = [];
+  const restoreApi = installApiStubs(
+    accountingStubs({
+      getBootstrapState: async () => bootstrapWithTab('financial-statements'),
+      getMyPermissions: async () => ({
+        role: 'ACCOUNTANT',
+        operations: ['gl-view', 'gl-chart-manage', 'fin-statements'],
+        version: 1,
+      }),
+      getAccountingBudgetVariance: async () => budgetVariance,
+      getAccountingBudget: async () => budgetSetup,
+      getAccountingBudgetHistory: async () => {
+        historyReads += 1;
+        return history;
+      },
+      getAccountingBudgetVersion: async () => versionDetail,
+      restoreAccountingBudgetVersion: async (input: any) => {
+        restoreCalls.push(input);
+        return {
+          status: 'RESTORED',
+          restoredVersion: 2,
+          snapshot: {
+            ...history.versions[0],
+            id: 'bgt-v3',
+            version: 3,
+            source: 'RESTORE',
+            sourceDetail: 'Restored version 2',
+          },
+          budget: {
+            ...budgetSetup,
+            lines: [
+              {
+                periodKey: '2026-07',
+                accountId: 'a-exp-a',
+                amount: 1000,
+                code: 'BGT-6100',
+                name: 'BGT Budget With No Actual',
+                accountType: 'EXPENSE',
+              },
+            ],
+          },
+        };
+      },
+    })
+  );
+  const tree = mountAppRouteTree();
+
+  try {
+    assert.ok(await settleUntil(() => text(tree.container).includes('Budget vs actual')));
+    inAct(() => buttonByText(tree.container, 'Budget vs actual').click());
+    assert.ok(await settleUntil(() => text(tree.container).includes('Budget history')));
+    inAct(() => buttonByText(tree.container, 'View history').click());
+
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes('Manual save')),
+      'the version list must render who/when/what produced it'
+    );
+    assert.equal(historyReads, 1);
+    assert.match(text(tree.container), /v2/);
+    assert.match(text(tree.container), /Asha Accountant/);
+    assert.match(text(tree.container), /Initial budget baseline/);
+
+    clickAria(tree.container, 'View budget version 2');
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes('Version 2 lines')),
+      'the version drill-down must open'
+    );
+    assert.match(text(tree.container), /BGT Budget With No Actual/);
+
+    clickAria(tree.container, 'Restore budget version 2');
+    assert.ok(
+      await settleUntil(() => restoreCalls.length === 1),
+      'restore must call the history endpoint'
+    );
+    assert.deepEqual(restoreCalls[0], {
+      fiscalYearId: 'fy-smoke',
+      branchId: 'WH001',
+      versionId: 'bgt-v2',
+    });
+    assert.ok(
+      await settleUntil(() =>
+        text(tree.container).includes(
+          'Restored version 2. The previous lines were saved as version 3.'
+        )
+      ),
+      'the restore result must explain the new snapshot'
+    );
+    assert.ok(historyReads >= 2, 'restoring must reload the version list');
   } finally {
     tree.unmount();
     restoreApi();

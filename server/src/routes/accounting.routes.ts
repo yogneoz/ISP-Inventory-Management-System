@@ -13,6 +13,8 @@ import {
   get_aging,
   get_balanceSheet,
   get_cashFlow,
+  get_cashFlowForecast,
+  get_cashFlowForecastExport,
   get_cashBook,
   get_journal,
   get_journals,
@@ -36,6 +38,41 @@ import {
   post_reopenPeriod,
   search_accounts,
 } from '../controllers/accounting.controller';
+import {
+  delete_cashFlowManualInput,
+  get_cashFlowManualInputs,
+  patch_cashFlowManualInput,
+  post_cashFlowManualInput,
+} from '../controllers/cashFlowForecast.controller';
+import {
+  delete_recurringTemplate,
+  get_periodChecklist,
+  get_recurringTemplate,
+  get_recurringTemplatePreview,
+  get_recurringTemplates,
+  patch_periodChecklistItem,
+  patch_recurringTemplate,
+  post_recurringTemplate,
+  post_recurringTemplateRun,
+} from '../controllers/recurringClose.controller';
+import {
+  get_budget,
+  get_budgetAllocation,
+  get_budgetDepartmentVariance,
+  get_budgetExport,
+  get_budgetHistory,
+  get_budgetVariance,
+  get_budgetVarianceAlerts,
+  get_budgetVarianceLines,
+  get_budgetVarianceUtilisation,
+  get_budgetVersion,
+  post_budgetCopy,
+  post_budgetLock,
+  post_budgetImport,
+  post_budgetRestore,
+  put_budget,
+  put_budgetAllocation,
+} from '../controllers/budget.controller';
 import {
   delete_billTerm,
   get_billTerms,
@@ -64,6 +101,7 @@ import {
 } from '../controllers/accountingMasters.controller';
 import {
   get_balanceSheetPrint,
+  get_cashFlowPrint,
   get_profitAndLossPrint,
   get_trialBalancePrint,
 } from '../controllers/pdf.controller';
@@ -73,6 +111,15 @@ import {
   get_cashClose as get_dailyCashClose,
   get_cashCloseConsolidated as get_dailyCashCloseConsolidated,
 } from '../controllers/cashClose.controller';
+import {
+  get_bankReconciliation,
+  post_bankReconciliationImport,
+  post_bankReconciliationLock,
+  post_bankReconciliationMatch,
+  post_bankReconciliationReopen,
+  post_bankReconciliationSession,
+  post_bankReconciliationUnmatch,
+} from '../controllers/bankReconciliation.controller';
 
 export function registerAccountingRoutes(app: Express) {
   // Chart of accounts + posting defaults.
@@ -190,6 +237,92 @@ export function registerAccountingRoutes(app: Express) {
     delete_narrationTemplate(req as any, res as any).catch(next);
   });
 
+  // Budgets: account-level monthly amounts per fiscal year + branch. The read
+  // is the same posted-ledger gate as every other finance register; a save is
+  // chart/master-data work and is audited. The variance route is registered
+  // before the single-budget read so `/budgets/variance` is never mistaken for
+  // a fiscal-year id.
+  app.get('/api/accounting/budgets/history', requirePermission('gl-view'), async (req, res, next) => {
+    get_budgetHistory(req as any, res as any).catch(next);
+  });
+  app.get('/api/accounting/budgets/history/:versionId', requirePermission('gl-view'), async (req, res, next) => {
+    get_budgetVersion(req as any, res as any).catch(next);
+  });
+  app.post('/api/accounting/budgets/history/:versionId/restore', requirePermission('gl-chart-manage'), async (req, res, next) => {
+    post_budgetRestore(req as any, res as any).catch(next);
+  });
+  app.get('/api/accounting/budgets/variance/alerts', requirePermission('gl-view'), async (req, res, next) => {
+    get_budgetVarianceAlerts(req as any, res as any).catch(next);
+  });
+  app.get('/api/accounting/budgets/variance/utilisation', requirePermission('gl-view'), async (req, res, next) => {
+    get_budgetVarianceUtilisation(req as any, res as any).catch(next);
+  });
+  app.get('/api/accounting/budgets/allocation', requirePermission('gl-view'), async (req, res, next) => {
+    get_budgetAllocation(req as any, res as any).catch(next);
+  });
+  app.put('/api/accounting/budgets/allocation', requirePermission('gl-chart-manage'), async (req, res, next) => {
+    put_budgetAllocation(req as any, res as any).catch(next);
+  });
+  app.get('/api/accounting/budgets/variance/departments', requirePermission('gl-view'), async (req, res, next) => {
+    get_budgetDepartmentVariance(req as any, res as any).catch(next);
+  });
+  app.get('/api/accounting/budgets/variance/lines', requirePermission('gl-view'), async (req, res, next) => {
+    get_budgetVarianceLines(req as any, res as any).catch(next);
+  });
+  app.get('/api/accounting/budgets/variance', requirePermission('gl-view'), async (req, res, next) => {
+    get_budgetVariance(req as any, res as any).catch(next);
+  });
+  app.get('/api/accounting/budgets/export', requirePermission('gl-view'), async (req, res, next) => {
+    get_budgetExport(req as any, res as any).catch(next);
+  });
+  app.post('/api/accounting/budgets/lock', requirePermission('gl-chart-manage'), async (req, res, next) => {
+    post_budgetLock(req as any, res as any).catch(next);
+  });
+  app.post('/api/accounting/budgets/copy', requirePermission('gl-chart-manage'), async (req, res, next) => {
+    post_budgetCopy(req as any, res as any).catch(next);
+  });
+  app.post('/api/accounting/budgets/import', requirePermission('gl-chart-manage'), async (req, res, next) => {
+    post_budgetImport(req as any, res as any).catch(next);
+  });
+  app.get('/api/accounting/budgets', requirePermission('gl-view'), async (req, res, next) => {
+    get_budget(req as any, res as any).catch(next);
+  });
+  app.put('/api/accounting/budgets', requirePermission('gl-chart-manage'), async (req, res, next) => {
+    put_budget(req as any, res as any).catch(next);
+  });
+
+  // Recurring journals and the month-end close checklist. A template is
+  // branch-owned and previewable; generating one still goes through the normal
+  // balanced-journal service and its closed-period gate. Checklist writes use
+  // the same close permission as the period gate they feed.
+  app.get('/api/accounting/recurring-templates', requirePermission('gl-view'), async (req, res, next) => {
+    get_recurringTemplates(req as any, res as any).catch(next);
+  });
+  app.post('/api/accounting/recurring-templates', requirePermission('gl-post'), async (req, res, next) => {
+    post_recurringTemplate(req as any, res as any).catch(next);
+  });
+  app.get('/api/accounting/recurring-templates/:id/preview', requirePermission('gl-view'), async (req, res, next) => {
+    get_recurringTemplatePreview(req as any, res as any).catch(next);
+  });
+  app.get('/api/accounting/recurring-templates/:id', requirePermission('gl-view'), async (req, res, next) => {
+    get_recurringTemplate(req as any, res as any).catch(next);
+  });
+  app.patch('/api/accounting/recurring-templates/:id', requirePermission('gl-post'), async (req, res, next) => {
+    patch_recurringTemplate(req as any, res as any).catch(next);
+  });
+  app.delete('/api/accounting/recurring-templates/:id', requirePermission('gl-post'), async (req, res, next) => {
+    delete_recurringTemplate(req as any, res as any).catch(next);
+  });
+  app.post('/api/accounting/recurring-templates/:id/run', requirePermission('gl-post'), async (req, res, next) => {
+    post_recurringTemplateRun(req as any, res as any).catch(next);
+  });
+  app.get('/api/accounting/periods/:id/checklist', requirePermission('gl-view'), async (req, res, next) => {
+    get_periodChecklist(req as any, res as any).catch(next);
+  });
+  app.patch('/api/accounting/periods/:id/checklist/:itemId', requirePermission('gl-close'), async (req, res, next) => {
+    patch_periodChecklistItem(req as any, res as any).catch(next);
+  });
+
   // Monthly periods.
   app.get('/api/accounting/periods', requirePermission('gl-view'), async (req, res, next) => {
     get_periods(req as any, res as any).catch(next);
@@ -241,6 +374,53 @@ export function registerAccountingRoutes(app: Express) {
   app.get('/api/accounting/statements/cash-flow', requirePermission('gl-view'), async (req, res, next) => {
     get_cashFlow(req as any, res as any).catch(next);
   });
+  // Forward weekly cash-flow forecast and its CSV export. Same gl-view gate
+  // and balance-sheet as-of/branch resolution as the cash-flow statement.
+  app.get(
+    '/api/accounting/statements/cash-flow/forecast/export',
+    requirePermission('gl-view'),
+    async (req, res, next) => {
+      get_cashFlowForecastExport(req as any, res as any).catch(next);
+    }
+  );
+  app.get(
+    '/api/accounting/statements/cash-flow/forecast',
+    requirePermission('gl-view'),
+    async (req, res, next) => {
+      get_cashFlowForecast(req as any, res as any).catch(next);
+    }
+  );
+  // Manual forecast adjustments are branch-owned planning rows. The list uses
+  // the same gl-view gate as the forecast; writes are ledger-post work and are
+  // audited. The by-id route is also guarded by the branch-scope registry.
+  app.get(
+    '/api/accounting/cash-flow/manual-inputs',
+    requirePermission('gl-view'),
+    async (req, res, next) => {
+      get_cashFlowManualInputs(req as any, res as any).catch(next);
+    }
+  );
+  app.post(
+    '/api/accounting/cash-flow/manual-inputs',
+    requirePermission('gl-post'),
+    async (req, res, next) => {
+      post_cashFlowManualInput(req as any, res as any).catch(next);
+    }
+  );
+  app.patch(
+    '/api/accounting/cash-flow/manual-inputs/:id',
+    requirePermission('gl-post'),
+    async (req, res, next) => {
+      patch_cashFlowManualInput(req as any, res as any).catch(next);
+    }
+  );
+  app.delete(
+    '/api/accounting/cash-flow/manual-inputs/:id',
+    requirePermission('gl-post'),
+    async (req, res, next) => {
+      delete_cashFlowManualInput(req as any, res as any).catch(next);
+    }
+  );
   // Drill-down behind one group subtotal: same gl-view gate, same branch/date
   // resolution, and the same POSTED lines the statement was built from.
   app.get('/api/accounting/statements/group-lines', requirePermission('gl-view'), async (req, res, next) => {
@@ -262,6 +442,9 @@ export function registerAccountingRoutes(app: Express) {
   });
   app.get('/api/accounting/statements/balance-sheet/print', requirePermission('gl-view'), async (req, res, next) => {
     get_balanceSheetPrint(req as any, res as any).catch(next);
+  });
+  app.get('/api/accounting/statements/cash-flow/print', requirePermission('gl-view'), async (req, res, next) => {
+    get_cashFlowPrint(req as any, res as any).catch(next);
   });
 
   // AR/AP aging: party open items through an as-of date, bucketed by days past
@@ -291,5 +474,30 @@ export function registerAccountingRoutes(app: Express) {
   });
   app.post('/api/accounting/cash-close/:id/reopen', requirePermission('gl-cash-close'), async (req, res, next) => {
     post_reopenDailyCashClose(req as any, res as any).catch(next);
+  });
+
+  // Bank reconciliation: statement import, matching, unmatched report and the
+  // period lock/reopen gate. Reads share gl-view with every other ledger
+  // register; writes use the existing cash/bank control grant.
+  app.get('/api/accounting/bank-reconciliation', requirePermission('gl-view'), async (req, res, next) => {
+    get_bankReconciliation(req as any, res as any).catch(next);
+  });
+  app.post('/api/accounting/bank-reconciliation/import', requirePermission('gl-cash-close'), async (req, res, next) => {
+    post_bankReconciliationImport(req as any, res as any).catch(next);
+  });
+  app.post('/api/accounting/bank-reconciliation/lines/:id/match', requirePermission('gl-cash-close'), async (req, res, next) => {
+    post_bankReconciliationMatch(req as any, res as any).catch(next);
+  });
+  app.post('/api/accounting/bank-reconciliation/lines/:id/unmatch', requirePermission('gl-cash-close'), async (req, res, next) => {
+    post_bankReconciliationUnmatch(req as any, res as any).catch(next);
+  });
+  app.post('/api/accounting/bank-reconciliation/sessions', requirePermission('gl-cash-close'), async (req, res, next) => {
+    post_bankReconciliationSession(req as any, res as any).catch(next);
+  });
+  app.post('/api/accounting/bank-reconciliation/sessions/:id/lock', requirePermission('gl-cash-close'), async (req, res, next) => {
+    post_bankReconciliationLock(req as any, res as any).catch(next);
+  });
+  app.post('/api/accounting/bank-reconciliation/sessions/:id/reopen', requirePermission('gl-cash-close'), async (req, res, next) => {
+    post_bankReconciliationReopen(req as any, res as any).catch(next);
   });
 }

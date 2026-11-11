@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { AlertTriangle, RefreshCw, X } from 'lucide-react';
 import { api } from '../../services/api';
 import type {
+  BudgetVarianceLinesResponse,
   CashBookEntry,
   StatementGroupBlock,
   StatementGroupDrilldownStatement,
@@ -14,6 +15,8 @@ type CashBookDrillEntry = CashBookEntry & {
   accountCode: string;
   accountName: string;
 };
+
+type BudgetTieOut = BudgetVarianceLinesResponse['tieOut'];
 
 export type LedgerDrilldownRequest =
   | {
@@ -31,6 +34,16 @@ export type LedgerDrilldownRequest =
       title: string;
       subtitle: string;
       accountIds: string[];
+      branchId?: string | null;
+      from?: string | null;
+      to: string;
+    }
+  | {
+      kind: 'budget-account';
+      title: string;
+      subtitle: string;
+      fiscalYearId: string;
+      accountId: string;
       branchId?: string | null;
       from?: string | null;
       to: string;
@@ -151,6 +164,23 @@ const fromCashBookEntry = (entry: CashBookDrillEntry): DrillLine => ({
   net: n(entry.debit) - n(entry.credit),
 });
 
+const fromBudgetEntry = (
+  entry: BudgetVarianceLinesResponse['entries'][number]
+): DrillLine => ({
+  id: entry.id,
+  date: entry.journalDateAD,
+  journalId: entry.journalId,
+  journalNo: entry.journalNo,
+  accountCode: entry.accountCode,
+  accountName: entry.accountName,
+  sourceType: entry.sourceType,
+  branchId: entry.branchId,
+  memo: entry.memo || entry.journalMemo || entry.sourceType.replace(/_/g, ' '),
+  debit: n(entry.debit),
+  credit: n(entry.credit),
+  net: n(entry.amount),
+});
+
 export const LedgerDrilldownDialog: React.FC<{
   request: LedgerDrilldownRequest;
   onClose: () => void;
@@ -160,11 +190,13 @@ export const LedgerDrilldownDialog: React.FC<{
   const [error, setError] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [budgetTieOut, setBudgetTieOut] = useState<BudgetTieOut | null>(null);
 
   useEffect(() => {
     let live = true;
     setError('');
     setDetailId(null);
+    setBudgetTieOut(null);
 
     if (request.kind === 'cash-book') {
       setLines(request.entries.map(fromCashBookEntry));
@@ -181,7 +213,19 @@ export const LedgerDrilldownDialog: React.FC<{
 
     const load = async () => {
       try {
-        if (request.kind === 'statement-groups') {
+        if (request.kind === 'budget-account') {
+          const response = await api.getAccountingBudgetVarianceLines({
+            fiscalYearId: request.fiscalYearId,
+            accountId: request.accountId,
+            branchId,
+            from,
+            to: request.to,
+            limit: 500,
+          });
+          if (!live) return;
+          setLines(response.entries.map(fromBudgetEntry));
+          setBudgetTieOut(response.tieOut);
+        } else if (request.kind === 'statement-groups') {
           const responses = await Promise.all(
             request.groups.map((group) =>
               api.getStatementGroupLines({
@@ -227,7 +271,12 @@ export const LedgerDrilldownDialog: React.FC<{
 
   const totalDebit = lines.reduce((sum, line) => sum + line.debit, 0);
   const totalCredit = lines.reduce((sum, line) => sum + line.credit, 0);
-  const netLabel = request.kind === 'statement-groups' ? 'Amount' : 'Net';
+  const netLabel =
+    request.kind === 'statement-groups'
+      ? 'Amount'
+      : request.kind === 'budget-account'
+        ? 'Actual'
+        : 'Net';
 
   return (
     <>
@@ -348,6 +397,26 @@ export const LedgerDrilldownDialog: React.FC<{
                 </table>
               </div>
 
+              {budgetTieOut && (
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-4 py-2.5 text-[11px] text-slate-500 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400">
+                  <span>
+                    Budget <span className="font-mono">{money(budgetTieOut.budget)}</span> · actual{' '}
+                    <span className="font-mono">{money(budgetTieOut.actual)}</span> · lines{' '}
+                    <span className="font-mono">{money(budgetTieOut.lineActual)}</span>
+                  </span>
+                  <span
+                    className={
+                      budgetTieOut.reconciled
+                        ? 'font-semibold text-emerald-600 dark:text-emerald-400'
+                        : 'font-semibold text-rose-600 dark:text-rose-400'
+                    }
+                  >
+                    {budgetTieOut.reconciled
+                      ? 'Ties to budget actual'
+                      : `Difference ${money(budgetTieOut.difference)}`}
+                  </span>
+                </div>
+              )}
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3 text-[11px] text-slate-500 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400">
                 <span>
                   {lines.length} posted line{lines.length === 1 ? '' : 's'} · debit{' '}

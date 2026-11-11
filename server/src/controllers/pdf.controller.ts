@@ -18,13 +18,10 @@ import { allowedBranchScope } from '../middleware/branchScope';
 import { COMPANY_PROFILE_SELECT_SQL } from '../models/admin.repo';
 import { PI_FIND_BY_ID_SQL, PO_PRINT_SELECT_SQL } from '../models/procurement.repo';
 import { SI_FIND_ONE_SQL } from '../models/sales.repo';
-import {
-  EMPLOYEE_BY_ID_SQL,
-  PAYROLL_LINES_BY_RUN_SQL,
-  PAYROLL_RUN_BY_ID_SQL,
-} from '../models/payroll.repo';
+import { loadPayrollOutput } from './payroll.controller';
 import {
   buildBalanceSheet,
+  buildCashFlow,
   buildProfitAndLoss,
   buildTrialBalance,
   resolveStatementWindow,
@@ -72,7 +69,7 @@ function canReadRecordBranch(req: any, res: Response, branchId: string): boolean
   return true;
 }
 
-type PrintableStatementMode = Exclude<StatementMode, 'CASH_FLOW'>;
+type PrintableStatementMode = StatementMode;
 
 function sendPdf(res: Response, buffer: Buffer, filename: string): void {
   const safe = filename.replace(/[^A-Za-z0-9._-]+/g, '-');
@@ -150,7 +147,9 @@ async function printStatement(req: any, res: Response, mode: PrintableStatementM
       ? await buildTrialBalance(pgPool, window)
       : mode === 'PROFIT_AND_LOSS'
         ? await buildProfitAndLoss(pgPool, window)
-        : await buildBalanceSheet(pgPool, window);
+        : mode === 'CASH_FLOW'
+          ? await buildCashFlow(pgPool, window)
+          : await buildBalanceSheet(pgPool, window);
 
   // A printed statement is an official Nepali report: derive both period
   // boundaries from bs_day_records so the header carries AD and BS. An unseeded
@@ -188,30 +187,32 @@ export async function get_balanceSheetPrint(req: any, res: Response): Promise<an
   return printStatement(req, res, 'BALANCE_SHEET');
 }
 
+/** GET /api/accounting/statements/cash-flow/print */
+export async function get_cashFlowPrint(req: any, res: Response): Promise<any> {
+  return printStatement(req, res, 'CASH_FLOW');
+}
+
 /** GET /api/payroll-runs/:id/payslips/:employeeId/print */
 export async function get_payslipPrint(req: any, res: Response): Promise<any> {
-  requireDb();
-  const runId = text(req.params?.id, 50);
   const employeeId = text(req.params?.employeeId, 50);
-  if (!runId || !employeeId) throw new ApiError(400, 'A payroll run and employee are required.');
-
-  const run = (await pgPool.query(PAYROLL_RUN_BY_ID_SQL, [runId])).rows[0];
-  if (!run) throw new ApiError(404, 'Payroll run not found.');
-  if (!canReadRecordBranch(req, res, String(run.branchId))) return;
-
-  const lines = (await pgPool.query(PAYROLL_LINES_BY_RUN_SQL, [runId])).rows;
-  const line = lines.find(
+  if (!employeeId) throw new ApiError(400, 'An employee id or code is required.');
+  const loaded = await loadPayrollOutput(req, res);
+  if (!loaded) return;
+  const line = loaded.lines.find(
     (row: any) => String(row.employeeId) === employeeId || String(row.employeeCode) === employeeId
   );
-  if (!line) throw new ApiError(404, 'This employee is not part of the payroll run.');
-  const employee = (await pgPool.query(EMPLOYEE_BY_ID_SQL, [line.employeeId])).rows[0] || null;
+  const payslip = loaded.output.payslips.find(
+    (row) => row.employeeId === employeeId || row.employeeCode === employeeId
+  );
+  if (!line || !payslip) throw new ApiError(404, 'This employee is not part of the payroll run.');
 
   const buffer = await buildPayslipPdf({
-    run,
+    run: loaded.run,
     line,
-    employee,
+    payslip,
+    employee: { ...payslip, name: payslip.employeeName },
     company: await loadCompany(),
-    branchName: branchLabel(String(run.branchId)),
+    branchName: loaded.run.branchName,
   });
-  sendPdf(res, buffer, `payslip-${run.runNo}-${line.employeeCode}.pdf`);
+  sendPdf(res, buffer, `payslip-${loaded.run.runNo}-${line.employeeCode}.pdf`);
 }

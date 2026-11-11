@@ -42,11 +42,19 @@ try {
 const skipNoDb = !dbReachable && 'needs a reachable PostgreSQL (requirePostgres gate)';
 
 const BR = 'pay-test-branch';
+/** Second branch used to prove attendance/holiday reads and writes are scoped. */
+const ATT_BRANCH = 'pay-test-branch-att';
+/** Third branch used to prove leave requests and balances are scoped. */
+const LV_BRANCH = 'pay-test-branch-lv';
+/** Fourth branch used to prove payroll inputs are branch-scoped. */
+const PI_BRANCH = 'pay-test-branch-pi';
 const RUN_DATE = '2026-09-30';
 const PERIOD = '2026-09';
 /** Far enough from every other suite's month that closing it cannot leak. */
 const CLOSED_PERIOD = '2027-06';
 const CLOSED_RUN_DATE = '2027-06-30';
+const LINK_USER_ID = 'payt-link-user';
+const ORG_CODE = 'PAYT-ORG-DEPT';
 
 const ADMIN = {
   id: 'pay-admin',
@@ -79,7 +87,7 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
   let runDateBS = '';
 
   async function request(
-    method: 'GET' | 'POST' | 'PATCH',
+    method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
     path: string,
     body?: unknown,
     auth = token
@@ -103,7 +111,59 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
 
   const get = (path: string, auth = token) => request('GET', path, undefined, auth);
   const post = (path: string, body: unknown, auth = token) => request('POST', path, body, auth);
-  const patch = (path: string, body: unknown) => request('PATCH', path, body);
+  const patch = (path: string, body: unknown, auth = token) =>
+    request('PATCH', path, body, auth);
+
+  async function uploadDocument(
+    employeeId: string,
+    bytes: Uint8Array,
+    auth = token,
+    query = 'type=CITIZENSHIP&fileName=test-document.pdf',
+    mime = 'application/pdf'
+  ) {
+    const res = await fetch(
+      'http://127.0.0.1:' + port + `/api/employees/${employeeId}/documents?${query}`,
+      {
+        method: 'POST',
+        headers: { 'content-type': mime, authorization: 'Bearer ' + auth },
+        body: bytes,
+      }
+    );
+    let json: any = null;
+    try {
+      json = await res.json();
+    } catch {
+      /* a non-JSON body is itself a finding */
+    }
+    return { status: res.status, json };
+  }
+
+  async function fetchDocument(employeeId: string, documentId: string, auth = token) {
+    const res = await fetch(
+      'http://127.0.0.1:' + port + `/api/employees/${employeeId}/documents/${documentId}/content`,
+      { headers: { authorization: 'Bearer ' + auth } }
+    );
+    return {
+      status: res.status,
+      contentType: res.headers.get('content-type'),
+      disposition: res.headers.get('content-disposition'),
+      bytes: Buffer.from(await res.arrayBuffer()),
+    };
+  }
+
+  async function deleteDocument(employeeId: string, documentId: string, auth = token) {
+    const res = await fetch(
+      'http://127.0.0.1:' + port + `/api/employees/${employeeId}/documents/${documentId}`,
+      { method: 'DELETE', headers: { authorization: 'Bearer ' + auth } }
+    );
+    let json: any = null;
+    try {
+      json = await res.json();
+    } catch {
+      /* a 204 carries no body */
+    }
+    return { status: res.status, json };
+  }
 
   async function cleanup() {
     await pool!.query(
@@ -115,10 +175,46 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
       "DELETE FROM gl_journals WHERE branch_id = $1 AND source_type IN ('PAYROLL_RUN', 'PAYROLL_PAYMENT')",
       [BR]
     );
+    // Attendance/holidays/leave reference both employees and branches, so they
+    // go first; the HR catalogue is deleted by its test code prefix.
+    const testBranches = [BR, ATT_BRANCH, LV_BRANCH, PI_BRANCH];
+    await pool!.query(
+      "DELETE FROM hr_attendance WHERE branch_id = ANY($1::varchar[]) OR employee_id IN (SELECT id FROM employees WHERE employee_code LIKE 'PAYT-%')",
+      [testBranches]
+    );
+    await pool!.query(
+      "DELETE FROM hr_leave_requests WHERE branch_id = ANY($1::varchar[]) OR employee_id IN (SELECT id FROM employees WHERE employee_code LIKE 'PAYT-%')",
+      [testBranches]
+    );
+    await pool!.query(
+      "DELETE FROM hr_leave_balances WHERE branch_id = ANY($1::varchar[]) OR employee_id IN (SELECT id FROM employees WHERE employee_code LIKE 'PAYT-%')",
+      [testBranches]
+    );
+    await pool!.query("DELETE FROM hr_employee_documents WHERE employee_id IN (SELECT id FROM employees WHERE employee_code LIKE 'PAYT-%')");
     await pool!.query("DELETE FROM employees WHERE employee_code LIKE 'PAYT-%'");
+    await pool!.query('DELETE FROM hr_holidays WHERE branch_id = ANY($1::varchar[])', [testBranches]);
+    await pool!.query("DELETE FROM hr_shifts WHERE code LIKE 'PAYT-%'");
+    await pool!.query("DELETE FROM hr_leave_types WHERE code LIKE 'PAYT-%'");
+    await pool!.query("DELETE FROM hr_org_masters WHERE code LIKE 'PAYT-ORG-%'");
+    await pool!.query('DELETE FROM users WHERE id = $1', [LINK_USER_ID]);
     await pool!.query("DELETE FROM audit_logs WHERE details LIKE '%pay-test-branch%'");
+    await pool!.query("DELETE FROM audit_logs WHERE action = 'IMPORT_EMPLOYEES'");
+    await pool!.query(
+      `DELETE FROM audit_logs
+        WHERE (branch_id = ANY($1::varchar[]) AND action IN (
+          'CREATE_HR_HOLIDAY', 'DELETE_HR_HOLIDAY', 'UPSERT_HR_ATTENDANCE',
+          'DELETE_HR_ATTENDANCE', 'IMPORT_HR_ATTENDANCE',
+          'CREATE_HR_LEAVE_BALANCE', 'UPDATE_HR_LEAVE_BALANCE',
+          'CREATE_HR_LEAVE_REQUEST', 'APPROVE_HR_LEAVE_REQUEST',
+          'REJECT_HR_LEAVE_REQUEST', 'CANCEL_HR_LEAVE_REQUEST'
+        ))
+           OR (action IN (
+          'CREATE_HR_SHIFT', 'UPDATE_HR_SHIFT', 'CREATE_HR_LEAVE_TYPE', 'UPDATE_HR_LEAVE_TYPE'
+        ) AND details LIKE '%PAYT-%')`,
+      [testBranches]
+    );
     await pool!.query('DELETE FROM gl_periods WHERE period_key = $1', [CLOSED_PERIOD]);
-    await pool!.query('DELETE FROM branches WHERE id = $1', [BR]);
+    await pool!.query('DELETE FROM branches WHERE id = ANY($1::varchar[])', [testBranches]);
   }
 
   async function journalFor(sourceType: string, sourceId: string) {
@@ -174,6 +270,21 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
       designation: 'Technician',
       panNumber: `PAN-${code}`,
       ssfNumber: `SSF-${code}`,
+      employmentType: 'Non-PB',
+      joiningDateAD: '2026-09-01',
+      dateOfBirthAD: '1995-01-15',
+      contractExpiryAD: '2027-09-01',
+      separationDateAD: '2027-03-31',
+      designationCode: 'TECH',
+      workStation: 'Test Station',
+      personalContact: '9800000001',
+      emergencyContactPerson: 'Test Contact',
+      emergencyContactNumber: '9800000002',
+      internalEmail: `${code.toLowerCase()}@example.test`,
+      personalEmail: `${code.toLowerCase()}.personal@example.test`,
+      bankName: 'Test Bank',
+      monthlySalary: 25000,
+      ssfEligible: true,
     };
   }
 
@@ -220,6 +331,11 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
       `INSERT INTO branches (id, code, name, location) VALUES ($1, 'PAYB', 'PAY Test Branch', 'Test')`,
       [BR]
     );
+    await pool!.query(
+      `INSERT INTO users (id, email, password, name, role, branch_id, allowed_branch_ids, status)
+       VALUES ($1, $2, 'test-not-a-real-hash', 'PAY Linked User', 'HR_OFFICER', $3, ARRAY[$4]::text[], 'active')`,
+      [LINK_USER_ID, 'pay-linked-user@example.test', BR, BR]
+    );
 
     const matrix = JSON.parse(JSON.stringify(DEFAULT_PERMISSIONS_MATRIX));
     setPermissionMatrix(matrix);
@@ -252,6 +368,17 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
     assert.equal(emp1.employeeCode, 'PAYT-001');
     assert.equal(emp1.branchId, BR);
     assert.equal(emp1.isActive, true);
+    assert.equal(emp1.employmentType, 'Non-PB');
+    assert.equal(emp1.joiningDateAD, '2026-09-01');
+    assert.equal(emp1.dateOfBirthAD, '1995-01-15');
+    assert.equal(emp1.contractExpiryAD, '2027-09-01');
+    assert.equal(emp1.separationDateAD, '2027-03-31');
+    assert.equal(emp1.designationCode, 'TECH');
+    assert.equal(emp1.workStation, 'Test Station');
+    assert.equal(emp1.emergencyContactPerson, 'Test Contact');
+    assert.equal(emp1.bankName, 'Test Bank');
+    assert.equal(Number(emp1.monthlySalary), 25000);
+    assert.equal(emp1.ssfEligible, true);
 
     const second = await post('/api/employees', employeeBody('PAYT-002', 'Pay Test Two'));
     assert.equal(second.status, 201, JSON.stringify(second.json));
@@ -265,10 +392,30 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
     assert.equal(list.status, 200, JSON.stringify(list.json));
     assert.equal(list.json.length, 2);
 
-    const updated = await patch(`/api/employees/${emp2.id}`, { designation: 'Senior Technician' });
+    const updated = await patch(`/api/employees/${emp2.id}`, {
+      designation: 'Senior Technician',
+      employmentType: 'Probation',
+      monthlySalary: 26000,
+      separationDateAD: '2027-04-30',
+    });
     assert.equal(updated.status, 200, JSON.stringify(updated.json));
     assert.equal(updated.json.designation, 'Senior Technician');
+    assert.equal(updated.json.employmentType, 'Probation');
+    assert.equal(Number(updated.json.monthlySalary), 26000);
+    assert.equal(updated.json.separationDateAD, '2027-04-30');
     assert.equal(updated.json.name, 'Pay Test Two');
+
+    const invalidSeparation = await patch(`/api/employees/${emp2.id}`, {
+      separationDateAD: '2026-08-31',
+    });
+    assert.equal(invalidSeparation.status, 400, JSON.stringify(invalidSeparation.json));
+    assert.match(invalidSeparation.json.message, /on or after the joining date/i);
+
+    const clearedSeparation = await patch(`/api/employees/${emp2.id}`, {
+      separationDateAD: null,
+    });
+    assert.equal(clearedSeparation.status, 200, JSON.stringify(clearedSeparation.json));
+    assert.equal(clearedSeparation.json.separationDateAD, null);
 
     const search = await get(`/api/employees?branchId=${BR}&query=PAYT-002`);
     assert.equal(search.status, 200, JSON.stringify(search.json));
@@ -283,6 +430,306 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
     const bySsf = await get(`/api/employees?branchId=${BR}&query=SSF-PAYT-002`);
     assert.equal(bySsf.status, 200, JSON.stringify(bySsf.json));
     assert.deepEqual(bySsf.json.map((row: any) => row.employeeCode), ['PAYT-002']);
+  });
+
+  test('the employee master links one login account and honors the hr-* gates', async () => {
+    const options = await get('/api/employees/user-options');
+    assert.equal(options.status, 200, JSON.stringify(options.json));
+    assert.ok(
+      options.json.some((row: any) => row.id === LINK_USER_ID && row.linked === false),
+      'the unlinked test account must be offered'
+    );
+
+    const linked = await patch(`/api/employees/${emp1.id}`, { userId: LINK_USER_ID });
+    assert.equal(linked.status, 200, JSON.stringify(linked.json));
+    assert.equal(linked.json.userId, LINK_USER_ID);
+
+    const duplicate = await patch(`/api/employees/${emp2.id}`, { userId: LINK_USER_ID });
+    assert.equal(duplicate.status, 409, JSON.stringify(duplicate.json));
+    assert.match(duplicate.json.message, /already linked/i);
+
+    const afterLink = await get('/api/employees/user-options');
+    assert.equal(afterLink.status, 200);
+    assert.equal(afterLink.json.find((row: any) => row.id === LINK_USER_ID)?.linked, true);
+
+    const unlinked = await patch(`/api/employees/${emp1.id}`, { userId: null });
+    assert.equal(unlinked.status, 200, JSON.stringify(unlinked.json));
+    assert.equal(unlinked.json.userId, null);
+
+    const missing = await patch(`/api/employees/${emp1.id}`, { userId: 'missing-user' });
+    assert.equal(missing.status, 400, JSON.stringify(missing.json));
+
+    // An HR viewer can read the master but cannot write it without the manage
+    // grant, and the legacy payroll grant is not silently implied.
+    const matrix = JSON.parse(JSON.stringify(DEFAULT_PERMISSIONS_MATRIX));
+    matrix['gl-payroll-manage'].AUDITOR = false;
+    matrix['hr-employee-view'].AUDITOR = true;
+    matrix['hr-employee-manage'].AUDITOR = false;
+    setPermissionMatrix(matrix);
+    try {
+      const auditorToken = issueAuthToken({
+        ...ADMIN,
+        id: 'pay-auditor',
+        email: 'pay-auditor@example.com',
+        name: 'PAY Auditor',
+        role: 'AUDITOR',
+      });
+      const read = await get(`/api/employees?branchId=${BR}`, auditorToken);
+      assert.equal(read.status, 200, JSON.stringify(read.json));
+      const write = await post(
+        '/api/employees',
+        employeeBody('PAYT-003', 'Pay Test Three'),
+        auditorToken
+      );
+      assert.equal(write.status, 403, JSON.stringify(write.json));
+    } finally {
+      setPermissionMatrix(JSON.parse(JSON.stringify(DEFAULT_PERMISSIONS_MATRIX)));
+    }
+  });
+
+  test('HR roles mask PII for view-only callers and keep full detail for managers', async () => {
+    const hrManagerToken = issueAuthToken({
+      ...ADMIN,
+      id: 'pay-hr-manager',
+      email: 'pay-hr-manager@example.com',
+      name: 'PAY HR Manager',
+      role: 'HR_MANAGER',
+    });
+    const hrOfficerToken = issueAuthToken({
+      ...ADMIN,
+      id: 'pay-hr-officer',
+      email: 'pay-hr-officer@example.com',
+      name: 'PAY HR Officer',
+      role: 'HR_OFFICER',
+    });
+    const legacyPayrollToken = issueAuthToken({
+      ...ADMIN,
+      id: 'pay-legacy-accountant',
+      email: 'pay-legacy-accountant@example.com',
+      name: 'PAY Legacy Accountant',
+      role: 'ACCOUNTANT',
+    });
+
+    const managerList = await get(`/api/employees?branchId=${BR}`, hrManagerToken);
+    assert.equal(managerList.status, 200, JSON.stringify(managerList.json));
+    const managerRow = managerList.json.find((row: any) => row.id === emp1.id);
+    assert.equal(managerRow.panNumber, 'PAN-PAYT-001');
+    assert.equal(managerRow.bankName, 'Test Bank');
+    assert.equal(Number(managerRow.monthlySalary), 25000);
+
+    const officerList = await get(`/api/employees?branchId=${BR}`, hrOfficerToken);
+    assert.equal(officerList.status, 200, JSON.stringify(officerList.json));
+    const maskedRow = officerList.json.find((row: any) => row.id === emp1.id);
+    assert.equal(maskedRow.name, 'Pay Test One');
+    assert.equal(maskedRow.employeeCode, 'PAYT-001');
+    for (const field of [
+      'panNumber',
+      'ssfNumber',
+      'bankName',
+      'monthlySalary',
+      'personalContact',
+      'personalEmail',
+      'dateOfBirthAD',
+      'emergencyContactPerson',
+    ]) {
+      assert.equal(maskedRow[field], null, `view-only list leaked ${field}`);
+    }
+
+    const officerDetail = await get(`/api/employees/${emp1.id}`, hrOfficerToken);
+    assert.equal(officerDetail.status, 200, JSON.stringify(officerDetail.json));
+    assert.equal(officerDetail.json.name, 'Pay Test One');
+    assert.equal(officerDetail.json.panNumber, null);
+    assert.equal(officerDetail.json.monthlySalary, null);
+
+    const managerDetail = await get(`/api/employees/${emp1.id}`, hrManagerToken);
+    assert.equal(managerDetail.status, 200, JSON.stringify(managerDetail.json));
+    assert.equal(managerDetail.json.panNumber, 'PAN-PAYT-001');
+    assert.equal(Number(managerDetail.json.monthlySalary), 25000);
+
+    // The manager grant is a real write grant, not just a read-detail flag.
+    const managerWrite = await patch(
+      `/api/employees/${emp2.id}`,
+      { designation: 'HR Manager Edit' },
+      hrManagerToken
+    );
+    assert.equal(managerWrite.status, 200, JSON.stringify(managerWrite.json));
+    assert.equal(managerWrite.json.designation, 'HR Manager Edit');
+
+    // Legacy payroll managers are full-detail readers by explicit rule.
+    const legacyDetail = await get(`/api/employees/${emp1.id}`, legacyPayrollToken);
+    assert.equal(legacyDetail.status, 200, JSON.stringify(legacyDetail.json));
+    assert.equal(legacyDetail.json.panNumber, 'PAN-PAYT-001');
+    assert.equal(Number(legacyDetail.json.monthlySalary), 25000);
+
+    // The account-options endpoint is manage-only and must not be a side door.
+    const officerOptions = await get('/api/employees/user-options', hrOfficerToken);
+    assert.equal(officerOptions.status, 403, JSON.stringify(officerOptions.json));
+    const officerWrite = await post(
+      '/api/employees',
+      employeeBody('PAYT-003', 'Pay Test Three'),
+      hrOfficerToken
+    );
+    assert.equal(officerWrite.status, 403, JSON.stringify(officerWrite.json));
+
+    // A detail/ledger read must mask the embedded employee too.
+    const withLedgerRead = JSON.parse(JSON.stringify(DEFAULT_PERMISSIONS_MATRIX));
+    withLedgerRead['gl-view'].HR_OFFICER = true;
+    setPermissionMatrix(withLedgerRead);
+    try {
+      const ledger = await get(`/api/employees/${emp1.id}/ledger`, hrOfficerToken);
+      assert.equal(ledger.status, 200, JSON.stringify(ledger.json));
+      assert.equal(ledger.json.employee.panNumber, null);
+      assert.equal(ledger.json.employee.monthlySalary, null);
+    } finally {
+      setPermissionMatrix(JSON.parse(JSON.stringify(DEFAULT_PERMISSIONS_MATRIX)));
+    }
+  });
+
+  test('HR org masters are readable and maintainable behind the employee permissions', async () => {
+    const initial = await get('/api/hr/org-masters');
+    assert.equal(initial.status, 200, JSON.stringify(initial.json));
+
+    const created = await post('/api/hr/org-masters', {
+      kind: 'DEPARTMENT',
+      name: 'Pay Test Department',
+      code: ORG_CODE,
+      isActive: true,
+    });
+    assert.equal(created.status, 201, JSON.stringify(created.json));
+    assert.equal(created.json.kind, 'DEPARTMENT');
+    assert.equal(created.json.code, ORG_CODE);
+    assert.equal(created.json.isActive, true);
+
+    const duplicateName = await post('/api/hr/org-masters', {
+      kind: 'DEPARTMENT',
+      name: 'Pay Test Department',
+      code: `${ORG_CODE}-2`,
+    });
+    assert.equal(duplicateName.status, 409, JSON.stringify(duplicateName.json));
+
+    const duplicateCode = await post('/api/hr/org-masters', {
+      kind: 'DEPARTMENT',
+      name: 'Pay Test Department Code Duplicate',
+      code: ORG_CODE,
+    });
+    assert.equal(duplicateCode.status, 409, JSON.stringify(duplicateCode.json));
+
+    const renamed = await patch(`/api/hr/org-masters/${created.json.id}`, {
+      name: 'Pay Test Department Renamed',
+      code: ORG_CODE,
+      isActive: false,
+    });
+    assert.equal(renamed.status, 200, JSON.stringify(renamed.json));
+    assert.equal(renamed.json.name, 'Pay Test Department Renamed');
+    assert.equal(renamed.json.isActive, false);
+
+    const all = await get('/api/hr/org-masters?kind=DEPARTMENT');
+    assert.equal(all.status, 200, JSON.stringify(all.json));
+    assert.ok(all.json.some((row: any) => row.id === created.json.id && row.isActive === false));
+    const active = await get('/api/hr/org-masters?kind=DEPARTMENT&activeOnly=1');
+    assert.equal(active.status, 200, JSON.stringify(active.json));
+    assert.ok(!active.json.some((row: any) => row.id === created.json.id));
+
+    const invalidKind = await post('/api/hr/org-masters', {
+      kind: 'GRADE',
+      name: 'Pay Test Invalid Kind',
+      code: `${ORG_CODE}-BAD`,
+    });
+    assert.equal(invalidKind.status, 400, JSON.stringify(invalidKind.json));
+
+    const hrOfficerToken = issueAuthToken({
+      ...ADMIN,
+      id: 'pay-org-officer',
+      email: 'pay-org-officer@example.com',
+      name: 'PAY Org Officer',
+      role: 'HR_OFFICER',
+    });
+    const officerRead = await get('/api/hr/org-masters', hrOfficerToken);
+    assert.equal(officerRead.status, 200, JSON.stringify(officerRead.json));
+    const officerWrite = await post(
+      '/api/hr/org-masters',
+      { kind: 'WORK_STATION', name: 'Pay Test Station', code: `${ORG_CODE}-WS` },
+      hrOfficerToken
+    );
+    assert.equal(officerWrite.status, 403, JSON.stringify(officerWrite.json));
+  });
+
+  test('employee documents keep metadata readable and the bytes behind the manage grant', async () => {
+    const hrOfficerToken = issueAuthToken({
+      ...ADMIN,
+      id: 'pay-doc-officer',
+      email: 'pay-doc-officer@example.com',
+      name: 'PAY Doc Officer',
+      role: 'HR_OFFICER',
+    });
+    const bytes = new Uint8Array(Buffer.from('%PDF-1.4\n% pay test document\n%%EOF\n'));
+
+    const created = await uploadDocument(emp1.id, bytes);
+    assert.equal(created.status, 201, JSON.stringify(created.json));
+    assert.equal(created.json.employeeId, emp1.id);
+    assert.equal(created.json.docType, 'CITIZENSHIP');
+    assert.equal(created.json.originalName, 'test-document.pdf');
+    assert.equal(Number(created.json.byteSize), bytes.length);
+    assert.equal(created.json.content, undefined, 'metadata must not embed the bytes');
+
+    // The officer may see which documents exist...
+    const officerList = await get(`/api/employees/${emp1.id}/documents`, hrOfficerToken);
+    assert.equal(officerList.status, 200, JSON.stringify(officerList.json));
+    assert.equal(officerList.json.length, 1);
+    assert.equal(officerList.json[0].id, created.json.id);
+
+    // ...but cannot read, replace or remove the PII inside them. A non-own
+    // document is deliberately hidden as missing rather than confirming its id.
+    assert.equal((await fetchDocument(emp1.id, created.json.id, hrOfficerToken)).status, 404);
+    assert.equal((await uploadDocument(emp1.id, bytes, hrOfficerToken)).status, 403);
+    assert.equal((await deleteDocument(emp1.id, created.json.id, hrOfficerToken)).status, 403);
+
+    const downloaded = await fetchDocument(emp1.id, created.json.id);
+    assert.equal(downloaded.status, 200);
+    assert.equal(downloaded.contentType, 'application/pdf');
+    assert.match(downloaded.disposition || '', /attachment/);
+    assert.deepEqual(downloaded.bytes, Buffer.from(bytes));
+
+    const invalidType = await uploadDocument(
+      emp1.id,
+      bytes,
+      token,
+      'type=NOT_A_TYPE&fileName=invalid.pdf'
+    );
+    assert.equal(invalidType.status, 400, JSON.stringify(invalidType.json));
+
+    const badMime = await uploadDocument(
+      emp1.id,
+      bytes,
+      token,
+      'type=OTHER&fileName=invalid.exe',
+      'application/x-msdownload'
+    );
+    assert.equal(badMime.status, 400, JSON.stringify(badMime.json));
+
+    const empty = await uploadDocument(
+      emp1.id,
+      new Uint8Array(0),
+      token,
+      'type=OTHER&fileName=empty.pdf'
+    );
+    assert.equal(empty.status, 400, JSON.stringify(empty.json));
+
+    const oversized = await uploadDocument(
+      emp1.id,
+      new Uint8Array(5 * 1024 * 1024 + 1),
+      token,
+      'type=OTHER&fileName=large.pdf'
+    );
+    assert.equal(oversized.status, 413, JSON.stringify(oversized.json));
+
+    const removed = await deleteDocument(emp1.id, created.json.id);
+    assert.equal(removed.status, 204, JSON.stringify(removed.json));
+    const afterDelete = await get(`/api/employees/${emp1.id}/documents`);
+    assert.equal(afterDelete.status, 200);
+    assert.deepEqual(afterDelete.json, []);
+    assert.equal((await deleteDocument(emp1.id, created.json.id)).status, 404);
+    assert.equal((await get('/api/employees/missing-employee/documents')).status, 404);
   });
 
   test('the employee picker searches code and name with a slim bounded page', async () => {
@@ -541,7 +988,9 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
       periodId = periods.json.find((row: any) => row.periodKey === CLOSED_PERIOD)?.id || null;
     }
     assert.ok(periodId, 'the closed-period test needs a period row');
-    const closed = await post(`/api/accounting/periods/${periodId}/close`, {});
+    const closed = await post(`/api/accounting/periods/${periodId}/close`, {
+      overrideReason: 'PAY TEST close without checklist',
+    });
     assert.equal(closed.status, 200, JSON.stringify(closed.json));
     assert.equal(closed.json.status, 'CLOSED');
 
@@ -577,5 +1026,1183 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
 
     const forbiddenCreate = await post('/api/employees', employeeBody('PAYT-003', 'Pay Test Three'), managerToken);
     assert.equal(forbiddenCreate.status, 403, JSON.stringify(forbiddenCreate.json));
+  });
+
+  test('the master-sheet import previews without writing, then creates and updates idempotently', async () => {
+    const station = await post('/api/hr/org-masters', {
+      kind: 'WORK_STATION',
+      name: 'PAY Import Station',
+      code: 'PAYT-ORG-IMP-ST',
+      isActive: true,
+    });
+    assert.equal(station.status, 201, JSON.stringify(station.json));
+
+    const header =
+      'HRMS ID,Full Name,Branch,Department,Designation,Employment Type,Employment Status,Joining Date,Work Station,Monthly Salary,PAN';
+    const csv = [
+      header,
+      'PAYT-IMP-001,Import One,PAY Test Branch,Operations,Technician,Non-PB,Active,2026-10-01,PAY Import Station,"30,000",PAN-IMP-001',
+      'PAYT-001,Pay Test One,PAY Test Branch,Operations,Senior Technician,Non-PB,Active,2026-09-01,PAY Import Station,"26,500",PAN-PAYT-001',
+      'PAYT-IMP-002,Unknown Branch,No Such Branch,Operations,Technician,Non-PB,Active,2026-10-01,,,',
+      'PAYT-IMP-003,Unknown Station,PAY Test Branch,Operations,Technician,Non-PB,Active,2026-10-01,Ghost Station,,',
+      'PAYT-IMP-001,Duplicate Import,PAY Test Branch,Operations,Technician,Non-PB,Active,2026-10-01,,,',
+      'PAYT-IMP-004,Bad Salary,PAY Test Branch,Operations,Technician,Non-PB,Active,2026-10-01,,not-a-number,',
+    ].join('\n');
+
+    const beforeEmployees = await jobCount('employees', 'branch_id = $1', [BR]);
+    const beforeAudits = await jobCount('audit_logs', "action = 'IMPORT_EMPLOYEES'", []);
+    const unchanged = await get(`/api/employees/${emp1.id}`);
+    assert.equal(unchanged.status, 200, JSON.stringify(unchanged.json));
+
+    const preview = await post('/api/hr/employees/import', { mode: 'DRY_RUN', csv });
+    assert.equal(preview.status, 200, JSON.stringify(preview.json));
+    assert.equal(preview.json.mode, 'DRY_RUN');
+    assert.equal(preview.json.totalRows, 6);
+    assert.equal(preview.json.created, 1, JSON.stringify(preview.json.rows));
+    assert.equal(preview.json.updated, 1, JSON.stringify(preview.json.rows));
+    assert.equal(preview.json.skipped, 4, JSON.stringify(preview.json.rows));
+    const previewRow = (rowNumber: number) =>
+      preview.json.rows.find((row: any) => row.rowNumber === rowNumber);
+    assert.equal(previewRow(2).action, 'CREATE');
+    assert.equal(previewRow(3).action, 'UPDATE');
+    assert.equal(previewRow(4).action, 'SKIP');
+    assert.match(previewRow(4).errors.join(' '), /unknown branch/i);
+    assert.match(previewRow(5).errors.join(' '), /unknown work station/i);
+    assert.match(previewRow(6).errors.join(' '), /duplicate/i);
+    assert.match(previewRow(7).errors.join(' '), /salary/i);
+
+    // A dry run is a read: no row, no audit and no field changed.
+    assert.equal(await jobCount('employees', 'branch_id = $1', [BR]), beforeEmployees);
+    assert.equal(await jobCount('audit_logs', "action = 'IMPORT_EMPLOYEES'", []), beforeAudits);
+    const stillUnchanged = await get(`/api/employees/${emp1.id}`);
+    assert.equal(stillUnchanged.json.designation, unchanged.json.designation);
+    assert.equal(stillUnchanged.json.name, unchanged.json.name);
+
+    const committed = await post('/api/hr/employees/import', { mode: 'COMMIT', csv });
+    assert.equal(committed.status, 200, JSON.stringify(committed.json));
+    assert.equal(committed.json.mode, 'COMMIT');
+    assert.equal(committed.json.created, 1, JSON.stringify(committed.json.rows));
+    assert.equal(committed.json.updated, 1, JSON.stringify(committed.json.rows));
+    assert.equal(committed.json.skipped, 4, JSON.stringify(committed.json.rows));
+    assert.equal(await jobCount('employees', 'branch_id = $1', [BR]), beforeEmployees + 1);
+    assert.equal(
+      await jobCount('audit_logs', "action = 'IMPORT_EMPLOYEES'", []),
+      beforeAudits + 1
+    );
+
+    const imported = await get(`/api/employees?branchId=${BR}&query=PAYT-IMP-001`);
+    assert.equal(imported.status, 200, JSON.stringify(imported.json));
+    assert.equal(imported.json.length, 1);
+    assert.equal(imported.json[0].name, 'Import One');
+    assert.equal(imported.json[0].department, 'Operations');
+    assert.equal(imported.json[0].workStation, 'PAY Import Station');
+    assert.equal(Number(imported.json[0].monthlySalary), 30000);
+    assert.equal(imported.json[0].panNumber, 'PAN-IMP-001');
+    assert.equal(imported.json[0].isActive, true);
+
+    const updated = await get(`/api/employees/${emp1.id}`);
+    assert.equal(updated.json.designation, 'Senior Technician');
+    assert.equal(Number(updated.json.monthlySalary), 26500);
+    assert.equal(updated.json.workStation, 'PAY Import Station');
+
+    // Re-importing the same sheet updates the same two employees: no duplicates.
+    const afterCommit = await jobCount('employees', 'branch_id = $1', [BR]);
+    const reimported = await post('/api/hr/employees/import', { mode: 'COMMIT', csv });
+    assert.equal(reimported.status, 200, JSON.stringify(reimported.json));
+    assert.equal(reimported.json.created, 0, JSON.stringify(reimported.json.rows));
+    assert.equal(reimported.json.updated, 2, JSON.stringify(reimported.json.rows));
+    assert.equal(reimported.json.skipped, 4, JSON.stringify(reimported.json.rows));
+    assert.equal(await jobCount('employees', 'branch_id = $1', [BR]), afterCommit);
+
+    // View-only HR cannot preview or commit.
+    const officerToken = issueAuthToken({
+      ...ADMIN,
+      id: 'pay-import-officer',
+      email: 'pay-import-officer@example.com',
+      name: 'PAY Import Officer',
+      role: 'HR_OFFICER',
+    });
+    assert.equal(
+      (await post('/api/hr/employees/import', { mode: 'DRY_RUN', csv }, officerToken)).status,
+      403
+    );
+    assert.equal(
+      (await post('/api/hr/employees/import', { mode: 'COMMIT', csv }, officerToken)).status,
+      403
+    );
+
+    // The legacy payroll-manage grant still opens the import.
+    const accountantToken = issueAuthToken({
+      ...ADMIN,
+      id: 'pay-import-accountant',
+      email: 'pay-import-accountant@example.com',
+      name: 'PAY Import Accountant',
+      role: 'ACCOUNTANT',
+    });
+    const legacyPreview = await post(
+      '/api/hr/employees/import',
+      { mode: 'DRY_RUN', csv },
+      accountantToken
+    );
+    assert.equal(legacyPreview.status, 200, JSON.stringify(legacyPreview.json));
+
+    // A branch-scoped manager cannot import a row for another branch.
+    const otherBranchId = 'pay-test-branch-import';
+    await pool!.query(
+      `INSERT INTO branches (id, code, name, location) VALUES ($1, 'PAYB2', 'PAY Test Branch Two', 'Test')
+       ON CONFLICT (id) DO NOTHING`,
+      [otherBranchId]
+    );
+    try {
+      const scopedToken = issueAuthToken({
+        ...ADMIN,
+        id: 'pay-import-manager',
+        email: 'pay-import-manager@example.com',
+        name: 'PAY Import Manager',
+        role: 'HR_MANAGER',
+        branchId: BR,
+        allowedBranchIds: [BR],
+      });
+      const scopedCsv = [
+        'HRMS ID,Full Name,Branch',
+        'PAYT-IMP-009,Scoped Import,PAY Test Branch Two',
+      ].join('\n');
+      const scoped = await post(
+        '/api/hr/employees/import',
+        { mode: 'DRY_RUN', csv: scopedCsv },
+        scopedToken
+      );
+      assert.equal(scoped.status, 200, JSON.stringify(scoped.json));
+      assert.equal(scoped.json.created, 0);
+      assert.equal(scoped.json.skipped, 1);
+      assert.match(scoped.json.rows[0].errors.join(' '), /allowed branches/i);
+    } finally {
+      await pool!.query('DELETE FROM branches WHERE id = $1', [otherBranchId]);
+    }
+  });
+
+  test('attendance foundation: catalogues, branch holidays and an audited daily register', async () => {
+    const officerToken = issueAuthToken({
+      ...ADMIN,
+      id: 'pay-att-officer',
+      email: 'pay-att-officer@example.com',
+      name: 'PAY Attendance Officer',
+      role: 'HR_OFFICER',
+    });
+    const accountantToken = issueAuthToken({
+      ...ADMIN,
+      id: 'pay-att-accountant',
+      email: 'pay-att-accountant@example.com',
+      name: 'PAY Attendance Accountant',
+      role: 'ACCOUNTANT',
+    });
+
+    // 1. Company-wide catalogues: unique by code and name, editable in place.
+    const shift = await post('/api/hr/shifts', {
+      name: 'PAY Test Day Shift',
+      code: 'PAYT-SHIFT',
+      startTime: '09:00',
+      endTime: '18:00',
+      graceMinutes: 10,
+    });
+    assert.equal(shift.status, 201, JSON.stringify(shift.json));
+    assert.equal(shift.json.code, 'PAYT-SHIFT');
+    assert.equal(shift.json.startTime, '09:00');
+    assert.equal(shift.json.endTime, '18:00');
+    assert.equal(shift.json.graceMinutes, 10);
+    assert.equal(shift.json.isActive, true);
+
+    const duplicateShift = await post('/api/hr/shifts', {
+      name: 'PAY Test Day Shift Copy',
+      code: 'PAYT-SHIFT',
+      startTime: '10:00',
+      endTime: '19:00',
+    });
+    assert.equal(duplicateShift.status, 409, JSON.stringify(duplicateShift.json));
+
+    const badShift = await post('/api/hr/shifts', {
+      name: 'PAY Bad Shift',
+      code: 'PAYT-SHIFT-BAD',
+      startTime: '9am',
+      endTime: '18:00',
+    });
+    assert.equal(badShift.status, 400, JSON.stringify(badShift.json));
+
+    const patchedShift = await patch(`/api/hr/shifts/${shift.json.id}`, {
+      graceMinutes: 15,
+      isActive: false,
+    });
+    assert.equal(patchedShift.status, 200, JSON.stringify(patchedShift.json));
+    assert.equal(patchedShift.json.graceMinutes, 15);
+    assert.equal(patchedShift.json.isActive, false);
+    const activeShifts = await get('/api/hr/shifts?activeOnly=1');
+    assert.equal(activeShifts.status, 200, JSON.stringify(activeShifts.json));
+    assert.ok(
+      !activeShifts.json.some((row: any) => row.id === shift.json.id),
+      'an inactive shift must leave the active catalogue'
+    );
+    const reactivated = await patch(`/api/hr/shifts/${shift.json.id}`, { isActive: true });
+    assert.equal(reactivated.status, 200, JSON.stringify(reactivated.json));
+
+    const leaveType = await post('/api/hr/leave-types', {
+      name: 'PAY Test Annual Leave',
+      code: 'PAYT-LEAVE',
+      annualQuotaDays: 15,
+      isPaid: true,
+    });
+    assert.equal(leaveType.status, 201, JSON.stringify(leaveType.json));
+    assert.equal(Number(leaveType.json.annualQuotaDays), 15);
+    const duplicateLeave = await post('/api/hr/leave-types', {
+      name: 'PAY Test Duplicate Leave',
+      code: 'PAYT-LEAVE',
+      annualQuotaDays: 5,
+    });
+    assert.equal(duplicateLeave.status, 409, JSON.stringify(duplicateLeave.json));
+    const patchedLeave = await patch(`/api/hr/leave-types/${leaveType.json.id}`, {
+      annualQuotaDays: 18,
+      isPaid: false,
+    });
+    assert.equal(patchedLeave.status, 200, JSON.stringify(patchedLeave.json));
+    assert.equal(Number(patchedLeave.json.annualQuotaDays), 18);
+    assert.equal(patchedLeave.json.isPaid, false);
+
+    // 2. Holidays are branch custody, unique per branch + date, stored with BS.
+    const holiday = await post('/api/hr/holidays', {
+      branchId: BR,
+      holidayDateAD: '2026-09-20',
+      name: 'PAY Test Holiday',
+      isPaid: true,
+    });
+    assert.equal(holiday.status, 201, JSON.stringify(holiday.json));
+    assert.equal(holiday.json.branchId, BR);
+    assert.match(holiday.json.holidayDateBS, / BS$/);
+    const duplicateHoliday = await post('/api/hr/holidays', {
+      branchId: BR,
+      holidayDateAD: '2026-09-20',
+      name: 'PAY Test Holiday Duplicate',
+    });
+    assert.equal(duplicateHoliday.status, 409, JSON.stringify(duplicateHoliday.json));
+    const holidays = await get(`/api/hr/holidays?branchId=${BR}&from=2026-09-01&to=2026-09-30`);
+    assert.equal(holidays.status, 200, JSON.stringify(holidays.json));
+    assert.ok(
+      holidays.json.some(
+        (row: any) => row.id === holiday.json.id && String(row.holidayDateBS).endsWith(' BS')
+      )
+    );
+
+    // 3. A manual attendance save derives its branch from the employee and
+    //    corrects the same employee/day instead of creating a second row.
+    const manual = await post('/api/hr/attendance', {
+      employeeId: emp1.id,
+      attendanceDateAD: '2026-09-15',
+      status: 'PRESENT',
+      shiftId: shift.json.id,
+      checkInTime: '09:05',
+      checkOutTime: '18:10',
+      overtimeHours: 1.5,
+      notes: 'PAY test manual day',
+    });
+    assert.equal(manual.status, 201, JSON.stringify(manual.json));
+    assert.equal(manual.json.branchId, BR, 'the branch comes from the employee, not the body');
+    assert.equal(manual.json.employeeCode, 'PAYT-001');
+    assert.equal(manual.json.shiftCode, 'PAYT-SHIFT');
+    assert.equal(manual.json.status, 'PRESENT');
+    assert.equal(Number(manual.json.overtimeHours), 1.5);
+    assert.equal(manual.json.checkInTime, '09:05');
+    assert.match(manual.json.attendanceDateBS, / BS$/);
+    assert.equal(manual.json.source, 'MANUAL');
+
+    const corrected = await post('/api/hr/attendance', {
+      employeeId: emp1.id,
+      attendanceDateAD: '2026-09-15',
+      status: 'HALF_DAY',
+      overtimeHours: 0,
+    });
+    assert.equal(corrected.status, 200, JSON.stringify(corrected.json));
+    assert.equal(corrected.json.id, manual.json.id);
+    assert.equal(corrected.json.status, 'HALF_DAY');
+    assert.equal(
+      await jobCount('hr_attendance', 'employee_id = $1 AND attendance_date_ad = $2', [
+        emp1.id,
+        '2026-09-15',
+      ]),
+      1,
+      'a second save corrects the day instead of duplicating it'
+    );
+
+    for (const [label, body] of [
+      ['unknown shift', { employeeId: emp1.id, attendanceDateAD: '2026-09-15', status: 'PRESENT', shiftId: 'no-such-shift' }],
+      ['impossible overtime', { employeeId: emp1.id, attendanceDateAD: '2026-09-15', status: 'PRESENT', overtimeHours: 25 }],
+      ['bad clock', { employeeId: emp1.id, attendanceDateAD: '2026-09-15', status: 'PRESENT', checkInTime: '9am' }],
+      ['unknown status', { employeeId: emp1.id, attendanceDateAD: '2026-09-15', status: 'SLEEPING' }],
+      ['impossible date', { employeeId: emp1.id, attendanceDateAD: '2026-02-30', status: 'PRESENT' }],
+      ['missing employee', { attendanceDateAD: '2026-09-15', status: 'PRESENT' }],
+    ] as Array<[string, any]>) {
+      const refused = await post('/api/hr/attendance', body);
+      assert.equal(refused.status, 400, `${label}: ${JSON.stringify(refused.json)}`);
+    }
+
+    const register = await get(
+      `/api/hr/attendance?branchId=${BR}&from=2026-09-15&to=2026-09-15&employeeId=${emp1.id}&status=HALF_DAY`
+    );
+    assert.equal(register.status, 200, JSON.stringify(register.json));
+    assert.equal(register.json.length, 1);
+    assert.equal(register.json[0].employeeCode, 'PAYT-001');
+
+    assert.equal(
+      await jobCount('audit_logs', "action = 'UPSERT_HR_ATTENDANCE' AND branch_id = $1", [BR]),
+      2,
+      'each manual save writes its audit row in the same transaction'
+    );
+    assert.equal(
+      await jobCount('audit_logs', "action = 'CREATE_HR_HOLIDAY' AND branch_id = $1", [BR]),
+      1
+    );
+    assert.equal(
+      await jobCount('audit_logs', "action = 'CREATE_HR_SHIFT' AND details LIKE '%PAYT-SHIFT%'", []),
+      1
+    );
+
+    // 4. The CSV import upserts every valid row in one transaction and reports
+    //    each bad row by sheet line; a re-import updates rather than duplicates.
+    const csv = [
+      'HRMS ID,Date,Status,Shift,Check-In,Check-Out,OT,Notes',
+      'PAYT-002,2026-09-17,Present,PAYT-SHIFT,09:00,18:00,1.5,Imported day',
+      'PAYT-001,2026-09-15,Absent,,,,,',
+      'PAYT-NOPE,2026-09-17,Present,,,,,',
+      'PAYT-001,2026-09-15,Present,,,,,',
+      'PAYT-001,2026-13-01,Present,,,,,',
+      'PAYT-001,2026-09-18,Sleeping,,,,,',
+      'PAYT-001,2026-09-19,Present,GHOST SHIFT,,,,',
+      'PAYT-002,2026-09-20,Present,,,25:99,,',
+    ].join('\n');
+
+    const beforeImportAudits = await jobCount(
+      'audit_logs',
+      "action = 'IMPORT_HR_ATTENDANCE' AND branch_id = $1",
+      [BR]
+    );
+    const imported = await post('/api/hr/attendance/import', { csv });
+    assert.equal(imported.status, 200, JSON.stringify(imported.json));
+    assert.equal(imported.json.totalRows, 8);
+    assert.equal(imported.json.validRows, 2, JSON.stringify(imported.json.rows));
+    assert.equal(imported.json.created, 1, JSON.stringify(imported.json.rows));
+    assert.equal(imported.json.updated, 1, JSON.stringify(imported.json.rows));
+    assert.equal(imported.json.skipped, 6, JSON.stringify(imported.json.rows));
+    const importRow = (rowNumber: number) =>
+      imported.json.rows.find((row: any) => row.rowNumber === rowNumber);
+    assert.equal(importRow(2).action, 'CREATE');
+    assert.equal(importRow(2).employeeName, 'Pay Test Two');
+    assert.equal(importRow(3).action, 'UPDATE');
+    assert.match(importRow(4).errors.join(' '), /unknown employee/i);
+    assert.match(importRow(5).errors.join(' '), /duplicate/i);
+    assert.match(importRow(6).errors.join(' '), /not a real date/i);
+    assert.match(importRow(7).errors.join(' '), /must be one of/i);
+    assert.match(importRow(8).errors.join(' '), /unknown shift/i);
+    assert.match(importRow(9).errors.join(' '), /check-out time/i);
+
+    assert.equal(
+      await jobCount('audit_logs', "action = 'IMPORT_HR_ATTENDANCE' AND branch_id = $1", [BR]),
+      beforeImportAudits + 1,
+      'one audit row covers the whole imported sheet'
+    );
+    const importedDay = await get(
+      `/api/hr/attendance?branchId=${BR}&employeeId=${emp2.id}&from=2026-09-17&to=2026-09-17`
+    );
+    assert.equal(importedDay.status, 200, JSON.stringify(importedDay.json));
+    assert.equal(importedDay.json.length, 1);
+    assert.equal(importedDay.json[0].source, 'IMPORT');
+    assert.equal(Number(importedDay.json[0].overtimeHours), 1.5);
+    assert.equal(importedDay.json[0].employeeName, 'Pay Test Two');
+
+    for (const date of ['2026-09-18', '2026-09-19', '2026-09-20']) {
+      assert.equal(
+        await jobCount('hr_attendance', 'employee_id = $1 AND attendance_date_ad = $2', [
+          emp1.id,
+          date,
+        ]),
+        0,
+        `the skipped ${date} row must not be written`
+      );
+    }
+
+    const reimported = await post('/api/hr/attendance/import', { csv });
+    assert.equal(reimported.status, 200, JSON.stringify(reimported.json));
+    assert.equal(reimported.json.created, 0, JSON.stringify(reimported.json.rows));
+    assert.equal(reimported.json.updated, 2, JSON.stringify(reimported.json.rows));
+    assert.equal(reimported.json.skipped, 6);
+    assert.equal(
+      await jobCount('hr_attendance', 'employee_id = $1 AND attendance_date_ad = $2', [
+        emp2.id,
+        '2026-09-17',
+      ]),
+      1,
+      're-import must not duplicate an employee day'
+    );
+    assert.equal(
+      await jobCount('audit_logs', "action = 'IMPORT_HR_ATTENDANCE' AND branch_id = $1", [BR]),
+      beforeImportAudits + 2
+    );
+
+    // The sheet is the record: the imported row replaces the manual correction.
+    const reimportedDay = await get(
+      `/api/hr/attendance?branchId=${BR}&employeeId=${emp1.id}&from=2026-09-15&to=2026-09-15`
+    );
+    assert.equal(reimportedDay.json[0].status, 'ABSENT');
+    assert.equal(reimportedDay.json[0].source, 'IMPORT');
+    assert.equal(reimportedDay.json[0].notes, null);
+
+    assert.equal(
+      (await post('/api/hr/attendance/import', { csv: 'HRMS ID,Date\nPAYT-001,2026-09-15' })).status,
+      400,
+      'a sheet without a status column is refused, not half-imported'
+    );
+    assert.equal((await post('/api/hr/attendance/import', { csv: '' })).status, 400);
+
+    // 5. A branch-scoped manager cannot read or write another branch, and the
+    //    company-wide catalogues stay usable.
+    await pool!.query(
+      `INSERT INTO branches (id, code, name, location) VALUES ($1, 'PAYA', 'PAY Attendance Branch', 'Test')
+       ON CONFLICT (id) DO NOTHING`,
+      [ATT_BRANCH]
+    );
+    const otherEmployee = await post('/api/employees', {
+      ...employeeBody('PAYT-900', 'Pay Test Other Branch'),
+      branchId: ATT_BRANCH,
+    });
+    assert.equal(otherEmployee.status, 201, JSON.stringify(otherEmployee.json));
+    const otherHoliday = await post('/api/hr/holidays', {
+      branchId: ATT_BRANCH,
+      holidayDateAD: '2026-09-20',
+      name: 'PAY Test Other Holiday',
+    });
+    assert.equal(otherHoliday.status, 201, JSON.stringify(otherHoliday.json));
+
+    const scopedToken = issueAuthToken({
+      ...ADMIN,
+      id: 'pay-att-manager',
+      email: 'pay-att-manager@example.com',
+      name: 'PAY Attendance Manager',
+      role: 'HR_MANAGER',
+      branchId: BR,
+      allowedBranchIds: [BR],
+    });
+    assert.equal((await get(`/api/hr/attendance?branchId=${ATT_BRANCH}`, scopedToken)).status, 403);
+    assert.equal((await get(`/api/hr/holidays?branchId=${ATT_BRANCH}`, scopedToken)).status, 403);
+    const scopedList = await get('/api/hr/attendance', scopedToken);
+    assert.equal(scopedList.status, 200, JSON.stringify(scopedList.json));
+    assert.ok(scopedList.json.length > 0);
+    assert.ok(
+      scopedList.json.every((row: any) => row.branchId === BR),
+      'an unscoped read must stay inside the manager branch'
+    );
+    assert.ok(!scopedList.json.some((row: any) => row.employeeCode === 'PAYT-900'));
+    assert.equal(
+      (
+        await post(
+          '/api/hr/attendance',
+          { employeeId: otherEmployee.json.id, attendanceDateAD: '2026-09-22', status: 'PRESENT' },
+          scopedToken
+        )
+      ).status,
+      403,
+      'a manager must not record attendance for another branch employee'
+    );
+    assert.equal(
+      (
+        await post(
+          '/api/hr/holidays',
+          { branchId: ATT_BRANCH, holidayDateAD: '2026-09-23', name: 'PAY Scoped Holiday' },
+          scopedToken
+        )
+      ).status,
+      403
+    );
+    assert.equal(
+      (await request('DELETE', `/api/hr/holidays/${otherHoliday.json.id}`, undefined, scopedToken)).status,
+      403
+    );
+    assert.equal((await get('/api/hr/shifts', scopedToken)).status, 200);
+    const scopedHoliday = await post(
+      '/api/hr/holidays',
+      { branchId: BR, holidayDateAD: '2026-09-21', name: 'PAY Scoped Own Holiday' },
+      scopedToken
+    );
+    assert.equal(scopedHoliday.status, 201, JSON.stringify(scopedHoliday.json));
+
+    // 6. A view-only HR officer reads every register and cannot write any of it;
+    //    the legacy payroll grant still opens attendance writes.
+    for (const path of [
+      '/api/hr/shifts',
+      '/api/hr/leave-types',
+      `/api/hr/holidays?branchId=${BR}`,
+      `/api/hr/attendance?branchId=${BR}`,
+    ]) {
+      const read = await get(path, officerToken);
+      assert.equal(read.status, 200, `${path}: ${JSON.stringify(read.json)}`);
+    }
+    const officerWrites: Array<[string, () => Promise<{ status: number; json: any }>]> = [
+      ['shift', () => post('/api/hr/shifts', { name: 'PAY Officer Shift', code: 'PAYT-OFF-SHIFT', startTime: '09:00', endTime: '18:00' }, officerToken)],
+      ['leave type', () => post('/api/hr/leave-types', { name: 'PAY Officer Leave', code: 'PAYT-OFF-LEAVE' }, officerToken)],
+      ['holiday', () => post('/api/hr/holidays', { branchId: BR, holidayDateAD: '2026-09-24', name: 'PAY Officer Holiday' }, officerToken)],
+      ['attendance', () => post('/api/hr/attendance', { employeeId: emp1.id, attendanceDateAD: '2026-09-24', status: 'PRESENT' }, officerToken)],
+      ['import', () => post('/api/hr/attendance/import', { csv }, officerToken)],
+      ['attendance delete', () => request('DELETE', `/api/hr/attendance/${manual.json.id}`, undefined, officerToken)],
+      ['holiday delete', () => request('DELETE', `/api/hr/holidays/${holiday.json.id}`, undefined, officerToken)],
+    ];
+    for (const [label, call] of officerWrites) {
+      const refused = await call();
+      assert.equal(refused.status, 403, `${label}: ${JSON.stringify(refused.json)}`);
+    }
+
+    const legacyDay = await post(
+      '/api/hr/attendance',
+      { employeeId: emp2.id, attendanceDateAD: '2026-09-22', status: 'PRESENT' },
+      accountantToken
+    );
+    assert.equal(legacyDay.status, 201, JSON.stringify(legacyDay.json));
+
+    // 7. Deletes are audited, and repeating one is a clean 404.
+    assert.equal((await request('DELETE', `/api/hr/attendance/${manual.json.id}`)).status, 204);
+    assert.equal((await request('DELETE', `/api/hr/attendance/${manual.json.id}`)).status, 404);
+    assert.equal(
+      await jobCount('audit_logs', "action = 'DELETE_HR_ATTENDANCE' AND branch_id = $1", [BR]),
+      1
+    );
+    assert.equal((await request('DELETE', `/api/hr/holidays/${holiday.json.id}`)).status, 204);
+    assert.equal((await request('DELETE', `/api/hr/holidays/${holiday.json.id}`)).status, 404);
+  });
+
+  test('leave balances and requests: approvals spend days, cancels return them, branches stay isolated', async () => {
+    const officerToken = issueAuthToken({
+      ...ADMIN,
+      id: 'pay-leave-officer',
+      email: 'pay-leave-officer@example.com',
+      name: 'PAY Leave Officer',
+      role: 'HR_OFFICER',
+    });
+    const accountantToken = issueAuthToken({
+      ...ADMIN,
+      id: 'pay-leave-accountant',
+      email: 'pay-leave-accountant@example.com',
+      name: 'PAY Leave Accountant',
+      role: 'ACCOUNTANT',
+    });
+
+    const balanceFor = async (employeeId: string, status?: string) => {
+      const query = new URLSearchParams({
+        branchId: BR,
+        year: '2026',
+        employeeId,
+        ...(status ? { status } : {}),
+      });
+      const res = await get(`/api/hr/leave-balances?${query.toString()}`);
+      assert.equal(res.status, 200, JSON.stringify(res.json));
+      return res.json;
+    };
+
+    // 1. One balance row per employee + leave type + year; usage is derived.
+    const leaveType = await post('/api/hr/leave-types', {
+      name: 'PAY Test Leave Annual',
+      code: 'PAYT-LV-ANN',
+      annualQuotaDays: 15,
+      isPaid: true,
+    });
+    assert.equal(leaveType.status, 201, JSON.stringify(leaveType.json));
+
+    const balance = await post('/api/hr/leave-balances', {
+      employeeId: emp1.id,
+      leaveTypeId: leaveType.json.id,
+      balanceYear: 2026,
+      entitlementDays: 10,
+      notes: 'annual entitlement',
+    });
+    assert.equal(balance.status, 201, JSON.stringify(balance.json));
+    assert.equal(balance.json.employeeCode, 'PAYT-001');
+    assert.equal(balance.json.branchId, BR, 'the balance branch comes from the employee');
+    assert.equal(Number(balance.json.entitlementDays), 10);
+    assert.equal(Number(balance.json.usedDays), 0);
+    assert.equal(Number(balance.json.remainingDays), 10);
+
+    const duplicateBalance = await post('/api/hr/leave-balances', {
+      employeeId: emp1.id,
+      leaveTypeId: leaveType.json.id,
+      balanceYear: 2026,
+      entitlementDays: 5,
+    });
+    assert.equal(duplicateBalance.status, 409, JSON.stringify(duplicateBalance.json));
+
+    const invalidYear = await post('/api/hr/leave-balances', {
+      employeeId: emp1.id,
+      leaveTypeId: leaveType.json.id,
+      balanceYear: 1999,
+      entitlementDays: 5,
+    });
+    assert.equal(invalidYear.status, 400, JSON.stringify(invalidYear.json));
+
+    const patchedBalance = await patch(`/api/hr/leave-balances/${balance.json.id}`, {
+      adjustmentDays: 2,
+      notes: 'carry over',
+    });
+    assert.equal(patchedBalance.status, 200, JSON.stringify(patchedBalance.json));
+    assert.equal(Number(patchedBalance.json.adjustmentDays), 2);
+    assert.equal(Number(patchedBalance.json.remainingDays), 12);
+    assert.equal(
+      await jobCount('audit_logs', "action = 'UPDATE_HR_LEAVE_BALANCE' AND branch_id = $1", [BR]),
+      1
+    );
+
+    // 2. Request creation validates the range, the calendar year and overlaps.
+    const created = await post('/api/hr/leave-requests', {
+      employeeId: emp1.id,
+      leaveTypeId: leaveType.json.id,
+      startDateAD: '2026-10-05',
+      endDateAD: '2026-10-06',
+      reason: 'family function',
+    });
+    assert.equal(created.status, 201, JSON.stringify(created.json));
+    assert.match(created.json.requestNo, /^LR-2026-/);
+    assert.equal(created.json.status, 'PENDING');
+    assert.equal(created.json.branchId, BR);
+    assert.equal(Number(created.json.daysCount), 2, 'the day count is inclusive');
+    assert.match(created.json.startDateBS, / BS$/);
+    assert.equal(
+      await jobCount('audit_logs', "action = 'CREATE_HR_LEAVE_REQUEST' AND branch_id = $1", [BR]),
+      1,
+      'the create and its audit row commit together'
+    );
+
+    const overlap = await post('/api/hr/leave-requests', {
+      employeeId: emp1.id,
+      leaveTypeId: leaveType.json.id,
+      startDateAD: '2026-10-06',
+      endDateAD: '2026-10-07',
+    });
+    assert.equal(overlap.status, 409, JSON.stringify(overlap.json));
+    assert.match(overlap.json.message, /already covers/i);
+
+    for (const [label, body] of [
+      ['reversed range', { employeeId: emp1.id, leaveTypeId: leaveType.json.id, startDateAD: '2026-10-10', endDateAD: '2026-10-09' }],
+      ['cross-year range', { employeeId: emp1.id, leaveTypeId: leaveType.json.id, startDateAD: '2026-12-30', endDateAD: '2027-01-02' }],
+      ['unknown leave type', { employeeId: emp1.id, leaveTypeId: 'no-such-type', startDateAD: '2026-11-01', endDateAD: '2026-11-02' }],
+      ['missing employee', { leaveTypeId: leaveType.json.id, startDateAD: '2026-11-01', endDateAD: '2026-11-02' }],
+      ['bad date', { employeeId: emp1.id, leaveTypeId: leaveType.json.id, startDateAD: '2026-02-30', endDateAD: '2026-03-01' }],
+    ] as Array<[string, any]>) {
+      const refused = await post('/api/hr/leave-requests', body);
+      assert.equal(refused.status, 400, `${label}: ${JSON.stringify(refused.json)}`);
+    }
+    assert.equal(
+      await jobCount('audit_logs', "action = 'CREATE_HR_LEAVE_REQUEST' AND branch_id = $1", [BR]),
+      1,
+      'a rejected create writes no audit row'
+    );
+
+    const requestList = await get(
+      `/api/hr/leave-requests?branchId=${BR}&employeeId=${emp1.id}&status=PENDING`
+    );
+    assert.equal(requestList.status, 200, JSON.stringify(requestList.json));
+    assert.equal(requestList.json.length, 1);
+    assert.equal(requestList.json[0].id, created.json.id);
+    assert.equal(requestList.json[0].leaveTypeCode, 'PAYT-LV-ANN');
+
+    // 3. Approval spends the balance; the transition is guarded.
+    const approved = await post(`/api/hr/leave-requests/${created.json.id}/approve`, {});
+    assert.equal(approved.status, 200, JSON.stringify(approved.json));
+    assert.equal(approved.json.status, 'APPROVED');
+    assert.ok(approved.json.decidedBy, 'the approver is recorded');
+    assert.ok(approved.json.decidedAt, 'the decision time is recorded');
+    const afterApprove = await balanceFor(emp1.id);
+    assert.equal(Number(afterApprove[0].usedDays), 2);
+    assert.equal(Number(afterApprove[0].remainingDays), 10);
+    assert.equal(
+      await jobCount('audit_logs', "action = 'APPROVE_HR_LEAVE_REQUEST' AND branch_id = $1", [BR]),
+      1
+    );
+    assert.equal(
+      (await post(`/api/hr/leave-requests/${created.json.id}/approve`, {})).status,
+      409,
+      'a second approval must not spend the balance twice'
+    );
+
+    // 4. A rejection writes the decision but spends nothing.
+    const toReject = await post('/api/hr/leave-requests', {
+      employeeId: emp1.id,
+      leaveTypeId: leaveType.json.id,
+      startDateAD: '2026-11-02',
+      endDateAD: '2026-11-03',
+    });
+    assert.equal(toReject.status, 201, JSON.stringify(toReject.json));
+    const rejected = await post(`/api/hr/leave-requests/${toReject.json.id}/reject`, {
+      note: 'team is on site',
+    });
+    assert.equal(rejected.status, 200, JSON.stringify(rejected.json));
+    assert.equal(rejected.json.status, 'REJECTED');
+    assert.equal(rejected.json.decisionNote, 'team is on site');
+    const afterReject = await balanceFor(emp1.id);
+    assert.equal(Number(afterReject[0].usedDays), 2, 'a rejected request spends nothing');
+
+    // 5. Cancelling an approved request returns its days, and a pending cancel
+    //    is allowed without touching usage.
+    const cancelled = await post(`/api/hr/leave-requests/${created.json.id}/cancel`, {});
+    assert.equal(cancelled.status, 200, JSON.stringify(cancelled.json));
+    assert.equal(cancelled.json.status, 'CANCELLED');
+    const afterCancel = await balanceFor(emp1.id);
+    assert.equal(Number(afterCancel[0].usedDays), 0, 'cancelling an approval returns the days');
+    assert.equal(Number(afterCancel[0].remainingDays), 12);
+    assert.equal(
+      await jobCount('audit_logs', "action = 'CANCEL_HR_LEAVE_REQUEST' AND branch_id = $1", [BR]),
+      1
+    );
+
+    const toCancel = await post('/api/hr/leave-requests', {
+      employeeId: emp1.id,
+      leaveTypeId: leaveType.json.id,
+      startDateAD: '2026-11-10',
+      endDateAD: '2026-11-10',
+    });
+    assert.equal((await post(`/api/hr/leave-requests/${toCancel.json.id}/cancel`, {})).status, 200);
+
+    // 6. Approval refuses a request that exceeds the configured balance, and a
+    //    request with no balance row at all.
+    const emp2Balance = await post('/api/hr/leave-balances', {
+      employeeId: emp2.id,
+      leaveTypeId: leaveType.json.id,
+      balanceYear: 2026,
+      entitlementDays: 1,
+    });
+    assert.equal(emp2Balance.status, 201, JSON.stringify(emp2Balance.json));
+    assert.equal(
+      await jobCount('audit_logs', "action = 'CREATE_HR_LEAVE_BALANCE' AND branch_id = $1", [BR]),
+      2
+    );
+    const tooBig = await post('/api/hr/leave-requests', {
+      employeeId: emp2.id,
+      leaveTypeId: leaveType.json.id,
+      startDateAD: '2026-12-01',
+      endDateAD: '2026-12-03',
+    });
+    assert.equal(tooBig.status, 201, JSON.stringify(tooBig.json));
+    const insufficient = await post(`/api/hr/leave-requests/${tooBig.json.id}/approve`, {});
+    assert.equal(insufficient.status, 409, JSON.stringify(insufficient.json));
+    assert.match(insufficient.json.message, /insufficient leave balance/i);
+    assert.equal(
+      await jobCount('audit_logs', "action = 'APPROVE_HR_LEAVE_REQUEST' AND branch_id = $1", [BR]),
+      1,
+      'a refused approval writes no audit row'
+    );
+    const stillPending = await get(
+      `/api/hr/leave-requests?branchId=${BR}&employeeId=${emp2.id}&status=PENDING`
+    );
+    assert.equal(stillPending.status, 200);
+    assert.equal(stillPending.json.length, 1);
+    assert.equal(stillPending.json[0].id, tooBig.json.id);
+
+    const sickType = await post('/api/hr/leave-types', {
+      name: 'PAY Test Sick Leave',
+      code: 'PAYT-LV-SICK',
+      annualQuotaDays: 5,
+    });
+    assert.equal(sickType.status, 201, JSON.stringify(sickType.json));
+    const noBalance = await post('/api/hr/leave-requests', {
+      employeeId: emp1.id,
+      leaveTypeId: sickType.json.id,
+      startDateAD: '2026-12-05',
+      endDateAD: '2026-12-05',
+    });
+    assert.equal(noBalance.status, 201, JSON.stringify(noBalance.json));
+    const noBalanceApproval = await post(`/api/hr/leave-requests/${noBalance.json.id}/approve`, {});
+    assert.equal(noBalanceApproval.status, 409, JSON.stringify(noBalanceApproval.json));
+    assert.match(noBalanceApproval.json.message, /balance is configured/i);
+    assert.equal((await post(`/api/hr/leave-requests/${noBalance.json.id}/cancel`, {})).status, 200);
+
+    // 7. Another branch's employees, balances and requests are invisible and
+    //    unwritable to a branch-scoped manager.
+    await pool!.query(
+      `INSERT INTO branches (id, code, name, location) VALUES ($1, 'PAYLV', 'PAY Leave Branch', 'Test')
+       ON CONFLICT (id) DO NOTHING`,
+      [LV_BRANCH]
+    );
+    const otherEmployee = await post('/api/employees', {
+      ...employeeBody('PAYT-950', 'Pay Test Leave Branch'),
+      branchId: LV_BRANCH,
+    });
+    assert.equal(otherEmployee.status, 201, JSON.stringify(otherEmployee.json));
+    const otherBalance = await post('/api/hr/leave-balances', {
+      employeeId: otherEmployee.json.id,
+      leaveTypeId: leaveType.json.id,
+      balanceYear: 2026,
+      entitlementDays: 5,
+    });
+    assert.equal(otherBalance.status, 201, JSON.stringify(otherBalance.json));
+    assert.equal(otherBalance.json.branchId, LV_BRANCH);
+    const otherRequest = await post('/api/hr/leave-requests', {
+      employeeId: otherEmployee.json.id,
+      leaveTypeId: leaveType.json.id,
+      startDateAD: '2026-10-05',
+      endDateAD: '2026-10-05',
+    });
+    assert.equal(otherRequest.status, 201, JSON.stringify(otherRequest.json));
+    assert.equal(otherRequest.json.branchId, LV_BRANCH);
+
+    const scopedToken = issueAuthToken({
+      ...ADMIN,
+      id: 'pay-leave-manager',
+      email: 'pay-leave-manager@example.com',
+      name: 'PAY Leave Manager',
+      role: 'HR_MANAGER',
+      branchId: BR,
+      allowedBranchIds: [BR],
+    });
+    assert.equal(
+      (await get(`/api/hr/leave-requests?branchId=${LV_BRANCH}`, scopedToken)).status,
+      403
+    );
+    assert.equal(
+      (await get(`/api/hr/leave-balances?branchId=${LV_BRANCH}`, scopedToken)).status,
+      403
+    );
+    assert.equal(
+      (await get(`/api/hr/leave-requests?employeeId=${otherEmployee.json.id}`, scopedToken)).status,
+      403
+    );
+    assert.equal(
+      (await get(`/api/hr/leave-balances?employeeId=${otherEmployee.json.id}`, scopedToken)).status,
+      403
+    );
+    assert.equal(
+      (
+        await post(
+          '/api/hr/leave-requests',
+          {
+            employeeId: otherEmployee.json.id,
+            leaveTypeId: leaveType.json.id,
+            startDateAD: '2026-11-01',
+            endDateAD: '2026-11-01',
+          },
+          scopedToken
+        )
+      ).status,
+      403
+    );
+    assert.equal(
+      (
+        await post(
+          '/api/hr/leave-balances',
+          {
+            employeeId: otherEmployee.json.id,
+            leaveTypeId: leaveType.json.id,
+            balanceYear: 2027,
+            entitlementDays: 5,
+          },
+          scopedToken
+        )
+      ).status,
+      403
+    );
+    assert.equal(
+      (await patch(`/api/hr/leave-balances/${otherBalance.json.id}`, { entitlementDays: 9 }, scopedToken))
+        .status,
+      403
+    );
+    assert.equal(
+      (await post(`/api/hr/leave-requests/${otherRequest.json.id}/approve`, {}, scopedToken)).status,
+      403
+    );
+    const scopedList = await get('/api/hr/leave-requests', scopedToken);
+    assert.equal(scopedList.status, 200, JSON.stringify(scopedList.json));
+    assert.ok(scopedList.json.length > 0);
+    assert.ok(
+      scopedList.json.every((row: any) => row.branchId === BR),
+      'an unscoped read must stay inside the manager branch'
+    );
+    assert.ok(!scopedList.json.some((row: any) => row.employeeCode === 'PAYT-950'));
+
+    // 8. A view-only HR officer reads lists but cannot write or decide.
+    const officerTarget = await post('/api/hr/leave-requests', {
+      employeeId: emp1.id,
+      leaveTypeId: leaveType.json.id,
+      startDateAD: '2026-12-15',
+      endDateAD: '2026-12-15',
+    });
+    assert.equal(officerTarget.status, 201, JSON.stringify(officerTarget.json));
+    for (const path of ['/api/hr/leave-requests', '/api/hr/leave-balances']) {
+      assert.equal((await get(path, officerToken)).status, 200, `${path} must be readable`);
+    }
+    const officerWrites: Array<[string, () => Promise<{ status: number; json: any }>]> = [
+      ['balance create', () => post('/api/hr/leave-balances', { employeeId: emp1.id, leaveTypeId: leaveType.json.id, balanceYear: 2027, entitlementDays: 5 }, officerToken)],
+      ['balance edit', () => patch(`/api/hr/leave-balances/${balance.json.id}`, { entitlementDays: 11 }, officerToken)],
+      ['request create', () => post('/api/hr/leave-requests', { employeeId: emp1.id, leaveTypeId: leaveType.json.id, startDateAD: '2026-12-28', endDateAD: '2026-12-28' }, officerToken)],
+      ['approve', () => post(`/api/hr/leave-requests/${officerTarget.json.id}/approve`, {}, officerToken)],
+      ['reject', () => post(`/api/hr/leave-requests/${officerTarget.json.id}/reject`, {}, officerToken)],
+      ['cancel', () => post(`/api/hr/leave-requests/${officerTarget.json.id}/cancel`, {}, officerToken)],
+    ];
+    for (const [label, call] of officerWrites) {
+      const refused = await call();
+      assert.equal(refused.status, 403, `${label}: ${JSON.stringify(refused.json)}`);
+    }
+    assert.equal(
+      (await get(`/api/hr/leave-requests?branchId=${BR}&status=PENDING`)).json.length >= 1,
+      true
+    );
+    assert.equal((await post(`/api/hr/leave-requests/${officerTarget.json.id}/cancel`, {})).status, 200);
+
+    // 9. The legacy payroll grant still opens leave writes, and usage follows.
+    const legacyRequest = await post(
+      '/api/hr/leave-requests',
+      {
+        employeeId: emp1.id,
+        leaveTypeId: leaveType.json.id,
+        startDateAD: '2026-12-20',
+        endDateAD: '2026-12-20',
+      },
+      accountantToken
+    );
+    assert.equal(legacyRequest.status, 201, JSON.stringify(legacyRequest.json));
+    const legacyApproved = await post(
+      `/api/hr/leave-requests/${legacyRequest.json.id}/approve`,
+      {},
+      accountantToken
+    );
+    assert.equal(legacyApproved.status, 200, JSON.stringify(legacyApproved.json));
+    assert.equal(legacyApproved.json.status, 'APPROVED');
+    const afterLegacy = await balanceFor(emp1.id);
+    assert.equal(Number(afterLegacy[0].usedDays), 1);
+    assert.equal(Number(afterLegacy[0].remainingDays), 11);
+
+    assert.equal((await post('/api/hr/leave-requests', { employeeId: 'missing-employee', leaveTypeId: leaveType.json.id, startDateAD: '2026-12-01', endDateAD: '2026-12-01' })).status, 404);
+  });
+
+  test('payroll inputs: payable, LOP and OT derive from attendance and approved leave', async () => {
+    const officerToken = issueAuthToken({
+      ...ADMIN,
+      id: 'pay-pi-officer',
+      email: 'pay-pi-officer@example.com',
+      name: 'PAY Payroll Inputs Officer',
+      role: 'HR_OFFICER',
+    });
+    const accountantToken = issueAuthToken({
+      ...ADMIN,
+      id: 'pay-pi-accountant',
+      email: 'pay-pi-accountant@example.com',
+      name: 'PAY Payroll Inputs Accountant',
+      role: 'ACCOUNTANT',
+    });
+    const period = 'from=2026-07-01&to=2026-07-31';
+
+    // 1. One paid and one unpaid leave type, each with a 2026 balance.
+    const paidType = await post('/api/hr/leave-types', {
+      name: 'PAY Test Payroll Paid Leave',
+      code: 'PAYT-PI-PAID',
+      annualQuotaDays: 30,
+      isPaid: true,
+    });
+    assert.equal(paidType.status, 201, JSON.stringify(paidType.json));
+    const unpaidType = await post('/api/hr/leave-types', {
+      name: 'PAY Test Payroll Unpaid Leave',
+      code: 'PAYT-PI-UNPAID',
+      annualQuotaDays: 10,
+      isPaid: false,
+    });
+    assert.equal(unpaidType.status, 201, JSON.stringify(unpaidType.json));
+    for (const type of [paidType, unpaidType]) {
+      const balance = await post('/api/hr/leave-balances', {
+        employeeId: emp1.id,
+        leaveTypeId: type.json.id,
+        balanceYear: 2026,
+        entitlementDays: 30,
+      });
+      assert.equal(balance.status, 201, JSON.stringify(balance.json));
+    }
+
+    // 2. The July register: present (with OT), absent, half day, holiday,
+    //    weekend, a LEAVE-coded day and a present day covered by leave.
+    const attendanceDays: Array<[string, string, number]> = [
+      ['2026-07-01', 'PRESENT', 2],
+      ['2026-07-02', 'PRESENT', 1.5],
+      ['2026-07-03', 'ABSENT', 0],
+      ['2026-07-04', 'HALF_DAY', 1],
+      ['2026-07-05', 'HOLIDAY', 0],
+      ['2026-07-06', 'WEEKEND', 0],
+      ['2026-07-08', 'LEAVE', 0],
+      ['2026-07-16', 'PRESENT', 0],
+    ];
+    for (const [date, status, ot] of attendanceDays) {
+      const saved = await post('/api/hr/attendance', {
+        employeeId: emp1.id,
+        attendanceDateAD: date,
+        status,
+        overtimeHours: ot,
+      });
+      assert.equal(saved.status, 201, `${date}: ${JSON.stringify(saved.json)}`);
+    }
+
+    // 3. Approved leave: paid inside the period, unpaid inside, a request that
+    //    starts before the period, one that ends after it, and one whose days
+    //    are already covered by attendance. Pending and rejected stay out.
+    const requestLeave = async (typeId: string, start: string, end: string) => {
+      const saved = await post('/api/hr/leave-requests', {
+        employeeId: emp1.id,
+        leaveTypeId: typeId,
+        startDateAD: start,
+        endDateAD: end,
+      });
+      assert.equal(saved.status, 201, JSON.stringify(saved.json));
+      return saved;
+    };
+    const approve = async (id: string) => {
+      const approved = await post(`/api/hr/leave-requests/${id}/approve`, {});
+      assert.equal(approved.status, 200, JSON.stringify(approved.json));
+    };
+
+    const paidInside = await requestLeave(paidType.json.id, '2026-07-10', '2026-07-11');
+    await approve(paidInside.json.id);
+    const unpaidInside = await requestLeave(unpaidType.json.id, '2026-07-13', '2026-07-14');
+    await approve(unpaidInside.json.id);
+    // 3 days, but only 1 July day falls in the period and that day already has
+    // an attendance row: it must contribute zero, not one and not three.
+    const startsBefore = await requestLeave(paidType.json.id, '2026-06-29', '2026-07-01');
+    await approve(startsBefore.json.id);
+    // 2 of its 4 days fall in July (30–31) and both are unrecorded.
+    const endsAfter = await requestLeave(paidType.json.id, '2026-07-30', '2026-08-02');
+    await approve(endsAfter.json.id);
+    // 16 July has attendance; only 17 July is filled by this request.
+    const partlyRecorded = await requestLeave(paidType.json.id, '2026-07-16', '2026-07-17');
+    await approve(partlyRecorded.json.id);
+    const pending = await requestLeave(paidType.json.id, '2026-07-20', '2026-07-20');
+    assert.equal(pending.json.status, 'PENDING');
+    const rejected = await requestLeave(paidType.json.id, '2026-07-22', '2026-07-22');
+    assert.equal(
+      (await post(`/api/hr/leave-requests/${rejected.json.id}/reject`, {})).status,
+      200
+    );
+
+    // 4. The derivation: 3 present + 0.5 half + 1 attendance leave + 1 holiday
+    //    + 1 weekend + (2 + 2 + 1) paid leave = 11.5 payable; 1 absent + 0.5
+    //    half + 2 unpaid leave = 3.5 LOP; 4.5 OT hours.
+    const inputs = await get(
+      `/api/hr/payroll-inputs?branchId=${BR}&${period}&employeeId=${emp1.id}`
+    );
+    assert.equal(inputs.status, 200, JSON.stringify(inputs.json));
+    const row = inputs.json.find((entry: any) => entry.employeeId === emp1.id);
+    assert.ok(row, 'the employee must have a payroll-input row');
+    assert.equal(row.employeeCode, 'PAYT-001');
+    assert.equal(row.branchId, BR);
+    assert.equal(Number(row.presentDays), 3);
+    assert.equal(Number(row.halfDays), 1);
+    assert.equal(Number(row.absentDays), 1);
+    assert.equal(Number(row.attendanceLeaveDays), 1);
+    assert.equal(Number(row.holidayDays), 1);
+    assert.equal(Number(row.weekendDays), 1);
+    assert.equal(Number(row.paidLeaveDays), 5, 'approved paid leave, clipped and not double-counted');
+    assert.equal(Number(row.unpaidLeaveDays), 2);
+    assert.equal(Number(row.payableDays), 11.5);
+    assert.equal(Number(row.lopDays), 3.5);
+    assert.equal(Number(row.overtimeHours), 4.5);
+
+    // A second employee with no July data still gets a zero row: September
+    // attendance must stay outside the July period.
+    const other = await get(
+      `/api/hr/payroll-inputs?branchId=${BR}&${period}&employeeId=${emp2.id}`
+    );
+    assert.equal(other.status, 200, JSON.stringify(other.json));
+    assert.equal(other.json.length, 1);
+    assert.equal(Number(other.json[0].payableDays), 0);
+    assert.equal(Number(other.json[0].lopDays), 0);
+    assert.equal(Number(other.json[0].overtimeHours), 0);
+
+    const roster = await get(`/api/hr/payroll-inputs?branchId=${BR}&${period}`);
+    assert.equal(roster.status, 200, JSON.stringify(roster.json));
+    assert.ok(roster.json.some((entry: any) => entry.employeeId === emp1.id));
+    assert.ok(roster.json.some((entry: any) => entry.employeeId === emp2.id));
+
+    for (const [label, query] of [
+      ['missing from', `to=2026-07-31`],
+      ['missing to', `from=2026-07-01`],
+      ['reversed period', `from=2026-08-01&to=2026-07-01`],
+      ['impossible date', `from=2026-02-30&to=2026-03-01`],
+      ['over one year', `from=2026-01-01&to=2027-12-31`],
+    ] as Array<[string, string]>) {
+      const refused = await get(`/api/hr/payroll-inputs?branchId=${BR}&${query}`);
+      assert.equal(refused.status, 400, `${label}: ${JSON.stringify(refused.json)}`);
+    }
+    assert.equal(
+      (await get(`/api/hr/payroll-inputs?branchId=${BR}&${period}&employeeId=no-such-employee`)).status,
+      404
+    );
+
+    // 5. Branch scope: another branch's employee is invisible to a scoped
+    //    manager, and a named out-of-scope employee is refused, not blanked.
+    await pool!.query(
+      `INSERT INTO branches (id, code, name, location) VALUES ($1, 'PAYPI', 'PAY Payroll Inputs Branch', 'Test')
+       ON CONFLICT (id) DO NOTHING`,
+      [PI_BRANCH]
+    );
+    const outsideEmployee = await post('/api/employees', {
+      ...employeeBody('PAYT-960', 'Pay Test Payroll Branch'),
+      branchId: PI_BRANCH,
+    });
+    assert.equal(outsideEmployee.status, 201, JSON.stringify(outsideEmployee.json));
+    const outsideDay = await post('/api/hr/attendance', {
+      employeeId: outsideEmployee.json.id,
+      attendanceDateAD: '2026-07-07',
+      status: 'PRESENT',
+      overtimeHours: 2,
+    });
+    assert.equal(outsideDay.status, 201, JSON.stringify(outsideDay.json));
+
+    const scopedToken = issueAuthToken({
+      ...ADMIN,
+      id: 'pay-pi-manager',
+      email: 'pay-pi-manager@example.com',
+      name: 'PAY Payroll Inputs Manager',
+      role: 'HR_MANAGER',
+      branchId: BR,
+      allowedBranchIds: [BR],
+    });
+    assert.equal(
+      (await get(`/api/hr/payroll-inputs?branchId=${PI_BRANCH}&${period}`, scopedToken)).status,
+      403
+    );
+    assert.equal(
+      (
+        await get(
+          `/api/hr/payroll-inputs?${period}&employeeId=${outsideEmployee.json.id}`,
+          scopedToken
+        )
+      ).status,
+      403
+    );
+    const scopedRoster = await get(`/api/hr/payroll-inputs?${period}`, scopedToken);
+    assert.equal(scopedRoster.status, 200, JSON.stringify(scopedRoster.json));
+    assert.ok(scopedRoster.json.length > 0);
+    assert.ok(scopedRoster.json.every((entry: any) => entry.branchId === BR));
+    assert.ok(!scopedRoster.json.some((entry: any) => entry.employeeCode === 'PAYT-960'));
+    const globalOutside = await get(`/api/hr/payroll-inputs?branchId=${PI_BRANCH}&${period}`);
+    assert.equal(globalOutside.status, 200, JSON.stringify(globalOutside.json));
+    const outsideRow = globalOutside.json.find(
+      (entry: any) => entry.employeeId === outsideEmployee.json.id
+    );
+    assert.ok(outsideRow);
+    assert.equal(Number(outsideRow.payableDays), 1);
+    assert.equal(Number(outsideRow.overtimeHours), 2);
+
+    // 6. Read grants: the view-only officer and the legacy payroll manager can
+    //    read the projection; it has no write surface to gate.
+    const auditsBeforeReads = await jobCount('audit_logs', 'branch_id = $1', [BR]);
+    assert.equal((await get(`/api/hr/payroll-inputs?branchId=${BR}&${period}`, officerToken)).status, 200);
+    assert.equal(
+      (await get(`/api/hr/payroll-inputs?branchId=${BR}&${period}`, accountantToken)).status,
+      200
+    );
+    assert.equal((await post('/api/hr/payroll-inputs', {}, officerToken)).status, 404);
+    assert.equal((await post('/api/hr/payroll-inputs', {})).status, 404);
+
+    // Reads must not write: the projection is derived, and no audit row is
+    // created by any of the calls above.
+    assert.equal(
+      await jobCount('audit_logs', 'branch_id = $1', [BR]),
+      auditsBeforeReads,
+      'a read-only projection never writes an audit row'
+    );
   });
 });

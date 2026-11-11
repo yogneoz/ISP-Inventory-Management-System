@@ -162,6 +162,11 @@ const CashFlowRegister = React.lazy(() =>
 const CashBookRegister = React.lazy(() =>
   import('./features/finance/CashBookRegister').then((m) => ({ default: m.CashBookRegister }))
 );
+const RecurringCloseRegister = React.lazy(() =>
+  import('./features/finance/RecurringCloseRegister').then((m) => ({
+    default: m.RecurringCloseRegister,
+  }))
+);
 const AgingRegister = React.lazy(() =>
   import('./features/finance/AgingRegister').then((m) => ({ default: m.AgingRegister }))
 );
@@ -180,6 +185,11 @@ const CashBankEntry = React.lazy(() =>
 const PostedVouchers = React.lazy(() =>
   import('./features/finance/PostedVouchers').then((m) => ({ default: m.PostedVouchers }))
 );
+const PayrollPostingsRegister = React.lazy(() =>
+  import('./features/finance/PayrollPostingsRegister').then((m) => ({
+    default: m.PayrollPostingsRegister,
+  }))
+);
 const SubledgersManagement = React.lazy(() =>
   import('./features/finance/SubledgersManagement').then((m) => ({ default: m.SubledgersManagement }))
 );
@@ -188,6 +198,27 @@ const BillTermsManagement = React.lazy(() =>
 );
 const CostCentersManagement = React.lazy(() =>
   import('./features/finance/CostCentersManagement').then((m) => ({ default: m.CostCentersManagement }))
+);
+const EmployeeDirectory = React.lazy(() =>
+  import('./features/hr/EmployeeDirectory').then((m) => ({ default: m.EmployeeDirectory }))
+);
+const EmployeeSelfService = React.lazy(() => import('./features/hr/EmployeeSelfService'));
+const EmployeePayslips = React.lazy(() => import('./features/hr/EmployeePayslips'));
+const EmployeeLeave = React.lazy(() => import('./features/hr/EmployeeLeave'));
+const EmployeeAttendance = React.lazy(() => import('./features/hr/EmployeeAttendance'));
+const EmployeeDocuments = React.lazy(() => import('./features/hr/EmployeeDocuments'));
+const Recruitment = React.lazy(() => import('./features/hr/Recruitment'));
+const Performance = React.lazy(() => import('./features/hr/Performance'));
+const Lifecycle = React.lazy(() => import('./features/hr/Lifecycle'));
+const HrReports = React.lazy(() => import('./features/hr/HrReports'));
+const AttendanceLeave = React.lazy(() =>
+  import('./features/hr/AttendanceLeave').then((m) => ({ default: m.AttendanceLeave }))
+);
+const OrgMasters = React.lazy(() =>
+  import('./features/hr/OrgMasters').then((m) => ({ default: m.OrgMasters }))
+);
+const Payroll = React.lazy(() =>
+  import('./features/hr/Payroll').then((m) => ({ default: m.Payroll }))
 );
 const NarrationTemplatesManagement = React.lazy(() =>
   import('./features/finance/NarrationTemplatesManagement').then((m) => ({ default: m.NarrationTemplatesManagement }))
@@ -2172,7 +2203,7 @@ export default function App() {
   if (!currentUser) {
     return (
       <div
-        className={`h-screen w-screen overflow-hidden font-sans flex flex-col antialiased transition-colors duration-200 bg-[#f0f2f5] text-slate-800 dark:bg-[#0a0c10] dark:text-slate-300`}
+        className="app-shell"
       >
         <LoginModal
           onLoginSuccess={async (email, pass) => {
@@ -2231,6 +2262,7 @@ export default function App() {
         financialSummary={financialSummary}
         categories={categories}
         selectedBranchId={selectedBranchId}
+        fiscalYearId={selectedFiscalYear?.id}
         fiscalYearStartAD={selectedFiscalYear?.startDateAD}
         fiscalYearEndAD={selectedFiscalYear?.endDateAD}
         sseRefreshKey={registerRefresh.transactionLog}
@@ -3323,6 +3355,11 @@ export default function App() {
         <CashBookRegister branches={branches} dateMode={dateMode} currentUser={currentUser} />
       </React.Suspense>
     )),
+    screenRoute('recurring-close', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <RecurringCloseRegister branches={branches} currentUser={currentUser} />
+      </React.Suspense>
+    )),
     screenRoute('accounting-aging', (
       <React.Suspense fallback={<TabLoadingFallback />}>
         <AgingRegister branches={branches} dateMode={dateMode} currentUser={currentUser} />
@@ -3345,6 +3382,11 @@ export default function App() {
           currentUser={currentUser}
           sseRefreshKey={registerRefresh.transactionLog}
         />
+      </React.Suspense>
+    )),
+    screenRoute('finance-payroll-postings', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <PayrollPostingsRegister branches={branches} currentUser={currentUser} />
       </React.Suspense>
     )),
     screenRoute('accounting-chart', (
@@ -3370,6 +3412,87 @@ export default function App() {
     screenRoute('cost-centers', (
       <React.Suspense fallback={<TabLoadingFallback />}>
         <CostCentersManagement branches={branches} currentUser={currentUser} />
+      </React.Suspense>
+    )),
+    screenRoute('employees', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <EmployeeDirectory
+          branches={branches}
+          currentUser={currentUser}
+          selectedBranchId={selectedBranchId}
+        />
+      </React.Suspense>
+    )),
+    screenRoute('hr-self-service', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <EmployeeSelfService currentUser={currentUser} />
+      </React.Suspense>
+    )),
+    screenRoute('hr-self-payslips', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <EmployeePayslips currentUser={currentUser} />
+      </React.Suspense>
+    )),
+    screenRoute('hr-self-leave', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <EmployeeLeave currentUser={currentUser} />
+      </React.Suspense>
+    )),
+    screenRoute('hr-self-attendance', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <EmployeeAttendance currentUser={currentUser} />
+      </React.Suspense>
+    )),
+    screenRoute('hr-self-documents', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <EmployeeDocuments currentUser={currentUser} />
+      </React.Suspense>
+    )),
+    screenRoute('hr-attendance', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <AttendanceLeave
+          branches={branches}
+          currentUser={currentUser}
+          selectedBranchId={selectedBranchId}
+        />
+      </React.Suspense>
+    )),
+    screenRoute('hr-payroll', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <Payroll currentUser={currentUser} fiscalYears={fiscalYears} branches={branches} />
+      </React.Suspense>
+    )),
+    screenRoute('hr-reports', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <HrReports currentUser={currentUser} />
+      </React.Suspense>
+    )),
+    screenRoute('hr-recruitment', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <Recruitment
+          currentUser={currentUser}
+          branches={branches}
+          selectedBranchId={selectedBranchId}
+        />
+      </React.Suspense>
+    )),
+    screenRoute('hr-performance', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <Performance
+          currentUser={currentUser}
+          branches={branches}
+          selectedBranchId={selectedBranchId}
+        />
+      </React.Suspense>
+    )),
+    screenRoute('hr-lifecycle', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <Lifecycle user={currentUser} branchId={selectedBranchId} />
+      </React.Suspense>
+    )),
+    screenRoute('hr-org-masters', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <OrgMasters currentUser={currentUser} />
       </React.Suspense>
     )),
     screenRoute('narration-templates', (

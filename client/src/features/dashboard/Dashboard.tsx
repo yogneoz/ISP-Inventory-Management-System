@@ -45,6 +45,10 @@ import {
   CalendarClock,
 } from 'lucide-react';
 
+const DashboardBudgetAlerts = React.lazy(() =>
+  import('./DashboardBudgetAlerts').then((module) => ({ default: module.DashboardBudgetAlerts }))
+);
+
 interface DashboardProps {
   currentUser?: User | null;
   products: Product[];
@@ -55,6 +59,7 @@ interface DashboardProps {
   financialSummary: FinancialSummary;
   categories: Category[];
   selectedBranchId: string;
+  fiscalYearId?: string;
   fiscalYearStartAD?: string;
   fiscalYearEndAD?: string;
   /** Bumped by App on every domain that writes transaction_logs. */
@@ -87,6 +92,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   financialSummary,
   categories,
   selectedBranchId,
+  fiscalYearId,
   fiscalYearStartAD,
   fiscalYearEndAD,
   sseRefreshKey = 0,
@@ -105,6 +111,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // same assets-view operation, so roles outside finance neither fetch nor
   // render the card.
   const canViewAssets = isOperationAllowed('assets-view', currentUser?.role);
+  const canViewBudgetAlerts = isOperationAllowed('gl-view', currentUser?.role);
   // BS calendar coverage: the seeded Nepali calendar must always run AHEAD of
   // the dates operations use — the day the last mapped BS day passes, every
   // dated operation (invoice, receipt, payment, stock op) is refused until an
@@ -462,6 +469,23 @@ export const Dashboard: React.FC<DashboardProps> = ({
           hint={`${activeShipmentCount} Active Shipments`}
         />
       </div>
+
+      {/* Budget overspend alerts — finance-only, fetched from the same
+          fiscal-year/branch/window predicates as Budget vs actual. The lazy
+          chunk keeps the eager dashboard entry inside its bundle budget. */}
+      {canViewBudgetAlerts && (
+        <React.Suspense fallback={null}>
+          <DashboardBudgetAlerts
+            branches={branches}
+            selectedBranchId={selectedBranchId}
+            fiscalYearId={fiscalYearId}
+            fiscalYearStartAD={fiscalYearStartAD}
+            fiscalYearEndAD={fiscalYearEndAD}
+            sseRefreshKey={sseRefreshKey}
+            onNavigateTab={onNavigateTab}
+          />
+        </React.Suspense>
+      )}
 
       {/* 1. LOW STOCK & REORDER ALERTS (Consolidated Total - Top Priority) */}
       <div className={`rounded-2xl border shadow-xs overflow-hidden ${cardBg}`}>

@@ -568,6 +568,11 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
       ? (await pool!.query("SELECT id, status FROM gl_periods WHERE period_key = $1 ORDER BY start_date_ad DESC LIMIT 1", [PERIOD_KEY])).rows[0]
       : null;
     if (existing) {
+      if (existing.status === 'CLOSED') {
+        const reset = await post(`/api/accounting/periods/${existing.id}/reopen`, tokens.super, {});
+        assert.equal(reset.status, 200, JSON.stringify(reset.json));
+        existing.status = 'OPEN';
+      }
       assert.equal(existing.status, 'OPEN', 'the seeded period must start open');
     } else {
       assert.equal(opened.status, 201, JSON.stringify(opened.json));
@@ -577,7 +582,9 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
     }
     const periodId = existing ? existing.id : opened.json.id;
 
-    const closed = await post(`/api/accounting/periods/${periodId}/close`, tokens.super, {});
+    const closed = await post(`/api/accounting/periods/${periodId}/close`, tokens.super, {
+      overrideReason: 'ACC TEST close without checklist',
+    });
     assert.equal(closed.status, 200);
     assert.equal(closed.json.status, 'CLOSED');
     assert.ok(closed.json.closedAt);

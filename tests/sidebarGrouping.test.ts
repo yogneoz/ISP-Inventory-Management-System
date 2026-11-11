@@ -1,8 +1,8 @@
 /**
- * Sidebar information architecture — the eight-group navigation restructure.
+ * Sidebar information architecture — the nine-group navigation restructure.
  *
  * PROVES:
- *   1. Eight domain groups, in work order, each with its own visible sections
+ *   1. Nine domain groups, in work order, each with its own visible sections
  *      and items (Super Admin view).
  *   2. No tab has two homes: a duplicate would mark two rows current.
  *   3. Branch Operations is gone; its items are inventory registers/forms,
@@ -134,11 +134,19 @@ const EXPECTED: Record<string, { sections: string[]; items: string[] }> = {
   finance: {
     sections: ['Entries', 'Statements & ledgers', 'Tax & assets'],
     items: [
-      'journal-entry', 'cash-bank-entry', 'posted-vouchers',
+      'journal-entry', 'cash-bank-entry', 'posted-vouchers', 'finance-payroll-postings',
       'accounting', 'accounting-profit-loss', 'accounting-balance-sheet', 'accounting-cash-flow',
-      'accounting-cash-book', 'accounting-aging',
+      'accounting-cash-book', 'recurring-close', 'accounting-aging',
       'cash-position', 'vendor-ledger', 'customer-ledger', 'vendor-opening-balances',
       'vat-register', 'fixed-assets', 'depreciation-register',
+    ],
+  },
+  people: {
+    sections: ['People'],
+    items: [
+      'hr-self-service', 'hr-self-payslips', 'hr-self-leave', 'hr-self-attendance',
+      'hr-self-documents', 'employees', 'hr-attendance', 'hr-recruitment', 'hr-performance',
+      'hr-lifecycle', 'hr-payroll', 'hr-reports', 'hr-org-masters',
     ],
   },
   'inventory-setup': {
@@ -161,7 +169,7 @@ const EXPECTED: Record<string, { sections: string[]; items: string[] }> = {
 };
 
 describe('sidebar grouping', () => {
-  test('eight domain groups render in work order, each with its sections and items', () => {
+  test('nine domain groups render in work order, each with its sections and items', () => {
     const tree = render(admin);
     try {
       const wrappers = [...tree.container.querySelectorAll('[data-nav-group]')];

@@ -45,7 +45,9 @@ function parseSchemaSql(sqlText: string): TableColumns {
       const t = line.trim();
       if (!t || t.startsWith('--')) continue;
       // Table-level constraints never introduce a column.
-      if (/^(PRIMARY KEY|UNIQUE|CONSTRAINT|CHECK|FOREIGN KEY)/i.test(t)) continue;
+      // Match table-level constraints only. A bare /^CHECK/i also skipped real
+      // columns named check_in_time / check_out_time.
+      if (/^(PRIMARY KEY|UNIQUE\b|CONSTRAINT\b|CHECK\s*\(|FOREIGN KEY\b)/i.test(t)) continue;
       const cm = t.match(/^(\w+)\s+(.+?),?$/);
       if (cm && !['PRIMARY', 'UNIQUE', 'CONSTRAINT', 'FOREIGN', 'CHECK'].includes(cm[1].toUpperCase())) {
         cols.add(cm[1].toLowerCase());
@@ -76,10 +78,10 @@ describe('schema.sql vs live database drift guard', () => {
     if (pool) await pool.end();
   });
 
-  test('schema.sql exists and parses to the expected 58 tables', () => {
+  test('schema.sql exists and parses to the expected 95 tables', () => {
     const sqlText = fs.readFileSync(SCHEMA_SQL_PATH, 'utf8');
     const tables = parseSchemaSql(sqlText);
-    assert.equal(Object.keys(tables).length, 58, 'schema.sql should declare exactly 58 tables');
+    assert.equal(Object.keys(tables).length, 95, 'schema.sql should declare exactly 95 tables');
   });
 
   test('every live database column is declared in a schema.sql CREATE TABLE block', async () => {

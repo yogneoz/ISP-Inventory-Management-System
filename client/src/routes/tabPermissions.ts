@@ -12,6 +12,8 @@ import type { User } from '../types';
 import type { NavTab } from '../components/layout/Sidebar';
 import { isOperationAllowed } from '../utils/permissions';
 
+const HR_VIEW = ['hr-employee-view', 'gl-payroll-manage'];
+
 /** RBAC operations a tab requires; a missing entry means no operation gate. */
 export const TAB_PERMISSIONS: Record<string, string | string[]> = {
   'create-po': 'po-create',
@@ -42,12 +44,37 @@ export const TAB_PERMISSIONS: Record<string, string | string[]> = {
   'fixed-assets': 'assets-view',
   'depreciation-register': 'assets-view',
   approvals: ['workflow-approval', 'workflow-approval-cancel'],
+  // Read with the HR view grant; legacy payroll managers keep access.
+  employees: HR_VIEW,
+  // Own-record self-service: any role holding the ESS grant, independent of
+  // the employee-master and Finance payroll grants.
+  'hr-self-service': 'hr-self-service',
+  'hr-self-payslips': 'hr-self-service',
+  'hr-self-leave': 'hr-self-service',
+  'hr-self-attendance': 'hr-self-service',
+  'hr-self-documents': 'hr-self-service',
+  'hr-attendance': ['hr-employee-view', 'hr-attendance-manage', 'gl-payroll-manage'],
+  // Salary is employee master data; the legacy payroll grant still opens it.
+  'hr-payroll': ['hr-employee-view', 'hr-employee-manage', 'gl-payroll-manage'],
+  // Read-only aggregates; same read grant as the employee directory.
+  'hr-reports': HR_VIEW,
+  // The pipeline is readable with the HR view grant; write controls inside the
+  // screen stay behind hr-employee-manage / the legacy payroll grant.
+  'hr-recruitment': HR_VIEW,
+  // Appraisals share the recruitment read/write split; sign-off is refused
+  // server-side without the manage grant even if the tab is open.
+  'hr-performance': HR_VIEW,
+  // Lifecycle reads share the HR view grant; asset/account actions are
+  // rechecked server-side against the manage grant.
+  'hr-lifecycle': HR_VIEW,
+  'hr-org-masters': ['hr-employee-manage', 'gl-payroll-manage'],
   'workflow-approval': ['workflow-approval', 'workflow-approval-cancel'],
   accounting: 'gl-view',
   'accounting-profit-loss': 'gl-view',
   'accounting-balance-sheet': 'gl-view',
   'accounting-cash-flow': 'gl-view',
   'accounting-cash-book': 'gl-view',
+  'recurring-close': 'gl-view',
   'accounting-aging': 'gl-view',
   // Entry forms are operation screens: a reader without gl-post cannot post,
   // so the screen is not offered at all. The read-only result lives on
@@ -55,6 +82,7 @@ export const TAB_PERMISSIONS: Record<string, string | string[]> = {
   'journal-entry': 'gl-post',
   'cash-bank-entry': 'gl-post',
   'posted-vouchers': 'gl-view',
+  'finance-payroll-postings': 'gl-view',
   // Accounting masters are management screens; each is gated by the operation
   // that its buttons actually require.
   'accounting-chart': 'gl-chart-manage',

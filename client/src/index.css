@@ -6,6 +6,10 @@
    that we are migrating to class-based dark mode. */
 @custom-variant dark (&:where(.dark, .dark *));
 
+.app-shell {
+  @apply h-screen w-screen overflow-hidden font-sans flex flex-col antialiased transition-colors duration-200 bg-[#f0f2f5] text-slate-800 dark:bg-[#0a0c10] dark:text-slate-300;
+}
+
 /* =====================================================================
    RESPONSIVE DENSITY — proportional zoom for smaller displays
    ---------------------------------------------------------------------

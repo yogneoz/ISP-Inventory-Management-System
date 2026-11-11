@@ -10,6 +10,7 @@
 // ============================================================================
 import crypto from 'node:crypto';
 import { buildBsDayRecordsForYear, DEFAULT_BS_YEARS_SERVER } from '../../server/src/config/bsCalendar';
+import { COST_CENTER_BY_EXPENSE_ACCOUNT } from './verificationDataset';
 import type { VerificationDataset } from './verificationDataset';
 
 /** Bcrypt-compatible-with-the-server scrypt format: scrypt$<salt>$<hex>. */
@@ -58,6 +59,33 @@ async function insertRows(client: any, table: string, columns: string[], rows: a
   }
 }
 
+/**
+ * Backfills the demo expense lines that predate the cost-centre tags.
+ * Fresh seeds already carry the tag in their line rows; this also makes a
+ * `--keep-data` reseed and an existing demo database idempotent. It only fills
+ * NULL tags, so an operator's own classification is never overwritten.
+ */
+export async function backfillDemoCostCenterTags(client: any): Promise<number> {
+  const entries = Object.entries(COST_CENTER_BY_EXPENSE_ACCOUNT);
+  if (entries.length === 0) return 0;
+  const values = entries.map((_, index) => `($${index * 2 + 1}, $${index * 2 + 2})`).join(', ');
+  const result = await client.query(
+    `UPDATE gl_journal_lines l
+        SET cost_center_id = m.cost_center_id
+       FROM gl_accounts a
+       JOIN gl_account_groups g ON g.id = a.group_id
+       JOIN (VALUES ${values}) AS m(account_code, cost_center_id) ON m.account_code = a.code
+       JOIN cost_centers cc ON cc.id = m.cost_center_id
+      WHERE l.account_id = a.id
+        AND g.account_type = 'EXPENSE'
+        AND l.cost_center_id IS NULL
+        AND cc.active
+        AND (cc.branch_id IS NULL OR cc.branch_id = l.branch_id)`,
+    entries.flat()
+  );
+  return result.rowCount || 0;
+}
+
 export async function applyVerificationSeed(client: any, dataset: VerificationDataset): Promise<Record<string, number>> {
   const summary: Record<string, number> = {};
   const count = (key: string, rows: any[]) => {
@@ -83,6 +111,13 @@ export async function applyVerificationSeed(client: any, dataset: VerificationDa
       id: b.id, code: b.code, name: b.name, location: b.location, phone: b.phone,
       is_headquarters: b.isHeadquarters, active: b.active, allow_procurement: b.allowProcurement,
       allow_warehouse_transfer: b.allowWarehouseTransfer, is_demo: b.isDemo,
+    })));
+
+  await insertRows(client, 'cost_centers',
+    ['id', 'code', 'name', 'parent_id', 'branch_id', 'active', 'is_demo'],
+    count('costCenters', dataset.costCenters).map((center) => ({
+      id: center.id, code: center.code, name: center.name, parent_id: center.parentId,
+      branch_id: center.branchId, active: center.active, is_demo: center.isDemo,
     })));
 
   await insertRows(client, 'fiscal_years',
@@ -383,12 +418,16 @@ export async function applyVerificationSeed(client: any, dataset: VerificationDa
     lineNumbers.set(line.journalId, next);
     return {
       id: line.id, journal_id: line.journalId, line_no: next, account_id: `gla-${line.accountCode}`,
-      branch_id: line.branchId, debit: line.debit, credit: line.credit, memo: line.memo,
+      branch_id: line.branchId, cost_center_id: line.costCenterId || null,
+      debit: line.debit, credit: line.credit, memo: line.memo,
     };
   });
   await insertRows(client, 'gl_journal_lines',
-    ['id', 'journal_id', 'line_no', 'account_id', 'branch_id', 'debit', 'credit', 'memo'],
+    ['id', 'journal_id', 'line_no', 'account_id', 'branch_id', 'cost_center_id', 'debit', 'credit', 'memo'],
     count('journalLines', lineRows));
+  // Existing demo databases have the same lines without the analytical tag.
+  // The insert above skips them on conflict, so backfill NULLs separately.
+  summary.demoCostCenterTags = await backfillDemoCostCenterTags(client);
 
   await insertRows(client, 'gl_subledger_entries',
     ['id', 'journal_id', 'journal_line_id', 'account_id', 'subledger_id', 'subledger_type', 'party_id', 'party_name', 'branch_id', 'entry_date_ad', 'entry_date_bs', 'debit', 'credit'],

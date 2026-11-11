@@ -23,6 +23,9 @@
  *   4. BRANCH / CONSOLIDATED — a branch report contains only its branch, and
  *      the company roll-up equals the sum of the two branch control balances.
  *   5. GATES — gl-view, branch scope, type and date validation are enforced.
+ *   6. CONTROL — one AR control account agrees with its subledger for each
+ *      branch and company-wide. Set `ACCOUNTING_PROOF=1` to print the three
+ *      reconciliation responses used by the evidence run.
  */
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -90,6 +93,19 @@ describe('AR / AP aging API (real HTTP + throwaway PostgreSQL)', { skip: skipNoD
 
   const get = (pathName: string, token?: string) => request('GET', pathName, token);
   const post = (pathName: string, token: string | undefined, body: unknown) => request('POST', pathName, token, body);
+
+  async function rawGet(pathName: string, token?: string) {
+    const res = await fetch('http://127.0.0.1:' + port + pathName, {
+      headers: token ? { authorization: 'Bearer ' + token } : {},
+    });
+    return {
+      status: res.status,
+      contentType: res.headers.get('content-type'),
+      disposition: res.headers.get('content-disposition'),
+      cacheControl: res.headers.get('cache-control'),
+      text: await res.text(),
+    };
+  }
 
   function line(accountId: string, debit: number, credit: number, extra: Record<string, unknown> = {}) {
     return { accountId, debit, credit, ...extra };
@@ -419,6 +435,54 @@ describe('AR / AP aging API (real HTTP + throwaway PostgreSQL)', { skip: skipNoD
     );
   });
 
+  test('one AR control account agrees with its subledger in each branch and company-wide', async () => {
+    const branchA = await get(
+      `/api/accounting/reconciliations?accountId=${arId}&branchId=${BR_A}`,
+      tokens.super
+    );
+    const branchB = await get(
+      `/api/accounting/reconciliations?accountId=${arId}&branchId=${BR_B}`,
+      tokens.super
+    );
+    const company = await get(`/api/accounting/reconciliations?accountId=${arId}`, tokens.super);
+
+    for (const [label, response] of [['branch A', branchA], ['branch B', branchB], ['company', company]] as const) {
+      assert.equal(response.status, 200, `${label}: ${JSON.stringify(response.json)}`);
+      assert.equal(response.json.accountId, arId, `${label} must use the same AR control account`);
+      assert.equal(
+        response.json.glBalance,
+        response.json.subledgerBalance,
+        `${label}: the control account and its subledger must agree`
+      );
+      assert.equal(response.json.difference, 0, `${label}: no control/subledger difference`);
+      assert.equal(response.json.status, 'RECONCILED', `${label}: reconciled`);
+    }
+
+    assert.equal(branchA.json.branchId, BR_A);
+    assert.equal(branchB.json.branchId, BR_B);
+    assert.equal(company.json.branchId, 'ALL');
+    assert.equal(branchA.json.glBalance, 600);
+    assert.equal(branchB.json.glBalance, 250);
+    assert.equal(company.json.glBalance, 850);
+    assert.equal(company.json.glBalance, branchA.json.glBalance + branchB.json.glBalance);
+    assert.equal(company.json.subledgerBalance, branchA.json.subledgerBalance + branchB.json.subledgerBalance);
+
+    // There is one AR control ledger in the chart; the branch reads are views
+    // over that same account, not separate per-branch AR accounts.
+    const controls = await throwaway!.pool.query(
+      `SELECT count(*)::int AS count FROM gl_accounts WHERE posting_role = 'AR_CONTROL'`
+    );
+    assert.equal(controls.rows[0].count, 1, 'the chart must hold exactly one AR control account');
+
+    if (process.env.ACCOUNTING_PROOF === '1') {
+      console.log('AR_CONTROL_PROOF ' + JSON.stringify({
+        branchA: branchA.json,
+        branchB: branchB.json,
+        company: company.json,
+      }));
+    }
+  });
+
   test('permission, branch scope and validation are enforced', async () => {
     assert.equal((await get('/api/accounting/aging?type=AR', tokens.frontdesk)).status, 403);
     const foreign = await get(`/api/accounting/aging?type=AR&branchId=${BR_B}`, tokens.accountantA);
@@ -438,5 +502,151 @@ describe('AR / AP aging API (real HTTP + throwaway PostgreSQL)', { skip: skipNoD
     assert.equal(empty.json.totals.reconciled, true);
 
     assert.equal((await get('/api/accounting/aging?type=AR')).status, 401);
+
+    // The forecast has the same gate and scope; a BALANCE_SHEET window also
+    // rejects a period start because the opening balance is an as-of figure.
+    assert.equal((await get('/api/accounting/statements/cash-flow/forecast', tokens.frontdesk)).status, 403);
+    const foreignForecast = await get(
+      `/api/accounting/statements/cash-flow/forecast?branchId=${BR_B}`,
+      tokens.accountantA
+    );
+    assert.equal(foreignForecast.status, 403, JSON.stringify(foreignForecast.json));
+    const withFrom = await get(
+      `/api/accounting/statements/cash-flow/forecast?asOf=${AS_OF}&from=2026-10-01`,
+      tokens.super
+    );
+    assert.equal(withFrom.status, 400, JSON.stringify(withFrom.json));
+    const negativeMinimum = await get(
+      `/api/accounting/statements/cash-flow/forecast?minCash=-1`,
+      tokens.super
+    );
+    assert.equal(negativeMinimum.status, 400, JSON.stringify(negativeMinimum.json));
+    const emptyForecast = await get('/api/accounting/statements/cash-flow/forecast', tokens.empty);
+    assert.equal(emptyForecast.status, 200, JSON.stringify(emptyForecast.json));
+    assert.equal(emptyForecast.json.openingCash, 0);
+    assert.deepEqual(emptyForecast.json.items, []);
+    assert.equal((await get('/api/accounting/statements/cash-flow/forecast')).status, 401);
+  });
+
+  test('forward forecast buckets AR/AP due items, opens at the statement closing and exports CSV', async () => {
+    // One late-October supplier bill falls into the first forecast week, so
+    // the week closes below the minimum even though the opening balance is
+    // above it. The metadata row supplies the real due date the aging join
+    // reads; the journal supplies the money and the control balance.
+    await throwaway!.pool.query(
+      `INSERT INTO purchase_invoices
+         (id, invoice_number, supplier_name, branch_id, invoice_date_ad, invoice_date_bs, due_date_ad, grand_total)
+       VALUES ('ag-ap-forecast', 'AG-AP-FORECAST', 'Forecast Supplier', $1, '2026-10-25', '2083-07-08', '2026-11-05', 500)`,
+      [BR_A]
+    );
+    await postInvoice({
+      type: 'AP',
+      id: 'ag-ap-forecast',
+      partyId: 'SUP-F',
+      partyName: 'Forecast Supplier',
+      branchId: BR_A,
+      invoiceDate: '2026-10-25',
+      dueDate: '2026-11-05',
+      amount: 500,
+    });
+
+    const statement = await get(
+      `/api/accounting/statements/cash-flow?to=${AS_OF}&branchId=${BR_A}`,
+      tokens.super
+    );
+    assert.equal(statement.status, 200, JSON.stringify(statement.json));
+
+    const forecastRes = await get(
+      `/api/accounting/statements/cash-flow/forecast?asOf=${AS_OF}&branchId=${BR_A}&weeks=4&minCash=800`,
+      tokens.super
+    );
+    assert.equal(forecastRes.status, 200, JSON.stringify(forecastRes.json));
+    const data = forecastRes.json;
+    assert.equal(data.statement, 'CASH_FLOW_FORECAST');
+    assert.equal(data.basis, 'WEEKLY');
+    assert.equal(data.branchId, BR_A);
+    assert.equal(data.asOf, AS_OF);
+    assert.equal(data.weeks, 4);
+    assert.equal(data.buckets.length, 4);
+
+    // The forecast opens where the cash-flow statement closes.
+    assert.equal(data.openingCash, 1200);
+    assert.equal(data.openingCash, statement.json.closingCash);
+
+    // AR: 700 gross - 100 unapplied credit; AP: 1,200 gross - 100 credit.
+    assert.equal(data.ar.grossTotal, 700);
+    assert.equal(data.ar.unappliedCredit, 100);
+    assert.equal(data.ar.total, 600);
+    assert.equal(data.ar.controlBalance, 600);
+    assert.equal(data.ar.reconciled, true);
+    assert.equal(data.ap.grossTotal, 1200);
+    assert.equal(data.ap.unappliedCredit, 100);
+    assert.equal(data.ap.total, 1100);
+    assert.equal(data.ap.controlBalance, 1100);
+    assert.equal(data.ap.reconciled, true);
+
+    // Every open charge and credit is due by 2026-11-02 or in W1
+    // (2026-11-03..2026-11-09), so W1 carries the whole forecast.
+    const first = data.buckets[0];
+    assert.equal(first.key, 'W1');
+    assert.equal(first.fromAD, '2026-11-03');
+    assert.equal(first.toAD, '2026-11-09');
+    assert.equal(first.receipts, 700);
+    assert.equal(first.customerCredits, 100);
+    assert.equal(first.inflows, 600);
+    assert.equal(first.payments, 1200);
+    assert.equal(first.supplierCredits, 100);
+    assert.equal(first.outflows, 1100);
+    assert.equal(first.netCashFlow, -500);
+    assert.equal(first.closingCash, 700);
+    assert.equal(first.belowMinimum, true);
+    assert.equal(data.netCashFlow, -500);
+    assert.equal(data.closingCash, 700);
+    assert.equal(data.minimumClosingCash, 700);
+    assert.equal(data.warning, true);
+    assert.equal(data.firstBreach.bucketKey, 'W1');
+    assert.equal(data.firstBreach.closingCash, 700);
+
+    const forecastItem = data.items.find((item: any) => item.documentNo === 'AG-AP-FORECAST');
+    assert.ok(forecastItem, 'the late supplier bill must be in the item list');
+    assert.equal(forecastItem.source, 'AP');
+    assert.equal(forecastItem.direction, 'OUTFLOW');
+    assert.equal(forecastItem.dueDateAD, '2026-11-05');
+    assert.equal(forecastItem.bucketKey, 'W1');
+    assert.equal(forecastItem.bucketIndex, 0);
+    assert.equal(forecastItem.overdue, false);
+
+    const chargeKeys = data.items
+      .filter((item: any) => item.kind !== 'CREDIT')
+      .map((item: any) => `${item.source}:${item.documentNo}`);
+    assert.equal(
+      new Set(chargeKeys).size,
+      chargeKeys.length,
+      'each open charge must be assigned to exactly one bucket/item'
+    );
+    assert.ok(data.items.some((item: any) => item.kind === 'CREDIT' && item.source === 'AR'));
+    assert.ok(data.items.some((item: any) => item.kind === 'CREDIT' && item.source === 'AP'));
+
+    const lowMinimum = await get(
+      `/api/accounting/statements/cash-flow/forecast?asOf=${AS_OF}&branchId=${BR_A}&weeks=4&minCash=500`,
+      tokens.super
+    );
+    assert.equal(lowMinimum.status, 200, JSON.stringify(lowMinimum.json));
+    assert.equal(lowMinimum.json.warning, false);
+    assert.equal(lowMinimum.json.firstBreach, null);
+
+    const csv = await rawGet(
+      `/api/accounting/statements/cash-flow/forecast/export?asOf=${AS_OF}&branchId=${BR_A}&weeks=4&minCash=800`,
+      tokens.super
+    );
+    assert.equal(csv.status, 200);
+    assert.match(csv.contentType || '', /text\/csv/);
+    assert.equal(csv.disposition, 'attachment; filename="cash-flow-forecast-2026-11-02.csv"');
+    assert.equal(csv.cacheControl, 'private, no-store');
+    assert.match(csv.text, /^Cash-flow forecast/);
+    assert.match(csv.text, /Week,From,To,AR receipts,Customer credits,AP payments/);
+    assert.match(csv.text, /W1,2026-11-03,2026-11-09/);
+    assert.match(csv.text, /AG-AP-FORECAST/);
+    assert.match(csv.text, /AP tie-out/);
   });
 });

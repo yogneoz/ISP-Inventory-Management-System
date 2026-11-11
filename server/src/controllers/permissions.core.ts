@@ -7,7 +7,8 @@ import { requirePermission } from '../middleware';
 
 export const VALID_ROLES = new Set([
   'SUPER_ADMIN', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'FRONT_DESK',
-  'ACCOUNTANT', 'HEAD_OFFICE_ADMIN', 'PROCUREMENT_OFFICER', 'FIELD_TECHNICIAN', 'AUDITOR',
+  'ACCOUNTANT', 'HEAD_OFFICE_ADMIN', 'HR_MANAGER', 'HR_OFFICER',
+  'PROCUREMENT_OFFICER', 'FIELD_TECHNICIAN', 'AUDITOR',
 ]);
 
 export function validateRole(role: unknown): string {
