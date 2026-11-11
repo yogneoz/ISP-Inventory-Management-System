@@ -484,6 +484,9 @@ export const Header: React.FC<HeaderProps> = ({
                             const isSwitching = isSwitchingId === u.id;
                             const bName =
                               branches.find((b) => b.id === u.branchId)?.name || 'HQ';
+                            // The team list is the login-time snapshot; the signed-in
+                            // account's own photo is kept live above.
+                            const rowAvatar = isCurrent ? avatarPhoto || u.avatarUrl : u.avatarUrl;
 
                             return (
                               <button
@@ -510,8 +513,12 @@ export const Header: React.FC<HeaderProps> = ({
                                 }`}
                               >
                                 <div className="flex items-center gap-2 min-w-0">
-                                  <div className="h-7 w-7 rounded-lg bg-slate-200 dark:bg-slate-700 flex items-center justify-center font-bold text-[10px] text-slate-700 dark:text-slate-200 flex-shrink-0">
-                                    {u.name.split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase()}
+                                  <div className="h-7 w-7 overflow-hidden rounded-lg bg-slate-200 dark:bg-slate-700 flex items-center justify-center font-bold text-[10px] text-slate-700 dark:text-slate-200 flex-shrink-0">
+                                    {rowAvatar ? (
+                                      <img src={rowAvatar} alt="" className="h-full w-full object-cover" />
+                                    ) : (
+                                      u.name.split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase()
+                                    )}
                                   </div>
                                   <div className="min-w-0 flex-1">
                                     <div className="text-[11px] font-bold truncate leading-tight">{u.name}</div>

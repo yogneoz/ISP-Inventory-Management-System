@@ -215,8 +215,16 @@ export const ProfileSwitchModal: React.FC<ProfileSwitchModalProps> = ({
 
           <div className="flex items-center gap-4">
             <div className="relative">
-              <div className="h-16 w-16 rounded-2xl bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white text-2xl font-black font-serif shadow-lg border-2 border-white/20">
-                {currentUser.name.split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase()}
+              <div className="h-16 w-16 overflow-hidden rounded-2xl bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white text-2xl font-black font-serif shadow-lg border-2 border-white/20">
+                {currentUser.avatarUrl ? (
+                  <img
+                    src={currentUser.avatarUrl}
+                    alt=""
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  currentUser.name.split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase()
+                )}
               </div>
               <span className="absolute -bottom-1 -right-1 h-4 w-4 rounded-full bg-emerald-500 border-2 border-indigo-950 shadow-md" />
             </div>
@@ -338,6 +346,9 @@ export const ProfileSwitchModal: React.FC<ProfileSwitchModalProps> = ({
                       const isSwitching = switchingId === u.id;
                       const bName =
                         branches.find((b) => b.id === u.branchId)?.name || 'HQ / All Branches';
+                      // The list is the login-time snapshot; the signed-in user's
+                      // own photo may be newer (just saved on My Profile).
+                      const rowAvatar = isCurrent ? currentUser.avatarUrl || u.avatarUrl : u.avatarUrl;
 
                       return (
                         <div
@@ -349,8 +360,12 @@ export const ProfileSwitchModal: React.FC<ProfileSwitchModalProps> = ({
                           }`}
                         >
                           <div className="flex items-center gap-3 min-w-0 flex-1">
-                            <div className="h-10 w-10 rounded-xl bg-slate-100 dark:bg-slate-700 flex items-center justify-center font-bold text-slate-700 dark:text-slate-200 text-sm flex-shrink-0 group-hover:scale-105 transition-transform">
-                              {u.name.split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase()}
+                            <div className="h-10 w-10 overflow-hidden rounded-xl bg-slate-100 dark:bg-slate-700 flex items-center justify-center font-bold text-slate-700 dark:text-slate-200 text-sm flex-shrink-0 group-hover:scale-105 transition-transform">
+                              {rowAvatar ? (
+                                <img src={rowAvatar} alt="" className="h-full w-full object-cover" />
+                              ) : (
+                                u.name.split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase()
+                              )}
                             </div>
 
                             <div className="min-w-0 flex-1">

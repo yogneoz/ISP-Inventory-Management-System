@@ -296,8 +296,15 @@ export const BRANCH_DELETE_SQL = 'DELETE FROM branches WHERE id = $1';
 // Users
 // ---------------------------------------------------------------------------
 
-export const USER_SELECT_SQL =
-  'SELECT id, email, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser" FROM users ORDER BY created_at ASC';
+// `avatarUrl` is the linked employee's self-service photo, so the profile
+// picker can show a face instead of initials. LEFT JOIN: a login account with
+// no employee row (or no photo) simply returns NULL.
+export const USER_SELECT_SQL = `SELECT u.id, u.email, u.name, u.role,
+  u.branch_id AS "branchId", u.allowed_branch_ids AS "allowedBranchIds",
+  u.can_switch_user AS "canSwitchUser", e.profile_photo AS "avatarUrl"
+FROM users u
+LEFT JOIN employees e ON e.user_id = u.id
+ORDER BY u.created_at ASC`;
 
 export const USER_EXISTS_SQL = 'SELECT * FROM users WHERE id = $1';
 

@@ -347,12 +347,31 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
         className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 text-slate-900 shadow-2xl dark:border-slate-800 dark:bg-[#0f1218] dark:text-white"
       >
         <div className="mb-4 flex items-start justify-between gap-3">
-          <div>
-            <h3 className="text-base font-bold">F1 Employee Profile</h3>
-            <p className="mt-0.5 text-[11px] text-slate-500">
-              {employee.name} · <span className="font-mono">{employee.employeeCode}</span> · F1
-              Employee Detail Form
-            </p>
+          <div className="flex items-center gap-3">
+            {employee.profilePhoto ? (
+              <img
+                src={employee.profilePhoto}
+                alt=""
+                className="h-11 w-11 shrink-0 rounded-full border border-slate-200 object-cover dark:border-slate-700"
+              />
+            ) : (
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                {employee.name
+                  .split(/\s+/)
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((part) => part[0])
+                  .join('')
+                  .toUpperCase()}
+              </span>
+            )}
+            <div>
+              <h3 className="text-base font-bold">F1 Employee Profile</h3>
+              <p className="mt-0.5 text-[11px] text-slate-500">
+                {employee.name} · <span className="font-mono">{employee.employeeCode}</span> · F1
+                Employee Detail Form
+              </p>
+            </div>
           </div>
           <button
             onClick={onClose}
