@@ -11,6 +11,7 @@
  */
 import { pgPool } from '../../db';
 import { BOOTSTRAP_TABLES, CACHE_ONLY_TABLES, buildCacheSelectSql } from '../models/columnMappings';
+import { createCoalescingRunner } from '../utils/coalescingRunner';
 import {
   INITIAL_BILL_TERMS,
   INITIAL_COMPANY_PROFILE,
@@ -262,31 +263,70 @@ export async function hydrateOperationalData(client: any) {
   );
 }
 
-let refreshChain: Promise<void> = Promise.resolve();
+/**
+ * A pass slower than this is logged with its slowest loads. The cache fan-out
+ * runs on the write path (the response is flushed after it), so a regression
+ * here is a write-latency regression — this line is what makes that visible in
+ * the server log instead of only in a benchmark.
+ */
+export const CACHE_REFRESH_SLOW_PASS_MS = 250;
 
-export async function refreshOperationalCache(): Promise<void> {
-  if (!getPgConnected()) return;
-  const run = refreshChain.then(async () => {
-    try {
-      const client = await pgPool.connect();
+async function runCacheRefreshPass(): Promise<void> {
+  const startedAt = Date.now();
+  const timings: Array<{ name: string; ms: number }> = [];
+  const client = await pgPool.connect();
+  try {
+    for (const load of CACHE_LOADS) {
+      const loadStartedAt = Date.now();
       try {
-        for (const load of CACHE_LOADS) {
-          try {
-            const result = await client.query(load.query);
-            load.apply(result.rows);
-          } catch (e: any) {
-            console.warn(`Operational cache refresh skipped for ${load.name}:`, e?.message || e);
-          }
-        }
-      } finally {
-        client.release();
+        const result = await client.query(load.query);
+        load.apply(result.rows);
+      } catch (e: any) {
+        console.warn(`Operational cache refresh skipped for ${load.name}:`, e?.message || e);
       }
-    } catch (err: any) {
-      // Never crash a write because the follow-up read failed; the next
-      // write's refresh will converge the cache.
-      console.error('Operational cache refresh failed:', err?.message || err);
+      timings.push({ name: load.name, ms: Date.now() - loadStartedAt });
     }
-  });
-  refreshChain = run;
-  return run;
+  } finally {
+    client.release();
+  }
+
+  const totalMs = Date.now() - startedAt;
+  if (totalMs >= CACHE_REFRESH_SLOW_PASS_MS) {
+    const slowest = [...timings]
+      .sort((a, b) => b.ms - a.ms)
+      .slice(0, 3)
+      .map((entry) => `${entry.name} ${entry.ms}ms`)
+      .join(', ');
+    console.warn(
+      `Operational cache refresh took ${totalMs}ms across ${CACHE_LOADS.length} loads (slowest: ${slowest}).`
+    );
+  }
+}
+
+/**
+ * One coalescing runner for the whole process (utils/coalescingRunner).
+ *
+ * Replaces the old `refreshChain` that ran one full fan-out per write: callers
+ * that overlap share a pass, and a caller whose write landed mid-pass gets a
+ * trailing pass before its response is flushed, so a read after a write still
+ * never sees a pre-commit snapshot. Concurrent write bursts therefore cost two
+ * passes rather than one per write.
+ */
+const refreshRunner = createCoalescingRunner(async () => {
+  try {
+    await runCacheRefreshPass();
+  } catch (err: any) {
+    // Never crash a write because the follow-up read failed; the next write's
+    // refresh (or the trailing pass) converges the cache.
+    console.error('Operational cache refresh failed:', err?.message || err);
+  }
+}, getPgConnected);
+
+export function refreshOperationalCache(): Promise<void> {
+  return refreshRunner();
+}
+
+/** Refresh instrumentation (passes, coalesced calls, last duration). */
+export function getCacheRefreshStats() {
+  return refreshRunner.stats();
 }
