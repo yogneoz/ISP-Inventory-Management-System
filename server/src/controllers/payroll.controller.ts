@@ -42,6 +42,7 @@ import {
   EMPLOYEE_LEDGER_ACCOUNT_BALANCES_SQL,
   EMPLOYEE_LEDGER_ENTRIES_SQL,
   EMPLOYEE_SET_USER_SQL,
+  EMPLOYEE_PROFILE_PHOTO_SQL,
   EMPLOYEE_UPDATE_SQL,
   EMPLOYEE_USER_OPTIONS_SQL,
   HR_USER_BY_ID_SQL,
@@ -466,6 +467,10 @@ export async function post_employee(req: any, res: Response): Promise<any> {
   return res.status(201).json(employee);
 }
 
+/** Mirrors the client's PROFILE_PHOTO_MAX_BYTES; the self-service route enforces the same limit. */
+const EMPLOYEE_PHOTO_MAX_BYTES = 150 * 1024;
+const EMPLOYEE_PHOTO_DATA_URL = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
+
 /** PATCH /api/employees/:id */
 export async function patch_employee(req: any, res: Response): Promise<any> {
   requireDb();
@@ -480,6 +485,24 @@ export async function patch_employee(req: any, res: Response): Promise<any> {
     if (!assertInScope(scope, String(existing.branchId), res)) return null;
 
     const has = (key: string) => Object.prototype.hasOwnProperty.call(req.body || {}, key);
+    // Photo first: this statement is what can set NULL, and the COALESCE update
+    // below then returns the stored row with the new picture already in it.
+    if (has('profilePhoto')) {
+      const raw = req.body.profilePhoto;
+      if (raw !== null && raw !== undefined) {
+        if (typeof raw !== 'string' || !EMPLOYEE_PHOTO_DATA_URL.test(raw)) {
+          throw new ApiError(400, 'The profile photo must be a JPEG, PNG or WebP data URL.');
+        }
+        const base64 = raw.slice(raw.indexOf(',') + 1);
+        const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+        const bytes = Math.floor((base64.length * 3) / 4) - padding;
+        if (bytes > EMPLOYEE_PHOTO_MAX_BYTES) {
+          throw new ApiError(413, 'The profile photo is larger than 150 KB after resizing.');
+        }
+      }
+      await client.query(EMPLOYEE_PROFILE_PHOTO_SQL, [id, raw ?? null]);
+    }
+
     const nextJoiningDateAD = has('joiningDateAD')
       ? optionalDate(req.body.joiningDateAD, 'Joining date')
       : existing.joiningDateAD;

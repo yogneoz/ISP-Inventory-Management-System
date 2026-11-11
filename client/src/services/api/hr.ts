@@ -100,6 +100,8 @@ export interface EmployeeInput {
   bankAccount?: string | null;
   monthlySalary?: number | null;
   isActive?: boolean;
+  /** Square JPEG data URL; null clears the picture. HR sets it for any employee. */
+  profilePhoto?: string | null;
 }
 
 export interface EmployeeQuery {

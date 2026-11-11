@@ -34,6 +34,37 @@ function canReadAuditLogs(user: any): boolean {
   // reveal the trail, and a deny must hide it even for a role that has it.
   return effectivePermission(user, 'admin-audit', permissionMatrix, userPermissionOverrides, userPermissionSetGrants);
 }
+
+/**
+ * The team list is other people's identities: names, e-mails, roles and
+ * branches. Only accounts that can act on another login need it — the profile
+ * switcher (`can_switch_user`) and user administration. Everyone else gets an
+ * empty array, so the list never rides the payload of a role that cannot use
+ * it. The employee picker those screens use reads
+ * GET /api/employees/user-options instead, which is manage-gated.
+ */
+function canReadUserList(user: any): boolean {
+  if (!user?.email) return false;
+  if (user.canSwitchUser) return true;
+  return effectivePermission(
+    user,
+    'admin-users',
+    permissionMatrix,
+    userPermissionOverrides,
+    userPermissionSetGrants
+  );
+}
+
+/**
+ * One guard for every place a `users` slice can leave the server: the full
+ * payload, the targeted live slice and the operational-cache fallback all
+ * answer with the same empty list when the caller cannot act on other logins.
+ */
+function gateUserSlice(key: string, value: unknown, req: any): unknown {
+  if (key !== 'users') return value;
+  return canReadUserList(getUserFromReq(req)) ? value : [];
+}
+
 /** Forwarded from bootstrap.routes.ts (get_bootstrap). */
 export async function get_bootstrap(req: any, res: Response): Promise<any> {
 const { branchId, fiscalYearId } = req.query;
@@ -145,7 +176,12 @@ const { branchId, fiscalYearId } = req.query;
         auditLogs: canReadAuditLogs(bootstrapUser) ? pgAuditLogs : [],
         financialSummary,
         suppliers: data.suppliers,
-        users: data.users,
+        // The team list is other people's identities: names, e-mails, roles and
+        // branches. Only accounts that can act on another login need it — the
+        // profile switcher (can_switch_user) and user administration. Everyone
+        // else gets an empty list; the employee picker they use reads
+        // GET /api/employees/user-options instead, which is manage-gated.
+        users: canReadUserList(bootstrapUser) ? data.users : [],
         approvalRequests: pgApprovalRequests,
         categories: data.categories,
         productGroups: data.productGroups,
@@ -366,7 +402,7 @@ export async function get_bootstrapLocal(req: any, res: Response): Promise<any> 
     try {
       const slice = await fetchBootstrapSlice(pgPool, key, scopeParams);
       if (slice !== undefined) {
-        return res.json({ dataVersion: getDataVersion(), [key]: slice });
+        return res.json({ dataVersion: getDataVersion(), [key]: gateUserSlice(key, slice, req) });
       }
     } catch (sliceErr: any) {
       // No table mapping for this key (or the live read failed): fall back
@@ -386,7 +422,10 @@ export async function get_bootstrapLocal(req: any, res: Response): Promise<any> 
     const data = await fetchOperationalData(pgPool, scope as any);
     const operationalSlice = (data as any)[key];
     if (operationalSlice !== undefined) {
-      return res.json({ dataVersion: getDataVersion(), [key]: operationalSlice });
+      return res.json({
+        dataVersion: getDataVersion(),
+        [key]: gateUserSlice(key, operationalSlice, req),
+      });
     }
 
     // Last resort: the operational cache mirrors (covers unmapped keys).
@@ -403,7 +442,10 @@ export async function get_bootstrapLocal(req: any, res: Response): Promise<any> 
       assets: assetRegister,
       auditLogs: auditTrail,
     };
-    return res.json({ dataVersion: getDataVersion(), [key]: cacheSlices[key] });
+    return res.json({
+      dataVersion: getDataVersion(),
+      [key]: gateUserSlice(key, cacheSlices[key], req),
+    });
   } catch (err: any) {
     res.status(500).json({ message: `Bootstrap local slice failed: ${err.message}` });
   }

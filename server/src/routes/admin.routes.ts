@@ -29,7 +29,11 @@ app.put('/api/users/:id', requirePermission('admin-users'), async (req, res, nex
 
 app.delete('/api/users/:id', requirePermission('admin-users'), async (req, res, next) => { delete_Id2(req as any, res as any).catch(next); });
 
-app.post('/api/users/:id/reset-password', async (req, res, next) => { post_resetPassword(req as any, res as any).catch(next); });
+// Resetting someone else's password is an administrative act: without this
+// gate any signed-in account could take over another login, including a
+// super-admin's. Own-password changes go through PUT /api/auth/profile, which
+// asks for the current password.
+app.post('/api/users/:id/reset-password', requirePermission('admin-users'), async (req, res, next) => { post_resetPassword(req as any, res as any).catch(next); });
 
 app.post('/api/admin/recalculate/fixed-assets', requireRole('SUPER_ADMIN'), async (req, res, next) => { post_fixedAssets(req as any, res as any).catch(next); });
 

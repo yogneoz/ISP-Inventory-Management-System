@@ -1270,7 +1270,6 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       'updateHrLifecycleChecklist',
     ],
     'hr/EmployeeDirectory.tsx': [
-      'createEmployee',
       'getEmployeeUserOptions',
       'getEmployees',
       'getHrOrgMasters',
@@ -1286,11 +1285,16 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     // The F1 profile dialog reads and writes one resource: the employee's
     // profile. It mounts per employee, so it re-fetches on open rather than
     // carrying a register key, and its two constants mirror the server bounds.
+    // The F1 profile dialog reads and writes the employee's profile and, since
+    // the two edit paths merged, the master fields it now owns (salary, linked
+    // login, active) through the same employee update endpoint.
     'hr/EmployeeProfileDialog.tsx': [
       'HR_BLOOD_GROUPS',
       'HR_PROFILE_MAX_ROWS',
+      'createEmployee',
       'getEmployeeProfile',
       'saveEmployeeProfile',
+      'updateEmployee',
     ],
     'hr/EmployeeImportDialog.tsx': ['importEmployees'],
     'hr/OrgMasters.tsx': ['createHrOrgMaster', 'getHrOrgMasters', 'updateHrOrgMaster'],

@@ -15,10 +15,8 @@ import {
   Briefcase,
   Building2,
   CalendarDays,
-  ClipboardList,
   Edit2,
   FileText,
-  Landmark,
   Link2,
   Mail,
   Phone,
@@ -26,13 +24,11 @@ import {
   Shield,
   UploadCloud,
   Users,
-  X,
 } from 'lucide-react';
 import { useActivationKey } from '../../components/common/KeepMounted';
 import { useDialog } from '../../components/common/DialogProvider';
 import { FilterCard } from '../../components/common/FilterCard';
 import { LoadStateNotice } from '../../components/common/LoadStateNotice';
-import { ModalPanel } from '../../components/common/ModalPanel';
 import { PageHeader } from '../../components/common/PageHeader';
 import { api } from '../../services/api';
 import type {
@@ -53,65 +49,6 @@ interface EmployeeDirectoryProps {
   selectedBranchId?: string;
 }
 
-interface EmployeeForm {
-  employeeCode: string;
-  name: string;
-  branchId: string;
-  userId: string;
-  department: string;
-  designation: string;
-  designationCode: string;
-  employmentType: string;
-  joiningDateAD: string;
-  dateOfBirthAD: string;
-  contractExpiryAD: string;
-  separationDateAD: string;
-  workStation: string;
-  address: string;
-  personalContact: string;
-  emergencyContactPerson: string;
-  emergencyContactNumber: string;
-  internalEmail: string;
-  personalEmail: string;
-  panNumber: string;
-  ssfNumber: string;
-  ssfEligible: boolean;
-  bankName: string;
-  bankAccount: string;
-  monthlySalary: string;
-  isActive: boolean;
-}
-
-const EMPTY_FORM: EmployeeForm = {
-  employeeCode: '',
-  name: '',
-  branchId: '',
-  userId: '',
-  department: '',
-  designation: '',
-  designationCode: '',
-  employmentType: '',
-  joiningDateAD: '',
-  dateOfBirthAD: '',
-  contractExpiryAD: '',
-  separationDateAD: '',
-  workStation: '',
-  address: '',
-  personalContact: '',
-  emergencyContactPerson: '',
-  emergencyContactNumber: '',
-  internalEmail: '',
-  personalEmail: '',
-  panNumber: '',
-  ssfNumber: '',
-  ssfEligible: false,
-  bankName: '',
-  bankAccount: '',
-  monthlySalary: '',
-  isActive: true,
-};
-
-const EMPLOYMENT_TYPES = ['Non-PB', 'Probation', 'Contract', 'Part-Time', 'Intern'];
 
 const formatMoney = (value: string | number | null): string => {
   if (value === null || value === '') return '—';
@@ -146,10 +83,7 @@ export const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({
   const [loadError, setLoadError] = useState('');
   const [branchFilter, setBranchFilter] = useState(initialBranch);
   const [search, setSearch] = useState('');
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editing, setEditing] = useState<EmployeeRecord | null>(null);
-  const [form, setForm] = useState<EmployeeForm>(EMPTY_FORM);
-  const [saving, setSaving] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
   const [userOptions, setUserOptions] = useState<EmployeeUserOption[]>([]);
   const [orgMasters, setOrgMasters] = useState<HrOrgMasterRecord[]>([]);
   const [documentsFor, setDocumentsFor] = useState<EmployeeRecord | null>(null);
@@ -220,123 +154,9 @@ export const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({
   }, [branchFilter, branches, currentUser?.branchId]);
 
   const openCreate = () => {
-    setEditing(null);
     void loadUserOptions();
-    setForm({ ...EMPTY_FORM, branchId: defaultBranchId });
-    setIsModalOpen(true);
+    setCreateOpen(true);
   };
-
-  const openEdit = (employee: EmployeeRecord) => {
-    setEditing(employee);
-    void loadUserOptions();
-    setForm({
-      employeeCode: employee.employeeCode,
-      name: employee.name,
-      branchId: employee.branchId,
-      userId: employee.userId || '',
-      department: employee.department || '',
-      designation: employee.designation || '',
-      designationCode: employee.designationCode || '',
-      employmentType: employee.employmentType || '',
-      joiningDateAD: employee.joiningDateAD || '',
-      dateOfBirthAD: employee.dateOfBirthAD || '',
-      contractExpiryAD: employee.contractExpiryAD || '',
-      separationDateAD: employee.separationDateAD || '',
-      workStation: employee.workStation || '',
-      address: employee.address || '',
-      personalContact: employee.personalContact || '',
-      emergencyContactPerson: employee.emergencyContactPerson || '',
-      emergencyContactNumber: employee.emergencyContactNumber || '',
-      internalEmail: employee.internalEmail || '',
-      personalEmail: employee.personalEmail || '',
-      panNumber: employee.panNumber || '',
-      ssfNumber: employee.ssfNumber || '',
-      ssfEligible: employee.ssfEligible,
-      bankName: employee.bankName || '',
-      bankAccount: employee.bankAccount || '',
-      monthlySalary: employee.monthlySalary === null ? '' : String(employee.monthlySalary),
-      isActive: employee.isActive,
-    });
-    setIsModalOpen(true);
-  };
-
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    const name = form.name.trim();
-    const employeeCode = form.employeeCode.trim().toUpperCase();
-    if (!name) {
-      alertDialog('An employee name is required.');
-      return;
-    }
-    if (!editing && !employeeCode) {
-      alertDialog('An employee code (HRMS ID) is required.');
-      return;
-    }
-    if (!editing && !form.branchId) {
-      alertDialog('Choose the branch this employee belongs to.');
-      return;
-    }
-    if (form.monthlySalary && Number(form.monthlySalary) < 0) {
-      alertDialog('Monthly salary cannot be negative.');
-      return;
-    }
-    if (
-      form.joiningDateAD &&
-      form.separationDateAD &&
-      form.separationDateAD < form.joiningDateAD
-    ) {
-      alertDialog('Separation date must be on or after the joining date.');
-      return;
-    }
-
-    const shared = {
-      name,
-      department: form.department.trim() || null,
-      designation: form.designation.trim() || null,
-      designationCode: form.designationCode.trim() || null,
-      employmentType: form.employmentType.trim() || null,
-      joiningDateAD: form.joiningDateAD || null,
-      dateOfBirthAD: form.dateOfBirthAD || null,
-      contractExpiryAD: form.contractExpiryAD || null,
-      separationDateAD: form.separationDateAD || null,
-      workStation: form.workStation.trim() || null,
-      address: form.address.trim() || null,
-      personalContact: form.personalContact.trim() || null,
-      emergencyContactPerson: form.emergencyContactPerson.trim() || null,
-      emergencyContactNumber: form.emergencyContactNumber.trim() || null,
-      internalEmail: form.internalEmail.trim() || null,
-      personalEmail: form.personalEmail.trim() || null,
-      panNumber: form.panNumber.trim() || null,
-      ssfNumber: form.ssfNumber.trim() || null,
-      ssfEligible: form.ssfEligible,
-      bankName: form.bankName.trim() || null,
-      bankAccount: form.bankAccount.trim() || null,
-      monthlySalary: form.monthlySalary === '' ? null : Number(form.monthlySalary),
-      userId: form.userId || null,
-      isActive: form.isActive,
-    };
-
-    setSaving(true);
-    try {
-      if (editing) {
-        await api.updateEmployee(editing.id, shared);
-      } else {
-        await api.createEmployee({
-          employeeCode,
-          branchId: form.branchId,
-          ...shared,
-        });
-      }
-      setIsModalOpen(false);
-      setEditing(null);
-      await loadEmployees();
-    } catch (err: any) {
-      alertDialog(`Failed to save employee: ${err?.message || 'Database error'}`);
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const handleToggleActive = async (employee: EmployeeRecord) => {
     const next = !employee.isActive;
     if (
@@ -578,12 +398,19 @@ export const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({
                     </td>
                     <td className="px-2.5 py-1.5">
                       <div className="flex items-center justify-center gap-1">
+                        {/* One edit entry: the F1 dialog also carries the HR
+                            master fields, so there is no second edit button.
+                            View-only roles get the same dialog read-only. */}
                         <button
                           onClick={() => setProfileFor(employee)}
-                          title={`F1 profile for ${employee.name}`}
-                          className="cursor-pointer rounded-lg p-1 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                          title={
+                            canManage
+                              ? `Edit ${employee.name}`
+                              : `View profile for ${employee.name}`
+                          }
+                          className="cursor-pointer rounded-lg p-1 text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950/40"
                         >
-                          <ClipboardList className="h-3.5 w-3.5" />
+                          <Edit2 className="h-3.5 w-3.5" />
                         </button>
                         <button
                           onClick={() => setDocumentsFor(employee)}
@@ -594,13 +421,6 @@ export const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({
                         </button>
                         {canManage ? (
                           <>
-                            <button
-                              onClick={() => openEdit(employee)}
-                              title={`Edit ${employee.name}`}
-                              className="cursor-pointer rounded-lg p-1 text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950/40"
-                            >
-                              <Edit2 className="h-3.5 w-3.5" />
-                            </button>
                             <button
                               onClick={() => handleToggleActive(employee)}
                               title={employee.isActive ? `Deactivate ${employee.name}` : `Reactivate ${employee.name}`}
@@ -624,369 +444,6 @@ export const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({
         </div>
       </div>
 
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-          <ModalPanel
-            label={editing ? 'Edit Employee' : 'Add Employee'}
-            onClose={() => setIsModalOpen(false)}
-            className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 text-slate-900 shadow-2xl dark:border-slate-800 dark:bg-[#0f1218] dark:text-white"
-          >
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-base font-bold">{editing ? 'Edit Employee' : 'Add Employee'}</h3>
-              <button
-                onClick={() => setIsModalOpen(false)}
-                className="cursor-pointer rounded-lg p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
-                aria-label="Close"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSubmit} className="space-y-5 text-xs">
-              <section className="space-y-3">
-                <h4 className="border-b border-slate-100 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:border-slate-800">
-                  Identity & employment
-                </h4>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  <div>
-                    <label className={labelClass}>HRMS ID *</label>
-                    <input
-                      type="text"
-                      required
-                      disabled={Boolean(editing)}
-                      value={form.employeeCode}
-                      onChange={(event) =>
-                        setForm({ ...form, employeeCode: event.target.value.toUpperCase() })
-                      }
-                      placeholder="IZ-0001"
-                      className={`${inputClass} font-mono disabled:opacity-60`}
-                    />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className={labelClass}>Full name *</label>
-                    <input
-                      type="text"
-                      required
-                      value={form.name}
-                      onChange={(event) => setForm({ ...form, name: event.target.value })}
-                      className={inputClass}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Branch *</label>
-                    <select
-                      required
-                      disabled={Boolean(editing)}
-                      value={form.branchId}
-                      onChange={(event) => setForm({ ...form, branchId: event.target.value })}
-                      className={`${inputClass} disabled:opacity-60`}
-                    >
-                      <option value="">Select branch</option>
-                      {branches.map((branch) => (
-                        <option key={branch.id} value={branch.id}>
-                          {branch.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className={labelClass}>Linked user account</label>
-                    <select
-                      value={form.userId}
-                      onChange={(event) => setForm({ ...form, userId: event.target.value })}
-                      className={inputClass}
-                    >
-                      <option value="">Not linked</option>
-                      {userOptions.map((option) => (
-                        <option
-                          key={option.id}
-                          value={option.id}
-                          disabled={option.linked && option.id !== form.userId}
-                        >
-                          {option.name} — {option.email}
-                          {option.linked && option.id !== form.userId ? ' (already linked)' : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className={labelClass}>Employment type</label>
-                    <input
-                      list="employment-types"
-                      value={form.employmentType}
-                      onChange={(event) => setForm({ ...form, employmentType: event.target.value })}
-                      placeholder="Non-PB"
-                      className={inputClass}
-                    />
-                    <datalist id="employment-types">
-                      {EMPLOYMENT_TYPES.map((type) => (
-                        <option key={type} value={type} />
-                      ))}
-                    </datalist>
-                  </div>
-                  <div>
-                    <label className={labelClass}>Joining date (AD)</label>
-                    <input
-                      type="date"
-                      value={form.joiningDateAD}
-                      onChange={(event) => setForm({ ...form, joiningDateAD: event.target.value })}
-                      className={inputClass}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Department</label>
-                    <input
-                      type="text"
-                      list="hr-department-options"
-                      value={form.department}
-                      onChange={(event) => setForm({ ...form, department: event.target.value })}
-                      className={inputClass}
-                    />
-                    <datalist id="hr-department-options">
-                      {orgOptions('DEPARTMENT').map((master) => (
-                        <option key={master.id} value={master.name} />
-                      ))}
-                    </datalist>
-                  </div>
-                  <div>
-                    <label className={labelClass}>Designation</label>
-                    <input
-                      type="text"
-                      list="hr-designation-options"
-                      value={form.designation}
-                      onChange={(event) => setForm({ ...form, designation: event.target.value })}
-                      className={inputClass}
-                    />
-                    <datalist id="hr-designation-options">
-                      {orgOptions('DESIGNATION').map((master) => (
-                        <option key={master.id} value={master.name} />
-                      ))}
-                    </datalist>
-                  </div>
-                  <div>
-                    <label className={labelClass}>Designation code</label>
-                    <input
-                      type="text"
-                      value={form.designationCode}
-                      onChange={(event) => setForm({ ...form, designationCode: event.target.value })}
-                      className={inputClass}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Work station</label>
-                    <input
-                      type="text"
-                      list="hr-work-station-options"
-                      value={form.workStation}
-                      onChange={(event) => setForm({ ...form, workStation: event.target.value })}
-                      className={inputClass}
-                    />
-                    <datalist id="hr-work-station-options">
-                      {orgOptions('WORK_STATION').map((master) => (
-                        <option key={master.id} value={master.name} />
-                      ))}
-                    </datalist>
-                  </div>
-                  <div>
-                    <label className={labelClass}>Date of birth (AD)</label>
-                    <input
-                      type="date"
-                      value={form.dateOfBirthAD}
-                      onChange={(event) => setForm({ ...form, dateOfBirthAD: event.target.value })}
-                      className={inputClass}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Contract expiry (AD)</label>
-                    <input
-                      type="date"
-                      value={form.contractExpiryAD}
-                      onChange={(event) => setForm({ ...form, contractExpiryAD: event.target.value })}
-                      className={inputClass}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Separation date (AD)</label>
-                    <input
-                      type="date"
-                      value={form.separationDateAD}
-                      onChange={(event) => setForm({ ...form, separationDateAD: event.target.value })}
-                      className={inputClass}
-                    />
-                    <p className="mt-1 text-[10px] text-slate-400">
-                      Stored exit date for HR reports; set status to Inactive separately.
-                    </p>
-                  </div>
-                </div>
-              </section>
-
-              <section className="space-y-3">
-                <h4 className="border-b border-slate-100 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:border-slate-800">
-                  Contact & address
-                </h4>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  <div>
-                    <label className={labelClass}>Personal contact</label>
-                    <input
-                      type="text"
-                      value={form.personalContact}
-                      onChange={(event) => setForm({ ...form, personalContact: event.target.value })}
-                      className={inputClass}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Emergency contact person</label>
-                    <input
-                      type="text"
-                      value={form.emergencyContactPerson}
-                      onChange={(event) =>
-                        setForm({ ...form, emergencyContactPerson: event.target.value })
-                      }
-                      className={inputClass}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Emergency contact number</label>
-                    <input
-                      type="text"
-                      value={form.emergencyContactNumber}
-                      onChange={(event) =>
-                        setForm({ ...form, emergencyContactNumber: event.target.value })
-                      }
-                      className={inputClass}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Internal e-mail</label>
-                    <input
-                      type="email"
-                      value={form.internalEmail}
-                      onChange={(event) => setForm({ ...form, internalEmail: event.target.value })}
-                      className={inputClass}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Personal e-mail</label>
-                    <input
-                      type="email"
-                      value={form.personalEmail}
-                      onChange={(event) => setForm({ ...form, personalEmail: event.target.value })}
-                      className={inputClass}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Address</label>
-                    <input
-                      type="text"
-                      value={form.address}
-                      onChange={(event) => setForm({ ...form, address: event.target.value })}
-                      className={inputClass}
-                    />
-                  </div>
-                </div>
-              </section>
-
-              <section className="space-y-3">
-                <h4 className="border-b border-slate-100 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:border-slate-800">
-                  Bank, statutory & salary reference
-                </h4>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  <div>
-                    <label className={labelClass}>Bank name</label>
-                    <input
-                      type="text"
-                      value={form.bankName}
-                      onChange={(event) => setForm({ ...form, bankName: event.target.value })}
-                      className={inputClass}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Bank account</label>
-                    <input
-                      type="text"
-                      value={form.bankAccount}
-                      onChange={(event) => setForm({ ...form, bankAccount: event.target.value })}
-                      className={inputClass}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>PAN</label>
-                    <input
-                      type="text"
-                      value={form.panNumber}
-                      onChange={(event) => setForm({ ...form, panNumber: event.target.value })}
-                      className={inputClass}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>SSF number</label>
-                    <input
-                      type="text"
-                      value={form.ssfNumber}
-                      onChange={(event) => setForm({ ...form, ssfNumber: event.target.value })}
-                      className={inputClass}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Monthly salary (reference)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={form.monthlySalary}
-                      onChange={(event) => setForm({ ...form, monthlySalary: event.target.value })}
-                      className={inputClass}
-                    />
-                  </div>
-                  <div className="flex flex-col justify-end gap-1 pb-1">
-                    <label className="flex cursor-pointer items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={form.ssfEligible}
-                        onChange={(event) => setForm({ ...form, ssfEligible: event.target.checked })}
-                        className="h-4 w-4 rounded border-slate-300 text-indigo-600"
-                      />
-                      <span className="font-semibold">SSF eligible</span>
-                    </label>
-                    <label className="flex cursor-pointer items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={form.isActive}
-                        onChange={(event) => setForm({ ...form, isActive: event.target.checked })}
-                        className="h-4 w-4 rounded border-slate-300 text-indigo-600"
-                      />
-                      <span className="font-semibold">Active employee</span>
-                    </label>
-                  </div>
-                </div>
-                {canManage ? (
-                  <p className="flex items-center gap-1 text-[10px] text-slate-500">
-                    <Landmark className="h-3 w-3" />
-                    Salary is a reference from the master sheet until effective-dated payroll structures ship.
-                  </p>
-                ) : null}
-              </section>
-
-              <div className="flex justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="cursor-pointer rounded-xl border border-slate-300 px-3 py-1.5 font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="cursor-pointer rounded-xl bg-indigo-600 px-3 py-1.5 font-semibold text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {saving ? 'Saving…' : editing ? 'Save Changes' : 'Add Employee'}
-                </button>
-              </div>
-            </form>
-          </ModalPanel>
-        </div>
-      )}
       {importOpen ? (
         <EmployeeImportDialog
           onClose={() => setImportOpen(false)}
@@ -994,11 +451,22 @@ export const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({
         />
       ) : null}
 
-      {profileFor ? (
+      {/* One form for every employee: the same F1 dialog creates and edits,
+          including the photo picker. */}
+      {profileFor || createOpen ? (
         <EmployeeProfileDialog
           employee={profileFor}
           canManage={canManage}
-          onClose={() => setProfileFor(null)}
+          branches={branches}
+          branchName={profileFor ? branchLabel(profileFor.branchId) : ''}
+          userOptions={userOptions}
+          orgMasters={orgMasters}
+          defaultBranchId={defaultBranchId}
+          onRecordSaved={loadEmployees}
+          onClose={() => {
+            setProfileFor(null);
+            setCreateOpen(false);
+          }}
         />
       ) : null}
 

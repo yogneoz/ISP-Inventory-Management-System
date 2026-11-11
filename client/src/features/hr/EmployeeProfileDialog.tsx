@@ -11,22 +11,101 @@
  * editable form; the write gate stays on the server.
  */
 import React, { useEffect, useState } from 'react';
-import { Plus, Trash2, X } from 'lucide-react';
+import { Camera, Plus, Trash2, X } from 'lucide-react';
 import { ModalPanel } from '../../components/common/ModalPanel';
 import { useDialog } from '../../components/common/DialogProvider';
 import { api } from '../../services/api';
 import type {
   EmployeeRecord,
+  EmployeeUserOption,
   HrEmployeeProfileInput,
   HrEmployeeProfileResponse,
+  HrOrgMasterKind,
+  HrOrgMasterRecord,
 } from '../../services/api';
 import { HR_BLOOD_GROUPS, HR_PROFILE_MAX_ROWS } from '../../services/api/hr';
+import { EmployeeSelfServicePhotoDialog } from './EmployeeSelfServicePhotoDialog';
 
 interface EmployeeProfileDialogProps {
-  employee: EmployeeRecord;
+  /** null creates a new employee: same form, same photo picker. */
+  employee: EmployeeRecord | null;
   canManage: boolean;
   onClose: () => void;
+  branches?: Array<{ id: string; name: string; isHeadquarters?: boolean }>;
+  /** Branch name for the read-only half of the record block. */
+  branchName?: string;
+  /** Login accounts this employee can be linked to (HR master). */
+  userOptions?: EmployeeUserOption[];
+  /** Branch a new employee starts on. */
+  defaultBranchId?: string;
+  /** Department/designation/work-station suggestions from Org Masters. */
+  orgMasters?: HrOrgMasterRecord[];
+  /** Re-reads the directory after the record is saved. */
+  onRecordSaved?: () => void | Promise<void>;
 }
+
+interface RecordDraft {
+  employeeCode: string;
+  name: string;
+  branchId: string;
+  userId: string;
+  department: string;
+  designation: string;
+  designationCode: string;
+  employmentType: string;
+  joiningDateAD: string;
+  dateOfBirthAD: string;
+  contractExpiryAD: string;
+  separationDateAD: string;
+  workStation: string;
+  address: string;
+  personalContact: string;
+  emergencyContactPerson: string;
+  emergencyContactNumber: string;
+  internalEmail: string;
+  personalEmail: string;
+  panNumber: string;
+  ssfNumber: string;
+  ssfEligible: boolean;
+  bankName: string;
+  bankAccount: string;
+  monthlySalary: string;
+  isActive: boolean;
+}
+
+const text = (value: string | null | undefined): string => value ?? '';
+const salaryText = (value: string | number | null | undefined): string =>
+  value === null || value === undefined ? '' : String(value);
+
+/** One draft shape for both modes: a new employee starts blank, an edit starts filled. */
+const recordFrom = (employee: EmployeeRecord | null, defaultBranchId: string): RecordDraft => ({
+  employeeCode: employee?.employeeCode ?? '',
+  name: employee?.name ?? '',
+  branchId: employee?.branchId ?? defaultBranchId,
+  userId: employee?.userId ?? '',
+  department: text(employee?.department),
+  designation: text(employee?.designation),
+  designationCode: text(employee?.designationCode),
+  employmentType: text(employee?.employmentType),
+  joiningDateAD: text(employee?.joiningDateAD),
+  dateOfBirthAD: text(employee?.dateOfBirthAD),
+  contractExpiryAD: text(employee?.contractExpiryAD),
+  separationDateAD: text(employee?.separationDateAD),
+  workStation: text(employee?.workStation),
+  address: text(employee?.address),
+  personalContact: text(employee?.personalContact),
+  emergencyContactPerson: text(employee?.emergencyContactPerson),
+  emergencyContactNumber: text(employee?.emergencyContactNumber),
+  internalEmail: text(employee?.internalEmail),
+  personalEmail: text(employee?.personalEmail),
+  panNumber: text(employee?.panNumber),
+  ssfNumber: text(employee?.ssfNumber),
+  ssfEligible: employee?.ssfEligible ?? false,
+  bankName: text(employee?.bankName),
+  bankAccount: text(employee?.bankAccount),
+  monthlySalary: salaryText(employee?.monthlySalary),
+  isActive: employee?.isActive ?? true,
+});
 
 const inputClass =
   'h-9 w-full rounded-lg border border-slate-300 bg-transparent px-2.5 text-xs disabled:opacity-60 dark:border-slate-700';
@@ -151,13 +230,27 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
   employee,
   canManage,
   onClose,
+  branches = [],
+  branchName = '',
+  userOptions = [],
+  defaultBranchId = '',
+  orgMasters = [],
+  onRecordSaved,
 }) => {
   const { alert: alertDialog } = useDialog();
-  const [loading, setLoading] = useState(true);
+  const isCreate = !employee;
+  const orgList = (kind: HrOrgMasterKind): HrOrgMasterRecord[] =>
+    orgMasters.filter((master) => master.kind === kind && master.isActive);
+  const [loading, setLoading] = useState(!employee);
   const [loadError, setLoadError] = useState('');
   const [masked, setMasked] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedNote, setSavedNote] = useState('');
+  // The employee-master half of the record. It is saved by the same Save as the
+  // F1 sections, so editing a person is one dialog instead of two.
+  const [photo, setPhoto] = useState<string | null>(employee?.profilePhoto ?? null);
+  const [photoOpen, setPhotoOpen] = useState(false);
+  const [record, setRecord] = useState<RecordDraft>(() => recordFrom(employee, defaultBranchId));
   const [scalars, setScalars] = useState<ScalarDraft>(EMPTY_SCALARS);
   const [family, setFamily] = useState<FamilyDraft[]>([]);
   const [experience, setExperience] = useState<ExperienceDraft[]>([]);
@@ -224,6 +317,10 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
   };
 
   const load = async () => {
+    if (!employee) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const data = await api.getEmployeeProfile(employee.id, employee.branchId);
@@ -240,10 +337,52 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
     void load();
     // The dialog is remounted per employee; reload only when that id changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [employee.id]);
+  }, [employee?.id]);
+
+  /** HR sets the picture here; the same crop/resize dialog the employee uses. */
+  const handlePhotoSave = async (dataUrl: string | null): Promise<void> => {
+    setPhotoOpen(false);
+    if (isCreate) {
+      // There is no employee row yet, so the picture waits for the create.
+      setPhoto(dataUrl);
+      setSavedNote(dataUrl ? 'Photo ready; it saves with the employee.' : '');
+      return;
+    }
+    const saved = await api.updateEmployee(employee.id, { profilePhoto: dataUrl });
+    setPhoto(saved.profilePhoto ?? null);
+    setSavedNote(dataUrl ? 'Photo updated.' : 'Photo removed.');
+    await onRecordSaved?.();
+  };
 
   const handleSave = async () => {
     setSavedNote('');
+    const name = record.name.trim();
+    if (!name) {
+      alertDialog('An employee name is required.');
+      return;
+    }
+    const employeeCode = record.employeeCode.trim().toUpperCase();
+    if (isCreate && !employeeCode) {
+      alertDialog('An employee code (HRMS ID) is required.');
+      return;
+    }
+    if (isCreate && !record.branchId) {
+      alertDialog('Choose the branch this employee belongs to.');
+      return;
+    }
+    const monthlySalary = record.monthlySalary.trim() === '' ? null : Number(record.monthlySalary);
+    if (monthlySalary !== null && (!Number.isFinite(monthlySalary) || monthlySalary < 0)) {
+      alertDialog('Monthly salary must be a number of zero or more.');
+      return;
+    }
+    if (
+      record.joiningDateAD &&
+      record.separationDateAD &&
+      record.separationDateAD < record.joiningDateAD
+    ) {
+      alertDialog('Separation date must be on or after the joining date.');
+      return;
+    }
     const familyRows = family.map((row) => ({
       name: row.name.trim(),
       age: row.age.trim() === '' ? null : Number(row.age),
@@ -327,11 +466,56 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
 
     setSaving(true);
     try {
+      const master = {
+        name,
+        userId: record.userId || null,
+        department: nullable(record.department),
+        designation: nullable(record.designation),
+        designationCode: nullable(record.designationCode),
+        employmentType: nullable(record.employmentType),
+        joiningDateAD: record.joiningDateAD || null,
+        dateOfBirthAD: record.dateOfBirthAD || null,
+        contractExpiryAD: record.contractExpiryAD || null,
+        separationDateAD: record.separationDateAD || null,
+        workStation: nullable(record.workStation),
+        address: nullable(record.address),
+        personalContact: nullable(record.personalContact),
+        emergencyContactPerson: nullable(record.emergencyContactPerson),
+        emergencyContactNumber: nullable(record.emergencyContactNumber),
+        internalEmail: nullable(record.internalEmail),
+        personalEmail: nullable(record.personalEmail),
+        panNumber: nullable(record.panNumber),
+        ssfNumber: nullable(record.ssfNumber),
+        ssfEligible: record.ssfEligible,
+        bankName: nullable(record.bankName),
+        bankAccount: nullable(record.bankAccount),
+        monthlySalary,
+        isActive: record.isActive,
+      };
+
+      if (isCreate) {
+        // Employee first, then the F1 sections and the picked photo, so a
+        // failed half never leaves profile rows without an employee.
+        const created = await api.createEmployee({
+          employeeCode,
+          branchId: record.branchId,
+          ...master,
+        });
+        await api.saveEmployeeProfile(created.id, payload, created.branchId);
+        if (photo) await api.updateEmployee(created.id, { profilePhoto: photo });
+        await onRecordSaved?.();
+        onClose();
+        return;
+      }
+
       const saved = await api.saveEmployeeProfile(employee.id, payload, employee.branchId);
       applyResponse(saved);
+      // Same Save, second resource: the master fields the dialog owns.
+      await api.updateEmployee(employee.id, master);
+      await onRecordSaved?.();
       setSavedNote('Profile saved.');
     } catch (err: any) {
-      alertDialog(`Failed to save the profile: ${err?.message || 'Database error'}`);
+      alertDialog(`Failed to save the employee: ${err?.message || 'Database error'}`);
     } finally {
       setSaving(false);
     }
@@ -342,21 +526,21 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
       <ModalPanel
-        label={`F1 Profile — ${employee.name}`}
+        label={isCreate ? 'New employee' : `F1 Profile — ${record.name}`}
         onClose={onClose}
         className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 text-slate-900 shadow-2xl dark:border-slate-800 dark:bg-[#0f1218] dark:text-white"
       >
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
-            {employee.profilePhoto ? (
+            {photo ? (
               <img
-                src={employee.profilePhoto}
+                src={photo}
                 alt=""
                 className="h-11 w-11 shrink-0 rounded-full border border-slate-200 object-cover dark:border-slate-700"
               />
             ) : (
               <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                {employee.name
+                {(record.name || 'New employee')
                   .split(/\s+/)
                   .filter(Boolean)
                   .slice(0, 2)
@@ -366,10 +550,13 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
               </span>
             )}
             <div>
-              <h3 className="text-base font-bold">F1 Employee Profile</h3>
+              <h3 className="text-base font-bold">
+                {isCreate ? 'New employee' : 'F1 Employee Profile'}
+              </h3>
               <p className="mt-0.5 text-[11px] text-slate-500">
-                {employee.name} · <span className="font-mono">{employee.employeeCode}</span> · F1
-                Employee Detail Form
+                {record.name || 'Unnamed'} ·{' '}
+                <span className="font-mono">{record.employeeCode || '—'}</span> ·{' '}
+                {isCreate ? 'Employee master and F1 form' : 'F1 Employee Detail Form'}
               </p>
             </div>
           </div>
@@ -402,6 +589,375 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
                 manager for the F1 details.
               </p>
             ) : null}
+
+            <Section
+              title="Employee record"
+              hint="HR master fields. They save with the F1 sections, so editing a person is one dialog."
+            >
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div className="flex items-center gap-3 sm:col-span-3">
+                  {photo ? (
+                    <img
+                      src={photo}
+                      alt=""
+                      className="h-14 w-14 shrink-0 rounded-full border border-slate-200 object-cover dark:border-slate-700"
+                    />
+                  ) : (
+                    <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                      {(record.name || 'New employee')
+                        .split(/\s+/)
+                        .filter(Boolean)
+                        .slice(0, 2)
+                        .map((part) => part[0])
+                        .join('')
+                        .toUpperCase()}
+                    </span>
+                  )}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={readOnly}
+                      onClick={() => setPhotoOpen(true)}
+                      className="flex cursor-pointer items-center gap-1.5 rounded-xl border border-slate-300 px-2.5 py-1 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700"
+                    >
+                      <Camera className="h-3.5 w-3.5" />
+                      {photo ? 'Change photo' : 'Upload photo'}
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className={labelClass}>HRMS ID{isCreate ? ' *' : ''}</label>
+                  <input
+                    type="text"
+                    disabled={!isCreate}
+                    value={record.employeeCode}
+                    onChange={(event) =>
+                      setRecord({ ...record, employeeCode: event.target.value.toUpperCase() })
+                    }
+                    placeholder="EMP-0001"
+                    className={`${inputClass} font-mono`}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Full name{isCreate ? ' *' : ''}</label>
+                  <input
+                    type="text"
+                    disabled={readOnly}
+                    value={record.name}
+                    onChange={(event) => setRecord({ ...record, name: event.target.value })}
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Branch{isCreate ? ' *' : ''}</label>
+                  {isCreate ? (
+                    <select
+                      value={record.branchId}
+                      onChange={(event) => setRecord({ ...record, branchId: event.target.value })}
+                      className={inputClass}
+                    >
+                      <option value="">Select branch</option>
+                      {branches.map((branch) => (
+                        <option key={branch.id} value={branch.id}>
+                          {branch.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      disabled
+                      value={branchName || record.branchId}
+                      className={inputClass}
+                    />
+                  )}
+                </div>
+                <div>
+                  <label className={labelClass}>Monthly salary (reference)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    disabled={readOnly}
+                    value={record.monthlySalary}
+                    onChange={(event) =>
+                      setRecord({ ...record, monthlySalary: event.target.value })
+                    }
+                    className={inputClass}
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className={labelClass}>Linked login account</label>
+                  <select
+                    disabled={readOnly || userOptions.length === 0}
+                    value={record.userId}
+                    onChange={(event) => setRecord({ ...record, userId: event.target.value })}
+                    className={inputClass}
+                  >
+                    <option value="">Not linked</option>
+                    {userOptions.map((option) => (
+                      <option
+                        key={option.id}
+                        value={option.id}
+                        disabled={option.linked && option.id !== record.userId}
+                      >
+                        {option.name} — {option.email}
+                        {option.linked && option.id !== record.userId ? ' (already linked)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-col justify-end gap-1 pb-1">
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      disabled={readOnly}
+                      checked={record.ssfEligible}
+                      onChange={(event) =>
+                        setRecord({ ...record, ssfEligible: event.target.checked })
+                      }
+                      className="h-4 w-4 rounded border-slate-300 text-indigo-600"
+                    />
+                    <span className="font-semibold">SSF eligible</span>
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      disabled={readOnly}
+                      checked={record.isActive}
+                      onChange={(event) =>
+                        setRecord({ ...record, isActive: event.target.checked })
+                      }
+                      className="h-4 w-4 rounded border-slate-300 text-indigo-600"
+                    />
+                    <span className="font-semibold">Active employee</span>
+                  </label>
+                </div>
+                <div>
+                  <label className={labelClass}>Department</label>
+                  <input
+                    type="text"
+                    list="hr-profile-departments"
+                    disabled={readOnly}
+                    value={record.department}
+                    onChange={(event) => setRecord({ ...record, department: event.target.value })}
+                    className={inputClass}
+                  />
+                  <datalist id="hr-profile-departments">
+                    {orgList('DEPARTMENT').map((master) => (
+                      <option key={master.id} value={master.name} />
+                    ))}
+                  </datalist>
+                </div>
+                <div>
+                  <label className={labelClass}>Designation</label>
+                  <input
+                    type="text"
+                    list="hr-profile-designations"
+                    disabled={readOnly}
+                    value={record.designation}
+                    onChange={(event) => setRecord({ ...record, designation: event.target.value })}
+                    className={inputClass}
+                  />
+                  <datalist id="hr-profile-designations">
+                    {orgList('DESIGNATION').map((master) => (
+                      <option key={master.id} value={master.name} />
+                    ))}
+                  </datalist>
+                </div>
+                <div>
+                  <label className={labelClass}>Designation code</label>
+                  <input
+                    type="text"
+                    disabled={readOnly}
+                    value={record.designationCode}
+                    onChange={(event) =>
+                      setRecord({ ...record, designationCode: event.target.value })
+                    }
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Employment type</label>
+                  <input
+                    type="text"
+                    disabled={readOnly}
+                    value={record.employmentType}
+                    onChange={(event) =>
+                      setRecord({ ...record, employmentType: event.target.value })
+                    }
+                    placeholder="Non-PB"
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Joining date (AD)</label>
+                  <input
+                    type="date"
+                    disabled={readOnly}
+                    value={record.joiningDateAD}
+                    onChange={(event) => setRecord({ ...record, joiningDateAD: event.target.value })}
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Date of birth (AD)</label>
+                  <input
+                    type="date"
+                    disabled={readOnly}
+                    value={record.dateOfBirthAD}
+                    onChange={(event) => setRecord({ ...record, dateOfBirthAD: event.target.value })}
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Contract expiry (AD)</label>
+                  <input
+                    type="date"
+                    disabled={readOnly}
+                    value={record.contractExpiryAD}
+                    onChange={(event) =>
+                      setRecord({ ...record, contractExpiryAD: event.target.value })
+                    }
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Separation date (AD)</label>
+                  <input
+                    type="date"
+                    disabled={readOnly}
+                    value={record.separationDateAD}
+                    onChange={(event) =>
+                      setRecord({ ...record, separationDateAD: event.target.value })
+                    }
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Work station</label>
+                  <input
+                    type="text"
+                    list="hr-profile-work-stations"
+                    disabled={readOnly}
+                    value={record.workStation}
+                    onChange={(event) => setRecord({ ...record, workStation: event.target.value })}
+                    className={inputClass}
+                  />
+                  <datalist id="hr-profile-work-stations">
+                    {orgList('WORK_STATION').map((master) => (
+                      <option key={master.id} value={master.name} />
+                    ))}
+                  </datalist>
+                </div>
+                <div>
+                  <label className={labelClass}>Personal contact</label>
+                  <input
+                    type="text"
+                    disabled={readOnly}
+                    value={record.personalContact}
+                    onChange={(event) =>
+                      setRecord({ ...record, personalContact: event.target.value })
+                    }
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Emergency contact person</label>
+                  <input
+                    type="text"
+                    disabled={readOnly}
+                    value={record.emergencyContactPerson}
+                    onChange={(event) =>
+                      setRecord({ ...record, emergencyContactPerson: event.target.value })
+                    }
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Emergency contact number</label>
+                  <input
+                    type="text"
+                    disabled={readOnly}
+                    value={record.emergencyContactNumber}
+                    onChange={(event) =>
+                      setRecord({ ...record, emergencyContactNumber: event.target.value })
+                    }
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Internal e-mail</label>
+                  <input
+                    type="email"
+                    disabled={readOnly}
+                    value={record.internalEmail}
+                    onChange={(event) => setRecord({ ...record, internalEmail: event.target.value })}
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Personal e-mail</label>
+                  <input
+                    type="email"
+                    disabled={readOnly}
+                    value={record.personalEmail}
+                    onChange={(event) => setRecord({ ...record, personalEmail: event.target.value })}
+                    className={inputClass}
+                  />
+                </div>
+                <div className="sm:col-span-3">
+                  <label className={labelClass}>Address</label>
+                  <input
+                    type="text"
+                    disabled={readOnly}
+                    value={record.address}
+                    onChange={(event) => setRecord({ ...record, address: event.target.value })}
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>PAN</label>
+                  <input
+                    type="text"
+                    disabled={readOnly}
+                    value={record.panNumber}
+                    onChange={(event) => setRecord({ ...record, panNumber: event.target.value })}
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>SSF number</label>
+                  <input
+                    type="text"
+                    disabled={readOnly}
+                    value={record.ssfNumber}
+                    onChange={(event) => setRecord({ ...record, ssfNumber: event.target.value })}
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Bank name</label>
+                  <input
+                    type="text"
+                    disabled={readOnly}
+                    value={record.bankName}
+                    onChange={(event) => setRecord({ ...record, bankName: event.target.value })}
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Bank account</label>
+                  <input
+                    type="text"
+                    disabled={readOnly}
+                    value={record.bankAccount}
+                    onChange={(event) => setRecord({ ...record, bankAccount: event.target.value })}
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+            </Section>
 
             <Section title="Personal details">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -1013,13 +1569,22 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
                   disabled={saving}
                   className="cursor-pointer rounded-xl bg-indigo-600 px-3 py-1.5 font-semibold text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {saving ? 'Saving…' : 'Save profile'}
+                  {saving ? 'Saving…' : isCreate ? 'Create employee' : 'Save profile'}
                 </button>
               )}
             </div>
           </div>
         )}
       </ModalPanel>
+
+      {photoOpen ? (
+        <EmployeeSelfServicePhotoDialog
+          photo={photo}
+          employeeName={record.name || 'New employee'}
+          onClose={() => setPhotoOpen(false)}
+          onSave={handlePhotoSave}
+        />
+      ) : null}
     </div>
   );
 };

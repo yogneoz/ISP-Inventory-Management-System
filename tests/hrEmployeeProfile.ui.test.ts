@@ -174,8 +174,15 @@ test('family rows can be added and removed', async () => {
 
 test('saving sends the edited rows and normalises empty scalars to null', async () => {
   let args: unknown[] = [];
+  // The dialog owns the HR master fields too (the merged edit path), so Save
+  // also patches the employee record.
+  let masterArgs: unknown[] = [];
   const restore = installApiStubs({
     getEmployeeProfile: async () => profileResponse(),
+    updateEmployee: async (...received: unknown[]) => {
+      masterArgs = received;
+      return employee;
+    },
     saveEmployeeProfile: async (...received: unknown[]) => {
       args = received;
       return profileResponse({
@@ -208,6 +215,9 @@ test('saving sends the edited rows and normalises empty scalars to null', async 
     assert.deepEqual(payload.experience, []);
     assert.deepEqual(payload.references, []);
     assert.match(bodyText(), /Profile saved/);
+    assert.equal(masterArgs[0], employee.id, 'the master update targets the same employee');
+    const master = masterArgs[1] as Record<string, unknown>;
+    assert.equal(master.monthlySalary, null, 'an empty salary is sent as null, not 0');
   } finally {
     tree.unmount();
     restore();

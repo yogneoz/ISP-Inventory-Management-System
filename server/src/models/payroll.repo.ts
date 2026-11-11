@@ -291,6 +291,14 @@ WHERE id = $1
 RETURNING ${EMPLOYEE_COLUMNS}`;
 
 /**
+ * HR sets another employee's picture. It is a separate statement because the
+ * PATCH's COALESCE list has no way to clear a column back to NULL, and a photo
+ * must be removable.
+ */
+export const EMPLOYEE_PROFILE_PHOTO_SQL =
+  'UPDATE employees SET profile_photo = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1';
+
+/**
  * One employee's employee-subledger movements. The subledger is the generic
  * `gl_subledger_entries` table written by every payroll journal, so this is a
  * real ledger read, not a second balance store.
