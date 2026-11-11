@@ -120,8 +120,12 @@ interface PayrollScope {
   empty?: boolean;
 }
 
-/** A payroll journal is one balanced document; 1 + 5×190 stays under the cap. */
-const PAYROLL_EMPLOYEES_PER_RUN_MAX = 190;
+/**
+ * A payroll journal is one balanced document; 1 + 6×190 = 1141 stays under the
+ * 1500-line cap (`MAX_JOURNAL_LINES`). Exported so a test can keep the two
+ * limits in step: adding a posted line per employee must not outgrow the ledger.
+ */
+export const PAYROLL_EMPLOYEES_PER_RUN_MAX = 190;
 
 function holdsPermission(req: any, operation: string): boolean {
   const user = req.user || getUserFromReq(req);
@@ -1204,6 +1208,8 @@ export async function post_payrollRunDraft(req: any, res: Response): Promise<any
           tds: line.tds,
           ssf: line.ssf,
           employerSsf: line.employerSsf,
+          employeeSsfPercent: line.employeeSsfPercent,
+          employerSsfPercent: line.employerSsfPercent,
           advance: line.advance,
           loan: line.loan,
           net: line.net,

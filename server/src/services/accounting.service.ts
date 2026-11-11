@@ -88,6 +88,17 @@ const STATEMENT_GROUPS_BY_TYPE: Record<AccountType, readonly StatementGroup[]> =
   EXPENSE: ['COST_OF_SALES', 'OPERATING_EXPENSE', 'OTHER_EXPENSE'],
 };
 
+/**
+ * The most lines one journal may carry.
+ *
+ * Payroll is the widest document: one salary-cost line plus up to six credits
+ * per employee (TDS, employee SSF, employer SSF, advance, loan, net), and a run
+ * is capped at `PAYROLL_EMPLOYEES_PER_RUN_MAX` (190) employees. That is
+ * 1 + 6×190 = 1141, so the cap must stay above it: employer SSF is a posted
+ * line now, and the previous 1000 would have refused a full run's journal.
+ */
+export const MAX_JOURNAL_LINES = 1500;
+
 const SUBLEDGER_TYPES_SET = new Set<string>(SUBLEDGER_TYPES);
 const POSTING_ROLES_SET = new Set<string>(POSTING_ROLES);
 const ACCOUNT_KINDS_SET = new Set<string>(ACCOUNT_KINDS);
@@ -792,9 +803,14 @@ export async function postJournal(
   }
   const rawLines = Array.isArray(input.lines) ? input.lines : [];
   if (rawLines.length < 2) throw new ApiError(400, 'A journal needs at least two lines.');
-  // Payroll is the widest document: one gross line plus up to five deduction
-  // lines per employee, with the run itself capped at 190 employees.
-  if (rawLines.length > 1000) throw new ApiError(400, 'A journal can hold at most 1000 lines.');
+  // Payroll is the widest document: one salary-cost line plus up to six credits
+  // per employee (TDS, employee SSF, employer SSF, advance, loan, net), with the
+  // run itself capped at 190 employees: 1 + 6×190 = 1141. The cap was 1000 when
+  // payroll issued five credits per employee and the employer SSF share was not
+  // posted, which a full run already nearly reached.
+  if (rawLines.length > MAX_JOURNAL_LINES) {
+    throw new ApiError(400, `A journal can hold at most ${MAX_JOURNAL_LINES} lines.`);
+  }
 
   const accountIds = [...new Set(rawLines.map((line) => text(line?.accountId, 50)).filter(Boolean))];
   if (accountIds.length === 0) throw new ApiError(400, 'Every journal line needs an account.');

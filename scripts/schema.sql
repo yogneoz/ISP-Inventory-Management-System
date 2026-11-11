@@ -2976,6 +2976,12 @@ CREATE TABLE IF NOT EXISTS payroll_run_lines (
     tds_amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
     ssf_amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
     employer_ssf_amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    -- The rates the two SSF shares were computed at. A prepared run keeps its
+    -- rates even when the statutory configuration is edited afterwards, so the
+    -- reporting tie-out can recompute the contribution exactly. Null on rows
+    -- written before the columns existed; those fall back to the run's config.
+    employee_ssf_percent NUMERIC(5, 2),
+    employer_ssf_percent NUMERIC(5, 2),
     advance_deduction NUMERIC(14, 2) NOT NULL DEFAULT 0,
     loan_deduction NUMERIC(14, 2) NOT NULL DEFAULT 0,
     net_amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
@@ -3002,6 +3008,11 @@ ALTER TABLE payroll_run_lines ADD COLUMN IF NOT EXISTS overtime_amount NUMERIC(1
 ALTER TABLE payroll_run_lines ADD COLUMN IF NOT EXISTS incentive_amount NUMERIC(14, 2) NOT NULL DEFAULT 0;
 ALTER TABLE payroll_run_lines ADD COLUMN IF NOT EXISTS arrears_amount NUMERIC(14, 2) NOT NULL DEFAULT 0;
 ALTER TABLE payroll_run_lines ADD COLUMN IF NOT EXISTS employer_ssf_amount NUMERIC(14, 2) NOT NULL DEFAULT 0;
+-- Rate snapshot for the SSF shares. Nullable on purpose: existing rows predate
+-- it and the reporting tie-out falls back to the run's statutory configuration
+-- for them, while a new run keeps the rates it was prepared at.
+ALTER TABLE payroll_run_lines ADD COLUMN IF NOT EXISTS employee_ssf_percent NUMERIC(5, 2);
+ALTER TABLE payroll_run_lines ADD COLUMN IF NOT EXISTS employer_ssf_percent NUMERIC(5, 2);
 
 -- Bank details are part of the run-line snapshot, not a live employee read:
 -- changing an employee's bank account after preparation must not change a

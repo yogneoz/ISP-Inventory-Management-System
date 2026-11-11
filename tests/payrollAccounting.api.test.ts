@@ -5,8 +5,9 @@
  * claims pinned here are the ones a payroll row without a journal cannot meet:
  *
  *   1. the employee master is a branch-scoped, separately addressable record;
- *   2. a posted run writes one balanced journal — gross salary expense debited,
- *      net/TDS/SSF/advance/loan credited — plus EMPLOYEE subledger rows;
+ *   2. a posted run writes one balanced journal — salary cost debited (gross
+ *      wages plus the employer SSF share), net/TDS/employee SSF/employer
+ *      SSF/advance/loan credited — plus EMPLOYEE subledger rows;
  *   3. TDS and SSF control accounts reconcile to those subledger rows per
  *      employee, and the employee ledger reads the same entries;
  *   4. a second run for the same branch+period is refused with nothing written;

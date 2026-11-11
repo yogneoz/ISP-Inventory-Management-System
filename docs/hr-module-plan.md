@@ -119,8 +119,10 @@ documents).
 `payroll_runs` / `payroll_run_lines` already post balanced journals and pay
 salary payable. Phase 2 adds a `DRAFT` status, a submit/post split,
 effective-dated salary structures and component lines. The run's control totals
-must continue to equal the journal lines: gross = debits, net + TDS + SSF +
-advance + loan = credits.
+must continue to equal the journal lines: gross + employer SSF = debits, and
+net + TDS + employee SSF + employer SSF + advance + loan = credits. The employer
+SSF share is a company cost the fund is owed, so it is part of the posting even
+though it is outside the employee's own gross-to-net identity.
 
 ### 3.4 Date policy
 

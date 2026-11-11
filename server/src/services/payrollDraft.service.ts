@@ -84,6 +84,9 @@ export interface PayrollDraftLine {
   tds: number;
   ssf: number;
   employerSsf: number;
+  /** The rates the two SSF shares were computed at, snapshotted onto the line. */
+  employeeSsfPercent: number;
+  employerSsfPercent: number;
   advance: number;
   loan: number;
   net: number;
@@ -179,6 +182,10 @@ export function buildPayrollDraft(input: {
     const proratedBasic = round2((basicAmount * reducedGross) / earnings);
     const statutory = calculateStatutory({
       monthlyGross: gross,
+      // Incentives and arrears are one-off period earnings: they belong in the
+      // year's taxable income once, not twelve times, so TDS annualises the
+      // recurring salary and taxes these at the marginal annual rate.
+      oneOffEarnings: round2(incentive + arrears),
       basicAmount: proratedBasic,
       ssfEligible: Boolean(structure.ssfEligible),
       employeeSsfPercent: Number(input.config.employeeSsfPercent),
@@ -212,6 +219,12 @@ export function buildPayrollDraft(input: {
       tds: statutory.monthlyTds,
       ssf: statutory.employeeSsf,
       employerSsf: statutory.employerSsf,
+      // Snapshot the rates alongside the amounts. The statutory configuration
+      // can be edited after this draft is prepared (and legitimately must not
+      // change a prepared run), so the line has to carry the rates it was paid
+      // at for the SSF tie-out to recompute the contribution exactly.
+      employeeSsfPercent: Number(input.config.employeeSsfPercent),
+      employerSsfPercent: Number(input.config.employerSsfPercent),
       advance,
       loan,
       net,

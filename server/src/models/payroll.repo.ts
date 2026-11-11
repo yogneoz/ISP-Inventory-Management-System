@@ -688,9 +688,10 @@ export const PAYROLL_LINE_INSERT_SQL = `INSERT INTO payroll_run_lines (
   salary_id, basic_amount, payable_days, lop_days, lop_deduction, overtime_hours,
   overtime_amount, incentive_amount, arrears_amount, gross_amount, tds_amount,
   ssf_amount, employer_ssf_amount, advance_deduction, loan_deduction, net_amount,
+  employee_ssf_percent, employer_ssf_percent,
   bank_name, bank_account
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-  $16, $17, $18, $19, $20, $21, $22, $23, $24)
+  $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
 RETURNING ${PAYROLL_LINE_COLUMNS}`;
 
 export interface PayrollLineInsertInput {
@@ -713,6 +714,9 @@ export interface PayrollLineInsertInput {
   tds: number;
   ssf: number;
   employerSsf?: number;
+  /** The rates the shares were computed at; null on rows written before the snapshot existed. */
+  employeeSsfPercent?: number | null;
+  employerSsfPercent?: number | null;
   advance: number;
   loan: number;
   net: number;
@@ -744,6 +748,8 @@ export function payrollLineInsertParams(input: PayrollLineInsertInput): unknown[
     input.advance,
     input.loan,
     input.net,
+    input.employeeSsfPercent ?? null,
+    input.employerSsfPercent ?? null,
     input.bankName ?? null,
     input.bankAccount ?? null,
   ];

@@ -348,7 +348,7 @@ export const DEFAULT_CHART_ACCOUNTS: readonly DefaultChartAccount[] = [
     code: '6400',
     name: 'Salaries & Wages',
     groupCode: '6000',
-    description: 'Gross salaries and wages for a posted payroll run.',
+    description: 'Gross salaries and wages plus the employer SSF share for a posted payroll run.',
     isControl: false,
     subledgerType: 'NONE',
     postingRole: 'SALARY_EXPENSE',

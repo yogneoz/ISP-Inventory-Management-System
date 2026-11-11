@@ -1,9 +1,10 @@
 /**
  * Ledger postings for payroll.
  *
- * A payroll run is one balanced journal: the gross wage is debited to the
- * salary-expense default and the credits go to salary payable (net), TDS, SSF,
- * employee advances and employee loans. Paying the run debits salary payable
+ * A payroll run is one balanced journal: the run's salary cost (gross wages plus
+ * the employer's SSF share) is debited to the salary-expense default and the
+ * credits go to salary payable (net), TDS, SSF payable (employee and employer
+ * shares), employee advances and employee loans. Paying the run debits salary payable
  * and credits the till or bank. Every control-account line carries the
  * EMPLOYEE subledger party, so the generic reconciliation and the employee
  * ledger read the same rows the journal wrote — nothing here keeps a second
@@ -46,6 +47,12 @@ export interface PayrollPostingLine {
   gross: number | string;
   tds: number | string;
   ssf: number | string;
+  /**
+   * The employer's own SSF contribution for this line. It is a company cost on
+   * top of gross (never deducted from the employee), so it is debited to salary
+   * expense and credited to SSF payable alongside the employee's share.
+   */
+  employerSsf?: number | string;
   advance: number | string;
   loan: number | string;
   net: number | string;
@@ -135,8 +142,9 @@ function employeeLine(
 }
 
 /**
- * Debit the gross wage, credit every deduction and the net payable. Returns the
- * posted journal; the caller links it to the run row in the same transaction.
+ * Debit the run's salary cost (gross wages plus the employer's SSF share),
+ * credit every deduction and the net payable. Returns the posted journal; the
+ * caller links it to the run row in the same transaction.
  */
 export async function postPayrollRunJournal(
   client: AccountingClient,
@@ -156,16 +164,20 @@ export async function postPayrollRunJournal(
   const memo = `Payroll run ${input.runNo} for ${input.periodKey}`;
   const lines: JournalLineInput[] = [];
   let totalGross = 0;
+  let totalEmployerSsf = 0;
   let totalCredits = 0;
 
   for (const line of input.lines) {
     const gross = money(line.gross);
     const tds = money(line.tds);
     const ssf = money(line.ssf);
+    const employerSsf = money(line.employerSsf);
     const advance = money(line.advance);
     const loan = money(line.loan);
     const net = money(line.net);
     if (gross <= 0) continue;
+    // Net is the employee's side of the equation; employer SSF is additional
+    // company cost, so it is deliberately NOT part of this identity.
     if (Math.abs(roundMoney(gross - tds - ssf - advance - loan - net)) >= 0.005) {
       throw new ApiError(
         400,
@@ -174,10 +186,12 @@ export async function postPayrollRunJournal(
     }
 
     totalGross = roundMoney(totalGross + gross);
+    totalEmployerSsf = roundMoney(totalEmployerSsf + employerSsf);
 
     for (const [amount, role, label] of [
       [tds, 'TDS_PAYABLE', 'TDS withheld'],
       [ssf, 'SSF_PAYABLE', 'SSF withheld'],
+      [employerSsf, 'SSF_PAYABLE', 'employer SSF contribution'],
       [advance, 'EMPLOYEE_ADVANCE', 'advance recovered'],
       [loan, 'EMPLOYEE_LOAN', 'loan recovered'],
       [net, 'SALARY_PAYABLE', 'net salary payable'],
@@ -192,13 +206,28 @@ export async function postPayrollRunJournal(
   if (totalGross <= 0) {
     throw new ApiError(400, 'A payroll run needs at least one employee with a positive gross wage.');
   }
-  // One gross-wage debit for the run, before the per-employee credits. The
-  // detail lives in payroll_run_lines and in each subledger line's memo.
-  lines.unshift(ordinaryLine(salaryExpense, totalGross, 0, `${memo} — gross wages`));
-  if (Math.abs(totalGross - totalCredits) >= 0.005) {
+
+  // The run's total salary cost: gross wages plus the employer's SSF share,
+  // which the company owes the fund on the employee's behalf. Crediting only
+  // the employee share (the old behaviour) understated salary expense and left
+  // SSF payable short of the contribution actually due.
+  const totalSalaryCost = roundMoney(totalGross + totalEmployerSsf);
+  // One cost debit for the run, before the per-employee credits. The detail
+  // lives in payroll_run_lines and in each subledger line's memo.
+  lines.unshift(
+    ordinaryLine(
+      salaryExpense,
+      totalSalaryCost,
+      0,
+      totalEmployerSsf > 0
+        ? `${memo} — gross wages ${totalGross.toFixed(2)} + employer SSF ${totalEmployerSsf.toFixed(2)}`
+        : `${memo} — gross wages`
+    )
+  );
+  if (Math.abs(totalSalaryCost - totalCredits) >= 0.005) {
     throw new ApiError(
       400,
-      `Payroll journal is not balanced: gross ${totalGross.toFixed(2)} ≠ deductions and net ${totalCredits.toFixed(2)}.`
+      `Payroll journal is not balanced: salary cost ${totalSalaryCost.toFixed(2)} ≠ deductions and net ${totalCredits.toFixed(2)}.`
     );
   }
 

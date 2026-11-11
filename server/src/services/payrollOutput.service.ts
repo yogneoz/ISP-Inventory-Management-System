@@ -371,10 +371,18 @@ export function buildPayrollReconciliation(
     output.totals.incentive === runIncentive &&
     output.totals.arrears === runArrears &&
     output.totals.net === runNet;
+  // The posting debits the full salary cost — gross wages plus the employer's
+  // SSF share — because that share is a company cost the fund is owed. The
+  // reconciliation has to expect the same total the journal was built from, or
+  // every run would read as "journal does not match" the moment employer SSF
+  // exists.
+  const expectedJournalTotal = roundMoney(runGross + output.totals.employerSsf);
   return {
     matchesRun,
     matchesJournal: Boolean(
-      journal && journal.totalDebit === runGross && journal.totalCredit === runGross
+      journal &&
+        journal.totalDebit === expectedJournalTotal &&
+        journal.totalCredit === expectedJournalTotal
     ),
     paymentMatchesRun: paymentJournal
       ? paymentJournal.totalDebit === runNet && paymentJournal.totalCredit === runNet
