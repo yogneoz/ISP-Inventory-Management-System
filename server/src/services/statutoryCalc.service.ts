@@ -4,7 +4,9 @@
  * A salary preview and a generated payroll draft must never disagree about the
  * Finance Act in force. Both pass the resolved fiscal-year configuration here:
  * employee SSF reduces taxable gross, employer SSF is a company cost, and the
- * monthly slabs are applied progressively. Callers only add presentation.
+ * monthly slabs are applied progressively. An SSF-eligible employee pays no
+ * separate TDS: the SSF contribution already includes salary tax, so TDS is
+ * zero for that employee. Callers only add presentation.
  *
  * TDS is ANNUALISED. The configured slabs are monthly bands, and a month's
  * withholding is one twelfth of the liability its annual income creates — not
@@ -154,6 +156,7 @@ export function annualisedTds(input: AnnualisedTdsInput): AnnualisedTdsResult {
 export function calculateStatutory(input: StatutoryCalculationInput): StatutoryCalculation {
   const monthlyGross = round2(Number(input.monthlyGross) || 0);
   const basicAmount = round2(Number(input.basicAmount) || 0);
+  const ssfEligible = Boolean(input.ssfEligible);
   const employeeSsfPercent = Number(input.employeeSsfPercent) || 0;
   const employerSsfPercent = Number(input.employerSsfPercent) || 0;
   // One-off earnings cannot exceed the period's gross.
@@ -163,32 +166,40 @@ export function calculateStatutory(input: StatutoryCalculationInput): StatutoryC
   );
   const recurringGross = round2(Math.max(0, monthlyGross - oneOffEarnings));
 
-  const employeeSsf = input.ssfEligible
+  const employeeSsf = ssfEligible
     ? round2((basicAmount * employeeSsfPercent) / 100)
     : 0;
-  const employerSsf = input.ssfEligible
+  const employerSsf = ssfEligible
     ? round2((basicAmount * employerSsfPercent) / 100)
     : 0;
 
   // Employee SSF is withheld every month, so it reduces the recurring base.
   const monthlyTaxableRecurring = round2(Math.max(0, recurringGross - employeeSsf));
   const taxableGross = round2(Math.max(0, monthlyGross - employeeSsf));
-  const tds = annualisedTds({
-    monthlyTaxableRecurring,
-    oneOffTaxable: oneOffEarnings,
-    slabs: input.slabs,
-  });
+  // SSF already includes salary tax for contributors, so there is no separate
+  // TDS to withhold from an SSF-eligible employee. Non-SSF employees keep the
+  // annualised progressive calculation.
+  const tds = ssfEligible
+    ? null
+    : annualisedTds({
+        monthlyTaxableRecurring,
+        oneOffTaxable: oneOffEarnings,
+        slabs: input.slabs,
+      });
+  const monthlyTds = tds?.monthlyTds ?? 0;
+  const annualTds = tds?.annualTds ?? 0;
 
   return {
     employeeSsf,
     employerSsf,
     totalSsf: round2(employeeSsf + employerSsf),
     taxableGross,
-    monthlyTds: tds.monthlyTds,
-    annualTds: tds.annualTds,
-    netAfterStatutory: round2(monthlyGross - employeeSsf - tds.monthlyTds),
+    monthlyTds,
+    annualTds,
+    netAfterStatutory: round2(monthlyGross - employeeSsf - monthlyTds),
     // The month's own band breakdown: what the recurring salary is taxed
-    // through. The one-off's marginal tax is reported by `annualTds`.
-    slabs: tds.appliedMonthlySlabs,
+    // through. The one-off's marginal tax is reported by `annualTds`. An
+    // SSF-eligible employee has no bands because there is no separate TDS.
+    slabs: tds?.appliedMonthlySlabs ?? [],
   };
 }

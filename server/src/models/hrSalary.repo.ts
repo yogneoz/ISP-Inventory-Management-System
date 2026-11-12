@@ -113,6 +113,13 @@ export const HR_SALARY_COMPONENT_COLUMNS = `id,
   is_ssf_applicable AS "isSsfApplicable",
   sort_order AS "sortOrder"`;
 
+/** The SSF flag used by the payroll calculation for each structure. */
+export const HR_SALARY_SSF_ELIGIBILITY_BY_IDS_SQL = `SELECT
+  id,
+  ssf_eligible AS "ssfEligible"
+FROM hr_employee_salary
+WHERE id = ANY($1::varchar[])`;
+
 export const HR_SALARY_COMPONENTS_BY_SALARY_IDS_SQL = `SELECT ${HR_SALARY_COMPONENT_COLUMNS}
 FROM hr_salary_components
 WHERE salary_id = ANY($1::varchar[])

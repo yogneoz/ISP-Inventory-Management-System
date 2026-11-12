@@ -54,6 +54,22 @@ describe('annualised salary TDS', () => {
 
     test('calculateStatutory with no one-off keeps the same monthly figure', () => {
       const result = calculateStatutory({
+        monthlyGross: 91866.67,
+        basicAmount: 58000,
+        ssfEligible: false,
+        employeeSsfPercent: 10,
+        employerSsfPercent: 20,
+        slabs: SLABS,
+      });
+      assert.equal(result.employeeSsf, 0);
+      assert.equal(result.employerSsf, 0);
+      assert.equal(result.taxableGross, 91866.67);
+      assert.equal(result.monthlyTds, 6686.67);
+      assert.equal(result.annualTds, 80240);
+    });
+
+    test('an SSF-eligible employee has no separate TDS', () => {
+      const result = calculateStatutory({
         monthlyGross: 97666.67,
         basicAmount: 58000,
         ssfEligible: true,
@@ -64,8 +80,10 @@ describe('annualised salary TDS', () => {
       assert.equal(result.employeeSsf, 5800);
       assert.equal(result.employerSsf, 11600);
       assert.equal(result.taxableGross, 91866.67);
-      assert.equal(result.monthlyTds, 6686.67);
-      assert.equal(result.annualTds, 80240);
+      assert.equal(result.monthlyTds, 0);
+      assert.equal(result.annualTds, 0);
+      assert.equal(result.netAfterStatutory, 91866.67);
+      assert.deepEqual(result.slabs, []);
     });
   });
 

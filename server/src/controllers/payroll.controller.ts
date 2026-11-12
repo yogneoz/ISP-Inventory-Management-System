@@ -93,6 +93,7 @@ import {
 import {
   HR_SALARY_COMPONENTS_BY_SALARY_IDS_SQL,
   HR_SALARY_EFFECTIVE_LIST_SQL,
+  HR_SALARY_SSF_ELIGIBILITY_BY_IDS_SQL,
 } from '../models/hrSalary.repo';
 import {
   HR_STATUTORY_CONFIG_BY_YEAR_SQL,
@@ -236,6 +237,58 @@ function nonNegativeAmount(value: unknown, field: string): number {
   }
   if (parsed > 99_999_999_999.99) throw new ApiError(400, `${field} exceeds the ledger limit.`);
   return parsed;
+}
+
+/**
+ * SSF-eligible employees pay no separate TDS: their SSF contribution already
+ * includes salary tax. Generated drafts enforce this in `calculateStatutory`;
+ * these guards also cover manual runs and drafts prepared before the rule.
+ */
+function ssfTdsError(employeeCodes: string[]): ApiError {
+  return new ApiError(
+    422,
+    `TDS cannot be withheld from SSF-eligible employee(s) ${employeeCodes.join(
+      ', '
+    )}; SSF already includes salary tax.`
+  );
+}
+
+async function assertNoTdsForSsfEmployees(client: any, lines: any[]): Promise<void> {
+  const taxed = (lines || []).filter((line) => roundMoney(Number(line?.tds)) > 0);
+  if (taxed.length === 0) return;
+  const employeeIds = [...new Set(taxed.map((line) => String(line.employeeId)))];
+  const salaryIds = [
+    ...new Set(
+      taxed
+        .map((line) => line?.salaryId)
+        .filter((id): id is string => Boolean(id))
+        .map((id) => String(id))
+    ),
+  ];
+  // A transaction client runs one statement at a time, so these stay serial.
+  const employeeRows = await client.query(EMPLOYEES_BY_IDS_SQL, [employeeIds]);
+  const salaryRows = salaryIds.length
+    ? await client.query(HR_SALARY_SSF_ELIGIBILITY_BY_IDS_SQL, [salaryIds])
+    : { rows: [] };
+  const employeeById = new Map<string, any>(
+    employeeRows.rows.map((employee: any) => [String(employee.id), employee])
+  );
+  const salaryById = new Map<string, any>(
+    salaryRows.rows.map((salary: any) => [String(salary.id), salary])
+  );
+  // A generated line follows its salary structure, which is what the draft
+  // calculation used. A manual line has no structure, so the employee master's
+  // SSF flag is its only signal.
+  const offenders = taxed.filter((line) => {
+    const salary = line?.salaryId ? salaryById.get(String(line.salaryId)) : null;
+    const employee = employeeById.get(String(line.employeeId));
+    return Boolean(salary ? salary.ssfEligible : employee?.ssfEligible);
+  });
+  if (offenders.length > 0) {
+    throw ssfTdsError(
+      offenders.map((line) => String(line.employeeCode || line.employeeId))
+    );
+  }
 }
 
 function optionalDate(value: unknown, field: string): string | null {
@@ -1366,6 +1419,9 @@ export async function post_payrollRun(req: any, res: Response): Promise<any> {
     const gross = nonNegativeAmount(raw?.gross, `Gross for ${employee.employeeCode}`);
     if (gross <= 0) throw new ApiError(400, `Gross for ${employee.employeeCode} must be positive.`);
     const tds = nonNegativeAmount(raw?.tds, `TDS for ${employee.employeeCode}`);
+    if (employee.ssfEligible && tds > 0) {
+      throw ssfTdsError([String(employee.employeeCode)]);
+    }
     const ssf = nonNegativeAmount(raw?.ssf, `SSF for ${employee.employeeCode}`);
     const advance = nonNegativeAmount(raw?.advance, `Advance for ${employee.employeeCode}`);
     const loan = nonNegativeAmount(raw?.loan, `Loan for ${employee.employeeCode}`);
@@ -1738,10 +1794,11 @@ export async function post_payrollRunApprove(req: any, res: Response): Promise<a
         `Payroll run ${run.runNo} is ${run.status}; only a DRAFT can be approved.`
       );
     }
+    const lines = (await client.query(PAYROLL_LINES_BY_RUN_SQL, [id])).rows;
+    await assertNoTdsForSsfEmployees(client, lines);
     const updated = (
       await client.query(PAYROLL_RUN_SET_APPROVED_SQL, [id, actorOf(req)])
     ).rows[0];
-    const lines = (await client.query(PAYROLL_LINES_BY_RUN_SQL, [id])).rows;
     await logAuditEvent(
       req,
       'APPROVE_PAYROLL_RUN',
@@ -1780,6 +1837,7 @@ export async function post_payrollRunPost(req: any, res: Response): Promise<any>
     }
 
     const lines = (await client.query(PAYROLL_LINES_BY_RUN_SQL, [id])).rows;
+    await assertNoTdsForSsfEmployees(client, lines);
     const runNo = await issueNextDocNumber(
       String(run.branchId),
       'PAYROLL_RUN',

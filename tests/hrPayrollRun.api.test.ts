@@ -537,8 +537,8 @@ describe('generated payroll run lifecycle (real HTTP + PostgreSQL)', { skip: ski
     assert.equal(Number(lineA.gross), 105166.67);
     assert.equal(Number(lineA.ssf), 5800);
     assert.equal(Number(lineA.employerSsf), 11600);
-    assert.equal(Number(lineA.tds), 7436.67);
-    assert.equal(Number(lineA.net), 88930);
+    assert.equal(Number(lineA.tds), 0);
+    assert.equal(Number(lineA.net), 96366.67);
     assert.equal(lineA.salaryId, salaryA.id);
 
     // B: no SSF, no attendance, 50,000 gross plus one-off earnings.
@@ -553,13 +553,13 @@ describe('generated payroll run lifecycle (real HTTP + PostgreSQL)', { skip: ski
     assert.equal(lineB.salaryId, salaryB.id);
 
     assert.equal(Number(draftRun.grossTotal), 158166.67);
-    assert.equal(Number(draftRun.tdsTotal), 10236.67);
+    assert.equal(Number(draftRun.tdsTotal), 2800);
     assert.equal(Number(draftRun.ssfTotal), 5800);
     assert.equal(Number(draftRun.incentiveTotal), 7000);
     assert.equal(Number(draftRun.arrearsTotal), 3500);
     assert.equal(Number(draftRun.advanceTotal), 1500);
     assert.equal(Number(draftRun.loanTotal), 2000);
-    assert.equal(Number(draftRun.netTotal), 138630);
+    assert.equal(Number(draftRun.netTotal), 146066.67);
 
     const journals = await pool!.query(
       'SELECT COUNT(*)::int AS count FROM gl_journals WHERE source_id = $1',
@@ -593,7 +593,7 @@ describe('generated payroll run lifecycle (real HTTP + PostgreSQL)', { skip: ski
     assert.equal(Number(snapshotA.incentive), 5000);
     assert.equal(Number(snapshotA.arrears), 2500);
     assert.equal(Number(snapshotA.loan), 2000);
-    assert.equal(Number(snapshotA.net), 88930);
+    assert.equal(Number(snapshotA.net), 96366.67);
 
     // HR prepared the draft and must be able to follow it without holding gl-view.
     const hrList = await get(`/api/payroll-runs?branchId=${BRANCH}`, hrToken);
@@ -650,6 +650,29 @@ describe('generated payroll run lifecycle (real HTTP + PostgreSQL)', { skip: ski
     );
     assert.equal(payBeforePost.status, 409, JSON.stringify(payBeforePost.json));
 
+    // An older draft can still carry TDS. Approval must stop it before Finance
+    // posts an SSF-eligible employee's TDS to the ledger.
+    const tampered = await pool!.query(
+      `UPDATE payroll_run_lines
+          SET tds_amount = 100, net_amount = net_amount - 100
+        WHERE run_id = $1 AND employee_code = 'PRD-01'`,
+      [draftRun.id]
+    );
+    assert.equal(tampered.rowCount, 1);
+    const refusedApprove = await post(
+      `/api/payroll-runs/${draftRun.id}/approve`,
+      {},
+      financeToken
+    );
+    assert.equal(refusedApprove.status, 422, JSON.stringify(refusedApprove.json));
+    assert.match(refusedApprove.json.message, /SSF-eligible/);
+    await pool!.query(
+      `UPDATE payroll_run_lines
+          SET tds_amount = 0, net_amount = net_amount + 100
+        WHERE run_id = $1 AND employee_code = 'PRD-01'`,
+      [draftRun.id]
+    );
+
     // The draft is a snapshot: editing the rule after preparation must not
     // rewrite the approved/posted lines.
     const configUpdate = await patch(`/api/hr/statutory-configs/${config.id}`, {
@@ -691,7 +714,11 @@ describe('generated payroll run lifecycle (real HTTP + PostgreSQL)', { skip: ski
       (line: any) => line.employeeCode === 'PRD-01'
     );
     assert.equal(Number(approvedLineA.ssf), 5800, 'the prepared SSF snapshot must survive a rule edit');
-    assert.equal(Number(approvedLineA.tds), 7436.67, 'the prepared TDS snapshot must survive a rule edit');
+    assert.equal(
+      Number(approvedLineA.tds),
+      0,
+      'an SSF-eligible line carries no TDS even after a rule edit'
+    );
 
     const deleteApproved = await del(`/api/payroll-runs/${draftRun.id}`, hrToken);
     assert.equal(deleteApproved.status, 409, JSON.stringify(deleteApproved.json));
@@ -728,7 +755,7 @@ describe('generated payroll run lifecycle (real HTTP + PostgreSQL)', { skip: ski
     // share is credited to SSF payable per employee, so it adds two lines.
     assert.equal(runTotals.debit, 169766.67);
     assert.equal(runTotals.credit, 169766.67);
-    assert.equal(runTotals.lines, 10);
+    assert.equal(runTotals.lines, 9);
 
     const postedList = await get(
       `/api/payroll-runs?branchId=${BRANCH}&status=POSTED`,
@@ -765,8 +792,8 @@ describe('generated payroll run lifecycle (real HTTP + PostgreSQL)', { skip: ski
     assert.equal(paid.json.paidJournalId, paid.json.journal.id);
 
     const paymentTotals = await journalTotals(paid.json.journal.id);
-    assert.equal(paymentTotals.debit, 138630);
-    assert.equal(paymentTotals.credit, 138630);
+    assert.equal(paymentTotals.debit, 146066.67);
+    assert.equal(paymentTotals.credit, 146066.67);
 
     // The posted journal must leave SSF payable holding exactly the employee
     // share withheld plus the employer share the company owes, and the payroll
@@ -944,18 +971,18 @@ describe('generated payroll run lifecycle (real HTTP + PostgreSQL)', { skip: ski
     assert.equal(Number(row.grossTotal).toFixed(2), '158166.67');
     assert.equal(Number(row.incentiveTotal).toFixed(2), '7000.00');
     assert.equal(Number(row.arrearsTotal).toFixed(2), '3500.00');
-    assert.equal(Number(row.tdsTotal).toFixed(2), '10236.67');
+    assert.equal(Number(row.tdsTotal).toFixed(2), '2800.00');
     assert.equal(Number(row.ssfTotal).toFixed(2), '5800.00');
     assert.equal(Number(row.advanceTotal).toFixed(2), '1500.00');
     assert.equal(Number(row.loanTotal).toFixed(2), '2000.00');
-    assert.equal(Number(row.netTotal).toFixed(2), '138630.00');
+    assert.equal(Number(row.netTotal).toFixed(2), '146066.67');
     // The posting now debits the full salary cost: gross wages 158,166.67 plus
     // the employer's SSF share 11,600.00 (a company cost, credited to SSF
     // payable). It used to stop at gross, which understated salary expense.
     assert.equal(Number(row.journalDebit).toFixed(2), '169766.67');
     assert.equal(Number(row.journalCredit).toFixed(2), '169766.67');
-    assert.equal(Number(row.paymentDebit).toFixed(2), '138630.00');
-    assert.equal(Number(row.paymentCredit).toFixed(2), '138630.00');
+    assert.equal(Number(row.paymentDebit).toFixed(2), '146066.67');
+    assert.equal(Number(row.paymentCredit).toFixed(2), '146066.67');
     assert.ok(row.journalNo);
     assert.ok(row.paymentJournalNo);
     assert.equal(row.journalStatus, 'POSTED');
@@ -1013,11 +1040,11 @@ describe('generated payroll run lifecycle (real HTTP + PostgreSQL)', { skip: ski
     assert.equal(lineA.arrears, 2500);
     assert.equal(lineA.lopDeduction, 3333.33);
     assert.equal(lineA.gross, 105166.67);
-    assert.equal(lineA.tds, 7436.67);
+    assert.equal(lineA.tds, 0);
     assert.equal(lineA.ssf, 5800);
     assert.equal(lineA.employerSsf, 11600);
-    assert.equal(lineA.totalDeductions, 16236.67);
-    assert.equal(lineA.net, 88930);
+    assert.equal(lineA.totalDeductions, 8800);
+    assert.equal(lineA.net, 96366.67);
     assert.equal(lineA.employerCost, 116766.67);
     assert.equal(lineA.fiscalYearCode, FY_CODE);
     assert.equal(lineA.status, 'PAID');
@@ -1043,7 +1070,7 @@ describe('generated payroll run lifecycle (real HTTP + PostgreSQL)', { skip: ski
     assert.equal(single.status, 200, JSON.stringify(single.json));
     assert.equal(single.headers.get('cache-control'), 'private, no-store');
     assert.equal(single.json.payslip.employeeCode, 'PRD-01');
-    assert.equal(single.json.payslip.net, 88930);
+    assert.equal(single.json.payslip.net, 96366.67);
 
     const register = await get(`/api/payroll-runs/${draftRun.id}/register`, auditorToken);
     assert.equal(register.status, 200, JSON.stringify(register.json));
@@ -1057,21 +1084,21 @@ describe('generated payroll run lifecycle (real HTTP + PostgreSQL)', { skip: ski
     assert.equal(register.json.totals.arrears, 3500);
     assert.equal(register.json.totals.lop, 3333.33);
     assert.equal(register.json.totals.gross, 158166.67);
-    assert.equal(register.json.totals.tds, 10236.67);
+    assert.equal(register.json.totals.tds, 2800);
     assert.equal(register.json.totals.ssf, 5800);
     assert.equal(register.json.totals.advance, 1500);
     assert.equal(register.json.totals.loan, 2000);
     assert.equal(register.json.totals.employerSsf, 11600);
-    assert.equal(register.json.totals.net, 138630);
-    assert.equal(register.json.totals.deductions, 19536.67);
+    assert.equal(register.json.totals.net, 146066.67);
+    assert.equal(register.json.totals.deductions, 12100);
     assert.equal(register.json.totals.employerCost, 169766.67);
     assert.equal(register.json.statutory.employeeSsf, 5800);
     assert.equal(register.json.statutory.employerSsf, 11600);
-    assert.equal(register.json.statutory.tds, 10236.67);
+    assert.equal(register.json.statutory.tds, 2800);
     assert.equal(register.json.journal.totalDebit, 169766.67);
     assert.equal(register.json.journal.totalCredit, 169766.67);
-    assert.equal(register.json.paymentJournal.totalDebit, 138630);
-    assert.equal(register.json.paymentJournal.totalCredit, 138630);
+    assert.equal(register.json.paymentJournal.totalDebit, 146066.67);
+    assert.equal(register.json.paymentJournal.totalCredit, 146066.67);
     assert.equal(register.json.reconciliation.matchesRun, true);
     assert.equal(register.json.reconciliation.matchesJournal, true);
     assert.equal(register.json.reconciliation.paymentMatchesRun, true);
@@ -1235,7 +1262,7 @@ describe('generated payroll run lifecycle (real HTTP + PostgreSQL)', { skip: ski
     assert.ok(bankRowA, 'PRD-01 must be present in the bank file');
     assert.match(
       bankRowA!,
-      /"Payrun Test Bank","ACC-PRD-01",88930\.00,"Salary 2027-04 PR-/
+      /"Payrun Test Bank","ACC-PRD-01",96366\.67,"Salary 2027-04 PR-/
     );
 
     const snapshottedBanks = await pool!.query(

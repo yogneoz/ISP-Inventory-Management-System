@@ -299,7 +299,7 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
       personalEmail: `${code.toLowerCase()}.personal@example.test`,
       bankName: 'Test Bank',
       monthlySalary: 25000,
-      ssfEligible: true,
+      ssfEligible: false,
     };
   }
 
@@ -396,7 +396,7 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
     assert.equal(emp1.emergencyContactPerson, 'Test Contact');
     assert.equal(emp1.bankName, 'Test Bank');
     assert.equal(Number(emp1.monthlySalary), 25000);
-    assert.equal(emp1.ssfEligible, true);
+    assert.equal(emp1.ssfEligible, false);
 
     const second = await post('/api/employees', employeeBody('PAYT-002', 'Pay Test Two'));
     assert.equal(second.status, 201, JSON.stringify(second.json));
@@ -1046,6 +1046,33 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
     assert.equal(list.status, 200, JSON.stringify(list.json));
     assert.equal(list.json.length, 1);
     assert.equal(list.json[0].id, run.id);
+  });
+
+  test('refuses TDS on an SSF-eligible employee', async () => {
+    const ssfEmployee = (
+      await post('/api/employees', {
+        ...employeeBody('PAYT-SSF', 'Pay SSF Employee'),
+        ssfEligible: true,
+      })
+    ).json;
+    const refused = await post('/api/payroll-runs', {
+      branchId: BR,
+      periodKey: PERIOD,
+      runDateAD: RUN_DATE,
+      lines: [
+        {
+          employeeId: ssfEmployee.id,
+          gross: 5000,
+          tds: 500,
+          ssf: 550,
+          advance: 0,
+          loan: 0,
+        },
+      ],
+    });
+    assert.equal(refused.status, 422, JSON.stringify(refused.json));
+    assert.match(refused.json.message, /SSF-eligible/);
+    assert.match(refused.json.message, /already includes salary tax/);
   });
 
   test('TDS and SSF reconcile per employee and the employee ledger reads the same entries', async () => {

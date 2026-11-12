@@ -13,7 +13,8 @@
  *   basic        = structure BASIC × (monthlyGross − lopDeduction) / monthlyGross
  *   employee SSF = basic × configured employee rate
  *   taxable      = gross − employee SSF
- *   TDS          = progressive configured monthly slabs
+ *   TDS          = 0 when SSF-eligible (SSF includes salary tax), otherwise
+ *                  progressive configured monthly slabs
  *   net          = gross − employee SSF − TDS − advance − loan
  *
  * Incentives and arrears are one-off period earnings, so they add to gross and

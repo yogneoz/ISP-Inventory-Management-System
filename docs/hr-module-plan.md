@@ -255,6 +255,8 @@ snapshots and their linked journals under `gl-view`. Phase 2 is complete.
 - Effective-dated salary structure (basic 60% / HR allowance 40% defaults),
   SSF eligibility and 11% staff / 20% company contributions, Nepal TDS slabs
   versioned per fiscal year, OT rates, incentives, arrears and loans.
+  SSF-eligible employees carry no separate TDS: the SSF contribution already
+  includes salary tax.
 - `DRAFT → APPROVED → POSTED → PAID`; HR prepares, Finance approves/posts.
 - Payslip list/print, payroll register, bank disbursement file and the
   read-only Finance payroll-postings register are delivered.

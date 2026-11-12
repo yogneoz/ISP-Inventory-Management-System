@@ -1161,9 +1161,15 @@ export const Payroll: React.FC<PayrollProps> = ({ currentUser, fiscalYears, bran
                   {
                     label: 'Monthly TDS',
                     value: breakdown.monthlyTds,
-                    hint: `${breakdown.slabs.length} bands`,
+                    hint: breakdown.ssfEligible
+                      ? 'included in SSF'
+                      : `${breakdown.slabs.length} bands`,
                   },
-                  { label: 'Annual TDS', value: breakdown.annualTds, hint: 'monthly × 12' },
+                  {
+                    label: 'Annual TDS',
+                    value: breakdown.annualTds,
+                    hint: breakdown.ssfEligible ? 'no separate TDS' : 'monthly × 12',
+                  },
                 ].map((card) => (
                   <div
                     key={card.label}

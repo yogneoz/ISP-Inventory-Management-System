@@ -10,8 +10,9 @@
  * The computation endpoint resolves the employee's effective-dated structure
  * and the fiscal year containing the as-of date, then applies the configured
  * monthly slabs. Employee SSF (11% of BASIC by default) reduces taxable gross;
- * employer SSF is a company cost and does not. Missing fiscal years or missing
- * configurations are 422s, never a silent zero.
+ * employer SSF is a company cost and does not. SSF-eligible employees have no
+ * separate TDS because the contribution already includes salary tax. Missing
+ * fiscal years or missing configurations are 422s, never a silent zero.
  *
  * Every config mutation and its audit row share one transaction.
  */

@@ -314,7 +314,8 @@ describe('fiscal-year TDS slabs and SSF rates (real HTTP + PostgreSQL)', { skip:
     assert.equal(created2091.status, 201, JSON.stringify(created2091.json));
     config2091 = created2091.json;
 
-    // Mid band, SSF eligible: taxable 70,000 − 4,620 = 65,380.
+    // Mid band, SSF eligible: taxable 70,000 − 4,620 = 65,380. SSF already
+    // includes salary tax, so there is no separate TDS.
     const mid = await get(`/api/hr/employee-salaries/${midStructure.id}/statutory?asOf=2090-09-15`);
     assert.equal(mid.status, 200, JSON.stringify(mid.json));
     assert.equal(mid.json.fiscalYear.code, '2090/91');
@@ -322,12 +323,10 @@ describe('fiscal-year TDS slabs and SSF rates (real HTTP + PostgreSQL)', { skip:
     assert.equal(mid.json.employeeSsf, 4620);
     assert.equal(mid.json.employerSsf, 8400);
     assert.equal(mid.json.taxableGross, 65380);
-    assert.equal(mid.json.monthlyTds, 4807);
-    assert.equal(mid.json.annualTds, 57684);
-    assert.equal(mid.json.netAfterStatutory, 60573);
-    assert.equal(mid.json.slabs[0].taxableAmount, 50000);
-    assert.equal(mid.json.slabs[1].taxableAmount, 15380);
-    assert.equal(mid.json.slabs[2].taxableAmount, 0);
+    assert.equal(mid.json.monthlyTds, 0);
+    assert.equal(mid.json.annualTds, 0);
+    assert.equal(mid.json.netAfterStatutory, 65380);
+    assert.deepEqual(mid.json.slabs, [], 'SSF includes salary tax, so there are no TDS bands');
 
     // Same gross, no SSF: taxable 70,000 and no contribution amounts.
     const noSsf = await get(
@@ -341,14 +340,14 @@ describe('fiscal-year TDS slabs and SSF rates (real HTTP + PostgreSQL)', { skip:
     assert.equal(noSsf.json.monthlyTds, 5500);
     assert.equal(noSsf.json.annualTds, 66000);
 
-    // Above the top band: taxable 300,000 − 19,800 = 280,200.
+    // Above the top band: taxable 300,000 − 19,800 = 280,200, still no TDS
+    // because the employee contributes to SSF.
     const top = await get(`/api/hr/employee-salaries/${topStructure.id}/statutory?asOf=2090-09-15`);
     assert.equal(top.status, 200, JSON.stringify(top.json));
     assert.equal(top.json.taxableGross, 280200);
-    assert.equal(top.json.monthlyTds, 55050);
-    assert.equal(top.json.annualTds, 660600);
-    assert.equal(top.json.slabs[2].taxableAmount, 180200);
-    assert.equal(top.json.slabs[2].tdsAmount, 45050);
+    assert.equal(top.json.monthlyTds, 0);
+    assert.equal(top.json.annualTds, 0);
+    assert.deepEqual(top.json.slabs, []);
 
     // The later structure's date selects the 2091/92 config, not the 2090 one.
     const newer = await get(
@@ -360,8 +359,8 @@ describe('fiscal-year TDS slabs and SSF rates (real HTTP + PostgreSQL)', { skip:
     assert.equal(newer.json.employeeSsf, 8640);
     assert.equal(newer.json.employerSsf, 15120);
     assert.equal(newer.json.taxableGross, 111360);
-    assert.equal(newer.json.monthlyTds, 7363.2);
-    assert.equal(newer.json.annualTds, 88358.4);
+    assert.equal(newer.json.monthlyTds, 0);
+    assert.equal(newer.json.annualTds, 0);
 
     // A missing fiscal year and an as-of date before the structure are 422s.
     assert.equal(
@@ -406,7 +405,7 @@ describe('fiscal-year TDS slabs and SSF rates (real HTTP + PostgreSQL)', { skip:
     assert.equal(recomputed.json.employeeSsf, 4200);
     assert.equal(recomputed.json.employerSsf, 8820);
     assert.equal(recomputed.json.taxableGross, 65800);
-    assert.equal(recomputed.json.monthlyTds, 3896);
+    assert.equal(recomputed.json.monthlyTds, 0);
   });
 
   test('malformed slabs and duplicate fiscal-year configs are 422s', async () => {
