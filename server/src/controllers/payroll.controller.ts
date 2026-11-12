@@ -44,6 +44,8 @@ import {
   EMPLOYEE_LINKED_TO_USER_SQL,
   EMPLOYEE_LEDGER_ACCOUNT_BALANCES_SQL,
   EMPLOYEE_LEDGER_ENTRIES_SQL,
+  EMPLOYEE_LOCK_BY_ID_SQL,
+  EMPLOYEE_SET_BRANCH_SQL,
   EMPLOYEE_SET_USER_SQL,
   EMPLOYEE_PROFILE_PHOTO_SQL,
   EMPLOYEE_UPDATE_SQL,
@@ -75,6 +77,13 @@ import {
   payrollLineInsertParams,
   payrollRunInsertParams,
 } from '../models/payroll.repo';
+import {
+  HR_BRANCH_TRANSFER_BY_ID_SQL,
+  HR_BRANCH_TRANSFER_DECIDE_SQL,
+  HR_BRANCH_TRANSFER_INSERT_SQL,
+  HR_BRANCH_TRANSFER_LOCK_BY_ID_SQL,
+  HR_BRANCH_TRANSFER_PENDING_FOR_EMPLOYEE_SQL,
+} from '../models/hrEmployeeBranchTransfers.repo';
 import { USER_INSERT_TEMP_PASSWORD_SQL } from '../models/admin.repo';
 import { USER_RESTORE_SQL, USER_SET_ROLE_SQL, USER_SUSPEND_SQL } from '../models/auth.repo';
 import {
@@ -117,7 +126,7 @@ import { bsDateOrThrow } from '../utils/bsDate';
 import { issueNextDocNumber } from '../utils/docNumber';
 import { roundMoney } from '../utils/money';
 
-interface PayrollScope {
+export interface PayrollScope {
   /** A concrete filter branch; undefined means all branches (global only). */
   branchId?: string;
   /** Allowed branches, or null for a global account. */
@@ -189,7 +198,7 @@ function requireDb(): void {
 }
 
 /** The branch filter this request may use; writes a 403 and returns null when not. */
-function resolveScope(req: any, res: Response): PayrollScope | null {
+export function resolveScope(req: any, res: Response): PayrollScope | null {
   const user = req.user;
   if (!user) {
     res.status(401).json({ message: 'Unauthorized: Authentication required' });
@@ -474,6 +483,13 @@ export async function get_employees(req: any, res: Response): Promise<any> {
   const { sql, params } = buildEmployeeListQuery({
     ...options,
     query: text(req.query?.query, 100) || null,
+    department: text(req.query?.department, 120) || null,
+    designation: text(req.query?.designation, 120) || null,
+    designationCode: text(req.query?.designationCode, 30) || null,
+    workstation: text(req.query?.workstation, 120) || null,
+    departmentId: text(req.query?.departmentId, 50) || null,
+    designationId: text(req.query?.designationId, 50) || null,
+    workstationId: text(req.query?.workstationId, 50) || null,
     activeOnly: String(req.query?.activeOnly ?? '') === '1',
     limit: req.query?.limit ? Number(req.query.limit) : undefined,
   });
@@ -638,6 +654,24 @@ export async function patch_employee(req: any, res: Response): Promise<any> {
     if (!assertInScope(scope, String(existing.branchId), res)) return null;
 
     const has = (key: string) => Object.prototype.hasOwnProperty.call(req.body || {}, key);
+    // Branch Management is the only source for a branch id, but an ordinary
+    // edit may not move an employee: that requires the transfer request and a
+    // manager's approval. A same-branch value remains a harmless no-op.
+    const requestedBranchId = has('branchId') ? optionalText(req.body.branchId, 50) : null;
+    if (has('branchId')) {
+      if (!requestedBranchId) throw new ApiError(400, 'Choose the branch this employee belongs to.');
+      if (!assertInScope(scope, requestedBranchId, res)) return null;
+      const targetBranch = await client.query(BRANCH_EXISTS_SQL, [requestedBranchId]);
+      if (!targetBranch.rows[0]) {
+        throw new ApiError(400, `Unknown branch '${requestedBranchId}'.`);
+      }
+      if (requestedBranchId !== String(existing.branchId)) {
+        throw new ApiError(
+          400,
+          'Branch changes require the transfer process and manager approval.'
+        );
+      }
+    }
     // Photo first: this statement is what can set NULL, and the COALESCE update
     // below then returns the stored row with the new picture already in it.
     if (has('profilePhoto')) {
@@ -782,6 +816,209 @@ export async function patch_employee(req: any, res: Response): Promise<any> {
   });
   if (!employee) return; // assertInScope already wrote the 403
   return res.json({ ...employee.row, login: employee.login });
+}
+
+/**
+ * POST /api/employees/:id/transfer
+ *
+ * Stage one of the transfer process: HR records a PENDING request with the
+ * Branch Management destination, effective date and reason. The employee does
+ * not move until an authorized manager decides the request.
+ */
+export async function transfer_employee(req: any, res: Response): Promise<any> {
+  requireDb();
+  const scope = resolveScope(req, res);
+  if (!scope) return;
+  const id = text(req.params?.id, 50);
+  if (!id) throw new ApiError(400, 'An employee id is required.');
+
+  const targetBranchId = optionalText(req.body?.branchId, 50);
+  if (!targetBranchId) throw new ApiError(400, 'Choose the destination branch.');
+  if (!assertInScope(scope, targetBranchId, res)) return;
+  const effectiveDateAD = req.body?.effectiveDateAD
+    ? optionalDate(req.body.effectiveDateAD, 'Effective date')
+    : todayAd();
+  if (!effectiveDateAD) throw new ApiError(400, 'Choose the effective date.');
+  if (effectiveDateAD > todayAd()) {
+    throw new ApiError(400, 'The effective date cannot be in the future.');
+  }
+  const reason = optionalText(req.body?.reason, 500);
+  if (!reason || reason.length < 3) {
+    throw new ApiError(400, 'A transfer reason is required.');
+  }
+
+  const result = await withTransaction(async (client) => {
+    const existing = (await client.query(EMPLOYEE_LOCK_BY_ID_SQL, [id])).rows[0];
+    if (!existing) throw new ApiError(404, 'Employee not found.');
+    if (!assertInScope(scope, String(existing.branchId), res)) return null;
+    if (String(existing.branchId) === targetBranchId) {
+      throw new ApiError(400, 'The employee is already in that branch.');
+    }
+    if (existing.joiningDateAD && effectiveDateAD < existing.joiningDateAD) {
+      throw new ApiError(400, 'The effective date cannot be before the joining date.');
+    }
+    const pending = await client.query(HR_BRANCH_TRANSFER_PENDING_FOR_EMPLOYEE_SQL, [id]);
+    if (pending.rows[0]) {
+      throw new ApiError(409, 'This employee already has a pending transfer awaiting approval.');
+    }
+
+    const [target, fromBranch] = await Promise.all([
+      client.query(BRANCH_EXISTS_SQL, [targetBranchId]),
+      client.query(BRANCH_NAME_BY_ID_SQL, [existing.branchId]),
+    ]);
+    if (!target.rows[0]) throw new ApiError(400, `Unknown branch '${targetBranchId}'.`);
+    const toBranch = (await client.query(BRANCH_NAME_BY_ID_SQL, [targetBranchId])).rows[0];
+
+    const transferId = `hr-bt-${crypto.randomUUID()}`;
+    await client.query(HR_BRANCH_TRANSFER_INSERT_SQL, [
+      transferId,
+      id,
+      String(existing.branchId),
+      fromBranch.rows[0]?.name || String(existing.branchId),
+      targetBranchId,
+      toBranch?.name || targetBranchId,
+      actorOf(req),
+      effectiveDateAD,
+      reason,
+      'PENDING',
+    ]);
+    await logAuditEvent(
+      req,
+      'REQUEST_EMPLOYEE_TRANSFER',
+      'ACCOUNTING',
+      `Requested transfer of employee ${existing.employeeCode} ${existing.name} from branch ${existing.branchId} to ${targetBranchId} effective ${effectiveDateAD}: ${reason}`,
+      targetBranchId,
+      client
+    );
+    return { employee: existing, transferId, status: 'PENDING' as const };
+  });
+  if (!result) return; // assertInScope already wrote the 403
+  return res.json(result);
+}
+
+/**
+ * Stage two: an authorized manager approves or rejects a pending transfer.
+ * Approval re-checks the employee's branch and moves it in the same transaction
+ * that marks the request decided; rejection leaves the employee untouched.
+ */
+async function decideEmployeeTransfer(
+  req: any,
+  res: Response,
+  status: 'APPROVED' | 'REJECTED'
+): Promise<any> {
+  requireDb();
+  const scope = resolveScope(req, res);
+  if (!scope) return;
+  const id = text(req.params?.id, 60);
+  if (!id) throw new ApiError(400, 'A transfer request id is required.');
+  const note = optionalText(req.body?.note, 500);
+  const actor = actorOf(req);
+  if (!actor) throw new ApiError(401, 'Unauthorized: Authentication required.');
+
+  const result = await withTransaction(async (client) => {
+    const transfer = (await client.query(HR_BRANCH_TRANSFER_LOCK_BY_ID_SQL, [id])).rows[0];
+    if (!transfer) throw new ApiError(404, 'Transfer request not found.');
+    if (transfer.status !== 'PENDING') {
+      throw new ApiError(409, 'This transfer request has already been decided.');
+    }
+    if (
+      transfer.transferredBy &&
+      String(transfer.transferredBy).toLowerCase() === actor.toLowerCase()
+    ) {
+      throw new ApiError(403, 'Forbidden: a transfer must be approved by someone other than its requester.');
+    }
+    if (
+      scope.allowed &&
+      !scope.allowed.has(String(transfer.fromBranchId)) &&
+      !scope.allowed.has(String(transfer.toBranchId))
+    ) {
+      throw new ApiError(403, 'Forbidden: this transfer is outside your branch scope.');
+    }
+
+    if (status === 'REJECTED') {
+      const changed = await client.query(HR_BRANCH_TRANSFER_DECIDE_SQL, [
+        id,
+        status,
+        actor,
+        note,
+      ]);
+      if (changed.rowCount === 0) {
+        throw new ApiError(409, 'The transfer request changed while it was being decided. Reload and retry.');
+      }
+      await logAuditEvent(
+        req,
+        'REJECT_EMPLOYEE_TRANSFER',
+        'ACCOUNTING',
+        `Rejected transfer of employee ${transfer.employeeId} from branch ${transfer.fromBranchId} to ${transfer.toBranchId}${note ? `: ${note}` : ''}`,
+        String(transfer.toBranchId),
+        client
+      );
+      return {
+        transfer: (await client.query(HR_BRANCH_TRANSFER_BY_ID_SQL, [id])).rows[0],
+        employee: null,
+      };
+    }
+
+    const target = await client.query(BRANCH_EXISTS_SQL, [String(transfer.toBranchId)]);
+    if (!target.rows[0]) {
+      throw new ApiError(409, 'The destination branch no longer exists. Reject this request and create a new one.');
+    }
+    const existing = (await client.query(EMPLOYEE_LOCK_BY_ID_SQL, [transfer.employeeId])).rows[0];
+    if (!existing) throw new ApiError(404, 'Employee not found.');
+    if (String(existing.branchId) !== String(transfer.fromBranchId)) {
+      throw new ApiError(
+        409,
+        "The employee's branch changed after this request was created. Reject it and create a new request."
+      );
+    }
+    if (
+      transfer.effectiveDateAD &&
+      existing.joiningDateAD &&
+      transfer.effectiveDateAD < existing.joiningDateAD
+    ) {
+      throw new ApiError(409, 'The effective date is before the employee joining date.');
+    }
+
+    const updated = (
+      await client.query(EMPLOYEE_SET_BRANCH_SQL, [
+        existing.id,
+        transfer.toBranchId,
+        actor,
+      ])
+    ).rows[0];
+    const changed = await client.query(HR_BRANCH_TRANSFER_DECIDE_SQL, [
+      id,
+      status,
+      actor,
+      note,
+    ]);
+    if (changed.rowCount === 0) {
+      throw new ApiError(409, 'The transfer request changed while it was being decided. Reload and retry.');
+    }
+    await logAuditEvent(
+      req,
+      'APPROVE_EMPLOYEE_TRANSFER',
+      'ACCOUNTING',
+      `Approved transfer of employee ${updated.employeeCode} ${updated.name} from branch ${transfer.fromBranchId} to ${transfer.toBranchId} effective ${transfer.effectiveDateAD}${note ? `: ${note}` : ''}`,
+      String(transfer.toBranchId),
+      client
+    );
+    return {
+      transfer: (await client.query(HR_BRANCH_TRANSFER_BY_ID_SQL, [id])).rows[0],
+      employee: updated,
+    };
+  });
+  return res.json(result);
+}
+
+/** POST /api/hr/branch-transfers/:id/approve */
+export async function approve_hrBranchTransfer(req: any, res: Response): Promise<any> {
+  return decideEmployeeTransfer(req, res, 'APPROVED');
+}
+
+/** POST /api/hr/branch-transfers/:id/reject */
+export async function reject_hrBranchTransfer(req: any, res: Response): Promise<any> {
+  return decideEmployeeTransfer(req, res, 'REJECTED');
 }
 
 /** GET /api/employees/:id/ledger?branchId=&from=&to= */

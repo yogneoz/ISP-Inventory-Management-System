@@ -425,3 +425,39 @@ The work is tracked in `docs/tasks/`:
 - `budgets.md`, `bank-reconciliation.md`,
   `recurring-journals-and-close.md`, `cash-flow-forecast.md`,
   `warranty-claims.md` — the other five initiatives.
+
+## 9. Screens (verified walkthrough, 2026-11-11)
+
+Captured on a running build with the demo seed, signed in as a Super Admin; the
+images live in `docs/screenshots/`.
+
+**Role Permission Defaults** — one card per role, twelve in all. Sub Super Admin
+reads 68 of 68 operations (100%) and HR Self Service 1 of 68 (1%), which is the
+entire point of that role: the self-service screens and nothing else.
+
+![Role Permission Defaults: twelve role cards with per-role operation counts](screenshots/hr-role-permission-defaults.png)
+
+**User Access & Role Administration** — every account card carries its role
+badge and its effective access count, so a personal grant, denial or assigned
+set is visible without opening the account.
+
+![User Access & Role Administration with per-account role badges and effective access](screenshots/hr-user-access.png)
+
+**Add System User** — the role picker lists every assignable role, both new
+labels included. "Head Office Admin" is never shown: the stored
+`HEAD_OFFICE_ADMIN` value displays as Sub Super Admin.
+
+![Add System User dialog with the User Role picker](screenshots/hr-user-form.png)
+
+**Login role inside the employee record** — the LOGIN ROLE control sits in the
+Employee Record section, between the linked account and Department, and offers
+the operational roles plus HR Self Service only. It is prefilled from the linked
+account and saves with the rest of the employee.
+
+![Employee record with the login-role picker for a linked Front Desk account](screenshots/hr-employee-login-role.png)
+
+**An administrator link stays read-only** — when the linked account is a Super
+Admin or Sub Super Admin, the record explains why the role cannot be changed
+there instead of offering a picker that could never save.
+
+![Employee record showing the read-only note for an administrator link](screenshots/hr-employee-admin-link.png)

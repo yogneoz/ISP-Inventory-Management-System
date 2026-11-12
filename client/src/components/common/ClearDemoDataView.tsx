@@ -239,7 +239,7 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
             </div>
           ) : (
             <p className="text-xs text-emerald-700 dark:text-emerald-300">
-              Returning to the Executive Dashboard — if the app reports that no fiscal year is configured, create one in
+              Returning to the Inventory Dashboard — if the app reports that no fiscal year is configured, create one in
               the Fiscal Year Closing Wizard.
             </p>
           )}

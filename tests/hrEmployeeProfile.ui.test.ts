@@ -56,6 +56,7 @@ const profileResponse = (
     experience: [],
     qualifications: [],
     references: [],
+    branchTransfers: [],
     ...over,
   }) as unknown as HrEmployeeProfileResponse;
 
@@ -144,6 +145,23 @@ test('family rows can be added and removed', async () => {
             sortOrder: 1,
           },
         ],
+        branchTransfers: [
+          {
+            id: 'bt-ui-1',
+            fromBranchId: 'WH001',
+            fromBranchName: 'Kathmandu (Head Office)',
+            toBranchId: 'WH002',
+            toBranchName: 'Pokhara Branch',
+            transferredBy: 'hr@example.com',
+            effectiveDateAD: '2026-11-01',
+            reason: 'Branch coverage',
+            status: 'APPROVED',
+            approvedBy: 'manager@example.com',
+            approvedAt: '2026-11-02T09:00:00.000Z',
+            decisionNote: null,
+            createdAt: '2026-11-12T09:00:00.000Z',
+          },
+        ],
       }),
     saveEmployeeProfile: async () => profileResponse(),
   });
@@ -154,6 +172,9 @@ test('family rows can be added and removed', async () => {
       document.querySelectorAll('button[title="Remove this family member"]').length;
 
     assert.equal(removeButtons(), 1, 'the stored row renders');
+    assert.match(bodyText(), /Kathmandu \(Head Office\) → Pokhara Branch/);
+    assert.match(bodyText(), /Branch coverage/);
+    assert.match(bodyText(), /Requested by hr@example\.com/);
     await click(buttonByText('Add family member') as HTMLButtonElement);
     assert.equal(removeButtons(), 2, 'a new row is appended');
 

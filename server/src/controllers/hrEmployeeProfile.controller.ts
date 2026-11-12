@@ -52,6 +52,7 @@ import {
   HR_REFERENCE_DELETE_SQL,
   HR_REFERENCE_INSERT_SQL,
 } from '../models/hrEmployeeProfile.repo';
+import { HR_BRANCH_TRANSFERS_BY_EMPLOYEE_SQL } from '../models/hrEmployeeBranchTransfers.repo';
 
 /** Anything that can run a parameterised query: the pool or a transaction. */
 interface Queryable {
@@ -309,17 +310,19 @@ function presentProfile(employee: any): ParsedProfile['scalars'] {
 }
 
 async function readCollections(queryable: Queryable, employeeId: string) {
-  const [family, experience, qualifications, references] = await Promise.all([
+  const [family, experience, qualifications, references, branchTransfers] = await Promise.all([
     queryable.query(HR_FAMILY_BY_EMPLOYEE_SQL, [employeeId]),
     queryable.query(HR_EXPERIENCE_BY_EMPLOYEE_SQL, [employeeId]),
     queryable.query(HR_QUALIFICATION_BY_EMPLOYEE_SQL, [employeeId]),
     queryable.query(HR_REFERENCE_BY_EMPLOYEE_SQL, [employeeId]),
+    queryable.query(HR_BRANCH_TRANSFERS_BY_EMPLOYEE_SQL, [employeeId]),
   ]);
   return {
     familyMembers: family.rows,
     experience: experience.rows,
     qualifications: qualifications.rows,
     references: references.rows,
+    branchTransfers: branchTransfers.rows,
   };
 }
 
@@ -346,6 +349,11 @@ export async function get_hrEmployeeProfile(req: any, res: Response): Promise<an
   requireDb();
   const employee = await loadEmployee(req, requireEmployeeId(req));
   if (!seesFullProfilePii(req)) {
+    // Branch history is posting history, not PII: a view-only HR caller sees
+    // where the employee has worked even though the F1 form stays masked.
+    const branchTransfers = (
+      await pgPool.query(HR_BRANCH_TRANSFERS_BY_EMPLOYEE_SQL, [employee.id])
+    ).rows;
     return res.json({
       employeeId: employee.id,
       employeeCode: employee.employeeCode,
@@ -357,6 +365,7 @@ export async function get_hrEmployeeProfile(req: any, res: Response): Promise<an
       experience: [],
       qualifications: [],
       references: [],
+      branchTransfers,
     });
   }
   const collections = await readCollections(pgPool, employee.id);

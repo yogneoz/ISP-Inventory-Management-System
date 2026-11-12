@@ -12,11 +12,13 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  ArrowRightLeft,
   Briefcase,
   Building2,
   CalendarDays,
   Edit2,
   FileText,
+  History,
   Link2,
   Mail,
   Phone,
@@ -42,6 +44,8 @@ import type { Branch, User } from '../../types';
 import { EmployeeDocumentsDialog } from './EmployeeDocumentsDialog';
 import { EmployeeProfileDialog } from './EmployeeProfileDialog';
 import { EmployeeImportDialog } from './EmployeeImportDialog';
+import { EmployeeBranchTransfersDialog } from './EmployeeBranchTransfersDialog';
+import { EmployeeTransferDialog } from './EmployeeTransferDialog';
 
 interface EmployeeDirectoryProps {
   currentUser: User | null;
@@ -70,6 +74,11 @@ export const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({
   const canView =
     isOperationAllowed('hr-employee-view', currentUser?.role) ||
     isOperationAllowed('gl-payroll-manage', currentUser?.role);
+  // Managers decide transfer requests. The server also refuses self-approval
+  // and re-checks the role, so this only controls the visible action.
+  const canApproveTransfers =
+    canManage &&
+    ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'HR_MANAGER'].includes(currentUser?.role || '');
 
   const initialBranch =
     selectedBranchId && selectedBranchId !== 'ALL'
@@ -89,6 +98,8 @@ export const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({
   const [documentsFor, setDocumentsFor] = useState<EmployeeRecord | null>(null);
   const [profileFor, setProfileFor] = useState<EmployeeRecord | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [transfersOpen, setTransfersOpen] = useState(false);
+  const [transferFor, setTransferFor] = useState<EmployeeRecord | null>(null);
 
   const loadEmployees = async () => {
     setLoading(true);
@@ -203,24 +214,33 @@ export const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({
         }
         icon={<Users className="h-5 w-5 text-indigo-500" />}
         actions={
-          canManage ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => setImportOpen(true)}
-                className="flex cursor-pointer items-center gap-2 rounded-xl border border-indigo-200 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition-all hover:bg-indigo-50 dark:border-indigo-900/50 dark:text-indigo-300 dark:hover:bg-indigo-950/30"
-              >
-                <UploadCloud className="h-4 w-4" />
-                <span>Import Master Sheet</span>
-              </button>
-              <button
-                onClick={openCreate}
-                className="flex cursor-pointer items-center gap-2 rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-md transition-all hover:bg-indigo-500"
-              >
-                <Plus className="h-4 w-4" />
-                <span>Add Employee</span>
-              </button>
-            </div>
-          ) : null
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setTransfersOpen(true)}
+              className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 transition-all hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              <History className="h-4 w-4" />
+              <span>Transfers & approvals</span>
+            </button>
+            {canManage ? (
+              <>
+                <button
+                  onClick={() => setImportOpen(true)}
+                  className="flex cursor-pointer items-center gap-2 rounded-xl border border-indigo-200 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition-all hover:bg-indigo-50 dark:border-indigo-900/50 dark:text-indigo-300 dark:hover:bg-indigo-950/30"
+                >
+                  <UploadCloud className="h-4 w-4" />
+                  <span>Import Master Sheet</span>
+                </button>
+                <button
+                  onClick={openCreate}
+                  className="flex cursor-pointer items-center gap-2 rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-md transition-all hover:bg-indigo-500"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>Add Employee</span>
+                </button>
+              </>
+            ) : null}
+          </div>
         }
       />
 
@@ -412,6 +432,15 @@ export const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({
                         >
                           <Edit2 className="h-3.5 w-3.5" />
                         </button>
+                        {canManage ? (
+                          <button
+                            onClick={() => setTransferFor(employee)}
+                            title={`Transfer ${employee.name}`}
+                            className="cursor-pointer rounded-lg p-1 text-amber-600 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/40"
+                          >
+                            <ArrowRightLeft className="h-3.5 w-3.5" />
+                          </button>
+                        ) : null}
                         <button
                           onClick={() => setDocumentsFor(employee)}
                           title={`Documents for ${employee.name}`}
@@ -461,12 +490,33 @@ export const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({
           branchName={profileFor ? branchLabel(profileFor.branchId) : ''}
           userOptions={userOptions}
           orgMasters={orgMasters}
+          onOrgMasterCreated={() => void loadOrgMasters()}
           defaultBranchId={defaultBranchId}
           onRecordSaved={loadEmployees}
           onClose={() => {
             setProfileFor(null);
             setCreateOpen(false);
           }}
+        />
+      ) : null}
+
+      {transferFor ? (
+        <EmployeeTransferDialog
+          employee={transferFor}
+          branches={branches}
+          onClose={() => setTransferFor(null)}
+          onTransferred={loadEmployees}
+        />
+      ) : null}
+
+      {transfersOpen ? (
+        <EmployeeBranchTransfersDialog
+          branches={branches}
+          initialBranchId={branchFilter}
+          canApprove={canApproveTransfers}
+          currentUserEmail={currentUser?.email}
+          onEmployeeTransferred={loadEmployees}
+          onClose={() => setTransfersOpen(false)}
         />
       ) : null}
 

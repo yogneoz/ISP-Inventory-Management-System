@@ -177,7 +177,7 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           type="button"
           onClick={() => onSelectTab && onSelectTab('dashboard')}
-          title={`${companyProfile?.name || 'Inventory'} - Open Executive Dashboard`}
+          title={`${companyProfile?.name || 'Inventory'} - Open Dashboard`}
           className="flex items-center gap-2 rounded-lg px-1.5 py-1 -ml-1 hover:bg-white/10 dark:hover:bg-slate-800/60 transition-all cursor-pointer group text-left"
         >
           {companyProfile?.logoUrl ? (

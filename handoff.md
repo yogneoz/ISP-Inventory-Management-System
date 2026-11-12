@@ -230,7 +230,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 2241 tests; CI runs
+                                        #   drift/concurrency guards — 2254 tests; CI runs
                                         #   tsc + npm test + the source guards + the
                                         #   production build + the boot-timing gate +
                                         #   npm audit on every push/PR
@@ -893,7 +893,7 @@ a whole device table.
 ### 9.3 Tab-Based Navigation
 
 The `Sidebar` component defines `NAV_TABS` — navigation entries organized into eight domain groups (visibility filtered per role/permissions), each split into **Registers**, **Forms** and **Reports & exports** sections where the group has both reading and writing work:
-- **Overview**: Executive Dashboard, Workflow Approval Center
+- **Overview**: Company Overview, Inventory Dashboard, Finance Dashboard, Workflow Approval Center
 - **Inventory & Stock**: stock registers (all/branch, ledger, serials, damage, consumables, asset deployments), stock forms (issue/return, damage labelling, asset assignment, count audit, reorder, import), valuation/export reports
 - **Procurement & Purchasing**: Create PO / Purchase Bill / Purchase Return; PO, bill, return and supplier-warranty registers
 - **Sales & Customers**: Create Sales Invoice (the only counter-sale form; seller warranty is captured per serialised line), Create Sales Return, Device Exchange; invoice, return, customer-device and seller-warranty registers
@@ -1468,7 +1468,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 2241 tests against a real PostgreSQL 16 service container
+2. `npm test` — 2254 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM
@@ -1555,12 +1555,13 @@ so any unwired new fetch fails the suite instead of shipping:
   remount refreshes it). Each test pins the effect deps carrying the refresh key and EVERY App.tsx render
   site passing it (2 PO, 2 PI, 1 SerialLogRegister, 11 StockOperations, 4 ReturnsRegister,
   2 SalesInvoices) — a newly added unwired mount fails.
-- **Feature-screen coverage (2026-10-03 audit, all 108 screens — the §G StockOperations
+- **Feature-screen coverage (2026-10-03 audit, all 114 screens — the §G StockOperations
   split added 12 tab panels plus the extracted tab-bar chrome, the BS-calendar
   integrity work added the Calendar Health panel, the permission-sets editor
   added its own panel, the daily cash close added its own screen, and the accounting
-  workspace split into seven statement registers, and the General Ledger Master screen)** — a `SCREEN_SURFACE_PINS`
-  table pins the 97 screens not covered above (the other 11 are pinned by the dedicated
+  workspace split into seven statement registers, and the General Ledger Master screen, and the
+  standalone Login Locks screen promoted off the Users dialog)** — a `SCREEN_SURFACE_PINS`
+  table pins the 103 screens not covered above (the other 11 are pinned by the dedicated
   tests); an unpinned new screen fails coverage, and each pinned screen must match its
   exact surface. Surfaces use `serverCallsIn` = `api.*` methods **plus named
   `services/api` imports** — a bare `api.*` scan would miss a named helper, so every pin uses

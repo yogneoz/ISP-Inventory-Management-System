@@ -1,5 +1,5 @@
 /**
- * Sidebar information architecture — the nine-group navigation restructure.
+ * Sidebar information architecture — the ten-group navigation restructure.
  *
  * PROVES:
  *   1. Nine domain groups, in work order, each with its own visible sections
@@ -98,7 +98,7 @@ function readGroup(tree: ReturnType<typeof render>, id: string) {
 const EXPECTED: Record<string, { sections: string[]; items: string[] }> = {
   dashboard: {
     sections: [],
-    items: ['dashboard', 'financial-statements', 'approvals'],
+    items: ['company-overview', 'dashboard', 'financial-statements', 'approvals'],
   },
   inventory: {
     sections: ['Registers', 'Forms', 'Reports & exports'],
@@ -145,23 +145,23 @@ const EXPECTED: Record<string, { sections: string[]; items: string[] }> = {
     sections: ['People'],
     items: [
       'hr-self-service', 'hr-self-payslips', 'hr-self-leave', 'hr-self-attendance',
-      'hr-self-documents', 'employees', 'hr-attendance', 'hr-recruitment', 'hr-performance',
-      'hr-lifecycle', 'hr-payroll', 'hr-reports', 'hr-org-masters',
+      'hr-self-documents', 'employees', 'org-chart', 'hr-attendance', 'hr-recruitment', 'hr-performance',
+      'hr-lifecycle', 'hr-payroll', 'hr-reports',
     ],
   },
   'inventory-setup': {
-    sections: ['Accounting', 'Products', 'Parties', 'Organisation'],
+    sections: ['Accounting', 'Products', 'Parties', 'HR Org Master', 'NOC'],
     items: [
       'accounting-chart', 'general-ledger', 'subledgers', 'bill-terms', 'cost-centers', 'narration-templates', 'fiscal-year-management',
       'product-master', 'category-management', 'product-group-management', 'uom-management',
       'customers', 'sales-agents-areas', 'import-customers', 'suppliers',
-      'locations', 'branches',
+      'hr-org-masters', 'branches', 'locations',
     ],
   },
   admin: {
     sections: ['Setup', 'Governance'],
     items: [
-      'company-setup', 'users', 'permissions', 'user-permissions',
+      'company-setup', 'users', 'login-locks', 'permissions', 'user-permissions',
       'fiscal-year-closing', 'bs-calendar',
       'audit', 'data-recalculation', 'clear-demo-data',
     ],
@@ -295,13 +295,16 @@ describe('sidebar grouping', () => {
       assert.equal(procurement.items.some((item) => item.id === 'suppliers'), false);
 
       const setup = readGroup(tree, 'inventory-setup');
-      assert.deepEqual(setup.sections, ['Products', 'Parties', 'Organisation']);
+      assert.deepEqual(setup.sections, ['Products', 'Parties', 'NOC']);
       assert.deepEqual(setup.items.map((item) => item.id), [
         'product-master',
         'customers',
         'sales-agents-areas',
         'locations',
       ]);
+      // Location Management sits under NOC in the single setup group, which a
+      // branch role sees (it has no permission gate of its own).
+      assert.equal(tree.container.querySelector('[data-nav-group="hr-org"]'), null);
     } finally {
       tree.unmount();
     }

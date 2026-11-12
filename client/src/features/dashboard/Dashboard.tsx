@@ -7,7 +7,6 @@ import {
   TransactionLog,
   FinancialSummary,
   User,
-  ApprovalRequest,
   Category,
 } from '../../types';
 import { formatDualDate, BS_SEEDING_MENU_PATH, type BsCalendarCoverageStatus } from '../../utils/nepaliCalendar';
@@ -41,7 +40,6 @@ import {
   ArrowRight,
   SlidersHorizontal,
   Tag,
-  ShieldCheck,
   CalendarClock,
 } from 'lucide-react';
 
@@ -66,12 +64,6 @@ interface DashboardProps {
   sseRefreshKey?: number;
   dateMode: 'BS' | 'AD';
   asOfDateAD?: string;
-  approvalRequests?: ApprovalRequest[];
-  onProcessApproval?: (
-    id: string,
-    status: 'APPROVED' | 'REJECTED',
-    rejectionReason?: string
-  ) => Promise<void>;
   onNavigateTab: (tab: any) => void;
   onSelectBranch?: (branchId: string) => void;
   onGroupLowStockPO?: () => void;
@@ -98,8 +90,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
   sseRefreshKey = 0,
   dateMode,
   asOfDateAD,
-  approvalRequests = [],
-  onProcessApproval,
   onNavigateTab,
   onSelectBranch,
   onGroupLowStockPO,
@@ -355,7 +345,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </span>
             </div>
             <h2 className="text-lg font-serif font-bold tracking-tight text-white">
-              Executive Inventory & Financial Dashboard
+              Inventory Dashboard
             </h2>
           </div>
 
@@ -1154,40 +1144,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
         );
       })()}
 
-      {/* 3.5. WORKFLOW APPROVAL & AUTHORIZATION CARD */}
-      {(() => {
-        const pendingReqs = approvalRequests.filter((r) => r.status === 'PENDING');
-        return (
-          <div className={`rounded-2xl border shadow-xs p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 ${cardBg}`}>
-            <div className="flex items-center gap-3">
-              <div className="p-3 rounded-2xl bg-amber-500/10 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400">
-                <ShieldCheck className="h-6 w-6" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="font-extrabold text-base">Workflow Approval & Authorization Center</h3>
-                  {pendingReqs.length > 0 && (
-                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500 text-white animate-pulse">
-                      {pendingReqs.length} Pending
-                    </span>
-                  )}
-                </div>
-                <p className={`text-xs mt-0.5 ${cardSubText}`}>
-                  Formal authorization workflow for Customer Device status changes (Suspended, Disconnected, Refund & Restock).
-                </p>
-              </div>
-            </div>
-
-            <button
-              onClick={() => onNavigateTab('approvals')}
-              className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2 cursor-pointer transition-all shrink-0"
-            >
-              <span>Manage Approvals</span>
-              <ArrowRight className="h-4 w-4" />
-            </button>
-          </div>
-        );
-      })()}
 
       {/* 4. REALTIME STOCK AUDIT STREAM */}
       <div className={`rounded-2xl border shadow-xs p-5 ${cardBg}`}>

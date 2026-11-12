@@ -218,6 +218,9 @@ const AttendanceLeave = React.lazy(() =>
 const OrgMasters = React.lazy(() =>
   import('./features/hr/OrgMasters').then((m) => ({ default: m.OrgMasters }))
 );
+const OrgChart = React.lazy(() =>
+  import('./features/hr/OrgChart').then((m) => ({ default: m.OrgChart }))
+);
 const Payroll = React.lazy(() =>
   import('./features/hr/Payroll').then((m) => ({ default: m.Payroll }))
 );
@@ -229,6 +232,9 @@ const DailyCashClose = React.lazy(() =>
 );
 const FinanceDashboard = React.lazy(() =>
   import('./features/finance/FinanceDashboard').then((m) => ({ default: m.FinanceDashboard }))
+);
+const CompanyOverview = React.lazy(() =>
+  import('./features/dashboard/CompanyOverview').then((m) => ({ default: m.CompanyOverview }))
 );
 const VatRegister = React.lazy(() =>
   import('./features/finance/VatRegister').then((m) => ({ default: m.VatRegister }))
@@ -291,6 +297,7 @@ import { CompanySetupManagement } from './features/settings/CompanySetupManageme
 
 import { SuppliersManagement } from './features/procurement/SuppliersManagement';
 import { UsersManagement } from './features/settings/UsersManagement';
+import { LoginLocks } from './features/settings/LoginLocks';
 import type { UserAccessFocusRequest } from './features/settings/UserPermissions';
 // The two access-management screens are large and are opened from Settings,
 // never during boot. Loading them lazily keeps ~2,200 lines out of the startup
@@ -2279,6 +2286,29 @@ export default function App() {
   // element is built from the root's data props; AppRoutes owns the
   // keep-mounted wiring and the permission metadata rides on each entry.
   const screenRoutes: AppRoute[] = [
+    screenRoute('company-overview', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <CompanyOverview
+          currentUser={currentUser}
+          branches={branches}
+          products={products}
+          stock={stock}
+          financialSummary={financialSummary}
+          pendingPurchaseOrders={procurementPending.pendingPurchaseOrders}
+          unpaidInvoiceCount={procurementPending.unpaidInvoiceCount}
+          approvalRequests={approvalRequests}
+          selectedBranchId={selectedBranchId}
+          fiscalYearId={selectedFiscalYear?.id}
+          fiscalYearStartAD={selectedFiscalYear?.startDateAD}
+          fiscalYearEndAD={selectedFiscalYear?.endDateAD}
+          cardOrderByRole={appSettings.companyOverviewCardOrderByRole}
+          onCardOrderSaved={(raw) =>
+            setAppSettings((prev) => ({ ...prev, companyOverviewCardOrderByRole: raw }))
+          }
+          onNavigateTab={setActiveTab}
+        />
+      </React.Suspense>
+    )),
     screenRoute('dashboard', (
       <Dashboard
         currentUser={currentUser}
@@ -2295,8 +2325,6 @@ export default function App() {
         sseRefreshKey={registerRefresh.transactionLog}
         dateMode={dateMode}
         asOfDateAD={assetReportAsOfDateAD}
-        approvalRequests={approvalRequests}
-        onProcessApproval={handleProcessApprovalRequest}
         onNavigateTab={setActiveTab}
         onSelectBranch={handleSelectBranch}
         onGroupLowStockPO={handleGroupLowStockPO}
@@ -3284,6 +3312,9 @@ export default function App() {
         onRecordRouteChange={handleRecordRouteChange}
       />
     )),
+    screenRoute('login-locks', (
+      <LoginLocks currentUser={currentUser} users={users} />
+    )),
     screenRoute('permissions', (
       <React.Suspense fallback={<TabLoadingFallback />}>
         <PermissionManagementLazy
@@ -3520,6 +3551,11 @@ export default function App() {
     screenRoute('hr-org-masters', (
       <React.Suspense fallback={<TabLoadingFallback />}>
         <OrgMasters currentUser={currentUser} />
+      </React.Suspense>
+    )),
+    screenRoute('org-chart', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <OrgChart currentUser={currentUser} />
       </React.Suspense>
     )),
     screenRoute('narration-templates', (

@@ -21,16 +21,23 @@ import {
   USER_PREFERENCE_KEYS,
   rowsToRecord,
   validateAppSettings,
+  validateCompanyOverviewCardOrder,
   validateUserPreferences,
 } from '../server/src/models/settings.repo';
 
 describe('settings.repo — whitelists', () => {
-  test('only the company-wide blind-count toggle is a company setting', () => {
-    assert.deepEqual([...APP_SETTING_KEYS], ['companyWideBlindCount']);
+  test('company settings are the blind-count toggle and the role card order', () => {
+    assert.deepEqual([...APP_SETTING_KEYS], [
+      'companyWideBlindCount',
+      'companyOverviewCardOrderByRole',
+    ]);
   });
 
-  test('the only per-user preferences are theme, dateMode and activeTab', () => {
-    assert.deepEqual([...USER_PREFERENCE_KEYS], ['theme', 'dateMode', 'activeTab']);
+  test('the only per-user preferences are theme, dateMode, activeTab and the two org-chart entries', () => {
+    assert.deepEqual(
+      [...USER_PREFERENCE_KEYS],
+      ['theme', 'dateMode', 'activeTab', 'orgChartLayout', 'orgChartViewport', 'orgChartLinkRoutes']
+    );
   });
 });
 
@@ -73,14 +80,91 @@ describe('settings.repo — validateAppSettings', () => {
   test('an empty patch is a valid no-op', () => {
     assert.deepEqual(validateAppSettings({}), { ok: true, value: {} });
   });
+
+  test('normalizes a role card-order map through the shared parser', () => {
+    const stored = JSON.stringify({ FRONT_DESK: ['sales', 'finance'] });
+    assert.deepEqual(validateAppSettings({ companyOverviewCardOrderByRole: stored }), {
+      ok: true,
+      value: {
+        companyOverviewCardOrderByRole: JSON.stringify({
+          FRONT_DESK: ['sales', 'finance', 'inventory', 'procurement', 'warehouse', 'liquidity', 'budget', 'hr'],
+        }),
+      },
+    });
+  });
+
+  test('rejects a card-order map that contains no usable role entry', () => {
+    for (const value of ['not json', '{}', JSON.stringify({ front_desk: ['sales'] })]) {
+      const result = validateAppSettings({ companyOverviewCardOrderByRole: value });
+      assert.equal(result.ok, false, value);
+    }
+  });
+});
+
+describe('settings.repo — validateCompanyOverviewCardOrder', () => {
+  test('accepts a complete, unique order', () => {
+    assert.deepEqual(
+      validateCompanyOverviewCardOrder([
+        'sales',
+        'hr',
+        'finance',
+        'inventory',
+        'procurement',
+        'warehouse',
+        'liquidity',
+        'budget',
+      ]),
+      {
+        ok: true,
+        value: [
+          'sales',
+          'hr',
+          'finance',
+          'inventory',
+          'procurement',
+          'warehouse',
+          'liquidity',
+          'budget',
+        ],
+      }
+    );
+  });
+
+  test('rejects missing, duplicate and unknown cards', () => {
+    for (const value of [
+      [],
+      ['sales'],
+      ['sales', 'sales', 'finance', 'inventory', 'procurement', 'warehouse', 'liquidity', 'budget'],
+      ['sales', 'hr', 'finance', 'inventory', 'procurement', 'warehouse', 'liquidity', 'unknown'],
+      'sales,hr,finance,inventory,procurement,warehouse,liquidity,budget',
+    ]) {
+      assert.equal(validateCompanyOverviewCardOrder(value).ok, false, JSON.stringify(value));
+    }
+  });
 });
 
 describe('settings.repo — validateUserPreferences', () => {
-  test('accepts the three supported preferences', () => {
+  test('accepts the supported preferences', () => {
     const result = validateUserPreferences({ theme: 'dark', dateMode: 'AD', activeTab: 'sales-invoices' });
     assert.deepEqual(result, {
       ok: true,
       value: { theme: 'dark', dateMode: 'AD', activeTab: 'sales-invoices' },
+    });
+
+    const viewport = validateUserPreferences({
+      orgChartViewport: JSON.stringify({ departments: { zoom: 0.8, x: 12, y: 4 } }),
+    });
+    assert.deepEqual(viewport, {
+      ok: true,
+      value: { orgChartViewport: '{"departments":{"zoom":0.8,"x":12,"y":4}}' },
+    });
+
+    const routes = validateUserPreferences({
+      orgChartLinkRoutes: JSON.stringify({ departments: { 'post:a->post:b': 12 } }),
+    });
+    assert.deepEqual(routes, {
+      ok: true,
+      value: { orgChartLinkRoutes: '{"departments":{"post:a->post:b":12}}' },
     });
   });
 
@@ -96,6 +180,7 @@ describe('settings.repo — validateUserPreferences', () => {
     assert.equal(validateUserPreferences({ dateMode: 'BS-' }).ok, false);
   });
 
+
   test('rejects an activeTab that is not a navigation id', () => {
     for (const activeTab of ['', 'DROP TABLE users;--', 'has space', 'UPPER', 'x'.repeat(65)]) {
       const result = validateUserPreferences({ activeTab });
@@ -107,6 +192,28 @@ describe('settings.repo — validateUserPreferences', () => {
     const result = validateUserPreferences({ isAdmin: 'true' });
     assert.equal(result.ok, false);
     assert.match(result.ok === false ? result.error : '', /Unknown preference 'isAdmin'/);
+
+    // The org-chart viewport is only accepted as a bounded view → {zoom,x,y}
+    // map; malformed framing must never be stored and read back as NaN.
+    for (const orgChartViewport of [
+      '{}',
+      'not json',
+      JSON.stringify({ board: { zoom: 1, x: 0, y: 0 } }),
+      JSON.stringify({ departments: { zoom: 99, x: 0, y: 0 } }),
+      JSON.stringify({ departments: { zoom: 1, x: 'x', y: 0 } }),
+    ]) {
+      assert.equal(validateUserPreferences({ orgChartViewport }).ok, false, orgChartViewport);
+    }
+
+    for (const orgChartLinkRoutes of [
+      '{}',
+      'not json',
+      JSON.stringify({ board: { 'post:a->post:b': 4 } }),
+      JSON.stringify({ departments: { 'post:a->': 4 } }),
+      JSON.stringify({ departments: { 'post:a->post:b': 'x' } }),
+    ]) {
+      assert.equal(validateUserPreferences({ orgChartLinkRoutes }).ok, false, orgChartLinkRoutes);
+    }
   });
 
   test('rejects non-object payloads', () => {

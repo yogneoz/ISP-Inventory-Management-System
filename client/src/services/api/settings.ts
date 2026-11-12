@@ -9,6 +9,7 @@
 // ---------------------------------------------------------------------------
 
 import { fetchJson } from './http';
+import type { CompanyOverviewCardId } from '../../../../shared/companyOverview';
 
 export interface SettingsBundle {
   appSettings: Record<string, string>;
@@ -42,4 +43,34 @@ export async function savePreferences(
     method: 'PUT',
     body: JSON.stringify({ preferences }),
   });
+}
+
+/**
+ * PUT /api/company-overview/card-order — save the calling user's role order.
+ * The server derives the role from the session, so this cannot reorder another
+ * role's page.
+ */
+export async function saveCompanyOverviewCardOrder(
+  cardOrder: CompanyOverviewCardId[]
+): Promise<{
+  message: string;
+  cardOrder: CompanyOverviewCardId[];
+  cardOrderByRole: string;
+}> {
+  return fetchJson('/api/company-overview/card-order', {
+    method: 'PUT',
+    body: JSON.stringify({ cardOrder }),
+  });
+}
+
+/**
+ * DELETE /api/company-overview/card-order — clear the calling role's saved
+ * order and return that role to the built-in sequence. Other roles are kept.
+ */
+export async function resetCompanyOverviewCardOrder(): Promise<{
+  message: string;
+  cardOrder: CompanyOverviewCardId[];
+  cardOrderByRole: string;
+}> {
+  return fetchJson('/api/company-overview/card-order', { method: 'DELETE' });
 }

@@ -1178,16 +1178,15 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     // loads that account's exception rows on demand. The edit modal keeps its
     // own read-only summary. Permissions are still edited on the User Access
     // screen.
-    // The register still renders bootstrap-slice props; the two limiter calls
-    // belong to the "Login Locks" dialog, which reads live server state (not a
-    // paged register) only when an administrator opens it.
     'settings/UsersManagement.tsx': [
-      'getRateLimitBlocks',
       'getUserAccessSummaries',
       'getUserPermissionOverrides',
-      'releaseRateLimit',
       'resetUserPassword',
     ],
+
+    // Login Locks reads live limiter state (not a paged register) and releases
+    // it on demand; the screen is its own sidebar route.
+    'settings/LoginLocks.tsx': ['getRateLimitBlocks', 'releaseRateLimit'],
 
     // — HR Phase 2: employee, attendance/leave, org-master and payroll screens.
     //   AttendanceLeave and Payroll are whole-list mount/selection screens;
@@ -1280,6 +1279,12 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       'getHrOrgMasters',
       'updateEmployee',
     ],
+    'hr/EmployeeBranchTransfersDialog.tsx': [
+      'approveHrBranchTransfer',
+      'getHrBranchTransfers',
+      'rejectHrBranchTransfer',
+    ],
+    'hr/EmployeeTransferDialog.tsx': ['transferEmployee'],
     'hr/EmployeeDocumentsDialog.tsx': [
       'HR_DOCUMENT_MAX_BYTES',
       'deleteEmployeeDocument',
@@ -1298,12 +1303,28 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       'HR_LOGIN_ROLES',
       'HR_PROFILE_MAX_ROWS',
       'createEmployee',
+      'createHrOrgMaster',
       'getEmployeeProfile',
       'saveEmployeeProfile',
       'updateEmployee',
     ],
     'hr/EmployeeImportDialog.tsx': ['importEmployees'],
-    'hr/OrgMasters.tsx': ['createHrOrgMaster', 'getHrOrgMasters', 'updateHrOrgMaster'],
+    // The chart reads the graded catalogue and the branch-scoped directory;
+    // it writes nothing, because the hierarchy lives in Org Masters.
+    'hr/OrgChart.tsx': ['getHrOrgCatalogue', 'getHrOrgChart'],
+    // The Miro-style board renders the catalogue the chart hands it and reads
+    // / writes only the caller's saved card arrangement in user preferences.
+    'hr/OrgChartBoard.tsx': ['getSettings', 'savePreferences'],
+    'hr/OrgMasters.tsx': [
+      'createHrOrgMaster',
+      'getEmployees',
+      'getHrOrgCatalogue',
+      'getHrOrgHeadcounts',
+      'getHrOrgMasters',
+      'getHrOrgUnmatched',
+      'updateEmployee',
+      'updateHrOrgMaster',
+    ],
     'hr/Payroll.tsx': [
       'approveHrPayrollRun',
       'createHrPayrollRunDraft',
@@ -1330,6 +1351,16 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     //   bootstrap slices App re-fetches on SSE events)
     // VOL-1a: the recent-activity strip reads its own eight rows from the
     // scoped transaction-log endpoint; the rest of the dashboard is props.
+    'dashboard/CompanyOverview.tsx': [
+      'getAccountingBudgetAlerts',
+      'getAccountingBudgetVarianceUtilisation',
+      'getAging',
+      'getCashFlow',
+      'getHrPayrollReport',
+      'getHrWorkforceReport',
+      'resetCompanyOverviewCardOrder',
+      'saveCompanyOverviewCardOrder',
+    ],
     'dashboard/Dashboard.tsx': ['getTransactionLogs'],
     // The overspend card is a lazy child of Dashboard; it owns its finance
     // read so the eager dashboard chunk stays inside its bundle budget.

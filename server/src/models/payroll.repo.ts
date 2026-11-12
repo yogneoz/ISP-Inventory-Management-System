@@ -17,6 +17,8 @@ export const EMPLOYEE_COLUMNS = `id,
   user_id AS "userId",
   department,
   designation,
+  department_id AS "departmentId",
+  designation_id AS "designationId",
   pan_number AS "panNumber",
   ssf_number AS "ssfNumber",
   bank_account AS "bankAccount",
@@ -28,6 +30,7 @@ export const EMPLOYEE_COLUMNS = `id,
   separation_date_ad::text AS "separationDateAD",
   designation_code AS "designationCode",
   work_station AS "workStation",
+  workstation_id AS "workstationId",
   address,
   personal_contact AS "personalContact",
   emergency_contact_person AS "emergencyContactPerson",
@@ -65,6 +68,19 @@ export interface EmployeeListOptions {
   /** Explicit allowed-branch list; an empty list means no rows. */
   branchScope?: string[] | null;
   query?: string | null;
+  /**
+   * Exact organisation values (case-insensitive). Org Masters uses these to
+   * list the employees a department, designation or work station holds; the
+   * master is only a suggestion list, so the match is against the stored text.
+   */
+  department?: string | null;
+  designation?: string | null;
+  designationCode?: string | null;
+  workstation?: string | null;
+  /** Catalogue ids — the link that survives a rename of the master. */
+  departmentId?: string | null;
+  designationId?: string | null;
+  workstationId?: string | null;
   activeOnly?: boolean;
   /** Page size; clamped to the register ceiling. */
   limit?: number | null;
@@ -90,6 +106,36 @@ export function buildEmployeeWhere(opts: EmployeeListOptions = {}): {
   } else if (opts.branchId && opts.branchId !== 'ALL') {
     params.push(opts.branchId);
     conditions.push(`branch_id = $${params.length}`);
+  }
+
+  const exact = (column: string, value: string | null | undefined) => {
+    const needle = typeof value === 'string' ? value.trim() : '';
+    if (!needle) return;
+    params.push(needle);
+    conditions.push(`lower(${column}) = lower($${params.length})`);
+  };
+  exact('department', opts.department);
+  exact('workstation', opts.workstation);
+  exact('department_id', opts.departmentId);
+  exact('designation_id', opts.designationId);
+  exact('workstation_id', opts.workstationId);
+
+  const designation = typeof opts.designation === 'string' ? opts.designation.trim() : '';
+  const designationCode =
+    typeof opts.designationCode === 'string' ? opts.designationCode.trim() : '';
+  if (designation || designationCode) {
+    // Employees store the designation name and its code separately; matching
+    // both keeps a renamed master attached to the rows that kept the code.
+    const designationConditions: string[] = [];
+    if (designation) {
+      params.push(designation);
+      designationConditions.push(`lower(designation) = lower($${params.length})`);
+    }
+    if (designationCode) {
+      params.push(designationCode);
+      designationConditions.push(`lower(designation_code) = lower($${params.length})`);
+    }
+    conditions.push(`(${designationConditions.join(' OR ')})`);
   }
 
   const query = typeof opts.query === 'string' ? opts.query.trim() : '';
@@ -144,6 +190,9 @@ export function buildEmployeePickerQuery(opts: EmployeeListOptions = {}) {
 
 export const EMPLOYEE_BY_ID_SQL = `SELECT ${EMPLOYEE_COLUMNS} FROM employees WHERE id = $1`;
 
+/** Serializes concurrent transfers: the second one sees the first move's branch. */
+export const EMPLOYEE_LOCK_BY_ID_SQL = `SELECT ${EMPLOYEE_COLUMNS} FROM employees WHERE id = $1 FOR UPDATE`;
+
 export const EMPLOYEE_BY_CODE_SQL = `SELECT ${EMPLOYEE_COLUMNS} FROM employees WHERE employee_code = $1`;
 
 /** A login account may be linked to at most one employee. */
@@ -181,15 +230,31 @@ FROM employees
 WHERE id = ANY($1::varchar[])
 ORDER BY employee_code ASC`;
 
+/**
+ * The catalogue link is resolved from the text in the same statement, so every
+ * writer — the employee form, the CSV import and a recruitment hire — gets it
+ * without passing an id. `lower(column) = lower($n)` is exact, not fuzzy: a
+ * free-text value that is not in the catalogue simply leaves the link NULL.
+ */
 export const EMPLOYEE_INSERT_SQL = `INSERT INTO employees (
   id, employee_code, name, branch_id, department, designation, pan_number,
   ssf_number, bank_account, bank_name, employment_type, joining_date_ad,
   date_of_birth_ad, contract_expiry_ad, separation_date_ad, designation_code,
   work_station, address, personal_contact, emergency_contact_person,
   emergency_contact_number, internal_email, personal_email, monthly_salary,
-  ssf_eligible, is_active, user_id, is_demo, created_by
+  ssf_eligible, is_active, user_id, is_demo, created_by,
+  department_id, designation_id, workstation_id
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-  $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, FALSE, $28)
+  $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, FALSE, $28,
+  (SELECT id FROM hr_org_masters WHERE kind = 'DEPARTMENT'
+    AND lower(name) = lower($5::varchar) LIMIT 1),
+  (SELECT id FROM hr_org_masters WHERE kind = 'DESIGNATION'
+    AND (lower(name) = lower($6::varchar)
+      OR ($16::varchar IS NOT NULL AND lower(code) = lower($16::varchar)))
+    ORDER BY (lower(name) = lower($6::varchar)) DESC LIMIT 1),
+  (SELECT id FROM hr_org_masters WHERE kind = 'WORK_STATION'
+    AND lower(name) = lower($17::varchar) LIMIT 1)
+)
 RETURNING ${EMPLOYEE_COLUMNS}`;
 
 export interface EmployeeInsertInput {
@@ -258,8 +323,9 @@ export function employeeInsertParams(input: EmployeeInsertInput): unknown[] {
 
 /**
  * PATCH keeps every field it is not given: a missing property is null in the
- * parameter list and COALESCE leaves the stored value alone. Branch and code
- * are immutable because payroll history is filed under them.
+ * parameter list and COALESCE leaves the stored value alone. The employee code
+ * is immutable because payroll history is filed under it. A branch transfer
+ * uses EMPLOYEE_SET_BRANCH_SQL below, so it is audited on its own.
  */
 export const EMPLOYEE_UPDATE_SQL = `UPDATE employees SET
   name = COALESCE($2, name),
@@ -276,6 +342,20 @@ export const EMPLOYEE_UPDATE_SQL = `UPDATE employees SET
   contract_expiry_ad = COALESCE($13, contract_expiry_ad),
   designation_code = COALESCE($14, designation_code),
   work_station = COALESCE($15, work_station),
+  department_id = CASE WHEN $3::varchar IS NULL THEN department_id ELSE (
+    SELECT id FROM hr_org_masters WHERE kind = 'DEPARTMENT'
+      AND lower(name) = lower($3::varchar) LIMIT 1
+  ) END,
+  designation_id = CASE WHEN $4::varchar IS NULL THEN designation_id ELSE (
+    SELECT id FROM hr_org_masters WHERE kind = 'DESIGNATION'
+      AND (lower(name) = lower($4::varchar)
+        OR ($14::varchar IS NOT NULL AND lower(code) = lower($14::varchar)))
+      ORDER BY (lower(name) = lower($4::varchar)) DESC LIMIT 1
+  ) END,
+  workstation_id = CASE WHEN $15::varchar IS NULL THEN workstation_id ELSE (
+    SELECT id FROM hr_org_masters WHERE kind = 'WORK_STATION'
+      AND lower(name) = lower($15::varchar) LIMIT 1
+  ) END,
   address = COALESCE($16, address),
   personal_contact = COALESCE($17, personal_contact),
   emergency_contact_person = COALESCE($18, emergency_contact_person),
@@ -289,6 +369,19 @@ export const EMPLOYEE_UPDATE_SQL = `UPDATE employees SET
   updated_at = CURRENT_TIMESTAMP
 WHERE id = $1
 RETURNING ${EMPLOYEE_COLUMNS}`;
+
+/**
+ * A branch transfer is deliberately separate from the PATCH's COALESCE list:
+ * the caller validates the target branch and its scope, and the transfer gets
+ * its own audit action while historical payroll lines stay under the branch
+ * they were posted to.
+ */
+export const EMPLOYEE_SET_BRANCH_SQL = `UPDATE employees
+  SET branch_id = $2,
+      updated_by = COALESCE($3, updated_by),
+      updated_at = CURRENT_TIMESTAMP
+  WHERE id = $1
+  RETURNING ${EMPLOYEE_COLUMNS}`;
 
 /**
  * HR sets another employee's picture. It is a separate statement because the

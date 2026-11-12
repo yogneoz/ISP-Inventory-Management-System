@@ -11,11 +11,15 @@
 import type { User } from '../types';
 import type { NavTab } from '../components/layout/Sidebar';
 import { isOperationAllowed } from '../utils/permissions';
+import { COMPANY_OVERVIEW_ACCESS_OPERATIONS } from '../../../shared/companyOverview';
 
 const HR_VIEW = ['hr-employee-view', 'gl-payroll-manage'];
 
 /** RBAC operations a tab requires; a missing entry means no operation gate. */
 export const TAB_PERMISSIONS: Record<string, string | string[]> = {
+  // Cross-department landing page: any department read grant opens it, and the
+  // individual snapshot cards are gated again inside the screen.
+  'company-overview': [...COMPANY_OVERVIEW_ACCESS_OPERATIONS],
   'create-po': 'po-create',
   'create-purchase': 'inv-create',
   'create-shipment': 'shipment-create',
@@ -46,6 +50,8 @@ export const TAB_PERMISSIONS: Record<string, string | string[]> = {
   approvals: ['workflow-approval', 'workflow-approval-cancel'],
   // Read with the HR view grant; legacy payroll managers keep access.
   employees: HR_VIEW,
+  // The chart reads the directory and the catalogue; no separate write grant.
+  'org-chart': HR_VIEW,
   // Own-record self-service: any role holding the ESS grant, independent of
   // the employee-master and Finance payroll grants.
   'hr-self-service': 'hr-self-service',
@@ -97,6 +103,7 @@ export const TAB_PERMISSIONS: Record<string, string | string[]> = {
   'vendor-opening-balances': 'opening-stock-view',
   'vat-register': 'vat-register',
   users: 'admin-users',
+  'login-locks': 'admin-users',
   audit: 'admin-audit',
   'fiscal-year-management': 'admin-fiscal',
   'fiscal-year-closing': 'admin-fiscal',

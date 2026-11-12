@@ -24,6 +24,7 @@ import {
   get_payrollRuns,
   patch_employee,
   post_employee,
+  transfer_employee,
   post_payrollPayment,
   post_payrollRun,
   post_payrollRunApprove,
@@ -59,6 +60,11 @@ export function registerPayrollRoutes(app: Express) {
   });
   app.patch('/api/employees/:id', requirePermissionAny('hr-employee-manage', 'gl-payroll-manage'), async (req, res, next) => {
     patch_employee(req as any, res as any).catch(next);
+  });
+  // A dedicated transfer writes the employee move, its named history event and
+  // the audit row together; the generic PATCH remains for ordinary edits.
+  app.post('/api/employees/:id/transfer', requirePermissionAny('hr-employee-manage', 'gl-payroll-manage'), async (req, res, next) => {
+    transfer_employee(req as any, res as any).catch(next);
   });
   app.get('/api/employees/:id/ledger', requirePermission('gl-view'), async (req, res, next) => {
     get_employeeLedger(req as any, res as any).catch(next);

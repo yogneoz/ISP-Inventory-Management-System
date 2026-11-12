@@ -2386,6 +2386,58 @@ BEGIN
   END IF;
 END $$;
 
+-- Employee branch-transfer history. Each move is kept as an immutable event so
+-- HR can see where a person worked without reading the audit log. Branch names
+-- are snapshotted: renaming a branch later must not rewrite history. The branch
+-- ids deliberately have no foreign key for the same reason; only the employee
+-- cascade removes a row.
+CREATE TABLE IF NOT EXISTS hr_employee_branch_transfers (
+    id VARCHAR(60) PRIMARY KEY,
+    employee_id VARCHAR(50) NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    from_branch_id VARCHAR(50) NOT NULL,
+    from_branch_name VARCHAR(150) NOT NULL,
+    to_branch_id VARCHAR(50) NOT NULL,
+    to_branch_name VARCHAR(150) NOT NULL,
+    transferred_by VARCHAR(150),
+    effective_date_ad DATE,
+    reason VARCHAR(500),
+    status VARCHAR(20) NOT NULL DEFAULT 'APPROVED',
+    approved_by VARCHAR(150),
+    approved_at TIMESTAMP WITH TIME ZONE,
+    decision_note VARCHAR(500),
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+ALTER TABLE hr_employee_branch_transfers
+  ADD COLUMN IF NOT EXISTS effective_date_ad DATE;
+ALTER TABLE hr_employee_branch_transfers
+  ADD COLUMN IF NOT EXISTS reason VARCHAR(500);
+-- Existing rows predate approval and already represent completed moves.
+ALTER TABLE hr_employee_branch_transfers
+  ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'APPROVED';
+ALTER TABLE hr_employee_branch_transfers
+  ADD COLUMN IF NOT EXISTS approved_by VARCHAR(150);
+ALTER TABLE hr_employee_branch_transfers
+  ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE hr_employee_branch_transfers
+  ADD COLUMN IF NOT EXISTS decision_note VARCHAR(500);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'hr_employee_branch_transfers_status_check'
+  ) THEN
+    ALTER TABLE hr_employee_branch_transfers
+      ADD CONSTRAINT hr_employee_branch_transfers_status_check
+      CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED'));
+  END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_hr_employee_branch_transfers_employee
+  ON hr_employee_branch_transfers(employee_id, created_at DESC);
+
 -- The organisation catalogue is deliberately label-only: employees keep
 -- their text department/designation/work-station values, so renaming or
 -- retiring a master never rewrites a historical payroll row.
@@ -2405,6 +2457,158 @@ CREATE TABLE IF NOT EXISTS hr_org_masters (
 CREATE INDEX IF NOT EXISTS idx_hr_org_masters_kind ON hr_org_masters(kind, is_active, lower(name));
 CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_org_masters_kind_name ON hr_org_masters(kind, lower(name));
 CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_org_masters_kind_code ON hr_org_masters(kind, lower(code)) WHERE code IS NOT NULL;
+
+-- Employees keep the catalogue text they were saved with (payroll history and
+-- printed documents read it), and now also point at the catalogue row itself,
+-- so renaming a department/designation/work station keeps its employees
+-- attached. `ON DELETE SET NULL`: deleting a master leaves the historical text
+-- intact and only drops the link.
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS department_id VARCHAR(50)
+  REFERENCES hr_org_masters(id) ON DELETE SET NULL;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS designation_id VARCHAR(50)
+  REFERENCES hr_org_masters(id) ON DELETE SET NULL;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS workstation_id VARCHAR(50)
+  REFERENCES hr_org_masters(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_employees_department_master
+  ON employees(department_id) WHERE department_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_employees_designation_master
+  ON employees(designation_id) WHERE designation_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_employees_workstation_master
+  ON employees(workstation_id) WHERE workstation_id IS NOT NULL;
+
+-- Backfill existing rows from the text they already store. Only gaps are
+-- filled, so re-applying the schema never undoes a newer link (or a rename).
+UPDATE employees e
+SET department_id = (
+  SELECT m.id FROM hr_org_masters m
+  WHERE m.kind = 'DEPARTMENT'
+    AND lower(btrim(m.name)) = lower(btrim(e.department))
+  ORDER BY m.id
+  LIMIT 1
+)
+WHERE e.department_id IS NULL AND e.department IS NOT NULL;
+
+UPDATE employees e
+SET designation_id = (
+  SELECT m.id FROM hr_org_masters m
+  WHERE m.kind = 'DESIGNATION'
+    AND (
+      lower(btrim(m.name)) = lower(btrim(e.designation))
+      OR (
+        m.code IS NOT NULL AND e.designation_code IS NOT NULL
+        AND lower(btrim(m.code)) = lower(btrim(e.designation_code))
+      )
+    )
+  ORDER BY (lower(btrim(m.name)) = lower(btrim(e.designation))) DESC, m.id
+  LIMIT 1
+)
+WHERE e.designation_id IS NULL AND (e.designation IS NOT NULL OR e.designation_code IS NOT NULL);
+
+UPDATE employees e
+SET workstation_id = (
+  SELECT m.id FROM hr_org_masters m
+  WHERE m.kind = 'WORK_STATION'
+    AND lower(btrim(m.name)) = lower(btrim(e.work_station))
+  ORDER BY m.id
+  LIMIT 1
+)
+WHERE e.workstation_id IS NULL AND e.work_station IS NOT NULL;
+
+-- The refactored HR organisation model (Corporate Designations, Salary Slabs &
+-- Job Descriptions v2). hr_org_masters stays the single catalogue identity;
+-- these tables describe it without widening every row with empty columns:
+--   * hr_salary_grades     - the G1-G10 band and its three appraisal steps;
+--   * hr_designation_profiles - grade, solid/dotted reporting line, scope, JD;
+--   * hr_department_profiles  - department head post and mandate;
+--   * hr_org_clusters / hr_branch_plan - the 4 regional clusters and the 24
+--     branch operating plan. The branch plan is reference data and does NOT
+--     create operational branches; `branch_id` maps a plan row to a live
+--     branch when one exists.
+-- Reporting lines point at designations, never at employees, so a post with no
+-- holder remains on the org chart as a vacancy instead of disappearing.
+CREATE TABLE IF NOT EXISTS hr_salary_grades (
+    grade VARCHAR(5) PRIMARY KEY,
+    career_band VARCHAR(40) NOT NULL,
+    role_tier TEXT NOT NULL,
+    min_salary INTEGER NOT NULL CHECK (min_salary >= 0),
+    step1_salary INTEGER NOT NULL,
+    step2_salary INTEGER NOT NULL,
+    step3_salary INTEGER NOT NULL,
+    max_salary INTEGER NOT NULL CHECK (max_salary >= min_salary),
+    band_spread NUMERIC(8, 4),
+    promotion_rule TEXT,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CHECK (min_salary <= step1_salary AND step1_salary <= step2_salary
+      AND step2_salary <= step3_salary AND step3_salary <= max_salary)
+);
+
+CREATE TABLE IF NOT EXISTS hr_designation_profiles (
+    master_id VARCHAR(50) PRIMARY KEY REFERENCES hr_org_masters(id) ON DELETE CASCADE,
+    department_master_id VARCHAR(50) REFERENCES hr_org_masters(id) ON DELETE SET NULL,
+    grade VARCHAR(5) REFERENCES hr_salary_grades(grade) ON DELETE SET NULL,
+    reports_to_master_id VARCHAR(50) REFERENCES hr_org_masters(id) ON DELETE SET NULL,
+    -- Used when the line leaves the company (Board, Audit Committee) or is dotted.
+    reports_to_label VARCHAR(120),
+    dotted_line_to VARCHAR(120),
+    branch_scope VARCHAR(80),
+    system_role VARCHAR(40),
+    responsibilities TEXT,
+    phase VARCHAR(20),
+    role_status VARCHAR(30),
+    change_note VARCHAR(400),
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+ALTER TABLE hr_designation_profiles
+  ADD COLUMN IF NOT EXISTS department_master_id VARCHAR(50)
+  REFERENCES hr_org_masters(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_hr_designation_profiles_reports_to
+  ON hr_designation_profiles(reports_to_master_id) WHERE reports_to_master_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_hr_designation_profiles_grade
+  ON hr_designation_profiles(grade) WHERE grade IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS hr_department_profiles (
+    master_id VARCHAR(50) PRIMARY KEY REFERENCES hr_org_masters(id) ON DELETE CASCADE,
+    head_designation_master_id VARCHAR(50) REFERENCES hr_org_masters(id) ON DELETE SET NULL,
+    mandate TEXT,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS hr_org_clusters (
+    id VARCHAR(20) PRIMARY KEY,
+    name VARCHAR(80) NOT NULL UNIQUE,
+    hub VARCHAR(80) NOT NULL,
+    province VARCHAR(40),
+    notes TEXT,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS hr_branch_plan (
+    code VARCHAR(10) PRIMARY KEY,
+    name VARCHAR(80) NOT NULL UNIQUE,
+    cluster_id VARCHAR(20) NOT NULL REFERENCES hr_org_clusters(id) ON DELETE RESTRICT,
+    cluster_hub VARCHAR(80) NOT NULL,
+    province VARCHAR(40),
+    tier VARCHAR(40) NOT NULL,
+    head_designation VARCHAR(80) NOT NULL,
+    branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE SET NULL,
+    notes TEXT,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_hr_branch_plan_cluster ON hr_branch_plan(cluster_id, code);
 
 -- Employee document vault. The bytes live in this same database so a document
 -- and its metadata commit or roll back together; the size ceiling is enforced

@@ -23,10 +23,17 @@ import type {
   HrOrgMasterKind,
   HrOrgMasterRecord,
   EmployeeLoginHandoff,
+  HrEmployeeBranchTransfer,
 } from '../../services/api';
 import { HR_BLOOD_GROUPS, HR_LOGIN_ROLES, HR_PROFILE_MAX_ROWS } from '../../services/api/hr';
 import { APP_ROLE_LABELS } from '../../utils/permissionMatrixData';
 import { EmployeeSelfServicePhotoDialog } from './EmployeeSelfServicePhotoDialog';
+
+const ORG_KIND_NOUN: Record<HrOrgMasterKind, string> = {
+  DEPARTMENT: 'department',
+  DESIGNATION: 'designation',
+  WORK_STATION: 'work station',
+};
 
 interface EmployeeProfileDialogProps {
   /** null creates a new employee: same form, same photo picker. */
@@ -42,6 +49,8 @@ interface EmployeeProfileDialogProps {
   defaultBranchId?: string;
   /** Department/designation/work-station suggestions from Org Masters. */
   orgMasters?: HrOrgMasterRecord[];
+  /** Called after a catalogue entry is added from inside the form. */
+  onOrgMasterCreated?: () => void;
   /** Re-reads the directory after the record is saved. */
   onRecordSaved?: () => void | Promise<void>;
 }
@@ -108,6 +117,13 @@ const recordFrom = (employee: EmployeeRecord | null, defaultBranchId: string): R
   monthlySalary: salaryText(employee?.monthlySalary),
   isActive: employee?.isActive ?? true,
 });
+
+const formatTransferDate = (value: string): string => {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+};
 
 const inputClass =
   'h-9 w-full rounded-lg border border-slate-300 bg-transparent px-2.5 text-xs disabled:opacity-60 dark:border-slate-700';
@@ -237,12 +253,46 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
   userOptions = [],
   defaultBranchId = '',
   orgMasters = [],
+  onOrgMasterCreated,
   onRecordSaved,
 }) => {
   const { alert: alertDialog } = useDialog();
   const isCreate = !employee;
-  const orgList = (kind: HrOrgMasterKind): HrOrgMasterRecord[] =>
-    orgMasters.filter((master) => master.kind === kind && master.isActive);
+  // Masters added from this form stay here until the directory reloads, so the
+  // picker offers the new entry straight away without a second GET.
+  const [createdMasters, setCreatedMasters] = useState<HrOrgMasterRecord[]>([]);
+  const orgList = (kind: HrOrgMasterKind): HrOrgMasterRecord[] => {
+    const seen = new Set<string>();
+    const rows: HrOrgMasterRecord[] = [];
+    for (const master of [...orgMasters, ...createdMasters]) {
+      if (master.kind !== kind || !master.isActive || seen.has(master.id)) continue;
+      seen.add(master.id);
+      rows.push(master);
+    }
+    return rows;
+  };
+  /**
+   * Picker options for one catalogue kind. Every value comes from Org Masters,
+   * so the server can resolve its id; the current value is kept as an extra
+   * option when it predates the catalogue (or was retired from it), so editing
+   * an old record never silently rewrites its stored text.
+   */
+  const orgSelectOptions = (kind: HrOrgMasterKind, current: string) => {
+    const options = orgList(kind);
+    const legacy = current.trim() !== '' && !options.some((master) => master.name === current);
+    return (
+      <>
+        <option value="">— Not set —</option>
+        {options.map((master) => (
+          <option key={master.id} value={master.name}>
+            {master.name}
+            {master.code ? ` (${master.code})` : ''}
+          </option>
+        ))}
+        {legacy ? <option value={current}>{current} — not in catalogue</option> : null}
+      </>
+    );
+  };
   const [loading, setLoading] = useState(!employee);
   const [loadError, setLoadError] = useState('');
   const [masked, setMasked] = useState(false);
@@ -258,13 +308,148 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
   const [loginRole, setLoginRole] = useState('FRONT_DESK');
   const [createdLogin, setCreatedLogin] = useState<EmployeeLoginHandoff | null>(null);
   const [record, setRecord] = useState<RecordDraft>(() => recordFrom(employee, defaultBranchId));
+  // A designation chosen from the catalogue owns its code: the write path
+  // resolves the id from name-or-code, so letting the code drift here would
+  // detach the employee from the master it was just linked to.
+  const designationMaster = orgMasters.find(
+    (master) =>
+      master.kind === 'DESIGNATION' && master.isActive && master.name === record.designation
+  );
+  // Keep the locked field showing — and saving — the master's own code, so a
+  // record opened with a stale code cannot stay out of step with the catalogue.
+  useEffect(() => {
+    if (!designationMaster) return;
+    const code = designationMaster.code || '';
+    setRecord((prev) =>
+      prev.designationCode === code ? prev : { ...prev, designationCode: code }
+    );
+  }, [designationMaster]);
   const [scalars, setScalars] = useState<ScalarDraft>(EMPTY_SCALARS);
   const [family, setFamily] = useState<FamilyDraft[]>([]);
   const [experience, setExperience] = useState<ExperienceDraft[]>([]);
   const [qualifications, setQualifications] = useState<QualificationDraft[]>([]);
   const [references, setReferences] = useState<ReferenceDraft[]>([]);
+  const [branchTransfers, setBranchTransfers] = useState<HrEmployeeBranchTransfer[]>([]);
 
   const readOnly = !canManage || masked;
+
+  // Inline catalogue creation: an administrator (or HR manager, who holds
+  // hr-employee-manage by default) can add a missing entry without leaving the
+  // employee they are entering. The server keeps the write gate.
+  const [addingKind, setAddingKind] = useState<HrOrgMasterKind | null>(null);
+  const [newMasterName, setNewMasterName] = useState('');
+  const [newMasterCode, setNewMasterCode] = useState('');
+  const [addingMaster, setAddingMaster] = useState(false);
+  const [addMasterError, setAddMasterError] = useState('');
+
+  const startAddingMaster = (kind: HrOrgMasterKind) => {
+    setAddingKind(kind);
+    setNewMasterName('');
+    setNewMasterCode('');
+    setAddMasterError('');
+  };
+
+  const cancelAddingMaster = () => {
+    setAddingKind(null);
+    setNewMasterName('');
+    setNewMasterCode('');
+    setAddMasterError('');
+    setAddingMaster(false);
+  };
+
+  const addOrgMaster = async () => {
+    if (!addingKind || addingMaster) return;
+    const name = newMasterName.trim();
+    if (!name) {
+      setAddMasterError('A name is required.');
+      return;
+    }
+    const kind = addingKind;
+    setAddingMaster(true);
+    setAddMasterError('');
+    try {
+      const master = await api.createHrOrgMaster({
+        kind,
+        name,
+        code: newMasterCode.trim() || undefined,
+      });
+      setCreatedMasters((prev) => [...prev.filter((row) => row.id !== master.id), master]);
+      // Select it right away, so the record keeps its catalogue id.
+      if (kind === 'DEPARTMENT') {
+        setRecord((prev) => ({ ...prev, department: master.name }));
+      } else if (kind === 'WORK_STATION') {
+        setRecord((prev) => ({ ...prev, workStation: master.name }));
+      } else {
+        setRecord((prev) => ({
+          ...prev,
+          designation: master.name,
+          designationCode: master.code || '',
+        }));
+      }
+      cancelAddingMaster();
+      onOrgMasterCreated?.();
+    } catch (err: any) {
+      setAddMasterError(err?.message || 'Could not add the catalogue entry.');
+    } finally {
+      setAddingMaster(false);
+    }
+  };
+
+  const renderAdder = () => (
+    <div className="mt-1.5 rounded-lg border border-dashed border-indigo-300 p-2 dark:border-indigo-900">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <input
+          autoFocus
+          type="text"
+          maxLength={120}
+          value={newMasterName}
+          placeholder={`New ${addingKind ? ORG_KIND_NOUN[addingKind] : 'entry'}`}
+          onChange={(event) => setNewMasterName(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              void addOrgMaster();
+            } else if (event.key === 'Escape') {
+              cancelAddingMaster();
+            }
+          }}
+          className="h-8 min-w-0 flex-1 rounded-lg border border-slate-300 bg-transparent px-2 text-[11px] dark:border-slate-700"
+        />
+        <input
+          type="text"
+          maxLength={30}
+          value={newMasterCode}
+          placeholder="Code"
+          onChange={(event) => setNewMasterCode(event.target.value.toUpperCase())}
+          className="h-8 w-20 rounded-lg border border-slate-300 bg-transparent px-2 font-mono text-[11px] dark:border-slate-700"
+        />
+        <button
+          type="button"
+          onClick={() => void addOrgMaster()}
+          disabled={addingMaster}
+          className="h-8 cursor-pointer rounded-lg bg-indigo-600 px-2.5 text-[11px] font-bold text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {addingMaster ? 'Adding…' : 'Add'}
+        </button>
+        <button
+          type="button"
+          onClick={cancelAddingMaster}
+          className="h-8 cursor-pointer rounded-lg border border-slate-300 px-2.5 text-[11px] font-semibold dark:border-slate-700"
+        >
+          Cancel
+        </button>
+      </div>
+      <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
+        Saves it to Org Masters and selects it here. The code is optional — blank derives it from
+        the name.
+      </p>
+      {addMasterError ? (
+        <p className="mt-1 text-[10px] font-semibold text-rose-600 dark:text-rose-400">
+          {addMasterError}
+        </p>
+      ) : null}
+    </div>
+  );
   // The account an employee is linked to. Its role is editable from here, but
   // only between non-admin roles — the server refuses admin targets.
   const linkedLogin = record.userId
@@ -338,6 +523,7 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
         relation: row.relation || '',
       }))
     );
+    setBranchTransfers(data.branchTransfers ?? []);
   };
 
   const load = async () => {
@@ -390,7 +576,7 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
       alertDialog('An employee code (HRMS ID) is required.');
       return;
     }
-    if (isCreate && !record.branchId) {
+    if (!record.branchId) {
       alertDialog('Choose the branch this employee belongs to.');
       return;
     }
@@ -492,6 +678,9 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
     try {
       const master = {
         name,
+        // Branch is deliberately not part of an edit: a move must go through
+        // the dedicated transfer process so it carries a date and reason, and
+        // a stale open form cannot move the employee back.
         userId: record.userId || null,
         department: nullable(record.department),
         designation: nullable(record.designation),
@@ -561,6 +750,15 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
         return;
       }
       setSavedNote('Profile saved.');
+      if (savedRow.branchId !== employee.branchId) {
+        // The branch move was written after the profile PUT, so refresh the
+        // history instead of leaving the dialog on the pre-transfer list.
+        try {
+          applyResponse(await api.getEmployeeProfile(employee.id));
+        } catch {
+          // The save succeeded; the history will be fresh on the next open.
+        }
+      }
     } catch (err: any) {
       alertDialog(`Failed to save the employee: ${err?.message || 'Database error'}`);
     } finally {
@@ -701,8 +899,23 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
                   />
                 </div>
                 <div>
-                  <label className={labelClass}>Branch{isCreate ? ' *' : ''}</label>
-                  {isCreate ? (
+                  <label className={labelClass}>Branch *</label>
+                  {!isCreate || readOnly ? (
+                    <>
+                      <input
+                        type="text"
+                        disabled
+                        value={branchName || record.branchId}
+                        className={inputClass}
+                      />
+                      {!isCreate && canManage ? (
+                        <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
+                          Use Transfer in the Employee Directory to move this employee; the
+                          destination, effective date and reason are recorded together.
+                        </p>
+                      ) : null}
+                    </>
+                  ) : (
                     <select
                       value={record.branchId}
                       onChange={(event) => setRecord({ ...record, branchId: event.target.value })}
@@ -714,14 +927,12 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
                           {branch.name}
                         </option>
                       ))}
+                      {record.branchId && !branches.some((branch) => branch.id === record.branchId) ? (
+                        <option value={record.branchId}>
+                          {branchName || record.branchId} — not in Branch Management
+                        </option>
+                      ) : null}
                     </select>
-                  ) : (
-                    <input
-                      type="text"
-                      disabled
-                      value={branchName || record.branchId}
-                      className={inputClass}
-                    />
                   )}
                 </div>
                 <div>
@@ -861,47 +1072,87 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
                   </div>
                 ) : null}
                 <div>
-                  <label className={labelClass}>Department</label>
-                  <input
-                    type="text"
-                    list="hr-profile-departments"
+                  <div className="flex items-center justify-between gap-2">
+                    <label className={labelClass}>Department</label>
+                    {canManage ? (
+                      <button
+                        type="button"
+                        onClick={() => startAddingMaster('DEPARTMENT')}
+                        className="flex cursor-pointer items-center gap-0.5 text-[10px] font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400"
+                      >
+                        <Plus className="h-3 w-3" /> New
+                      </button>
+                    ) : null}
+                  </div>
+                  <select
+                    aria-label="Department"
                     disabled={readOnly}
                     value={record.department}
                     onChange={(event) => setRecord({ ...record, department: event.target.value })}
                     className={inputClass}
-                  />
-                  <datalist id="hr-profile-departments">
-                    {orgList('DEPARTMENT').map((master) => (
-                      <option key={master.id} value={master.name} />
-                    ))}
-                  </datalist>
+                  >
+                    {orgSelectOptions('DEPARTMENT', record.department)}
+                  </select>
+                  {addingKind === 'DEPARTMENT' ? renderAdder() : null}
                 </div>
                 <div>
-                  <label className={labelClass}>Designation</label>
-                  <input
-                    type="text"
-                    list="hr-profile-designations"
+                  <div className="flex items-center justify-between gap-2">
+                    <label className={labelClass}>Designation</label>
+                    {canManage ? (
+                      <button
+                        type="button"
+                        onClick={() => startAddingMaster('DESIGNATION')}
+                        className="flex cursor-pointer items-center gap-0.5 text-[10px] font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400"
+                      >
+                        <Plus className="h-3 w-3" /> New
+                      </button>
+                    ) : null}
+                  </div>
+                  <select
+                    aria-label="Designation"
                     disabled={readOnly}
                     value={record.designation}
-                    onChange={(event) => setRecord({ ...record, designation: event.target.value })}
+                    onChange={(event) => {
+                      const name = event.target.value;
+                      const master = orgList('DESIGNATION').find((row) => row.name === name);
+                      setRecord({
+                        ...record,
+                        designation: name,
+                        // The code travels with the master so the server always
+                        // resolves its id; a legacy value keeps its own code.
+                        designationCode:
+                          name === '' ? '' : master ? master.code || '' : record.designationCode,
+                      });
+                    }}
                     className={inputClass}
-                  />
-                  <datalist id="hr-profile-designations">
-                    {orgList('DESIGNATION').map((master) => (
-                      <option key={master.id} value={master.name} />
-                    ))}
-                  </datalist>
+                  >
+                    {orgSelectOptions('DESIGNATION', record.designation)}
+                  </select>
+                  {addingKind === 'DESIGNATION' ? renderAdder() : null}
                 </div>
                 <div>
-                  <label className={labelClass}>Designation code</label>
+                  <label className={labelClass}>
+                    Designation code
+                    {designationMaster ? (
+                      <span className="ml-1 font-normal text-slate-400">from catalogue</span>
+                    ) : null}
+                  </label>
                   <input
                     type="text"
                     disabled={readOnly}
+                    readOnly={Boolean(designationMaster)}
+                    title={
+                      designationMaster
+                        ? 'Set by the selected catalogue designation'
+                        : undefined
+                    }
                     value={record.designationCode}
                     onChange={(event) =>
                       setRecord({ ...record, designationCode: event.target.value })
                     }
-                    className={inputClass}
+                    className={`${inputClass}${
+                      designationMaster ? ' cursor-not-allowed opacity-60' : ''
+                    }`}
                   />
                 </div>
                 <div>
@@ -966,20 +1217,28 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
                   </p>
                 </div>
                 <div>
-                  <label className={labelClass}>Work station</label>
-                  <input
-                    type="text"
-                    list="hr-profile-work-stations"
+                  <div className="flex items-center justify-between gap-2">
+                    <label className={labelClass}>Work station</label>
+                    {canManage ? (
+                      <button
+                        type="button"
+                        onClick={() => startAddingMaster('WORK_STATION')}
+                        className="flex cursor-pointer items-center gap-0.5 text-[10px] font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400"
+                      >
+                        <Plus className="h-3 w-3" /> New
+                      </button>
+                    ) : null}
+                  </div>
+                  <select
+                    aria-label="Work station"
                     disabled={readOnly}
                     value={record.workStation}
                     onChange={(event) => setRecord({ ...record, workStation: event.target.value })}
                     className={inputClass}
-                  />
-                  <datalist id="hr-profile-work-stations">
-                    {orgList('WORK_STATION').map((master) => (
-                      <option key={master.id} value={master.name} />
-                    ))}
-                  </datalist>
+                  >
+                    {orgSelectOptions('WORK_STATION', record.workStation)}
+                  </select>
+                  {addingKind === 'WORK_STATION' ? renderAdder() : null}
                 </div>
                 <div>
                   <label className={labelClass}>Personal contact</label>
@@ -1089,6 +1348,72 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
                 </div>
               </div>
             </Section>
+
+            {!isCreate ? (
+              <Section
+                title="Branch transfer history"
+                hint="Where this employee has been posted. Moves are requested through the transfer process and recorded only after manager approval."
+              >
+                {branchTransfers.length === 0 ? (
+                  <p className="rounded-xl border border-slate-200 px-3 py-2 text-[11px] text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                    No branch transfers recorded. The current branch is the employee's first posting
+                    in this history.
+                  </p>
+                ) : (
+                  <ol className="space-y-2">
+                    {branchTransfers.map((transfer) => (
+                      <li
+                        key={transfer.id}
+                        className="rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="flex flex-wrap items-center gap-2 font-semibold text-slate-800 dark:text-slate-100">
+                            {transfer.fromBranchName} → {transfer.toBranchName}
+                            <span
+                              className={`rounded-full border px-1.5 py-0.5 text-[9px] font-bold ${
+                                transfer.status === 'PENDING'
+                                  ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300'
+                                  : transfer.status === 'APPROVED'
+                                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300'
+                                    : 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300'
+                              }`}
+                            >
+                              {transfer.status}
+                            </span>
+                          </span>
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                            {transfer.effectiveDateAD
+                              ? `${transfer.effectiveDateAD} · effective`
+                              : formatTransferDate(transfer.createdAt)}
+                          </span>
+                        </div>
+                        {transfer.reason ? (
+                          <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-300">
+                            {transfer.reason}
+                          </p>
+                        ) : null}
+                        <p className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">
+                          Requested by {transfer.transferredBy || 'System'} ·{' '}
+                          {formatTransferDate(transfer.createdAt)}
+                        </p>
+                        {transfer.status !== 'PENDING' ? (
+                          <p className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">
+                            {transfer.approvedBy
+                              ? `${transfer.status === 'APPROVED' ? 'Approved' : 'Rejected'} by ${transfer.approvedBy}`
+                              : 'Recorded before the approval workflow'}
+                            {transfer.decisionNote ? ` · ${transfer.decisionNote}` : ''}
+                          </p>
+                        ) : (
+                          <p className="mt-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300">
+                            Awaiting manager approval; the employee has not moved yet.
+                          </p>
+                        )}
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </Section>
+            ) : null}
 
             <Section title="Personal details">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

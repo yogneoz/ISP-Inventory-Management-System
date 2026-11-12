@@ -36,6 +36,7 @@ export const OPERATION_FILTER_URL_PARAM = 'operation';
  * actions and saved preferences. It aliases the live Approval Center below.
  */
 export const APP_PATHS: Record<NavTab, string> = {
+  'company-overview': '/overview',
   dashboard: '/dashboard',
   approvals: '/approvals',
   'workflow-approval': '/approvals',
@@ -114,6 +115,7 @@ export const APP_PATHS: Record<NavTab, string> = {
   'depreciation-register': '/finance/depreciation',
   audit: '/finance/audit',
   employees: '/people/employees',
+  'org-chart': '/people/org-chart',
   'hr-self-service': '/people/profile',
   'hr-self-payslips': '/people/payslips',
   'hr-self-leave': '/people/leave',
@@ -135,6 +137,7 @@ export const APP_PATHS: Record<NavTab, string> = {
   'seller-warranty': '/warranties/seller',
 
   users: '/settings/users',
+  'login-locks': '/settings/login-locks',
   permissions: '/settings/permissions',
   'user-permissions': '/settings/user-permissions',
   branches: '/settings/branches',

@@ -47,6 +47,7 @@ import {
   UploadCloud,
   DownloadCloud,
   MapPin,
+  Network,
   UserPlus,
   ClipboardCheck,
   CalendarDays,
@@ -57,13 +58,16 @@ import {
   Palette,
   Wallet,
   Undo2,
+  Lock,
 } from 'lucide-react';
 import { User, CompanyProfile, Branch, FiscalYear } from '../../types';
 import { getCompanyLocation } from '../../utils/companyProfile';
 import { isOperationAllowed } from '../../utils/permissions';
+import { useLoginLockCount } from '../../utils/loginLockBadge';
 import { ViewScopeControls } from '../common/ViewScopeControls';
 
 export type NavTab =
+  | 'company-overview'
   | 'dashboard'
   | 'approvals'
   | 'workflow-approval'
@@ -114,10 +118,12 @@ export type NavTab =
   | 'branches'
   | 'suppliers'
   | 'users'
+  | 'login-locks'
   | 'import-customers'
   | 'permissions'
   | 'user-permissions'
   | 'employees'
+  | 'org-chart'
   | 'hr-attendance'
   | 'hr-recruitment'
   | 'hr-performance'
@@ -170,6 +176,7 @@ export type NavTab =
 
 /** Every valid NavTab id, used to validate the tab restored from localStorage. */
 export const NAV_TABS: NavTab[] = [
+  'company-overview',
   'dashboard',
   'approvals',
   'workflow-approval',
@@ -220,10 +227,12 @@ export const NAV_TABS: NavTab[] = [
   'branches',
   'suppliers',
   'users',
+  'login-locks',
   'import-customers',
   'permissions',
   'user-permissions',
   'employees',
+  'org-chart',
   'hr-attendance',
   'hr-recruitment',
   'hr-performance',
@@ -385,6 +394,9 @@ interface NavChildDef {
   icon: React.ElementType;
   badge?: number;
   badgeColor?: string;
+  /** Text pill that opens another screen (e.g. "2 locked" → Login Locks). */
+  badgeLabel?: string;
+  badgeLinkId?: NavTab;
   /**
    * In-group heading ("Forms", "Registers", …). The label renders before the
    * first VISIBLE item of the section, so a permission-filtered section leaves
@@ -425,6 +437,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
   const isBranchUser = Boolean(currentUser?.branchId && currentUser.branchId !== 'ALL' && !isSuperAdmin);
 
+  // "N locked" on the Users row: the limiter count is the only signal that a
+  // staff account is blocked, so it sits where an administrator looks first.
+  const loginLockCount = useLoginLockCount(isOperationAllowed('admin-users', currentUser?.role));
+
   // Build filtered navigation groups based on role permissions.
   //
   // Eight domain groups, ordered by the work an operator does:
@@ -444,13 +460,37 @@ export const Sidebar: React.FC<SidebarProps> = ({
   //   5. Every item keeps its own permission gate, badge and screen.
   const groups: NavGroupDef[] = [];
 
-  // 1. Overview — the two landing pages and the cross-module inbox.
+  // 1. Overview — the company landing page, the inventory/finance operations
+  //    dashboard and the cross-module inbox. A role sees only the dashboards it
+  //    can actually read; detailed registers stay in their domain groups.
   const canViewFinanceDashboard = isOperationAllowed('fin-statements', currentUser?.role);
   const canApproveWorkflow =
     isOperationAllowed('workflow-approval', currentUser?.role) ||
     isOperationAllowed('workflow-approval-cancel', currentUser?.role);
+  const canViewCompanyOverview =
+    isOperationAllowed('prod-view', currentUser?.role) ||
+    isOperationAllowed('stock-valuation', currentUser?.role) ||
+    isOperationAllowed('assets-view', currentUser?.role) ||
+    isOperationAllowed('fin-statements', currentUser?.role) ||
+    isOperationAllowed('gl-view', currentUser?.role) ||
+    isOperationAllowed('po-create', currentUser?.role) ||
+    isOperationAllowed('inv-create', currentUser?.role) ||
+    isOperationAllowed('sales-invoice-create', currentUser?.role) ||
+    isOperationAllowed('customers-manage', currentUser?.role) ||
+    isOperationAllowed('hr-employee-view', currentUser?.role) ||
+    isOperationAllowed('gl-payroll-manage', currentUser?.role) ||
+    canApproveWorkflow;
   const dashboardChildren: NavChildDef[] = [
-    { id: 'dashboard' as NavTab, label: 'Executive Dashboard', icon: LayoutDashboard },
+    ...(canViewCompanyOverview
+      ? [
+          {
+            id: 'company-overview' as NavTab,
+            label: 'Company Overview',
+            icon: LayoutDashboard,
+          },
+        ]
+      : []),
+    { id: 'dashboard' as NavTab, label: 'Inventory Dashboard', icon: LayoutDashboard },
     ...(canViewFinanceDashboard
       ? [
           {
@@ -833,6 +873,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Users,
       section: 'People',
     }, {
+      // Derived from the directory + catalogue; it has no data of its own.
+      id: 'org-chart' as NavTab,
+      label: 'Organizational Chart',
+      icon: Network,
+      section: 'People',
+    }, {
       id: 'hr-attendance' as NavTab,
       label: 'Attendance & Leave',
       icon: CalendarDays,
@@ -864,17 +910,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       section: 'People',
     });
   }
-  if (
-    isOperationAllowed('hr-employee-manage', currentUser?.role) ||
-    isOperationAllowed('gl-payroll-manage', currentUser?.role)
-  ) {
-    hrChildren.push({
-      id: 'hr-org-masters' as NavTab,
-      label: 'Org Masters',
-      icon: Layers,
-      section: 'People',
-    });
-  }
   if (hrChildren.length > 0) {
     groups.push({
       id: 'people',
@@ -884,9 +919,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
     });
   }
 
-  // 7. Master Data & Setup — accounting masters, products, parties, and the
-  //    organisation tree. Chart of Accounts is master data, so it lives here;
-  //    Finance keeps the registers and reports that read from it.
+  // 7. Master Data & Setup — accounting masters, products, parties, then the
+  //    HR organisation tree and the network operating locations. Keeping the
+  //    HR masters here means there is one setup destination, not a second
+  //    top-level group for two screens.
   const inventorySetupChildren: NavChildDef[] = [
     ...(isOperationAllowed('gl-chart-manage', currentUser?.role)
       ? [
@@ -940,10 +976,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
     ...(isOperationAllowed('suppliers-manage', currentUser?.role)
       ? [{ id: 'suppliers' as NavTab, label: 'Suppliers Directory', icon: Users, section: 'Parties' }]
       : []),
-    { id: 'locations' as NavTab, label: 'Location Management (POP/GPS)', icon: MapPin, section: 'Organisation' },
-    ...(isOperationAllowed('admin-branches', currentUser?.role)
-      ? [{ id: 'branches' as NavTab, label: 'Branch Management', icon: Building2, section: 'Organisation' }]
+    ...(isOperationAllowed('hr-employee-manage', currentUser?.role) ||
+    isOperationAllowed('gl-payroll-manage', currentUser?.role)
+      ? [
+          {
+            id: 'hr-org-masters' as NavTab,
+            label: 'Org Masters',
+            icon: Layers,
+            section: 'HR Org Master',
+          },
+        ]
       : []),
+    ...(isOperationAllowed('admin-branches', currentUser?.role)
+      ? [
+          {
+            id: 'branches' as NavTab,
+            label: 'Branch Management',
+            icon: Building2,
+            section: 'HR Org Master',
+          },
+        ]
+      : []),
+    // Network operations data: POP server rooms, fiber nodes and GPS points.
+    { id: 'locations' as NavTab, label: 'Location Management (POP/GPS)', icon: MapPin, section: 'NOC' },
   ];
   groups.push({
     id: 'inventory-setup',
@@ -959,7 +1014,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
     adminChildren.push({ id: 'company-setup' as NavTab, label: 'Company Profile & Setup', icon: Building2, section: 'Setup' });
   }
   if (isOperationAllowed('admin-users', currentUser?.role)) {
-    adminChildren.push({ id: 'users' as NavTab, label: 'Users & Staff Management', icon: UserCheck, section: 'Setup' });
+    adminChildren.push(
+      {
+        id: 'users' as NavTab,
+        label: 'Users & Staff Management',
+        icon: UserCheck,
+        section: 'Setup',
+        badgeLabel: loginLockCount > 0 ? `${loginLockCount} locked` : undefined,
+        badgeLinkId: 'login-locks' as NavTab,
+      },
+      // The throttle that guards sign-in lives beside the accounts it locks.
+      { id: 'login-locks' as NavTab, label: 'Login Locks & Sign-in Throttle', icon: Lock, section: 'Setup' }
+    );
   }
   if (isSuperAdmin) {
     adminChildren.push(
@@ -1251,6 +1317,44 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ) => {
     const isActive = activeTab === child.id;
     const ItemIcon = child.icon;
+    // "N locked" is its own control — it opens Login Locks — so the row is
+    // wrapped only when that pill is present: a button cannot nest a button.
+    const badgeLink =
+      child.badgeLinkId && child.badgeLabel
+        ? { id: child.badgeLinkId, label: child.badgeLabel }
+        : null;
+    const rowButton = (
+      <button
+        data-nav-item={child.id}
+        onClick={() => handleSubItemClick(child.id)}
+        aria-current={isActive ? 'page' : undefined}
+        className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[0.8125rem] transition-all cursor-pointer font-medium ${
+          badgeLink ? 'pr-20' : ''
+        } ${
+          isActive
+            ? 'bg-indigo-50 text-indigo-900 font-semibold border-l-3 border-indigo-700 shadow-xs dark:bg-indigo-600/20 dark:text-indigo-300 dark:font-semibold dark:border-l-3 dark:border-indigo-500 dark:shadow-xs'
+            : 'border-l-3 border-transparent text-slate-600 hover:text-indigo-900 hover:bg-slate-100 dark:border-l-3 dark:border-transparent dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/50'
+        }`}
+      >
+        <div className="flex items-center gap-2.5 min-w-0">
+          <ItemIcon className={`h-4 w-4 flex-shrink-0 ${isActive ? 'text-indigo-500' : 'text-slate-400'}`} />
+          <span className="text-left leading-snug break-words" title={child.label}>
+            {highlightMatch(child.label, opts.query || '')}
+          </span>
+        </div>
+
+        {child.badge !== undefined && child.badge > 0 && (
+          <span
+            className={`ml-1.5 px-2 py-0.5 rounded-full text-[0.625rem] font-bold flex-shrink-0 ${
+              child.badgeColor ||
+              'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+            }`}
+          >
+            {child.badge}
+          </span>
+        )}
+      </button>
+    );
     return (
       <React.Fragment key={child.id}>
         {opts.sectionLabel && (
@@ -1261,34 +1365,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {opts.sectionLabel}
           </h3>
         )}
-        <button
-          data-nav-item={child.id}
-          onClick={() => handleSubItemClick(child.id)}
-          aria-current={isActive ? 'page' : undefined}
-          className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[0.8125rem] transition-all cursor-pointer font-medium ${
-            isActive
-              ? 'bg-indigo-50 text-indigo-900 font-semibold border-l-3 border-indigo-700 shadow-xs dark:bg-indigo-600/20 dark:text-indigo-300 dark:font-semibold dark:border-l-3 dark:border-indigo-500 dark:shadow-xs'
-              : 'border-l-3 border-transparent text-slate-600 hover:text-indigo-900 hover:bg-slate-100 dark:border-l-3 dark:border-transparent dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/50'
-          }`}
-        >
-          <div className="flex items-center gap-2.5 min-w-0">
-            <ItemIcon className={`h-4 w-4 flex-shrink-0 ${isActive ? 'text-indigo-500' : 'text-slate-400'}`} />
-            <span className="text-left leading-snug break-words" title={child.label}>
-              {highlightMatch(child.label, opts.query || '')}
-            </span>
-          </div>
-
-          {child.badge !== undefined && child.badge > 0 && (
-            <span
-              className={`ml-1.5 px-2 py-0.5 rounded-full text-[0.625rem] font-bold flex-shrink-0 ${
-                child.badgeColor ||
-                'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
-              }`}
+        {badgeLink ? (
+          <div className="relative">
+            {rowButton}
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                handleSubItemClick(badgeLink.id);
+              }}
+              title={`${badgeLink.label} — open Login Locks`}
+              aria-label={`${badgeLink.label} — open Login Locks`}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-rose-500 px-2 py-0.5 text-[0.625rem] font-bold text-white shadow-xs transition-colors hover:bg-rose-600 cursor-pointer"
             >
-              {child.badge}
-            </span>
-          )}
-        </button>
+              {badgeLink.label}
+            </button>
+          </div>
+        ) : (
+          rowButton
+        )}
         {opts.showGroupLabel && opts.groupTitle && (
           <p className="px-3 pb-1 -mt-0.5 text-[0.625rem] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 truncate text-left">
             {opts.groupTitle}

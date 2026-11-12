@@ -49,6 +49,8 @@ const ATT_BRANCH = 'pay-test-branch-att';
 const LV_BRANCH = 'pay-test-branch-lv';
 /** Fourth branch used to prove payroll inputs are branch-scoped. */
 const PI_BRANCH = 'pay-test-branch-pi';
+/** Destination for the employee branch-transfer history test. */
+const TR_BRANCH = 'pay-test-branch-tr';
 const RUN_DATE = '2026-09-30';
 const PERIOD = '2026-09';
 /** Far enough from every other suite's month that closing it cannot leak. */
@@ -77,11 +79,23 @@ const INVENTORY_MANAGER = {
   canSwitchUser: false,
 } as any;
 
+/** Separate account so a transfer can never be approved by its requester. */
+const TRANSFER_MANAGER = {
+  id: 'pay-hr-manager',
+  email: 'pay-hr-manager@example.com',
+  name: 'PAY HR Manager',
+  role: 'HR_MANAGER',
+  branchId: 'ALL',
+  allowedBranchIds: [],
+  canSwitchUser: false,
+} as any;
+
 describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => {
   let port = 0;
   let close: (() => Promise<void>) | null = null;
   const token = issueAuthToken(ADMIN);
   const managerToken = issueAuthToken(INVENTORY_MANAGER);
+  const transferManagerToken = issueAuthToken(TRANSFER_MANAGER);
   let emp1: any = null;
   let emp2: any = null;
   let run: any = null;
@@ -178,7 +192,7 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
     );
     // Attendance/holidays/leave reference both employees and branches, so they
     // go first; the HR catalogue is deleted by its test code prefix.
-    const testBranches = [BR, ATT_BRANCH, LV_BRANCH, PI_BRANCH];
+    const testBranches = [BR, ATT_BRANCH, LV_BRANCH, PI_BRANCH, TR_BRANCH];
     await pool!.query(
       "DELETE FROM hr_attendance WHERE branch_id = ANY($1::varchar[]) OR employee_id IN (SELECT id FROM employees WHERE employee_code LIKE 'PAYT-%')",
       [testBranches]
@@ -329,8 +343,11 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
     await ensureBsDayRecords(pool!, ['2027-06-01', CLOSED_RUN_DATE]);
     await cleanup();
     await pool!.query(
-      `INSERT INTO branches (id, code, name, location) VALUES ($1, 'PAYB', 'PAY Test Branch', 'Test')`,
-      [BR]
+      `INSERT INTO branches (id, code, name, location)
+       VALUES ($1, 'PAYB', 'PAY Test Branch', 'Test'),
+              ($2, 'PAYBT', 'PAY Transfer Branch', 'Test'),
+              ($3, 'PAYPI', 'PAY Payroll Inputs Branch', 'Test')`,
+      [BR, TR_BRANCH, PI_BRANCH]
     );
     await pool!.query(
       `INSERT INTO users (id, email, password, name, role, branch_id, allowed_branch_ids, status)
@@ -405,6 +422,190 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
     assert.equal(Number(updated.json.monthlySalary), 26000);
     assert.equal(updated.json.separationDateAD, '2027-04-30');
     assert.equal(updated.json.name, 'Pay Test Two');
+
+    // Branch comes from Branch Management. An unknown target is refused before
+    // anything is written; a same-branch patch is a no-op, but a different
+    // branch can only move through a request plus manager approval.
+    const unknownBranch = await patch(`/api/employees/${emp2.id}`, {
+      branchId: 'no-such-branch',
+    });
+    assert.equal(unknownBranch.status, 400, JSON.stringify(unknownBranch.json));
+    assert.match(unknownBranch.json.message, /Unknown branch/i);
+    const sameBranch = await patch(`/api/employees/${emp2.id}`, { branchId: BR });
+    assert.equal(sameBranch.status, 200, JSON.stringify(sameBranch.json));
+    assert.equal(sameBranch.json.branchId, BR);
+    const bypass = await patch(`/api/employees/${emp2.id}`, { branchId: TR_BRANCH });
+    assert.equal(bypass.status, 400, JSON.stringify(bypass.json));
+    assert.match(bypass.json.message, /transfer process and manager approval/i);
+
+    // The dedicated transfer process records a named history event with an
+    // effective date and reason; it is not parsed back out of audit-log text.
+    const sameTransfer = await post(`/api/employees/${emp2.id}/transfer`, {
+      branchId: BR,
+      effectiveDateAD: '2026-09-30',
+      reason: 'No move',
+    });
+    assert.equal(sameTransfer.status, 400, JSON.stringify(sameTransfer.json));
+    const missingReason = await post(`/api/employees/${emp2.id}/transfer`, {
+      branchId: TR_BRANCH,
+      effectiveDateAD: '2026-09-30',
+    });
+    assert.equal(missingReason.status, 400, JSON.stringify(missingReason.json));
+    assert.match(missingReason.json.message, /reason/i);
+
+    // Stage one records a pending request and deliberately does not move the
+    // employee; the same employee cannot accumulate two pending requests.
+    const transferred = await post(`/api/employees/${emp2.id}/transfer`, {
+      branchId: TR_BRANCH,
+      effectiveDateAD: '2026-09-30',
+      reason: 'Coverage at the transfer branch',
+    });
+    assert.equal(transferred.status, 200, JSON.stringify(transferred.json));
+    assert.equal(transferred.json.employee.branchId, BR, 'the branch must not change yet');
+    assert.equal(transferred.json.status, 'PENDING');
+    assert.ok(transferred.json.transferId);
+    const duplicateRequest = await post(`/api/employees/${emp2.id}/transfer`, {
+      branchId: TR_BRANCH,
+      effectiveDateAD: '2026-09-30',
+      reason: 'Duplicate request',
+    });
+    assert.equal(duplicateRequest.status, 409, JSON.stringify(duplicateRequest.json));
+    assert.match(duplicateRequest.json.message, /pending transfer/i);
+
+    const history = await get(`/api/employees/${emp2.id}/profile`);
+    assert.equal(history.status, 200, JSON.stringify(history.json));
+    assert.equal(history.json.branchTransfers.length, 1, JSON.stringify(history.json.branchTransfers));
+    const [pending] = history.json.branchTransfers;
+    assert.equal(pending.fromBranchId, BR);
+    assert.equal(pending.fromBranchName, 'PAY Test Branch');
+    assert.equal(pending.toBranchId, TR_BRANCH);
+    assert.equal(pending.toBranchName, 'PAY Transfer Branch');
+    assert.equal(pending.transferredBy, ADMIN.email);
+    assert.equal(pending.effectiveDateAD, '2026-09-30');
+    assert.equal(pending.reason, 'Coverage at the transfer branch');
+    assert.equal(pending.status, 'PENDING');
+
+    // The requester cannot approve their own request, and a non-manager role
+    // cannot decide one even with a manage grant.
+    const selfApproval = await post(
+      `/api/hr/branch-transfers/${transferred.json.transferId}/approve`,
+      {}
+    );
+    assert.equal(selfApproval.status, 403, JSON.stringify(selfApproval.json));
+    assert.match(selfApproval.json.message, /other than its requester/i);
+    const wrongRole = await post(
+      `/api/hr/branch-transfers/${transferred.json.transferId}/approve`,
+      {},
+      managerToken
+    );
+    assert.equal(wrongRole.status, 403, JSON.stringify(wrongRole.json));
+
+    const approved = await post(
+      `/api/hr/branch-transfers/${transferred.json.transferId}/approve`,
+      {},
+      transferManagerToken
+    );
+    assert.equal(approved.status, 200, JSON.stringify(approved.json));
+    assert.equal(approved.json.employee.branchId, TR_BRANCH);
+    assert.equal(approved.json.transfer.status, 'APPROVED');
+    assert.equal(approved.json.transfer.approvedBy, TRANSFER_MANAGER.email);
+    const afterApproval = await get(`/api/employees/${emp2.id}/profile`);
+    assert.equal(afterApproval.status, 200, JSON.stringify(afterApproval.json));
+    assert.equal(afterApproval.json.branchTransfers.length, 1);
+    assert.equal(afterApproval.json.branchTransfers[0].status, 'APPROVED');
+    assert.equal(
+      afterApproval.json.branchTransfers[0].approvedBy,
+      TRANSFER_MANAGER.email
+    );
+    const doubleDecision = await post(
+      `/api/hr/branch-transfers/${transferred.json.transferId}/approve`,
+      {},
+      transferManagerToken
+    );
+    assert.equal(doubleDecision.status, 409, JSON.stringify(doubleDecision.json));
+
+    // The directory log filters on either side of the move and by AD date.
+    const log = await get(`/api/hr/branch-transfers?branchId=${TR_BRANCH}`);
+    assert.equal(log.status, 200, JSON.stringify(log.json));
+    assert.equal(log.json.length, 1, JSON.stringify(log.json));
+    assert.equal(log.json[0].employeeCode, 'PAYT-002');
+    assert.equal(log.json[0].employeeName, 'Pay Test Two');
+    assert.equal(log.json[0].fromBranchName, 'PAY Test Branch');
+    assert.equal(log.json[0].toBranchName, 'PAY Transfer Branch');
+    assert.equal(log.json[0].reason, 'Coverage at the transfer branch');
+    assert.equal(log.json[0].status, 'APPROVED');
+    const insideDates = await get(
+      `/api/hr/branch-transfers?dateFrom=2026-09-01&dateTo=2026-09-30`
+    );
+    assert.equal(insideDates.status, 200, JSON.stringify(insideDates.json));
+    assert.equal(insideDates.json.length, 1, JSON.stringify(insideDates.json));
+    const outsideDates = await get(
+      `/api/hr/branch-transfers?dateFrom=2000-01-01&dateTo=2000-01-02`
+    );
+    assert.equal(outsideDates.status, 200, JSON.stringify(outsideDates.json));
+    assert.deepEqual(outsideDates.json, []);
+    assert.equal(
+      (await get('/api/hr/branch-transfers?dateFrom=2026-02-30')).status,
+      400,
+      'an impossible AD date must be refused'
+    );
+
+    const movedBack = await post(`/api/employees/${emp2.id}/transfer`, {
+      branchId: BR,
+      effectiveDateAD: '2026-10-01',
+      reason: 'Return to the base branch',
+    });
+    assert.equal(movedBack.status, 200, JSON.stringify(movedBack.json));
+    assert.equal(movedBack.json.employee.branchId, TR_BRANCH, 'still awaiting approval');
+    const movedBackApproved = await post(
+      `/api/hr/branch-transfers/${movedBack.json.transferId}/approve`,
+      {},
+      transferManagerToken
+    );
+    assert.equal(movedBackApproved.status, 200, JSON.stringify(movedBackApproved.json));
+    assert.equal(movedBackApproved.json.employee.branchId, BR);
+    const afterReturn = await get(`/api/employees/${emp2.id}/profile`);
+    assert.equal(afterReturn.status, 200, JSON.stringify(afterReturn.json));
+    assert.equal(afterReturn.json.branchTransfers.length, 2);
+    assert.equal(afterReturn.json.branchTransfers[0].fromBranchId, TR_BRANCH);
+    assert.equal(afterReturn.json.branchTransfers[0].toBranchId, BR);
+    assert.equal(afterReturn.json.branchTransfers[0].reason, 'Return to the base branch');
+    assert.equal(afterReturn.json.branchTransfers[0].status, 'APPROVED');
+
+    // A rejection is retained with its decision note and never moves anyone.
+    const rejectedRequest = await post(`/api/employees/${emp2.id}/transfer`, {
+      branchId: PI_BRANCH,
+      effectiveDateAD: '2026-10-02',
+      reason: 'Temporary coverage',
+    });
+    assert.equal(rejectedRequest.status, 200, JSON.stringify(rejectedRequest.json));
+    const rejected = await post(
+      `/api/hr/branch-transfers/${rejectedRequest.json.transferId}/reject`,
+      { note: 'Coverage is no longer required' },
+      transferManagerToken
+    );
+    assert.equal(rejected.status, 200, JSON.stringify(rejected.json));
+    assert.equal(rejected.json.employee, null);
+    assert.equal(rejected.json.transfer.status, 'REJECTED');
+    assert.equal(rejected.json.transfer.decisionNote, 'Coverage is no longer required');
+    const afterRejection = await get(`/api/employees/${emp2.id}`);
+    assert.equal(afterRejection.status, 200, JSON.stringify(afterRejection.json));
+    assert.equal(afterRejection.json.branchId, BR);
+    const afterRejectionProfile = await get(`/api/employees/${emp2.id}/profile`);
+    assert.equal(afterRejectionProfile.status, 200);
+    assert.equal(afterRejectionProfile.json.branchTransfers.length, 3);
+    assert.equal(afterRejectionProfile.json.branchTransfers[0].status, 'REJECTED');
+
+    const afterLog = await get(`/api/hr/branch-transfers?branchId=${TR_BRANCH}`);
+    assert.equal(afterLog.status, 200, JSON.stringify(afterLog.json));
+    assert.equal(afterLog.json.length, 2, JSON.stringify(afterLog.json));
+    assert.deepEqual(
+      afterLog.json.map((row: any) => [row.fromBranchId, row.toBranchId]),
+      [
+        [TR_BRANCH, BR],
+        [BR, TR_BRANCH],
+      ]
+    );
 
     const invalidSeparation = await patch(`/api/employees/${emp2.id}`, {
       separationDateAD: '2026-08-31',

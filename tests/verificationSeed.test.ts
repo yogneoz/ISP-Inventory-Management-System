@@ -60,19 +60,33 @@ describe('verification dataset', () => {
     assert.ok(modules.operations.damage.length > 0);
     assert.ok(modules.operations.purchaseOrders.length > 0);
     assert.ok(modules.operations.shipments.length > 0);
-    assert.equal(modules.hr.employees.length, 5);
+    // 5 payroll/attendance demo employees + 14 chart-only employees that hold
+    // the refactored designations.
+    assert.equal(modules.hr.employees.length, 19);
     assert.equal(modules.hr.attendance.length, 10);
     assert.equal(modules.hr.payrollLines.length, 2);
     const payrollDebit = modules.hr.journalLines.reduce((sum, line) => sum + Number(line.debit), 0);
     const payrollCredit = modules.hr.journalLines.reduce((sum, line) => sum + Number(line.credit), 0);
     assert.equal(payrollDebit, 167_000, 'demo payroll journal debits');
     assert.equal(payrollCredit, 167_000, 'demo payroll journal must balance');
+    // The salary expense leg must carry its cost centre or the branch's
+    // department preview reports payroll as untagged actuals.
+    const payrollSalary = modules.hr.journalLines.find((line: any) => line.account_id === 'gla-6400');
+    assert.equal(payrollSalary?.cost_center_id, 'cc-demo-ops', 'the payroll salary line must stay tagged');
+    assert.equal(
+      modules.hr.journalLines.filter((line: any) => line.debit > 0 && !line.cost_center_id).length,
+      0,
+      'every demo payroll expense leg must be tagged'
+    );
     assert.equal(
       modules.hr.payrollLines.reduce((sum, line) => sum + Number(line.net_amount), 0),
       modules.hr.payrollRuns[0].net_total,
       'run line nets must equal the posted run total'
     );
-    assert.equal(modules.permissions.sets.length, 2);
+    // Three, not two: the verification seed also carries the deliberate
+    // "Demo Branch Finance Read" set that widens a Branch Manager (see
+    // scripts/seed/demoPermissionFixtures.ts and tests/demoPermissionFixtures.test.ts).
+    assert.equal(modules.permissions.sets.length, 3);
     assert.ok(modules.permissions.matrix.length > 0);
   });
 

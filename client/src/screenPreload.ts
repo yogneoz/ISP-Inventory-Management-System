@@ -23,6 +23,7 @@ const loadReturnsRegister = () => import('./features/sales/ReturnsRegister');
 const loadShipments = () => import('./features/procurement/Shipments');
 
 export const SCREEN_PRELOADERS: Readonly<Record<string, ScreenModuleLoader>> = {
+  'company-overview': () => import('./features/dashboard/CompanyOverview'),
   approvals: () => import('./features/settings/ApprovalWorkflowCenter'),
   'opening-stock': () => import('./features/finance/OpeningStockManager'),
   'category-management': () => import('./features/inventory/CategoryManagement'),
@@ -50,6 +51,7 @@ export const SCREEN_PRELOADERS: Readonly<Record<string, ScreenModuleLoader>> = {
   'hr-performance': () => import('./features/hr/Performance'),
   'hr-lifecycle': () => import('./features/hr/Lifecycle'),
   'hr-org-masters': () => import('./features/hr/OrgMasters'),
+  'org-chart': () => import('./features/hr/OrgChart'),
   customers: () => import('./features/sales/CustomerMasterDirectory'),
   'sales-agents-areas': () => import('./features/sales/SalesAgentsAreasManagement'),
   'customer-devices': () => import('./features/sales/CustomersManagement'),

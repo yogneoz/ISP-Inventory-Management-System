@@ -4,9 +4,13 @@
  * grant accepted during the HR permission migration.
  */
 import express, { type Express } from 'express';
-import { requirePermissionAny } from '../middleware';
+import { requirePermissionAny, requireRole } from '../middleware';
 import {
+  get_hrOrgCatalogue,
+  get_hrOrgChart,
+  get_hrOrgHeadcounts,
   get_hrOrgMasters,
+  get_hrOrgUnmatched,
   patch_hrOrgMaster,
   post_hrOrgMaster,
 } from '../controllers/hrOrg.controller';
@@ -20,6 +24,10 @@ import {
   get_hrEmployeeProfile,
   put_hrEmployeeProfile,
 } from '../controllers/hrEmployeeProfile.controller';
+import {
+  approve_hrBranchTransfer,
+  reject_hrBranchTransfer,
+} from '../controllers/payroll.controller';
 import { HR_DOCUMENT_MAX_BYTES } from '../models/hrDocuments.repo';
 import { HR_RECRUITMENT_RESUME_MAX_BYTES } from '../models/hrRecruitment.repo';
 import {
@@ -91,6 +99,7 @@ import {
   put_hrPayrollInput,
 } from '../controllers/hrPayrollInputs.controller';
 import { get_hrPayrollReport, get_hrWorkforceReport } from '../controllers/hrReports.controller';
+import { get_hrEmployeeBranchTransfers } from '../controllers/hrEmployeeBranchTransfers.controller';
 import {
   get_hrSelfServiceAttendance,
   get_hrSelfServiceDocuments,
@@ -197,11 +206,67 @@ export function registerHrRoutes(app: Express) {
     }
   );
 
+  // Directory-wide transfer history. Both filters are optional; the controller
+  // derives the branch scope from the session and refuses an out-of-scope branch.
+  app.get(
+    '/api/hr/branch-transfers',
+    requirePermissionAny('hr-employee-view', 'gl-payroll-manage'),
+    async (req, res, next) => {
+      get_hrEmployeeBranchTransfers(req as any, res as any).catch(next);
+    }
+  );
+  // Deciding a transfer is a manager action and is deliberately separated from
+  // creating the request. The controller also refuses self-approval.
+  app.post(
+    '/api/hr/branch-transfers/:id/approve',
+    requirePermissionAny('hr-employee-manage', 'gl-payroll-manage'),
+    requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'HR_MANAGER'),
+    async (req, res, next) => {
+      approve_hrBranchTransfer(req as any, res as any).catch(next);
+    }
+  );
+  app.post(
+    '/api/hr/branch-transfers/:id/reject',
+    requirePermissionAny('hr-employee-manage', 'gl-payroll-manage'),
+    requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'HR_MANAGER'),
+    async (req, res, next) => {
+      reject_hrBranchTransfer(req as any, res as any).catch(next);
+    }
+  );
+
   app.get(
     '/api/hr/org-masters',
     requirePermissionAny('hr-employee-view', 'gl-payroll-manage'),
     async (req, res, next) => {
       get_hrOrgMasters(req as any, res as any).catch(next);
+    }
+  );
+  app.get(
+    '/api/hr/org-catalogue',
+    requirePermissionAny('hr-employee-view', 'gl-payroll-manage'),
+    async (req, res, next) => {
+      get_hrOrgCatalogue(req as any, res as any).catch(next);
+    }
+  );
+  app.get(
+    '/api/hr/org-chart',
+    requirePermissionAny('hr-employee-view', 'gl-payroll-manage'),
+    async (req, res, next) => {
+      get_hrOrgChart(req as any, res as any).catch(next);
+    }
+  );
+  app.get(
+    '/api/hr/org-masters/unmatched',
+    requirePermissionAny('hr-employee-view', 'gl-payroll-manage'),
+    async (req, res, next) => {
+      get_hrOrgUnmatched(req as any, res as any).catch(next);
+    }
+  );
+  app.get(
+    '/api/hr/org-masters/headcounts',
+    requirePermissionAny('hr-employee-view', 'gl-payroll-manage'),
+    async (req, res, next) => {
+      get_hrOrgHeadcounts(req as any, res as any).catch(next);
     }
   );
   app.post(

@@ -9,6 +9,8 @@ export interface EmployeeRecord {
   userId: string | null;
   department: string | null;
   designation: string | null;
+  departmentId: string | null;
+  designationId: string | null;
   designationCode: string | null;
   employmentType: string | null;
   joiningDateAD: string | null;
@@ -16,6 +18,7 @@ export interface EmployeeRecord {
   contractExpiryAD: string | null;
   separationDateAD: string | null;
   workStation: string | null;
+  workstationId: string | null;
   address: string | null;
   personalContact: string | null;
   emergencyContactPerson: string | null;
@@ -136,6 +139,15 @@ export const HR_LOGIN_ROLES: string[] = [
 export interface EmployeeQuery {
   branchId?: string;
   query?: string;
+  /** Exact organisation values (case-insensitive) — legacy text matching. */
+  department?: string;
+  designation?: string;
+  designationCode?: string;
+  workstation?: string;
+  /** Catalogue ids — survives renaming the master, so Org Masters uses these. */
+  departmentId?: string;
+  designationId?: string;
+  workstationId?: string;
   activeOnly?: boolean;
   limit?: number;
 }
@@ -172,6 +184,12 @@ export interface HrOrgMasterPatch {
   name?: string;
   code?: string | null;
   isActive?: boolean;
+  /** Designation profile — drives the Organizational Chart and salary band. */
+  grade?: string | null;
+  reportsToId?: string | null;
+  reportsToLabel?: string | null;
+  dottedLineTo?: string | null;
+  branchScope?: string | null;
 }
 
 export type HrDocumentType =
@@ -213,6 +231,13 @@ export async function getEmployees(options: EmployeeQuery = {}): Promise<Employe
   const params = new URLSearchParams();
   if (options.branchId && options.branchId !== 'ALL') params.set('branchId', options.branchId);
   if (options.query?.trim()) params.set('query', options.query.trim());
+  if (options.department?.trim()) params.set('department', options.department.trim());
+  if (options.designation?.trim()) params.set('designation', options.designation.trim());
+  if (options.designationCode?.trim()) params.set('designationCode', options.designationCode.trim());
+  if (options.workstation?.trim()) params.set('workstation', options.workstation.trim());
+  if (options.departmentId?.trim()) params.set('departmentId', options.departmentId.trim());
+  if (options.designationId?.trim()) params.set('designationId', options.designationId.trim());
+  if (options.workstationId?.trim()) params.set('workstationId', options.workstationId.trim());
   if (options.activeOnly) params.set('activeOnly', '1');
   if (options.limit) params.set('limit', String(options.limit));
   const query = params.toString();
@@ -674,6 +699,128 @@ export async function getHrOrgMasters(
   return fetchJson(`/api/hr/org-masters${query ? `?${query}` : ''}`);
 }
 
+/** One employee value that does not name a catalogue entry. */
+export interface HrOrgUnmatchedEmployee {
+  employeeId: string;
+  employeeCode: string;
+  name: string;
+  branchId: string;
+  field: HrOrgMasterKind;
+  value: string;
+  isActive: boolean;
+}
+
+/** A graded designation from the refactored master sheet. */
+export interface HrOrgDesignationCatalogueRow {
+  id: string;
+  name: string;
+  code: string | null;
+  departmentId: string | null;
+  department: string | null;
+  grade: string | null;
+  careerBand: string | null;
+  bandMin: number | null;
+  bandMax: number | null;
+  reportsToId: string | null;
+  reportsTo: string | null;
+  reportsToLabel: string | null;
+  dottedLineTo: string | null;
+  branchScope: string | null;
+  systemRole: string | null;
+  responsibilities: string | null;
+  phase: string | null;
+  roleStatus: string | null;
+  changeNote: string | null;
+}
+
+export interface HrOrgDepartmentCatalogueRow {
+  id: string;
+  name: string;
+  code: string | null;
+  headId: string | null;
+  head: string | null;
+  mandate: string | null;
+}
+
+export interface HrSalaryGradeRecord {
+  grade: string;
+  careerBand: string;
+  roleTier: string;
+  min: number;
+  step1: number;
+  step2: number;
+  step3: number;
+  max: number;
+  bandSpread: number | null;
+  promotionRule: string | null;
+}
+
+export interface HrOrgClusterRecord {
+  id: string;
+  name: string;
+  hub: string;
+  province: string | null;
+  notes: string | null;
+  branchCount: number;
+}
+
+export interface HrBranchPlanRecord {
+  code: string;
+  name: string;
+  clusterId: string;
+  clusterName: string;
+  clusterHub: string;
+  province: string | null;
+  tier: string;
+  headDesignation: string;
+  branchId: string | null;
+}
+
+export interface HrOrgCatalogue {
+  designations: HrOrgDesignationCatalogueRow[];
+  departments: HrOrgDepartmentCatalogueRow[];
+  grades: HrSalaryGradeRecord[];
+  clusters: HrOrgClusterRecord[];
+  branchPlan: HrBranchPlanRecord[];
+}
+
+/** An employee row resolved to its catalogue designation, for the org chart. */
+export interface HrOrgChartEmployee {
+  id: string;
+  employeeCode: string;
+  name: string;
+  branchId: string;
+  branchName: string | null;
+  department: string | null;
+  designation: string | null;
+  designationCode: string | null;
+  workStation: string | null;
+  /** Uploaded avatar as a data URL, when the employee has one. */
+  profilePhoto: string | null;
+  designationId: string | null;
+  catalogueDesignation: string | null;
+  grade: string | null;
+  reportsToId: string | null;
+  reportsTo: string | null;
+  departmentId: string | null;
+}
+
+export async function getHrOrgCatalogue(): Promise<HrOrgCatalogue> {
+  return fetchJson('/api/hr/org-catalogue');
+}
+
+export async function getHrOrgChart(): Promise<HrOrgChartEmployee[]> {
+  return fetchJson('/api/hr/org-chart');
+}
+
+export async function getHrOrgUnmatched(): Promise<HrOrgUnmatchedEmployee[]> {
+  return fetchJson('/api/hr/org-masters/unmatched');
+}
+
+export async function getHrOrgHeadcounts(): Promise<Record<HrOrgMasterKind, number>> {
+  return fetchJson('/api/hr/org-masters/headcounts');
+}
+
 export async function createHrOrgMaster(input: HrOrgMasterInput): Promise<HrOrgMasterRecord> {
   return fetchJson('/api/hr/org-masters', {
     method: 'POST',
@@ -839,6 +986,26 @@ export interface HrEmployeeProfileFields {
   declarationName: string | null;
 }
 
+/** One immutable move; names are snapshots taken when the transfer happened. */
+export type HrBranchTransferStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+export interface HrEmployeeBranchTransfer {
+  id: string;
+  fromBranchId: string;
+  fromBranchName: string;
+  toBranchId: string;
+  toBranchName: string;
+  /** The HR user who requested the move. */
+  transferredBy: string | null;
+  effectiveDateAD: string | null;
+  reason: string | null;
+  status: HrBranchTransferStatus;
+  approvedBy: string | null;
+  approvedAt: string | null;
+  decisionNote: string | null;
+  createdAt: string;
+}
+
 export interface HrEmployeeProfileResponse {
   employeeId: string;
   employeeCode: string;
@@ -851,6 +1018,8 @@ export interface HrEmployeeProfileResponse {
   experience: HrEmployeeExperienceRow[];
   qualifications: HrEmployeeQualificationRow[];
   references: HrEmployeeReferenceRow[];
+  /** Newest first, bounded by the server. */
+  branchTransfers: HrEmployeeBranchTransfer[];
 }
 
 export type HrEmployeeProfileInput = HrEmployeeProfileFields & {
@@ -859,6 +1028,32 @@ export type HrEmployeeProfileInput = HrEmployeeProfileFields & {
   qualifications: Array<Omit<HrEmployeeQualificationRow, 'id' | 'sortOrder'>>;
   references: Array<Omit<HrEmployeeReferenceRow, 'id' | 'sortOrder'>>;
 };
+
+/** One row in the directory-wide transfer log. */
+export interface HrEmployeeBranchTransferLogRow extends HrEmployeeBranchTransfer {
+  employeeId: string;
+  employeeCode: string;
+  employeeName: string;
+}
+
+export interface HrEmployeeBranchTransferFilters {
+  branchId?: string | null;
+  dateFrom?: string | null;
+  dateTo?: string | null;
+}
+
+export async function getHrBranchTransfers(
+  filters: HrEmployeeBranchTransferFilters = {}
+): Promise<HrEmployeeBranchTransferLogRow[]> {
+  const query = new URLSearchParams();
+  if (filters.branchId && filters.branchId !== 'ALL') {
+    query.set('branchId', filters.branchId);
+  }
+  if (filters.dateFrom) query.set('dateFrom', filters.dateFrom);
+  if (filters.dateTo) query.set('dateTo', filters.dateTo);
+  const suffix = query.toString();
+  return fetchJson(`/api/hr/branch-transfers${suffix ? `?${suffix}` : ''}`);
+}
 
 export async function getEmployeeProfile(
   employeeId: string,
@@ -886,6 +1081,58 @@ export async function createEmployee(
   return fetchJson('/api/employees', {
     method: 'POST',
     body: JSON.stringify(input),
+  });
+}
+
+export interface EmployeeTransferInput {
+  branchId: string;
+  effectiveDateAD: string;
+  reason: string;
+}
+
+export interface EmployeeTransferResult {
+  /** Unchanged until a manager approves the request. */
+  employee: EmployeeRecord;
+  transferId: string;
+  status: 'PENDING';
+}
+
+export interface EmployeeTransferDecisionResult {
+  transfer: HrEmployeeBranchTransfer & { employeeId: string };
+  /** The moved employee on approval; null when the request was rejected. */
+  employee: EmployeeRecord | null;
+}
+
+/** Stage one: records a pending transfer request for manager approval. */
+export async function transferEmployee(
+  id: string,
+  input: EmployeeTransferInput
+): Promise<EmployeeTransferResult> {
+  return fetchJson(`/api/employees/${encodeURIComponent(id)}/transfer`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+/** Stage two: a manager approves the request and moves the employee. */
+export async function approveHrBranchTransfer(
+  id: string,
+  note?: string | null
+): Promise<EmployeeTransferDecisionResult> {
+  return fetchJson(`/api/hr/branch-transfers/${encodeURIComponent(id)}/approve`, {
+    method: 'POST',
+    body: JSON.stringify({ note: note || null }),
+  });
+}
+
+/** Stage two alternative: a manager rejects the request; no branch changes. */
+export async function rejectHrBranchTransfer(
+  id: string,
+  note?: string | null
+): Promise<EmployeeTransferDecisionResult> {
+  return fetchJson(`/api/hr/branch-transfers/${encodeURIComponent(id)}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ note: note || null }),
   });
 }
 

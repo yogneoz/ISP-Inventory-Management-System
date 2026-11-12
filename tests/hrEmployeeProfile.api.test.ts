@@ -242,6 +242,7 @@ describe('F1 employee profile (real HTTP + PostgreSQL)', { skip: skipNoDb }, () 
     assert.deepEqual(res.json.experience, []);
     assert.deepEqual(res.json.qualifications, []);
     assert.deepEqual(res.json.references, []);
+    assert.deepEqual(res.json.branchTransfers, []);
   });
 
   test('a save round-trips every section in form order', async () => {
@@ -386,6 +387,7 @@ describe('F1 employee profile (real HTTP + PostgreSQL)', { skip: skipNoDb }, () 
     assert.equal(read.json.profile.medicalDetails, null);
     assert.deepEqual(read.json.familyMembers, []);
     assert.deepEqual(read.json.qualifications, []);
+    assert.deepEqual(read.json.branchTransfers, []);
 
     const write = await put(`/api/employees/${EMP_A}/profile`, fullProfile(), officerToken);
     assert.equal(write.status, 403);

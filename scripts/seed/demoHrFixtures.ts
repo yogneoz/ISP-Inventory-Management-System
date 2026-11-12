@@ -9,13 +9,21 @@
  */
 import type { VerificationDataset } from './verificationDataset';
 import { bsOn, insertRows, type Row } from './fixtureUtils';
+import {
+  HR_BRANCH_PLAN,
+  HR_CLUSTERS,
+  HR_DEPARTMENTS,
+  HR_DESIGNATIONS,
+  HR_GRADES,
+  HR_WORK_STATIONS,
+} from './hrOrgCatalogue';
 
 const SEED = 'seed:verify';
 
 const EMPLOYEES = [
   {
     id: 'demo-emp-001', code: 'EMP-001', name: 'Aarav Sharma', branchId: 'BR-KTM',
-    department: 'Operations', designation: 'Network Engineer', designationCode: 'DES-NET',
+    department: 'Executive Management', designation: 'Chief Executive Officer', designationCode: 'DES-01',
     userId: 'usr-super', salary: 100_000, basic: 60_000, allowance: 40_000,
     ssf: true, joining: '2025-07-17', dob: '1994-05-12', pan: '100100101',
     ssfNo: 'SSF-1001', bank: 'Nabil Bank', account: '012345678901',
@@ -23,7 +31,7 @@ const EMPLOYEES = [
   },
   {
     id: 'demo-emp-002', code: 'EMP-002', name: 'Nisha Karki', branchId: 'BR-KTM',
-    department: 'Customer Support', designation: 'Customer Support Officer', designationCode: 'DES-CSO',
+    department: 'Customer Experience & Branches', designation: 'Customer Support Associate', designationCode: 'DES-39',
     userId: 'usr-frontdesk', salary: 60_000, basic: 40_000, allowance: 20_000,
     ssf: false, joining: '2026-04-01', dob: '1997-09-23', pan: '100100102',
     ssfNo: '', bank: 'Nabil Bank', account: '012345678902',
@@ -31,7 +39,7 @@ const EMPLOYEES = [
   },
   {
     id: 'demo-emp-003', code: 'EMP-003', name: 'Bikash Thapa', branchId: 'BR-PKR',
-    department: 'Sales', designation: 'Sales Executive', designationCode: 'DES-SALES',
+    department: 'Commercial, Sales & Recovery', designation: 'Sales & Marketing Associate', designationCode: 'DES-22',
     userId: 'usr-pkr-manager', salary: 70_000, basic: 45_000, allowance: 25_000,
     ssf: true, joining: '2025-09-01', dob: '1992-03-18', pan: '100100103',
     ssfNo: 'SSF-1003', bank: 'Global IME Bank', account: '012345678903',
@@ -39,7 +47,7 @@ const EMPLOYEES = [
   },
   {
     id: 'demo-emp-004', code: 'EMP-004', name: 'Sita Gurung', branchId: 'BR-BTL',
-    department: 'Finance', designation: 'Accountant', designationCode: 'DES-ACC',
+    department: 'Finance, Admin & Procurement', designation: 'Accountant', designationCode: 'DES-27',
     userId: 'usr-btl-manager', salary: 65_000, basic: 40_000, allowance: 25_000,
     ssf: true, joining: '2025-10-01', dob: '1995-11-07', pan: '100100104',
     ssfNo: 'SSF-1004', bank: 'Nabil Bank', account: '012345678904',
@@ -47,7 +55,7 @@ const EMPLOYEES = [
   },
   {
     id: 'demo-emp-005', code: 'EMP-005', name: 'Rajan Rai', branchId: 'BR-DHN',
-    department: 'Field Operations', designation: 'Field Technician', designationCode: 'DES-FIELD',
+    department: 'Field Fiber Operations', designation: 'Fiber Technician', designationCode: 'DES-14',
     userId: 'usr-dhn-manager', salary: 55_000, basic: 35_000, allowance: 20_000,
     ssf: false, joining: '2026-01-15', dob: '1998-06-30', pan: '100100105',
     ssfNo: '', bank: 'Global IME Bank', account: '012345678905',
@@ -55,20 +63,34 @@ const EMPLOYEES = [
   },
 ];
 
-const DEPARTMENTS = ['Operations', 'Finance', 'Sales', 'Customer Support', 'Field Operations'];
-const DESIGNATIONS = [
-  { name: 'Network Engineer', code: 'DES-NET' },
-  { name: 'Customer Support Officer', code: 'DES-CSO' },
-  { name: 'Sales Executive', code: 'DES-SALES' },
-  { name: 'Accountant', code: 'DES-ACC' },
-  { name: 'Field Technician', code: 'DES-FIELD' },
+/**
+ * Employees that exist only to give the org chart depth. They hold refactored
+ * designations from the master sheet; the five canonical payroll employees
+ * above keep their payroll/attendance history intact.
+ */
+const ORG_CHART_EMPLOYEES = [
+  { id: 'demo-emp-006', code: 'EMP-006', name: 'Prakash Adhikari', branch: 'BR-KTM', designation: 'Chief Operations Officer', code2: 'DES-02', salary: 178000 },
+  { id: 'demo-emp-007', code: 'EMP-007', name: 'Sandesh Bhandari', branch: 'BR-KTM', designation: 'Head of Network & IT', code2: 'DES-04', salary: 115000 },
+  { id: 'demo-emp-008', code: 'EMP-008', name: 'Aayush Shrestha', branch: 'BR-KTM', designation: 'Senior Network Engineer', code2: 'DES-47', salary: 60000 },
+  { id: 'demo-emp-009', code: 'EMP-009', name: 'Kiran Magar', branch: 'BR-KTM', designation: 'Network Administrator', code2: 'DES-05', salary: 46500 },
+  { id: 'demo-emp-010', code: 'EMP-010', name: 'Dipesh Tamang', branch: 'BR-KTM', designation: 'NOC Support Engineer', code2: 'DES-06', salary: 36000 },
+  { id: 'demo-emp-011', code: 'EMP-011', name: 'Manisha Joshi', branch: 'BR-KTM', designation: 'Admin & Finance Manager', code2: 'DES-24', salary: 115000 },
+  { id: 'demo-emp-012', code: 'EMP-012', name: 'Pooja Rana', branch: 'BR-KTM', designation: 'HR Manager', code2: 'DES-31', salary: 115000 },
+  { id: 'demo-emp-013', code: 'EMP-013', name: 'Suman Bhattarai', branch: 'BR-KTM', designation: 'HR & Payroll Officer', code2: 'DES-32', salary: 46500 },
+  { id: 'demo-emp-014', code: 'EMP-014', name: 'Rohit Karki', branch: 'BR-KTM', designation: 'Branch Manager', code2: 'DES-34', salary: 82000 },
+  { id: 'demo-emp-015', code: 'EMP-015', name: 'Sujan Limbu', branch: 'BR-DHN', designation: 'Branch In-charge', code2: 'DES-50', salary: 60000 },
+  { id: 'demo-emp-016', code: 'EMP-016', name: 'Nabin Chaudhary', branch: 'BR-DHN', designation: 'Regional Fiber Supervisor', code2: 'DES-10', salary: 82000 },
+  { id: 'demo-emp-017', code: 'EMP-017', name: 'Anjali Pradhan', branch: 'BR-KTM', designation: 'Sales & Recovery Manager', code2: 'DES-17', salary: 115000 },
+  { id: 'demo-emp-018', code: 'EMP-018', name: 'Rupa Shrestha', branch: 'BR-KTM', designation: 'Customer Care & Retention Manager', code2: 'DES-45', salary: 82000 },
+  { id: 'demo-emp-019', code: 'EMP-019', name: 'Deepak Basnet', branch: 'BR-PKR', designation: 'Area / Cluster Manager', code2: 'DES-33', salary: 115000 },
 ];
-const WORK_STATIONS = [
-  { name: 'Kathmandu (Head Office)', code: 'WS-KTM' },
-  { name: 'Pokhara Branch', code: 'WS-PKR' },
-  { name: 'Butwal Branch', code: 'WS-BTL' },
-  { name: 'Dharan Branch', code: 'WS-DHN' },
-];
+
+const DESIGNATION_ID_BY_NAME = new Map(
+  HR_DESIGNATIONS.map((designation, index) => [designation.name, `demo-designation-${index + 1}`])
+);
+const DEPARTMENT_ID_BY_NAME = new Map(
+  HR_DEPARTMENTS.map((department, index) => [department.name, `demo-department-${index + 1}`])
+);
 const LEAVE_TYPES = [
   { id: 'demo-leave-annual', code: 'ANNUAL', name: 'Annual Leave', quota: 12 },
   { id: 'demo-leave-sick', code: 'SICK', name: 'Sick Leave', quota: 10 },
@@ -82,6 +104,11 @@ const PDF_BYTES = Buffer.from(
 
 export interface DemoHrFixtures {
   orgMasters: Row[];
+  salaryGrades: Row[];
+  designationProfiles: Row[];
+  departmentProfiles: Row[];
+  orgClusters: Row[];
+  branchPlan: Row[];
   shifts: Row[];
   leaveTypes: Row[];
   holidays: Row[];
@@ -116,16 +143,16 @@ export function buildDemoHrFixtures(dataset: VerificationDataset): DemoHrFixture
   const dhnAsset = dataset.fixedAssets.find((asset: any) => asset.branchId === 'BR-DHN');
 
   const orgMasters: Row[] = [
-    ...DEPARTMENTS.map((name, index) => ({
+    ...HR_DEPARTMENTS.map((department, index) => ({
       id: `demo-department-${index + 1}`,
       kind: 'DEPARTMENT',
-      name,
-      code: `DEP-${String(index + 1).padStart(2, '0')}`,
+      name: department.name,
+      code: department.code,
       is_active: true,
       is_demo: true,
       created_by: SEED,
     })),
-    ...DESIGNATIONS.map((designation, index) => ({
+    ...HR_DESIGNATIONS.map((designation, index) => ({
       id: `demo-designation-${index + 1}`,
       kind: 'DESIGNATION',
       name: designation.name,
@@ -134,7 +161,7 @@ export function buildDemoHrFixtures(dataset: VerificationDataset): DemoHrFixture
       is_demo: true,
       created_by: SEED,
     })),
-    ...WORK_STATIONS.map((station, index) => ({
+    ...HR_WORK_STATIONS.map((station, index) => ({
       id: `demo-workstation-${index + 1}`,
       kind: 'WORK_STATION',
       name: station.name,
@@ -144,6 +171,67 @@ export function buildDemoHrFixtures(dataset: VerificationDataset): DemoHrFixture
       created_by: SEED,
     })),
   ];
+
+  const salaryGrades: Row[] = HR_GRADES.map((grade) => ({
+    grade: grade.grade,
+    career_band: grade.careerBand,
+    role_tier: grade.roleTier,
+    min_salary: grade.min,
+    step1_salary: grade.step1,
+    step2_salary: grade.step2,
+    step3_salary: grade.step3,
+    max_salary: grade.max,
+    band_spread: Number(((grade.max - grade.min) / grade.min).toFixed(4)),
+    promotion_rule: grade.promotionRule,
+    is_demo: true,
+  }));
+
+  const designationProfiles: Row[] = HR_DESIGNATIONS.map((designation) => ({
+    master_id: DESIGNATION_ID_BY_NAME.get(designation.name),
+    department_master_id: DEPARTMENT_ID_BY_NAME.get(designation.department) ?? null,
+    grade: designation.grade,
+    reports_to_master_id: designation.reportsTo
+      ? DESIGNATION_ID_BY_NAME.get(designation.reportsTo) ?? null
+      : null,
+    reports_to_label: designation.reportsToLabel ?? null,
+    dotted_line_to: designation.dottedLineTo ?? null,
+    branch_scope: designation.branchScope,
+    system_role: designation.systemRole,
+    responsibilities: designation.responsibilities,
+    phase: designation.phase ?? null,
+    role_status: designation.roleStatus,
+    change_note: designation.changeNote ?? null,
+    is_demo: true,
+  }));
+
+  const departmentProfiles: Row[] = HR_DEPARTMENTS.map((department, index) => ({
+    master_id: `demo-department-${index + 1}`,
+    head_designation_master_id: DESIGNATION_ID_BY_NAME.get(department.head) ?? null,
+    mandate: department.mandate,
+    is_demo: true,
+  }));
+
+  const orgClusters: Row[] = HR_CLUSTERS.map((cluster) => ({
+    id: cluster.id,
+    name: cluster.name,
+    hub: cluster.hub,
+    province: cluster.province,
+    notes: cluster.notes,
+    is_demo: true,
+  }));
+
+  const branchPlan: Row[] = HR_BRANCH_PLAN.map((branch) => ({
+    code: branch.code,
+    name: branch.name,
+    cluster_id: branch.clusterId,
+    cluster_hub: branch.clusterHub,
+    province: branch.province,
+    tier: branch.tier,
+    head_designation: branch.headDesignation,
+    branch_id: null,
+    notes: 'Reference plan from the v2 sheet; not an operational branch.',
+    is_demo: true,
+  }));
 
   const shifts: Row[] = [
     { id: 'demo-shift-morning', code: 'MORNING', name: 'Morning Shift', start_time: '09:00:00', end_time: '17:00:00', grace_minutes: 10, is_active: true, is_demo: true, created_by: SEED },
@@ -200,6 +288,43 @@ export function buildDemoHrFixtures(dataset: VerificationDataset): DemoHrFixture
     ssf_eligible: employee.ssf,
     user_id: employee.userId,
   }));
+
+  // Chart-only employees: no payroll run, attendance or login, just a place in
+  // the reporting tree so the refactored designations have holders.
+  const orgChartEmployees: Row[] = ORG_CHART_EMPLOYEES.map((employee) => ({
+    id: employee.id,
+    employee_code: employee.code,
+    name: employee.name,
+    branch_id: employee.branch,
+    department:
+      HR_DESIGNATIONS.find((designation) => designation.name === employee.designation)
+        ?.department ?? 'Executive Management',
+    designation: employee.designation,
+    designation_code: employee.code2,
+    pan_number: null,
+    ssf_number: null,
+    bank_account: null,
+    bank_name: 'Nabil Bank',
+    is_active: true,
+    is_demo: true,
+    created_by: SEED,
+    updated_by: SEED,
+    employment_type: 'FULL_TIME',
+    joining_date_ad: '2026-01-05',
+    date_of_birth_ad: '1990-01-01',
+    contract_expiry_ad: null,
+    work_station: branchName(employee.branch),
+    address: 'Kathmandu, Nepal',
+    personal_contact: null,
+    emergency_contact_person: 'Demo Family Contact',
+    emergency_contact_number: null,
+    internal_email: `${employee.code.toLowerCase()}@example.com`,
+    personal_email: `${employee.code.toLowerCase()}@example.com`,
+    monthly_salary: employee.salary,
+    ssf_eligible: true,
+    user_id: null,
+  }));
+  employees.push(...orgChartEmployees);
 
   const salaries: Row[] = EMPLOYEES.map((employee) => ({
     id: `demo-salary-${employee.code.toLowerCase()}`,
@@ -348,11 +473,16 @@ export function buildDemoHrFixtures(dataset: VerificationDataset): DemoHrFixture
     posted_at: '2026-11-29T12:00:00Z', posted_by: 'superadmin@example.com',
     voucher_type: 'PAYROLL', currency: 'NPR', exchange_rate: 1, is_demo: true,
   }];
+  // The salary line is an expense, so it carries its operational cost centre,
+  // exactly like the demo ledger lines (COST_CENTER_BY_EXPENSE_ACCOUNT['6400']
+  // in verificationDataset.ts). Without it the branch's department preview
+  // counts payroll as untagged actuals. The credit legs are liabilities and
+  // stay untagged.
   const journalLines: Row[] = [
-    { id: 'demo-payroll-journal-line-1', journal_id: 'demo-payroll-journal-2083-11', line_no: 1, account_id: 'gla-6400', branch_id: 'BR-KTM', debit: 167_000, credit: 0, memo: 'Salaries and wages' },
-    { id: 'demo-payroll-journal-line-2', journal_id: 'demo-payroll-journal-2083-11', line_no: 2, account_id: 'gla-2330', branch_id: 'BR-KTM', debit: 0, credit: 8_000, memo: 'TDS payable' },
-    { id: 'demo-payroll-journal-line-3', journal_id: 'demo-payroll-journal-2083-11', line_no: 3, account_id: 'gla-2340', branch_id: 'BR-KTM', debit: 0, credit: 6_600, memo: 'SSF payable' },
-    { id: 'demo-payroll-journal-line-4', journal_id: 'demo-payroll-journal-2083-11', line_no: 4, account_id: 'gla-2320', branch_id: 'BR-KTM', debit: 0, credit: 152_400, memo: 'Net salaries payable' },
+    { id: 'demo-payroll-journal-line-1', journal_id: 'demo-payroll-journal-2083-11', line_no: 1, account_id: 'gla-6400', branch_id: 'BR-KTM', cost_center_id: 'cc-demo-ops', debit: 167_000, credit: 0, memo: 'Salaries and wages' },
+    { id: 'demo-payroll-journal-line-2', journal_id: 'demo-payroll-journal-2083-11', line_no: 2, account_id: 'gla-2330', branch_id: 'BR-KTM', cost_center_id: null, debit: 0, credit: 8_000, memo: 'TDS payable' },
+    { id: 'demo-payroll-journal-line-3', journal_id: 'demo-payroll-journal-2083-11', line_no: 3, account_id: 'gla-2340', branch_id: 'BR-KTM', cost_center_id: null, debit: 0, credit: 6_600, memo: 'SSF payable' },
+    { id: 'demo-payroll-journal-line-4', journal_id: 'demo-payroll-journal-2083-11', line_no: 4, account_id: 'gla-2320', branch_id: 'BR-KTM', cost_center_id: null, debit: 0, credit: 152_400, memo: 'Net salaries payable' },
   ];
 
   const payrollRuns: Row[] = [{
@@ -463,7 +593,8 @@ export function buildDemoHrFixtures(dataset: VerificationDataset): DemoHrFixture
   ];
 
   return {
-    orgMasters, shifts, leaveTypes, holidays, employees, salaries, salaryComponents,
+    orgMasters, salaryGrades, designationProfiles, departmentProfiles, orgClusters, branchPlan,
+    shifts, leaveTypes, holidays, employees, salaries, salaryComponents,
     leaveBalances, leaveRequests, attendance, documents, statutoryConfigs, tdsSlabs,
     payrollAdjustments, journals, journalLines, payrollRuns, payrollLines, requisitions,
     candidates, interviews, offers, reviewCycles, goals, feedback, lifecycleChecklists,
@@ -480,10 +611,39 @@ export async function applyDemoHrFixtures(client: any, dataset: VerificationData
   };
 
   await put('demoOrgMasters', 'hr_org_masters', ['id', 'kind', 'name', 'code', 'is_active', 'is_demo', 'created_by'], fixtures.orgMasters);
+  await put('demoSalaryGrades', 'hr_salary_grades', ['grade', 'career_band', 'role_tier', 'min_salary', 'step1_salary', 'step2_salary', 'step3_salary', 'max_salary', 'band_spread', 'promotion_rule', 'is_demo'], fixtures.salaryGrades);
+  await put('demoOrgClusters', 'hr_org_clusters', ['id', 'name', 'hub', 'province', 'notes', 'is_demo'], fixtures.orgClusters);
+  await put('demoBranchPlan', 'hr_branch_plan', ['code', 'name', 'cluster_id', 'cluster_hub', 'province', 'tier', 'head_designation', 'branch_id', 'notes', 'is_demo'], fixtures.branchPlan);
+  await put('demoDepartmentProfiles', 'hr_department_profiles', ['master_id', 'head_designation_master_id', 'mandate', 'is_demo'], fixtures.departmentProfiles);
+  await put('demoDesignationProfiles', 'hr_designation_profiles', ['master_id', 'department_master_id', 'grade', 'reports_to_master_id', 'reports_to_label', 'dotted_line_to', 'branch_scope', 'system_role', 'responsibilities', 'phase', 'role_status', 'change_note', 'is_demo'], fixtures.designationProfiles);
   await put('demoHRShifts', 'hr_shifts', ['id', 'code', 'name', 'start_time', 'end_time', 'grace_minutes', 'is_active', 'is_demo', 'created_by'], fixtures.shifts);
   await put('demoLeaveTypes', 'hr_leave_types', ['id', 'code', 'name', 'annual_quota_days', 'is_paid', 'is_active', 'is_demo', 'created_by'], fixtures.leaveTypes);
   await put('demoHolidays', 'hr_holidays', ['id', 'branch_id', 'holiday_date_ad', 'holiday_date_bs', 'name', 'is_paid', 'notes', 'is_demo', 'created_by'], fixtures.holidays);
   await put('demoEmployees', 'employees', ['id', 'employee_code', 'name', 'branch_id', 'department', 'designation', 'designation_code', 'pan_number', 'ssf_number', 'bank_account', 'bank_name', 'is_active', 'is_demo', 'created_by', 'updated_by', 'employment_type', 'joining_date_ad', 'date_of_birth_ad', 'contract_expiry_ad', 'work_station', 'address', 'personal_contact', 'emergency_contact_person', 'emergency_contact_number', 'internal_email', 'personal_email', 'monthly_salary', 'ssf_eligible', 'user_id'], fixtures.employees);
+
+  // Link the seeded rows to the catalogue they were written from. The schema
+  // backfills existing employees, but a seed inserts after that pass, so the
+  // same idempotent resolution runs here — the Org Masters employee panel and
+  // headcounts count through these ids.
+  await client.query(`UPDATE employees e SET department_id = (
+    SELECT m.id FROM hr_org_masters m
+    WHERE m.kind = 'DEPARTMENT' AND lower(btrim(m.name)) = lower(btrim(e.department))
+    ORDER BY m.id LIMIT 1)
+    WHERE e.department_id IS NULL AND e.department IS NOT NULL`);
+  await client.query(`UPDATE employees e SET designation_id = (
+    SELECT m.id FROM hr_org_masters m
+    WHERE m.kind = 'DESIGNATION'
+      AND (lower(btrim(m.name)) = lower(btrim(e.designation))
+        OR (m.code IS NOT NULL AND e.designation_code IS NOT NULL
+          AND lower(btrim(m.code)) = lower(btrim(e.designation_code))))
+    ORDER BY (lower(btrim(m.name)) = lower(btrim(e.designation))) DESC, m.id LIMIT 1)
+    WHERE e.designation_id IS NULL AND (e.designation IS NOT NULL OR e.designation_code IS NOT NULL)`);
+  await client.query(`UPDATE employees e SET workstation_id = (
+    SELECT m.id FROM hr_org_masters m
+    WHERE m.kind = 'WORK_STATION' AND lower(btrim(m.name)) = lower(btrim(e.work_station))
+    ORDER BY m.id LIMIT 1)
+    WHERE e.workstation_id IS NULL AND e.work_station IS NOT NULL`);
+
   await put('demoSalaries', 'hr_employee_salary', ['id', 'employee_id', 'branch_id', 'effective_from', 'ssf_eligible', 'overtime_rate', 'tds_monthly', 'notes', 'is_demo', 'created_by'], fixtures.salaries);
   await put('demoSalaryComponents', 'hr_salary_components', ['id', 'salary_id', 'component_code', 'component_name', 'kind', 'amount', 'is_taxable', 'is_ssf_applicable', 'sort_order'], fixtures.salaryComponents);
   await put('demoLeaveBalances', 'hr_leave_balances', ['id', 'employee_id', 'branch_id', 'leave_type_id', 'balance_year', 'entitlement_days', 'adjustment_days', 'notes', 'is_demo', 'created_by'], fixtures.leaveBalances);
@@ -494,7 +654,7 @@ export async function applyDemoHrFixtures(client: any, dataset: VerificationData
   await put('demoTdsSlabs', 'hr_tds_slabs', ['id', 'config_id', 'slab_order', 'lower_bound', 'upper_bound', 'rate_percent'], fixtures.tdsSlabs);
   await put('demoPayrollAdjustments', 'hr_payroll_adjustments', ['id', 'employee_id', 'period_key', 'incentive_amount', 'arrears_amount', 'advance_amount', 'loan_amount', 'notes', 'is_demo', 'created_by'], fixtures.payrollAdjustments);
   await put('demoPayrollJournals', 'gl_journals', ['id', 'journal_no', 'journal_date_ad', 'journal_date_bs', 'fiscal_year_id', 'period_id', 'branch_id', 'source_type', 'source_id', 'memo', 'status', 'posted_at', 'posted_by', 'voucher_type', 'currency', 'exchange_rate', 'is_demo'], fixtures.journals);
-  await put('demoPayrollJournalLines', 'gl_journal_lines', ['id', 'journal_id', 'line_no', 'account_id', 'branch_id', 'debit', 'credit', 'memo'], fixtures.journalLines);
+  await put('demoPayrollJournalLines', 'gl_journal_lines', ['id', 'journal_id', 'line_no', 'account_id', 'branch_id', 'cost_center_id', 'debit', 'credit', 'memo'], fixtures.journalLines);
   await put('demoPayrollRuns', 'payroll_runs', ['id', 'run_no', 'branch_id', 'period_key', 'run_date_ad', 'run_date_bs', 'gross_total', 'tds_total', 'ssf_total', 'advance_total', 'loan_total', 'net_total', 'status', 'journal_id', 'posted_by', 'is_demo', 'prepared_by', 'prepared_at', 'approved_by', 'approved_at', 'statutory_config_id', 'incentive_total', 'arrears_total'], fixtures.payrollRuns);
   await put('demoPayrollLines', 'payroll_run_lines', ['id', 'run_id', 'employee_id', 'employee_code', 'employee_name', 'period_key', 'gross_amount', 'tds_amount', 'ssf_amount', 'advance_deduction', 'loan_deduction', 'net_amount', 'salary_id', 'basic_amount', 'payable_days', 'lop_days', 'lop_deduction', 'overtime_hours', 'overtime_amount', 'employer_ssf_amount', 'incentive_amount', 'arrears_amount', 'bank_name', 'bank_account'], fixtures.payrollLines);
   await put('demoRequisitions', 'hr_recruitment_requisitions', ['id', 'requisition_no', 'branch_id', 'title', 'department', 'designation', 'employment_type', 'openings', 'status', 'opened_on_ad', 'opened_on_bs', 'closes_on_ad', 'closes_on_bs', 'description', 'is_demo', 'created_by'], fixtures.requisitions);
