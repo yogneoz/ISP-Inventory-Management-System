@@ -80,9 +80,14 @@ describe('bootstrap trim step 5 — PO / PI mirrors are PG-only when connected',
     assertPgFirst(src, 'pgPool.query(VP_POSTED_BY_INVOICE_SQL, [id])', 800);
     assertPgFirst(src, 'pgPool.query(VP_FIND_BY_ID_SQL, [id])', 400);
 
-    // Vendor ledger: a failed read is an error, never a mirror substitute.
+    // Vendor ledger: it reads the posted AR/AP subledger through the shared
+    // service, and a missing database is an error, never a mirror substitute.
     assert.ok(
-      src.includes('Could not load the vendor ledger from the database'),
+      /buildPartyLedger\(pgPool/.test(src),
+      'vendor ledger must read the posted party subledger through buildPartyLedger'
+    );
+    assert.ok(
+      src.includes('The vendor statement requires the accounting database'),
       'vendor ledger read failure must surface a retryable error'
     );
     assert.ok(

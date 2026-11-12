@@ -267,6 +267,8 @@ export async function getVendorLedger(
 ): Promise<{
   supplier: { id: string; name: string };
   openingBalance: number;
+  openingSource: string;
+  fiscalYearStartAD: string | null;
   totalDebit: number;
   totalCredit: number;
   closingBalance: number;
@@ -276,7 +278,7 @@ export async function getVendorLedger(
     dateAD: string;
     dateBS: string;
     amount: number;
-    type: 'INVOICE' | 'PAYMENT';
+    type: 'INVOICE' | 'PAYMENT' | 'RETURN' | 'OPENING' | 'ADJUSTMENT';
     notes?: string | null;
     vatAmount?: number;
     paymentMethod?: string;
@@ -284,6 +286,15 @@ export async function getVendorLedger(
     credit: number;
     balance: number;
   }>;
+  tieOut: {
+    partyBalance: number;
+    controlBalance: number;
+    subledgerBalance: number;
+    difference: number;
+    status: 'RECONCILED' | 'DIFFERENCE';
+    controlAccountCode: string;
+    controlAccountName: string;
+  };
 }> {
   const queryParams = new URLSearchParams();
   if (params?.fromAd) queryParams.set('fromAd', params.fromAd);

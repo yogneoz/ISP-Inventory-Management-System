@@ -21,7 +21,7 @@ import {
 import { Supplier, Branch } from '../../types';
 import { api } from '../../services/api';
 import { createLatestOnly } from '../../utils/latestOnly';
-import { ArrowDownRight, ArrowUpRight, Building, Undo2, Wallet } from 'lucide-react';
+import { ArrowDownRight, ArrowUpRight, BookOpen, Building, SlidersHorizontal, Undo2, Wallet } from 'lucide-react';
 
 interface VendorLedgerProps {
   suppliers: Supplier[];
@@ -72,6 +72,7 @@ export const VendorLedger: React.FC<VendorLedgerProps> = ({
         totalCredit: data.totalCredit,
         closingBalance: data.closingBalance,
         ledger: data.ledger,
+        tieOut: data.tieOut,
       });
     } catch (err: any) {
       if (!fetchSeq.isCurrent(ticket)) return;
@@ -146,6 +147,16 @@ export const VendorLedger: React.FC<VendorLedgerProps> = ({
           label: 'Payment',
           className: 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300',
           Icon: ArrowUpRight,
+        },
+        OPENING: {
+          label: 'Opening',
+          className: 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200',
+          Icon: BookOpen,
+        },
+        ADJUSTMENT: {
+          label: 'Journal',
+          className: 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300',
+          Icon: SlidersHorizontal,
         },
       }}
       closingLabel="Closing Balance"

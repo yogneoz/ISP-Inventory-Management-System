@@ -33,7 +33,7 @@ export interface SubLedgerLine {
   documentNumber: string;
   dateAD: string;
   dateBS: string;
-  type: 'INVOICE' | 'PAYMENT' | 'RETURN';
+  type: 'INVOICE' | 'PAYMENT' | 'RETURN' | 'OPENING' | 'ADJUSTMENT';
   notes?: string | null;
   paymentMethod?: string;
   debit: number;
@@ -52,6 +52,16 @@ export interface SubLedgerData {
   totalCredit: number;
   closingBalance: number;
   ledger: SubLedgerLine[];
+  /** Account-level proof that the party subledger equals the AR/AP control. */
+  tieOut?: {
+    partyBalance: number;
+    controlBalance: number;
+    subledgerBalance: number;
+    difference: number;
+    status: 'RECONCILED' | 'DIFFERENCE';
+    controlAccountCode: string;
+    controlAccountName: string;
+  };
 }
 
 export interface LedgerFilters {
@@ -336,6 +346,28 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
               <StatCard key={card.label} label={card.label} value={formatNumber(card.value)} tone={card.tone} />
             ))}
           </div>
+
+          {data.tieOut && (
+            <div className="flex flex-col gap-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-4 py-3 text-xs text-slate-600 dark:text-slate-300 md:flex-row md:items-center md:justify-between">
+              <div>
+                <span className="font-semibold text-slate-800 dark:text-slate-100">
+                  Control tie-out · {data.tieOut.controlAccountCode} {data.tieOut.controlAccountName}
+                </span>
+                <span className="ml-2">
+                  Party {formatNumber(data.tieOut.partyBalance)} · GL control {formatNumber(data.tieOut.controlBalance)} · All party books {formatNumber(data.tieOut.subledgerBalance)} · Difference {formatNumber(data.tieOut.difference)}
+                </span>
+              </div>
+              <span
+                className={`inline-flex w-fit items-center rounded-full px-2 py-0.5 font-semibold ${
+                  data.tieOut.status === 'RECONCILED'
+                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+                    : 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300'
+                }`}
+              >
+                {data.tieOut.status === 'RECONCILED' ? 'Reconciled' : 'Difference'}
+              </span>
+            </div>
+          )}
 
           {/* Ledger table */}
           <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 overflow-hidden">

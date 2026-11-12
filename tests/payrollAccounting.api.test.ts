@@ -228,7 +228,13 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
         ) AND details LIKE '%PAYT-%')`,
       [testBranches]
     );
-    await pool!.query('DELETE FROM gl_periods WHERE period_key = $1', [CLOSED_PERIOD]);
+    // Only remove a period this suite created. The canonical demo seed also
+    // owns a 2027-06 period; deleting it by key orphaned that month's budget
+    // lines and made the seeded KTM allocation preview under-count.
+    await pool!.query(
+      "DELETE FROM gl_periods WHERE period_key = $1 AND id LIKE 'glp-%'",
+      [CLOSED_PERIOD]
+    );
     await pool!.query('DELETE FROM branches WHERE id = ANY($1::varchar[])', [testBranches]);
   }
 

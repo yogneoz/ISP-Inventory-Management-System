@@ -45,7 +45,6 @@ import {
   SUBLEDGER_GENERAL_BY_ACCOUNT_SQL,
   SUBLEDGER_LIST_SQL,
   SUBLEDGER_MASTER_INSERT_SQL,
-  SUBLEDGER_REASSIGN_PARTY_SQL,
   SUBLEDGER_SUPPLIER_CANDIDATES_SQL,
   SUBLEDGER_UPDATE_SQL,
   SUPPLIER_PARTY_BY_ID_SQL,
@@ -403,10 +402,10 @@ export async function get_subledgerEntries(req: any, res: Response): Promise<any
  *
  * This is the "unlimited subledgers" path: Salary Payable gets one book per
  * employee, AR one per customer and AP one per supplier, all using the same
- * ids the operational documents already carry. Existing rows that sit on the
- * general book (or predate book linkage) are moved to the new party book, so
- * the employee/customer ledger is complete immediately, not only from the next
- * posting onward.
+ * ids the operational documents already carry. The books are a read-time
+ * attribution layer: existing posted rows are never updated or moved. A
+ * party's historical rows appear in its book because the book queries attribute
+ * them by `(main_account_id, party_id)`, which keeps the ledger append-only.
  */
 export async function post_generateSubledgers(req: any, res: Response): Promise<any> {
   const scope = resolveBranchScope(req, res);
@@ -424,13 +423,8 @@ export async function post_generateSubledgers(req: any, res: Response): Promise<
 
   const branchId = scope.branchId || null;
   const candidates = await partyCandidates(account.subledgerType, branchId);
-  const generalBook =
-    ((await pgPool.query(SUBLEDGER_GENERAL_BY_ACCOUNT_SQL, [account.id])).rows[0] as
-      | { id: string }
-      | undefined)?.id || null;
   let created = 0;
   let skipped = 0;
-  let linkedEntries = 0;
 
   for (const candidate of candidates) {
     if ((await pgPool.query(SUBLEDGER_BY_ACCOUNT_PARTY_SQL, [account.id, candidate.id])).rows[0]) {
@@ -459,13 +453,6 @@ export async function post_generateSubledgers(req: any, res: Response): Promise<
       true,
       false,
     ]);
-    const moved = await pgPool.query(SUBLEDGER_REASSIGN_PARTY_SQL, [
-      account.id,
-      candidate.id,
-      bookId,
-      generalBook,
-    ]);
-    linkedEntries += moved.rowCount || 0;
     created += 1;
   }
 
@@ -473,12 +460,12 @@ export async function post_generateSubledgers(req: any, res: Response): Promise<
     req,
     'GENERATE_GL_SUBLEDGERS',
     'ACCOUNTING',
-    `Generated ${created} ${account.subledgerType} subledger book(s) under ${account.code} ${account.name}; linked ${linkedEntries} existing row(s)`.slice(0, 500)
+    `Generated ${created} ${account.subledgerType} subledger book(s) under ${account.code} ${account.name}; posted rows are attributed at read time`.slice(0, 500)
   );
   return res.json({
     created,
     skipped,
-    linkedEntries,
+    linkedEntries: 0,
     total: candidates.length,
     accountCode: account.code,
     subledgerType: account.subledgerType,

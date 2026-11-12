@@ -30,13 +30,46 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import dotenv from 'dotenv';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
 
+// The suite itself loads .env via dotenv; this runner must do the same before
+// it can add the test-only ledger-maintenance startup option to DATABASE_URL.
+// In CI DATABASE_URL is already in the environment, so config() is a no-op.
+dotenv.config({ path: path.join(root, '.env'), quiet: true });
+
 const isWindows = process.platform === 'win32';
 const npxCmd = isWindows ? 'npx.cmd' : 'npx';
 const spawnEnv = { ...process.env, NODE_ENV: 'test' };
+
+/**
+ * Fixture cleanup deletes the test's own posted journals. The ACC-7 trigger
+ * correctly refuses that on an application connection, so the test runner gives
+ * only this child process a session-local bypass through the PostgreSQL
+ * `options` startup parameter. Production and ordinary dev connections never
+ * receive it; tests that need to prove the trigger still connect without it.
+ */
+function withLedgerPurgeBypass(connectionString) {
+  if (!connectionString) return connectionString;
+  try {
+    const url = new URL(connectionString);
+    const existing = url.searchParams.get('options') || '';
+    if (existing.includes('inventory.allow_ledger_purge')) return connectionString;
+    url.searchParams.set(
+      'options',
+      `${existing ? `${existing} ` : ''}-c inventory.allow_ledger_purge=on`
+    );
+    return url.toString();
+  } catch {
+    // A non-URL connection string is passed through unchanged; the trigger's
+    // failure message explains how to opt a manual cleanup session in.
+    return connectionString;
+  }
+}
+
+spawnEnv.DATABASE_URL = withLedgerPurgeBypass(spawnEnv.DATABASE_URL);
 
 // Piped stdout so the summary line can be parsed, while the bytes still
 // stream straight through to the terminal / CI log unchanged.

@@ -437,10 +437,6 @@ WHERE j.status = 'POSTED'
 /** Serializes one branch's depreciation run for a period across processes. */
 export const DEPRECIATION_RUN_LOCK_SQL = `SELECT pg_advisory_xact_lock(hashtext($1))::text AS lock`;
 
-export const JOURNAL_MARK_REVERSED_SQL = `UPDATE gl_journals SET
-  status = 'REVERSED', updated_at = CURRENT_TIMESTAMP
-WHERE id = $1 AND status = 'POSTED'`;
-
 /**
  * The original voucher being reversed. `FOR UPDATE` serializes two concurrent
  * reversal requests on the same journal, so a double-click cannot post two
@@ -767,6 +763,91 @@ WHERE l.account_id = $1
   AND j.status = 'POSTED'
   AND j.journal_date_ad <= $2::date
   AND ($3::varchar IS NULL OR l.branch_id = $3::varchar)`;
+
+/**
+ * Party statement rows: every POSTED subledger movement on one control account
+ * for one party, with the source document enriched for display. The ledger is
+ * read from `gl_subledger_entries`, never re-derived from invoices/payments,
+ * so manual journals, opening balances and adjustments cannot disappear from
+ * the statement. `$1` account, `$2` party id, `$3` party name fallback for
+ * legacy rows, `$4` branch (NULL = all), `$5` from (NULL = inception),
+ * `$6` to (NULL = all).
+ */
+export const PARTY_LEDGER_ROWS_SQL = `SELECT s.id,
+  s.journal_id AS "journalId",
+  j.journal_no AS "journalNo",
+  j.source_type AS "sourceType",
+  j.source_id AS "sourceId",
+  s.entry_date_ad::text AS "entryDateAD",
+  COALESCE(s.entry_date_bs, '') AS "entryDateBS",
+  s.debit::numeric AS debit,
+  s.credit::numeric AS credit,
+  COALESCE(NULLIF(l.memo, ''), NULLIF(j.memo, ''), '') AS notes,
+  CASE
+    WHEN j.source_type LIKE 'SALES_INVOICE%' THEN si.invoice_number
+    WHEN j.source_type LIKE 'SALES_RETURN%' THEN sr.return_number
+    WHEN j.source_type LIKE 'CUSTOMER_PAYMENT%' THEN cp.payment_number
+    WHEN j.source_type LIKE 'PURCHASE_INVOICE%' THEN pi.invoice_number
+    WHEN j.source_type LIKE 'PURCHASE_RETURN%' THEN pr.return_number
+    WHEN j.source_type LIKE 'VENDOR_PAYMENT%' THEN vp.payment_number
+    ELSE j.journal_no
+  END AS "documentNumber",
+  CASE
+    WHEN j.source_type LIKE 'SALES_INVOICE%' OR j.source_type LIKE 'PURCHASE_INVOICE%' THEN 'INVOICE'
+    WHEN j.source_type LIKE '%RETURN%' THEN 'RETURN'
+    WHEN j.source_type LIKE '%PAYMENT%' THEN 'PAYMENT'
+    WHEN j.source_type = 'OPENING_BALANCE' THEN 'OPENING'
+    ELSE 'ADJUSTMENT'
+  END AS "type",
+  CASE
+    WHEN j.source_type LIKE 'CUSTOMER_PAYMENT%' THEN cp.payment_method
+    WHEN j.source_type LIKE 'VENDOR_PAYMENT%' THEN vp.payment_method
+    ELSE NULL
+  END AS "paymentMethod"
+FROM gl_subledger_entries s
+JOIN gl_journals j ON j.id = s.journal_id
+JOIN gl_journal_lines l ON l.id = s.journal_line_id
+LEFT JOIN sales_invoices si ON j.source_type LIKE 'SALES_INVOICE%' AND si.id = j.source_id
+LEFT JOIN sales_returns sr ON j.source_type LIKE 'SALES_RETURN%' AND sr.id = j.source_id
+LEFT JOIN customer_payments cp ON j.source_type LIKE 'CUSTOMER_PAYMENT%' AND cp.id = j.source_id
+LEFT JOIN purchase_invoices pi ON j.source_type LIKE 'PURCHASE_INVOICE%' AND pi.id = j.source_id
+LEFT JOIN purchase_returns pr ON j.source_type LIKE 'PURCHASE_RETURN%' AND pr.id = j.source_id
+LEFT JOIN vendor_payments vp ON j.source_type LIKE 'VENDOR_PAYMENT%' AND vp.id = j.source_id
+WHERE s.account_id = $1
+  AND j.status = 'POSTED'
+  AND (s.party_id = $2 OR (s.party_id IS NULL AND lower(COALESCE(s.party_name, '')) = lower($3)))
+  AND ($4::varchar IS NULL OR s.branch_id = $4)
+  AND ($5::date IS NULL OR s.entry_date_ad >= $5::date)
+  AND ($6::date IS NULL OR s.entry_date_ad <= $6::date)
+ORDER BY s.entry_date_ad ASC, j.journal_no ASC, s.id ASC`;
+
+/**
+ * The GL side of a party statement's closing tie-out, as of `$2` (NULL = all
+ * dates) and one branch (`$3` NULL = all). Debit-positive. The caller converts
+ * it to the statement's natural side for liabilities.
+ */
+export const PARTY_LEDGER_CONTROL_BALANCE_SQL = `SELECT
+  COALESCE(SUM(l.debit - l.credit), 0)::numeric AS balance
+FROM gl_journal_lines l
+JOIN gl_journals j ON j.id = l.journal_id
+WHERE l.account_id = $1
+  AND j.status = 'POSTED'
+  AND ($2::date IS NULL OR j.journal_date_ad <= $2::date)
+  AND ($3::varchar IS NULL OR l.branch_id = $3::varchar)`;
+
+/**
+ * The whole subledger side of the same control account through `$2`. This is
+ * deliberately not the selected party's balance: a control account reconciles
+ * to ALL of its party books, while the statement itself shows one party.
+ */
+export const PARTY_LEDGER_SUBLEDGER_BALANCE_SQL = `SELECT
+  COALESCE(SUM(s.debit - s.credit), 0)::numeric AS balance
+FROM gl_subledger_entries s
+JOIN gl_journals j ON j.id = s.journal_id
+WHERE s.account_id = $1
+  AND j.status = 'POSTED'
+  AND ($2::date IS NULL OR s.entry_date_ad <= $2::date)
+  AND ($3::varchar IS NULL OR s.branch_id = $3::varchar)`;
 
 /**
  * Every posted subledger entry on the aging control account through `$2`.
@@ -1507,7 +1588,24 @@ JOIN gl_account_groups g ON g.id = a.group_id`;
  * book; `subledgerBalance` is every book on the control account; `difference`
  * is therefore the account-level GL tie-out, repeated on each of its books.
  */
-export const SUBLEDGER_LIST_SQL = `SELECT ${SUBLEDGER_COLUMNS},
+export const SUBLEDGER_LIST_SQL = `WITH attributed AS (
+  -- A posted row belongs to its party book when one exists; otherwise it stays
+  -- in the account's general book. This attribution is a READ, so generating a
+  -- party book never rewrites a posted subledger row.
+  SELECT se.id,
+    se.account_id,
+    se.debit,
+    se.credit,
+    COALESCE(pb.id, gb.id) AS attributed_book_id
+  FROM gl_subledger_entries se
+  JOIN gl_journals j ON j.id = se.journal_id
+  LEFT JOIN gl_subledgers pb
+    ON pb.main_account_id = se.account_id AND pb.party_id = se.party_id
+  LEFT JOIN gl_subledgers gb
+    ON gb.main_account_id = se.account_id AND gb.party_id IS NULL
+  WHERE j.status = 'POSTED' AND ($1::varchar IS NULL OR se.branch_id = $1)
+)
+SELECT ${SUBLEDGER_COLUMNS},
   COALESCE(book.entry_count, 0)::int AS "entryCount",
   COALESCE(book.balance, 0)::numeric AS "bookBalance",
   COALESCE(acct.balance, 0)::numeric AS "subledgerBalance",
@@ -1516,18 +1614,14 @@ export const SUBLEDGER_LIST_SQL = `SELECT ${SUBLEDGER_COLUMNS},
   COALESCE(unlinked.count, 0)::int AS "unlinkedCount"
 ${SUBLEDGER_JOIN_SQL}
 LEFT JOIN (
-  SELECT se.subledger_id, COUNT(*)::int AS entry_count, SUM(se.debit - se.credit) AS balance
-  FROM gl_subledger_entries se
-  JOIN gl_journals j ON j.id = se.journal_id
-  WHERE j.status = 'POSTED' AND ($1::varchar IS NULL OR se.branch_id = $1)
-  GROUP BY se.subledger_id
-) book ON book.subledger_id = s.id
+  SELECT attributed_book_id, COUNT(*)::int AS entry_count, SUM(debit - credit) AS balance
+  FROM attributed
+  GROUP BY attributed_book_id
+) book ON book.attributed_book_id = s.id
 LEFT JOIN (
-  SELECT se.account_id, SUM(se.debit - se.credit) AS balance
-  FROM gl_subledger_entries se
-  JOIN gl_journals j ON j.id = se.journal_id
-  WHERE j.status = 'POSTED' AND ($1::varchar IS NULL OR se.branch_id = $1)
-  GROUP BY se.account_id
+  SELECT account_id, SUM(debit - credit) AS balance
+  FROM attributed
+  GROUP BY account_id
 ) acct ON acct.account_id = s.main_account_id
 LEFT JOIN (
   SELECT l.account_id, SUM(l.debit - l.credit) AS balance
@@ -1577,9 +1671,15 @@ WHERE id = $1`;
 
 export const SUBLEDGER_DELETE_SQL = `DELETE FROM gl_subledgers WHERE id = $1`;
 
-/** Posted rows in one book; 0 means the book is safe to delete or rebind. */
+/** Posted rows attributed to one book; 0 means the book is safe to delete or rebind. */
 export const SUBLEDGER_BOOK_USAGE_COUNT_SQL = `SELECT COUNT(*)::int AS count
-FROM gl_subledger_entries WHERE subledger_id = $1`;
+FROM gl_subledger_entries se
+JOIN gl_subledgers s ON s.id = $1 AND s.main_account_id = se.account_id
+LEFT JOIN gl_subledgers pb
+  ON pb.main_account_id = se.account_id AND pb.party_id = se.party_id
+LEFT JOIN gl_subledgers gb
+  ON gb.main_account_id = se.account_id AND gb.party_id IS NULL
+WHERE COALESCE(pb.id, gb.id) = s.id`;
 
 /** Legacy rows on an account that carry no book id (pre-linkage history). */
 export const SUBLEDGER_USAGE_COUNT_SQL = `SELECT COUNT(*)::int AS count
@@ -1590,7 +1690,18 @@ FROM gl_subledger_entries WHERE account_id = $1 AND subledger_id IS NULL`;
  * the main account) is what lets two books on one account stay separable, and
  * what makes the report independent of the chart's control-account mapping.
  */
-export const SUBLEDGER_BOOK_ENTRIES_SQL = `SELECT s.id,
+export const SUBLEDGER_BOOK_ENTRIES_SQL = `WITH attributed AS (
+  SELECT se.*,
+    COALESCE(pb.id, gb.id) AS attributed_book_id
+  FROM gl_subledger_entries se
+  JOIN gl_journals j ON j.id = se.journal_id
+  LEFT JOIN gl_subledgers pb
+    ON pb.main_account_id = se.account_id AND pb.party_id = se.party_id
+  LEFT JOIN gl_subledgers gb
+    ON gb.main_account_id = se.account_id AND gb.party_id IS NULL
+  WHERE j.status = 'POSTED'
+)
+SELECT s.id,
   s.journal_id AS "journalId",
   j.journal_no AS "journalNo",
   s.journal_line_id AS "journalLineId",
@@ -1603,24 +1714,32 @@ export const SUBLEDGER_BOOK_ENTRIES_SQL = `SELECT s.id,
   s.debit::numeric AS debit,
   s.credit::numeric AS credit,
   COALESCE(l.memo, j.memo, '') AS memo
-FROM gl_subledger_entries s
+FROM attributed s
 JOIN gl_journals j ON j.id = s.journal_id
 LEFT JOIN gl_journal_lines l ON l.id = s.journal_line_id
-WHERE s.subledger_id = $1
-  AND j.status = 'POSTED'
+WHERE s.attributed_book_id = $1
   AND ($2::date IS NULL OR s.entry_date_ad >= $2::date)
   AND ($3::date IS NULL OR s.entry_date_ad <= $3::date)
   AND ($4::varchar IS NULL OR s.branch_id = $4)
 ORDER BY s.entry_date_ad DESC, s.id DESC`;
 
-export const SUBLEDGER_BOOK_PARTY_BALANCES_SQL = `SELECT
+export const SUBLEDGER_BOOK_PARTY_BALANCES_SQL = `WITH attributed AS (
+  SELECT se.*,
+    COALESCE(pb.id, gb.id) AS attributed_book_id
+  FROM gl_subledger_entries se
+  JOIN gl_journals j ON j.id = se.journal_id
+  LEFT JOIN gl_subledgers pb
+    ON pb.main_account_id = se.account_id AND pb.party_id = se.party_id
+  LEFT JOIN gl_subledgers gb
+    ON gb.main_account_id = se.account_id AND gb.party_id IS NULL
+  WHERE j.status = 'POSTED'
+)
+SELECT
   s.party_id AS "partyId",
   COALESCE(MAX(s.party_name), '') AS "partyName",
   COALESCE(SUM(s.debit - s.credit), 0)::numeric AS balance
-FROM gl_subledger_entries s
-JOIN gl_journals j ON j.id = s.journal_id
-WHERE s.subledger_id = $1
-  AND j.status = 'POSTED'
+FROM attributed s
+WHERE s.attributed_book_id = $1
   AND ($2::date IS NULL OR s.entry_date_ad >= $2::date)
   AND ($3::date IS NULL OR s.entry_date_ad <= $3::date)
   AND ($4::varchar IS NULL OR s.branch_id = $4)
@@ -1665,13 +1784,6 @@ FROM customer_records WHERE customer_id = $1`;
 export const SUPPLIER_PARTY_BY_ID_SQL = `SELECT id, name FROM suppliers WHERE id = $1`;
 
 export const EMPLOYEE_PARTY_BY_ID_SQL = `SELECT id, name FROM employees WHERE id = $1`;
-
-/** Move a party's existing rows from the general book (or no book) to its own. */
-export const SUBLEDGER_REASSIGN_PARTY_SQL = `UPDATE gl_subledger_entries
-SET subledger_id = $3
-WHERE account_id = $1
-  AND party_id = $2
-  AND (subledger_id IS NULL OR ($4::varchar IS NOT NULL AND subledger_id = $4))`;
 
 /**
  * Idempotent default subledger seed. It resolves the control account by code,

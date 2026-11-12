@@ -1942,13 +1942,21 @@ ALTER TABLE gl_subledger_entries ADD COLUMN IF NOT EXISTS entry_date_bs VARCHAR(
 
 CREATE INDEX IF NOT EXISTS idx_gl_subledger_book ON gl_subledger_entries(subledger_id);
 
-UPDATE gl_subledger_entries e
-SET subledger_id = s.id
-FROM gl_subledgers s
-WHERE e.subledger_id IS NULL
-  AND s.main_account_id = e.account_id
-  AND s.subledger_type = e.subledger_type
-  AND s.party_id IS NULL;
+DO $$
+BEGIN
+  -- Schema maintenance may adopt legacy rows into their general book. This
+  -- local flag is the only bypass the append-only trigger accepts; it resets
+  -- at the end of this block, so no application session inherits it.
+  PERFORM set_config('inventory.allow_ledger_purge', 'on', true);
+  UPDATE gl_subledger_entries e
+  SET subledger_id = s.id
+  FROM gl_subledgers s
+  WHERE e.subledger_id IS NULL
+    AND s.main_account_id = e.account_id
+    AND s.subledger_type = e.subledger_type
+    AND s.party_id IS NULL;
+  PERFORM set_config('inventory.allow_ledger_purge', 'off', true);
+END $$;
 
 -- ============================================================================
 -- 34. Daily cash close — one counted close per branch and business day
@@ -4086,6 +4094,11 @@ UPDATE vendor_payments SET fiscal_year_id = (SELECT id FROM fiscal_years fy WHER
 -- ---------------------------------------------------------------------------
 DO $$
 BEGIN
+  -- The BS backfill updates posted journal/subledger rows in place. It is
+  -- schema maintenance, not an accounting correction, so it runs inside the
+  -- same local-only bypass as the book-adoption migration above.
+  PERFORM set_config('inventory.allow_ledger_purge', 'on', true);
+
   -- 1. Backfills (bs_day_records.bs_date carries no ' BS' suffix).
   UPDATE vendor_payments p SET payment_date_bs = b.bs_date || ' BS'
     FROM bs_day_records b
@@ -4251,6 +4264,8 @@ BEGIN
     ALTER TABLE fixed_assets DROP CONSTRAINT IF EXISTS fixed_assets_placed_in_service_bs_required;
     ALTER TABLE fixed_assets ADD CONSTRAINT fixed_assets_placed_in_service_bs_required CHECK (placed_in_service_date_ad IS NULL OR (placed_in_service_date_bs IS NOT NULL AND placed_in_service_date_bs <> ''));
   END IF;
+
+  PERFORM set_config('inventory.allow_ledger_purge', 'off', true);
 END $$;
 
 -- ---------------------------------------------------------------------------
@@ -4447,3 +4462,49 @@ DO $$ BEGIN
     ALTER TABLE warranty_coverages ALTER COLUMN end_date_bs SET NOT NULL;
   END IF;
 END $$;
+
+-- ============================================================================
+-- ACC-7: posted accounting ledgers are append-only
+-- ============================================================================
+-- A posted journal, its lines and its party subledger rows are the audit trail.
+-- Correcting them in place destroys the evidence a later reader needs, so the
+-- database itself refuses UPDATE and DELETE. The supported correction is a new
+-- linked reversal journal (gl_journals.reversal_of_id) with its own posting
+-- date; the original row remains visible.
+--
+-- The only bypass is the local GUC `inventory.allow_ledger_purge=on`, used by
+-- (a) schema maintenance blocks above and (b) the test runner for fixture
+-- cleanup. It is deliberately session/transaction-local: application code never
+-- sets it, and the production connection path has no default for it.
+CREATE OR REPLACE FUNCTION reject_posted_ledger_mutation()
+RETURNS trigger AS $$
+BEGIN
+  IF current_setting('inventory.allow_ledger_purge', true) = 'on' THEN
+    IF TG_OP = 'DELETE' THEN
+      RETURN OLD;
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  RAISE EXCEPTION USING
+    ERRCODE = 'check_violation',
+    MESSAGE = format(
+      '%s is append-only: posted rows cannot be changed with %s. Post a linked reversal journal instead.',
+      TG_TABLE_NAME,
+      TG_OP
+    ),
+    HINT = 'To remove test fixtures only, connect with options=-c inventory.allow_ledger_purge=on.';
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER trg_gl_journals_append_only
+  BEFORE UPDATE OR DELETE ON gl_journals
+  FOR EACH ROW EXECUTE FUNCTION reject_posted_ledger_mutation();
+
+CREATE OR REPLACE TRIGGER trg_gl_journal_lines_append_only
+  BEFORE UPDATE OR DELETE ON gl_journal_lines
+  FOR EACH ROW EXECUTE FUNCTION reject_posted_ledger_mutation();
+
+CREATE OR REPLACE TRIGGER trg_gl_subledger_entries_append_only
+  BEFORE UPDATE OR DELETE ON gl_subledger_entries
+  FOR EACH ROW EXECUTE FUNCTION reject_posted_ledger_mutation();

@@ -188,6 +188,25 @@ describe('no-inline-sql guard', () => {
       assert.deepEqual(violations, []);
     });
 
+    test('posted journal and subledger tables have no runtime UPDATE or DELETE', () => {
+      const root = path.resolve(process.cwd(), 'server', 'src');
+      const files: string[] = [];
+      const walk = (dir: string) => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) walk(full);
+          else if (entry.name.endsWith('.ts')) files.push(full);
+        }
+      };
+      walk(root);
+      const forbidden = /\b(?:UPDATE|DELETE\s+FROM)\s+(?:gl_journals|gl_journal_lines|gl_subledger_entries)\b/i;
+      const violations = files.flatMap((file) => {
+        const source = fs.readFileSync(file, 'utf8');
+        return forbidden.test(source) ? [path.relative(process.cwd(), file)] : [];
+      });
+      assert.deepEqual(violations, [], 'posted ledgers are append-only; corrections are reversal journals');
+    });
+
     test('runAsScript exits 0 for the clean controllers directory', () => {
       assert.equal(runAsScript([CONTROLLERS_DIR]), 0);
     });

@@ -26,11 +26,10 @@ import {
   SR_RETURNED_QTY_SQL, SR_RESTOCK_SQL, srRestockParams, SR_REDEDUCT_STOCK_SQL, SR_CANCEL_SQL,
   SR_TXN_LOG_SQL, srTxnLogParams, SR_FIND_ONE_SQL,
   SR_CANCEL_TXN_LOG_SQL, srCancelTxnLogParams,
-  LEDGER_CUSTOMER_INVOICES_SQL, LEDGER_CUSTOMER_RETURNS_SQL,
   SR_SERIAL_FLIP_SQL, SR_DAMAGE_INSERT_SQL, srDamageInsertParams, SR_DAMAGE_CANCEL_SQL,
   SR_POST_DRAFT_SQL, SR_CANCEL_DRAFT_SQL,
   CP_INSERT_SQL, cpInsertParams, CP_LOCK_STATUS_SQL, CP_REVERSE_SQL, CP_FIND_BY_ID_SQL,
-  SI_RECORD_PAYMENT_SQL, SI_UNDO_PAYMENT_SQL, LEDGER_CUSTOMER_PAYMENTS_SQL,
+  SI_RECORD_PAYMENT_SQL, SI_UNDO_PAYMENT_SQL,
   SI_CLAIM_SERIAL_SQL, siClaimSerialParams,
   SI_FIND_ONE_SQL, SI_LOCK_FOR_CANCEL_SQL, SI_CANCEL_SQL,
   SI_BLOCKING_PAYMENTS_SQL, SI_BLOCKING_RETURNS_SQL,
@@ -64,6 +63,7 @@ import { ApiError } from '../errors/ApiError';
 import { postSalesInvoiceLedger, reverseInvoiceJournal } from '../services/invoicePosting.service';
 import { resolveInvoiceTerms } from '../services/billTerms.service';
 import { postCustomerReceiptLedger, reverseCustomerReceiptJournal } from '../services/paymentPosting.service';
+import { buildPartyLedger } from '../services/partyLedger.service';
 import {
   loadSalesIssueCosts,
   postSalesReturnJournal,
@@ -1044,22 +1044,17 @@ export async function post_salesReturnApprove(req: any, res: Response): Promise<
 }
 
 // ---------------------------------------------------------------------------
-// Customer Receivables Ledger — mirrors the vendor ledger for the sales side.
+// Customer Receivables Ledger — reads the posted AR party subledger.
 // ---------------------------------------------------------------------------
 
 /**
  * Forwarded from sales.routes.ts (get_customerLedger).
  *
- * Ledger lines (customer's perspective: we hold THEIR receivable):
- *   - INVOICE  debit  = sales invoice grand total (customer owes us)
- *   - PAYMENT  credit = dated receipt from the customer_payments sub-ledger
- *     (POSTED rows only; the invoice's amount_paid is kept in sync by the
- *     payment endpoints so the register still shows settlement state)
- *   - RETURN   credit = posted sales return (credit note) grand total
- *
- * Closing balance = opening + debits − credits = what the customer still owes.
- * Opening balance uses the period-net method (no customer opening-balance
- * register exists, unlike vendor_opening_balances).
+ * The statement is built by `buildPartyLedger` from `gl_subledger_entries` on
+ * the AR control account. Invoices, receipts and returns are display labels on
+ * those posted rows; they are not the source of the amount. That keeps manual
+ * journals, opening balances, unapplied receipts, write-offs and linked
+ * reversals visible in the same statement.
  */
 export async function get_customerLedger(req: any, res: Response): Promise<any> {
   try {
@@ -1090,129 +1085,27 @@ export async function get_customerLedger(req: any, res: Response): Promise<any> 
       }
     }
 
-    const nameMatcher = (name: string) =>
-      String(name || '').toLowerCase() === customer.customerName.toLowerCase() ||
-      String(name || '').toLowerCase().includes(customer.customerName.toLowerCase()) ||
-      customer.customerName.toLowerCase().includes(String(name || '').toLowerCase());
-
-    const byCustomerId = (row: any) => row.customerId && row.customerId === customer.id;
-    const byLegacyName = (row: any) => !row.customerId && nameMatcher(row.customerName);
-
-    let invoices: any[] = salesInvoices.filter((i: any) => byCustomerId(i) || byLegacyName(i));
-    let returns: any[] = salesReturns.filter((r: any) => byCustomerId(r) || byLegacyName(r));
-    let payments: any[] = customerPayments.filter((p: any) =>
-      (p.customerId && p.customerId === customer.id) || byLegacyName(p)
-    );
-
-    if (getPgConnected()) {
-      try {
-        const invRes = await pgPool.query(LEDGER_CUSTOMER_INVOICES_SQL, [customer.id, customer.customerName, `%${customer.customerName}%`]);
-        invoices = invRes.rows;
-        const retRes = await pgPool.query(LEDGER_CUSTOMER_RETURNS_SQL, [customer.id, customer.customerName, `%${customer.customerName}%`]);
-        returns = retRes.rows;
-        // Real dated receipts from the customer-payments sub-ledger replace
-        // the earlier synthetic amount_paid mirror lines.
-        const payRes = await pgPool.query(LEDGER_CUSTOMER_PAYMENTS_SQL, [customer.id, customer.customerName, `%${customer.customerName}%`]);
-        payments = payRes.rows;
-      } catch (err: any) {
-        console.error('Customer ledger DB query failed, using cache:', err?.message || err);
-      }
+    if (!getPgConnected()) {
+      return res.status(503).json({ message: 'The customer statement requires the accounting database.' });
     }
 
-    // Apply branch + date scoping (same semantics as the vendor ledger).
-    const from = String(fromAd || '').split('T')[0];
-    const to = String(toAd || '').split('T')[0];
-    const scopedDate = (date: any) => {
-      const d = String(date || '').split('T')[0];
-      if (from && d < from) return false;
-      if (to && d > to) return false;
-      return true;
-    };
-    const inScope = (branch: string | undefined, date: any) =>
-      (!branchId || branchId === 'ALL' || branch === branchId) && scopedDate(date);
-
-    const invoiceLines = invoices
-      .filter((inv: any) => inScope(inv.branchId, inv.invoiceDateAD))
-      .map((inv: any) => ({
-        id: `inv-${inv.id}`,
-        documentNumber: inv.invoiceNumber,
-        dateAD: String(inv.invoiceDateAD || '').split('T')[0],
-        dateBS: inv.invoiceDateBS || '',
-        amount: Number(inv.grandTotal) || 0,
-        type: 'INVOICE' as const,
-        notes: inv.notes || `Sales invoice to ${customer.customerName}`,
-        paymentMethod: undefined,
-        debit: Number(inv.grandTotal) || 0,
-        credit: 0,
-      }));
-
-    // Dated receipt lines from the customer-payments sub-ledger (POSTED only).
-    const paymentLines = payments
-      .filter((p: any) => p.status === 'POSTED' || p.status === undefined)
-      .filter((p: any) => inScope(p.branchId, p.paymentDateAD))
-      .map((p: any) => ({
-        id: `pay-${p.id}`,
-        documentNumber: p.paymentNumber,
-        dateAD: String(p.paymentDateAD || '').split('T')[0],
-        dateBS: p.paymentDateBS || '',
-        amount: Number(p.amount) || 0,
-        type: 'PAYMENT' as const,
-        notes: p.notes || `Receipt via ${p.paymentMethod}${p.chequeNumber ? ` (Chq ${p.chequeNumber})` : ''}`,        paymentMethod: p.paymentMethod,
-        debit: 0,
-        credit: Number(p.amount) || 0,
-      }));
-
-    // Posted sales returns (credit notes) reduce the receivable.
-    const returnLines = returns
-      .filter((r: any) => r.status === 'POSTED' || r.status === undefined)
-      .filter((r: any) => inScope(r.branchId, r.returnDateAD))
-      .map((r: any) => ({
-        id: `ret-${r.id}`,
-        documentNumber: r.returnNumber,
-        dateAD: String(r.returnDateAD || '').split('T')[0],
-        dateBS: r.returnDateBS || '',
-        amount: Number(r.grandTotal) || 0,
-        type: 'RETURN' as const,
-        notes: r.notes || `Sales return${r.originalInvoiceNumber ? ` against ${r.originalInvoiceNumber}` : ''}`,
-        paymentMethod: undefined,
-        debit: 0,
-        credit: Number(r.grandTotal) || 0,
-      }));
-
-    const allLines = [...invoiceLines, ...paymentLines, ...returnLines].sort((a: any, b: any) =>
-      a.dateAD === b.dateAD ? a.documentNumber.localeCompare(b.documentNumber) : a.dateAD.localeCompare(b.dateAD)
-    );
-
-    // Period-net opening balance (no customer opening-balance register).
-    let openingBalance = 0;
-    let periodLines = allLines;
-    if (from) {
-      openingBalance = allLines
-        .filter((line: any) => line.dateAD < from)
-        .reduce((sum: number, line: any) => sum + line.debit - line.credit, 0);
-      periodLines = allLines.filter((line: any) => line.dateAD >= from);
-    }
-
-    let running = openingBalance;
-    const ledger = periodLines.map((line: any) => {
-      running += line.debit - line.credit;
-      return { ...line, balance: running };
+    const statement = await buildPartyLedger(pgPool, {
+      side: 'CUSTOMER',
+      partyId: customer.id,
+      partyName: customer.customerName,
+      branchId: branchId as string | undefined,
+      from: fromAd,
+      to: toAd,
     });
-
-    const periodDebit = ledger.reduce((sum: number, line: any) => sum + line.debit, 0);
-    const periodCredit = ledger.reduce((sum: number, line: any) => sum + line.credit, 0);
 
     res.json({
       customer: { id: customer.id, customerId: customer.customerId, name: customer.customerName },
-      openingBalance,
-      openingSource: 'PERIOD_NET',
-      fiscalYearStartAD: null,
-      totalDebit: periodDebit,
-      totalCredit: periodCredit,
-      closingBalance: openingBalance + periodDebit - periodCredit,
-      ledger,
+      ...statement,
     });
   } catch (err: any) {
+    if (err instanceof ApiError) {
+      return res.status(err.status).json({ message: err.message });
+    }
     console.error('Error building customer ledger:', err);
     res.status(500).json({ message: `Database error: ${err.message}` });
   }

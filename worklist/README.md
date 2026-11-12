@@ -19,8 +19,12 @@ is the plan, not a second source of truth.
 - [parked.md](parked.md) — decisions we are not acting on, with the trigger to
   reopen each one.
 - [done/](done/README.md) — completed rounds, kept for reference. Never delete.
-- **No active round.** Round 9 (the two-sided warranty registers) closed on
-  2026-10-29 — [close note](done/2026-10-29-round-9.md), per-slice notes in
+- **Round 10 is active** — accounting as the financial spine of inventory
+  operations. Plan and slice list:
+  [2026-11-12-accounting-core/README.md](2026-11-12-accounting-core/README.md).
+  Planning/approval only; no code changed yet. Round 9 (the two-sided warranty
+  registers) closed on 2026-10-29 —
+  [close note](done/2026-10-29-round-9.md), per-slice notes in
   [done/2026-10-29-round-9/](done/2026-10-29-round-9/README.md). Round 8 (the
   bug & loop audit) closed on 2026-10-28
   ([note](done/2026-10-28-round-8.md)).
@@ -63,6 +67,16 @@ current year's file; a completed item adds one short entry there, not a
 checklist here.
 
 ## Active work
+
+**Round 10 — Accounting as the financial spine of inventory operations (opened 2026-11-12).**
+The plan is [2026-11-12-accounting-core/README.md](2026-11-12-accounting-core/README.md).
+It closes the audit gaps that make the ledger and the operational registers tell
+different stories: customer/vendor ledgers must read the posted party subledger,
+daily cash close must stop counting banks as cash, eSewa/Khalti/Nepal Pay need a
+wallet clearing model and settlement reconciliation, and every inventory value
+movement must have a declared journal and reversal. One company GL remains the
+rule; branch stays an analytical dimension, not a separate set of books. No code
+has changed yet; ACC-1 (ledger truth) is the proposed first slice.
 
 **Completed outside a round — rail storage healing, purchase-return scan, profile-switch stock cache (2026-10-31).**
 The persisted open-group set is now intersected with the groups the current menu

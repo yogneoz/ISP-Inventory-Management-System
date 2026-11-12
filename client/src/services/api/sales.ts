@@ -157,12 +157,22 @@ export interface LedgerLineDTO {
   dateAD: string;
   dateBS: string;
   amount: number;
-  type: 'INVOICE' | 'PAYMENT' | 'RETURN';
+  type: 'INVOICE' | 'PAYMENT' | 'RETURN' | 'OPENING' | 'ADJUSTMENT';
   notes?: string | null;
   paymentMethod?: string;
   debit: number;
   credit: number;
   balance: number;
+}
+
+export interface PartyLedgerTieOut {
+  partyBalance: number;
+  controlBalance: number;
+  subledgerBalance: number;
+  difference: number;
+  status: 'RECONCILED' | 'DIFFERENCE';
+  controlAccountCode: string;
+  controlAccountName: string;
 }
 
 export interface CustomerLedgerResponse {
@@ -174,6 +184,7 @@ export interface CustomerLedgerResponse {
   totalCredit: number;
   closingBalance: number;
   ledger: LedgerLineDTO[];
+  tieOut: PartyLedgerTieOut;
 }
 
 export async function getCustomerLedger(

@@ -22,7 +22,7 @@ import { Branch } from '../../types';
 import { api } from '../../services/api';
 import { CustomerPicker } from '../../components/common/CustomerPicker';
 import { createLatestOnly } from '../../utils/latestOnly';
-import { ArrowDownRight, ArrowUpRight, Undo2, Users, Wallet } from 'lucide-react';
+import { ArrowDownRight, ArrowUpRight, BookOpen, SlidersHorizontal, Undo2, Users, Wallet } from 'lucide-react';
 
 interface CustomerLedgerProps {
   branches: Branch[];
@@ -80,6 +80,7 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
         totalCredit: data.totalCredit,
         closingBalance: data.closingBalance,
         ledger: data.ledger,
+        tieOut: data.tieOut,
       });
     } catch (err: any) {
       if (!fetchSeq.isCurrent(ticket)) return;
@@ -172,6 +173,16 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
           label: 'Payment',
           className: 'bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300',
           Icon: ArrowUpRight,
+        },
+        OPENING: {
+          label: 'Opening',
+          className: 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200',
+          Icon: BookOpen,
+        },
+        ADJUSTMENT: {
+          label: 'Journal',
+          className: 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300',
+          Icon: SlidersHorizontal,
         },
       }}
       closingLabel="Receivable (Closing Balance)"

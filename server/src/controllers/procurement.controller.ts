@@ -18,6 +18,7 @@ import { postPurchaseInvoiceLedger, reverseInvoiceJournal } from '../services/in
 import { resolveInvoiceTerms } from '../services/billTerms.service';
 import { postVendorPaymentLedger, reverseVendorPaymentJournal } from '../services/paymentPosting.service';
 import { postPurchaseReturnJournal, reverseReturnJournal } from '../services/returnPosting.service';
+import { buildPartyLedger } from '../services/partyLedger.service';
 
 /** Audit actor for document postings (email, falling back to the display name). */
 function actorOf(req: any): string | null {
@@ -32,17 +33,15 @@ import {
   PI_LOCK_FOR_UPDATE_SQL, PI_BALANCE_AFTER_SQL, VP_LOCK_STATUS_SQL,
   PI_REVERSE_STOCK_SQL, PI_CANCEL_TXN_LOG_SQL, piCancelTxnLogParams, CDR_ASSIGNED_CHECK_SQL, CDR_IN_STOCK_DELETE_SQL, PI_FIND_FOR_PAYMENT_SQL,
   VP_REVERSE_SQL, VP_INSERT_SQL, vpInsertParams, buildVendorPaymentWhere, VP_ORDER_BY, VP_BY_INVOICE_SQL_SUFFIX,
-  LEDGER_INVOICES_SQL, ledgerNameParams, LEDGER_PAYMENTS_SQL_SUFFIX,
   PO_PATCH_STATUS_SQL, PI_EXISTS_SQL, PI_FIND_FOR_DELETE_SQL,
   PO_FIND_BY_ID_SQL, PI_FIND_BY_ID_SQL, PI_EXISTS_FOR_PO_SQL, VP_POSTED_BY_INVOICE_SQL, VP_FIND_BY_ID_SQL,
   buildPoListSql, buildPiListSql,
-  FY_BY_ID_SQL, FY_BY_START_SQL, FY_CURRENT_SQL, VENDOR_OPENING_BALANCE_SQL,
   buildPurchaseOrderPagedQuery, buildPurchaseOrderAggregateQuery, buildPurchaseOrderStatusCountQuery,
   buildPurchaseInvoicePagedQuery, buildPurchaseInvoiceAggregateQuery, buildPurchaseInvoiceStatusCountQuery,
   buildPurchaseReturnListSql, buildPurchaseReturnCountQuery, buildPurchaseReturnPagedQuery,
   PR_INSERT_SQL, prInsertParams, PR_EXISTS_SQL, PR_LOCK_INVOICE_SQL,
   PR_RETURNED_QTY_SQL, PR_DEDUCT_STOCK_SQL, PR_RESTORE_STOCK_SQL, PR_CANCEL_SQL,
-  PR_TXN_LOG_SQL, prTxnLogParams, PR_FIND_ONE_SQL, LEDGER_RETURNS_SQL,
+  PR_TXN_LOG_SQL, prTxnLogParams, PR_FIND_ONE_SQL,
   PR_CANCEL_TXN_LOG_SQL, prCancelTxnLogParams,
   PR_SERIAL_FLIP_SQL, PR_CANCEL_DRAFT_SQL, PR_POST_DRAFT_SQL,
 } from '../models/procurement.repo';
@@ -1451,205 +1450,37 @@ try {
 
 /** Forwarded from procurement.routes.ts (get_ledger). */
 export async function get_ledger(req: any, res: Response): Promise<any> {
-try {
+  try {
     const { supplierId } = req.params;
-    const { fromAd, toAd, fiscalYearId, branchId } = req.query;
+    const { fromAd, toAd, branchId } = req.query;
     const supplier = suppliers.find((s) => s.id === supplierId);
     if (!supplier) {
-      res.status(404).json({ message: 'Supplier not found.' });
-      return;
+      return res.status(404).json({ message: 'Supplier not found.' });
+    }
+    if (!getPgConnected()) {
+      return res.status(503).json({ message: 'The vendor statement requires the accounting database.' });
     }
 
-    const nameMatcher = (name: string) =>
-      String(name || '').toLowerCase() === supplier.name.toLowerCase() ||
-      String(name || '').toLowerCase().includes(supplier.name.toLowerCase()) ||
-      supplier.name.toLowerCase().includes(String(name || '').toLowerCase());
-
-    // Match invoices/payments by the exact supplier_id FK first (the reliable
-    // route since duplicate supplier names can exist; e.g. demo vs real rows),
-    // and fall back to name matching only for legacy rows without a supplier_id.
-    const bySupplierId = (inv: any) =>
-      inv.supplierId && inv.supplierId === supplier.id;
-    const byLegacyName = (inv: any) => !inv.supplierId && nameMatcher(inv.supplierName);
-
-    let invoices: any[];
-    let payments: VendorPayment[];
-    let returns: any[];
-
-    if (getPgConnected()) {
-      // PostgreSQL is the ledger's only source: a failed read is an error, not
-      // a cue to substitute a possibly stale mirror.
-      try {
-        const invRes = await pgPool.query(LEDGER_INVOICES_SQL, ledgerNameParams(supplier));
-        invoices = invRes.rows;
-        const payRes = await pgPool.query(
-          `${VENDOR_PAYMENT_SELECT}${LEDGER_PAYMENTS_SQL_SUFFIX}`,
-          ledgerNameParams(supplier) as any[]
-        );
-        payments = payRes.rows;
-        // Posted purchase returns (debit notes) reduce the payable like payments.
-        const retRes = await pgPool.query(LEDGER_RETURNS_SQL, ledgerNameParams(supplier));
-        returns = retRes.rows;
-      } catch (err: any) {
-        console.error('Vendor ledger DB query failed:', err?.message || err);
-        return res.status(500).json({ message: 'Could not load the vendor ledger from the database. Reload to retry.' });
-      }
-    } else {
-      invoices = purchaseInvoices.filter((inv) => bySupplierId(inv) || byLegacyName(inv));
-      payments = vendorPayments.filter((p) =>
-        (p.supplierId && p.supplierId === supplier.id) || byLegacyName(p)
-      );
-      returns = purchaseReturns.filter((r: any) =>
-        (r.supplierId && r.supplierId === supplier.id) || byLegacyName(r)
-      );
-    }
-
-    // Apply branch + fiscal-year/date scoping.
-    const from = String(fromAd || '').split('T')[0];
-    const to = String(toAd || '').split('T')[0];
-    const scopedDate = (date: any) => {
-      const d = String(date || '').split('T')[0];
-      if (from && d < from) return false;
-      if (to && d > to) return false;
-      return true;
-    };
-    const inScope = (branch: string | undefined, date: any) =>
-      (!branchId || branchId === 'ALL' || branch === branchId) && scopedDate(date);
-
-    const invoiceLines = invoices
-      .filter((inv) => inScope(inv.branchId, inv.invoiceDateAD))
-      .map((inv) => ({
-        id: `inv-${inv.id}`,
-        documentNumber: inv.invoiceNumber,
-        dateAD: String(inv.invoiceDateAD || '').split('T')[0],
-        dateBS: inv.invoiceDateBS || '',
-        amount: Number(inv.grandTotal) || 0,
-        vatAmount: Number(inv.vatAmount) || 0,
-        type: 'INVOICE' as const,
-        notes: inv.notes || `Purchase invoice ${inv.invoiceNumber}`,
-        paymentMethod: undefined,
-        debit: Number(inv.grandTotal) || 0,
-        credit: 0,
-      }));
-
-    const paymentLines = payments
-      .filter((p) => p.status === 'POSTED' && inScope(p.branchId, p.paymentDateAD))
-      .map((p) => ({
-        id: `pay-${p.id}`,
-        documentNumber: p.paymentNumber,
-        dateAD: String(p.paymentDateAD || '').split('T')[0],
-        dateBS: p.paymentDateBS || '',
-        amount: Number(p.amount) || 0,
-        vatAmount: undefined,
-        type: 'PAYMENT' as const,
-        notes: p.notes || `Payment via ${p.paymentMethod}${p.chequeNumber ? ` (Chq ${p.chequeNumber})` : ''}`,
-        paymentMethod: p.paymentMethod,
-        debit: 0,
-        credit: Number(p.amount) || 0,
-      }));
-
-    // Posted purchase returns (debit notes) are CREDIT lines: goods (and VAT)
-    // go back to the vendor, so the closing payable reconciles as
-    // opening + invoices − payments − returns.
-    const returnLines = returns
-      .filter((r: any) => r.status === 'POSTED' || r.status === undefined)
-      .filter((r: any) => inScope(r.branchId, r.returnDateAD))
-      .map((r: any) => ({
-        id: `ret-${r.id}`,
-        documentNumber: r.returnNumber,
-        dateAD: String(r.returnDateAD || '').split('T')[0],
-        dateBS: r.returnDateBS || '',
-        amount: Number(r.grandTotal) || 0,
-        vatAmount: undefined,
-        type: 'RETURN' as const,
-        notes: r.notes || `Purchase return${r.originalInvoiceNumber ? ` against ${r.originalInvoiceNumber}` : ''}`,
-        paymentMethod: undefined,
-        debit: 0,
-        credit: Number(r.grandTotal) || 0,
-      }));
-
-    const allLines = [...invoiceLines, ...paymentLines, ...returnLines].sort((a, b) =>
-      a.dateAD === b.dateAD ? a.documentNumber.localeCompare(b.documentNumber) : a.dateAD.localeCompare(b.dateAD)
-    );
-
-    // Resolve the fiscal-year opening balance from the vendor_opening_balances
-    // register. Priority: explicit fiscalYearId → a from-date that equals a known
-    // fiscal year start → the current fiscal year. When a persisted opening
-    // exists, it is the carry-forward of the previous year's closing balance.
-    let fyStartAD = '';
-    let persistedOpening = 0;
-    let usedPersistedOpening = false;
-    if (getPgConnected()) {
-      try {
-        let fyRow: any = null;
-        if (fiscalYearId) {
-          const fyRes = await pgPool.query(FY_BY_ID_SQL, [fiscalYearId]);
-          fyRow = fyRes.rows[0] || null;
-        } else if (from) {
-          const fyRes = await pgPool.query(FY_BY_START_SQL, [from]);
-          fyRow = fyRes.rows[0] || null;
-        } else {
-          const fyRes = await pgPool.query(FY_CURRENT_SQL);
-          fyRow = fyRes.rows[0] || null;
-        }
-        if (fyRow) {
-          fyStartAD = String(fyRow.startDateAD || '').split('T')[0];
-          const obRes = await pgPool.query(VENDOR_OPENING_BALANCE_SQL, [fyRow.id, supplier.id, branchId === 'ALL' ? null : branchId]);
-          persistedOpening = Number(obRes.rows[0]?.total) || 0;
-          usedPersistedOpening = true;
-        }
-      } catch (err: any) {
-        console.warn('Vendor ledger fiscal-year opening lookup failed, falling back to period-net:', err?.message || err);
-      }
-    }
-
-    // Opening balance:
-    //  - With a persisted fiscal-year opening: that carry-forward value, plus any
-    //    net activity between the fiscal-year start and an explicit earlier
-    //    cut-off (`from`). The ledger period then begins at `from`.
-    //  - Without a persisted opening (legacy / no fiscal year configured): net
-    //    (debits - credits) strictly before the `from` date.
-    let openingBalance: number;
-    let periodLines: typeof allLines;
-    if (usedPersistedOpening && fyStartAD) {
-      const periodStart = from && from > fyStartAD ? from : fyStartAD;
-      openingBalance =
-        persistedOpening +
-        allLines
-          .filter((line) => line.dateAD >= fyStartAD && line.dateAD < periodStart)
-          .reduce((sum, line) => sum + line.debit - line.credit, 0);
-      periodLines = allLines.filter((line) => line.dateAD >= periodStart);
-    } else {
-      openingBalance = allLines
-        .filter((line) => from && line.dateAD < from)
-        .reduce((sum, line) => sum + line.debit - line.credit, 0);
-      periodLines = allLines.filter((line) => !from || line.dateAD >= from);
-    }
-
-    let running = openingBalance;
-    const ledger = periodLines.map((line) => {
-      running += line.debit - line.credit;
-      return { ...line, balance: running };
+    const statement = await buildPartyLedger(pgPool, {
+      side: 'SUPPLIER',
+      partyId: supplier.id,
+      partyName: supplier.name,
+      branchId: branchId as string | undefined,
+      from: fromAd,
+      to: toAd,
     });
-
-    const periodDebit = ledger.reduce((sum, line) => sum + line.debit, 0);
-    const periodCredit = ledger.reduce((sum, line) => sum + line.credit, 0);
 
     res.json({
       supplier: { id: supplier.id, name: supplier.name },
-      openingBalance,
-      openingSource: usedPersistedOpening && fyStartAD ? 'FISCAL_YEAR_OPENING' : 'PERIOD_NET',
-      fiscalYearStartAD: fyStartAD || null,
-      totalDebit: periodDebit,
-      totalCredit: periodCredit,
-      closingBalance: openingBalance + periodDebit - periodCredit,
-      ledger,
+      ...statement,
     });
   } catch (err: any) {
+    if (err instanceof ApiError) {
+      return res.status(err.status).json({ message: err.message });
+    }
     console.error('Error building vendor ledger:', err);
     res.status(500).json({ message: `Database error: ${err.message}` });
   }
-
 }
 
 

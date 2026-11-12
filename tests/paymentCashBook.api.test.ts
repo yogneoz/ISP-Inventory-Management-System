@@ -532,6 +532,124 @@ describe('payment documents and the cash/bank book (real HTTP + PostgreSQL)', { 
     assert.ok(audits.rows.every((row) => Number(row.n) === 1));
   });
 
+  test('the customer statement reads posted opening, manual and unapplied rows and ties to AR', async () => {
+    // Opening balance and a manual adjustment live only in the subledger; the
+    // old statement rebuilt from invoices/payments and could not show either.
+    const opening = await post('/api/accounting/journals', {
+      journalDateAD: '2026-10-02',
+      branchId: BR,
+      sourceType: 'OPENING_BALANCE',
+      sourceId: 'pcb-open-ar',
+      memo: 'PCB customer opening receivable',
+      lines: [
+        { accountId: accounts.ar, debit: 50, credit: 0, subledgerType: 'CUSTOMER', partyId: CUSTOMER, partyName: 'PCB Customer' },
+        { accountId: accounts.revenue, debit: 0, credit: 50 },
+      ],
+    });
+    assert.equal(opening.status, 201, JSON.stringify(opening.json));
+
+    const adjustment = await post('/api/accounting/journals', {
+      journalDateAD: today,
+      branchId: BR,
+      sourceType: 'MANUAL',
+      sourceId: 'pcb-adj-ar',
+      memo: 'PCB customer manual adjustment',
+      lines: [
+        { accountId: accounts.ar, debit: 25, credit: 0, subledgerType: 'CUSTOMER', partyId: CUSTOMER, partyName: 'PCB Customer' },
+        { accountId: accounts.revenue, debit: 0, credit: 25 },
+      ],
+    });
+    assert.equal(adjustment.status, 201, JSON.stringify(adjustment.json));
+
+    // An unapplied receipt is a customer advance: credit AR with no invoice.
+    const advance = await post('/api/customer-payments', {
+      customerId: CUSTOMER,
+      customerName: 'PCB Customer',
+      branchId: BR,
+      paymentDateAD: today,
+      amount: 30,
+      paymentMethod: 'CASH',
+      notes: 'PCB unapplied advance',
+    });
+    assert.equal(advance.status, 201, JSON.stringify(advance.json));
+
+    const statement = await get(
+      `/api/customers/${encodeURIComponent(CUSTOMER)}/ledger?from=2026-10-01&to=${today}&branchId=${BR}`
+    );
+    assert.equal(statement.status, 200, JSON.stringify(statement.json));
+    assert.equal(statement.json.openingBalance, 0);
+    assert.equal(statement.json.totalDebit, 339 + 339 + 50 + 25, 'invoice, reversal, opening and manual');
+    assert.equal(statement.json.totalCredit, 339 + 30, 'receipt plus unapplied advance');
+    assert.equal(statement.json.closingBalance, 384);
+    assert.deepEqual(
+      statement.json.ledger.map((line: any) => line.type).sort(),
+      ['ADJUSTMENT', 'INVOICE', 'OPENING', 'PAYMENT', 'PAYMENT', 'PAYMENT']
+    );
+    assert.equal(statement.json.tieOut.partyBalance, 384);
+    assert.equal(statement.json.tieOut.controlBalance, 384);
+    assert.equal(statement.json.tieOut.subledgerBalance, 384);
+    assert.equal(statement.json.tieOut.difference, 0);
+    assert.equal(statement.json.tieOut.status, 'RECONCILED');
+  });
+
+  test('posted journals, lines and subledger rows reject direct changes', async () => {
+    const journal = await post('/api/accounting/journals', {
+      journalDateAD: today,
+      branchId: BR,
+      sourceType: 'MANUAL',
+      sourceId: 'pcb-immutable',
+      memo: 'PCB immutable probe',
+      lines: [
+        { accountId: accounts.ar, debit: 1, credit: 0, subledgerType: 'CUSTOMER', partyId: CUSTOMER, partyName: 'PCB Customer' },
+        { accountId: accounts.revenue, debit: 0, credit: 1 },
+      ],
+    });
+    assert.equal(journal.status, 201, JSON.stringify(journal.json));
+    const journalId = String(journal.json.id);
+
+    // The suite's own pool carries the test-runner cleanup bypass. This client
+    // deliberately drops it, so it behaves like an application connection.
+    const url = new URL(process.env.DATABASE_URL!);
+    url.searchParams.delete('options');
+    const raw = new pg.Client({ connectionString: url.toString() });
+    await raw.connect();
+    try {
+      await assert.rejects(
+        raw.query("UPDATE gl_journals SET memo = 'changed' WHERE id = $1", [journalId]),
+        /append-only.*UPDATE/i
+      );
+      await assert.rejects(
+        raw.query('UPDATE gl_journal_lines SET memo = $2 WHERE journal_id = $1', [journalId, 'changed']),
+        /append-only.*UPDATE/i
+      );
+      await assert.rejects(
+        raw.query('UPDATE gl_subledger_entries SET debit = debit WHERE journal_id = $1', [journalId]),
+        /append-only.*UPDATE/i
+      );
+      await assert.rejects(
+        raw.query('DELETE FROM gl_journal_lines WHERE journal_id = $1', [journalId]),
+        /append-only.*DELETE/i
+      );
+      await assert.rejects(
+        raw.query('DELETE FROM gl_subledger_entries WHERE journal_id = $1', [journalId]),
+        /append-only.*DELETE/i
+      );
+      await assert.rejects(
+        raw.query('DELETE FROM gl_journals WHERE id = $1', [journalId]),
+        /append-only.*DELETE/i
+      );
+
+      // The documented cleanup path is explicit and session-local.
+      await raw.query("SELECT set_config('inventory.allow_ledger_purge', 'on', false)");
+      const removed = await raw.query('DELETE FROM gl_journals WHERE id = $1', [journalId]);
+      assert.equal(removed.rowCount, 1);
+      const lines = await raw.query('SELECT count(*)::int AS n FROM gl_journal_lines WHERE journal_id = $1', [journalId]);
+      assert.equal(Number(lines.rows[0].n), 0, 'the journal delete cascades its lines under the maintenance bypass');
+    } finally {
+      await raw.end();
+    }
+  });
+
   test('a posting failure rolls the receipt, journal and audit back together', async () => {
     const journalsBefore = await pool!.query('SELECT count(*)::int AS n FROM gl_journals WHERE branch_id = $1', [BR]);
     const auditsBefore = await pool!.query(
@@ -617,8 +735,8 @@ describe('payment documents and the cash/bank book (real HTTP + PostgreSQL)', { 
     assert.equal(extraBook.opening, 0);
     assert.equal(extraBook.receipts, 25);
     assert.equal(extraBook.closing, 25);
-    assert.equal(book.json.accounts.find((account: any) => account.code === '1010').closing, 100);
-    assert.equal(book.json.closing, 125, 'the book total includes the extra till');
+    assert.equal(book.json.accounts.find((account: any) => account.code === '1010').closing, 130, 'the unapplied advance remains in the till');
+    assert.equal(book.json.closing, 155, 'the book total includes the extra till');
 
     const wrongKind = await post('/api/customer-payments', {
       customerId: CUSTOMER,
@@ -672,7 +790,7 @@ describe('payment documents and the cash/bank book (real HTTP + PostgreSQL)', { 
     const own = await get(`/api/accounting/cash-book?asOf=${today}`, tokens.accountant);
     assert.equal(own.status, 200, JSON.stringify(own.json));
     assert.equal(own.json.branchId, BR, 'a branch account defaults to its own branch');
-    assert.equal(own.json.closing, 125, 'the extra till receipt remains in the book');
+    assert.equal(own.json.closing, 155, 'the extra till receipt and unapplied advance remain in the book');
 
     assert.equal(
       (await get(`/api/accounting/cash-book?asOf=${today}&branchId=${OTHER}`, tokens.accountant)).status,

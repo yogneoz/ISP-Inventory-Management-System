@@ -474,7 +474,7 @@ describe('subledger master + chart health', () => {
     assert.equal(missing.status, 404);
   });
 
-  test('Salary Payable generates one book per employee and moves existing rows', { skip: skipNoDb }, async () => {
+  test('Salary Payable generates one book per employee and attributes existing rows', { skip: skipNoDb }, async () => {
     const profile = {
       shortName: 'SAL-PAY',
       category: 'Payable',
@@ -536,7 +536,7 @@ describe('subledger master + chart health', () => {
     assert.equal(generated.json.subledgerType, 'EMPLOYEE');
     assert.ok(generated.json.created >= 2, 'both fixture employees need their own book');
     assert.ok(generated.json.total >= 2);
-    assert.ok(generated.json.linkedEntries >= 1, 'the employee row must move from the general book');
+    assert.equal(generated.json.linkedEntries, 0, 'posted rows are attributed at read time, never moved');
 
     const list = await call('GET', '/api/accounting/subledgers');
     const employeeBooks = list.json.filter(
