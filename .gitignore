@@ -19,3 +19,10 @@ tsc_all.txt
 .tmp-*.mjs
 .tmp-*.txt
 preview-*.png
+
+# Local verification screenshots and database backups — generated artifacts,
+# not project source. Root PNGs are walkthrough captures.
+/backups/
+/screenshots/
+/docs/screenshots/
+/*.png
