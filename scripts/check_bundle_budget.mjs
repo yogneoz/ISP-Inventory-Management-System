@@ -22,6 +22,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { gzipSync } from 'node:zlib';
+import { findLazyScreenChunksInStartup } from './startupGraphGuard.mjs';
 
 const DIST = path.resolve(process.cwd(), 'dist');
 const ASSETS = path.join(DIST, 'assets');
@@ -144,6 +145,12 @@ while (frontier.length) {
 // mentions it statically in a lazy branch; intersection check below reports it.
 dynamicOnly = new Set([...dynamicOnly].filter((c) => !startup.has(c)));
 
+const appSource = fs.readFileSync(path.resolve(process.cwd(), 'client', 'src', 'App.tsx'), 'utf8');
+const lazyScreenLeaks = findLazyScreenChunksInStartup({
+  appSource,
+  startupChunks: [...startup],
+});
+
 const entryGz = gzipSize(path.join(ASSETS, entry));
 let totalGz = 0;
 for (const chunk of startup) totalGz += gzipSize(path.join(ASSETS, chunk));
@@ -154,6 +161,16 @@ console.log(`  startup total: ${(totalGz / 1024).toFixed(1)} kB gz (budget ${bud
 console.log(`  on-demand (dynamic-only, not budgeted): ${dynamicOnly.size} chunks`);
 
 let breached = false;
+if (lazyScreenLeaks.length) {
+  console.error(`✖ ${lazyScreenLeaks.length} lazy screen chunk(s) are in the startup graph:`);
+  for (const leak of lazyScreenLeaks) {
+    console.error(`  ${leak.chunk} — declared lazy as ${leak.importPath}`);
+  }
+  console.error(`  An eager module imported a shared module that Rollup assigned to the lazy`);
+  console.error(`  screen's chunk. Give that shared module its own chunk (or a neutral module)`);
+  console.error(`  instead of importing it from the screen.`);
+  breached = true;
+}
 if (entryGz > BUDGETS.entryGz) {
   console.error(`✖ Entry chunk ${(entryGz / 1024).toFixed(1)} kB gz exceeds ${budgetKb(BUDGETS.entryGz)} kB budget.`);
   breached = true;
