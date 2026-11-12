@@ -870,6 +870,7 @@ export async function transfer_employee(req: any, res: Response): Promise<any> {
     const toBranch = (await client.query(BRANCH_NAME_BY_ID_SQL, [targetBranchId])).rows[0];
 
     const transferId = `hr-bt-${crypto.randomUUID()}`;
+    const effectiveDateBS = await bsDateOrThrow(effectiveDateAD, client);
     await client.query(HR_BRANCH_TRANSFER_INSERT_SQL, [
       transferId,
       id,
@@ -879,6 +880,7 @@ export async function transfer_employee(req: any, res: Response): Promise<any> {
       toBranch?.name || targetBranchId,
       actorOf(req),
       effectiveDateAD,
+      effectiveDateBS,
       reason,
       'PENDING',
     ]);

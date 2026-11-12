@@ -2274,7 +2274,10 @@ CREATE TABLE IF NOT EXISTS employees (
     branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
     user_id VARCHAR(50) REFERENCES users(id) ON DELETE SET NULL,
     department VARCHAR(120),
+    department_id VARCHAR(50),
     designation VARCHAR(120),
+    designation_id VARCHAR(50),
+    workstation_id VARCHAR(50),
     pan_number VARCHAR(50),
     ssf_number VARCHAR(50),
     bank_account VARCHAR(80),
@@ -2400,6 +2403,7 @@ CREATE TABLE IF NOT EXISTS hr_employee_branch_transfers (
     to_branch_name VARCHAR(150) NOT NULL,
     transferred_by VARCHAR(150),
     effective_date_ad DATE,
+    effective_date_bs VARCHAR(20),
     reason VARCHAR(500),
     status VARCHAR(20) NOT NULL DEFAULT 'APPROVED',
     approved_by VARCHAR(150),
@@ -2411,6 +2415,8 @@ CREATE TABLE IF NOT EXISTS hr_employee_branch_transfers (
 
 ALTER TABLE hr_employee_branch_transfers
   ADD COLUMN IF NOT EXISTS effective_date_ad DATE;
+ALTER TABLE hr_employee_branch_transfers
+  ADD COLUMN IF NOT EXISTS effective_date_bs VARCHAR(20);
 ALTER TABLE hr_employee_branch_transfers
   ADD COLUMN IF NOT EXISTS reason VARCHAR(500);
 -- Existing rows predate approval and already represent completed moves.
@@ -2469,6 +2475,38 @@ ALTER TABLE employees ADD COLUMN IF NOT EXISTS designation_id VARCHAR(50)
   REFERENCES hr_org_masters(id) ON DELETE SET NULL;
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS workstation_id VARCHAR(50)
   REFERENCES hr_org_masters(id) ON DELETE SET NULL;
+
+-- A fresh install declares the three master links in the CREATE TABLE block
+-- above, so the ADD COLUMN statements are no-ops and would not attach their
+-- foreign keys. Attach the same constraints explicitly; existing databases
+-- already carry them and skip this block.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'employees_department_id_fkey'
+      AND conrelid = 'employees'::regclass
+  ) THEN
+    ALTER TABLE employees ADD CONSTRAINT employees_department_id_fkey
+      FOREIGN KEY (department_id) REFERENCES hr_org_masters(id) ON DELETE SET NULL;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'employees_designation_id_fkey'
+      AND conrelid = 'employees'::regclass
+  ) THEN
+    ALTER TABLE employees ADD CONSTRAINT employees_designation_id_fkey
+      FOREIGN KEY (designation_id) REFERENCES hr_org_masters(id) ON DELETE SET NULL;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'employees_workstation_id_fkey'
+      AND conrelid = 'employees'::regclass
+  ) THEN
+    ALTER TABLE employees ADD CONSTRAINT employees_workstation_id_fkey
+      FOREIGN KEY (workstation_id) REFERENCES hr_org_masters(id) ON DELETE SET NULL;
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_employees_department_master
   ON employees(department_id) WHERE department_id IS NOT NULL;

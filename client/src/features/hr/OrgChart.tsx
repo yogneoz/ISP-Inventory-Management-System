@@ -300,7 +300,7 @@ export const OrgChart: React.FC<OrgChartProps> = ({ currentUser }) => {
             {row.grade || '—'}
           </span>
           <span className="text-[11px] font-semibold text-slate-900 dark:text-white">{row.name}</span>
-          <span className="font-mono text-[9px] text-slate-400">{row.code}</span>
+          <span className="font-mono text-[10px] text-slate-400">{row.code}</span>
           {dotted ? (
             <span className="rounded-full border border-dashed border-slate-400 px-1 text-[8px] font-bold uppercase text-slate-500">
               dotted
@@ -317,7 +317,7 @@ export const OrgChart: React.FC<OrgChartProps> = ({ currentUser }) => {
           )}
         </div>
         {shown.length > 0 ? (
-          <p className="mt-0.5 truncate text-[9px] text-slate-500 dark:text-slate-400">
+          <p className="mt-0.5 truncate text-[10px] text-slate-500 dark:text-slate-400">
             {shown.map((employee) => employee.name).join(', ')}
           </p>
         ) : null}
@@ -406,12 +406,12 @@ export const OrgChart: React.FC<OrgChartProps> = ({ currentUser }) => {
                 <span className="font-mono text-[10px] text-slate-400">{node.code}</span>
               ) : null}
               {node.dotted ? (
-                <span className="rounded-full border border-dashed border-slate-400 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-500">
+                <span className="rounded-full border border-dashed border-slate-400 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
                   dotted
                 </span>
               ) : null}
               {!node.external && node.employees.length === 0 ? (
-                <span className="rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+                <span className="rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
                   vacant
                 </span>
               ) : null}
@@ -545,7 +545,7 @@ export const OrgChart: React.FC<OrgChartProps> = ({ currentUser }) => {
           </span>
         </div>
 
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[9px] text-slate-600 dark:text-slate-400">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-600 dark:text-slate-400">
           {[
             { label: 'Departments', value: chart.departmentCount, icon: Building2 },
             { label: 'Designations', value: chart.designationCount, icon: Briefcase },
@@ -606,16 +606,16 @@ export const OrgChart: React.FC<OrgChartProps> = ({ currentUser }) => {
                 ? `${branchHierarchy.headOfficeEmployees.length} head office core · ${branchHierarchy.branchEmployees.length} branch team · ${branchHierarchy.postCount} posts with people`
                 : 'No branch selected'}
             </span>
-            <span className="flex items-center gap-1 text-[9px] text-slate-500 dark:text-slate-400">
+            <span className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
               <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" /> head office core
               <span className="ml-1 h-1.5 w-1.5 rounded-full bg-emerald-500" /> branch team
             </span>
             {branchHierarchy && branchHierarchy.unlinkedEmployees.length > 0 ? (
-              <span className="text-[9px] font-semibold text-amber-700 dark:text-amber-400">
+              <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-400">
                 {branchHierarchy.unlinkedEmployees.length} active employee(s) not linked to a designation
               </span>
             ) : null}
-            <span className="ml-auto hidden text-[9px] text-slate-400 sm:inline">
+            <span className="ml-auto hidden text-[10px] text-slate-400 sm:inline">
               CEO → COO → departments, with the core team and this branch&rsquo;s own people.
             </span>
           </div>

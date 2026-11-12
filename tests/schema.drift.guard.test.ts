@@ -47,9 +47,14 @@ function parseSchemaSql(sqlText: string): TableColumns {
       // Table-level constraints never introduce a column.
       // Match table-level constraints only. A bare /^CHECK/i also skipped real
       // columns named check_in_time / check_out_time.
-      if (/^(PRIMARY KEY|UNIQUE\b|CONSTRAINT\b|CHECK\s*\(|FOREIGN KEY\b)/i.test(t)) continue;
+      if (/^(PRIMARY KEY|UNIQUE\b|CONSTRAINT\b|CHECK\s*\(|FOREIGN KEY\b|AND\b|OR\b)/i.test(t)) continue;
       const cm = t.match(/^(\w+)\s+(.+?),?$/);
-      if (cm && !['PRIMARY', 'UNIQUE', 'CONSTRAINT', 'FOREIGN', 'CHECK'].includes(cm[1].toUpperCase())) {
+      if (
+        cm &&
+        !['PRIMARY', 'UNIQUE', 'CONSTRAINT', 'FOREIGN', 'CHECK', 'AND', 'OR'].includes(
+          cm[1].toUpperCase()
+        )
+      ) {
         cols.add(cm[1].toLowerCase());
       }
     }

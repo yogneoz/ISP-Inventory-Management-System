@@ -15,8 +15,8 @@ export type BranchTransferStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 export const HR_BRANCH_TRANSFER_INSERT_SQL = `INSERT INTO hr_employee_branch_transfers (
   id, employee_id, from_branch_id, from_branch_name,
   to_branch_id, to_branch_name, transferred_by,
-  effective_date_ad, reason, status, is_demo
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, FALSE)`;
+  effective_date_ad, effective_date_bs, reason, status, is_demo
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, FALSE)`;
 
 /** A request can be decided only while pending and only once. */
 export const HR_BRANCH_TRANSFER_DECIDE_SQL = `UPDATE hr_employee_branch_transfers

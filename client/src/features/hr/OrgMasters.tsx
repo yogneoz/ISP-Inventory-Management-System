@@ -1006,7 +1006,7 @@ export const OrgMasters: React.FC<OrgMastersProps> = ({ currentUser }) => {
                   ))}
                 </div>
                 <div className="flex flex-wrap items-center gap-1">
-                  <span className="text-[9px] font-bold uppercase tracking-wide text-slate-400">
+                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
                     Export CSV
                   </span>
                   {HR_CATALOGUE_SHEETS.map((sheet) => (
@@ -1033,7 +1033,7 @@ export const OrgMasters: React.FC<OrgMastersProps> = ({ currentUser }) => {
               ) : catalogueTab === 'DESIGNATIONS' ? (
                 <div className="max-h-80 overflow-auto rounded-xl border border-slate-200 dark:border-slate-800">
                   <table className="w-full border-collapse text-left text-[11px]">
-                    <thead className="sticky top-0 border-b border-slate-200 bg-slate-100 text-[9px] font-bold uppercase tracking-wide text-slate-600 dark:border-slate-800 dark:bg-[#161b25] dark:text-slate-400">
+                    <thead className="sticky top-0 border-b border-slate-200 bg-slate-100 text-[10px] font-bold uppercase tracking-wide text-slate-600 dark:border-slate-800 dark:bg-[#161b25] dark:text-slate-400">
                       <tr>
                         <th className="px-2 py-1.5">Code</th>
                         <th className="px-2 py-1.5">Designation</th>
@@ -1070,7 +1070,7 @@ export const OrgMasters: React.FC<OrgMastersProps> = ({ currentUser }) => {
               ) : catalogueTab === 'GRADES' ? (
                 <div className="max-h-80 overflow-auto rounded-xl border border-slate-200 dark:border-slate-800">
                   <table className="w-full border-collapse text-left text-[11px]">
-                    <thead className="sticky top-0 border-b border-slate-200 bg-slate-100 text-[9px] font-bold uppercase tracking-wide text-slate-600 dark:border-slate-800 dark:bg-[#161b25] dark:text-slate-400">
+                    <thead className="sticky top-0 border-b border-slate-200 bg-slate-100 text-[10px] font-bold uppercase tracking-wide text-slate-600 dark:border-slate-800 dark:bg-[#161b25] dark:text-slate-400">
                       <tr>
                         <th className="px-2 py-1.5">Grade</th>
                         <th className="px-2 py-1.5">Band</th>
@@ -1103,7 +1103,7 @@ export const OrgMasters: React.FC<OrgMastersProps> = ({ currentUser }) => {
               ) : (
                 <div className="max-h-80 space-y-3 overflow-auto">
                   <table className="w-full border-collapse text-left text-[11px]">
-                    <thead className="border-b border-slate-200 text-[9px] font-bold uppercase tracking-wide text-slate-600 dark:border-slate-800 dark:text-slate-400">
+                    <thead className="border-b border-slate-200 text-[10px] font-bold uppercase tracking-wide text-slate-600 dark:border-slate-800 dark:text-slate-400">
                       <tr>
                         <th className="px-2 py-1.5">Cluster</th>
                         <th className="px-2 py-1.5">Hub</th>
@@ -1127,7 +1127,7 @@ export const OrgMasters: React.FC<OrgMastersProps> = ({ currentUser }) => {
                     </tbody>
                   </table>
                   <table className="w-full border-collapse text-left text-[11px]">
-                    <thead className="border-b border-slate-200 text-[9px] font-bold uppercase tracking-wide text-slate-600 dark:border-slate-800 dark:text-slate-400">
+                    <thead className="border-b border-slate-200 text-[10px] font-bold uppercase tracking-wide text-slate-600 dark:border-slate-800 dark:text-slate-400">
                       <tr>
                         <th className="px-2 py-1.5">Code</th>
                         <th className="px-2 py-1.5">Branch</th>

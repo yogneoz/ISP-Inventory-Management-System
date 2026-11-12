@@ -215,7 +215,7 @@ const DepartmentCard: React.FC<DepartmentCardProps> = ({
             key={metric.label}
             className={metrics.length % 2 === 1 && index === metrics.length - 1 ? 'col-span-2' : ''}
           >
-            <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
               {metric.label}
             </p>
             <p
@@ -334,7 +334,7 @@ const BudgetMeter: React.FC<{ percent: number | null }> = ({ percent }) => {
       <div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
         <div className={`h-full rounded-full ${barClass}`} style={{ width: `${capped}%` }} />
       </div>
-      <div className="mt-1 flex justify-between text-[9px] text-slate-400 dark:text-slate-500">
+      <div className="mt-1 flex justify-between text-[10px] text-slate-400 dark:text-slate-500">
         <span>0%</span>
         <span>100%</span>
       </div>
@@ -1454,7 +1454,7 @@ export const CompanyOverview: React.FC<CompanyOverviewProps> = ({
                   onPointerDown={(event) => startCardDrag(event, id)}
                   aria-label={`Drag ${COMPANY_OVERVIEW_CARD_LABELS[id]} to reorder`}
                   title="Drag to reorder"
-                  className="absolute right-3 top-3 z-10 inline-flex cursor-grab touch-none select-none items-center gap-1 rounded-lg border border-indigo-200 bg-white/95 px-1.5 py-1 text-[9px] font-bold uppercase tracking-wide text-indigo-600 shadow-sm active:cursor-grabbing dark:border-indigo-800 dark:bg-slate-900/95 dark:text-indigo-300"
+                  className="absolute right-3 top-3 z-10 inline-flex cursor-grab touch-none select-none items-center gap-1 rounded-lg border border-indigo-200 bg-white/95 px-1.5 py-1 text-[10px] font-bold uppercase tracking-wide text-indigo-600 shadow-sm active:cursor-grabbing dark:border-indigo-800 dark:bg-slate-900/95 dark:text-indigo-300"
                 >
                   <GripVertical className="h-3.5 w-3.5" />
                   Drag

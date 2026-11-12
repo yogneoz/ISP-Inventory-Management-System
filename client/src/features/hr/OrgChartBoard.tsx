@@ -937,11 +937,11 @@ if (card.kind === 'DEPARTMENT') {
           {heading}
         </span>
         {arranged && arrangementSaved ? (
-          <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700">
+          <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">
             arrangement saved
           </span>
         ) : null}
-        <span className="hidden text-[9px] text-slate-400 sm:inline">
+        <span className="hidden text-[10px] text-slate-400 sm:inline">
           {tool === 'HAND'
             ? 'hand: drag anywhere (cards included) to pan · wheel needs ctrl'
             : 'pointer: drag cards or a connector bend, marquee empty space, shift-click to add · Esc clears selection'}
@@ -1303,7 +1303,7 @@ if (card.kind === 'DEPARTMENT') {
                           {holders.slice(0, 2).map((employee) => (
                             <div key={employee.id} className="flex items-center gap-1" title={`${employee.name} · ${employee.employeeCode}`}>
                               <Avatar employee={employee} size={14} />
-                              <span className="truncate text-[9px] font-semibold text-slate-700 dark:text-slate-200">
+                              <span className="truncate text-[10px] font-semibold text-slate-700 dark:text-slate-200">
                                 {employee.name}
                               </span>
                               {teamOf ? (
@@ -1418,13 +1418,13 @@ if (card.kind === 'DEPARTMENT') {
           <div className="absolute bottom-2 right-2 top-2 z-20 w-[310px] overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 shadow-2xl dark:border-slate-700 dark:bg-[#0f131b]">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="text-[9px] font-bold uppercase tracking-wide text-indigo-500">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-indigo-500">
                   {selected.kind === 'DEPARTMENT' ? 'Department' : 'Designation'}
                 </p>
                 <h3 className="text-sm font-bold text-slate-900 dark:text-white">
                   {selected.kind === 'DEPARTMENT' ? selected.dept?.name : selected.row?.name}
                 </h3>
-                <p className="font-mono text-[9px] text-slate-400">
+                <p className="font-mono text-[10px] text-slate-400">
                   {selected.kind === 'DEPARTMENT' ? selected.dept?.code : selected.row?.code}
                 </p>
               </div>
@@ -1442,17 +1442,17 @@ if (card.kind === 'DEPARTMENT') {
               <div className="mt-2 space-y-2 text-[10px]">
                 <div className="flex flex-wrap gap-1">
                   <span
-                    className="rounded px-1.5 py-0.5 text-[9px] font-black text-white"
+                    className="rounded px-1.5 py-0.5 text-[10px] font-black text-white"
                     style={{ backgroundColor: GRADE_HEX[selected.row.grade ?? ''] ?? '#64748b' }}
                   >
                     {selected.row.grade || 'Ungraded'}
                   </span>
                   {selected.row.careerBand ? (
-                    <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                       {selected.row.careerBand}
                     </span>
                   ) : null}
-                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                     {selectedHolders.length
                       ? `${selectedHolders.length} holder${selectedHolders.length === 1 ? '' : 's'}`
                       : 'Vacant'}
@@ -1479,7 +1479,7 @@ if (card.kind === 'DEPARTMENT') {
                 </dl>
 
                 <div>
-                  <p className="mb-1 flex items-center gap-1 text-[9px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  <p className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                     <Users className="h-3 w-3" /> Personnel
                   </p>
                   {selectedHolders.length === 0 ? (
@@ -1498,7 +1498,7 @@ if (card.kind === 'DEPARTMENT') {
                             <p className="truncate text-[10px] font-bold text-slate-800 dark:text-slate-100">
                               {employee.name}
                             </p>
-                            <p className="text-[9px] text-slate-500 dark:text-slate-400">
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400">
                               {employee.employeeCode} · {employee.branchName || 'No branch'}
                               {employee.workStation ? ` · ${employee.workStation}` : ''}
                             </p>
@@ -1511,17 +1511,17 @@ if (card.kind === 'DEPARTMENT') {
 
                 {selectedDept ? (
                   <div className="rounded-lg border border-slate-200 p-2 dark:border-slate-700">
-                    <p className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    <p className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                       <Building2 className="h-3 w-3" /> Department
                     </p>
                     <p className="mt-0.5 text-[10px] font-bold text-slate-800 dark:text-slate-100">
                       {selectedDept.name}
                     </p>
-                    <p className="text-[9px] text-slate-500 dark:text-slate-400">
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400">
                       Head: {selectedDept.head || 'not set'} · {deptPosts.length} posts · {deptPeople.length} people
                     </p>
                     {selectedDept.mandate ? (
-                      <p className="mt-1 text-[9px] leading-snug text-slate-500 dark:text-slate-400">
+                      <p className="mt-1 text-[10px] leading-snug text-slate-500 dark:text-slate-400">
                         {selectedDept.mandate}
                       </p>
                     ) : null}
@@ -1530,10 +1530,10 @@ if (card.kind === 'DEPARTMENT') {
 
                 {selected.row.responsibilities ? (
                   <div>
-                    <p className="text-[9px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                       Job description
                     </p>
-                    <p className="mt-0.5 text-[9px] leading-snug text-slate-600 dark:text-slate-300">
+                    <p className="mt-0.5 text-[10px] leading-snug text-slate-600 dark:text-slate-300">
                       {selected.row.responsibilities}
                     </p>
                   </div>
@@ -1560,12 +1560,12 @@ if (card.kind === 'DEPARTMENT') {
                   </div>
                 </dl>
                 {selected.dept.mandate ? (
-                  <p className="text-[9px] leading-snug text-slate-600 dark:text-slate-300">
+                  <p className="text-[10px] leading-snug text-slate-600 dark:text-slate-300">
                     {selected.dept.mandate}
                   </p>
                 ) : null}
                 <div>
-                  <p className="mb-1 flex items-center gap-1 text-[9px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  <p className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                     <Users className="h-3 w-3" /> Personnel
                   </p>
                   {deptPeople.length === 0 ? (
@@ -1584,7 +1584,7 @@ if (card.kind === 'DEPARTMENT') {
                             <p className="truncate text-[10px] font-bold text-slate-800 dark:text-slate-100">
                               {employee.name}
                             </p>
-                            <p className="text-[9px] text-slate-500 dark:text-slate-400">
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400">
                               {employee.designation || employee.catalogueDesignation || '—'} ·{' '}
                               {employee.branchName || 'No branch'}
                             </p>

@@ -1370,7 +1370,7 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
                           <span className="flex flex-wrap items-center gap-2 font-semibold text-slate-800 dark:text-slate-100">
                             {transfer.fromBranchName} → {transfer.toBranchName}
                             <span
-                              className={`rounded-full border px-1.5 py-0.5 text-[9px] font-bold ${
+                              className={`rounded-full border px-1.5 py-0.5 text-[10px] font-bold ${
                                 transfer.status === 'PENDING'
                                   ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300'
                                   : transfer.status === 'APPROVED'
