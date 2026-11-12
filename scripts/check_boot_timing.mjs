@@ -113,7 +113,14 @@ function appendStepSummary(lines) {
   }
 }
 
+function annotateProblem(message) {
+  if (!isGithubActions) return;
+  const escaped = String(message).replace(/%/g, '%25').replace(/\r?\n/g, '%0A');
+  console.log(`::error title=Production boot timing::${escaped}`);
+}
+
 function fail(message) {
+  annotateProblem(message);
   console.error(`\n✖ ${message}`);
   if (serverLog.trim()) {
     console.error('\nLast server output:\n' + serverLog.trim().split('\n').slice(-20).join('\n'));
@@ -760,6 +767,33 @@ async function waitForEvaluation(expression, timeoutMs, description) {
   throw new Error(`timed out waiting for ${description}`);
 }
 
+/**
+ * The warm reload is only meaningful once the cold boot has persisted its
+ * bootstrap snapshot. A fixed sleep is a race on a slow CI runner: without the
+ * snapshot the app legitimately mounts the sync spinner and the warm assertion
+ * fails for a reason unrelated to paint order. Wait for the cache key instead,
+ * bounded so a real cache-write regression still fails the gate.
+ */
+async function waitForBootstrapCache(timeoutMs = 8000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const cached = await evaluate(`(() => {
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.indexOf('inventory_bootstrap_v3') === 0) return true;
+        }
+        return false;
+      })()`);
+      if (cached) return true;
+    } catch {
+      // The execution context can be replaced while the page settles; retry.
+    }
+    await sleep(100);
+  }
+  return false;
+}
+
 async function readTrace() {
   const trace = await waitForEvaluation(
     'window.__bootTrace && window.__bootTrace.status !== "pending" ? window.__bootTrace : null',
@@ -948,7 +982,10 @@ async function main() {
   })()`);
 
   const cold = await measureReload('Cold reload (no bootstrap cache)', { clearCache: true, baseUrl });
-  await sleep(500); // let the app persist its bootstrap cache
+  const cacheReady = await waitForBootstrapCache();
+  if (!cacheReady) {
+    log('⚠ The cold boot did not persist a bootstrap cache within 8 s; measuring the warm reload anyway.');
+  }
   const warm = await measureReload('Warm reload (cached bootstrap)', { clearCache: false, baseUrl });
 
   if (pageErrors.length) {
@@ -964,7 +1001,10 @@ async function main() {
     ...assertTrace('warm reload', warm, { requireNoSpinner: true }),
   ];
   if (problems.length) {
-    for (const problem of problems) console.error(`\n✖ ${problem}`);
+    for (const problem of problems) {
+      annotateProblem(problem);
+      console.error(`\n✖ ${problem}`);
+    }
     appendStepSummary([
       '### Production boot timing — failed',
       '',
