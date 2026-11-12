@@ -792,7 +792,7 @@ Routes that write the matrix and the overrides use
 The screens behind these rules — the twelve-card Role Permission Defaults, the
 User Access cards, the Add System User role picker, and the employee record's
 login-role control in both its editable and administrator read-only forms — are
-captured in `docs/hr-module-plan.md` §9 (`docs/screenshots/`).
+described in `docs/hr-module-plan.md` §9.
 
 The verification seed ships one worked example per layer, so a fresh install
 shows the model without anyone editing anything: `frontdesk@example.com` holds a

@@ -345,8 +345,8 @@ implementation work remains for this slice.
   1,20,000/0; allocated **8,00,000 / 1,72,800**; unallocated **0**; tagged
   **8 of 8** posted expense lines. Browser console had only Vite/React debug
   messages, every script/API request was 200, and the captured server stdout
-  had no error lines. Viewport capture:
-  `docs/screenshots/br-ktm-cost-centre-allocation.png`.
+  had no error lines. The viewport capture was generated locally and is not
+  committed.
 - `npm test`: **2,120 tests / 477 suites**, 2,118 pass, 2 Windows-only skips,
   0 fail; docs-count gate matched 2,120. `npm run build` exited 0; bundle gate
   passed at 20.6 kB entry gzip (20.625 kB budget) and 313.8/320 kB startup.
