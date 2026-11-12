@@ -27,7 +27,7 @@ import { PageHeader } from '../../components/common/PageHeader';
 import { DateField } from '../../components/DateField';
 import { LoadStateNotice } from '../../components/common/LoadStateNotice';
 import { useDialog } from '../../components/common/DialogProvider';
-import { DEFAULT_GROUPS } from './PermissionManagement';
+import { DEFAULT_GROUPS } from './permissionGroups';
 import { PermissionSetsPanel } from './PermissionSetsPanel';
 import {
   countDraftChanges,

@@ -35,7 +35,7 @@ import {
   APP_ROLE_LABELS,
   DEFAULT_PERMISSIONS_MATRIX,
 } from '../../utils/permissionMatrixData';
-import { DEFAULT_GROUPS } from './PermissionManagement';
+import { DEFAULT_GROUPS } from './permissionGroups';
 import {
   readAccessFilterUrl,
   syncAccessFilterUrl,

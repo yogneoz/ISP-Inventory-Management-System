@@ -269,7 +269,9 @@ describe('finance micro permissions', () => {
   });
 
   test('every matrix operation is named in the grouped permission UI', () => {
-    const panel = source('client/src/features/settings/PermissionManagement.tsx');
+    const panel =
+      source('client/src/features/settings/PermissionManagement.tsx') +
+      source('client/src/features/settings/permissionGroups.ts');
     for (const operation of Object.keys(DEFAULT_PERMISSIONS_MATRIX)) {
       assert.ok(
         panel.includes(`DEFAULT_PERMISSIONS_MATRIX['${operation}']`),

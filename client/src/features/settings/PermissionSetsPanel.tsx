@@ -17,7 +17,7 @@ import { api } from '../../services/api';
 import type { PermissionSetSummary } from '../../services/api';
 import { LoadStateNotice } from '../../components/common/LoadStateNotice';
 import { useDialog } from '../../components/common/DialogProvider';
-import { DEFAULT_GROUPS } from './PermissionManagement';
+import { DEFAULT_GROUPS } from './permissionGroups';
 import {
   AlertTriangle,
   Check,

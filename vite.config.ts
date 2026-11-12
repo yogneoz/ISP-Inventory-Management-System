@@ -48,6 +48,15 @@ export default defineConfig(() => {
               return `feature-${featureMatch[1]}-${featureMatch[2]}`;
             }
 
+            // Root-level shared contracts (shared/*.ts) get their own chunks
+            // too. Without this, Rollup folds a contract into the first feature
+            // chunk that imports it, and an eager importer of one constant then
+            // drags that whole lazy screen into the startup graph.
+            const rootSharedMatch = id.match(/[\\/]shared[\\/]([^\\/]+)\.(?:ts|tsx)$/);
+            if (rootSharedMatch) {
+              return `shared-lib-${rootSharedMatch[1]}`;
+            }
+
             // Shared components/util/hooks get their OWN file-level chunks.
             // Rollup otherwise merges a shared module into whichever chunk
             // first grabbed it (observed: DateField ended up inside the

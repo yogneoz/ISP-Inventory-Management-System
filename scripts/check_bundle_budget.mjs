@@ -84,8 +84,13 @@ const ASSETS = path.join(DIST, 'assets');
 // barrel additions. The shell wiring is required for the new registers; the
 // entry gate moves to 21 kB (21,504 B) while startup measures 315.3 kB against
 // the unchanged 320 kB total.
+// 2026-11-12 (company overview): measured entry 21.4 kB after the overview
+// route/sidebar/tab gate and card-order API joined the shell. The screen itself
+// stays lazy; the entry gate moves 21 -> 21.5 kB. Startup measures 319.2 kB
+// against the unchanged 320 kB total after the permission catalogue and the
+// shared companyOverview contract were split out of their lazy screens.
 const BUDGETS = {
-  entryGz: 21 * 1024, // entry chunk alone
+  entryGz: 21.5 * 1024, // entry chunk alone
   startupTotalGz: 320 * 1024, // entry + all statically-imported chunks
 };
 

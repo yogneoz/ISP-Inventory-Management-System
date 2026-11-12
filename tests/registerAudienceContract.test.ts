@@ -129,7 +129,9 @@ describe('register audience contract', () => {
       !matrix.includes('INVENTORY_OPERATIONS'),
       'no vestigial operation-id registry: the matrix keys are the single source'
     );
-    const management = read('client/src/features/settings/PermissionManagement.tsx');
+    const management =
+      read('client/src/features/settings/PermissionManagement.tsx') +
+      read('client/src/features/settings/permissionGroups.ts');
     assert.ok(
       management.includes("id: 'pullout-report-view',"),
       'operation must be toggleable in Permission Management'
