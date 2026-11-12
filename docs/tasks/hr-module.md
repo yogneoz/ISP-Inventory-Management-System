@@ -4,6 +4,14 @@
 **Plan:** [../hr-module-plan.md](../hr-module-plan.md)
 **Created:** 2026-11-08
 
+**Current statutory rule (2026-11-12):** SSF-eligible employees have **no
+separate TDS**. Their SSF contribution already includes salary tax, so payroll
+calculations and ledger postings record TDS 0 for them. Manual payroll runs and
+approval/posting of older drafts also reject TDS for those employees. Dated
+verification entries below that show TDS for an SSF-eligible employee describe
+the pre-correction behavior and are retained as history, not current
+expectations.
+
 ## Goal
 
 A first-class HR module inside the existing single-database app: employee
@@ -1215,10 +1223,12 @@ assets and linked user accounts. No Phase 4 work remains.
     `GET /api/hr/payroll-inputs` exposes the row beside the derived attendance
     inputs when the selected range is one calendar month.
   - The generated draft adds incentives and arrears after LOP-prorated salary
-    and OT, includes them in taxable gross/TDS, then subtracts SSF/TDS/advance/
-    loan for net. The line and run header snapshot the new amounts; later input
-    edits cannot rewrite a generated run. Payslips, register, PDF, payroll
-    register/show detail and the Payroll Inputs tab display/edit them.
+    and OT, includes them in taxable gross, then subtracts SSF/TDS/advance/loan
+    for net. TDS is zero for SSF-eligible employees (SSF includes salary tax)
+    and progressive for non-SSF employees. The line and run header snapshot the
+    new amounts; later input edits cannot rewrite a generated run. Payslips,
+    register, PDF, payroll register/show detail and the Payroll Inputs tab
+    display/edit them.
   - API coverage includes the happy path, upsert, list/scoping, officer and
     auditor refusals, cross-branch refusal, negative/bad-period 400s, audit
     count, balanced posted journal with recoveries, and snapshot immutability.
@@ -1276,9 +1286,10 @@ assets and linked user accounts. No Phase 4 work remains.
   - `POST /api/payroll-runs/draft` computes the month from active employees,
     their effective salary structure, attendance/OT and the fiscal-year TDS/SSF
     config. Basic is prorated by payable days; LOP is gross × LOP days ÷ month
-    days; gross is earnings − LOP + OT; employee SSF reduces taxable gross; TDS
-    uses progressive monthly slabs. The temporary `DRAFT-*` number becomes
-    `PR-*` only when posted, and a draft writes no journal.
+    days; gross is earnings − LOP + OT; employee SSF reduces taxable gross. TDS
+    is zero for SSF-eligible employees (SSF includes salary tax); non-SSF
+    employees use progressive monthly slabs. The temporary `DRAFT-*` number
+    becomes `PR-*` only when posted, and a draft writes no journal.
   - `POST /api/payroll-runs/:id/approve`, `/post` and `/pay` enforce
     DRAFT → APPROVED → POSTED → PAID; only an unapproved DRAFT can be discarded
     with `DELETE /api/payroll-runs/:id`. HR prepares/discards; Finance
