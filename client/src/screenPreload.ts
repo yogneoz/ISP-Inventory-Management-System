@@ -75,6 +75,7 @@ export const SCREEN_PRELOADERS: Readonly<Record<string, ScreenModuleLoader>> = {
   'seller-warranty': () => import('./features/inventory/SellerWarrantyRegister'),
   'clear-demo-data': () => import('./components/common/ClearDemoDataView'),
   accounting: () => import('./features/finance/TrialBalanceRegister'),
+  'accounting-bs-summary': () => import('./features/finance/BsLedgerSummaryRegister'),
   'accounting-profit-loss': () => import('./features/finance/ProfitAndLossRegister'),
   'accounting-balance-sheet': () => import('./features/finance/BalanceSheetRegister'),
   'accounting-cash-flow': () => import('./features/finance/CashFlowRegister'),

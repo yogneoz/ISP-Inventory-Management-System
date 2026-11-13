@@ -50,8 +50,11 @@ export const WARRANTY_CLAIM_COLUMNS = `c.id,
   c.replacement_serial AS "replacementSerial",
   c.rma_reference AS "rmaReference",
   to_char(c.sent_to_vendor_date_ad, 'YYYY-MM-DD') AS "sentToVendorDateAD",
+  c.sent_to_vendor_date_bs AS "sentToVendorDateBS",
   to_char(c.resolved_date_ad, 'YYYY-MM-DD') AS "resolvedDateAD",
+  c.resolved_date_bs AS "resolvedDateBS",
   to_char(c.closed_date_ad, 'YYYY-MM-DD') AS "closedDateAD",
+  c.closed_date_bs AS "closedDateBS",
   c.notes,
   c.is_demo AS "isDemo",
   c.created_by AS "createdBy",
@@ -304,8 +307,11 @@ export const WARRANTY_CLAIM_RAW_SQL = `SELECT
   journal_id AS "journalId", replacement_serial AS "replacementSerial",
   rma_reference AS "rmaReference",
   to_char(sent_to_vendor_date_ad, 'YYYY-MM-DD') AS "sentToVendorDateAD",
+  sent_to_vendor_date_bs AS "sentToVendorDateBS",
   to_char(resolved_date_ad, 'YYYY-MM-DD') AS "resolvedDateAD",
-  to_char(closed_date_ad, 'YYYY-MM-DD') AS "closedDateAD", notes
+  resolved_date_bs AS "resolvedDateBS",
+  to_char(closed_date_ad, 'YYYY-MM-DD') AS "closedDateAD",
+  closed_date_bs AS "closedDateBS", notes
  FROM warranty_claims WHERE id = $1 FOR UPDATE`;
 
 export const WARRANTY_CLAIM_OPEN_FOR_UNIT_SQL = `SELECT id FROM warranty_claims
@@ -342,10 +348,13 @@ export const WARRANTY_CLAIM_UPDATE_SQL = `UPDATE warranty_claims SET
   replacement_serial = $11,
   rma_reference = $12,
   sent_to_vendor_date_ad = $13,
-  resolved_date_ad = $14,
-  closed_date_ad = $15,
-  notes = $16,
-  updated_by = $17,
+  sent_to_vendor_date_bs = $14,
+  resolved_date_ad = $15,
+  resolved_date_bs = $16,
+  closed_date_ad = $17,
+  closed_date_bs = $18,
+  notes = $19,
+  updated_by = $20,
   updated_at = CURRENT_TIMESTAMP
  WHERE id = $1`;
 

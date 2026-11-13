@@ -1276,6 +1276,8 @@ export const BS_LEDGER_SUMMARY_SQL = `SELECT
   d.quarter,
   MIN(l.journal_date_ad)::text AS "startAD",
   MAX(l.journal_date_ad)::text AS "endAD",
+  MIN(d.bs_date) AS "startBS",
+  MAX(d.bs_date) AS "endBS",
   COALESCE(SUM(l.debit), 0)::numeric AS debit,
   COALESCE(SUM(l.credit), 0)::numeric AS credit,
   COALESCE(SUM(l.debit - l.credit), 0)::numeric AS balance
@@ -1290,6 +1292,19 @@ WHERE j.status = 'POSTED'
 GROUP BY d.fiscal_year, d.bs_year, d.bs_month, d.bs_month_name,
          d.bs_month_name_np, d.quarter
 ORDER BY d.bs_year ASC, d.bs_month ASC`;
+
+/** The AD-range control total for the same posted ledger slice. */
+export const LEDGER_RANGE_TOTALS_SQL = `SELECT
+  COALESCE(SUM(l.debit), 0)::numeric AS debit,
+  COALESCE(SUM(l.credit), 0)::numeric AS credit,
+  COALESCE(SUM(l.debit - l.credit), 0)::numeric AS balance
+FROM gl_journal_lines l
+JOIN gl_journals j
+  ON j.id = l.journal_id AND j.journal_date_ad = l.journal_date_ad
+WHERE j.status = 'POSTED'
+  AND ($1::date IS NULL OR l.journal_date_ad >= $1::date)
+  AND ($2::date IS NULL OR l.journal_date_ad <= $2::date)
+  AND ($3::varchar IS NULL OR l.branch_id = $3::varchar)`;
 
 export const FISCAL_YEAR_BOUNDS_SQL = `SELECT id, code,
   start_date_ad::text AS "startDateAD",

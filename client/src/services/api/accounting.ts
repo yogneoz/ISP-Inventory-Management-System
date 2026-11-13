@@ -163,6 +163,44 @@ export interface TrialBalanceGroup {
   children: TrialBalanceGroup[];
 }
 
+export interface BsLedgerMonth {
+  fiscalYear: string;
+  bsYear: number;
+  bsMonth: number;
+  bsMonthName: string;
+  bsMonthNameNp: string;
+  quarter: string;
+  startAD: string;
+  endAD: string;
+  startBS: string;
+  endBS: string;
+  debit: number;
+  credit: number;
+  balance: number;
+}
+
+export interface BsLedgerQuarter {
+  fiscalYear: string;
+  bsYear: number;
+  quarter: string;
+  debit: number;
+  credit: number;
+  balance: number;
+}
+
+export interface BsLedgerSummaryResponse {
+  statement: 'BS_LEDGER_SUMMARY';
+  branchId: string | null;
+  from: string | null;
+  to: string;
+  months: BsLedgerMonth[];
+  quarters: BsLedgerQuarter[];
+  totals: { debit: number; credit: number; balance: number };
+  adTotals: { debit: number; credit: number; balance: number };
+  difference: number;
+  reconciled: boolean;
+}
+
 export interface TrialBalanceResponse {
   statement: 'TRIAL_BALANCE';
   branchId: string | null;
@@ -1665,6 +1703,12 @@ export async function getAccountingBudgetCsv(
 
 export async function getTrialBalance(query: StatementQuery = {}): Promise<TrialBalanceResponse> {
   return fetchJson(`/api/accounting/statements/trial-balance${statementQuery(query)}`);
+}
+
+export async function getBsLedgerSummary(
+  query: StatementQuery = {}
+): Promise<BsLedgerSummaryResponse> {
+  return fetchJson(`/api/accounting/statements/bs-summary${statementQuery(query)}`);
 }
 
 export async function getProfitAndLoss(query: StatementQuery = {}): Promise<ProfitAndLossResponse> {

@@ -987,6 +987,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     // The accounting workspace split into one register per statement. Each
     // register owns exactly the read its tab used to make.
     'finance/TrialBalanceRegister.tsx': ['getTrialBalance'],
+    'finance/BsLedgerSummaryRegister.tsx': ['getBsLedgerSummary'],
     'finance/ProfitAndLossRegister.tsx': ['getProfitAndLoss'],
     'finance/BalanceSheetRegister.tsx': ['getBalanceSheet'],
     'finance/CashFlowRegister.tsx': [
@@ -1469,6 +1470,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
   // refetches after its own saves as well as on re-activation.
   const MOUNT_REFETCH_SCREENS = [
     'finance/TrialBalanceRegister.tsx',
+    'finance/BsLedgerSummaryRegister.tsx',
     'finance/ProfitAndLossRegister.tsx',
     'finance/BalanceSheetRegister.tsx',
     'finance/CashFlowRegister.tsx',
@@ -1653,6 +1655,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
   // mode prop (ProductManagement); every listed tab must still exist.
   const MOUNT_REFETCH_ACTIVATION_TABS: Record<string, string | string[]> = {
     'finance/TrialBalanceRegister.tsx': 'accounting',
+    'finance/BsLedgerSummaryRegister.tsx': 'accounting-bs-summary',
     'finance/ProfitAndLossRegister.tsx': 'accounting-profit-loss',
     'finance/BalanceSheetRegister.tsx': 'accounting-balance-sheet',
     'finance/CashFlowRegister.tsx': 'accounting-cash-flow',

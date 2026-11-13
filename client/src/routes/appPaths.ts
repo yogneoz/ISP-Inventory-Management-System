@@ -90,6 +90,7 @@ export const APP_PATHS: Record<NavTab, string> = {
   'complete-serial-inventory': '/serial-register',
 
   accounting: '/finance/accounting',
+  'accounting-bs-summary': '/finance/accounting/bs-summary',
   'accounting-profit-loss': '/finance/accounting/profit-loss',
   'accounting-balance-sheet': '/finance/accounting/balance-sheet',
   'accounting-cash-flow': '/finance/accounting/cash-flow',

@@ -137,6 +137,7 @@ export type NavTab =
   | 'hr-self-attendance'
   | 'hr-self-documents'
   | 'accounting'
+  | 'accounting-bs-summary'
   | 'accounting-profit-loss'
   | 'accounting-balance-sheet'
   | 'accounting-cash-flow'
@@ -246,6 +247,7 @@ export const NAV_TABS: NavTab[] = [
   'hr-self-attendance',
   'hr-self-documents',
   'accounting',
+  'accounting-bs-summary',
   'accounting-profit-loss',
   'accounting-balance-sheet',
   'accounting-cash-flow',
@@ -761,6 +763,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       { id: 'posted-vouchers' as NavTab, label: 'Posted Vouchers', icon: ClipboardList, section: 'Entries' },
       { id: 'finance-payroll-postings' as NavTab, label: 'Payroll Postings', icon: Wallet, section: 'Statements & ledgers' },
       { id: 'accounting' as NavTab, label: 'Trial Balance', icon: Scale, section: 'Statements & ledgers' },
+      { id: 'accounting-bs-summary' as NavTab, label: 'BS Ledger Summary', icon: CalendarDays, section: 'Statements & ledgers' },
       { id: 'accounting-profit-loss' as NavTab, label: 'Profit & Loss', icon: TrendingUp, section: 'Statements & ledgers' },
       { id: 'accounting-balance-sheet' as NavTab, label: 'Balance Sheet', icon: Landmark, section: 'Statements & ledgers' },
       { id: 'accounting-cash-flow' as NavTab, label: 'Cash Flow', icon: TrendingUp, section: 'Statements & ledgers' },

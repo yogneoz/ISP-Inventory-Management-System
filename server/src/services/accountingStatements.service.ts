@@ -36,6 +36,7 @@ import {
   ACCOUNT_BALANCE_ROWS_SQL,
   ACCOUNT_BY_ID_SQL,
   BS_LEDGER_SUMMARY_SQL,
+  LEDGER_RANGE_TOTALS_SQL,
   ACCOUNT_GROUP_LIST_SQL,
   CASH_BANK_ACCOUNT_ROWS_SQL,
   CASH_FLOW_JOURNAL_ROWS_SQL,
@@ -752,6 +753,8 @@ export interface BsLedgerMonth {
   quarter: string;
   startAD: string;
   endAD: string;
+  startBS: string;
+  endBS: string;
   debit: number;
   credit: number;
   balance: number;
@@ -776,6 +779,9 @@ export async function buildBsLedgerSummary(client: AccountingClient, window: Sta
   const rows = window.empty
     ? []
     : (await client.query(BS_LEDGER_SUMMARY_SQL, [window.from, window.to, window.branchId])).rows;
+  const adTotalsRow = window.empty
+    ? { debit: 0, credit: 0, balance: 0 }
+    : (await client.query(LEDGER_RANGE_TOTALS_SQL, [window.from, window.to, window.branchId])).rows[0];
 
   const months: BsLedgerMonth[] = rows.map((row: any) => ({
     fiscalYear: String(row.fiscalYear),
@@ -786,6 +792,8 @@ export async function buildBsLedgerSummary(client: AccountingClient, window: Sta
     quarter: String(row.quarter),
     startAD: String(row.startAD),
     endAD: String(row.endAD),
+    startBS: String(row.startBS),
+    endBS: String(row.endBS),
     debit: roundMoney(Number(row.debit)),
     credit: roundMoney(Number(row.credit)),
     balance: roundMoney(Number(row.balance)),
@@ -816,6 +824,16 @@ export async function buildBsLedgerSummary(client: AccountingClient, window: Sta
     }),
     { debit: 0, credit: 0, balance: 0 }
   );
+  const adTotals = {
+    debit: roundMoney(Number(adTotalsRow?.debit ?? 0)),
+    credit: roundMoney(Number(adTotalsRow?.credit ?? 0)),
+    balance: roundMoney(Number(adTotalsRow?.balance ?? 0)),
+  };
+  const difference = roundMoney(
+    Math.abs(totals.debit - adTotals.debit) +
+      Math.abs(totals.credit - adTotals.credit) +
+      Math.abs(totals.balance - adTotals.balance)
+  );
 
   return {
     statement: 'BS_LEDGER_SUMMARY' as const,
@@ -827,6 +845,9 @@ export async function buildBsLedgerSummary(client: AccountingClient, window: Sta
       (a, b) => a.bsYear - b.bsYear || a.quarter.localeCompare(b.quarter)
     ),
     totals,
+    adTotals,
+    difference,
+    reconciled: difference < 0.005,
   };
 }
 

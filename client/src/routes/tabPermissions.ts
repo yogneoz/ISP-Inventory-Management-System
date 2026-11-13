@@ -76,6 +76,7 @@ export const TAB_PERMISSIONS: Record<string, string | string[]> = {
   'hr-org-masters': ['hr-employee-manage', 'gl-payroll-manage'],
   'workflow-approval': ['workflow-approval', 'workflow-approval-cancel'],
   accounting: 'gl-view',
+  'accounting-bs-summary': 'gl-view',
   'accounting-profit-loss': 'gl-view',
   'accounting-balance-sheet': 'gl-view',
   'accounting-cash-flow': 'gl-view',

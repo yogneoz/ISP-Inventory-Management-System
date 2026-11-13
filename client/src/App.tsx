@@ -151,6 +151,11 @@ const ExportStock = React.lazy(() =>
 const TrialBalanceRegister = React.lazy(() =>
   import('./features/finance/TrialBalanceRegister').then((m) => ({ default: m.TrialBalanceRegister }))
 );
+const BsLedgerSummaryRegister = React.lazy(() =>
+  import('./features/finance/BsLedgerSummaryRegister').then((m) => ({
+    default: m.BsLedgerSummaryRegister,
+  }))
+);
 const ProfitAndLossRegister = React.lazy(() =>
   import('./features/finance/ProfitAndLossRegister').then((m) => ({ default: m.ProfitAndLossRegister }))
 );
@@ -3391,6 +3396,15 @@ export default function App() {
     screenRoute('accounting', (
       <React.Suspense fallback={<TabLoadingFallback />}>
         <TrialBalanceRegister branches={branches} dateMode={dateMode} currentUser={currentUser} />
+      </React.Suspense>
+    )),
+    screenRoute('accounting-bs-summary', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <BsLedgerSummaryRegister
+          branches={branches}
+          dateMode={dateMode}
+          currentUser={currentUser}
+        />
       </React.Suspense>
     )),
     screenRoute('accounting-profit-loss', (

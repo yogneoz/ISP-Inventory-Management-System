@@ -112,8 +112,11 @@ export interface WarrantyClaimRaw {
   replacementSerial: string | null;
   rmaReference: string | null;
   sentToVendorDateAD: string | null;
+  sentToVendorDateBS: string | null;
   resolvedDateAD: string | null;
+  resolvedDateBS: string | null;
   closedDateAD: string | null;
+  closedDateBS: string | null;
   notes: string | null;
 }
 
@@ -478,8 +481,11 @@ export async function transitionWarrantyClaim(
   let replacementSerial = claim.replacementSerial;
   let rmaReference = claim.rmaReference;
   let sentToVendorDateAD = claim.sentToVendorDateAD;
+  let sentToVendorDateBS = claim.sentToVendorDateBS;
   let resolvedDateAD = claim.resolvedDateAD;
+  let resolvedDateBS = claim.resolvedDateBS;
   let closedDateAD = claim.closedDateAD;
+  let closedDateBS = claim.closedDateBS;
   let notes = claim.notes;
   let stockEffect: WarrantyClaimStockEffect | undefined;
 
@@ -495,6 +501,7 @@ export async function transitionWarrantyClaim(
 
   if (target === 'SENT_TO_VENDOR') {
     sentToVendorDateAD = dateAD;
+    sentToVendorDateBS = dateBS;
     rmaReference = text(input.rmaReference, 120) || rmaReference;
     await moveSerial(executor, claim.serialNumber, 'RETURNED_TO_VENDOR', claim, null, null, dateAD, note || 'Unit sent to vendor for RMA');
   }
@@ -505,12 +512,14 @@ export async function transitionWarrantyClaim(
     stockEffect = await consumeReplacement(executor, claim, replacementSerial, dateAD, dateBS);
     resolution = 'REPLACED';
     resolvedDateAD = dateAD;
+    resolvedDateBS = dateBS;
   }
 
   if (target === 'REPAIRED') {
     stockEffect = await returnRepair(executor, claim, dateAD, dateBS);
     resolution = 'REPAIRED';
     resolvedDateAD = dateAD;
+    resolvedDateBS = dateBS;
   }
 
   if (target === 'CREDITED') {
@@ -526,6 +535,7 @@ export async function transitionWarrantyClaim(
     }
     resolution = 'CREDITED';
     resolvedDateAD = dateAD;
+    resolvedDateBS = dateBS;
   }
 
   if (target === 'CLOSED') {
@@ -533,6 +543,7 @@ export async function transitionWarrantyClaim(
       throw new ApiError(409, 'A claim can only be closed after it is replaced, repaired or credited.');
     }
     closedDateAD = dateAD;
+    closedDateBS = dateBS;
     resolution = claim.resolution || claim.status;
   }
 
@@ -550,8 +561,11 @@ export async function transitionWarrantyClaim(
     replacementSerial || null,
     rmaReference || null,
     sentToVendorDateAD || null,
+    sentToVendorDateBS || null,
     resolvedDateAD || null,
+    resolvedDateBS || null,
     closedDateAD || null,
+    closedDateBS || null,
     notes || null,
     input.actor || null,
   ]);

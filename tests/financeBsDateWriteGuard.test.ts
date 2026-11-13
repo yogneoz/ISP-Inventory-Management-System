@@ -39,9 +39,12 @@ const BUSINESS_DATE_COLUMN = /_date(_ad)?$/;
  */
 export const TABLE_EXEMPTIONS = new Map<string, string>([
   ['bs_day_records', 'the BS calendar source itself: ad_date/bs_date ARE the mapping'],
+  ['bs_months', 'the derived BS month/quarter reference: ad_date/bs_date and their month-end twins ARE the mapping'],
   ['document_sequence_daily', 'daily document-number counter keyed by date; not a business-date record'],
   ['gl_recurring_templates', 'recurring schedule metadata: start/end/next/last run are AD planning dates; the generated journal carries the posted dual date'],
   ['gl_recurring_runs', 'idempotency log keyed by the posted journal date; the journal itself carries the business dual date'],
+  ['gl_journals_registry', 'non-partitioned identity registry for external journal FKs; the ledger journal carries the dual date'],
+  ['gl_journal_line_registry', 'non-partitioned identity registry for external line FKs; the ledger line carries the dual date'],
 ]);
 
 /**
@@ -55,6 +58,7 @@ export const COLUMN_EXEMPTIONS = new Map<string, string>([
   ['employees.date_of_birth_ad', 'employee master date of birth is intentionally AD-only'],
   ['employees.contract_expiry_ad', 'employee master contract expiry is intentionally AD-only'],
   ['employees.separation_date_ad', 'employee master separation date is intentionally AD-only'],
+  ['employees.declaration_date_ad', 'employee master declaration date is intentionally AD-only'],
 ]);
 
 /**
@@ -214,6 +218,28 @@ describe('finance dual-date guard: INSERT columns must pair AD business dates wi
         `${file} must derive the ${surface} BS date server-side (bsDateOrThrow / bsDateOr400 / resolveBsDateForLedger)`
       );
     }
+  });
+
+  test('every operational schema table pairs each AD business date with a BS column', () => {
+    const schema = read('scripts/schema.sql');
+    const re = /CREATE TABLE IF NOT EXISTS (\w+) \(([\s\S]*?)\n\)(?: PARTITION BY [^;]+)?;/g;
+    const violations: string[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(schema)) !== null) {
+      const table = match[1].toLowerCase();
+      if (TABLE_EXEMPTIONS.has(table)) continue;
+      const body = match[2];
+      const columns = new Set(
+        [...body.matchAll(/^\s*([a-z][a-z0-9_]*)\s+/gim)].map((entry) => entry[1].toLowerCase())
+      );
+      for (const column of columns) {
+        if (!BUSINESS_DATE_COLUMN.test(column)) continue;
+        if (COLUMN_EXEMPTIONS.has(`${table}.${column}`)) continue;
+        const expected = `${column.replace(/_ad$/, '')}_bs`;
+        if (!columns.has(expected)) violations.push(`${table}.${column} -> ${expected}`);
+      }
+    }
+    assert.deepEqual(violations, []);
   });
 
   test('schema keeps the NOT NULL / CHECK constraints behind every paired column', () => {
