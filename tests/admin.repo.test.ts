@@ -11,6 +11,9 @@ import {
   DEMO_FY_REFERENCE_COUNT_SQL,
   DEMO_FY_VENDOR_OB_COUNT_SQL,
   DEMO_FY_DELETE_SQL,
+  DEMO_FY_BALANCE_DELETE_SQL,
+  DEMO_BALANCE_PURGE_ON_SQL,
+  DEMO_BALANCE_PURGE_OFF_SQL,
   DEMO_FY_RELINK_DAY_RECORDS_SQL,
   COMPANY_PROFILE_SELECT_SQL,
   COMPANY_PROFILE_UPSERT_SQL,
@@ -139,6 +142,13 @@ describe('demo data cleanup', () => {
     assert.ok(DEMO_FY_PRESERVED_TABLES.includes('vendor_opening_balances'));
     assert.match(DEMO_FY_REFERENCE_COUNT_SQL, /fiscal_year_opening_stock WHERE fiscal_year_id = \$1/);
     assert.match(DEMO_FY_VENDOR_OB_COUNT_SQL, /vendor_opening_balances WHERE fiscal_year_id = \$1/);
+
+    // A year-end snapshot is immutable for a real close, so a demo year's
+    // snapshot is removed first under the scoped fixture bypass, then the
+    // setting is restored before the fiscal-year row is deleted.
+    assert.match(DEMO_FY_BALANCE_DELETE_SQL, /DELETE FROM fiscal_year_balances/);
+    assert.match(DEMO_BALANCE_PURGE_ON_SQL, /inventory\.allow_ledger_purge.*on/);
+    assert.match(DEMO_BALANCE_PURGE_OFF_SQL, /inventory\.allow_ledger_purge.*off/);
   });
 });
 

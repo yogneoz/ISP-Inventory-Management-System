@@ -100,6 +100,19 @@ export const DEMO_FY_REFERENCE_COUNT_SQL =
 export const DEMO_FY_VENDOR_OB_COUNT_SQL =
   'SELECT COUNT(*)::int AS count FROM vendor_opening_balances WHERE fiscal_year_id = $1';
 
+/**
+ * A demo fiscal year owns its close snapshots. They are immutable for real
+ * years, so the demo clear has to delete them explicitly before the parent
+ * fiscal year; the scoped GUC is the same local fixture bypass the ledger
+ * append-only triggers use, and it is turned off again immediately.
+ */
+export const DEMO_FY_BALANCE_DELETE_SQL =
+  'DELETE FROM fiscal_year_balances WHERE fiscal_year_id = $1';
+export const DEMO_BALANCE_PURGE_ON_SQL =
+  "SELECT set_config('inventory.allow_ledger_purge', 'on', true)";
+export const DEMO_BALANCE_PURGE_OFF_SQL =
+  "SELECT set_config('inventory.allow_ledger_purge', 'off', true)";
+
 /** All demo fiscal-year ids (the clear-demo target set). */
 export const DEMO_FY_IDS_SELECT_SQL =
   'SELECT id FROM fiscal_years WHERE is_demo = TRUE';

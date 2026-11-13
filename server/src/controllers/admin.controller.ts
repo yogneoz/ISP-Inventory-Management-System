@@ -24,6 +24,9 @@ import { calculateFixedAssetValues } from '../../../client/src/utils/depreciatio
 import {
   DEMO_DATA_TABLES,
   demoDataDeleteSql,
+  DEMO_FY_BALANCE_DELETE_SQL,
+  DEMO_BALANCE_PURGE_ON_SQL,
+  DEMO_BALANCE_PURGE_OFF_SQL,
   DEMO_FY_REFERENCE_COUNT_SQL,
   DEMO_FY_VENDOR_OB_COUNT_SQL,
   DEMO_FY_IDS_SELECT_SQL,
@@ -126,6 +129,14 @@ try {
             demoFySkipped += 1;
             continue;
           }
+          // The snapshot is immutable for a real close. This transaction
+          // deletes only rows owned by a demo fiscal year that is already
+          // being removed, then immediately restores the default.
+          await client.query(DEMO_BALANCE_PURGE_ON_SQL);
+          const balanceRes = await client.query(DEMO_FY_BALANCE_DELETE_SQL, [fyId]);
+          await client.query(DEMO_BALANCE_PURGE_OFF_SQL);
+          removed['fiscal_year_balances'] =
+            (removed['fiscal_year_balances'] || 0) + (balanceRes.rowCount || 0);
           const delRes = await client.query(DEMO_FY_DELETE_SQL, [fyId]);
           demoFyDeleted += delRes.rowCount || 0;
         }
