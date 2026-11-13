@@ -7,10 +7,11 @@
  * an open period and the fiscal-year membership — true for these entries too.
  *
  * Opening balances:
- *   - one posting per branch, into the earliest OPEN monthly period (or the
- *     earliest OPEN fiscal year's first month when no period exists yet);
- *   - a per-branch advisory lock plus a source-journal check make a concurrent
- *     or repeated request a 409 before anything is written;
+ *   - one active posting per branch and Opening Balances register, into the
+ *     earliest OPEN monthly period (or the earliest OPEN fiscal year's first
+ *     month when no period exists yet);
+ *   - a per-branch + register advisory lock and the unique slot table make a
+ *     concurrent save replace serially without a cross-register collision;
  *   - control-account lines must carry the right subledger party, and an
  *     ordinary account must not carry one (postJournal enforces both).
  *
@@ -37,8 +38,10 @@ import {
   FISCAL_YEAR_PNL_BALANCE_ROWS_SQL,
   FISCAL_YEAR_TRIAL_BALANCE_ROWS_SQL,
   OPENING_BALANCE_BY_SOURCE_SQL,
-  OPENING_BALANCE_EXISTS_SQL,
   OPENING_BALANCE_LOCK_SQL,
+  OPENING_BALANCE_SLOT_DELETE_SQL,
+  OPENING_BALANCE_SLOT_FOR_UPDATE_SQL,
+  OPENING_BALANCE_SLOT_SET_SQL,
   YEAR_END_CLOSE_EXISTS_SQL,
   YEAR_END_CLOSE_LOCK_SQL,
 } from '../models/accounting.repo';
@@ -56,12 +59,28 @@ function text(value: unknown, max: number): string {
   return typeof value === 'string' ? value.trim().slice(0, max) : '';
 }
 
+export type OpeningRegisterKey = 'gl' | 'customer' | 'stock' | 'vendor';
+
+const OPENING_REGISTER_KEYS = new Set<OpeningRegisterKey>(['gl', 'customer', 'stock', 'vendor']);
+
+function openingRegisterKey(value: unknown): OpeningRegisterKey {
+  const key = text(value, 30).toLowerCase() as OpeningRegisterKey;
+  if (!OPENING_REGISTER_KEYS.has(key)) {
+    throw new ApiError(400, 'Unknown opening-balance register.');
+  }
+  return key;
+}
+
+export function openingSourceId(sourceKey: OpeningRegisterKey, branchId: string): string {
+  return `${sourceKey}-opening:${text(branchId, 50)}`;
+}
+
 export interface PostOpeningBalancesInput {
   branchId?: unknown;
   lines?: JournalLineInput[];
   actor?: string | null;
-  /** Stable source id; stock opening uses one per branch so a re-save can replace it. */
-  sourceId?: string;
+  /** The Opening Balances register that owns this per-branch opening. */
+  sourceKey: OpeningRegisterKey;
 }
 
 export interface PostOpeningBalancesResult {
@@ -86,18 +105,27 @@ export async function postOpeningBalances(
 ): Promise<PostOpeningBalancesResult> {
   const branchId = text(input.branchId, 50);
   if (!branchId) throw new ApiError(400, 'A branch is required for opening balances.');
+  const register = openingRegisterKey(input.sourceKey);
   const lines = Array.isArray(input.lines) ? input.lines : [];
   if (lines.length === 0) {
     throw new ApiError(400, 'At least one opening-balance line is required.');
   }
 
-  // Same branch + same lock key in every process. The check below is the
-  // friendly 409; the unique partial index in schema.sql is the durable guard.
-  await client.query(OPENING_BALANCE_LOCK_SQL, [`opening-balance:${branchId}`]);
-  const existing = (await client.query(OPENING_BALANCE_EXISTS_SQL, [branchId])).rows[0];
-  if (existing) {
-    throw new ApiError(409, `Opening balances have already been posted for branch ${branchId}.`);
-  }
+  // One advisory lock per branch + register. The slot table is the durable
+  // one-active guarantee; this lock makes concurrent saves replace serially.
+  await client.query(OPENING_BALANCE_LOCK_SQL, [`opening-balance:${branchId}:${register}`]);
+  const labels: Record<OpeningRegisterKey, string> = {
+    gl: 'General ledger',
+    customer: 'Customer',
+    stock: 'Stock',
+    vendor: 'Vendor',
+  };
+  await reverseOpeningSource(client, {
+    branchId,
+    sourceKey: register,
+    label: labels[register],
+    actor: input.actor || null,
+  });
 
   const period = (await client.query(EARLIEST_OPEN_PERIOD_SQL)).rows[0];
   let journalDateAD: string;
@@ -135,12 +163,13 @@ export async function postOpeningBalances(
     journalDateAD,
     branchId,
     sourceType: OPENING_SOURCE,
-    sourceId: text(input.sourceId, 100) || branchId,
+    sourceId: openingSourceId(register, branchId),
     memo: `Opening balances for branch ${branchId}`,
     lines,
     actor: input.actor || null,
     isDemo: false,
   });
+  await client.query(OPENING_BALANCE_SLOT_SET_SQL, [branchId, register, posted.id]);
 
   return {
     ...posted,
@@ -154,13 +183,20 @@ export async function postOpeningBalances(
 async function reverseOpeningSource(
   client: AccountingClient,
   input: {
-    sourceId: string;
     branchId: string;
+    sourceKey: OpeningRegisterKey;
     label: string;
     actor?: string | null;
   }
 ): Promise<void> {
-  const existing = (await client.query(OPENING_BALANCE_BY_SOURCE_SQL, [input.sourceId])).rows[0];
+  const sourceId = openingSourceId(input.sourceKey, input.branchId);
+  // The slot is authoritative. The source-id fallback adopts a legacy active
+  // opening from before slots existed; the migration backfills the same rows.
+  const slot = (await client.query(OPENING_BALANCE_SLOT_FOR_UPDATE_SQL, [input.branchId, input.sourceKey]))
+    .rows[0];
+  const existing = slot
+    ? { id: slot.journalId, journalNo: slot.journalNo }
+    : (await client.query(OPENING_BALANCE_BY_SOURCE_SQL, [sourceId])).rows[0];
   if (!existing) return;
   const original = await readJournal(client, String(existing.id));
   if (!original) throw new ApiError(409, `${input.label} opening journal ${existing.journalNo} could not be read.`);
@@ -196,6 +232,7 @@ async function reverseOpeningSource(
     actor: input.actor || null,
     isDemo: false,
   });
+  await client.query(OPENING_BALANCE_SLOT_DELETE_SQL, [input.branchId, input.sourceKey]);
 }
 
 export interface PostStockOpeningBalancesInput {
@@ -219,20 +256,21 @@ export async function postStockOpeningBalances(
 ): Promise<PostOpeningBalancesResult | null> {
   const branchId = text(input.branchId, 50);
   if (!branchId) throw new ApiError(400, 'A branch is required for stock opening balances.');
-  const sourceId = `stock-opening:${branchId}`;
-  await reverseOpeningSource(client, {
-    sourceId,
-    branchId,
-    label: 'Stock',
-    actor: input.actor,
-  });
-
   const total = roundMoney(Number(input.totalValue) || 0);
-  if (total <= 0) return null;
+  if (total <= 0) {
+    await client.query(OPENING_BALANCE_LOCK_SQL, [`opening-balance:${branchId}:stock`]);
+    await reverseOpeningSource(client, {
+      branchId,
+      sourceKey: 'stock',
+      label: 'Stock',
+      actor: input.actor,
+    });
+    return null;
+  }
 
   return postOpeningBalances(client, {
     branchId,
-    sourceId,
+    sourceKey: 'stock',
     actor: input.actor || null,
     lines: [
       {
@@ -278,14 +316,6 @@ export async function postVendorOpeningBalances(
 ): Promise<PostOpeningBalancesResult | null> {
   const branchId = text(input.branchId, 50);
   if (!branchId) throw new ApiError(400, 'A branch is required for vendor opening balances.');
-  const sourceId = `vendor-opening:${branchId}`;
-  await reverseOpeningSource(client, {
-    sourceId,
-    branchId,
-    label: 'Vendor',
-    actor: input.actor,
-  });
-
   const lines: JournalLineInput[] = [];
   let net = 0;
   for (const row of input.rows) {
@@ -320,11 +350,20 @@ export async function postVendorOpeningBalances(
       memo: 'Opening supplier advances equity offset',
     });
   }
-  if (lines.length === 0) return null;
+  if (lines.length === 0) {
+    await client.query(OPENING_BALANCE_LOCK_SQL, [`opening-balance:${branchId}:vendor`]);
+    await reverseOpeningSource(client, {
+      branchId,
+      sourceKey: 'vendor',
+      label: 'Vendor',
+      actor: input.actor,
+    });
+    return null;
+  }
 
   return postOpeningBalances(client, {
     branchId,
-    sourceId,
+    sourceKey: 'vendor',
     actor: input.actor || null,
     lines,
   });

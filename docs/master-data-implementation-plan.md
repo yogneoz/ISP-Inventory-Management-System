@@ -338,11 +338,12 @@ A re-save does not post a second opening. It reads the prior active stock
 opening, posts a linked `OPENING_BALANCE_REVERSAL` for its exact lines, then
 posts the replacement `OPENING_BALANCE` for the new valuation under the same
 stable source id. The ledger nets to the current register and the original,
-reversal and replacement remain in the audit trail. The branch/date unique
-opening guard excludes `stock-opening:%` sources for this purpose; every other
-opening source keeps the one-per-branch-and-date rule. If the chart lacks an
-active `INVENTORY` role or an eligible equity offset, the route refuses the
-whole save and the quantity rows roll back with it. The prior-close
+reversal and replacement remain in the audit trail. Each register owns its own
+active-opening slot: `gl_opening_balance_slots` is unique on
+`(branch_id, source_key)`, so Stock can replace itself without touching GL,
+Customers or Vendors. If the chart lacks an active `INVENTORY` role or an
+eligible equity offset, the route refuses the whole save and the quantity rows
+roll back with it. The prior-close
 `POST /api/fiscal-years/:id/initialize-opening-stock` keeps its existing
 behaviour and still seeds quantity rows; saving the Stock tab posts (or
 replaces) the journal for those rows.
@@ -359,12 +360,25 @@ with `source_type = 'OPENING_BALANCE'` and `source_id =
 'vendor-opening:<branchId>'` commit or roll back together. A re-save (including
 a removal-only save) reverses the prior vendor opening with a linked
 `OPENING_BALANCE_REVERSAL`, then posts the replacement, so the ledger nets to
-the current register and exactly one opening remains active. The branch/date
-unique opening index now excludes both `stock-opening:%` and
-`vendor-opening:%`; every other opening source keeps the one-per-branch-and-date
-rule. The tab shows the supplier's posted operational AP balance from
+the current register and exactly one vendor opening remains active. The tab
+shows the supplier's posted operational AP balance from
 `gl_subledger_entries` as a read-only reconciliation reference, excluding the
 opening and its reversal so it reflects ordinary invoices/payments only.
+
+**Per-register opening slots (2026-11-13).** The hub's GL, Customers, Stock and
+Vendors registers can all be saved for one branch. Each owns a stable source id
+and slot: GL `gl-opening:<branchId>` with key `gl`, Customers
+`customer-opening:<branchId>` with key `customer`, Stock
+`stock-opening:<branchId>` with key `stock`, and Vendors
+`vendor-opening:<branchId>` with key `vendor`. `gl_opening_balance_slots` has a
+primary key on `(branch_id, source_key)` and a unique `journal_id`; it is the
+durable "exactly one active opening per branch per register" guard. A journal
+unique index cannot express that because the original, its reversal and its
+replacement all remain POSTED for audit, so `idx_gl_journals_opening_balance`
+is lookup-only. Saves lock the branch + register, reverse only that slot's
+prior journal, and point the same slot at the replacement in one transaction.
+Legacy openings are backfilled into slots by source id, or by their CUSTOMER
+subledger rows when the pre-prefix source id was the bare branch id.
 
 **Build note.** Use the existing `OPENING_BALANCE` journal source type and an
 opening-balance equity offset. For customers and vendors, create the control-account
@@ -588,17 +602,19 @@ target.
   **Shipped — all four tabs.**
   `/finance/opening-balances` is the Opening Balances hub with Vendors,
   Customers, Stock and General Ledger tabs. The GL tab posts a balanced branch trial
-  balance through the existing `POST /api/accounting/opening-balances` route,
-  which keeps its earliest-open period, one-posting-per-branch and branch-scope
-  rules; the form excludes control accounts because that trial-balance path has
-  no party picker. The Customers tab searches only the selected branch's
+  balance through the existing `POST /api/accounting/opening-balances` route
+  with `register: 'GL'`; Customers uses the same route with
+  `register: 'CUSTOMER'`. Both keep the earliest-open period and branch-scope
+  rules, and each replaces only its own per-register opening slot; the form
+  excludes control accounts because that trial-balance path has no party
+  picker. The Customers tab searches only the selected branch's
   directory, collects customer amounts, and posts one balanced journal with
   each receivable debited to the AR control account with a `CUSTOMER`
   subledger party row and the total credited to a selected opening-equity
-  account. Duplicate customer rows are refused in the form, and the server's
-  one-posting-per-branch rule remains the durable duplicate guard. Both tabs
-  show the returned journal number and period and surface backend validation
-  errors.
+  account. Duplicate customer rows are refused in the form, and the customer
+  register's own per-branch opening slot is the durable duplicate guard. Both
+  tabs show the returned journal number and period and surface backend
+  validation errors.
 
   **Stock tab — shipped.** The tab edits the selected branch's product ×
   quantity × damaged × unit-cost rows and saves them through the extended
@@ -631,8 +647,8 @@ target.
   `OPENING_BALANCE_REVERSAL` of the prior `vendor-opening:<branchId>` journal
   and then the current journal, so the ledger nets to the register with exactly
   one active opening and the original, reversal and replacement stay
-  auditable. The branch/date unique opening index excludes both stock and vendor
-  replacement sources. The tab adds/removes rows, shows live payable/advance
+  auditable. Stock and Vendors own separate per-branch slots, so one register's
+  replacement never touches another's. The tab adds/removes rows, shows live payable/advance
   totals, locks a closed year read-only, renders the posted journal(s), and
   shows the supplier's posted operational AP balance from
   `gl_subledger_entries` (excluding openings) as a read-only reconciliation

@@ -1941,17 +1941,24 @@ ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS cheque_date_bs VARCHAR(20);
 ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS journal_date_bs VARCHAR(20);
 ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS currency VARCHAR(10) NOT NULL DEFAULT 'NPR';
 ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS exchange_rate NUMERIC(14, 6) NOT NULL DEFAULT 1;
--- A partitioned unique index must include the partition key. The registry's
--- unique journal_no remains the global identity guard. Stock and vendor
--- openings are replaceable: a re-save reverses the prior register journal and
--- posts the current valuation under the same source id, so they are excluded
--- from the one-per-branch-and-date guard (the service still allows only one
--- active opening per branch).
-CREATE UNIQUE INDEX IF NOT EXISTS uq_gl_journals_opening_balance
-  ON gl_journals(branch_id, journal_date_ad)
-  WHERE source_type = 'OPENING_BALANCE'
-    AND COALESCE(source_id, '') NOT LIKE 'stock-opening:%'
-    AND COALESCE(source_id, '') NOT LIKE 'vendor-opening:%';
+-- Every Opening Balances register owns one active journal per branch. The
+-- original, its reversal and its replacement all remain POSTED for the audit
+-- trail, so a unique index on gl_journals itself cannot express "active": a
+-- replacement would collide with the original it already reversed. The slot
+-- table is that durable guard; the journal index below is lookup-only. A
+-- re-save reverses the slot's prior journal and points the same slot at the
+-- replacement in one transaction.
+CREATE TABLE IF NOT EXISTS gl_opening_balance_slots (
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    source_key VARCHAR(30) NOT NULL CHECK (source_key IN ('gl', 'customer', 'stock', 'vendor')),
+    journal_id VARCHAR(50) NOT NULL REFERENCES gl_journals_registry(id) ON DELETE CASCADE,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (branch_id, source_key),
+    UNIQUE (journal_id)
+);
+CREATE INDEX IF NOT EXISTS idx_gl_journals_opening_balance
+  ON gl_journals(branch_id, journal_date_ad, source_id)
+  WHERE source_type = 'OPENING_BALANCE';
 
 CREATE TABLE IF NOT EXISTS gl_journal_line_registry (
     id VARCHAR(60) PRIMARY KEY,

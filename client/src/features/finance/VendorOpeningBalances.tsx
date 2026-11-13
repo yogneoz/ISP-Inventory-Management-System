@@ -731,7 +731,7 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
     setGlPosting(true);
     setGlMessage(null);
     try {
-      const journal = await api.postOpeningBalances({ branchId: glBranchId, lines });
+      const journal = await api.postOpeningBalances({ branchId: glBranchId, lines, register: 'GL' });
       setGlMessage({
         type: 'success',
         text: `Opening balances posted as journal ${journal.journalNo} in period ${journal.periodKey}.`,
@@ -851,7 +851,7 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
     setCustomerPosting(true);
     setCustomerMessage(null);
     try {
-      const journal = await api.postOpeningBalances({ branchId: glBranchId, lines });
+      const journal = await api.postOpeningBalances({ branchId: glBranchId, lines, register: 'CUSTOMER' });
       setCustomerMessage({
         type: 'success',
         text: `Customer opening balances posted as journal ${journal.journalNo} in period ${journal.periodKey}.`,

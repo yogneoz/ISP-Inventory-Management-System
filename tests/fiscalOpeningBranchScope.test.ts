@@ -63,6 +63,7 @@ const branchUser = (over: Record<string, unknown> = {}) => ({
 } as any);
 
 const hqUser = branchUser({ id: 'u-hq', email: 'hq@example.com', branchId: 'ALL', allowedBranchIds: [] });
+const superUser = branchUser({ id: 'u-super', email: 'super@example.com', role: 'SUPER_ADMIN' });
 const accountantUser = branchUser({ id: 'u-accountant', email: 'accountant@example.com', role: 'ACCOUNTANT' });
 
 const openingRow = (id: string, branchId: string, branchName: string, quantityOnHand: number) => ({
@@ -679,6 +680,92 @@ describe('fiscal opening registers — branch scope', () => {
     }
   });
 
+  test('a failed vendor save leaves the GL opening confirmation untouched', async () => {
+    api.getVendorOpeningBalances = async () => vendorPayload as any;
+    api.getAccountingAccounts = async () =>
+      [
+        { id: 'acct-cash', code: '1000', name: 'Cash', isActive: true, isControl: false },
+        {
+          id: 'acct-equity',
+          code: '3000',
+          name: 'Retained Earnings',
+          isActive: true,
+          isControl: false,
+          accountType: 'EQUITY',
+          postingRole: 'RETAINED_EARNINGS',
+        },
+      ] as any;
+    api.getPostingDefaults = async () =>
+      ({
+        defaults: {
+          AP_CONTROL: {
+            accountId: 'acct-ap',
+            accountCode: '2100',
+            accountName: 'Accounts Payable',
+            accountType: 'LIABILITY',
+            isControl: true,
+          },
+        },
+      }) as any;
+    api.postOpeningBalances = async () => ({ journalNo: 'JV-GL-STAY', periodKey: '2026-07' }) as any;
+    api.adjustVendorOpeningBalances = async () => {
+      throw new Error('AP control account is unavailable.');
+    };
+
+    const tree = mountTree(
+      createElement(VendorOpeningBalances, {
+        currentUser: superUser,
+        fiscalYears,
+        branches,
+        suppliers,
+      } as any)
+    );
+    try {
+      await settle();
+
+      inAct(() => findButton(tree.container, /General Ledger/)!.click());
+      await settle();
+      const accountSelects = [
+        ...tree.container.querySelectorAll('select[aria-label="Opening balance account"]'),
+      ] as HTMLSelectElement[];
+      setSelectValue(accountSelects[0], 'acct-cash');
+      setSelectValue(accountSelects[1], 'acct-equity');
+      const debitInputs = [
+        ...tree.container.querySelectorAll('input[aria-label="Opening balance debit"]'),
+      ] as HTMLInputElement[];
+      const creditInputs = [
+        ...tree.container.querySelectorAll('input[aria-label="Opening balance credit"]'),
+      ] as HTMLInputElement[];
+      setNumberInput(debitInputs[0], '500');
+      setNumberInput(creditInputs[1], '500');
+      inAct(() => findButton(tree.container, /Post Opening Balances/)!.click());
+      await settle();
+      assert.match(tree.container.textContent || '', /posted as journal JV-GL-STAY/);
+
+      inAct(() => findButton(tree.container, /^Vendors$/)!.click());
+      await settle();
+      const vendorTable = [...tree.container.querySelectorAll('table')].find((table) =>
+        (table.textContent || '').includes('Supplier One')
+      );
+      const balanceInput = vendorTable?.querySelector('input[type="number"]') as HTMLInputElement | undefined;
+      assert.ok(balanceInput, 'the vendor register renders its editable balance');
+      setNumberInput(balanceInput!, '150');
+      inAct(() => findButton(tree.container, /^Save & Post 1/)!.click());
+      await settle();
+      assert.match(tree.container.textContent || '', /AP control account is unavailable/);
+
+      inAct(() => findButton(tree.container, /General Ledger/)!.click());
+      await settle();
+      assert.match(
+        tree.container.textContent || '',
+        /posted as journal JV-GL-STAY/,
+        'the GL confirmation survives a failure in the vendor register'
+      );
+    } finally {
+      tree.unmount();
+    }
+  });
+
   test('General Ledger tab posts balanced opening lines for a scoped branch', async () => {
     const posted: any[] = [];
     api.getVendorOpeningBalances = async () => vendorPayload as any;
@@ -741,6 +828,7 @@ describe('fiscal opening registers — branch scope', () => {
       assert.deepEqual(posted, [
         {
           branchId: 'br-a',
+          register: 'GL',
           lines: [
             { accountId: 'acct-cash', debit: 500, credit: 0 },
             { accountId: 'acct-equity', debit: 0, credit: 500 },

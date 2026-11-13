@@ -63,7 +63,7 @@ import {
   buildCashFlowForecast,
   cashFlowForecastCsv,
 } from '../services/accountingCashFlowForecast.service';
-import { postOpeningBalances } from '../services/accountingClosing.service';
+import { postOpeningBalances, type OpeningRegisterKey } from '../services/accountingClosing.service';
 import {
   closePeriodWithChecklist,
   reopenPeriodWithChecklist,
@@ -533,11 +533,17 @@ export async function post_openingBalances(req: any, res: Response): Promise<any
   if (branchAccount && requestedBranch && requestedBranch !== scope.branchId) {
     return res.status(403).json({ message: 'Forbidden: this opening balance is outside your branch scope.' });
   }
+  const registerRaw = typeof req.body?.register === 'string' ? req.body.register.trim().toLowerCase() : 'gl';
+  if (registerRaw !== 'gl' && registerRaw !== 'customer') {
+    return res.status(400).json({ message: 'Opening balances accept only the GL or customer register.' });
+  }
+  const register = registerRaw as OpeningRegisterKey;
   const posted = await inTransaction(async (client) => {
     const result = await postOpeningBalances(client, {
       branchId: branchAccount ? scope.branchId : requestedBranch,
       lines: Array.isArray(req.body?.lines) ? req.body.lines : [],
       actor: actorOf(req),
+      sourceKey: register,
     });
     const journal = await readJournal(client, result.id);
     await logAuditEvent(

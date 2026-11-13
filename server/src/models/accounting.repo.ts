@@ -409,7 +409,7 @@ WHERE j.source_type = $1 AND j.source_id = $2
 ORDER BY j.posted_at DESC
 LIMIT 1`;
 
-/** The current opening journal for one stable stock source id. */
+/** The current opening journal for one register's stable source id. */
 export const OPENING_BALANCE_BY_SOURCE_SQL = `SELECT j.id, j.journal_no AS "journalNo"
 FROM gl_journals j
 WHERE j.source_type = 'OPENING_BALANCE' AND j.source_id = $1
@@ -580,20 +580,27 @@ WHERE is_closed = FALSE
 ORDER BY start_date_ad ASC
 LIMIT 1`;
 
-/** Serializes the one-opening-per-branch check across processes. */
+/** Serializes replacement within one branch + Opening Balances register. */
 export const OPENING_BALANCE_LOCK_SQL = `SELECT pg_advisory_xact_lock(hashtext($1))::text AS lock`;
 
-/** The durable proof that this branch's opening balances are already posted. */
-// A stock opening save replaces its prior journal by posting a linked reversal
-// first. The original stays POSTED for the audit trail, so the duplicate guard
-// must treat an original with a posted reversal as no longer active.
-export const OPENING_BALANCE_EXISTS_SQL = `SELECT j.id FROM gl_journals j
-WHERE j.source_type = 'OPENING_BALANCE' AND j.branch_id = $1
-  AND NOT EXISTS (
-    SELECT 1 FROM gl_journals r
-    WHERE r.reversal_of_id = j.id AND r.status = 'POSTED'
-  )
-LIMIT 1`;
+/** The active opening slot for one branch and register, locked for replacement. */
+export const OPENING_BALANCE_SLOT_FOR_UPDATE_SQL = `SELECT s.journal_id AS "journalId",
+  j.journal_no AS "journalNo"
+FROM gl_opening_balance_slots s
+JOIN gl_journals j ON j.id = s.journal_id
+WHERE s.branch_id = $1 AND s.source_key = $2
+FOR UPDATE OF s`;
+
+/** Point a branch/register slot at its current active opening journal. */
+export const OPENING_BALANCE_SLOT_SET_SQL = `INSERT INTO gl_opening_balance_slots
+  (branch_id, source_key, journal_id, updated_at)
+VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+ON CONFLICT (branch_id, source_key) DO UPDATE
+  SET journal_id = EXCLUDED.journal_id, updated_at = CURRENT_TIMESTAMP`;
+
+/** Free a register slot after its prior journal has been reversed. */
+export const OPENING_BALANCE_SLOT_DELETE_SQL = `DELETE FROM gl_opening_balance_slots
+WHERE branch_id = $1 AND source_key = $2`;
 
 /** Locks the fiscal-year row while its closing journals are built and posted. */
 export const FISCAL_YEAR_CLOSE_LOCK_SQL = `SELECT id, code,

@@ -168,6 +168,11 @@ export const BRANCH_SCOPE_EXEMPTIONS: readonly BranchScopeExemption[] = [
       "Batch fiscal-year register (supplier × branch): the GET filters and the PUT refuses rows outside the actor's allowed branches in fiscal.routes.ts. The path id is the fiscal year, not a row id, so the by-id lookup does not apply.",
   },
   {
+    table: 'gl_opening_balance_slots',
+    reason:
+      'Internal pointer to the active opening journal of one branch + Opening Balances register. It is written only inside the branch-guarded opening transaction after the register and branch are validated, has no route or row id, and is never accepted as client input.',
+  },
+  {
     table: 'hr_branch_plan',
     reason:
       'HR organisation catalogue/planning rows are read as a whole by the HR org chart and org-catalogue endpoints; branch_id is an optional link to Branch Management, and there is no /hr/branch-plan/:id route to guard. The catalogue read is gated by the HR view permissions.',

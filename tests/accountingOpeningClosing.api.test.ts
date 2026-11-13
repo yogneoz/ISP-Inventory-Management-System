@@ -66,10 +66,12 @@ const ROOT = path.resolve('.');
 const SCHEMA_SQL_PATH = path.join(ROOT, 'scripts', 'schema.sql');
 const TEST_DB = 'inventory_opening_closing_test';
 const BR = 'OCBR';
+const GL_BR = 'OCGL';
 const CLIENT_BR = 'OCUI';
 const CUSTOMER_BR = 'OCCUST';
 const STOCK_BR = 'OCSTOCK';
 const VENDOR_BR = 'OCVEND';
+const MIX_BR = 'OCMIX';
 const STOCK_PRODUCT_ID = 'OC-PROD-1';
 const SUPPLIER_A = 'OC-SUP-A';
 const SUPPLIER_B = 'OC-SUP-B';
@@ -147,8 +149,8 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
     return { accountId, debit, credit, ...extra };
   }
 
-  function opening(lines: unknown[]) {
-    return post('/api/accounting/opening-balances', tokens.super, { branchId: BR, lines });
+  function opening(lines: unknown[], branchId = BR) {
+    return post('/api/accounting/opening-balances', tokens.super, { branchId, lines });
   }
 
   async function journalCount(where: string, params: unknown[] = []) {
@@ -246,6 +248,11 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
     );
     await dbPool.query(
       `INSERT INTO branches (id, code, name, location, active, allow_procurement, allow_warehouse_transfer, is_demo)
+       VALUES ($1, $1, 'Opening GL Branch', 'Test', TRUE, TRUE, TRUE, FALSE)`,
+      [GL_BR]
+    );
+    await dbPool.query(
+      `INSERT INTO branches (id, code, name, location, active, allow_procurement, allow_warehouse_transfer, is_demo)
        VALUES ($1, $1, 'Opening Client Branch', 'Test', TRUE, TRUE, TRUE, FALSE)`,
       [CLIENT_BR]
     );
@@ -263,6 +270,11 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
       `INSERT INTO branches (id, code, name, location, active, allow_procurement, allow_warehouse_transfer, is_demo)
        VALUES ($1, $1, 'Opening Vendor Branch', 'Test', TRUE, TRUE, TRUE, FALSE)`,
       [VENDOR_BR]
+    );
+    await dbPool.query(
+      `INSERT INTO branches (id, code, name, location, active, allow_procurement, allow_warehouse_transfer, is_demo)
+       VALUES ($1, $1, 'Opening Mixed Branch', 'Test', TRUE, TRUE, TRUE, FALSE)`,
+      [MIX_BR]
     );
     await dbPool.query(
       `INSERT INTO suppliers (id, supplier_code, name, status, is_demo)
@@ -412,13 +424,16 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
     assert.equal(await journalCount('branch_id = $1', [BR]), 0, 'refused opening sets must write nothing');
   });
 
-  test('a balanced opening set posts once into the earliest open period', async () => {
-    const res = await opening([
-      line(accounts.cash, 10000, 0, { memo: 'Opening cash' }),
-      line(accounts.openingEquity, 0, 10000, { memo: 'Opening equity' }),
-    ]);
+  test('a balanced GL opening posts into the earliest open period and a re-save replaces it', async () => {
+    const res = await opening(
+      [
+        line(accounts.cash, 10000, 0, { memo: 'Opening cash' }),
+        line(accounts.openingEquity, 0, 10000, { memo: 'Opening equity' }),
+      ],
+      GL_BR
+    );
     assert.equal(res.status, 201, JSON.stringify(res.json));
-    assert.equal(res.json.branchId, BR);
+    assert.equal(res.json.branchId, GL_BR);
     assert.equal(res.json.sourceType, 'OPENING_BALANCE');
     assert.equal(res.json.journalDateAD, OPENING_DATE);
     assert.equal(res.json.totalDebit, 10000);
@@ -436,24 +451,53 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
     assert.equal(stored.rows[0].date, OPENING_DATE);
     assert.equal(stored.rows[0].periodKey, PERIOD_KEY);
     assert.equal(stored.rows[0].fiscalYearId, FY_ID);
-    assert.equal(stored.rows[0].sourceId, BR);
+    assert.equal(stored.rows[0].sourceId, `gl-opening:${GL_BR}`);
 
     const audit = await dbPool!.query(
-      "SELECT COUNT(*)::int AS count FROM audit_logs WHERE action = 'POST_OPENING_BALANCES' AND details LIKE '%OCBR%'"
+      "SELECT COUNT(*)::int AS count FROM audit_logs WHERE action = 'POST_OPENING_BALANCES' AND details LIKE '%OCGL%'"
     );
     assert.equal(Number(audit.rows[0].count), 1, 'the opening post and its audit row commit together');
 
-    const second = await opening([
-      line(accounts.cash, 50, 0),
-      line(accounts.openingEquity, 0, 50),
-    ]);
-    assert.equal(second.status, 409, JSON.stringify(second.json));
-    assert.match(second.json.message, /already been posted/i);
-    assert.equal(
-      await journalCount("source_type = 'OPENING_BALANCE' AND branch_id = $1", [BR]),
-      1,
-      'a refused second opening post must write nothing'
+    const second = await opening(
+      [
+        line(accounts.cash, 10000, 0),
+        line(accounts.openingEquity, 0, 10000),
+      ],
+      GL_BR
     );
+    assert.equal(second.status, 201, JSON.stringify(second.json));
+    assert.equal(second.json.totalDebit, 10000);
+    assert.notEqual(second.json.id, res.json.id, 'the re-save posts a new journal');
+    assert.equal(
+      await journalCount(
+        "branch_id = $1 AND source_type = 'OPENING_BALANCE' AND source_id = $2",
+        [GL_BR, `gl-opening:${GL_BR}`]
+      ),
+      2,
+      'the re-save keeps the original and its replacement'
+    );
+    assert.equal(
+      await journalCount(
+        "branch_id = $1 AND source_type IN ('OPENING_BALANCE', 'OPENING_BALANCE_REVERSAL')",
+        [GL_BR]
+      ),
+      3,
+      'the GL re-save posts one linked reversal and one replacement'
+    );
+    const glSlot = await dbPool!.query(
+      "SELECT journal_id FROM gl_opening_balance_slots WHERE branch_id = $1 AND source_key = 'gl'",
+      [GL_BR]
+    );
+    assert.equal(glSlot.rows[0]?.journal_id, second.json.id, 'the GL slot points at the current replacement');
+
+    // Keep the close fixture on its original branch with one clean opening:
+    // replacement history intentionally adds gross debit/credit to the close
+    // snapshot, and the close assertions below track BR's opening once.
+    const brOpening = await opening([
+      line(accounts.cash, 10000, 0, { memo: 'Opening cash' }),
+      line(accounts.openingEquity, 0, 10000, { memo: 'Opening equity' }),
+    ]);
+    assert.equal(brOpening.status, 201, JSON.stringify(brOpening.json));
 
     const trial = await trialBalance();
     assert.equal(trial.balanced, true);
@@ -498,6 +542,7 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
   test('a customer opening balance posts through the AR control with its party subledger row', async () => {
     const res = await post('/api/accounting/opening-balances', tokens.super, {
       branchId: CUSTOMER_BR,
+      register: 'CUSTOMER',
       lines: [
         {
           accountId: accounts.receivable,
@@ -541,8 +586,9 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
       accountCode: '1100',
     });
 
-    const duplicate = await post('/api/accounting/opening-balances', tokens.super, {
+    const replacement = await post('/api/accounting/opening-balances', tokens.super, {
       branchId: CUSTOMER_BR,
+      register: 'CUSTOMER',
       lines: [
         {
           accountId: accounts.receivable,
@@ -555,15 +601,24 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
         { accountId: accounts.retained, debit: 0, credit: 50 },
       ],
     });
-    assert.equal(duplicate.status, 409, JSON.stringify(duplicate.json));
-    assert.match(duplicate.json.message, /already been posted/i);
+    assert.equal(replacement.status, 201, JSON.stringify(replacement.json));
 
     const count = await dbPool!.query(
       `SELECT COUNT(*)::int AS count FROM gl_journals
        WHERE branch_id = $1 AND source_type = 'OPENING_BALANCE'`,
       [CUSTOMER_BR]
     );
-    assert.equal(Number(count.rows[0].count), 1, 'the branch keeps exactly one opening journal');
+    assert.equal(Number(count.rows[0].count), 2, 'the customer re-save keeps its original and replacement');
+    const active = await dbPool!.query(
+      `SELECT COUNT(*)::int AS count FROM gl_journals j
+       WHERE j.branch_id = $1 AND j.source_type = 'OPENING_BALANCE'
+         AND j.source_id = $2
+         AND NOT EXISTS (
+           SELECT 1 FROM gl_journals r WHERE r.reversal_of_id = j.id AND r.status = 'POSTED'
+         )`,
+      [CUSTOMER_BR, `customer-opening:${CUSTOMER_BR}`]
+    );
+    assert.equal(Number(active.rows[0].count), 1, 'the customer register keeps exactly one active opening');
   });
 
   test('stock opening rows post one balanced journal at the register valuation, and a re-save replaces it', async () => {
@@ -642,11 +697,12 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
       `SELECT COUNT(*)::int AS count
        FROM gl_journals j
        WHERE j.branch_id = $1 AND j.source_type = 'OPENING_BALANCE'
+         AND j.source_id = $2
          AND NOT EXISTS (
            SELECT 1 FROM gl_journals r
            WHERE r.reversal_of_id = j.id AND r.status = 'POSTED'
          )`,
-      [STOCK_BR]
+      [STOCK_BR, `stock-opening:${STOCK_BR}`]
     );
     assert.equal(Number(active.rows[0].count), 1, 'a re-save leaves exactly one active stock opening');
 
@@ -748,11 +804,12 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
       `SELECT COUNT(*)::int AS count
        FROM gl_journals j
        WHERE j.branch_id = $1 AND j.source_type = 'OPENING_BALANCE'
+         AND j.source_id = $2
          AND NOT EXISTS (
            SELECT 1 FROM gl_journals r
            WHERE r.reversal_of_id = j.id AND r.status = 'POSTED'
          )`,
-      [VENDOR_BR]
+      [VENDOR_BR, `vendor-opening:${VENDOR_BR}`]
     );
     assert.equal(Number(active.rows[0].count), 1, 'a re-save leaves exactly one active vendor opening');
     assert.equal(
@@ -807,6 +864,140 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
       ),
       5,
       'removing a supplier reverses and replaces the branch opening too'
+    );
+  });
+
+  test('GL, stock and vendor openings coexist for one branch and replace only their own register', async () => {
+    const gl = await post('/api/accounting/opening-balances', tokens.super, {
+      branchId: MIX_BR,
+      register: 'GL',
+      lines: [
+        line(accounts.cash, 2000, 0, { memo: 'Mixed branch opening cash' }),
+        line(accounts.retained, 0, 2000, { memo: 'Mixed branch opening equity' }),
+      ],
+    });
+    assert.equal(gl.status, 201, JSON.stringify(gl.json));
+
+    const stock = await put(`/api/fiscal-years/${FY_ID}/opening-stock`, tokens.super, {
+      offsetAccountId: accounts.retained,
+      rows: [
+        { productId: STOCK_PRODUCT_ID, branchId: MIX_BR, quantityOnHand: 5, damagedQty: 0, unitCost: 10 },
+      ],
+    });
+    assert.equal(stock.status, 200, JSON.stringify(stock.json));
+    assert.equal(stock.json.journals[0].totalValue, 50);
+
+    const vendor = await put(`/api/fiscal-years/${FY_ID}/vendor-opening-balances`, tokens.super, {
+      offsetAccountId: accounts.retained,
+      rows: [{ supplierId: SUPPLIER_A, branchId: MIX_BR, openingBalance: 300 }],
+    });
+    assert.equal(vendor.status, 200, JSON.stringify(vendor.json));
+    assert.equal(vendor.json.journals[0].totalValue, 300);
+
+    const counts = await dbPool!.query(
+      `SELECT source_id AS "sourceId", COUNT(*)::int AS total
+       FROM gl_journals
+       WHERE branch_id = $1 AND source_type = 'OPENING_BALANCE'
+       GROUP BY source_id ORDER BY source_id`,
+      [MIX_BR]
+    );
+    assert.deepEqual(counts.rows, [
+      { sourceId: `gl-opening:${MIX_BR}`, total: 1 },
+      { sourceId: `stock-opening:${MIX_BR}`, total: 1 },
+      { sourceId: `vendor-opening:${MIX_BR}`, total: 1 },
+    ]);
+    const slots = await dbPool!.query(
+      `SELECT source_key AS "sourceKey", journal_id AS "journalId"
+       FROM gl_opening_balance_slots WHERE branch_id = $1 ORDER BY source_key`,
+      [MIX_BR]
+    );
+    assert.deepEqual(
+      slots.rows.map((row: any) => row.sourceKey),
+      ['gl', 'stock', 'vendor'],
+      'each register owns one active slot'
+    );
+    const stockSlotBefore = slots.rows.find((row: any) => row.sourceKey === 'stock')?.journalId;
+    const glSlotBefore = slots.rows.find((row: any) => row.sourceKey === 'gl')?.journalId;
+
+    // Re-save only Vendors. GL and Stock keep their exact active journals.
+    const vendorResave = await put(`/api/fiscal-years/${FY_ID}/vendor-opening-balances`, tokens.super, {
+      offsetAccountId: accounts.retained,
+      rows: [{ supplierId: SUPPLIER_A, branchId: MIX_BR, openingBalance: 450 }],
+    });
+    assert.equal(vendorResave.status, 200, JSON.stringify(vendorResave.json));
+    assert.equal(vendorResave.json.journals[0].totalValue, 450);
+    const slotsAfter = await dbPool!.query(
+      `SELECT source_key AS "sourceKey", journal_id AS "journalId"
+       FROM gl_opening_balance_slots WHERE branch_id = $1 ORDER BY source_key`,
+      [MIX_BR]
+    );
+    assert.equal(
+      slotsAfter.rows.find((row: any) => row.sourceKey === 'stock')?.journalId,
+      stockSlotBefore,
+      'a vendor re-save does not touch the stock slot'
+    );
+    assert.equal(
+      slotsAfter.rows.find((row: any) => row.sourceKey === 'gl')?.journalId,
+      glSlotBefore,
+      'a vendor re-save does not touch the GL slot'
+    );
+    assert.equal(
+      await journalCount(
+        "branch_id = $1 AND source_type = 'OPENING_BALANCE' AND source_id = $2",
+        [MIX_BR, `vendor-opening:${MIX_BR}`]
+      ),
+      2,
+      'vendor history keeps the original and replacement'
+    );
+    assert.equal(
+      await journalCount(
+        "branch_id = $1 AND source_type = 'OPENING_BALANCE_REVERSAL' AND reversal_of_id IN (SELECT id FROM gl_journals WHERE branch_id = $1 AND source_id = $2)",
+        [MIX_BR, `vendor-opening:${MIX_BR}`]
+      ),
+      1,
+      'vendor re-save adds exactly one reversal'
+    );
+
+    // A failed vendor save rolls back its rows and leaves the other registers' slots intact.
+    const invalid = await put(`/api/fiscal-years/${FY_ID}/vendor-opening-balances`, tokens.super, {
+      offsetAccountId: 'oc-missing-equity',
+      rows: [{ supplierId: SUPPLIER_A, branchId: MIX_BR, openingBalance: 999 }],
+    });
+    assert.equal(invalid.status, 400, JSON.stringify(invalid.json));
+    const slotsAfterFailure = await dbPool!.query(
+      `SELECT source_key AS "sourceKey", journal_id AS "journalId"
+       FROM gl_opening_balance_slots WHERE branch_id = $1 ORDER BY source_key`,
+      [MIX_BR]
+    );
+    assert.deepEqual(slotsAfterFailure.rows, slotsAfter.rows, 'the failed vendor save disturbed no register');
+
+    const removed = await put(`/api/fiscal-years/${FY_ID}/vendor-opening-balances`, tokens.super, {
+      offsetAccountId: accounts.retained,
+      rows: [],
+      removed: [{ supplierId: SUPPLIER_A, branchId: MIX_BR }],
+    });
+    assert.equal(removed.status, 200, JSON.stringify(removed.json));
+    assert.equal(removed.json.journals.length, 0, 'removing the last vendor leaves no active vendor journal');
+    const finalSlots = await dbPool!.query(
+      `SELECT source_key AS "sourceKey" FROM gl_opening_balance_slots WHERE branch_id = $1 ORDER BY source_key`,
+      [MIX_BR]
+    );
+    assert.deepEqual(finalSlots.rows.map((row: any) => row.sourceKey), ['gl', 'stock']);
+    assert.equal(
+      await journalCount(
+        "branch_id = $1 AND source_type = 'OPENING_BALANCE' AND source_id = $2",
+        [MIX_BR, `gl-opening:${MIX_BR}`]
+      ),
+      1,
+      'the GL opening stays active after the vendor removal'
+    );
+    assert.equal(
+      await journalCount(
+        "branch_id = $1 AND source_type = 'OPENING_BALANCE' AND source_id = $2",
+        [MIX_BR, `stock-opening:${MIX_BR}`]
+      ),
+      1,
+      'the stock opening stays active after the vendor removal'
     );
   });
 

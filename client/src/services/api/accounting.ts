@@ -2356,6 +2356,8 @@ export async function postAccountingJournal(
 export interface OpeningBalanceInput {
   branchId: string;
   lines: AccountingJournalLineInput[];
+  /** The Opening Balances register that owns this per-branch journal. */
+  register?: 'GL' | 'CUSTOMER';
 }
 
 export async function postOpeningBalances(input: OpeningBalanceInput): Promise<AccountingJournal> {
