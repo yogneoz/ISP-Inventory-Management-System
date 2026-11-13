@@ -29,6 +29,7 @@ import {
   SR_SERIAL_FLIP_SQL, SR_DAMAGE_INSERT_SQL, srDamageInsertParams, SR_DAMAGE_CANCEL_SQL,
   SR_POST_DRAFT_SQL, SR_CANCEL_DRAFT_SQL,
   CP_INSERT_SQL, cpInsertParams, CP_LOCK_STATUS_SQL, CP_REVERSE_SQL, CP_FIND_BY_ID_SQL,
+  CP_REFUND_SQL, CP_CHARGEBACK_SQL, CP_SETTLED_GROSS_SQL, CP_PROVIDER_TXN_EXISTS_SQL,
   SI_RECORD_PAYMENT_SQL, SI_UNDO_PAYMENT_SQL,
   SI_CLAIM_SERIAL_SQL, siClaimSerialParams,
   SI_FIND_ONE_SQL, SI_LOCK_FOR_CANCEL_SQL, SI_CANCEL_SQL,
@@ -63,7 +64,12 @@ import { firstLineQuantityRefusal } from '../utils/lineQuantity';
 import { ApiError } from '../errors/ApiError';
 import { postSalesInvoiceLedger, reverseInvoiceJournal } from '../services/invoicePosting.service';
 import { resolveInvoiceTerms } from '../services/billTerms.service';
-import { postCustomerReceiptLedger, reverseCustomerReceiptJournal } from '../services/paymentPosting.service';
+import {
+  postCustomerReceiptLedger,
+  postWalletChargebackLedger,
+  postWalletRefundLedger,
+  reverseCustomerReceiptJournal,
+} from '../services/paymentPosting.service';
 import { buildPartyLedger } from '../services/partyLedger.service';
 import {
   loadSalesIssueCosts,
@@ -1178,8 +1184,40 @@ export async function post_customerPayments(req: any, res: Response): Promise<an
     if (!paymentDateBS) return;
 
     const paymentMethod = String(body.paymentMethod || 'CASH').toUpperCase();
-    // CR = cash receipt, BR = bank receipt (transfer/cheque/card/online) —
-    // mirrors the vendor side's CP/BP split.
+    const isWallet = paymentMethod === 'ONLINE';
+    const providerCode = isWallet ? String(body.providerCode || '').trim().toUpperCase() : null;
+    const providerTransactionId = isWallet
+      ? String(body.providerTransactionId || '').trim().slice(0, 200)
+      : null;
+    if (isWallet && !['ESEWA', 'KHALTI', 'NEPAL_PAY'].includes(providerCode || '')) {
+      return res.status(400).json({ message: 'An ONLINE receipt must name ESEWA, KHALTI or NEPAL_PAY.' });
+    }
+    if (isWallet && !providerTransactionId) {
+      return res.status(400).json({ message: 'A provider transaction id is required for an ONLINE receipt.' });
+    }
+    const grossAmount = isWallet ? Number(body.grossAmount ?? amount) : amount;
+    const feeAmount = isWallet ? Number(body.feeAmount ?? 0) : 0;
+    if (isWallet && (!Number.isFinite(grossAmount) || grossAmount !== amount)) {
+      return res.status(400).json({ message: 'The wallet gross amount must equal the receipt amount.' });
+    }
+    if (isWallet && (!Number.isFinite(feeAmount) || feeAmount < 0)) {
+      return res.status(400).json({ message: 'The provider fee cannot be negative.' });
+    }
+    const netAmount = isWallet ? Number(body.netAmount ?? grossAmount - feeAmount) : amount;
+    if (isWallet && (!Number.isFinite(netAmount) || netAmount <= 0 || netAmount !== grossAmount - feeAmount)) {
+      return res.status(400).json({ message: 'Wallet net must be gross minus fee and remain greater than zero.' });
+    }
+    if (!isWallet && (body.providerCode || body.providerTransactionId || Number(body.feeAmount) > 0)) {
+      return res.status(400).json({ message: 'Provider details and fees are only valid on an ONLINE wallet receipt.' });
+    }
+    if (isWallet && getPgConnected()) {
+      const duplicate = await pgPool.query(CP_PROVIDER_TXN_EXISTS_SQL, [providerCode, providerTransactionId]);
+      if (duplicate.rows[0]) {
+        return res.status(409).json({ message: `Provider transaction ${providerTransactionId} is already recorded.` });
+      }
+    }
+    // CR = cash receipt, BR = bank/wallet receipt — mirrors the vendor side's
+    // CP/BP split. ONLINE still gets a BR number because it is not till cash.
     const payDocType = paymentMethod === 'CASH' ? 'CR' : 'BR';
     const paymentNumber = body.paymentNumber || (await issueNextDocNumber(branchId, payDocType, paymentDateAD));
     let chequeDateBS: string | null = null;
@@ -1208,6 +1246,11 @@ export async function post_customerPayments(req: any, res: Response): Promise<an
       chequeDateBS,
       transactionReference: body.transactionReference || null,
       settlementAccountId: body.settlementAccountId || null,
+      providerCode,
+      providerTransactionId,
+      grossAmount,
+      feeAmount,
+      netAmount,
       notes: body.notes || null,
       status: 'POSTED',
       createdBy: getUserFromReq(req)?.email || 'system',
@@ -1241,8 +1284,13 @@ export async function post_customerPayments(req: any, res: Response): Promise<an
     // A missing posting default or a closed period is expected input, not a
     // server fault: surface its 400/409 instead of a generic database 500.
     if (!(err instanceof ApiError)) console.error('Error creating customer payment:', err);
-    res.status(err instanceof ApiError ? err.status : 500).json({
-      message: err instanceof ApiError ? err.message : `Database error: ${err.message}`,
+    res.status(err instanceof ApiError ? err.status : err?.code === '23505' ? 409 : 500).json({
+      message:
+        err instanceof ApiError
+          ? err.message
+          : err?.code === '23505'
+            ? 'That provider transaction id is already recorded.'
+            : `Database error: ${err.message}`,
     });
   }
 }
@@ -1261,6 +1309,15 @@ export async function post_customerPaymentReverse(req: any, res: Response): Prom
     if (!payment) return res.status(404).json({ message: 'Customer payment not found.' });
     if (payment.status !== 'POSTED') {
       return res.status(409).json({ message: `Payment #${payment.paymentNumber} is already ${String(payment.status).toLowerCase()}.` });
+    }
+
+    if (getPgConnected() && payment.paymentMethod === 'ONLINE') {
+      const settled = Number((await pgPool.query(CP_SETTLED_GROSS_SQL, [id])).rows[0]?.settledGross) || 0;
+      if (settled > 0) {
+        return res.status(409).json({
+          message: `Payment #${payment.paymentNumber} already has NPR ${settled.toFixed(2)} settled with the provider. Use a chargeback instead of reversing a settled receipt.`,
+        });
+      }
     }
 
     if (getPgConnected()) {
@@ -1305,6 +1362,106 @@ export async function post_customerPaymentReverse(req: any, res: Response): Prom
     if (!(err instanceof ApiError)) console.error('Error reversing customer payment:', err);
     res.status(err instanceof ApiError ? err.status : err.statusCode || 500).json({
       message: err.message || 'Failed to reverse customer payment.',
+    });
+  }
+}
+
+/** Refund an unsettled wallet receipt (the provider has not paid us yet). */
+export async function post_customerPaymentRefund(req: any, res: Response): Promise<any> {
+  try {
+    const { id } = req.params;
+    const reason = String(req.body?.reason || '').trim();
+    if (reason.length < 3) return res.status(400).json({ message: 'A refund reason of at least 3 characters is required.' });
+    const payment = getPgConnected()
+      ? (await pgPool.query(CP_FIND_BY_ID_SQL, [id])).rows[0]
+      : customerPayments.find((p) => p.id === id);
+    if (!payment) return res.status(404).json({ message: 'Customer payment not found.' });
+    if (payment.paymentMethod !== 'ONLINE') {
+      return res.status(400).json({ message: 'Only an ONLINE wallet receipt can be refunded through the provider.' });
+    }
+    if (payment.status !== 'POSTED') {
+      return res.status(409).json({ message: `Payment #${payment.paymentNumber} is already ${String(payment.status).toLowerCase()}.` });
+    }
+    const settled = Number((await pgPool.query(CP_SETTLED_GROSS_SQL, [id])).rows[0]?.settledGross) || 0;
+    if (settled > 0) {
+      return res.status(409).json({
+        message: `NPR ${settled.toFixed(2)} of this receipt is already settled. Record a chargeback instead of a refund.`,
+      });
+    }
+
+    await withTransaction(async (client) => {
+      const current = await client.query(CP_LOCK_STATUS_SQL, [id]);
+      if (!current.rows[0] || current.rows[0].status !== 'POSTED') {
+        const conflict: any = new Error('That payment changed while the refund was being recorded.');
+        conflict.statusCode = 409;
+        throw conflict;
+      }
+      await client.query(CP_REFUND_SQL, [reason, getUserFromReq(req)?.email || 'system', id]);
+      if (payment.invoiceId) {
+        await client.query(SI_UNDO_PAYMENT_SQL, [Number(payment.amount), payment.invoiceId]);
+      }
+      await postWalletRefundLedger(client, { receipt: payment, reason, actor: actorOf(req) });
+      await logAuditEvent(
+        req,
+        'REFUND_CUSTOMER_PAYMENT',
+        'SALES',
+        `Refunded wallet payment #${payment.paymentNumber} (${payment.providerCode || 'provider'}) — ${reason}`,
+        payment.branchId,
+        client
+      );
+    });
+    return res.json({ ...payment, status: 'REFUNDED', reversalReason: reason });
+  } catch (err: any) {
+    if (!(err instanceof ApiError)) console.error('Error refunding customer payment:', err);
+    return res.status(err instanceof ApiError ? err.status : err.statusCode || 500).json({
+      message: err.message || 'Failed to refund customer payment.',
+    });
+  }
+}
+
+/** Route a settled provider reversal to chargeback expense with an audit reason. */
+export async function post_customerPaymentChargeback(req: any, res: Response): Promise<any> {
+  try {
+    const { id } = req.params;
+    const reason = String(req.body?.reason || '').trim();
+    if (reason.length < 3) return res.status(400).json({ message: 'A chargeback reason of at least 3 characters is required.' });
+    const payment = getPgConnected()
+      ? (await pgPool.query(CP_FIND_BY_ID_SQL, [id])).rows[0]
+      : customerPayments.find((p) => p.id === id);
+    if (!payment) return res.status(404).json({ message: 'Customer payment not found.' });
+    if (payment.paymentMethod !== 'ONLINE') {
+      return res.status(400).json({ message: 'Only an ONLINE wallet receipt can be charged back through the provider.' });
+    }
+    if (payment.status !== 'POSTED') {
+      return res.status(409).json({ message: `Payment #${payment.paymentNumber} is already ${String(payment.status).toLowerCase()}.` });
+    }
+
+    await withTransaction(async (client) => {
+      const current = await client.query(CP_LOCK_STATUS_SQL, [id]);
+      if (!current.rows[0] || current.rows[0].status !== 'POSTED') {
+        const conflict: any = new Error('That payment changed while the chargeback was being recorded.');
+        conflict.statusCode = 409;
+        throw conflict;
+      }
+      await client.query(CP_CHARGEBACK_SQL, [reason, getUserFromReq(req)?.email || 'system', id]);
+      if (payment.invoiceId) {
+        await client.query(SI_UNDO_PAYMENT_SQL, [Number(payment.amount), payment.invoiceId]);
+      }
+      await postWalletChargebackLedger(client, { receipt: payment, reason, actor: actorOf(req) });
+      await logAuditEvent(
+        req,
+        'CHARGEBACK_CUSTOMER_PAYMENT',
+        'SALES',
+        `Chargeback wallet payment #${payment.paymentNumber} (${payment.providerCode || 'provider'}) — ${reason}`,
+        payment.branchId,
+        client
+      );
+    });
+    return res.json({ ...payment, status: 'CHARGEBACK', reversalReason: reason });
+  } catch (err: any) {
+    if (!(err instanceof ApiError)) console.error('Error recording customer payment chargeback:', err);
+    return res.status(err instanceof ApiError ? err.status : err.statusCode || 500).json({
+      message: err.message || 'Failed to record customer payment chargeback.',
     });
   }
 }

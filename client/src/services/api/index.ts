@@ -401,6 +401,8 @@ export const api = {
   postSalesReturn: sales.postSalesReturn,
   createCustomerPayment: sales.createCustomerPayment,
   reverseCustomerPayment: sales.reverseCustomerPayment,
+  refundCustomerPayment: sales.refundCustomerPayment,
+  chargebackCustomerPayment: sales.chargebackCustomerPayment,
   getCustomerLedger: sales.getCustomerLedger,
 
   // Shipments
@@ -622,6 +624,10 @@ export const api = {
   getTrialBalanceAccountLines: accounting.getTrialBalanceAccountLines,
   getCashBook: accounting.getCashBook,
   getBankPosition: accounting.getBankPosition,
+  getWalletReconciliation: accounting.getWalletReconciliation,
+  createPaymentSettlement: accounting.createPaymentSettlement,
+  importProviderStatement: accounting.importProviderStatement,
+  matchProviderStatementLine: accounting.matchProviderStatementLine,
   getBankReconciliation: accounting.getBankReconciliation,
   importBankStatement: accounting.importBankStatement,
   matchBankStatementLine: accounting.matchBankStatementLine,

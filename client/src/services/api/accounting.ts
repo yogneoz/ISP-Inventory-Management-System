@@ -62,8 +62,9 @@ export interface SettlementAccount {
   id: string;
   code: string;
   name: string;
-  accountKind: 'CASH' | 'BANK';
+  accountKind: 'CASH' | 'BANK' | 'WALLET';
   postingRole: 'CASH' | 'BANK' | null;
+  providerCode?: 'ESEWA' | 'KHALTI' | 'NEPAL_PAY' | null;
   bankName?: string | null;
   bankBranch?: string | null;
   accountNumber?: string | null;
@@ -805,6 +806,162 @@ export interface BankReconciliationMatchResponse {
   journalNo: string;
   amount: number;
   workspace: BankReconciliationResponse;
+}
+
+export interface WalletReconciliationQuery {
+  accountId?: string;
+  from?: string;
+  to?: string;
+}
+
+export interface WalletAccountOption {
+  accountId: string;
+  code: string;
+  name: string;
+  providerCode: 'ESEWA' | 'KHALTI' | 'NEPAL_PAY' | null;
+  settlementAccountId: string | null;
+  branchId: string | null;
+  branchCode: string | null;
+  isActive: boolean;
+}
+
+export interface WalletPendingReceipt {
+  id: string;
+  paymentNumber: string;
+  customerName: string;
+  paymentDateAD: string;
+  providerCode: string | null;
+  providerTransactionId: string | null;
+  grossAmount: number;
+  feeAmount: number;
+  netAmount: number;
+  settledGross: number;
+  outstandingGross: number;
+}
+
+export interface WalletSettlementRow {
+  id: string;
+  settlementNumber: string;
+  customerPaymentId: string;
+  paymentNumber: string;
+  customerName: string;
+  bankAccountId: string;
+  bankAccountCode: string;
+  settlementDateAD: string;
+  grossAmount: number;
+  feeAmount: number;
+  netAmount: number;
+  providerReference: string | null;
+  journalId: string;
+  status: string;
+}
+
+export interface ProviderStatementLine {
+  id: string;
+  statementDate: string;
+  statementDateBS: string;
+  description: string;
+  reference: string | null;
+  amount: number;
+  importBatchId: string;
+  importSource: 'CSV' | 'OFX';
+  matchedSettlementId: string | null;
+  matchedAt: string | null;
+  matchedBy: string | null;
+  matchedSettlementNumber: string | null;
+  matchedSettlementNet: number | null;
+  suggestedSettlementId: string | null;
+}
+
+export interface WalletReconciliationResponse {
+  from: string;
+  to: string;
+  accounts: WalletAccountOption[];
+  account: WalletAccountOption | null;
+  summary: {
+    ledgerOpening: number;
+    ledgerReceipts: number;
+    ledgerSettlements: number;
+    ledgerClosing: number;
+    grossReceipts: number;
+    receiptCount: number;
+    settledGross: number;
+    settlementCount: number;
+    fees: number;
+    netBanked: number;
+    unsettledGross: number;
+    difference: number;
+    reconciled: boolean;
+  };
+  pending: WalletPendingReceipt[];
+  settlements: WalletSettlementRow[];
+  statement: {
+    lineCount: number;
+    matchedCount: number;
+    unmatchedCount: number;
+    unmatchedAmount: number;
+    movement: number;
+  };
+  lines: ProviderStatementLine[];
+  linesTruncated: boolean;
+}
+
+export interface WalletSettlementCreateInput extends WalletReconciliationQuery {
+  customerPaymentId: string;
+  bankAccountId: string;
+  settlementDateAD: string;
+  grossAmount: number;
+  feeAmount: number;
+  providerReference?: string;
+}
+
+export interface WalletSettlementActionResponse {
+  settlement: {
+    id: string;
+    settlementNumber: string;
+    customerPaymentId: string;
+    paymentNumber: string;
+    customerName: string;
+    providerCode: string;
+    providerTransactionId: string | null;
+    walletAccountId: string;
+    walletAccountCode: string;
+    bankAccountId: string;
+    bankAccountCode: string;
+    settlementDateAD: string;
+    grossAmount: number;
+    feeAmount: number;
+    netAmount: number;
+    providerReference: string | null;
+    journalId: string;
+    status: string;
+  };
+  workspace: WalletReconciliationResponse;
+}
+
+export interface ProviderStatementImportInput extends WalletReconciliationQuery {
+  accountId: string;
+  content: string;
+  format?: 'CSV' | 'OFX';
+  fileName?: string;
+}
+
+export interface ProviderStatementImportResponse {
+  batchId: string;
+  parsed: number;
+  imported: number;
+  duplicates: number;
+  autoMatched: number;
+  errors: BankStatementImportIssue[];
+  source: 'CSV' | 'OFX';
+  workspace: WalletReconciliationResponse;
+}
+
+export interface ProviderStatementMatchResponse {
+  lineId: string;
+  settlementId: string;
+  amount: number;
+  workspace: WalletReconciliationResponse;
 }
 
 export type AgingType = 'AR' | 'AP';
@@ -1874,6 +2031,50 @@ export async function getCashBook(query: StatementQuery = {}): Promise<CashBookR
 
 export async function getBankPosition(query: StatementQuery = {}): Promise<CashBookResponse> {
   return fetchJson(`/api/accounting/bank-position${statementQuery(query)}`);
+}
+
+function walletReconciliationQueryString(query: WalletReconciliationQuery = {}): string {
+  const params = new URLSearchParams();
+  if (query.accountId) params.set('accountId', query.accountId);
+  if (query.from) params.set('from', query.from);
+  if (query.to) params.set('to', query.to);
+  const suffix = params.toString();
+  return suffix ? `?${suffix}` : '';
+}
+
+export async function getWalletReconciliation(
+  query: WalletReconciliationQuery = {}
+): Promise<WalletReconciliationResponse> {
+  return fetchJson(`/api/accounting/wallet-reconciliation${walletReconciliationQueryString(query)}`);
+}
+
+export async function createPaymentSettlement(
+  input: WalletSettlementCreateInput
+): Promise<WalletSettlementActionResponse> {
+  return fetchJson('/api/accounting/wallet-settlements', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function importProviderStatement(
+  input: ProviderStatementImportInput
+): Promise<ProviderStatementImportResponse> {
+  return fetchJson('/api/accounting/wallet-reconciliation/import', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function matchProviderStatementLine(
+  lineId: string,
+  settlementId: string,
+  context: WalletReconciliationQuery & { accountId: string }
+): Promise<ProviderStatementMatchResponse> {
+  return fetchJson(
+    `/api/accounting/wallet-reconciliation/lines/${encodeURIComponent(lineId)}/match`,
+    { method: 'POST', body: JSON.stringify({ ...context, settlementId }) }
+  );
 }
 
 function bankReconciliationQueryString(query: BankReconciliationQuery = {}): string {

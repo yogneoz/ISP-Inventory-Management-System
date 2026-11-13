@@ -151,6 +151,20 @@ export async function reverseCustomerPayment(id: string, reason: string): Promis
   });
 }
 
+export async function refundCustomerPayment(id: string, reason: string): Promise<CustomerPayment> {
+  return fetchJson(`/api/customer-payments/${encodeURIComponent(id)}/refund`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export async function chargebackCustomerPayment(id: string, reason: string): Promise<CustomerPayment> {
+  return fetchJson(`/api/customer-payments/${encodeURIComponent(id)}/chargeback`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
+
 export interface LedgerLineDTO {
   id: string;
   documentNumber: string;

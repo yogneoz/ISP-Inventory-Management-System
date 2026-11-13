@@ -1302,12 +1302,17 @@ export interface CustomerPayment {
   chequeDateAD?: string | null;
   chequeDateBS?: string | null;
   transactionReference?: string | null;
-  /** The till/bank ledger this receipt actually settled through. */
+  /** The till/bank/wallet ledger this receipt actually settled through. */
   settlementAccountId?: string | null;
   settlementAccountCode?: string | null;
   settlementAccountName?: string | null;
+  providerCode?: 'ESEWA' | 'KHALTI' | 'NEPAL_PAY' | null;
+  providerTransactionId?: string | null;
+  grossAmount?: number | null;
+  feeAmount?: number | null;
+  netAmount?: number | null;
   notes?: string | null;
-  status: 'POSTED' | 'REVERSED' | 'VOIDED';
+  status: 'POSTED' | 'REVERSED' | 'VOIDED' | 'REFUNDED' | 'CHARGEBACK';
   reversalReason?: string | null;
   reversedBy?: string | null;
   reversedAtAD?: string | null;

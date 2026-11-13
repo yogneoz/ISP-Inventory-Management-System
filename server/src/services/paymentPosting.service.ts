@@ -29,6 +29,7 @@ import { roundMoney } from '../utils/money';
 import {
   ACCOUNT_BY_ID_SQL,
   ACCOUNTS_BY_POSTING_ROLES_SQL,
+  WALLET_ACCOUNT_BY_PROVIDER_SQL,
   type PostingRole,
 } from '../models/accounting.repo';
 import {
@@ -48,7 +49,10 @@ interface PostingAccount {
   isActive?: boolean;
 }
 
-type PaymentAccountRole = Extract<PostingRole, 'AR_CONTROL' | 'AP_CONTROL' | 'CASH' | 'BANK'>;
+type PaymentAccountRole = Extract<
+  PostingRole,
+  'AR_CONTROL' | 'AP_CONTROL' | 'CASH' | 'BANK' | 'PAYMENT_FEE_EXPENSE'
+>;
 
 interface PaymentDocument {
   id: string;
@@ -59,6 +63,7 @@ interface PaymentDocument {
   paymentMethod?: string | null;
   /** The selected till/bank ledger; NULL keeps the posting default. */
   settlementAccountId?: string | null;
+  providerCode?: string | null;
   bankName?: string | null;
   chequeNumber?: string | null;
 }
@@ -79,9 +84,18 @@ export interface PaymentReversalInput {
   actor?: string | null;
 }
 
-/** CASH is the till; every other method already settles through the bank. */
+/** CASH is the till; ONLINE is provider clearing; every other method is bank. */
 function cashOrBankRole(paymentMethod: string | null | undefined): 'CASH' | 'BANK' {
   return String(paymentMethod || 'CASH').trim().toUpperCase() === 'CASH' ? 'CASH' : 'BANK';
+}
+
+function customerSettlementRole(
+  paymentMethod: string | null | undefined
+): 'CASH' | 'BANK' | 'WALLET' {
+  const method = String(paymentMethod || 'CASH').trim().toUpperCase();
+  if (method === 'CASH') return 'CASH';
+  if (method === 'ONLINE') return 'WALLET';
+  return 'BANK';
 }
 
 async function loadPaymentDefaults(
@@ -123,9 +137,10 @@ function text(value: unknown): string | null {
 async function loadSettlementAccount(
   client: AccountingClient,
   accountId: string,
-  expectedKind: 'CASH' | 'BANK',
-  label: string
-): Promise<PostingAccount> {
+  expectedKind: 'CASH' | 'BANK' | 'WALLET',
+  label: string,
+  providerCode?: string | null
+): Promise<PostingAccount & { providerCode?: string | null }> {
   const account = (await client.query(ACCOUNT_BY_ID_SQL, [accountId])).rows[0];
   if (!account) {
     throw new ApiError(400, `The selected settlement ledger for ${label} no longer exists. Choose another account.`);
@@ -139,11 +154,18 @@ async function loadSettlementAccount(
       `The selected settlement ledger ${account.code} is ${account.accountKind || 'not a cash/bank ledger'}, but this ${label} must settle through a ${expectedKind} ledger.`
     );
   }
-  return account as PostingAccount;
+  if (expectedKind === 'WALLET' && String(account.providerCode || '').toUpperCase() !== providerCode) {
+    throw new ApiError(
+      400,
+      `The selected wallet ledger ${account.code} belongs to ${account.providerCode || 'no provider'}, not ${providerCode}.`
+    );
+  }
+  return account as PostingAccount & { providerCode?: string | null };
 }
 
 function paymentMemo(label: string, doc: PaymentDocument): string {
   const parts = [`${label} ${doc.paymentNumber}`, String(doc.paymentMethod || 'CASH').toUpperCase()];
+  if (doc.providerCode) parts.push(String(doc.providerCode).toUpperCase());
   if (doc.chequeNumber) parts.push(`cheque ${doc.chequeNumber}`);
   if (doc.bankName) parts.push(doc.bankName);
   return parts.join(' - ');
@@ -187,16 +209,41 @@ export async function postCustomerReceiptLedger(
     throw new ApiError(400, 'A customer is required to post a receipt.');
   }
 
-  const settlementRole = cashOrBankRole(input.receipt.paymentMethod);
+  const settlementRole = customerSettlementRole(input.receipt.paymentMethod);
+  const providerCode = text(input.receipt.providerCode)?.toUpperCase() || null;
+  if (settlementRole === 'WALLET' && !providerCode) {
+    throw new ApiError(400, 'An ONLINE wallet receipt must name its provider (ESEWA, KHALTI or NEPAL_PAY).');
+  }
   const settlementAccountId = text(input.receipt.settlementAccountId);
   const defaults = await loadPaymentDefaults(
     client,
-    settlementAccountId ? ['AR_CONTROL'] : ['AR_CONTROL', settlementRole],
+    settlementAccountId || settlementRole === 'WALLET' ? ['AR_CONTROL'] : ['AR_CONTROL', settlementRole],
     'customer receipts'
   );
-  const settlementAccount = settlementAccountId
-    ? await loadSettlementAccount(client, settlementAccountId, settlementRole, 'customer receipt')
-    : defaults[settlementRole];
+  let settlementAccount: PostingAccount;
+  if (settlementAccountId) {
+    settlementAccount = await loadSettlementAccount(
+      client,
+      settlementAccountId,
+      settlementRole,
+      'customer receipt',
+      providerCode
+    );
+  } else if (settlementRole === 'WALLET') {
+    const wallet = (await client.query(WALLET_ACCOUNT_BY_PROVIDER_SQL, [
+      providerCode,
+      input.receipt.branchId,
+    ])).rows[0];
+    if (!wallet) {
+      throw new ApiError(
+        400,
+        `No active ${providerCode} wallet clearing ledger exists for this branch. Add one in Chart & Defaults before recording the receipt.`
+      );
+    }
+    settlementAccount = wallet as PostingAccount;
+  } else {
+    settlementAccount = defaults[settlementRole];
+  }
   const memo = paymentMemo('Customer receipt', input.receipt);
 
   return postJournal(client, {
@@ -210,6 +257,89 @@ export async function postCustomerReceiptLedger(
       ordinaryLine(settlementAccount, amount, 0, memo),
       controlLine(defaults.AR_CONTROL, 0, amount, input.receipt.customerId, partyName, memo),
     ],
+  });
+}
+
+/**
+ * Refund an unsettled wallet receipt: debit AR (customer subledger) and credit
+ * the provider clearing ledger for the gross. The provider has not paid us yet,
+ * so the clearing balance falls back toward zero instead of becoming a bank
+ * withdrawal that never happened.
+ */
+export async function postWalletRefundLedger(
+  client: AccountingClient,
+  input: { receipt: CustomerReceiptDocument; reason: string; actor?: string | null }
+) {
+  const amount = money(input.receipt.amount);
+  if (amount <= 0) return null;
+  const providerCode = text(input.receipt.providerCode)?.toUpperCase() || null;
+  const walletAccountId = text(input.receipt.settlementAccountId);
+  if (!providerCode || !walletAccountId) {
+    throw new ApiError(400, 'The wallet receipt has no provider clearing ledger to refund.');
+  }
+  const defaults = await loadPaymentDefaults(client, ['AR_CONTROL'], 'wallet refunds');
+  const wallet = await loadSettlementAccount(
+    client,
+    walletAccountId,
+    'WALLET',
+    'wallet refund',
+    providerCode
+  );
+  const memo = `Wallet refund ${input.receipt.paymentNumber} - ${input.reason}`;
+  return postJournal(client, {
+    journalDateAD: reversalDateAD(),
+    branchId: input.receipt.branchId,
+    memo,
+    sourceType: 'WALLET_REFUND',
+    sourceId: input.receipt.id,
+    actor: input.actor || null,
+    lines: [
+      controlLine(
+        defaults.AR_CONTROL,
+        amount,
+        0,
+        input.receipt.customerId,
+        input.receipt.customerName,
+        memo
+      ),
+      ordinaryLine(wallet, 0, amount, memo),
+    ],
+  });
+}
+
+/**
+ * A chargeback is money the provider took back after settlement. It is not a
+ * customer refund: debit the processing-fee/chargeback expense and credit the
+ * clearing ledger, leaving an auditable reason and provider reference.
+ */
+export async function postWalletChargebackLedger(
+  client: AccountingClient,
+  input: { receipt: CustomerReceiptDocument; reason: string; actor?: string | null }
+) {
+  const amount = money(input.receipt.amount);
+  if (amount <= 0) return null;
+  const providerCode = text(input.receipt.providerCode)?.toUpperCase() || null;
+  const walletAccountId = text(input.receipt.settlementAccountId);
+  if (!providerCode || !walletAccountId) {
+    throw new ApiError(400, 'The wallet receipt has no provider clearing ledger to charge back.');
+  }
+  const defaults = await loadPaymentDefaults(client, ['PAYMENT_FEE_EXPENSE'], 'wallet chargebacks');
+  const wallet = await loadSettlementAccount(
+    client,
+    walletAccountId,
+    'WALLET',
+    'wallet chargeback',
+    providerCode
+  );
+  const memo = `Wallet chargeback ${input.receipt.paymentNumber} - ${input.reason}`;
+  return postJournal(client, {
+    journalDateAD: reversalDateAD(),
+    branchId: input.receipt.branchId,
+    memo,
+    sourceType: 'WALLET_CHARGEBACK',
+    sourceId: input.receipt.id,
+    actor: input.actor || null,
+    lines: [ordinaryLine(defaults.PAYMENT_FEE_EXPENSE, amount, 0, memo), ordinaryLine(wallet, 0, amount, memo)],
   });
 }
 

@@ -932,8 +932,17 @@ CREATE TABLE IF NOT EXISTS customer_payments (
     cheque_date_bs VARCHAR(20),
     transaction_reference VARCHAR(200),
     settlement_account_id VARCHAR(50),
+    -- ACC-3 wallet receipts: the provider names the clearing ledger, the
+    -- provider transaction id is the external idempotency key, and gross is
+    -- what the customer paid. Fee is recognised only when the provider settles;
+    -- net = gross - fee is the expected bank credit.
+    provider_code VARCHAR(30) CHECK (provider_code IS NULL OR provider_code IN ('ESEWA', 'KHALTI', 'NEPAL_PAY')),
+    provider_transaction_id VARCHAR(200),
+    gross_amount NUMERIC(14, 2),
+    fee_amount NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (fee_amount >= 0),
+    net_amount NUMERIC(14, 2),
     notes TEXT,
-    status VARCHAR(30) DEFAULT 'POSTED' CHECK (status IN ('POSTED', 'REVERSED', 'VOIDED')),
+    status VARCHAR(30) DEFAULT 'POSTED' CHECK (status IN ('POSTED', 'REVERSED', 'VOIDED', 'REFUNDED', 'CHARGEBACK')),
     reversal_reason TEXT,
     reversed_by VARCHAR(150),
     reversed_at_ad TIMESTAMP WITH TIME ZONE,
@@ -952,6 +961,33 @@ CREATE INDEX IF NOT EXISTS idx_customer_payments_date ON customer_payments(payme
 CREATE INDEX IF NOT EXISTS idx_customer_payments_status ON customer_payments(status);
 CREATE INDEX IF NOT EXISTS idx_customer_payments_fiscal_year ON customer_payments(fiscal_year_id);
 CREATE INDEX IF NOT EXISTS idx_customer_payments_demo ON customer_payments(id) WHERE is_demo = TRUE;
+
+-- Existing installs need the ACC-3 provider columns and the two refund states.
+ALTER TABLE customer_payments ADD COLUMN IF NOT EXISTS provider_code VARCHAR(30);
+ALTER TABLE customer_payments ADD COLUMN IF NOT EXISTS provider_transaction_id VARCHAR(200);
+ALTER TABLE customer_payments ADD COLUMN IF NOT EXISTS gross_amount NUMERIC(14, 2);
+ALTER TABLE customer_payments ADD COLUMN IF NOT EXISTS fee_amount NUMERIC(14, 2) NOT NULL DEFAULT 0;
+ALTER TABLE customer_payments ADD COLUMN IF NOT EXISTS net_amount NUMERIC(14, 2);
+ALTER TABLE customer_payments DROP CONSTRAINT IF EXISTS customer_payments_status_check;
+ALTER TABLE customer_payments ADD CONSTRAINT customer_payments_status_check
+    CHECK (status IN ('POSTED', 'REVERSED', 'VOIDED', 'REFUNDED', 'CHARGEBACK'));
+ALTER TABLE customer_payments DROP CONSTRAINT IF EXISTS customer_payments_provider_code_check;
+ALTER TABLE customer_payments ADD CONSTRAINT customer_payments_provider_code_check
+    CHECK (provider_code IS NULL OR provider_code IN ('ESEWA', 'KHALTI', 'NEPAL_PAY'));
+ALTER TABLE customer_payments DROP CONSTRAINT IF EXISTS customer_payments_provider_amounts_check;
+ALTER TABLE customer_payments ADD CONSTRAINT customer_payments_provider_amounts_check CHECK (
+    (gross_amount IS NULL AND net_amount IS NULL)
+    OR (
+        gross_amount > 0
+        AND net_amount > 0
+        AND fee_amount >= 0
+        AND fee_amount <= gross_amount
+        AND net_amount = gross_amount - fee_amount
+    )
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_customer_payments_provider_transaction
+    ON customer_payments(provider_code, provider_transaction_id)
+    WHERE provider_transaction_id IS NOT NULL;
 
 -- ==========================================
 -- 17. Customer Device Records Table
@@ -1568,7 +1604,8 @@ CREATE TABLE IF NOT EXISTS gl_accounts (
         'STOCK_EXPENSE', 'CPE_ASSET', 'DUE_FROM_HO', 'DUE_TO_HO',
         'FIXED_ASSET', 'ACCUMULATED_DEPRECIATION', 'DEPRECIATION_EXPENSE',
         'GAIN_ON_DISPOSAL', 'LOSS_ON_DISPOSAL',
-        'SALARY_EXPENSE', 'TDS_PAYABLE', 'SSF_PAYABLE', 'EMPLOYEE_ADVANCE', 'EMPLOYEE_LOAN'
+        'SALARY_EXPENSE', 'TDS_PAYABLE', 'SSF_PAYABLE', 'EMPLOYEE_ADVANCE', 'EMPLOYEE_LOAN',
+        'PAYMENT_FEE_EXPENSE'
     )),
     -- CASH/BANK/WALLET classify every custody ledger, including the extra ones
     -- that deliberately have no posting role. OTHER is every non-custody ledger.
@@ -1610,7 +1647,8 @@ ALTER TABLE gl_accounts ADD CONSTRAINT gl_accounts_posting_role_check CHECK (pos
     'STOCK_EXPENSE', 'CPE_ASSET', 'DUE_FROM_HO', 'DUE_TO_HO',
     'FIXED_ASSET', 'ACCUMULATED_DEPRECIATION', 'DEPRECIATION_EXPENSE',
     'GAIN_ON_DISPOSAL', 'LOSS_ON_DISPOSAL',
-    'SALARY_EXPENSE', 'TDS_PAYABLE', 'SSF_PAYABLE', 'EMPLOYEE_ADVANCE', 'EMPLOYEE_LOAN'
+    'SALARY_EXPENSE', 'TDS_PAYABLE', 'SSF_PAYABLE', 'EMPLOYEE_ADVANCE', 'EMPLOYEE_LOAN',
+    'PAYMENT_FEE_EXPENSE'
 ));
 
 -- Existing installs need the new ledger classification and bank metadata. The
@@ -2148,18 +2186,49 @@ CREATE INDEX IF NOT EXISTS idx_daily_cash_closes_date ON daily_cash_closes(busin
 ALTER TABLE daily_cash_closes ADD COLUMN IF NOT EXISTS business_date_bs VARCHAR(20);
 
 -- ============================================================================
--- 34b. Bank reconciliation — imported bank statement lines and the period
--- sessions that lock a bank-account reconciliation. A BANK ledger is the
--- account master (the chart already stores bank name/number/holder); these
--- tables hold statement-side facts for that account. All branches post to the
--- same company bank account and the bank issues one statement, so neither
--- table carries a branch: branch is a posting dimension on journal lines.
--- `amount` is signed from the bank statement perspective: positive = deposit
--- into the bank, negative = withdrawal. The book side remains the posted
--- debit/credit in gl_journal_lines. A statement line can claim at most one
--- posted book line, and fingerprint uniqueness makes re-importing the same
--- statement idempotent.
+-- 34b. Cash, bank and wallet custody reconciliation
+-- `bank_statement_lines` stores imported statement facts for a bank account or
+-- a wallet clearing account. Bank lines match one posted bank-ledger line;
+-- provider lines match the settlement row they paid. `amount` is signed from
+-- the statement's perspective (positive = money in), and fingerprint
+-- uniqueness makes re-importing the same statement idempotent. Reconciliation
+-- is company-wide: branch remains a posting dimension on journal lines.
 -- ============================================================================
+-- ACC-3: one row per settlement allocation from a wallet receipt to a bank
+-- deposit. A receipt can settle partially over several rows; gross_amount is
+-- the portion of the receipt cleared now, and net_amount must equal gross-fee.
+CREATE TABLE IF NOT EXISTS payment_settlements (
+    id VARCHAR(60) PRIMARY KEY,
+    settlement_number VARCHAR(100) UNIQUE NOT NULL,
+    customer_payment_id VARCHAR(50) NOT NULL REFERENCES customer_payments(id) ON DELETE RESTRICT,
+    wallet_account_id VARCHAR(50) NOT NULL REFERENCES gl_accounts(id) ON DELETE RESTRICT,
+    bank_account_id VARCHAR(50) NOT NULL REFERENCES gl_accounts(id) ON DELETE RESTRICT,
+    settlement_date_ad DATE NOT NULL,
+    settlement_date_bs VARCHAR(20) NOT NULL,
+    gross_amount NUMERIC(14, 2) NOT NULL CHECK (gross_amount > 0),
+    fee_amount NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (fee_amount >= 0),
+    net_amount NUMERIC(14, 2) NOT NULL CHECK (net_amount > 0),
+    provider_reference VARCHAR(200),
+    journal_id VARCHAR(50) NOT NULL REFERENCES gl_journals_registry(id) ON DELETE RESTRICT,
+    status VARCHAR(20) NOT NULL DEFAULT 'POSTED' CHECK (status IN ('POSTED', 'REVERSED')),
+    reversal_journal_id VARCHAR(50) REFERENCES gl_journals_registry(id) ON DELETE RESTRICT,
+    reversed_at TIMESTAMP WITH TIME ZONE,
+    reversed_by VARCHAR(150),
+    reversal_reason TEXT,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT payment_settlements_net_check CHECK (net_amount = gross_amount - fee_amount)
+);
+
+CREATE INDEX IF NOT EXISTS idx_payment_settlements_payment
+    ON payment_settlements(customer_payment_id);
+CREATE INDEX IF NOT EXISTS idx_payment_settlements_wallet_date
+    ON payment_settlements(wallet_account_id, settlement_date_ad);
+CREATE INDEX IF NOT EXISTS idx_payment_settlements_bank_date
+    ON payment_settlements(bank_account_id, settlement_date_ad);
+
 CREATE TABLE IF NOT EXISTS bank_statement_lines (
     id VARCHAR(60) PRIMARY KEY,
     bank_account_id VARCHAR(50) NOT NULL REFERENCES gl_accounts(id) ON DELETE RESTRICT,
@@ -2172,6 +2241,9 @@ CREATE TABLE IF NOT EXISTS bank_statement_lines (
     import_source VARCHAR(10) NOT NULL CHECK (import_source IN ('CSV', 'OFX')),
     fingerprint VARCHAR(64) NOT NULL,
     matched_journal_line_id VARCHAR(60) REFERENCES gl_journal_line_registry(id) ON DELETE RESTRICT,
+    -- Wallet/provider statements match the settlement row they paid, so the
+    -- imported net deposit and the settlement net can be compared directly.
+    matched_settlement_id VARCHAR(60) REFERENCES payment_settlements(id) ON DELETE RESTRICT,
     matched_at TIMESTAMP WITH TIME ZONE,
     matched_by VARCHAR(150),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -2200,6 +2272,11 @@ CREATE INDEX IF NOT EXISTS idx_bank_statement_lines_scope
 CREATE UNIQUE INDEX IF NOT EXISTS uq_bank_statement_lines_journal_line
     ON bank_statement_lines(matched_journal_line_id)
     WHERE matched_journal_line_id IS NOT NULL;
+ALTER TABLE bank_statement_lines
+    ADD COLUMN IF NOT EXISTS matched_settlement_id VARCHAR(60) REFERENCES payment_settlements(id) ON DELETE RESTRICT;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bank_statement_lines_settlement
+    ON bank_statement_lines(matched_settlement_id)
+    WHERE matched_settlement_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS bank_reconciliation_sessions (
     id VARCHAR(60) PRIMARY KEY,

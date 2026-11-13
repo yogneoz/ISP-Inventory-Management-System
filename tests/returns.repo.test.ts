@@ -434,17 +434,23 @@ describe('sales returns repo', () => {
     assert.match(SR_CANCEL_DRAFT_SQL, /status = 'DRAFT'/);
   });
 
-  test('customer payments: receipt insert has 21 params; payment applies to invoice atomically', () => {
-    assert.equal((CP_INSERT_SQL.match(/\$\d+/g) || []).length, 21);
+  test('customer payments: receipt insert has 26 params; payment applies to invoice atomically', () => {
+    assert.equal((CP_INSERT_SQL.match(/\$\d+/g) || []).length, 26);
     const p = cpInsertParams({
       id: 'cp-1', paymentNumber: 'CR-WH001-202609010001', customerId: 'cus-1',
       customerName: 'Customer', branchId: 'WH001', invoiceId: 'si-1',
       invoiceNumber: 'INV-1', paymentDateAD: '2026-09-01', paymentDateBS: '2083-05-18 BS',
       amount: 500, paymentMethod: 'CASH', createdBy: 'tester@example.com',
     });
-    assert.equal(p.length, 21);
+    assert.equal(p.length, 26);
     assert.equal(p[9], 500);
-    assert.equal(p[20], 'tester@example.com');
+    assert.equal(p[18], null);
+    assert.equal(p[19], null);
+    assert.equal(p[20], null);
+    assert.equal(p[21], null);
+    assert.equal(p[22], 0);
+    assert.equal(p[23], null);
+    assert.equal(p[25], 'tester@example.com');
     // Payment + reversal adjust the invoice balance additively, guarded.
     assert.match(SI_RECORD_PAYMENT_SQL, /amount_paid = amount_paid \+ \$1/);
     assert.match(SI_UNDO_PAYMENT_SQL, /GREATEST\(0, amount_paid - \$1\)/);

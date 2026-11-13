@@ -660,8 +660,9 @@ export const CP_INSERT_SQL = `INSERT INTO customer_payments (
    id, payment_number, customer_id, customer_name, branch_id, invoice_id, invoice_number,
    payment_date_ad, payment_date_bs, amount, payment_method, bank_name, bank_branch,
    account_number, cheque_number, cheque_date_ad, cheque_date_bs, transaction_reference,
-   settlement_account_id, notes, status, created_by
- ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, 'POSTED', $21)`;
+   settlement_account_id, provider_code, provider_transaction_id, gross_amount, fee_amount,
+   net_amount, notes, status, created_by
+ ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, 'POSTED', $26)`;
 
 export function cpInsertParams(p: Record<string, any>): unknown[] {
   return [
@@ -684,10 +685,21 @@ export function cpInsertParams(p: Record<string, any>): unknown[] {
     p.chequeDateBS || null,
     p.transactionReference || null,
     p.settlementAccountId || null,
+    p.providerCode || null,
+    p.providerTransactionId || null,
+    p.grossAmount === undefined ? null : Number(p.grossAmount),
+    Number(p.feeAmount) || 0,
+    p.netAmount === undefined ? null : Number(p.netAmount),
     p.notes || null,
     p.createdBy || 'system',
   ];
 }
+
+/** A provider transaction id identifies one receipt; a retry must not post twice. */
+export const CP_PROVIDER_TXN_EXISTS_SQL = `SELECT id
+FROM customer_payments
+WHERE provider_code = $1 AND provider_transaction_id = $2
+LIMIT 1`;
 
 /** Locks a payment row (FOR UPDATE) before a status transition. */
 export const CP_LOCK_STATUS_SQL = 'SELECT status FROM customer_payments WHERE id = $1 FOR UPDATE';
@@ -712,6 +724,12 @@ export const CP_FIND_BY_ID_SQL = `SELECT id,
   cheque_date_bs AS "chequeDateBS",
   transaction_reference AS "transactionReference",
   settlement_account_id AS "settlementAccountId",
+  provider_code AS "providerCode",
+  provider_transaction_id AS "providerTransactionId",
+  gross_amount::numeric AS "grossAmount",
+  fee_amount::numeric AS "feeAmount",
+  net_amount::numeric AS "netAmount",
+  (SELECT provider_code FROM gl_accounts a WHERE a.id = customer_payments.settlement_account_id) AS "settlementProviderCode",
   (SELECT code FROM gl_accounts a WHERE a.id = customer_payments.settlement_account_id) AS "settlementAccountCode",
   (SELECT name FROM gl_accounts a WHERE a.id = customer_payments.settlement_account_id) AS "settlementAccountName",
   notes,
@@ -736,6 +754,29 @@ export const CP_REVERSE_SQL = `UPDATE customer_payments SET
    reversed_at_ad = CURRENT_TIMESTAMP,
    updated_at = CURRENT_TIMESTAMP
  WHERE id = $3 AND status = 'POSTED'`;
+
+/** A provider refund is not a receipt reversal; it gets its own status. */
+export const CP_REFUND_SQL = `UPDATE customer_payments SET
+   status = 'REFUNDED',
+   reversal_reason = $1,
+   reversed_by = $2,
+   reversed_at_ad = CURRENT_TIMESTAMP,
+   updated_at = CURRENT_TIMESTAMP
+ WHERE id = $3 AND status = 'POSTED'`;
+
+/** A chargeback stays an expense, so the receipt is marked separately. */
+export const CP_CHARGEBACK_SQL = `UPDATE customer_payments SET
+   status = 'CHARGEBACK',
+   reversal_reason = $1,
+   reversed_by = $2,
+   reversed_at_ad = CURRENT_TIMESTAMP,
+   updated_at = CURRENT_TIMESTAMP
+ WHERE id = $3 AND status = 'POSTED'`;
+
+/** Settled gross on one receipt; used before allowing refund/reversal. */
+export const CP_SETTLED_GROSS_SQL = `SELECT COALESCE(SUM(gross_amount), 0)::numeric AS "settledGross"
+FROM payment_settlements
+WHERE customer_payment_id = $1 AND status = 'POSTED'`;
 
 /**
  * Applies a payment to its sales invoice (additive amount_paid + status case),

@@ -16,6 +16,7 @@ import {
 import type { AccountingScreenProps } from '../../components/accounting/AccountingRegisterShell';
 import { CashBookView } from '../../components/accounting/CashBookView';
 import { BankReconciliationPanel } from '../../components/accounting/BankReconciliationPanel';
+import { WalletReconciliationPanel } from '../../components/accounting/WalletReconciliationPanel';
 import { VoucherDetailDialog } from '../../components/accounting/VoucherDetailDialog';
 
 export const CashBookRegister: React.FC<AccountingScreenProps> = ({
@@ -29,12 +30,12 @@ export const CashBookRegister: React.FC<AccountingScreenProps> = ({
   const [error, setError] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
   const [detailId, setDetailId] = useState<string | null>(null);
-  const [view, setView] = useState<'CASH' | 'BANK' | 'WALLET' | 'RECONCILE'>('CASH');
+  const [view, setView] = useState<'CASH' | 'BANK' | 'WALLET' | 'RECONCILE' | 'WALLET_RECONCILE'>('CASH');
   const activationKey = useActivationKey('accounting-cash-book');
   const isVisible = useTabActive('accounting-cash-book') && scope.allowed;
 
   useEffect(() => {
-    if (!isVisible || view === 'RECONCILE') return;
+    if (!isVisible || view === 'RECONCILE' || view === 'WALLET_RECONCILE') return;
     let live = true;
     setLoading(true);
     setError('');
@@ -63,30 +64,35 @@ export const CashBookRegister: React.FC<AccountingScreenProps> = ({
   const title =
     view === 'RECONCILE'
       ? 'Bank Reconciliation'
-      : view === 'CASH'
-        ? 'Cash Book'
-        : view === 'BANK'
-          ? 'Bank Book'
-          : 'Wallet Clearing Book';
+      : view === 'WALLET_RECONCILE'
+        ? 'Provider Reconciliation'
+        : view === 'CASH'
+          ? 'Cash Book'
+          : view === 'BANK'
+            ? 'Bank Book'
+            : 'Wallet Clearing Book';
   const description =
     view === 'RECONCILE'
       ? 'Reconcile one bank account company-wide: import its statement, match every branch’s posted bank-ledger lines and lock the period.'
-      : view === 'CASH'
-        ? 'Every posted branch cash movement with a running till balance.'
-        : view === 'BANK'
-          ? 'Company balance per bank account with the selected branch’s movement shown separately.'
-          : 'Provider clearing balances awaiting settlement, with each branch’s wallet movement shown separately.';
+      : view === 'WALLET_RECONCILE'
+        ? 'Settle provider clearing to bank net plus fee, then import the provider statement and match its net deposits to settlements.'
+        : view === 'CASH'
+          ? 'Every posted branch cash movement with a running till balance.'
+          : view === 'BANK'
+            ? 'Company balance per bank account with the selected branch’s movement shown separately.'
+            : 'Provider clearing balances awaiting settlement, with each branch’s wallet movement shown separately.';
+  const isReconciliation = view === 'RECONCILE' || view === 'WALLET_RECONCILE';
   return (
     <>
     <AccountingRegisterShell
       title={title}
       description={description}
       icon={<Wallet className="h-5 w-5 text-indigo-500" />}
-      registerName={view === 'RECONCILE' ? 'bank reconciliation workspace' : `${view.toLowerCase()} book`}
+      registerName={isReconciliation ? `${view.toLowerCase()} workspace` : `${view.toLowerCase()} book`}
       scope={scope}
       dateMode={dateMode}
-      loading={view === 'RECONCILE' ? false : loading}
-      error={view === 'RECONCILE' ? '' : error}
+      loading={isReconciliation ? false : loading}
+      error={isReconciliation ? '' : error}
       onRefresh={() => setReloadKey((key) => key + 1)}
       onRetry={() => setReloadKey((key) => key + 1)}
     >
@@ -96,6 +102,7 @@ export const CashBookRegister: React.FC<AccountingScreenProps> = ({
           ['BANK', 'Bank book'],
           ['WALLET', 'Wallet clearing'],
           ['RECONCILE', 'Bank reconciliation'],
+          ['WALLET_RECONCILE', 'Provider reconciliation'],
         ] as const).map(([key, label]) => (
           <button
             key={key}
@@ -111,6 +118,13 @@ export const CashBookRegister: React.FC<AccountingScreenProps> = ({
       </div>
       {view === 'RECONCILE' ? (
         <BankReconciliationPanel
+          branchId={scope.branchId}
+          to={scope.asOfDate}
+          dateMode={dateMode}
+          currentUser={currentUser}
+        />
+      ) : view === 'WALLET_RECONCILE' ? (
+        <WalletReconciliationPanel
           branchId={scope.branchId}
           to={scope.asOfDate}
           dateMode={dateMode}

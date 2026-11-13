@@ -52,6 +52,7 @@ export const DEMO_DATA_TABLES = [
   'sales_invoices',
   'purchase_returns',
   'sales_returns',
+  'payment_settlements',
   'customer_payments',
   'shipments',
   'inventory_stock',

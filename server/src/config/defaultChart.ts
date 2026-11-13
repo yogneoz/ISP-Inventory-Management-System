@@ -408,6 +408,15 @@ export const DEFAULT_CHART_ACCOUNTS: readonly DefaultChartAccount[] = [
     postingRole: null,
   },
   {
+    code: '6600',
+    name: 'Payment Processing Fees',
+    groupCode: '6000',
+    description: 'Provider and bank charges withheld from customer receipts at settlement.',
+    isControl: false,
+    subledgerType: 'NONE',
+    postingRole: 'PAYMENT_FEE_EXPENSE',
+  },
+  {
     code: '6200',
     name: 'Inventory Shrinkage & Stock Expense',
     groupCode: '6000',

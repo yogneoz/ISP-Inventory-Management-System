@@ -4,7 +4,7 @@
  * procurement routes.
  */
 import type { Express } from 'express';
-import { get_salesInvoices, post_salesInvoices, post_salesInvoiceCancel, get_salesReturns, post_salesReturns, post_salesReturnCancel, post_salesReturnApprove, get_customerLedger, post_customerPayments, post_customerPaymentReverse } from '../controllers/sales.controller';
+import { get_salesInvoices, post_salesInvoices, post_salesInvoiceCancel, get_salesReturns, post_salesReturns, post_salesReturnCancel, post_salesReturnApprove, get_customerLedger, post_customerPayments, post_customerPaymentReverse, post_customerPaymentRefund, post_customerPaymentChargeback } from '../controllers/sales.controller';
 import {
   delete_area,
   delete_salesAgent,
@@ -54,4 +54,10 @@ export function registerSalesRoutes(app: Express) {
   app.post('/api/customer-payments', requirePermission('sales-invoice-create'), async (req, res, next) => { post_customerPayments(req as any, res as any).catch(next); });
 
   app.post('/api/customer-payments/:id/reverse', requirePermission('sales-invoice-create'), async (req, res, next) => { post_customerPaymentReverse(req as any, res as any).catch(next); });
+
+  // Wallet refund/chargeback are distinct from a receipt reversal: a refund
+  // credits AR and clearing before settlement, while a chargeback after
+  // settlement is an expense with an auditable reason.
+  app.post('/api/customer-payments/:id/refund', requirePermission('sales-invoice-create'), async (req, res, next) => { post_customerPaymentRefund(req as any, res as any).catch(next); });
+  app.post('/api/customer-payments/:id/chargeback', requirePermission('sales-invoice-create'), async (req, res, next) => { post_customerPaymentChargeback(req as any, res as any).catch(next); });
 }

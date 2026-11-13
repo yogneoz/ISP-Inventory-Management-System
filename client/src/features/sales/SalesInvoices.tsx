@@ -56,6 +56,12 @@ import type { RecordRoute } from '../../routes/appPaths';
 import type { SettlementAccount } from '../../services/api/accounting';
 
 /** Human labels for the stored payment-method codes (the values stay the API enums). */
+const WALLET_PROVIDERS = [
+  { value: 'ESEWA', label: 'eSewa' },
+  { value: 'KHALTI', label: 'Khalti' },
+  { value: 'NEPAL_PAY', label: 'Nepal Pay' },
+] as const;
+
 const SALES_PAYMENT_METHODS: Array<{ value: NonNullable<SalesInvoice['paymentMethod']>; label: string }> = [
   { value: 'CASH', label: 'Cash' },
   { value: 'BANK_TRANSFER', label: 'Bank transfer / Fonepay' },
@@ -249,7 +255,8 @@ interface SalesInvoicesProps {
     invoice: SalesInvoice,
     amount: number,
     paymentMethod: string,
-    settlementAccountId?: string
+    settlementAccountId?: string,
+    wallet?: { providerCode: string; providerTransactionId: string; feeAmount: number }
   ) => Promise<void>;
   /**
    * Voids a posted invoice. The server reverses it atomically (stock + claimed
@@ -507,6 +514,9 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
   const [payInvoice, setPayInvoice] = useState<SalesInvoice | null>(null);
   const [payAmount, setPayAmount] = useState('');
   const [payMethod, setPayMethod] = useState('CASH');
+  const [payProviderCode, setPayProviderCode] = useState('ESEWA');
+  const [payProviderTxnId, setPayProviderTxnId] = useState('');
+  const [payFeeAmount, setPayFeeAmount] = useState('0');
   const [settlementAccounts, setSettlementAccounts] = useState<SettlementAccount[]>([]);
   const [paySettlementAccountId, setPaySettlementAccountId] = useState('');
   const [paySubmitting, setPaySubmitting] = useState(false);
@@ -911,15 +921,27 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
     }
   };
 
-  const settlementKind = (method: string) => (method === 'CASH' ? 'CASH' : 'BANK');
+  const settlementKind = (method: string) =>
+    method === 'CASH' ? 'CASH' : method === 'ONLINE' ? 'WALLET' : 'BANK';
   const settlementOptions = settlementAccounts.filter(
-    (account) => account.accountKind === settlementKind(payMethod)
+    (account) =>
+      account.accountKind === settlementKind(payMethod) &&
+      (payMethod !== 'ONLINE' || account.providerCode === payProviderCode)
   );
-  const defaultSettlementAccountId = (method: string) => {
+  const defaultSettlementAccountId = (method: string, providerCode = payProviderCode) => {
     const kind = settlementKind(method);
+    const walletProvider = kind === 'WALLET' ? providerCode : null;
     return (
-      settlementAccounts.find((account) => account.postingRole === kind)?.id ||
-      settlementAccounts.find((account) => account.accountKind === kind)?.id ||
+      settlementAccounts.find(
+        (account) =>
+          account.postingRole === kind &&
+          (walletProvider === null || account.providerCode === walletProvider)
+      )?.id ||
+      settlementAccounts.find(
+        (account) =>
+          account.accountKind === kind &&
+          (walletProvider === null || account.providerCode === walletProvider)
+      )?.id ||
       ''
     );
   };
@@ -928,6 +950,9 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
     setPayInvoice(inv);
     setPayAmount(String(Math.max(0, (Number(inv.grandTotal) || 0) - (Number(inv.amountPaid) || 0))));
     setPayMethod('CASH');
+    setPayProviderCode('ESEWA');
+    setPayProviderTxnId('');
+    setPayFeeAmount('0');
     setPaySettlementAccountId(defaultSettlementAccountId('CASH'));
     setPayError('');
   };
@@ -954,10 +979,23 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
     if (!payInvoice) return;
     const amt = Number(payAmount);
     if (!Number.isFinite(amt) || amt <= 0) { setPayError('Enter a payment amount greater than 0.'); return; }
+    const fee = Number(payFeeAmount) || 0;
+    if (payMethod === 'ONLINE') {
+      if (!payProviderTxnId.trim()) { setPayError('Enter the provider transaction id.'); return; }
+      if (fee < 0 || fee >= amt) { setPayError('The provider fee must be at least 0 and less than the receipt amount.'); return; }
+    }
     setPaySubmitting(true);
     setPayError('');
     try {
-      await onRecordPayment?.(payInvoice, amt, payMethod, paySettlementAccountId || undefined);
+      await onRecordPayment?.(
+        payInvoice,
+        amt,
+        payMethod,
+        paySettlementAccountId || undefined,
+        payMethod === 'ONLINE'
+          ? { providerCode: payProviderCode, providerTransactionId: payProviderTxnId.trim(), feeAmount: fee }
+          : undefined
+      );
       setPayInvoice(null);
       setSiRefreshKey((k) => k + 1);
     } catch (e: any) {
@@ -1671,12 +1709,57 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
                 onChange={(e) => {
                   const method = e.target.value;
                   setPayMethod(method);
+                  setPayProviderTxnId('');
+                  setPayFeeAmount('0');
                   setPaySettlementAccountId(defaultSettlementAccountId(method));
                 }}
               >
                 {SALES_PAYMENT_METHODS.filter((m) => m.value !== 'CREDIT').map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
               </select>
             </div>
+            {payMethod === 'ONLINE' && (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className={labelClass}>Provider</label>
+                  <select
+                    className={inputClass}
+                    value={payProviderCode}
+                    onChange={(e) => {
+                      const provider = e.target.value;
+                      setPayProviderCode(provider);
+                      setPaySettlementAccountId(defaultSettlementAccountId('ONLINE', provider));
+                    }}
+                  >
+                    {WALLET_PROVIDERS.map((provider) => <option key={provider.value} value={provider.value}>{provider.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className={labelClass}>Provider transaction id *</label>
+                  <input
+                    className={inputClass}
+                    value={payProviderTxnId}
+                    onChange={(e) => setPayProviderTxnId(e.target.value)}
+                    placeholder="eSewa / Khalti reference"
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Provider fee</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    className={inputClass}
+                    value={payFeeAmount}
+                    onChange={(e) => setPayFeeAmount(e.target.value)}
+                  />
+                </div>
+                <div className="flex items-end pb-1 text-xs text-slate-500 dark:text-slate-400">
+                  Net to settle: <span className="ml-1 font-mono font-semibold text-slate-800 dark:text-slate-200">
+                    {formatMoney(Math.max(0, (Number(payAmount) || 0) - (Number(payFeeAmount) || 0)))}
+                  </span>
+                </div>
+              </div>
+            )}
             {settlementOptions.length > 0 && (
               <div>
                 <label className={labelClass}>Settle through</label>

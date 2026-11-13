@@ -88,10 +88,10 @@ describe('schema.sql vs live database drift guard', () => {
     if (pool) await pool.end();
   });
 
-  test('schema.sql exists and parses to the expected 113 tables', () => {
+  test('schema.sql exists and parses to the expected 114 tables', () => {
     const sqlText = fs.readFileSync(SCHEMA_SQL_PATH, 'utf8');
     const tables = parseSchemaSql(sqlText);
-    assert.equal(Object.keys(tables).length, 113, 'schema.sql should declare exactly 113 tables (including the two default partitions)');
+    assert.equal(Object.keys(tables).length, 114, 'schema.sql should declare exactly 114 tables (including the two default partitions)');
   });
 
   test('every live database column is declared in a schema.sql CREATE TABLE block', async () => {

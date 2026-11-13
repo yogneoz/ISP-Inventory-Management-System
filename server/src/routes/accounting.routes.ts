@@ -123,6 +123,12 @@ import {
   post_bankReconciliationSession,
   post_bankReconciliationUnmatch,
 } from '../controllers/bankReconciliation.controller';
+import {
+  get_walletReconciliation,
+  post_walletReconciliationImport,
+  post_walletReconciliationMatch,
+  post_walletSettlement,
+} from '../controllers/walletSettlement.controller';
 
 export function registerAccountingRoutes(app: Express) {
   // Chart of accounts + posting defaults.
@@ -496,6 +502,22 @@ export function registerAccountingRoutes(app: Express) {
   // Bank reconciliation: statement import, matching, unmatched report and the
   // period lock/reopen gate. Reads share gl-view with every other ledger
   // register; writes use the existing cash/bank control grant.
+  // ACC-3 provider clearing: settlement posting, provider statement import and
+  // settlement matching. Company-wide, like the bank workspace; reads `gl-view`,
+  // writes the existing cash/bank control grant `gl-cash-close`.
+  app.get('/api/accounting/wallet-reconciliation', requirePermission('gl-view'), async (req, res, next) => {
+    get_walletReconciliation(req as any, res as any).catch(next);
+  });
+  app.post('/api/accounting/wallet-settlements', requirePermission('gl-cash-close'), async (req, res, next) => {
+    post_walletSettlement(req as any, res as any).catch(next);
+  });
+  app.post('/api/accounting/wallet-reconciliation/import', requirePermission('gl-cash-close'), async (req, res, next) => {
+    post_walletReconciliationImport(req as any, res as any).catch(next);
+  });
+  app.post('/api/accounting/wallet-reconciliation/lines/:id/match', requirePermission('gl-cash-close'), async (req, res, next) => {
+    post_walletReconciliationMatch(req as any, res as any).catch(next);
+  });
+
   app.get('/api/accounting/bank-reconciliation', requirePermission('gl-view'), async (req, res, next) => {
     get_bankReconciliation(req as any, res as any).catch(next);
   });

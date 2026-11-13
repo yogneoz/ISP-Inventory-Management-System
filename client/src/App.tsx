@@ -1937,7 +1937,8 @@ export default function App() {
     invoice: SalesInvoice,
     amount: number,
     paymentMethod: string,
-    settlementAccountId?: string
+    settlementAccountId?: string,
+    wallet?: { providerCode: string; providerTransactionId: string; feeAmount: number }
   ) => {
     await api.createCustomerPayment({
       invoiceId: invoice.id,
@@ -1948,6 +1949,11 @@ export default function App() {
       amount,
       paymentMethod: paymentMethod as CustomerPayment['paymentMethod'],
       settlementAccountId,
+      providerCode: wallet?.providerCode as CustomerPayment['providerCode'],
+      providerTransactionId: wallet?.providerTransactionId,
+      grossAmount: wallet ? amount : undefined,
+      feeAmount: wallet?.feeAmount,
+      netAmount: wallet ? amount - wallet.feeAmount : undefined,
       paymentDateAD: new Date().toISOString().split('T')[0],
     });
     refreshAllData();

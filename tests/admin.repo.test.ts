@@ -88,8 +88,14 @@ function maxPlaceholder(sql: string): number {
 
 describe('demo data cleanup', () => {
   test('clears every operational table by the is_demo flag only', () => {
-    assert.equal(DEMO_DATA_TABLES.length, 37);
+    assert.equal(DEMO_DATA_TABLES.length, 38);
     assert.ok(DEMO_DATA_TABLES.includes('serial_log'));
+    assert.ok(DEMO_DATA_TABLES.includes('payment_settlements'));
+    assert.ok(
+      (DEMO_DATA_TABLES as readonly string[]).indexOf('payment_settlements') <
+        (DEMO_DATA_TABLES as readonly string[]).indexOf('customer_payments'),
+      'payment settlements must be cleared before the receipts they allocate'
+    );
     assert.ok(DEMO_DATA_TABLES.includes('warranty_claims'));
     assert.ok(DEMO_DATA_TABLES.includes('warranty_coverages'));
     // Users, branches and company profile are never demo-cleared.

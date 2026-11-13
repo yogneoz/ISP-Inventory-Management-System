@@ -58,6 +58,7 @@ export type PostingRole =
   | 'GAIN_ON_DISPOSAL'
   | 'LOSS_ON_DISPOSAL'
   | 'SALARY_EXPENSE'
+  | 'PAYMENT_FEE_EXPENSE'
   | 'TDS_PAYABLE'
   | 'SSF_PAYABLE'
   | 'EMPLOYEE_ADVANCE'
@@ -114,6 +115,7 @@ export const POSTING_ROLES: readonly PostingRole[] = [
   'GAIN_ON_DISPOSAL',
   'LOSS_ON_DISPOSAL',
   'SALARY_EXPENSE',
+  'PAYMENT_FEE_EXPENSE',
   'TDS_PAYABLE',
   'SSF_PAYABLE',
   'EMPLOYEE_ADVANCE',
@@ -518,19 +520,39 @@ export const ACCOUNT_UPDATE_SQL = `UPDATE gl_accounts SET
   updated_at = CURRENT_TIMESTAMP
 WHERE id = $1`;
 
+/** Active wallet clearing ledger for a provider, preferring this branch's own. */
+export const WALLET_ACCOUNT_BY_PROVIDER_SQL = `SELECT a.id,
+  a.code,
+  a.name,
+  a.is_control AS "isControl",
+  a.subledger_type AS "subledgerType",
+  a.account_kind AS "accountKind",
+  a.provider_code AS "providerCode",
+  a.settlement_account_id AS "settlementAccountId",
+  a.branch_id AS "branchId",
+  a.is_active AS "isActive"
+FROM gl_accounts a
+WHERE a.account_kind = 'WALLET'
+  AND a.provider_code = $1
+  AND a.is_active = TRUE
+  AND (a.branch_id IS NULL OR a.branch_id = $2::varchar)
+ORDER BY (a.branch_id = $2::varchar) DESC, a.code ASC
+LIMIT 1`;
+
 /** Active ledgers a payment document may settle through, default first. */
 export const SETTLEMENT_ACCOUNTS_SQL = `SELECT a.id,
   a.code,
   a.name,
   a.account_kind AS "accountKind",
   a.posting_role AS "postingRole",
+  a.provider_code AS "providerCode",
   a.bank_name AS "bankName",
   a.bank_branch AS "bankBranch",
   a.account_number AS "accountNumber",
   a.account_holder AS "accountHolder",
   a.swift_code AS "swiftCode"
 FROM gl_accounts a
-WHERE a.is_active = TRUE AND a.account_kind IN ('CASH', 'BANK')
+WHERE a.is_active = TRUE AND a.account_kind IN ('CASH', 'BANK', 'WALLET')
 ORDER BY CASE WHEN a.posting_role IN ('CASH', 'BANK') THEN 0 ELSE 1 END,
   a.account_kind ASC, a.code ASC`;
 
