@@ -1942,9 +1942,15 @@ ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS journal_date_bs VARCHAR(20);
 ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS currency VARCHAR(10) NOT NULL DEFAULT 'NPR';
 ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS exchange_rate NUMERIC(14, 6) NOT NULL DEFAULT 1;
 -- A partitioned unique index must include the partition key. The registry's
--- unique journal_no remains the global identity guard.
+-- unique journal_no remains the global identity guard. Stock openings are the
+-- one replaceable opening: a re-save reverses the prior stock journal and
+-- posts the current valuation under the same source id, so they are excluded
+-- from the one-per-branch-and-date guard (the service still allows only one
+-- active opening per branch).
 CREATE UNIQUE INDEX IF NOT EXISTS uq_gl_journals_opening_balance
-  ON gl_journals(branch_id, journal_date_ad) WHERE source_type = 'OPENING_BALANCE';
+  ON gl_journals(branch_id, journal_date_ad)
+  WHERE source_type = 'OPENING_BALANCE'
+    AND COALESCE(source_id, '') NOT LIKE 'stock-opening:%';
 
 CREATE TABLE IF NOT EXISTS gl_journal_line_registry (
     id VARCHAR(60) PRIMARY KEY,

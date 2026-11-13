@@ -1104,7 +1104,9 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     ],
     'finance/VendorLedger.tsx': ['getVendorLedger'],
     'finance/VendorOpeningBalances.tsx': [
+      'adjustFiscalYearOpeningStock',
       'adjustVendorOpeningBalances',
+      'getFiscalYearOpeningStock',
       'getVendorOpeningBalances',
       'postOpeningBalances',
       'rollForwardVendorOpenings',

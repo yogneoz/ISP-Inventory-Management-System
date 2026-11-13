@@ -68,6 +68,8 @@ const TEST_DB = 'inventory_opening_closing_test';
 const BR = 'OCBR';
 const CLIENT_BR = 'OCUI';
 const CUSTOMER_BR = 'OCCUST';
+const STOCK_BR = 'OCSTOCK';
+const STOCK_PRODUCT_ID = 'OC-PROD-1';
 const CUSTOMER_ID = 'OC-CUST-1';
 const CUSTOMER_NAME = 'Opening Customer';
 const OTHER_BRANCH = 'WH001';
@@ -107,6 +109,7 @@ interface Fixture {
   sales: string;
   expense: string;
   retained: string;
+  inventory: string;
 }
 
 describe('opening balances and year-end close API (real HTTP + throwaway PostgreSQL)', { skip: skipNoDb }, () => {
@@ -118,7 +121,7 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
   let tokens = {} as Record<keyof typeof USERS, string>;
   const accounts = {} as Fixture;
 
-  async function request(method: 'GET' | 'POST', pathName: string, token?: string, body?: unknown) {
+  async function request(method: 'GET' | 'POST' | 'PUT', pathName: string, token?: string, body?: unknown) {
     const res = await fetch('http://127.0.0.1:' + port + pathName, {
       method,
       headers: {
@@ -134,6 +137,7 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
 
   const get = (pathName: string, token?: string) => request('GET', pathName, token);
   const post = (pathName: string, token: string | undefined, body: unknown) => request('POST', pathName, token, body);
+  const put = (pathName: string, token: string | undefined, body: unknown) => request('PUT', pathName, token, body);
 
   function line(accountId: string, debit: number, credit: number, extra: Record<string, unknown> = {}) {
     return { accountId, debit, credit, ...extra };
@@ -247,6 +251,17 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
       [CUSTOMER_BR]
     );
     await dbPool.query(
+      `INSERT INTO branches (id, code, name, location, active, allow_procurement, allow_warehouse_transfer, is_demo)
+       VALUES ($1, $1, 'Opening Stock Branch', 'Test', TRUE, TRUE, TRUE, FALSE)`,
+      [STOCK_BR]
+    );
+    await dbPool.query(
+      `INSERT INTO products (
+         id, sku, name, category, product_group, unit, cost_price, selling_price, tax_rate, status, is_demo
+       ) VALUES ($1, $1, 'Opening Stock Product', 'Test', 'Product Item', 'Pcs', 25, 30, 13, 'ACTIVE', FALSE)`,
+      [STOCK_PRODUCT_ID]
+    );
+    await dbPool.query(
       `INSERT INTO customer_records (
          id, customer_id, customer_name, contact_number, branch_id, address, status, is_demo
        ) VALUES ('oc-customer-record', $1, $2, '9800000000', $3, 'Test', 'ACTIVE', FALSE)`,
@@ -306,6 +321,7 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
     accounts.receivable = defaults.json.defaults.AR_CONTROL.accountId;
     accounts.sales = defaults.json.defaults.SALES.accountId;
     accounts.retained = defaults.json.defaults.RETAINED_EARNINGS.accountId;
+    accounts.inventory = defaults.json.defaults.INVENTORY.accountId;
 
     const groups = await get('/api/accounting/groups', tokens.super);
     const equityGroup = groups.json.find((group: any) => group.code === '3000');
@@ -532,6 +548,119 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
       [CUSTOMER_BR]
     );
     assert.equal(Number(count.rows[0].count), 1, 'the branch keeps exactly one opening journal');
+  });
+
+  test('stock opening rows post one balanced journal at the register valuation, and a re-save replaces it', async () => {
+    const first = await put(`/api/fiscal-years/${FY_ID}/opening-stock`, tokens.super, {
+      offsetAccountId: accounts.retained,
+      rows: [
+        {
+          productId: STOCK_PRODUCT_ID,
+          branchId: STOCK_BR,
+          quantityOnHand: 10,
+          damagedQty: 2,
+          unitCost: 25,
+        },
+      ],
+    });
+    assert.equal(first.status, 200, JSON.stringify(first.json));
+    assert.equal(first.json.journals.length, 1, 'the branch gets one stock opening journal');
+    assert.equal(first.json.journals[0].branchId, STOCK_BR);
+    assert.equal(first.json.journals[0].totalValue, 250);
+
+    const firstLines = await dbPool!.query(
+      `SELECT a.id, COALESCE(SUM(l.debit), 0)::float AS debit,
+              COALESCE(SUM(l.credit), 0)::float AS credit
+       FROM gl_journal_lines l
+       JOIN gl_journals j ON j.id = l.journal_id
+       JOIN gl_accounts a ON a.id = l.account_id
+       WHERE j.journal_no = $1
+       GROUP BY a.id`,
+      [first.json.journals[0].journalNo]
+    );
+    const firstByAccount = new Map(firstLines.rows.map((row: any) => [String(row.id), row]));
+    assert.equal(firstByAccount.get(accounts.inventory)?.debit, 250, 'Dr Inventory equals the valuation');
+    assert.equal(firstByAccount.get(accounts.inventory)?.credit, 0);
+    assert.equal(firstByAccount.get(accounts.retained)?.credit, 250, 'Cr opening equity equals the valuation');
+    assert.equal(firstByAccount.get(accounts.retained)?.debit, 0);
+
+    const openingRow = await dbPool!.query(
+      `SELECT quantity_on_hand AS "quantityOnHand", damaged_qty AS "damagedQty",
+              unit_cost::float AS "unitCost"
+       FROM fiscal_year_opening_stock
+       WHERE fiscal_year_id = $1 AND product_id = $2 AND branch_id = $3`,
+      [FY_ID, STOCK_PRODUCT_ID, STOCK_BR]
+    );
+    assert.deepEqual(openingRow.rows[0], { quantityOnHand: 10, damagedQty: 2, unitCost: 25 });
+
+    // Damaged units stay inside quantity on hand: 12 × 30 = 360, not 9 × 30.
+    const second = await put(`/api/fiscal-years/${FY_ID}/opening-stock`, tokens.super, {
+      offsetAccountId: accounts.retained,
+      rows: [
+        {
+          productId: STOCK_PRODUCT_ID,
+          branchId: STOCK_BR,
+          quantityOnHand: 12,
+          damagedQty: 3,
+          unitCost: 30,
+        },
+      ],
+    });
+    assert.equal(second.status, 200, JSON.stringify(second.json));
+    assert.equal(second.json.journals.length, 1);
+    assert.equal(second.json.journals[0].totalValue, 360);
+
+    const net = await dbPool!.query(
+      `SELECT
+         COALESCE(SUM(CASE WHEN l.account_id = $2 THEN l.debit - l.credit ELSE 0 END), 0)::float AS inventory,
+         COALESCE(SUM(CASE WHEN l.account_id = $3 THEN l.debit - l.credit ELSE 0 END), 0)::float AS equity
+       FROM gl_journal_lines l
+       JOIN gl_journals j ON j.id = l.journal_id
+       WHERE j.branch_id = $1`,
+      [STOCK_BR, accounts.inventory, accounts.retained]
+    );
+    assert.equal(net.rows[0].inventory, 360, 'the replacement nets Dr Inventory to the current valuation');
+    assert.equal(net.rows[0].equity, -360, 'the replacement nets Cr opening equity to the current valuation');
+
+    const active = await dbPool!.query(
+      `SELECT COUNT(*)::int AS count
+       FROM gl_journals j
+       WHERE j.branch_id = $1 AND j.source_type = 'OPENING_BALANCE'
+         AND NOT EXISTS (
+           SELECT 1 FROM gl_journals r
+           WHERE r.reversal_of_id = j.id AND r.status = 'POSTED'
+         )`,
+      [STOCK_BR]
+    );
+    assert.equal(Number(active.rows[0].count), 1, 'a re-save leaves exactly one active stock opening');
+
+    const allStockJournals = await journalCount(
+      "branch_id = $1 AND source_type IN ('OPENING_BALANCE', 'OPENING_BALANCE_REVERSAL')",
+      [STOCK_BR]
+    );
+    assert.equal(allStockJournals, 3, 'the replacement keeps the original, its reversal and the new journal');
+
+    const invalidOffset = await put(`/api/fiscal-years/${FY_ID}/opening-stock`, tokens.super, {
+      offsetAccountId: 'oc-missing-equity',
+      rows: [
+        {
+          productId: STOCK_PRODUCT_ID,
+          branchId: STOCK_BR,
+          quantityOnHand: 99,
+          damagedQty: 0,
+          unitCost: 99,
+        },
+      ],
+    });
+    assert.equal(invalidOffset.status, 400, JSON.stringify(invalidOffset.json));
+    assert.match(invalidOffset.json.message, /does not exist/i);
+    const afterFailure = await dbPool!.query(
+      `SELECT quantity_on_hand AS "quantityOnHand", unit_cost::float AS "unitCost"
+       FROM fiscal_year_opening_stock
+       WHERE fiscal_year_id = $1 AND product_id = $2 AND branch_id = $3`,
+      [FY_ID, STOCK_PRODUCT_ID, STOCK_BR]
+    );
+    assert.deepEqual(afterFailure.rows[0], { quantityOnHand: 12, unitCost: 30 });
   });
 
   test('the year-end close moves the result into retained earnings and leaves the trial balance balanced', async () => {

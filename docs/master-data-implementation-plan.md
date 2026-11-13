@@ -32,7 +32,7 @@ note still says chart Add/Edit is API-only, which is no longer true.
 | 10 | Currency | Company Profile & Setup → Comms & Currency (`/settings/company`) | Partial | Accounting → Currency & Exchange Rates |
 | 11 | Cost Center | Master Data & Setup → Accounting → Cost Centers (`/finance/accounting/cost-centers`) | Done | Accounting → Cost Centers |
 | 12 | Narration Master | Master Data & Setup → Accounting → Narration Templates (`/finance/accounting/narrations`) | Done | Accounting → Narration Templates |
-| 13 | Opening Balance | Opening Balances screen: Vendors, Customers and General Ledger tabs; stock workflow | Partial | Finance & Accounting → General Ledger → Opening Balances |
+| 13 | Opening Balance | Opening Balances screen: Vendors, Customers, Stock and General Ledger tabs | Done | Finance & Accounting → General Ledger → Opening Balances |
 | 14 | Copy Master | None | Missing | Utilities → Copy Masters |
 
 `Category Management`, `Product Group Management` and `UoM Management` are current
@@ -309,7 +309,7 @@ for that integration without changing posted history.
 **Today.** Split:
 
 - Vendor opening balances: `Finance → Opening Balances → Vendors`.
-- Opening stock: fiscal-year opening-stock workflow.
+- Opening stock: `Opening Balances → Stock` (backed by `GET/PUT /api/fiscal-years/:id/opening-stock`).
 - General ledger: `Opening Balances → General Ledger` (backed by `POST /api/accounting/opening-balances`).
 - Customer: `Opening Balances → Customers` posts each customer's opening receivable through the AR control account and its customer subledger row.
 
@@ -317,16 +317,35 @@ for that integration without changing posted history.
 and Stock. Every tab posts a balanced opening journal or subledger rows. Do not
 allow a one-sided balance edit.
 
-**Status (2026-11-13).** GL, Customers and Vendors are shipped. The Stock tab is
-deliberately open: the existing opening-stock workflow writes only
-`fiscal_year_opening_stock` quantity, damaged-quantity and unit-cost rows (from
-the prior close or a manual adjustment); it has no opening-stock journal path
-and no inventory-opening posting account or contract. A compliant Stock tab
-needs a product decision on the inventory/opening-equity accounts, whether one
-branch journal aggregates product rows or posts item-level lines, and how
-damaged units and valuation reconcile to `inventory_stock` and the existing
-roll-forward. Do not build a one-sided stock editor in this hub before those
-are decided.
+**Status (2026-11-13).** GL, Customers, Vendors and Stock are shipped. The Stock
+tab reuses the chart's posting roles, the same mechanism every other opening
+tab uses: it debits the active, non-control `INVENTORY` role (default chart
+`1200 · Inventory`) and credits the selected active, non-control equity account,
+defaulting to `RETAINED_EARNINGS` (`3000 · Retained Earnings`) — the same
+default the Customers tab uses. The save is one transaction: the
+`fiscal_year_opening_stock` quantity/damaged/unit-cost rows are upserted and one
+balanced branch journal is posted with `source_type = 'OPENING_BALANCE'` and
+`source_id = 'stock-opening:<branchId>'`. The journal is one aggregate pair per
+branch: `Dr Inventory = Cr opening equity = SUM(quantity_on_hand * unit_cost)`
+from the register after the save. `quantity_on_hand` includes damaged units
+(the route already refuses `damaged_qty > quantity_on_hand`), so damaged stock
+is valued once on the same line, not deducted twice. The tab shows live
+`inventory_stock` quantity/damaged as a reconciliation reference; the opening
+journal deliberately follows the fiscal opening register, because live stock
+is the current-year operational balance.
+
+A re-save does not post a second opening. It reads the prior active stock
+opening, posts a linked `OPENING_BALANCE_REVERSAL` for its exact lines, then
+posts the replacement `OPENING_BALANCE` for the new valuation under the same
+stable source id. The ledger nets to the current register and the original,
+reversal and replacement remain in the audit trail. The branch/date unique
+opening guard excludes `stock-opening:%` sources for this purpose; every other
+opening source keeps the one-per-branch-and-date rule. If the chart lacks an
+active `INVENTORY` role or an eligible equity offset, the route refuses the
+whole save and the quantity rows roll back with it. The prior-close
+`POST /api/fiscal-years/:id/initialize-opening-stock` keeps its existing
+behaviour and still seeds quantity rows; saving the Stock tab posts (or
+replaces) the journal for those rows.
 
 **Build note.** Use the existing `OPENING_BALANCE` journal source type and an
 opening-balance equity offset. For customers and vendors, create the control-account
@@ -544,12 +563,12 @@ target.
 - [ ] **Step 6 — Godowns.**
   Conditional on multiple stockrooms per branch. Otherwise keep branch-as-godown.
 
-- [ ] **Step 7 — Opening Balances hub.**
+- [x] **Step 7 — Opening Balances hub.**
   Move earlier if existing books must be onboarded before the other steps.
 
-  **First slices shipped — General Ledger and Customers tabs.**
-  `/finance/opening-balances` is now the Opening Balances hub with Vendors,
-  Customers and General Ledger tabs. The GL tab posts a balanced branch trial
+  **Shipped — all four tabs.**
+  `/finance/opening-balances` is the Opening Balances hub with Vendors,
+  Customers, Stock and General Ledger tabs. The GL tab posts a balanced branch trial
   balance through the existing `POST /api/accounting/opening-balances` route,
   which keeps its earliest-open period, one-posting-per-branch and branch-scope
   rules; the form excludes control accounts because that trial-balance path has
@@ -562,18 +581,23 @@ target.
   show the returned journal number and period and surface backend validation
   errors.
 
-  **Stock tab — open.** Blocked on a product decision and missing posting
-  configuration, not on UI work. `fiscal_year_opening_stock` already stores
-  quantity, damaged quantity and unit cost per product × branch and is populated
-  by the prior-close roll-forward or manual adjustment; it is read by stock
-  reports but never posted to `gl_journals`. The plan requires a balanced
-  journal or subledger rows per tab and forbids a one-sided balance edit, so
-  the tab cannot reuse the existing editor as-is. It needs a decision on the
-  Dr Inventory / Cr opening-equity accounts and posting role, whether a branch
-  posts one aggregate journal or item-level lines, and how damaged units and
-  valuation reconcile to `inventory_stock` and the existing roll-forward. Until
-  those are decided, the opening-stock workflow remains the supported stock
-  surface and this tab stays unbuilt.
+  **Stock tab — shipped.** The tab edits the selected branch's product ×
+  quantity × damaged × unit-cost rows and saves them through the extended
+  `PUT /api/fiscal-years/:id/opening-stock` route. In the same transaction the
+  route upserts `fiscal_year_opening_stock` and posts one balanced
+  `OPENING_BALANCE` journal for the branch: debit the active `INVENTORY` posting
+  role (default `1200`), credit the selected active non-control equity account
+  (default `RETAINED_EARNINGS`, `3000`), both equal to
+  `SUM(quantity_on_hand * unit_cost)`. Damaged units remain inside
+  `quantity_on_hand` and are included once in that valuation; the form refuses
+  damaged > quantity. The tab shows live `inventory_stock` quantity/damaged as
+  a reference beside the opening register. Re-saving posts a linked
+  `OPENING_BALANCE_REVERSAL` of the prior `stock-opening:<branchId>` journal and
+  then the current journal, so the ledger nets to the register without a second
+  opening; the quantity upsert and both journal writes commit or roll back
+  together. The prior-close roll-forward and
+  `POST /api/fiscal-years/:id/initialize-opening-stock` keep their existing
+  quantity-row behaviour; the tab save is what posts the journal.
 
 - [ ] **Step 8 — Currency/FX and Copy Master.**
   Separate projects, not menu items.

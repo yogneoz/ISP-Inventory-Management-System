@@ -56,6 +56,20 @@ export async function getFiscalYearOpeningStock(id: string): Promise<FiscalYearO
   return fetchJson(`/api/fiscal-years/${id}/opening-stock`);
 }
 
+export interface OpeningStockSaveJournal {
+  branchId: string;
+  journalNo: string;
+  periodKey: string;
+  totalValue: number;
+}
+
+export interface OpeningStockSaveResult {
+  applied: number;
+  created: number;
+  message: string;
+  journals?: OpeningStockSaveJournal[];
+}
+
 export async function adjustFiscalYearOpeningStock(
   id: string,
   rows: Array<{
@@ -64,11 +78,12 @@ export async function adjustFiscalYearOpeningStock(
     quantityOnHand: number;
     damagedQty: number;
     unitCost: number;
-  }>
-): Promise<{ applied: number; created: number; message: string }> {
+  }>,
+  offsetAccountId?: string
+): Promise<OpeningStockSaveResult> {
   return fetchJson(`/api/fiscal-years/${id}/opening-stock`, {
     method: 'PUT',
-    body: JSON.stringify({ rows }),
+    body: JSON.stringify({ rows, ...(offsetAccountId ? { offsetAccountId } : {}) }),
   });
 }
 

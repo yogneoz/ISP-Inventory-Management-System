@@ -8,6 +8,7 @@ import { pgPool } from '../../db';
 import { requirePermission, requireRole, getUserFromReq } from '../middleware/index';
 import { allowedBranchScope } from '../middleware/branchScope';
 import { withTransaction } from '../db/transactions';
+import { postStockOpeningBalances } from '../services/accountingClosing.service';
 import { logAuditEvent } from './fiscal.auditAccess';
 
 export function registerLeftoverFiscalRoutes(expressApp: express.Express) {
@@ -92,6 +93,8 @@ expressApp.put(
     const { id } = req.params;
     const user = getUserFromReq(req);
     const incoming: any[] = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    const requestedOffsetAccountId =
+      typeof req.body?.offsetAccountId === 'string' ? req.body.offsetAccountId.trim() : '';
 
     try {
       const fyRes = await pgPool.query('SELECT id, code, is_closed AS "isClosed" FROM fiscal_years WHERE id = $1', [id]);
@@ -210,7 +213,97 @@ expressApp.put(
           );
         }
 
-        return { appliedCount: changeLog.length, createdCount, changeLog };
+        // Posting is part of the same transaction as the quantity rows. The
+        // debit is the chart's active INVENTORY role; the credit is the same
+        // equity offset mechanism the Customers tab uses (explicit account, or
+        // the RETAINED_EARNINGS default when the stock screen does not send one).
+        const fail = (message: string): never => {
+          const error: any = new Error(message);
+          error.statusCode = 400;
+          throw error;
+        };
+        const accountColumns = `a.id, a.is_control AS "isControl", a.is_active AS "isActive",
+          g.account_type AS "accountType", a.code, a.name`;
+        const inventoryAccount = (
+          await client.query(
+            `SELECT ${accountColumns}
+             FROM gl_accounts a JOIN gl_account_groups g ON g.id = a.group_id
+             WHERE a.posting_role = 'INVENTORY' AND a.is_active = TRUE
+               AND a.is_control = FALSE AND g.account_type = 'ASSET'
+             ORDER BY a.code LIMIT 1`
+          )
+        ).rows[0];
+        if (!inventoryAccount) {
+          fail('No active INVENTORY posting account is configured. Assign the INVENTORY role to an active asset ledger before saving opening stock.');
+        }
+        let offsetAccount = (
+          await client.query(
+            `SELECT ${accountColumns}
+             FROM gl_accounts a JOIN gl_account_groups g ON g.id = a.group_id
+             WHERE a.id = $1`,
+            [requestedOffsetAccountId]
+          )
+        ).rows[0];
+        if (!offsetAccount && !requestedOffsetAccountId) {
+          offsetAccount = (
+            await client.query(
+              `SELECT ${accountColumns}
+               FROM gl_accounts a JOIN gl_account_groups g ON g.id = a.group_id
+               WHERE a.posting_role = 'RETAINED_EARNINGS' AND a.is_active = TRUE
+                 AND a.is_control = FALSE AND g.account_type = 'EQUITY'
+               ORDER BY a.code LIMIT 1`
+            )
+          ).rows[0];
+        }
+        if (!offsetAccount) {
+          fail(
+            requestedOffsetAccountId
+              ? 'The selected opening-equity account does not exist.'
+              : 'No active RETAINED_EARNINGS equity account is configured. Select an opening-equity account before saving opening stock.'
+          );
+        }
+        if (!offsetAccount.isActive || offsetAccount.isControl || offsetAccount.accountType !== 'EQUITY') {
+          fail('The opening offset must be an active, non-control equity account.');
+        }
+
+        const affectedBranches = [...new Set(updates.map((u) => u.branchId))];
+        const totals = await client.query(
+          `SELECT branch_id AS "branchId",
+                  COALESCE(SUM(quantity_on_hand * unit_cost), 0)::numeric AS total
+           FROM fiscal_year_opening_stock
+           WHERE fiscal_year_id = $1 AND branch_id = ANY($2::varchar[])
+           GROUP BY branch_id`,
+          [id, affectedBranches]
+        );
+        const totalByBranch = new Map<string, number>(
+          totals.rows.map((row: any) => [String(row.branchId), Number(row.total)])
+        );
+        const journals: Array<{
+          branchId: string;
+          journalNo: string;
+          periodKey: string;
+          totalValue: number;
+        }> = [];
+        for (const branchId of affectedBranches) {
+          const totalValue = totalByBranch.get(branchId) || 0;
+          const journal = await postStockOpeningBalances(client, {
+            branchId,
+            totalValue,
+            inventoryAccountId: String(inventoryAccount.id),
+            offsetAccountId: String(offsetAccount.id),
+            actor: user.email || 'system',
+          });
+          if (journal) {
+            journals.push({
+              branchId,
+              journalNo: journal.journalNo,
+              periodKey: journal.periodKey,
+              totalValue,
+            });
+          }
+        }
+
+        return { appliedCount: changeLog.length, createdCount, changeLog, journals };
       });
 
     if (result.appliedCount > 0) {
@@ -221,13 +314,25 @@ expressApp.put(
         `(by ${user.email || 'system'})`;
       logAuditEvent(req, 'ADJUST_FISCAL_OPENING_STOCK', 'FISCAL_YEAR', details);
     }
+    if (result.journals.length > 0) {
+      logAuditEvent(
+        req,
+        'POST_OPENING_BALANCES',
+        'ACCOUNTING',
+        `Posted stock opening balance(s): ${result.journals
+          .map((j) => `${j.branchId} ${j.journalNo} in ${j.periodKey} (NPR ${j.totalValue.toFixed(2)})`)
+          .join('; ')}`
+      );
+    }
 
       return res.json({
         applied: result.appliedCount,
         created: result.createdCount,
         message: `${result.appliedCount} opening-stock row(s) saved for fiscal year ${fy.code}.`,
+        journals: result.journals,
       });
     } catch (error: any) {
+      if (error?.statusCode) return res.status(error.statusCode).json({ message: error.message });
       console.error('Error adjusting fiscal-year opening stock:', error);
       return res.status(500).json({ message: `Unable to adjust fiscal-year opening stock: ${error.message}` });
     }

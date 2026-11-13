@@ -99,6 +99,11 @@ describe('authorization audit (AUTHZ-1…13)', () => {
     await pool!.query("DELETE FROM sales_invoices WHERE id LIKE 'azq-%'");
     await pool!.query("DELETE FROM approval_requests WHERE id LIKE 'azq-%'");
     await pool!.query("DELETE FROM audit_logs WHERE id LIKE 'azq-%'");
+    // AUTHZ-12's own-branch opening-stock save now posts its balanced journal;
+    // remove that branch-owned ledger before deleting the fixture branch. The
+    // suite runner opens this connection with the ledger-purge test bypass.
+    await pool!.query("DELETE FROM gl_subledger_entries WHERE journal_id IN (SELECT id FROM gl_journals WHERE branch_id LIKE 'azq-%')");
+    await pool!.query("DELETE FROM gl_journals WHERE branch_id LIKE 'azq-%'");
     await pool!.query("DELETE FROM customer_records WHERE id LIKE 'azq-%'");
     await pool!.query("DELETE FROM fiscal_year_opening_stock WHERE fiscal_year_id LIKE 'azq-%'");
     await pool!.query("DELETE FROM vendor_opening_balances WHERE fiscal_year_id LIKE 'azq-%'");
@@ -213,6 +218,8 @@ describe('authorization audit (AUTHZ-1…13)', () => {
       await pool.query("DELETE FROM sales_invoices WHERE id LIKE 'azq-%'");
       await pool.query("DELETE FROM approval_requests WHERE id LIKE 'azq-%'");
       await pool.query("DELETE FROM audit_logs WHERE id LIKE 'azq-%'");
+      await pool.query("DELETE FROM gl_subledger_entries WHERE journal_id IN (SELECT id FROM gl_journals WHERE branch_id LIKE 'azq-%')");
+      await pool.query("DELETE FROM gl_journals WHERE branch_id LIKE 'azq-%'");
       await pool.query("DELETE FROM customer_records WHERE id LIKE 'azq-%'");
       await pool.query("DELETE FROM fiscal_year_opening_stock WHERE fiscal_year_id LIKE 'azq-%'");
       await pool.query("DELETE FROM vendor_opening_balances WHERE fiscal_year_id LIKE 'azq-%'");

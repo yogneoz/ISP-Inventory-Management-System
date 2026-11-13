@@ -36,6 +36,7 @@ import {
   FISCAL_YEAR_CLOSE_LOCK_SQL,
   FISCAL_YEAR_PNL_BALANCE_ROWS_SQL,
   FISCAL_YEAR_TRIAL_BALANCE_ROWS_SQL,
+  OPENING_BALANCE_BY_SOURCE_SQL,
   OPENING_BALANCE_EXISTS_SQL,
   OPENING_BALANCE_LOCK_SQL,
   YEAR_END_CLOSE_EXISTS_SQL,
@@ -43,6 +44,7 @@ import {
 } from '../models/accounting.repo';
 import {
   postJournal,
+  readJournal,
   type AccountingClient,
   type JournalLineInput,
 } from './accounting.service';
@@ -58,6 +60,8 @@ export interface PostOpeningBalancesInput {
   branchId?: unknown;
   lines?: JournalLineInput[];
   actor?: string | null;
+  /** Stable source id; stock opening uses one per branch so a re-save can replace it. */
+  sourceId?: string;
 }
 
 export interface PostOpeningBalancesResult {
@@ -129,7 +133,7 @@ export async function postOpeningBalances(
     journalDateAD,
     branchId,
     sourceType: OPENING_SOURCE,
-    sourceId: branchId,
+    sourceId: text(input.sourceId, 100) || branchId,
     memo: `Opening balances for branch ${branchId}`,
     lines,
     actor: input.actor || null,
@@ -137,6 +141,74 @@ export async function postOpeningBalances(
   });
 
   return { ...posted, journalDateAD, periodKey };
+}
+
+export interface PostStockOpeningBalancesInput {
+  branchId: string;
+  /** Sum of quantity_on_hand × unit_cost for the branch after the save. */
+  totalValue: number;
+  inventoryAccountId: string;
+  offsetAccountId: string;
+  actor?: string | null;
+}
+
+/**
+ * Keep one branch's stock opening journal equal to the opening-stock register.
+ * A re-save posts a linked reversal of the prior stock opening and then the new
+ * valuation, so the ledger nets to the current register without duplicating the
+ * opening. The caller owns the transaction that also wrote the quantity rows.
+ */
+export async function postStockOpeningBalances(
+  client: AccountingClient,
+  input: PostStockOpeningBalancesInput
+): Promise<PostOpeningBalancesResult | null> {
+  const branchId = text(input.branchId, 50);
+  if (!branchId) throw new ApiError(400, 'A branch is required for stock opening balances.');
+  const sourceId = `stock-opening:${branchId}`;
+  const existing = (await client.query(OPENING_BALANCE_BY_SOURCE_SQL, [sourceId])).rows[0];
+  if (existing) {
+    const original = await readJournal(client, String(existing.id));
+    if (!original) throw new ApiError(409, `Stock opening journal ${existing.journalNo} could not be read.`);
+    await postJournal(client, {
+      journalDateAD: original.journalDateAD,
+      branchId,
+      sourceType: 'OPENING_BALANCE_REVERSAL',
+      sourceId: `${sourceId}:reversal:${existing.id}`,
+      memo: `Reversal of stock opening journal ${original.journalNo} for branch ${branchId}`,
+      reversalOfId: existing.id,
+      lines: original.lines.map((line: any) => ({
+        accountId: line.accountId,
+        debit: line.credit,
+        credit: line.debit,
+        memo: `Reversal of ${original.journalNo}`,
+      })),
+      actor: input.actor || null,
+      isDemo: false,
+    });
+  }
+
+  const total = roundMoney(Number(input.totalValue) || 0);
+  if (total <= 0) return null;
+
+  return postOpeningBalances(client, {
+    branchId,
+    sourceId,
+    actor: input.actor || null,
+    lines: [
+      {
+        accountId: input.inventoryAccountId,
+        debit: total,
+        credit: 0,
+        memo: 'Opening inventory valuation',
+      },
+      {
+        accountId: input.offsetAccountId,
+        debit: 0,
+        credit: total,
+        memo: 'Opening inventory equity offset',
+      },
+    ],
+  });
 }
 
 export interface CloseFiscalYearInput {

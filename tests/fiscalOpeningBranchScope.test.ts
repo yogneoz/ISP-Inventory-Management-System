@@ -424,6 +424,124 @@ describe('fiscal opening registers — branch scope', () => {
     }
   });
 
+  test('Stock tab saves only scoped rows and reports the posted opening journal', async () => {
+    const saved: Array<{ id: string; rows: any[]; offsetAccountId?: string }> = [];
+    api.getVendorOpeningBalances = async () => vendorPayload as any;
+    api.getFiscalYearOpeningStock = async () => openingPayload as any;
+    api.getAccountingAccounts = async () =>
+      [
+        {
+          id: 'acct-equity',
+          code: '3000',
+          name: 'Retained Earnings',
+          isActive: true,
+          isControl: false,
+          accountType: 'EQUITY',
+          postingRole: 'RETAINED_EARNINGS',
+        },
+      ] as any;
+    api.getPostingDefaults = async () =>
+      ({
+        defaults: {
+          INVENTORY: {
+            accountId: 'acct-inventory',
+            accountCode: '1200',
+            accountName: 'Inventory',
+            accountType: 'ASSET',
+            statementGroup: 'CURRENT_ASSET',
+            isControl: false,
+            subledgerType: 'NONE',
+          },
+        },
+      }) as any;
+    api.adjustFiscalYearOpeningStock = async (id: string, rows: any[], offsetAccountId?: string) => {
+      saved.push({ id, rows, offsetAccountId });
+      return {
+        applied: rows.length,
+        created: 0,
+        message: `${rows.length} opening-stock row(s) saved`,
+        journals: [
+          {
+            branchId: 'br-a',
+            journalNo: 'MJ-STOCK-1',
+            periodKey: '2026-07',
+            totalValue: rows[0].quantityOnHand * rows[0].unitCost,
+          },
+        ],
+      } as any;
+    };
+
+    const tree = mountTree(
+      createElement(VendorOpeningBalances, {
+        currentUser: branchUser(),
+        fiscalYears,
+        branches,
+        products,
+      } as any)
+    );
+    try {
+      await settle();
+
+      const tab = findButton(tree.container, /^Stock$/);
+      assert.ok(tab, 'the hub exposes the Stock tab');
+      inAct(() => tab!.click());
+      await settle();
+
+      assert.match(tree.container.textContent || '', /Inventory debit account/);
+      assert.match(tree.container.textContent || '', /1200 · Inventory/);
+      assert.ok(!(tree.container.textContent || '').includes('Branch B'), 'a foreign branch row must not render');
+
+      const branchSelect = tree.container.querySelector(
+        'select[aria-label="Stock opening branch"]'
+      ) as HTMLSelectElement | null;
+      assert.ok(branchSelect, 'the stock form exposes its branch picker');
+      assert.deepEqual(
+        [...branchSelect!.querySelectorAll('option')].map((option) => option.value),
+        ['br-a'],
+        'a branch account can only save its own branch'
+      );
+
+      const qtyInput = tree.container.querySelector(
+        'input[aria-label="Stock opening quantity for Router"]'
+      ) as HTMLInputElement | null;
+      assert.ok(qtyInput, 'the own-branch stock row renders an editable quantity');
+      assert.equal(qtyInput!.disabled, false, 'the quantity input is editable');
+      setNumberInput(qtyInput!, '8');
+      inAct(() => qtyInput!.dispatchEvent(new window.Event('change', { bubbles: true })));
+      await settle();
+      assert.equal(qtyInput!.value, '8', 'the quantity input keeps the typed value');
+
+      const offsetSelect = tree.container.querySelector(
+        'select[aria-label="Stock opening offset account"]'
+      ) as HTMLSelectElement | null;
+      assert.equal(offsetSelect?.value, 'acct-equity', 'the retained-earnings offset is selected');
+      assert.match(tree.container.textContent || '', /1 row changed/, 'the edited row is staged');
+      const save = findButton(tree.container, /^Save & Post/);
+      assert.ok(save, 'a changed stock row exposes Save & Post');
+      assert.equal(save!.disabled, false, 'the save action is enabled for a scoped, priced row');
+      inAct(() => save!.click());
+      await settle();
+
+      assert.equal(saved.length, 1);
+      assert.equal(saved[0].id, 'fy-1');
+      assert.equal(saved[0].offsetAccountId, 'acct-equity');
+      assert.deepEqual(
+        saved[0].rows.map((row) => ({
+          productId: row.productId,
+          branchId: row.branchId,
+          quantityOnHand: row.quantityOnHand,
+          unitCost: row.unitCost,
+        })),
+        [{ productId: 'p1', branchId: 'br-a', quantityOnHand: 8, unitCost: 10 }],
+        'the payload never carries the foreign-branch row that was in the response'
+      );
+      assert.match(tree.container.textContent || '', /Posted journal MJ-STOCK-1/);
+      assert.match(tree.container.textContent || '', /Dr Inventory \/ Cr opening equity/);
+    } finally {
+      tree.unmount();
+    }
+  });
+
   test('General Ledger tab posts balanced opening lines for a scoped branch', async () => {
     const posted: any[] = [];
     api.getVendorOpeningBalances = async () => vendorPayload as any;

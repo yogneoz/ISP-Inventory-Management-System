@@ -409,6 +409,18 @@ WHERE j.source_type = $1 AND j.source_id = $2
 ORDER BY j.posted_at DESC
 LIMIT 1`;
 
+/** The current opening journal for one stable stock source id. */
+export const OPENING_BALANCE_BY_SOURCE_SQL = `SELECT j.id, j.journal_no AS "journalNo"
+FROM gl_journals j
+WHERE j.source_type = 'OPENING_BALANCE' AND j.source_id = $1
+  AND j.status = 'POSTED'
+  AND NOT EXISTS (
+    SELECT 1 FROM gl_journals r
+    WHERE r.reversal_of_id = j.id AND r.status = 'POSTED'
+  )
+ORDER BY j.posted_at DESC
+LIMIT 1`;
+
 /**
  * Net amount (debit − credit) a source document posted to one or more accounts.
  * The fixed-asset postings use it to read the value actually sitting in the
@@ -572,8 +584,15 @@ LIMIT 1`;
 export const OPENING_BALANCE_LOCK_SQL = `SELECT pg_advisory_xact_lock(hashtext($1))::text AS lock`;
 
 /** The durable proof that this branch's opening balances are already posted. */
-export const OPENING_BALANCE_EXISTS_SQL = `SELECT id FROM gl_journals
-WHERE source_type = 'OPENING_BALANCE' AND branch_id = $1
+// A stock opening save replaces its prior journal by posting a linked reversal
+// first. The original stays POSTED for the audit trail, so the duplicate guard
+// must treat an original with a posted reversal as no longer active.
+export const OPENING_BALANCE_EXISTS_SQL = `SELECT j.id FROM gl_journals j
+WHERE j.source_type = 'OPENING_BALANCE' AND j.branch_id = $1
+  AND NOT EXISTS (
+    SELECT 1 FROM gl_journals r
+    WHERE r.reversal_of_id = j.id AND r.status = 'POSTED'
+  )
 LIMIT 1`;
 
 /** Locks the fiscal-year row while its closing journals are built and posted. */
