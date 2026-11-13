@@ -230,7 +230,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 2303 tests; CI runs
+                                        #   drift/concurrency guards — 2308 tests; CI runs
                                         #   tsc + npm test + the source guards + the
                                         #   production build + the boot-timing gate +
                                         #   npm audit on every push/PR
@@ -434,7 +434,7 @@ ISP-Inventory-Management-System/
 | 29 | `document_sequence_daily` | Per-branch daily doc sequences | (branch_id, doc_type, date_ad) PK, next_number |
 | 30 | `permission_matrix` | RBAC authority (operation × role) | (operation_id, role) PK, allowed |
 | 31 | `sales_invoices` | Customer sales invoices | id (PK), invoice_number (UNIQUE), customer_id, branch_id (FK→branches), payment_status, amount_paid, items (JSONB), fiscal_year_id (FK→fiscal_years) |
-| 32 | `customer_payments` | Customer receipts sub-ledger | id (PK), payment_number (UNIQUE), customer_id, invoice_id (FK→sales_invoices), amount, payment_method, status (POSTED/REVERSED/VOIDED), fiscal_year_id |
+| 32 | `customer_payments` | Customer receipts sub-ledger | id (PK), payment_number (UNIQUE), customer_id, invoice_id (FK→sales_invoices), amount, payment_method, provider_code, provider_transaction_id, gross/fee/net_amount, settlement_account_id (FK→gl_accounts), status (POSTED/REVERSED/VOIDED/REFUNDED/CHARGEBACK), fiscal_year_id; UNIQUE (provider_code, provider_transaction_id) |
 | 33 | `purchase_returns` | Purchase return register (debit notes) | id (PK), return_number (UNIQUE), original_invoice_id (FK→purchase_invoices), supplier_id, branch_id, reason, items (JSONB) |
 | 34 | `sales_returns` | Sales return register | id (PK), return_number (UNIQUE), original_invoice_id (FK→sales_invoices), customer_id, branch_id, reason, restockable |
 | 35 | `app_settings` | Company-wide configuration (key/value) — replaces the browser-localStorage copies | setting_key (PK), setting_value, updated_by, updated_at |
@@ -451,6 +451,7 @@ ISP-Inventory-Management-System/
 | 46 | `gl_journals` | Balanced journal headers with branch dimension | id (PK), journal_no (UNIQUE), journal_date_ad, fiscal_year_id, period_id (FK→gl_periods), branch_id (FK→branches), source_type/id, status, posted_by |
 | 47 | `gl_journal_lines` | Debit/credit journal lines | id (PK), journal_id (FK cascade), line_no, account_id (FK), branch_id (FK), debit/credit (one-sided), UNIQUE (journal_id, line_no) |
 | 48 | `gl_subledger_entries` | Generic party subledger for every control account | id (PK), journal_id/line_id (FK cascade), account_id (FK), subledger_id (FK→gl_subledgers), subledger_type, party_id/name, branch_id, entry_date_ad, debit/credit |
+| 49 | `payment_settlements` | Provider settlement allocations against ONLINE wallet receipts | id (PK), settlement_number (UNIQUE), customer_payment_id (FK), wallet_account_id/bank_account_id (FK→gl_accounts), settlement_date_ad/bs, gross/fee/net_amount, provider_reference, journal_id (FK→gl_journals_registry), status, reversal fields, created_by |
 
 ### 5.2 Serial Log Uniqueness
 
@@ -601,6 +602,10 @@ The server registers ~130 routes. The most important ones:
 | `/api/accounting/statements/account-lines?accountId=` | GET | The POSTED journal lines behind one trial-balance account row, split into opening lines (before `from`) and period lines (`from`..`to`). The account summary and independent line totals use the trial balance's net-per-account rule, and each line carries a debit-positive running balance: opening lines run from zero, and period lines carry the opening balance forward. `asOf`/`to` or `from`/`to`, `branchId`, `limit` (500 default, 2,000 max, applied per window); totals always cover every matching line. An unknown account is 404, and branch scope plus `gl-view` are enforced (`gl-view`) |
 | `/api/accounting/cash-book` | GET | Custody book from posted lines: `kind=CASH\|BANK\|WALLET\|CASH_BANK` (default combined), optional `accountId`, `asOf` or `from`/`to`. CASH closing is the branch till and ties to daily cash close; BANK/WALLET opening/receipts/payments/closing are the external account's company balance while `branchReceipts`/`branchPayments`/`branchMovement` are the selected branch's share. `gl-view` |
 | `/api/accounting/bank-position` | GET | Separate company bank position from posted `BANK` lines: one row per bank account with its real company closing balance, owner/shared marker and the selected branch's movement. A branch filter never splits the external bank balance. `asOf` or `from`/`to`, optional `accountId` (`gl-view`) |
+| `/api/accounting/wallet-reconciliation` | GET | Company-wide provider clearing workspace for one `WALLET` ledger and period: ledger opening/receipts/settlements/closing, gross receipts, settled gross, fees, net banked, unsettled gross and their tie-out, pending receipts, settlement allocations, and the imported provider statement with net-deposit suggestions. `accountId`, `from`, `to` (`gl-view`) |
+| `/api/accounting/wallet-settlements` | POST | Post one settlement allocation against an ONLINE wallet receipt: Dr bank net + Dr Payment Processing Fees + Cr wallet clearing gross. The receipt is locked, the allocation cannot exceed its gross (partial settlement is allowed), and the wallet/bank ledger kinds and provider must agree (`gl-cash-close`) |
+| `/api/accounting/wallet-reconciliation/import` | POST | Import the provider's CSV/OFX statement into the shared statement-line engine for one `WALLET` ledger, then auto-match net deposits to unmatched settlement nets by amount and provider reference. Duplicate lines are counted, not reinserted (`gl-cash-close`) |
+| `/api/accounting/wallet-reconciliation/lines/:id/match` | POST | Manually match one provider statement line to a settlement. Refuses a line or settlement that is already matched, a different wallet ledger, or a net that differs from the settlement net (`gl-cash-close`) |
 | `/api/fixed-assets/depreciation` | POST | Post one branch's depreciation for a `YYYY-MM` period (`fin-statements`). Each asset gets a journal keyed `<assetId>:<periodKey>`; a second run for the same month is **409** and writes nothing, and the branch+period advisory lock closes the concurrent-run race |
 
 ### 6.5 Serial Correction Endpoints (permission: `edit-device-serials`)
@@ -1471,7 +1476,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 2303 tests against a real PostgreSQL 16 service container
+2. `npm test` — 2308 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM

@@ -336,19 +336,19 @@ turns a shared bank’s company balance into a fictitious branch balance.
 
 Priority: P1 · Depends on: ACC-2
 
-- [ ] Add provider fields to customer payments: provider, provider transaction
+- [x] Add provider fields to customer payments: provider, provider transaction
       id, gross, fee, net.
-- [ ] Add `payment_settlements` (wallet ledger, bank ledger, settlement date,
+- [x] Add `payment_settlements` (wallet ledger, bank ledger, settlement date,
       gross, fee, net, provider reference, journal id).
-- [ ] Post a wallet receipt at gross to the clearing ledger.
-- [ ] Post settlement as bank net + fee expense + clearing gross.
-- [ ] Add refund/chargeback handling: reverse clearing and AR, or route the
+- [x] Post a wallet receipt at gross to the clearing ledger.
+- [x] Post settlement as bank net + fee expense + clearing gross.
+- [x] Add refund/chargeback handling: reverse clearing and AR, or route the
       chargeback to expense with an auditable reason.
-- [ ] Add provider statement import and matching. Prefer generalising the
+- [x] Add provider statement import and matching. Prefer generalising the
       existing statement-line engine over building a second matcher.
-- [ ] Add tests: gross receipt, partial settlement, fee, pending settlement,
+- [x] Add tests: gross receipt, partial settlement, fee, pending settlement,
       refund, duplicate provider transaction id.
-- [ ] Add a reconciliation view per provider account + period.
+- [x] Add a reconciliation view per provider account + period.
 
 Acceptance: the provider clearing balance equals unsettled gross receipts minus
 settled gross; the bank credit plus fee equals the settlement gross; the
@@ -533,8 +533,15 @@ Before a slice is marked done:
       daily cash-close tests over real HTTP, including a shared bank that keeps
       its company balance under either branch filter and a cross-branch posting
       refusal. Full suite and fresh-install evidence are in SESSION_NOTES.
-- `[~]` ACC-3…ACC-6 are planned but not implemented. ACC-3 (wallet receipts and
-      PSP settlement) is the next slice; wallet ledgers are not yet offered as a
-      payment settlement account.
-- Next action: start ACC-3 (wallet receipts, settlements and PSP
-  reconciliation).
+- `[x]` ACC-3 implementation: migration `0011_wallet_receipts_and_settlements`,
+      provider receipt fields, `payment_settlements`, gross wallet receipt,
+      net-bank-plus-fee settlement, refund/chargeback, provider statement
+      import/matching and a company-wide provider reconciliation view.
+- `[x]` ACC-3 verified against PostgreSQL: `tests/walletSettlement.api.test.ts`
+      covers gross receipt, duplicate provider id, partial and full settlement,
+      provider auto-match, wrong-match refusal, refund, chargeback and branch
+      refusal over real HTTP. Full suite and fresh-install evidence are in
+      SESSION_NOTES.
+- `[~]` ACC-4…ACC-6 are planned but not implemented. ACC-4 (inventory-to-finance
+      coverage) is the next slice.
+- Next action: start ACC-4 (inventory-to-finance coverage).
