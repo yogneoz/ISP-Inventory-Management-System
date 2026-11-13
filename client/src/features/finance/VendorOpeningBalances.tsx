@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Save,
   Trash2,
+  Users,
   Wallet,
 } from 'lucide-react';
 import { api } from '../../services/api';
@@ -20,15 +21,21 @@ import { exportToCSV, CSVColumn } from '../../utils/exportUtils';
 import { filterFiscalYears, getScopedBranches, isOperationAllowed } from '../../utils/permissions';
 import { FiscalYearSelect } from '../../components/common/FiscalYearSelect';
 import { FilterCard } from '../../components/common/FilterCard';
+import { CustomerPicker } from '../../components/common/CustomerPicker';
 import { formatNPR } from '../../utils/nprFormat';
 import {
   Branch,
+  CustomerRecord,
   FiscalYear,
   User,
   VendorOpeningBalanceResponse,
   VendorOpeningBalanceRow,
 } from '../../types';
-import type { AccountingAccount, AccountingJournalLineInput } from '../../services/api/accounting';
+import type {
+  AccountingAccount,
+  AccountingJournalLineInput,
+  PostingDefaultsResponse,
+} from '../../services/api/accounting';
 
 interface VendorOpeningBalancesProps {
   currentUser?: User | null;
@@ -41,13 +48,19 @@ interface VendorOpeningBalancesProps {
   onSelectFiscalYear?: (fiscalYearId: string) => void;
 }
 
-type OpeningBalanceTab = 'VENDORS' | 'GL';
+type OpeningBalanceTab = 'VENDORS' | 'CUSTOMERS' | 'GL';
 
 interface GlLineDraft {
   id: string;
   accountId: string;
   debit: string;
   credit: string;
+}
+
+interface CustomerOpeningDraft {
+  id: string;
+  customer: CustomerRecord;
+  amount: string;
 }
 
 let glDraftSeq = 0;
@@ -121,6 +134,15 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
   const [glPosting, setGlPosting] = useState<boolean>(false);
   const [glMessage, setGlMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  const [postingDefaults, setPostingDefaults] = useState<PostingDefaultsResponse | null>(null);
+  const [postingDefaultsError, setPostingDefaultsError] = useState<string>('');
+  const [customerDrafts, setCustomerDrafts] = useState<CustomerOpeningDraft[]>([]);
+  const [pendingCustomer, setPendingCustomer] = useState<CustomerRecord | null>(null);
+  const [pendingCustomerAmount, setPendingCustomerAmount] = useState<string>('');
+  const [customerOffsetAccountId, setCustomerOffsetAccountId] = useState<string>('');
+  const [customerPosting, setCustomerPosting] = useState<boolean>(false);
+  const [customerMessage, setCustomerMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   // A profile switch must not leave the filter pointing at a branch the
   // account no longer holds.
   useEffect(() => {
@@ -134,6 +156,15 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
       setGlBranchId(glBranchOptions[0]?.id || '');
     }
   }, [glBranchOptions, glBranchId]);
+
+  // Customer rows belong to the selected branch; changing branch must not
+  // leave rows from the previous one in a payload for the new one.
+  useEffect(() => {
+    setCustomerDrafts([]);
+    setPendingCustomer(null);
+    setPendingCustomerAmount('');
+    setCustomerMessage(null);
+  }, [glBranchId]);
 
   useEffect(() => {
     if (!fiscalYears.some((f) => f.id === selectedFyId)) {
@@ -329,7 +360,7 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
   // need a party on every line and this trial-balance form has no party
   // picker; showing them would create a submission the ledger must reject.
   useEffect(() => {
-    if (activeTab !== 'GL' || glAccounts.length > 0) return;
+    if ((activeTab !== 'GL' && activeTab !== 'CUSTOMERS') || glAccounts.length > 0) return;
     let cancelled = false;
     setGlAccountsLoading(true);
     setGlAccountsError('');
@@ -350,6 +381,48 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
       cancelled = true;
     };
   }, [activeTab, glAccounts.length]);
+
+  useEffect(() => {
+    if (activeTab !== 'CUSTOMERS' || postingDefaults || postingDefaultsError) return;
+    let cancelled = false;
+    api
+      .getPostingDefaults()
+      .then((response) => {
+        if (!cancelled) setPostingDefaults(response);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setPostingDefaultsError(
+            error instanceof Error ? error.message : 'Unable to load the Accounts Receivable control account.'
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, postingDefaults, postingDefaultsError]);
+
+  const arControl = postingDefaults?.defaults?.AR_CONTROL || null;
+  const customerOffsetAccounts = useMemo(
+    () => glAccounts.filter((account) => account.accountType === 'EQUITY' && !account.isControl),
+    [glAccounts]
+  );
+
+  useEffect(() => {
+    if (customerOffsetAccountId && customerOffsetAccounts.some((account) => account.id === customerOffsetAccountId)) {
+      return;
+    }
+    const retained = customerOffsetAccounts.find((account) => account.postingRole === 'RETAINED_EARNINGS');
+    setCustomerOffsetAccountId(retained?.id || customerOffsetAccounts[0]?.id || '');
+  }, [customerOffsetAccounts, customerOffsetAccountId]);
+
+  const searchOpeningCustomers = useCallback(
+    async (query: string) => {
+      if (!glBranchId) return [];
+      return api.searchCustomers(query, 20, glBranchId);
+    },
+    [glBranchId]
+  );
 
   const glDraftLines = useMemo(
     () =>
@@ -434,6 +507,128 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
     }
   };
 
+  const customerOpeningTotal = useMemo(
+    () => customerDrafts.reduce((sum, row) => sum + (Number(row.amount) || 0), 0),
+    [customerDrafts]
+  );
+
+  const handleAddCustomerOpening = () => {
+    if (!pendingCustomer) {
+      setCustomerMessage({ type: 'error', text: 'Select a customer before adding an opening balance.' });
+      return;
+    }
+    if (!glBranchId || pendingCustomer.branchId !== glBranchId) {
+      setCustomerMessage({
+        type: 'error',
+        text: 'That customer does not belong to the selected branch. Search again within this branch.',
+      });
+      return;
+    }
+    if (customerDrafts.some((row) => row.customer.customerId === pendingCustomer.customerId)) {
+      setCustomerMessage({ type: 'error', text: 'That customer already has a row in this opening balance.' });
+      return;
+    }
+    const amount = Number(pendingCustomerAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setCustomerMessage({ type: 'error', text: 'Customer opening balance must be a positive amount.' });
+      return;
+    }
+    if (amount > 999_999_999_999.99) {
+      setCustomerMessage({ type: 'error', text: 'Customer opening balance exceeds the ledger amount limit.' });
+      return;
+    }
+    setCustomerDrafts((prev) => [
+      ...prev,
+      { id: `cust-opening-${pendingCustomer.customerId}-${Date.now()}`, customer: pendingCustomer, amount: String(amount) },
+    ]);
+    setPendingCustomer(null);
+    setPendingCustomerAmount('');
+    setCustomerMessage(null);
+  };
+
+  const removeCustomerOpening = (rowId: string) => {
+    setCustomerDrafts((prev) => prev.filter((row) => row.id !== rowId));
+    setCustomerMessage(null);
+  };
+
+  const handlePostCustomerOpenings = async () => {
+    if (!canPostGl || customerPosting) return;
+    if (!glBranchId || !glBranchOptions.some((branch) => branch.id === glBranchId)) {
+      setCustomerMessage({ type: 'error', text: 'Select a branch within your access before posting opening balances.' });
+      return;
+    }
+    if (!arControl) {
+      setCustomerMessage({
+        type: 'error',
+        text: 'The chart has no active Accounts Receivable control account. Configure posting defaults first.',
+      });
+      return;
+    }
+    if (!customerOffsetAccountId || !customerOffsetAccounts.some((account) => account.id === customerOffsetAccountId)) {
+      setCustomerMessage({ type: 'error', text: 'Select an equity account for the opening-balance offset.' });
+      return;
+    }
+    if (customerDrafts.length === 0) {
+      setCustomerMessage({ type: 'error', text: 'Add at least one customer opening balance before posting.' });
+      return;
+    }
+    for (const row of customerDrafts) {
+      if (row.customer.branchId !== glBranchId) {
+        setCustomerMessage({
+          type: 'error',
+          text: `${row.customer.customerName} is outside the selected branch. Remove that row before posting.`,
+        });
+        return;
+      }
+      const amount = Number(row.amount);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        setCustomerMessage({ type: 'error', text: `Opening balance for ${row.customer.customerName} must be positive.` });
+        return;
+      }
+    }
+    const total = Math.round(customerOpeningTotal * 100) / 100;
+    if (total <= 0) {
+      setCustomerMessage({ type: 'error', text: 'Customer opening balances must total more than zero.' });
+      return;
+    }
+    const lines: AccountingJournalLineInput[] = customerDrafts.map((row) => ({
+      accountId: arControl.accountId,
+      debit: Number(row.amount),
+      credit: 0,
+      memo: `Opening receivable — ${row.customer.customerName} (${row.customer.customerId})`,
+      subledgerType: 'CUSTOMER',
+      partyId: row.customer.customerId,
+      partyName: row.customer.customerName,
+    }));
+    lines.push({
+      accountId: customerOffsetAccountId,
+      debit: 0,
+      credit: total,
+      memo: 'Opening balance equity offset',
+    });
+
+    setCustomerPosting(true);
+    setCustomerMessage(null);
+    try {
+      const journal = await api.postOpeningBalances({ branchId: glBranchId, lines });
+      setCustomerMessage({
+        type: 'success',
+        text: `Customer opening balances posted as journal ${journal.journalNo} in period ${journal.periodKey}.`,
+      });
+      setCustomerDrafts([]);
+      setPendingCustomer(null);
+      setPendingCustomerAmount('');
+      onRefreshData?.();
+    } catch (error) {
+      setCustomerMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : 'Unable to post customer opening balances.',
+      });
+    } finally {
+      setCustomerPosting(false);
+    }
+  };
+
   if (!canView) {
     return (
       <div
@@ -463,8 +658,8 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
               Opening Balances
             </h2>
             <p className={`text-xs mt-0.5 leading-snug break-words text-slate-500 dark:text-slate-400`}>
-              Bring one branch's books into the system. Vendor balances roll forward from the prior close; the General
-              Ledger tab posts a balanced opening trial balance once per branch.
+              Bring one branch's books into the system. Vendor balances roll forward from the prior close; Customer and
+              General Ledger tabs post a balanced opening journal once per branch.
             </p>
           </div>
         </div>
@@ -510,6 +705,19 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
           }`}
         >
           <Wallet className="h-3.5 w-3.5" /> Vendors
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'CUSTOMERS'}
+          onClick={() => setActiveTab('CUSTOMERS')}
+          className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold border transition-colors ${
+            activeTab === 'CUSTOMERS'
+              ? 'bg-emerald-600 text-white border-emerald-600'
+              : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-slate-800'
+          }`}
+        >
+          <Users className="h-3.5 w-3.5" /> Customers
         </button>
         <button
           type="button"
@@ -825,6 +1033,253 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
         </div>
       </div>
         </>
+      )}
+
+      {activeTab === 'CUSTOMERS' && (
+        <div
+          className={`rounded-xl border p-4 shadow-sm bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="p-2.5 rounded-xl shrink-0 bg-sky-50 dark:bg-sky-500/10">
+                <Users className="h-6 w-6 text-sky-600 dark:text-sky-400" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-base font-bold break-words text-slate-900 dark:text-white">
+                  Customer Opening Balances
+                </h3>
+                <p className="text-xs mt-0.5 leading-snug break-words text-slate-500 dark:text-slate-400">
+                  Post each customer's opening receivable through the Accounts Receivable control account, with an
+                  opening-equity offset. The journal lands in the earliest open period and locks the branch against a
+                  second opening posting.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Branch
+              </label>
+              <select
+                aria-label="Customer opening branch"
+                value={glBranchId}
+                onChange={(event) => {
+                  setGlBranchId(event.target.value);
+                  setCustomerMessage(null);
+                }}
+                disabled={!canPostGl || customerPosting}
+                className="px-3 py-2 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200 disabled:opacity-50"
+              >
+                {glBranchOptions.length === 0 && <option value="">No branch in scope</option>}
+                {glBranchOptions.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {!canPostGl && (
+            <div className="mt-3 flex items-start gap-2.5 rounded-xl border p-3 text-xs font-semibold bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-500/5 dark:border-amber-500/30 dark:text-amber-300">
+              <Lock className="h-4 w-4 mt-0.5 shrink-0" />
+              <span>
+                Read-only for your role. Posting opening balances requires the Post Opening Balances permission.
+              </span>
+            </div>
+          )}
+
+          {postingDefaultsError && (
+            <div className="mt-3 flex items-start gap-2 rounded-xl border p-3 text-xs font-semibold bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-500/5 dark:border-rose-500/30 dark:text-rose-300">
+              <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+              <span>{postingDefaultsError}</span>
+            </div>
+          )}
+
+          <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border p-3 bg-slate-50 border-slate-200 dark:bg-slate-900/40 dark:border-slate-800">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              Control account
+            </span>
+            <span className="text-xs font-bold text-slate-800 dark:text-slate-100">
+              {arControl ? `${arControl.accountCode} · ${arControl.accountName}` : 'Loading Accounts Receivable…'}
+            </span>
+            {arControl && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/10 text-sky-600 dark:text-sky-400">
+                <CheckCircle2 className="h-3 w-3" /> Party-backed customer control
+              </span>
+            )}
+          </div>
+
+          <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(260px,2fr)_minmax(140px,1fr)_auto]">
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                Customer
+              </label>
+              <CustomerPicker
+                value={
+                  pendingCustomer
+                    ? {
+                        id: pendingCustomer.id,
+                        label: `${pendingCustomer.customerName} (${pendingCustomer.customerId})`,
+                      }
+                    : null
+                }
+                onSelect={(customer) => {
+                  setPendingCustomer(customer);
+                  setCustomerMessage(null);
+                }}
+                search={searchOpeningCustomers}
+                disabled={!canPostGl || customerPosting || !glBranchId}
+                placeholder="Search this branch's customers…"
+                inputClassName="h-9 text-xs font-semibold"
+                ariaLabel="Customer opening customer"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                Opening balance (NPR)
+              </label>
+              <input
+                aria-label="Customer opening amount"
+                type="number"
+                min="0"
+                step="0.01"
+                value={pendingCustomerAmount}
+                disabled={!canPostGl || customerPosting}
+                onChange={(event) => {
+                  setPendingCustomerAmount(event.target.value);
+                  setCustomerMessage(null);
+                }}
+                className="w-full h-9 px-3 rounded-lg border text-xs font-bold text-right focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white border-slate-300 text-slate-700 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300 disabled:opacity-50"
+              />
+            </div>
+            <div className="flex items-end">
+              <button
+                type="button"
+                onClick={handleAddCustomerOpening}
+                disabled={!canPostGl || customerPosting || !pendingCustomer || !pendingCustomerAmount}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-bold border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 disabled:opacity-50"
+              >
+                <Plus className="h-3.5 w-3.5" /> Add customer
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-3 rounded-xl border overflow-hidden border-slate-200 dark:border-slate-800">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50 text-slate-500 dark:bg-slate-900 dark:text-slate-400">
+                  {['Customer', 'Code', 'Opening balance (NPR)', ''].map((heading) => (
+                    <th
+                      key={heading || 'actions'}
+                      className="px-3 py-2.5 text-[11px] font-bold uppercase tracking-wide whitespace-nowrap border-b border-slate-200 dark:border-slate-800"
+                    >
+                      {heading}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {customerDrafts.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-3 py-8 text-center text-xs font-semibold text-slate-400 dark:text-slate-500">
+                      No customer opening balances added yet.
+                    </td>
+                  </tr>
+                ) : (
+                  customerDrafts.map((row) => (
+                    <tr key={row.id} className="border-b border-slate-100 dark:border-slate-800/70">
+                      <td className="px-3 py-2 text-xs font-bold text-slate-800 dark:text-slate-200">
+                        {row.customer.customerName}
+                      </td>
+                      <td className="px-3 py-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                        {row.customer.customerId}
+                      </td>
+                      <td className="px-3 py-2 text-xs font-extrabold text-right text-slate-800 dark:text-slate-100">
+                        {formatNPR(Number(row.amount))}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <button
+                          type="button"
+                          aria-label={`Remove ${row.customer.customerName}`}
+                          onClick={() => removeCustomerOpening(row.id)}
+                          disabled={!canPostGl || customerPosting}
+                          className="p-1.5 rounded-md text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 disabled:opacity-30"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+              <tfoot>
+                <tr className="bg-slate-50 dark:bg-slate-900/70">
+                  <td className="px-3 py-2 text-xs font-bold text-slate-600 dark:text-slate-300" colSpan={2}>
+                    Total opening receivables
+                  </td>
+                  <td className="px-3 py-2 text-xs font-extrabold text-right text-slate-800 dark:text-slate-100">
+                    {formatNPR(customerOpeningTotal)}
+                  </td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          {customerMessage && (
+            <div
+              className={`mt-3 flex items-start gap-2 rounded-xl border p-3 text-xs font-semibold ${
+                customerMessage.type === 'error'
+                  ? 'bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-500/5 dark:border-rose-500/30 dark:text-rose-300'
+                  : 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-500/5 dark:border-emerald-500/30 dark:text-emerald-300'
+              }`}
+            >
+              {customerMessage.type === 'error' ? (
+                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+              ) : (
+                <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
+              )}
+              <span>{customerMessage.text}</span>
+            </div>
+          )}
+
+          <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
+            <div className="min-w-[240px]">
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                Opening equity offset
+              </label>
+              <select
+                aria-label="Customer opening offset account"
+                value={customerOffsetAccountId}
+                onChange={(event) => setCustomerOffsetAccountId(event.target.value)}
+                disabled={!canPostGl || customerPosting || glAccountsLoading}
+                className="w-full px-3 py-2 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200 disabled:opacity-50"
+              >
+                {customerOffsetAccounts.length === 0 && <option value="">No equity account</option>}
+                {customerOffsetAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.code} · {account.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              type="button"
+              onClick={handlePostCustomerOpenings}
+              disabled={
+                !canPostGl ||
+                customerPosting ||
+                customerDrafts.length === 0 ||
+                !arControl ||
+                !customerOffsetAccountId ||
+                customerOpeningTotal <= 0
+              }
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Save className="h-3.5 w-3.5" /> {customerPosting ? 'Posting…' : 'Post Customer Openings'}
+            </button>
+          </div>
+        </div>
       )}
 
       {activeTab === 'GL' && (

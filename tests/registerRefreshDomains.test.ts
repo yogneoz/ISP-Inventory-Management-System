@@ -1108,6 +1108,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       'getVendorOpeningBalances',
       'postOpeningBalances',
       'rollForwardVendorOpenings',
+      'searchCustomers',
     ],
     'inventory/CategoryManagement.tsx': ['createCategory', 'deleteCategory', 'getCategories', 'updateCategory'],
     'inventory/UomManagement.tsx': ['createUom', 'deleteUom', 'getUoms', 'updateUom'],

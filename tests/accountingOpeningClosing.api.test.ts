@@ -67,6 +67,9 @@ const SCHEMA_SQL_PATH = path.join(ROOT, 'scripts', 'schema.sql');
 const TEST_DB = 'inventory_opening_closing_test';
 const BR = 'OCBR';
 const CLIENT_BR = 'OCUI';
+const CUSTOMER_BR = 'OCCUST';
+const CUSTOMER_ID = 'OC-CUST-1';
+const CUSTOMER_NAME = 'Opening Customer';
 const OTHER_BRANCH = 'WH001';
 const FY_ID = 'oc-fy-2079-80';
 const FY_CODE = '2079-80';
@@ -237,6 +240,17 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
       `INSERT INTO branches (id, code, name, location, active, allow_procurement, allow_warehouse_transfer, is_demo)
        VALUES ($1, $1, 'Opening Client Branch', 'Test', TRUE, TRUE, TRUE, FALSE)`,
       [CLIENT_BR]
+    );
+    await dbPool.query(
+      `INSERT INTO branches (id, code, name, location, active, allow_procurement, allow_warehouse_transfer, is_demo)
+       VALUES ($1, $1, 'Opening Customer Branch', 'Test', TRUE, TRUE, TRUE, FALSE)`,
+      [CUSTOMER_BR]
+    );
+    await dbPool.query(
+      `INSERT INTO customer_records (
+         id, customer_id, customer_name, contact_number, branch_id, address, status, is_demo
+       ) VALUES ('oc-customer-record', $1, $2, '9800000000', $3, 'Test', 'ACTIVE', FALSE)`,
+      [CUSTOMER_ID, CUSTOMER_NAME, CUSTOMER_BR]
     );
     await dbPool.query(
       `INSERT INTO fiscal_years (id, code, start_date_ad, end_date_ad, start_date_bs, end_date_bs, is_current, is_closed, is_demo)
@@ -447,6 +461,77 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
       [CLIENT_BR]
     );
     assert.equal(Number(stored.rows[0].count), 1, 'the client helper must leave a posted opening journal');
+  });
+
+  test('a customer opening balance posts through the AR control with its party subledger row', async () => {
+    const res = await post('/api/accounting/opening-balances', tokens.super, {
+      branchId: CUSTOMER_BR,
+      lines: [
+        {
+          accountId: accounts.receivable,
+          debit: 1500,
+          credit: 0,
+          subledgerType: 'CUSTOMER',
+          partyId: CUSTOMER_ID,
+          partyName: CUSTOMER_NAME,
+          memo: 'Opening receivable',
+        },
+        {
+          accountId: accounts.retained,
+          debit: 0,
+          credit: 1500,
+          memo: 'Opening balance equity offset',
+        },
+      ],
+    });
+    assert.equal(res.status, 201, JSON.stringify(res.json));
+    assert.equal(res.json.sourceType, 'OPENING_BALANCE');
+    assert.equal(res.json.branchId, CUSTOMER_BR);
+    assert.equal(res.json.periodKey, PERIOD_KEY);
+
+    const stored = await dbPool!.query(
+      `SELECT se.party_id AS "partyId", se.party_name AS "partyName",
+              se.debit::float AS debit, se.credit::float AS credit,
+              se.branch_id AS "branchId", a.code AS "accountCode"
+       FROM gl_subledger_entries se
+       JOIN gl_accounts a ON a.id = se.account_id
+       JOIN gl_journals j ON j.id = se.journal_id
+       WHERE j.id = $1 AND se.party_id = $2`,
+      [res.json.id, CUSTOMER_ID]
+    );
+    assert.equal(stored.rowCount, 1);
+    assert.deepEqual(stored.rows[0], {
+      partyId: CUSTOMER_ID,
+      partyName: CUSTOMER_NAME,
+      debit: 1500,
+      credit: 0,
+      branchId: CUSTOMER_BR,
+      accountCode: '1100',
+    });
+
+    const duplicate = await post('/api/accounting/opening-balances', tokens.super, {
+      branchId: CUSTOMER_BR,
+      lines: [
+        {
+          accountId: accounts.receivable,
+          debit: 50,
+          credit: 0,
+          subledgerType: 'CUSTOMER',
+          partyId: CUSTOMER_ID,
+          partyName: CUSTOMER_NAME,
+        },
+        { accountId: accounts.retained, debit: 0, credit: 50 },
+      ],
+    });
+    assert.equal(duplicate.status, 409, JSON.stringify(duplicate.json));
+    assert.match(duplicate.json.message, /already been posted/i);
+
+    const count = await dbPool!.query(
+      `SELECT COUNT(*)::int AS count FROM gl_journals
+       WHERE branch_id = $1 AND source_type = 'OPENING_BALANCE'`,
+      [CUSTOMER_BR]
+    );
+    assert.equal(Number(count.rows[0].count), 1, 'the branch keeps exactly one opening journal');
   });
 
   test('the year-end close moves the result into retained earnings and leaves the trial balance balanced', async () => {

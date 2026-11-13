@@ -151,8 +151,8 @@ describe('VOL-4a — customers off the bootstrap', () => {
     const api = fs.readFileSync(path.join(ROOT, 'client/src/services/api/inventory.ts'), 'utf8');
     const search = api.slice(api.indexOf('export async function searchCustomers'));
     assert.ok(
-      /branchId:\s*getActiveBranchId\(\)/.test(search),
-      'searchCustomers must send the active branch — /api/customers refuses an unscoped branch-role read with a 403, which a picker renders as an empty directory'
+      /branchId:\s*branchId \|\| getActiveBranchId\(\) \|\| undefined/.test(search),
+      'searchCustomers must send an explicit branch or fall back to the active shell branch — /api/customers refuses an unscoped branch-role read with a 403, which a picker renders as an empty directory'
     );
   });
 

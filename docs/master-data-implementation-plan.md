@@ -32,7 +32,7 @@ note still says chart Add/Edit is API-only, which is no longer true.
 | 10 | Currency | Company Profile & Setup → Comms & Currency (`/settings/company`) | Partial | Accounting → Currency & Exchange Rates |
 | 11 | Cost Center | Master Data & Setup → Accounting → Cost Centers (`/finance/accounting/cost-centers`) | Done | Accounting → Cost Centers |
 | 12 | Narration Master | Master Data & Setup → Accounting → Narration Templates (`/finance/accounting/narrations`) | Done | Accounting → Narration Templates |
-| 13 | Opening Balance | Opening Balances screen: Vendors tab and a new GL tab; stock workflow; no customer register | Partial | Finance & Accounting → General Ledger → Opening Balances |
+| 13 | Opening Balance | Opening Balances screen: Vendors, Customers and General Ledger tabs; stock workflow | Partial | Finance & Accounting → General Ledger → Opening Balances |
 | 14 | Copy Master | None | Missing | Utilities → Copy Masters |
 
 `Category Management`, `Product Group Management` and `UoM Management` are current
@@ -311,7 +311,7 @@ for that integration without changing posted history.
 - Vendor opening balances: `Finance → Opening Balances → Vendors`.
 - Opening stock: fiscal-year opening-stock workflow.
 - General ledger: `Opening Balances → General Ledger` (backed by `POST /api/accounting/opening-balances`).
-- Customer: no register; the sales ledger uses a period-net opening method.
+- Customer: `Opening Balances → Customers` posts each customer's opening receivable through the AR control account and its customer subledger row.
 
 **Decision.** Build one Opening Balances hub with tabs for GL, Customers, Vendors
 and Stock. Every tab posts a balanced opening journal or subledger rows. Do not
@@ -536,13 +536,21 @@ target.
 - [ ] **Step 7 — Opening Balances hub.**
   Move earlier if existing books must be onboarded before the other steps.
 
-  **First slice shipped — General Ledger tab.** `/finance/opening-balances`
-  is now the Opening Balances hub with Vendors and General Ledger tabs. The GL
-  tab posts a balanced branch trial balance through the existing
-  `POST /api/accounting/opening-balances` route, which keeps its earliest-open
-  period, one-posting-per-branch and branch-scope rules. The form excludes
-  control accounts because this trial-balance path has no party picker.
-  Still open: the Customers register/tab and an in-hub Stock tab.
+  **First slices shipped — General Ledger and Customers tabs.**
+  `/finance/opening-balances` is now the Opening Balances hub with Vendors,
+  Customers and General Ledger tabs. The GL tab posts a balanced branch trial
+  balance through the existing `POST /api/accounting/opening-balances` route,
+  which keeps its earliest-open period, one-posting-per-branch and branch-scope
+  rules; the form excludes control accounts because that trial-balance path has
+  no party picker. The Customers tab searches only the selected branch's
+  directory, collects customer amounts, and posts one balanced journal with
+  each receivable debited to the AR control account with a `CUSTOMER`
+  subledger party row and the total credited to a selected opening-equity
+  account. Duplicate customer rows are refused in the form, and the server's
+  one-posting-per-branch rule remains the durable duplicate guard. Both tabs
+  show the returned journal number and period and surface backend validation
+  errors. Still open: an in-hub Stock tab; the existing opening-stock workflow
+  already covers stock data, and the hub tab is not yet built.
 
 - [ ] **Step 8 — Currency/FX and Copy Master.**
   Separate projects, not menu items.

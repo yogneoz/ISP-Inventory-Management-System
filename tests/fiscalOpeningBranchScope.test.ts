@@ -113,6 +113,14 @@ const settle = async () => {
 };
 
 /** React's controlled-input change, via the native setter the tracker watches. */
+function setTextInput(input: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!;
+  inAct(() => {
+    setter.call(input, value);
+    input.dispatchEvent(new window.Event('input', { bubbles: true }));
+  });
+}
+
 function setNumberInput(input: HTMLInputElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!;
   inAct(() => {
@@ -148,6 +156,8 @@ describe('fiscal opening registers — branch scope', () => {
     adjustVendor: api.adjustVendorOpeningBalances,
     getAccounts: api.getAccountingAccounts,
     postOpening: api.postOpeningBalances,
+    getPostingDefaults: api.getPostingDefaults,
+    searchCustomers: api.searchCustomers,
   };
 
   afterEach(() => {
@@ -157,6 +167,8 @@ describe('fiscal opening registers — branch scope', () => {
     api.adjustVendorOpeningBalances = real.adjustVendor;
     api.getAccountingAccounts = real.getAccounts;
     api.postOpeningBalances = real.postOpening;
+    api.getPostingDefaults = real.getPostingDefaults;
+    api.searchCustomers = real.searchCustomers;
   });
 
   test('getScopedBranches mirrors the server: only ALL/HQ roles are global', () => {
@@ -285,6 +297,128 @@ describe('fiscal opening registers — branch scope', () => {
         [{ branchId: 'br-a', openingBalance: 150 }],
         'the payload never carries the foreign-branch row that was in the response'
       );
+    } finally {
+      tree.unmount();
+    }
+  });
+
+  test('Customers tab posts only branch-scoped customer lines through the opening route', async () => {
+    const posted: any[] = [];
+    api.getVendorOpeningBalances = async () => vendorPayload as any;
+    api.getAccountingAccounts = async () =>
+      [
+        { id: 'acct-cash', code: '1000', name: 'Cash', isActive: true, isControl: false, accountType: 'ASSET' },
+        {
+          id: 'acct-equity',
+          code: '3000',
+          name: 'Retained Earnings',
+          isActive: true,
+          isControl: false,
+          accountType: 'EQUITY',
+          postingRole: 'RETAINED_EARNINGS',
+        },
+      ] as any;
+    api.getPostingDefaults = async () =>
+      ({
+        defaults: {
+          AR_CONTROL: {
+            accountId: 'acct-ar',
+            accountCode: '1100',
+            accountName: 'Accounts Receivable',
+            accountType: 'ASSET',
+            statementGroup: 'CURRENT_ASSET',
+            isControl: true,
+            subledgerType: 'CUSTOMER',
+          },
+        },
+      }) as any;
+    api.searchCustomers = async () =>
+      [
+        {
+          id: 'cust-record-1',
+          customerId: 'CUST-1',
+          customerName: 'Acme Customer',
+          username: 'acme',
+          contactNumber: '9800000001',
+          branchId: 'br-a',
+          address: 'Kathmandu',
+          status: 'ACTIVE',
+        },
+      ] as any;
+    api.postOpeningBalances = async (input) => {
+      posted.push(input);
+      return { journalNo: 'JV-CUST-1', periodKey: '2026-07' } as any;
+    };
+
+    const tree = mountTree(
+      createElement(VendorOpeningBalances, {
+        currentUser: accountantUser,
+        fiscalYears,
+        branches,
+      } as any)
+    );
+    try {
+      await settle();
+
+      const tab = findButton(tree.container, /Customers/);
+      assert.ok(tab, 'the hub exposes the Customers tab');
+      inAct(() => tab!.click());
+      await settle();
+
+      const customerInput = tree.container.querySelector(
+        'input[aria-label="Customer opening customer"]'
+      ) as HTMLInputElement | null;
+      assert.ok(customerInput, 'the customer picker renders');
+      setTextInput(customerInput!, 'Acme');
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      });
+
+      const customerOption = findButton(tree.container, /Acme Customer/);
+      assert.ok(customerOption, 'the branch-scoped customer appears in the picker');
+      inAct(() => customerOption!.click());
+      await settle();
+
+      const amountInput = tree.container.querySelector(
+        'input[aria-label="Customer opening amount"]'
+      ) as HTMLInputElement | null;
+      assert.ok(amountInput, 'the customer opening amount renders');
+      setNumberInput(amountInput!, '0');
+
+      const add = findButton(tree.container, /Add customer/);
+      assert.ok(add, 'the draft can be added');
+      inAct(() => add!.click());
+      await settle();
+      assert.match(tree.container.textContent || '', /must be a positive amount/);
+      assert.equal(posted.length, 0, 'an invalid draft must not reach the route');
+
+      setNumberInput(amountInput!, '750');
+      inAct(() => add!.click());
+      await settle();
+
+      const post = findButton(tree.container, /Post Customer Openings/);
+      assert.ok(post, 'a customer opening draft exposes the post action');
+      inAct(() => post!.click());
+      await settle();
+
+      assert.equal(posted.length, 1);
+      assert.equal(posted[0].branchId, 'br-a');
+      assert.deepEqual(posted[0].lines[0], {
+        accountId: 'acct-ar',
+        debit: 750,
+        credit: 0,
+        memo: 'Opening receivable — Acme Customer (CUST-1)',
+        subledgerType: 'CUSTOMER',
+        partyId: 'CUST-1',
+        partyName: 'Acme Customer',
+      });
+      assert.deepEqual(posted[0].lines[1], {
+        accountId: 'acct-equity',
+        debit: 0,
+        credit: 750,
+        memo: 'Opening balance equity offset',
+      });
+      assert.match(tree.container.textContent || '', /posted as journal JV-CUST-1/);
     } finally {
       tree.unmount();
     }

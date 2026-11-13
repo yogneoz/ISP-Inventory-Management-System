@@ -662,11 +662,15 @@ export async function getCustomers(params?: {
  * branch account omits the parameter, so an unscoped search looked like an
  * empty directory to every non-global user.
  */
-export async function searchCustomers(query: string, limit = 20): Promise<CustomerRecord[]> {
+export async function searchCustomers(
+  query: string,
+  limit = 20,
+  branchId?: string
+): Promise<CustomerRecord[]> {
   const q = query.trim();
   if (!q) return [];
   const envelope = await getCustomers({
-    branchId: getActiveBranchId() || undefined,
+    branchId: branchId || getActiveBranchId() || undefined,
     query: q,
     page: 1,
     pageSize: Math.max(1, Math.min(50, limit)),

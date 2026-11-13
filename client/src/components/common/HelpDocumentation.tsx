@@ -126,7 +126,7 @@ const USER_GUIDES: UserGuide[] = [
       'When goods arrive: receive against the PO (Inbound/Receiving). Quantities are checked in, stock increases at the receiving branch, and the movement ledger records the inward.',
       'Procurement & Purchasing → Create Purchase Bill: book the supplier\'s VAT invoice against the received PO/P items — grand total and VAT amount feed the VAT register and vendor payables.',
       'Track what you owe: Finance & Accounting → Vendor Ledger & Payments. Record each payment against the invoice; outstanding balance = opening balances + invoices − payments.',
-      'If the supplier needs a starting balance (from before the system), use Opening Balances → Vendors to post it for the fiscal year. Opening Balances → General Ledger posts a balanced branch trial balance once into the earliest open period.',
+      'If the supplier needs a starting balance (from before the system), use Opening Balances → Vendors to post it for the fiscal year. Opening Balances → Customers posts each customer receivable through the AR control and customer subledger; Opening Balances → General Ledger posts a balanced branch trial balance once into the earliest open period.',
     ],
     result: 'Goods received, VAT input tax captured, and supplier payable balance always reconcilable in the vendor ledger.',
   },
