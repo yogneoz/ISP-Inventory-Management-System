@@ -15,9 +15,12 @@ import { withTransaction } from '../db/transactions';
 import { logAuditEvent } from '../services/audit.service';
 import { getUserFromReq } from '../middleware/auth';
 import { ApiError } from '../errors/ApiError';
+import { roundMoney } from '../utils/money';
 import {
   ACCOUNT_GROUP_LIST_SQL,
   ACCOUNT_LIST_SQL,
+  FISCAL_YEAR_BALANCES_LIST_SQL,
+  FISCAL_YEAR_BALANCE_HEADER_SQL,
   JOURNAL_BY_ID_SQL,
   PERIOD_LIST_SQL,
   SETTLEMENT_ACCOUNTS_SQL,
@@ -569,6 +572,81 @@ export async function get_trialBalance(req: any, res: Response): Promise<any> {
   const window = await statementWindow(req, res, 'TRIAL_BALANCE');
   if (!window) return;
   return res.json(await buildTrialBalance(pgPool, window));
+}
+
+/**
+ * GET /api/accounting/fiscal-years/:id/balances — the immutable snapshot a
+ * close wrote. This is the bounded year-end read: it never rescans journals.
+ * A branch account sees only its branch; a global account may narrow to one
+ * branch or read every branch. Before Phase 1 a closed year had no snapshot,
+ * so those years answer 404 rather than pretending an empty trial balance.
+ */
+export async function get_fiscalYearBalances(req: any, res: Response): Promise<any> {
+  const scope = resolveBranchScope(req, res);
+  if (!scope) return;
+  const fiscalYearId = String(req.params?.id || '').trim();
+  if (!fiscalYearId) throw new ApiError(400, 'A fiscal year id is required.');
+  if (!getPgConnected()) throw new ApiError(503, 'PostgreSQL is unavailable.');
+
+  const fiscalYear = (await pgPool.query(FISCAL_YEAR_BALANCE_HEADER_SQL, [fiscalYearId])).rows[0];
+  if (!fiscalYear) return res.status(404).json({ message: 'Fiscal year not found.' });
+
+  let rows: any[] = [];
+  if (!scope.empty) {
+    rows = (
+      await pgPool.query(FISCAL_YEAR_BALANCES_LIST_SQL, [
+        fiscalYearId,
+        scope.branchId ?? null,
+      ])
+    ).rows;
+  }
+  if (rows.length === 0) {
+    return res.status(404).json({
+      message: `Fiscal year ${fiscalYear.code} has no close snapshot in this scope.`,
+    });
+  }
+
+  const totals = rows.reduce(
+    (sum, row) => {
+      sum.preCloseDebit = roundMoney(sum.preCloseDebit + Number(row.preCloseDebit));
+      sum.preCloseCredit = roundMoney(sum.preCloseCredit + Number(row.preCloseCredit));
+      sum.preCloseBalance = roundMoney(sum.preCloseBalance + Number(row.preCloseBalance));
+      sum.closeDebit = roundMoney(sum.closeDebit + Number(row.closeDebit));
+      sum.closeCredit = roundMoney(sum.closeCredit + Number(row.closeCredit));
+      sum.postCloseBalance = roundMoney(sum.postCloseBalance + Number(row.postCloseBalance));
+      return sum;
+    },
+    {
+      preCloseDebit: 0,
+      preCloseCredit: 0,
+      preCloseBalance: 0,
+      closeDebit: 0,
+      closeCredit: 0,
+      postCloseBalance: 0,
+    }
+  );
+
+  return res.json({
+    fiscalYear,
+    branchId: scope.branchId ?? 'ALL',
+    rows: rows.map((row) => ({
+      ...row,
+      preCloseDebit: Number(row.preCloseDebit),
+      preCloseCredit: Number(row.preCloseCredit),
+      preCloseBalance: Number(row.preCloseBalance),
+      closeDebit: Number(row.closeDebit),
+      closeCredit: Number(row.closeCredit),
+      postCloseBalance: Number(row.postCloseBalance),
+    })),
+    totals,
+    balanced: {
+      preClose: roundMoney(totals.preCloseDebit - totals.preCloseCredit) === 0,
+      postClose:
+        roundMoney(
+          totals.preCloseDebit + totals.closeDebit - totals.preCloseCredit - totals.closeCredit
+        ) === 0,
+    },
+  });
 }
 
 /** GET /api/accounting/statements/profit-and-loss */

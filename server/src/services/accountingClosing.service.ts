@@ -30,9 +30,12 @@ import {
   ACCOUNTS_BY_POSTING_ROLES_SQL,
   EARLIEST_OPEN_FISCAL_YEAR_SQL,
   EARLIEST_OPEN_PERIOD_SQL,
+  FISCAL_YEAR_BALANCES_EXISTS_SQL,
+  FISCAL_YEAR_BALANCE_INSERT_SQL,
   FISCAL_YEAR_BOUNDS_SQL,
   FISCAL_YEAR_CLOSE_LOCK_SQL,
   FISCAL_YEAR_PNL_BALANCE_ROWS_SQL,
+  FISCAL_YEAR_TRIAL_BALANCE_ROWS_SQL,
   OPENING_BALANCE_EXISTS_SQL,
   OPENING_BALANCE_LOCK_SQL,
   YEAR_END_CLOSE_EXISTS_SQL,
@@ -144,6 +147,20 @@ export interface CloseFiscalYearInput {
 export interface CloseFiscalYearResult {
   fiscalYear: any;
   journalCount: number;
+  snapshotRowCount: number;
+}
+
+interface CloseSnapshotEntry {
+  branchId: string;
+  accountId: string;
+  code: string;
+  name: string;
+  accountType: string;
+  preCloseDebit: number;
+  preCloseCredit: number;
+  preCloseBalance: number;
+  closeDebit: number;
+  closeCredit: number;
 }
 
 /**
@@ -172,6 +189,50 @@ export async function closeFiscalYear(
     );
   }
 
+  const existingSnapshot = (
+    await client.query(FISCAL_YEAR_BALANCES_EXISTS_SQL, [fiscalYearId])
+  ).rows[0];
+  if (existingSnapshot) {
+    throw new ApiError(
+      409,
+      `A balance snapshot already exists for fiscal year ${fiscalYear.code}; the close is single-shot.`
+    );
+  }
+
+  // Capture the trial balance before the closing entries zero the P&L. Once
+  // those entries commit, this pre-close position is not reconstructible.
+  const preCloseRows = (
+    await client.query(
+      FISCAL_YEAR_TRIAL_BALANCE_ROWS_SQL,
+      [String(fiscalYear.endDateAD).slice(0, 10)]
+    )
+  ).rows;
+  const snapshot = new Map<string, CloseSnapshotEntry>();
+  const accountMeta = new Map<string, { code: string; name: string; accountType: string }>();
+  for (const row of preCloseRows) {
+    const branchId = String(row.branchId);
+    const accountId = String(row.accountId);
+    const debit = roundMoney(Number(row.debit) || 0);
+    const credit = roundMoney(Number(row.credit) || 0);
+    snapshot.set(`${branchId}\u0000${accountId}`, {
+      branchId,
+      accountId,
+      code: String(row.code),
+      name: String(row.name),
+      accountType: String(row.accountType),
+      preCloseDebit: debit,
+      preCloseCredit: credit,
+      preCloseBalance: roundMoney(debit - credit),
+      closeDebit: 0,
+      closeCredit: 0,
+    });
+    accountMeta.set(accountId, {
+      code: String(row.code),
+      name: String(row.name),
+      accountType: String(row.accountType),
+    });
+  }
+
   const rows = (
     await client.query(FISCAL_YEAR_PNL_BALANCE_ROWS_SQL, [String(fiscalYear.endDateAD).slice(0, 10)])
   ).rows;
@@ -195,6 +256,11 @@ export async function closeFiscalYear(
         `Retained earnings account ${retainedEarnings.code} is a control account; a year-end close cannot name a subledger party for it.`
       );
     }
+    accountMeta.set(String(retainedEarnings.id), {
+      code: String(retainedEarnings.code),
+      name: String(retainedEarnings.name),
+      accountType: String(retainedEarnings.accountType),
+    });
   }
 
   const byBranch = new Map<string, any[]>();
@@ -273,10 +339,66 @@ export async function closeFiscalYear(
       isDemo: false,
     });
     journalCount += 1;
+
+    // Record the closing journal's effect on the pre-close position. Accounts
+    // touched only by the close (typically retained earnings) gain a row here;
+    // every other account already has one from the pre-close trial balance.
+    for (const line of lines) {
+      const accountId = String(line.accountId || '');
+      const key = `${branchId}\u0000${accountId}`;
+      let entry = snapshot.get(key);
+      if (!entry) {
+        const meta = accountMeta.get(accountId);
+        if (!meta) {
+          throw new ApiError(
+            500,
+            `Year-end close could not resolve account ${accountId} for its balance snapshot.`
+          );
+        }
+        entry = {
+          branchId,
+          accountId,
+          code: meta.code,
+          name: meta.name,
+          accountType: meta.accountType,
+          preCloseDebit: 0,
+          preCloseCredit: 0,
+          preCloseBalance: 0,
+          closeDebit: 0,
+          closeCredit: 0,
+        };
+        snapshot.set(key, entry);
+      }
+      entry.closeDebit = roundMoney(entry.closeDebit + Number(line.debit || 0));
+      entry.closeCredit = roundMoney(entry.closeCredit + Number(line.credit || 0));
+    }
   }
 
-  // One atomic outcome: the closing journals above and this flag either both
-  // commit or both roll back. The SQL keeps the existing close-date guard.
+  let snapshotRowCount = 0;
+  for (const entry of snapshot.values()) {
+    const postCloseBalance = roundMoney(
+      entry.preCloseBalance + entry.closeDebit - entry.closeCredit
+    );
+    await client.query(FISCAL_YEAR_BALANCE_INSERT_SQL, [
+      fiscalYearId,
+      entry.branchId,
+      entry.accountId,
+      entry.code,
+      entry.name,
+      entry.accountType,
+      entry.preCloseDebit,
+      entry.preCloseCredit,
+      entry.preCloseBalance,
+      entry.closeDebit,
+      entry.closeCredit,
+      postCloseBalance,
+    ]);
+    snapshotRowCount += 1;
+  }
+
+  // One atomic outcome: the closing journals, the balance snapshot and this
+  // flag either all commit or all roll back. The SQL keeps the existing
+  // close-date guard.
   const closed = (await client.query(FY_CLOSE_SQL, [fiscalYearId])).rows[0];
   if (!closed) {
     throw new ApiError(
@@ -285,5 +407,5 @@ export async function closeFiscalYear(
     );
   }
 
-  return { fiscalYear: closed, journalCount };
+  return { fiscalYear: closed, journalCount, snapshotRowCount };
 }

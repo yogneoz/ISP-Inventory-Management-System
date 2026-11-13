@@ -16,6 +16,7 @@ import {
   get_cashFlowForecast,
   get_cashFlowForecastExport,
   get_cashBook,
+  get_fiscalYearBalances,
   get_journal,
   get_journals,
   get_periods,
@@ -358,6 +359,12 @@ export function registerAccountingRoutes(app: Express) {
   // earliest open period through the same journal helper as everything else.
   app.post('/api/accounting/opening-balances', requirePermission('gl-opening-post'), async (req, res, next) => {
     post_openingBalances(req as any, res as any).catch(next);
+  });
+
+  // The immutable snapshot written by a year-end close. Bounded read, same
+  // gl-view gate and branch-scope resolution as the financial statements.
+  app.get('/api/accounting/fiscal-years/:id/balances', requirePermission('gl-view'), async (req, res, next) => {
+    get_fiscalYearBalances(req as any, res as any).catch(next);
   });
 
   // Financial statements, read from the posted journal lines. Same gl-view

@@ -619,6 +619,66 @@ GROUP BY l.branch_id, a.id, a.code, a.name, a.is_active, a.is_control, g.account
 HAVING COALESCE(SUM(l.debit - l.credit), 0) <> 0
 ORDER BY l.branch_id ASC, a.code ASC`;
 
+export const FISCAL_YEAR_BALANCE_HEADER_SQL = `SELECT id, code,
+  start_date_ad::text AS "startDateAD",
+  end_date_ad::text AS "endDateAD",
+  is_closed AS "isClosed"
+FROM fiscal_years
+WHERE id = $1`;
+
+/**
+ * The whole trial balance through the close date, before the closing entries
+ * are posted. This is the position that a close zeroes and that therefore
+ * cannot be reconstructed from the ledger afterwards.
+ */
+export const FISCAL_YEAR_TRIAL_BALANCE_ROWS_SQL = `SELECT
+  l.branch_id AS "branchId",
+  a.id AS "accountId",
+  a.code,
+  a.name,
+  g.account_type AS "accountType",
+  COALESCE(SUM(l.debit), 0)::numeric AS debit,
+  COALESCE(SUM(l.credit), 0)::numeric AS credit,
+  COALESCE(SUM(l.debit - l.credit), 0)::numeric AS balance
+FROM gl_journal_lines l
+JOIN gl_journals j ON j.id = l.journal_id
+JOIN gl_accounts a ON a.id = l.account_id
+JOIN gl_account_groups g ON g.id = a.group_id
+WHERE j.status = 'POSTED'
+  AND j.journal_date_ad <= $1::date
+GROUP BY l.branch_id, a.id, a.code, a.name, g.account_type
+ORDER BY l.branch_id ASC, a.code ASC`;
+
+/** A close is single-shot: a snapshot already present means the year was closed. */
+export const FISCAL_YEAR_BALANCES_EXISTS_SQL = `SELECT 1 AS present
+FROM fiscal_year_balances
+WHERE fiscal_year_id = $1
+LIMIT 1`;
+
+export const FISCAL_YEAR_BALANCE_INSERT_SQL = `INSERT INTO fiscal_year_balances (
+  fiscal_year_id, branch_id, account_id, account_code, account_name, account_type,
+  pre_close_debit, pre_close_credit, pre_close_balance,
+  close_debit, close_credit, post_close_balance
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`;
+
+/** One fiscal year's snapshot, optionally narrowed to one branch. */
+export const FISCAL_YEAR_BALANCES_LIST_SQL = `SELECT
+  branch_id AS "branchId",
+  account_id AS "accountId",
+  account_code AS code,
+  account_name AS name,
+  account_type AS "accountType",
+  pre_close_debit::numeric AS "preCloseDebit",
+  pre_close_credit::numeric AS "preCloseCredit",
+  pre_close_balance::numeric AS "preCloseBalance",
+  close_debit::numeric AS "closeDebit",
+  close_credit::numeric AS "closeCredit",
+  post_close_balance::numeric AS "postCloseBalance"
+FROM fiscal_year_balances
+WHERE fiscal_year_id = $1
+  AND ($2::varchar IS NULL OR branch_id = $2::varchar)
+ORDER BY account_code ASC, branch_id ASC`;
+
 export const BRANCH_EXISTS_SQL = `SELECT id FROM branches WHERE id = $1`;
 
 /** Next value of the durable journal-number sequence. */

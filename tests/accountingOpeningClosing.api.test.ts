@@ -444,6 +444,67 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
     );
     assert.equal(closeJournals, 1, 'one closing journal per branch with a P&L residue');
 
+    // The close also writes the bounded, immutable snapshot that year-end
+    // reporting uses instead of rescanning the ledger. The branch accountant
+    // can read its own branch; a foreign branch request and anonymous request
+    // are refused.
+    const snapshot = await get(
+      `/api/accounting/fiscal-years/${FY_ID}/balances`,
+      tokens.accountant
+    );
+    assert.equal(snapshot.status, 200, JSON.stringify(snapshot.json));
+    assert.equal(snapshot.json.branchId, BR);
+    assert.equal(snapshot.json.fiscalYear.isClosed, true);
+    assert.equal(snapshot.json.rows.length, 5, 'one row per account that carries a balance');
+    const snapByAccount = new Map(
+      snapshot.json.rows.map((row: any) => [row.accountId, row])
+    );
+    const cashSnap: any = snapByAccount.get(accounts.cash);
+    const salesSnap: any = snapByAccount.get(accounts.sales);
+    const expenseSnap: any = snapByAccount.get(accounts.expense);
+    const retainedSnap: any = snapByAccount.get(accounts.retained);
+    assert.equal(cashSnap.preCloseBalance, 13000);
+    assert.equal(cashSnap.postCloseBalance, 13000, 'closing does not change assets');
+    assert.equal(salesSnap.preCloseCredit, 5000);
+    assert.equal(salesSnap.closeDebit, 5000);
+    assert.equal(salesSnap.postCloseBalance, 0);
+    assert.equal(expenseSnap.preCloseDebit, 2000);
+    assert.equal(expenseSnap.closeCredit, 2000);
+    assert.equal(expenseSnap.postCloseBalance, 0);
+    assert.equal(retainedSnap.preCloseBalance, 0);
+    assert.equal(retainedSnap.closeCredit, 3000);
+    // Signed like the trial balance: debit-positive, so an equity credit is
+    // negative and the post-close column sums to zero.
+    assert.equal(retainedSnap.postCloseBalance, -3000);
+    assert.equal(snapshot.json.totals.preCloseDebit, 17000);
+    assert.equal(snapshot.json.totals.preCloseCredit, 17000);
+    assert.equal(snapshot.json.totals.postCloseBalance, 0);
+    assert.deepEqual(snapshot.json.balanced, { preClose: true, postClose: true });
+
+    const foreignBranch = await get(
+      `/api/accounting/fiscal-years/${FY_ID}/balances?branchId=${BR}`,
+      tokens.otherBranch
+    );
+    assert.equal(foreignBranch.status, 403, JSON.stringify(foreignBranch.json));
+    const anonymousSnapshot = await get(`/api/accounting/fiscal-years/${FY_ID}/balances`);
+    assert.equal(anonymousSnapshot.status, 401);
+
+    // The snapshot is evidence: an in-place UPDATE or DELETE is refused by the
+    // database, not merely avoided by application code.
+    await assert.rejects(
+      () =>
+        dbPool!.query(
+          'UPDATE fiscal_year_balances SET post_close_balance = 0 WHERE fiscal_year_id = $1',
+          [FY_ID]
+        ),
+      (error: any) => error?.code === '23514' && /immutable/.test(String(error.message))
+    );
+    await assert.rejects(
+      () =>
+        dbPool!.query('DELETE FROM fiscal_year_balances WHERE fiscal_year_id = $1', [FY_ID]),
+      (error: any) => error?.code === '23514' && /immutable/.test(String(error.message))
+    );
+
     const closedLines = await dbPool!.query(
       `SELECT a.code, SUM(l.debit)::numeric AS debit, SUM(l.credit)::numeric AS credit
        FROM gl_journal_lines l

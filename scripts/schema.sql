@@ -1918,6 +1918,34 @@ CREATE INDEX IF NOT EXISTS idx_gl_journal_lines_journal ON gl_journal_lines(jour
 ALTER TABLE gl_journal_lines ADD COLUMN IF NOT EXISTS cost_center_id VARCHAR(50) REFERENCES cost_centers(id) ON DELETE RESTRICT;
 CREATE INDEX IF NOT EXISTS idx_gl_journal_lines_cost_center ON gl_journal_lines(cost_center_id);
 
+-- ==========================================
+-- 34f. Immutable year-end balance snapshots
+-- ==========================================
+-- Closing a year zeroes income and expense accounts, so the pre-close result
+-- cannot be reconstructed from the ledger afterwards. The close writes this
+-- bounded, immutable snapshot in the same transaction: one row per branch and
+-- account, with the trial balance through the year end, the closing journal's
+-- effect and the resulting balance. Year-end reporting reads these rows rather
+-- than rescanning every journal back to the beginning of time.
+CREATE TABLE IF NOT EXISTS fiscal_year_balances (
+    fiscal_year_id VARCHAR(50) NOT NULL REFERENCES fiscal_years(id) ON DELETE RESTRICT,
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    account_id VARCHAR(50) NOT NULL REFERENCES gl_accounts(id) ON DELETE RESTRICT,
+    account_code VARCHAR(30) NOT NULL,
+    account_name VARCHAR(150) NOT NULL,
+    account_type VARCHAR(20) NOT NULL,
+    pre_close_debit NUMERIC(16, 2) NOT NULL DEFAULT 0,
+    pre_close_credit NUMERIC(16, 2) NOT NULL DEFAULT 0,
+    pre_close_balance NUMERIC(16, 2) NOT NULL DEFAULT 0,
+    close_debit NUMERIC(16, 2) NOT NULL DEFAULT 0,
+    close_credit NUMERIC(16, 2) NOT NULL DEFAULT 0,
+    post_close_balance NUMERIC(16, 2) NOT NULL DEFAULT 0,
+    closed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (fiscal_year_id, branch_id, account_id)
+);
+CREATE INDEX IF NOT EXISTS idx_fiscal_year_balances_account
+    ON fiscal_year_balances(fiscal_year_id, account_code, branch_id);
+
 CREATE TABLE IF NOT EXISTS gl_subledger_entries (
     id VARCHAR(60) PRIMARY KEY,
     journal_id VARCHAR(50) NOT NULL REFERENCES gl_journals(id) ON DELETE CASCADE,
@@ -4524,3 +4552,30 @@ CREATE OR REPLACE TRIGGER trg_gl_journal_lines_append_only
 CREATE OR REPLACE TRIGGER trg_gl_subledger_entries_append_only
   BEFORE UPDATE OR DELETE ON gl_subledger_entries
   FOR EACH ROW EXECUTE FUNCTION reject_posted_ledger_mutation();
+
+-- The snapshot records what was closed; it is evidence, not a working table.
+-- A correction belongs in a linked reversal journal inside a reopened year,
+-- then a fresh close, never in an UPDATE of the closed position.
+CREATE OR REPLACE FUNCTION reject_fiscal_year_balance_mutation()
+RETURNS trigger AS $$
+BEGIN
+  IF current_setting('inventory.allow_ledger_purge', true) = 'on' THEN
+    IF TG_OP = 'DELETE' THEN
+      RETURN OLD;
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  RAISE EXCEPTION USING
+    ERRCODE = 'check_violation',
+    MESSAGE = format(
+      'fiscal_year_balances is immutable: a closed year cannot be changed with %s.',
+      TG_OP
+    ),
+    HINT = 'Reopen the year, correct the ledger with a linked reversal journal, and close it again.';
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER trg_fiscal_year_balances_immutable
+  BEFORE UPDATE OR DELETE ON fiscal_year_balances
+  FOR EACH ROW EXECUTE FUNCTION reject_fiscal_year_balance_mutation();
