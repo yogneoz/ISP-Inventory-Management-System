@@ -42,6 +42,7 @@ import {
   setPeriodStatus,
   type AccountingClient,
 } from './accounting.service';
+import { inventoryCloseDifference } from './inventoryReconciliation.service';
 
 export type RecurringFrequency = 'MONTHLY' | 'QUARTERLY' | 'YEARLY';
 export type RecurringSide = 'DEBIT' | 'CREDIT';
@@ -662,13 +663,24 @@ export async function closePeriodWithChecklist(
       `Required close tasks are incomplete: ${titles}. Complete them or provide an override reason.`
     );
   }
+  const inventoryDifference = await inventoryCloseDifference(client, period);
+  const inventoryOverridden = Math.abs(inventoryDifference) >= 0.005;
+  if (inventoryOverridden && !reason) {
+    throw new ApiError(
+      409,
+      `Inventory valuation does not equal the INVENTORY control at ${period.endDateAD}: difference NPR ${inventoryDifference.toFixed(2)}. ` +
+        'Reconcile the stock register to the ledger, or record an explicit override reason for this close.'
+    );
+  }
   await setPeriodStatus(client, periodId, 'CLOSED', actor);
   await markLockTask(client, periodId, 'DONE', actor);
   const closing = (await client.query(CLOSE_PERIOD_BY_ID_SQL, [periodId])).rows[0];
   const refreshed = (await client.query(CLOSE_ITEMS_SQL, [periodId])).rows;
   return {
     period: closing,
-    overridden: incomplete.length > 0,
+    overridden: incomplete.length > 0 || inventoryOverridden,
+    inventoryOverridden,
+    inventoryDifference,
     overrideReason: reason || null,
     incompleteRequired: incomplete,
     summary: checklistSummary(refreshed),

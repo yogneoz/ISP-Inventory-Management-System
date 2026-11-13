@@ -411,6 +411,12 @@ FROM gl_accounts a JOIN gl_account_groups g ON g.id = a.group_id
 WHERE a.is_active = TRUE AND a.subledger_type = 'INTER_BRANCH'
 ORDER BY a.code ASC`;
 
+/** Idempotency probe for a source posting: one document, one posted journal. */
+export const JOURNAL_SOURCE_EXISTS_SQL = `SELECT id
+FROM gl_journals
+WHERE source_type = $1 AND source_id = $2 AND status = 'POSTED'
+LIMIT 1`;
+
 /** The one journal a document created (newest first if an old duplicate exists). */
 export const JOURNAL_FIND_BY_SOURCE_SQL = `${JOURNAL_HEADER_SQL}
 WHERE j.source_type = $1 AND j.source_id = $2

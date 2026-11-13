@@ -45,6 +45,7 @@ import {
   JOURNAL_BY_ID_SQL,
   JOURNAL_INSERT_SQL,
   JOURNAL_LINES_SQL,
+  JOURNAL_SOURCE_EXISTS_SQL,
   JOURNAL_LINE_INSERT_SQL,
   JOURNAL_LOCK_BY_ID_SQL,
   JOURNAL_REVERSAL_EXISTS_SQL,
@@ -75,6 +76,7 @@ import {
   type SubledgerType,
 } from '../models/accounting.repo';
 import { COST_CENTERS_BY_IDS_SQL } from '../models/accountingMasters.repo';
+import { inventoryPostingDefinition } from './inventoryPostingRegistry';
 
 /** The pg pool or a checked-out transaction client. */
 export interface AccountingClient {
@@ -989,6 +991,20 @@ export async function postJournal(
     throw new ApiError(500, 'Could not allocate a journal number.');
   }
   const sourceType = text(input.sourceType, 30).toUpperCase() || 'MANUAL';
+  const sourceId = text(input.sourceId, 100) || null;
+  // An inventory document is one financial event. Refuse a replay before
+  // allocating a journal number, so a double-click or retried request cannot
+  // post the same stock movement twice. Other source families keep their
+  // existing lifecycle guards.
+  if (sourceId && inventoryPostingDefinition(sourceType)?.idempotent) {
+    const existing = await client.query(JOURNAL_SOURCE_EXISTS_SQL, [sourceType, sourceId]);
+    if (existing.rows[0]) {
+      throw new ApiError(
+        409,
+        `Source ${sourceType}/${sourceId} already has posted journal ${existing.rows[0].id}. The stock document is idempotent and cannot post twice.`
+      );
+    }
+  }
   const numberPrefix =
     sourceType === 'CASH_RECEIPT'
       ? 'RV'
@@ -1029,7 +1045,7 @@ export async function postJournal(
       periodId: period.id,
       branchId,
       sourceType,
-      sourceId: text(input.sourceId, 100) || null,
+      sourceId,
       voucherType,
       voucherClass: text(input.voucherClass, 50) || null,
       referenceNo: text(input.referenceNo, 100) || null,

@@ -2491,6 +2491,8 @@ VALUES
      'Review receivables and payables and explain material overdue balances.', TRUE, 30),
     ('glct-accrue-expenses', 'ACCRUE_EXPENSES', 'Accrue expenses',
      'Post known expenses that belong to the period but are not yet invoiced.', TRUE, 40),
+    ('glct-inventory-reconcile', 'INVENTORY_RECONCILE', 'Reconcile inventory valuation',
+     'Confirm the stock register valuation equals the INVENTORY control and explain every difference before close.', TRUE, 45),
     ('glct-lock-period', 'LOCK_PERIOD', 'Lock period',
      'Mark the period locked after the checklist is complete.', FALSE, 50)
 ON CONFLICT (code) DO NOTHING;

@@ -34,6 +34,7 @@ import {
   type JournalLineInput,
 } from './accounting.service';
 import { reverseSourceJournal } from './invoicePosting.service';
+import { assertInventoryPostingRegistered } from './inventoryPostingRegistry';
 
 const STOCK_ROLES = ['INVENTORY', 'STOCK_EXPENSE'] as const satisfies readonly PostingRole[];
 
@@ -109,6 +110,7 @@ export async function postStockValueJournal(
   client: AccountingClient,
   input: StockValueJournalInput
 ) {
+  assertInventoryPostingRegistered(input.sourceType);
   const valued = input.movements
     .filter((movement) => Number.isFinite(movement.quantity) && movement.quantity !== 0)
     .map((movement) => ({

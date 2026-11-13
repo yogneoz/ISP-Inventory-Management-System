@@ -380,6 +380,8 @@ export async function post_closePeriod(req: any, res: Response): Promise<any> {
   return res.json({
     ...closing.period,
     overridden: closing.overridden,
+    inventoryOverridden: closing.inventoryOverridden,
+    inventoryDifference: closing.inventoryDifference,
     incompleteRequired: closing.incompleteRequired,
   });
 }

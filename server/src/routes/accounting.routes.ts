@@ -129,6 +129,7 @@ import {
   post_walletReconciliationMatch,
   post_walletSettlement,
 } from '../controllers/walletSettlement.controller';
+import { get_inventoryReconciliation } from '../controllers/inventoryReconciliation.controller';
 
 export function registerAccountingRoutes(app: Express) {
   // Chart of accounts + posting defaults.
@@ -516,6 +517,10 @@ export function registerAccountingRoutes(app: Express) {
   });
   app.post('/api/accounting/wallet-reconciliation/lines/:id/match', requirePermission('gl-cash-close'), async (req, res, next) => {
     post_walletReconciliationMatch(req as any, res as any).catch(next);
+  });
+
+  app.get('/api/accounting/inventory-reconciliation', requirePermission('gl-view'), async (req, res, next) => {
+    get_inventoryReconciliation(req as any, res as any).catch(next);
   });
 
   app.get('/api/accounting/bank-reconciliation', requirePermission('gl-view'), async (req, res, next) => {

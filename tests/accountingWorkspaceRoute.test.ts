@@ -24,10 +24,12 @@ import type {
   ControlReconciliationResponse,
   ProfitAndLossResponse,
   StatementGroupLinesResponse,
+  SettlementAccount,
   StatementQuery,
   TrialBalanceAccountLinesResponse,
   TrialBalanceGroupLinesResponse,
   TrialBalanceResponse,
+  WalletReconciliationResponse,
 } from '../client/src/services/api/accounting';
 import { localTodayAD } from '../client/src/utils/localDate';
 import { clearRecentBootstrapCache } from '../client/src/utils/sessionCache';
@@ -728,6 +730,103 @@ const bankReconciliation: BankReconciliationResponse = {
   linesTruncated: false,
 };
 
+const walletAccount = {
+  accountId: 'a-wallet',
+  code: '1030',
+  name: 'eSewa Clearing',
+  providerCode: 'ESEWA' as const,
+  settlementAccountId: 'a-bank',
+  branchId: null,
+  branchCode: null,
+  isActive: true,
+};
+
+const walletReconciliation: WalletReconciliationResponse = {
+  from: '2026-11-01',
+  to: '2026-11-02',
+  accounts: [walletAccount],
+  account: walletAccount,
+  summary: {
+    ledgerOpening: 0,
+    ledgerReceipts: 1300,
+    ledgerSettlements: 1000,
+    ledgerClosing: 300,
+    grossReceipts: 1300,
+    receiptCount: 2,
+    settledGross: 1000,
+    settlementCount: 1,
+    fees: 10,
+    netBanked: 990,
+    unsettledGross: 300,
+    difference: 0,
+    reconciled: true,
+  },
+  pending: [
+    {
+      id: 'cp-wallet-1',
+      paymentNumber: 'CR-WALLET-1',
+      customerName: 'Sita Sharma',
+      paymentDateAD: '2026-11-02',
+      providerCode: 'ESEWA',
+      providerTransactionId: 'ESEWA-9911',
+      grossAmount: 300,
+      feeAmount: 3,
+      netAmount: 297,
+      settledGross: 0,
+      outstandingGross: 300,
+    },
+  ],
+  settlements: [
+    {
+      id: 'ps-1',
+      settlementNumber: 'PS-1',
+      customerPaymentId: 'cp-wallet-2',
+      paymentNumber: 'CR-WALLET-2',
+      customerName: 'Ramesh Thapa',
+      bankAccountId: 'a-bank',
+      bankAccountCode: '1020',
+      settlementDateAD: '2026-11-02',
+      grossAmount: 1000,
+      feeAmount: 10,
+      netAmount: 990,
+      providerReference: 'ESEWA-BATCH-1',
+      journalId: 'gj-ps-1',
+      status: 'POSTED',
+    },
+  ],
+  statement: {
+    lineCount: 1,
+    matchedCount: 0,
+    unmatchedCount: 1,
+    unmatchedAmount: 990,
+    movement: 990,
+  },
+  lines: [
+    {
+      id: 'psl-1',
+      statementDate: '2026-11-02',
+      statementDateBS: '2083-07-17 BS',
+      description: 'eSewa settlement deposit',
+      reference: 'ESEWA-BATCH-1',
+      amount: 990,
+      importBatchId: 'pssb-1',
+      importSource: 'CSV',
+      matchedSettlementId: null,
+      matchedAt: null,
+      matchedBy: null,
+      matchedSettlementNumber: null,
+      matchedSettlementNet: null,
+      suggestedSettlementId: 'ps-1',
+    },
+  ],
+  linesTruncated: false,
+};
+
+const settlementAccounts: SettlementAccount[] = [
+  { id: 'a-wallet', code: '1030', name: 'eSewa Clearing', accountKind: 'WALLET', postingRole: null, providerCode: 'ESEWA' },
+  { id: 'a-bank', code: '1020', name: 'Nabil Bank', accountKind: 'BANK', postingRole: 'BANK' },
+];
+
 const cashFlow: CashFlowResponse = {
   statement: 'CASH_FLOW',
   method: 'DIRECT',
@@ -1150,6 +1249,8 @@ function accountingStubs(overrides: Record<string, unknown> = {}) {
     getStatementGroupLines: async () => profitGroupLines,
     getCashBook: async () => cashBook,
     getBankReconciliation: async () => bankReconciliation,
+    getSettlementAccounts: async () => settlementAccounts,
+    getWalletReconciliation: async () => walletReconciliation,
     getAging: async () => agingAr,
     getControlReconciliation: async () => reconciliation,
     getAccountingBudgetVarianceUtilisation: async () => budgetUtilisation,
@@ -1445,6 +1546,45 @@ test('bank reconciliation view imports the company-wide workspace and exports un
     assert.match(text(tree.container), /STATEMENT CLOSING/);
     assert.ok(text(tree.container).includes('Export unmatched CSV'));
     assert.equal(calls[0].branchId, undefined, 'reconciliation must not send a branch filter');
+  } finally {
+    tree.unmount();
+    restoreApi();
+    restored.restoreEventSource();
+  }
+});
+
+test('provider reconciliation view renders clearing, pending receipts and statement matching', async () => {
+  const calls: any[] = [];
+  const restored = mountWorkspace(accountant, 'accounting-cash-book');
+  const restoreApi = installApiStubs(
+    accountingStubs({
+      getBootstrapState: async () => bootstrapWithTab('accounting-cash-book'),
+      getWalletReconciliation: async (query: any) => {
+        calls.push(query);
+        return walletReconciliation;
+      },
+    })
+  );
+  const tree = mountAppRouteTree();
+
+  try {
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes('Cash in Hand')),
+      'the cash book view must load before switching tabs'
+    );
+    inAct(() => buttonByText(tree.container, 'Provider reconciliation').click());
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes('Receipts awaiting settlement')),
+      'the provider reconciliation tab must load the settlement workspace'
+    );
+    assert.match(text(tree.container), /CLEARING BALANCE/);
+    assert.match(text(tree.container), /UNSETTLED GROSS/);
+    assert.match(text(tree.container), /Sita Sharma/);
+    assert.match(text(tree.container), /CR-WALLET-1/);
+    assert.match(text(tree.container), /PS-1/);
+    assert.match(text(tree.container), /eSewa settlement deposit/);
+    assert.ok(text(tree.container).includes('Match'), 'the suggested statement line must expose its match action');
+    assert.equal(calls[0].branchId, undefined, 'provider reconciliation must not send a branch filter');
   } finally {
     tree.unmount();
     restoreApi();
