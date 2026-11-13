@@ -404,9 +404,12 @@ This is the “inventory is part of Finance” slice.
       documents. `GET /api/accounting/inventory-reconciliation` is the report,
       and the period close now refuses a non-zero inventory difference unless
       an override reason is recorded.
-- [ ] Add a branch/cost-centre default from the employee or branch master. This
-      remains open with ACC-5 because the employee/branch boundary owns those
-      defaults; no current posting silently changes a user-selected centre.
+- [x] Add a branch/cost-centre default from the employee or branch master.
+      Closed by ACC-5: the branch master supplies `default_cost_center_id` and
+      the employee master supplies an optional override. Payroll resolves
+      explicit line → employee → branch; a manual voucher prefills an empty line
+      only. An explicit user-selected centre is never replaced, and an invalid
+      centre is refused rather than silently defaulted.
 
 Acceptance: every inventory operation that changes value has a posted journal
 in the same transaction, a reversal path, and a reconciliation report. The
@@ -419,20 +422,49 @@ a non-zero difference (R5).
 
 Priority: P1 · Depends on: ACC-4
 
-- [ ] Document and enforce the boundary:
+- [x] Document and enforce the boundary:
       HR owns employee identity, branch assignment and employment status;
       auth/RBAC owns permissions; accounting owns posting roles and control
-      accounts.
-- [ ] Add branch assignment to custody accounts and employee defaults.
-- [ ] Use employee/branch master data for default cost centre and branch, not a
-      hard-coded branch.
-- [ ] Add segregation-of-duties checks for inventory adjustments, payments and
-      period close where the permission model already supports them.
-- [ ] Add tests proving an HR change cannot grant a permission and a permission
-      change cannot rewrite an employee’s ledger.
+      accounts. The contract and its enforcement points are in
+      `docs/organisation-boundary.md`; the HTTP suite refuses an HR write from a
+      caller without the HR grant and refuses a permission change from rewriting
+      the posted ledger.
+- [x] Add branch assignment to custody accounts and employee defaults.
+      Custody ownership was added in ACC-2 (`gl_accounts.branch_id`, `NULL` =
+      shared, validated on posting); ACC-5 adds the branch default
+      (`branches.default_cost_center_id`) and employee default
+      (`employees.default_cost_center_id`) with active/in-branch validation.
+- [x] Use employee/branch master data for default cost centre and branch, not a
+      hard-coded branch. Payroll takes the branch from the payroll run and each
+      salary-expense line resolves explicit → employee → branch; the employee
+      branch must still match the run branch. Manual voucher lines expose a
+      cost centre and prefill only when the line is still empty.
+- [x] Add segregation-of-duties checks for inventory adjustments, payments and
+      period close where the permission model already supports them. The model
+      has separate permission gates for these operations (and for HR identity),
+      not a preparer/approver field; `tests/acc5OrganisationBoundary.api.test.ts`
+      proves the finance-only permission cannot write HR identity, while the HR
+      grant cannot post journals or close a period.
+- [x] Add tests proving an HR change cannot grant a permission and a permission
+      change cannot rewrite an employee’s ledger. The suite creates an employee
+      login as HR, refuses the HR caller a finance permission grant, refuses a
+      branch manager without the HR grant the employee write, and reads the
+      posted payroll journal before and after a role/permission change to prove
+      the ledger is byte-for-byte unchanged.
 
 Acceptance: an employee’s branch and cost-centre defaults flow into postings;
 permissions remain an auth concern; no HR write path can alter posted journals.
+
+Evidence: `tests/acc5OrganisationBoundary.api.test.ts` (3/3, real HTTP +
+PostgreSQL) covers the two-branch/two-centre payroll split, explicit line
+override, invalid-centre 400, employee-master persistence, branch transfer
+clearing a stale default, HR login creation, HR permission-grant refusal,
+employee-write refusal, close/payment refusal without the gate, and an unchanged
+posted journal after a permission change. `tests/acc5OrganisationDefaults.ui.test.ts`
+and `tests/hrEmployeeProfile.ui.test.ts` mount the branch and employee default
+selectors, prove branch filtering, and capture the saved payloads. Migration
+`scripts/migrations/0013_organisation_defaults.sql`; full-suite and
+fresh-install counts are recorded in SESSION_NOTES.
 
 ### ACC-6 — Chart governance and reporting
 
@@ -559,6 +591,18 @@ Before a slice is marked done:
       drives purchase, sale, stock correction, replay refusal and close-override
       through real HTTP; the existing stock/invoice suites cover each posting
       and reversal. Full suite and fresh-install evidence are in SESSION_NOTES.
-- `[~]` ACC-4 leaves the branch/cost-centre default for ACC-5, where employee
-      and branch master data are connected. ACC-5 is the next slice.
-- Next action: start ACC-5 (organisation, HR and permissions boundary).
+- `[x]` ACC-4's deferred branch/cost-centre default is closed by ACC-5. The
+      branch and employee masters now supply defaults, payroll splits salary
+      expense by resolved centre, and an explicit line centre is preserved.
+- `[x]` ACC-5 implementation: migration `0013_organisation_defaults`, branch and
+      employee default cost centres, payroll/line resolution, manual-voucher
+      per-line centre with defaulting, and the boundary contract in
+      `docs/organisation-boundary.md`.
+- `[x]` ACC-5 verified against PostgreSQL: `tests/acc5OrganisationBoundary.api.test.ts`
+      (3/3) plus the mounted branch/employee UI tests; the existing permission,
+      payroll, inventory and ledger-immutability suites remain green.
+- No ACC-5 acceptance criterion remains open. A dedicated preparer/approver
+  workflow for adjustments, payments and close is intentionally not claimed:
+  the current model separates those duties with distinct permission grants, and
+  ACC-5 verifies those gates rather than inventing an approval field.
+- Next action: start ACC-6 (chart governance and reporting).
