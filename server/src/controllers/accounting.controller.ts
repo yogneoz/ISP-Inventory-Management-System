@@ -14,9 +14,11 @@ import { getPgConnected, pgPool } from '../app';
 import { withTransaction } from '../db/transactions';
 import { logAuditEvent } from '../services/audit.service';
 import { getUserFromReq } from '../middleware/auth';
+import { allowedBranchScope } from '../middleware/branchScope';
 import { ApiError } from '../errors/ApiError';
 import { roundMoney } from '../utils/money';
 import {
+  ACCOUNT_BY_ID_SQL,
   ACCOUNT_GROUP_LIST_SQL,
   ACCOUNT_LIST_SQL,
   FISCAL_YEAR_BALANCES_LIST_SQL,
@@ -205,7 +207,9 @@ export async function search_accounts(req: any, res: Response): Promise<any> {
   if (!query) return res.json([]);
   const rawKind = String(req.query?.kind || '').toUpperCase();
   const kind =
-    rawKind === 'CASH_BANK' || rawKind === 'CASH' || rawKind === 'BANK' ? rawKind : null;
+    rawKind === 'CASH_BANK' || rawKind === 'CASH' || rawKind === 'BANK' || rawKind === 'WALLET'
+      ? rawKind
+      : null;
   const { sql, params } = buildAccountSearchQuery({
     query,
     kind,
@@ -225,6 +229,11 @@ export async function get_settlementAccounts(_req: any, res: Response): Promise<
 
 /** POST /api/accounting/accounts */
 export async function post_account(req: any, res: Response): Promise<any> {
+  const requestedOwner = typeof req.body?.branchId === 'string' ? req.body.branchId.trim() : '';
+  const allowed = allowedBranchScope(req.user || getUserFromReq(req));
+  if (requestedOwner && allowed && !allowed.has(requestedOwner)) {
+    return res.status(403).json({ message: 'Forbidden: this ledger cannot belong to another branch.' });
+  }
   const account = await inTransaction(async (client) => {
     const created = await createAccount(client, req.body || {});
     await logAuditEvent(
@@ -247,6 +256,15 @@ export async function post_account(req: any, res: Response): Promise<any> {
 export async function patch_account(req: any, res: Response): Promise<any> {
   const accountId = String(req.params?.id || '').trim();
   if (!accountId) throw new ApiError(400, 'An account id is required.');
+  const existing = (await pgPool.query(ACCOUNT_BY_ID_SQL, [accountId])).rows[0];
+  if (!existing) throw new ApiError(404, 'Account not found.');
+  const allowed = allowedBranchScope(req.user || getUserFromReq(req));
+  const requestedOwner = typeof req.body?.branchId === 'string' ? req.body.branchId.trim() : '';
+  for (const owner of [existing.branchId, requestedOwner].filter(Boolean)) {
+    if (allowed && !allowed.has(owner)) {
+      return res.status(403).json({ message: 'Forbidden: this ledger belongs to another branch.' });
+    }
+  }
   const account = await inTransaction(async (client) => {
     const updated = await updateAccount(client, accountId, req.body || {});
     await logAuditEvent(
@@ -822,13 +840,36 @@ export async function get_aging(req: any, res: Response): Promise<any> {
 }
 
 /**
- * GET /api/accounting/cash-book — the branch's cash/bank book for a window,
- * built from the same posted journal lines as the statements.
+ * GET /api/accounting/cash-book?kind=CASH|BANK|WALLET — the branch's custody
+ * ledger book for a window, built from the same posted journal lines as the
+ * statements. Omitted kind keeps the legacy combined cash+bank view.
  */
 export async function get_cashBook(req: any, res: Response): Promise<any> {
   const window = await statementWindow(req, res, 'TRIAL_BALANCE');
   if (!window) return;
-  return res.json(await buildCashBook(pgPool, window));
+  const rawKind = String(req.query?.kind || '').toUpperCase();
+  if (rawKind && !['CASH', 'BANK', 'WALLET', 'CASH_BANK'].includes(rawKind)) {
+    throw new ApiError(400, 'Cash-book kind must be CASH, BANK, WALLET or CASH_BANK.');
+  }
+  const accountId = typeof req.query?.accountId === 'string' ? req.query.accountId.trim() : null;
+  return res.json(
+    await buildCashBook(pgPool, window, {
+      kind: (rawKind || undefined) as 'CASH' | 'BANK' | 'WALLET' | 'CASH_BANK' | undefined,
+      accountId: accountId || null,
+    })
+  );
+}
+
+/**
+ * GET /api/accounting/bank-position — every BANK ledger's company balance with
+ * the selected branch's movement shown separately. This is the bank read the
+ * daily cash close deliberately no longer contains.
+ */
+export async function get_bankPosition(req: any, res: Response): Promise<any> {
+  const window = await statementWindow(req, res, 'TRIAL_BALANCE');
+  if (!window) return;
+  const accountId = typeof req.query?.accountId === 'string' ? req.query.accountId.trim() : null;
+  return res.json(await buildCashBook(pgPool, window, { kind: 'BANK', accountId: accountId || null }));
 }
 
 /** GET /api/accounting/reconciliations?accountId=… */

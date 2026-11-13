@@ -1570,9 +1570,15 @@ CREATE TABLE IF NOT EXISTS gl_accounts (
         'GAIN_ON_DISPOSAL', 'LOSS_ON_DISPOSAL',
         'SALARY_EXPENSE', 'TDS_PAYABLE', 'SSF_PAYABLE', 'EMPLOYEE_ADVANCE', 'EMPLOYEE_LOAN'
     )),
-    -- CASH/BANK classify every till and bank ledger, including the extra ones
-    -- that deliberately have no posting role. OTHER is every non-cash ledger.
-    account_kind VARCHAR(10) NOT NULL DEFAULT 'OTHER' CHECK (account_kind IN ('CASH', 'BANK', 'OTHER')),
+    -- CASH/BANK/WALLET classify every custody ledger, including the extra ones
+    -- that deliberately have no posting role. OTHER is every non-custody ledger.
+    account_kind VARCHAR(10) NOT NULL DEFAULT 'OTHER' CHECK (account_kind IN ('CASH', 'BANK', 'WALLET', 'OTHER')),
+    -- A custody ledger belongs to one branch when branch_id is set; NULL means
+    -- the account is shared and every branch may post to it.
+    branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE RESTRICT,
+    provider_code VARCHAR(30) CHECK (provider_code IS NULL OR provider_code IN ('ESEWA', 'KHALTI', 'NEPAL_PAY')),
+    merchant_id VARCHAR(100),
+    settlement_account_id VARCHAR(50) REFERENCES gl_accounts(id) ON DELETE SET NULL,
     bank_name VARCHAR(150),
     bank_branch VARCHAR(150),
     account_number VARCHAR(100),
@@ -1614,7 +1620,15 @@ ALTER TABLE gl_accounts ADD COLUMN IF NOT EXISTS account_kind VARCHAR(10) NOT NU
 CREATE INDEX IF NOT EXISTS idx_gl_accounts_kind ON gl_accounts(account_kind);
 ALTER TABLE gl_accounts DROP CONSTRAINT IF EXISTS gl_accounts_account_kind_check;
 ALTER TABLE gl_accounts ADD CONSTRAINT gl_accounts_account_kind_check
-    CHECK (account_kind IN ('CASH', 'BANK', 'OTHER'));
+    CHECK (account_kind IN ('CASH', 'BANK', 'WALLET', 'OTHER'));
+ALTER TABLE gl_accounts ADD COLUMN IF NOT EXISTS branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE RESTRICT;
+ALTER TABLE gl_accounts ADD COLUMN IF NOT EXISTS provider_code VARCHAR(30);
+ALTER TABLE gl_accounts DROP CONSTRAINT IF EXISTS gl_accounts_provider_code_check;
+ALTER TABLE gl_accounts ADD CONSTRAINT gl_accounts_provider_code_check
+    CHECK (provider_code IS NULL OR provider_code IN ('ESEWA', 'KHALTI', 'NEPAL_PAY'));
+ALTER TABLE gl_accounts ADD COLUMN IF NOT EXISTS merchant_id VARCHAR(100);
+ALTER TABLE gl_accounts ADD COLUMN IF NOT EXISTS settlement_account_id VARCHAR(50) REFERENCES gl_accounts(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_gl_accounts_branch ON gl_accounts(branch_id);
 ALTER TABLE gl_accounts ADD COLUMN IF NOT EXISTS bank_name VARCHAR(150);
 ALTER TABLE gl_accounts ADD COLUMN IF NOT EXISTS bank_branch VARCHAR(150);
 ALTER TABLE gl_accounts ADD COLUMN IF NOT EXISTS account_number VARCHAR(100);

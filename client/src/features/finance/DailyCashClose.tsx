@@ -3,9 +3,10 @@
  * counted close/reopen actions.
  *
  * Every figure comes from the server's daily-cash endpoint, which derives it
- * from posted cash/bank journal lines (the same rows the cash book and balance
- * sheet read). The screen never re-sums a payment document, so its closing
- * figure cannot quietly disagree with the ledger.
+ * from posted CASH journal lines only (the same rows the cash book reads). Bank
+ * and wallet custody are company balances read from their own books, not
+ * physical till counts. The screen never re-sums a payment document, so its
+ * closing figure cannot quietly disagree with the ledger.
  *
  * A global account sees every branch and the company total; a branch account
  * sees only its assigned branches, matching the server's branch scope. Close
@@ -244,7 +245,7 @@ export const DailyCashClose: React.FC<DailyCashCloseProps> = ({
     <div className="space-y-5">
       <PageHeader
         title="Daily Cash Close"
-        description="Cash in, cash out and closing cash per branch for one business day, plus the counted close and its variance. Figures are posted journal lines, not payment documents."
+        description="Cash in, cash out and closing cash per branch for one business day, plus the counted close and its variance. Only posted branch CASH lines are counted; bank and wallet balances are read separately."
         icon={<Wallet className="h-5 w-5 text-indigo-500" />}
         actions={
           <button
@@ -304,7 +305,7 @@ export const DailyCashClose: React.FC<DailyCashCloseProps> = ({
               ? 'Company roll-up of every branch this account may see'
               : selectedBranch?.name || branchId}{' '}
             on <span className="font-semibold text-slate-700 dark:text-slate-200">{formatDualDate(dateAD, dateMode)}</span>.
-            Closing cash ties to the cash book and balance sheet.
+            Closing cash ties to the branch cash book. Bank and wallet balances are not part of this till count.
           </p>
         </div>
       </div>
@@ -339,13 +340,13 @@ export const DailyCashClose: React.FC<DailyCashCloseProps> = ({
               label="CASH IN"
               value={money(totals.cashIn)}
               tone="emerald"
-              hint="Debits to cash and bank on the day"
+              hint="Debits to branch cash on the day"
             />
             <StatCard
               label="CASH OUT"
               value={money(totals.cashOut)}
               tone="rose"
-              hint="Credits to cash and bank on the day"
+              hint="Credits to branch cash on the day"
             />
             <StatCard
               label={branchId === 'ALL' ? 'COMPANY CLOSING CASH' : 'EXPECTED CLOSING'}

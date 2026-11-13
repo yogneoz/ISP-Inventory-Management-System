@@ -17,6 +17,7 @@ import {
   get_cashFlowForecast,
   get_cashFlowForecastExport,
   get_cashBook,
+  get_bankPosition,
   get_fiscalYearBalances,
   get_journal,
   get_journals,
@@ -469,6 +470,11 @@ export function registerAccountingRoutes(app: Express) {
   // the movement detail, from the same posted lines as the balance sheet.
   app.get('/api/accounting/cash-book', requirePermission('gl-view'), async (req, res, next) => {
     get_cashBook(req as any, res as any).catch(next);
+  });
+  // Bank custody read: company balance per bank account plus the selected
+  // branch's movement. Separate from the cash book and the daily cash close.
+  app.get('/api/accounting/bank-position', requirePermission('gl-view'), async (req, res, next) => {
+    get_bankPosition(req as any, res as any).catch(next);
   });
 
   // Daily cash close: today's branch position, the company roll-up, and the

@@ -37,6 +37,9 @@ export interface DefaultChartAccount {
   isControl: boolean;
   subledgerType: SubledgerType;
   postingRole: PostingRole | null;
+  /** Defaults from the posting role for legacy rows; WALLET names it explicitly. */
+  accountKind?: 'CASH' | 'BANK' | 'WALLET' | 'OTHER';
+  providerCode?: 'ESEWA' | 'KHALTI' | 'NEPAL_PAY';
 }
 
 export const DEFAULT_CHART_GROUPS: readonly DefaultChartGroup[] = [
@@ -142,6 +145,39 @@ export const DEFAULT_CHART_ACCOUNTS: readonly DefaultChartAccount[] = [
     isControl: false,
     subledgerType: 'NONE',
     postingRole: 'BANK',
+  },
+  {
+    code: '1030',
+    name: 'eSewa Clearing',
+    groupCode: '1000',
+    description: 'Gross eSewa wallet receipts awaiting settlement; reconciled to the provider statement.',
+    isControl: false,
+    subledgerType: 'NONE',
+    postingRole: null,
+    accountKind: 'WALLET',
+    providerCode: 'ESEWA',
+  },
+  {
+    code: '1040',
+    name: 'Khalti Clearing',
+    groupCode: '1000',
+    description: 'Gross Khalti wallet receipts awaiting settlement; reconciled to the provider statement.',
+    isControl: false,
+    subledgerType: 'NONE',
+    postingRole: null,
+    accountKind: 'WALLET',
+    providerCode: 'KHALTI',
+  },
+  {
+    code: '1050',
+    name: 'Nepal Pay Clearing',
+    groupCode: '1000',
+    description: 'Gross Nepal Pay wallet receipts awaiting settlement; reconciled to the provider statement.',
+    isControl: false,
+    subledgerType: 'NONE',
+    postingRole: null,
+    accountKind: 'WALLET',
+    providerCode: 'NEPAL_PAY',
   },
   {
     code: '1100',

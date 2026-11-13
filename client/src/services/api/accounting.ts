@@ -10,7 +10,7 @@ import { fetchJson } from './http';
 import type { BillTerm, CostCenter, NarrationTemplate, NarrationTransactionType } from '../../types';
 
 export type AccountType = 'ASSET' | 'LIABILITY' | 'EQUITY' | 'INCOME' | 'EXPENSE';
-export type AccountKind = 'CASH' | 'BANK' | 'OTHER';
+export type AccountKind = 'CASH' | 'BANK' | 'WALLET' | 'OTHER';
 
 export interface AccountingGroup {
   id: string;
@@ -37,8 +37,13 @@ export interface AccountingAccount {
   isControl: boolean;
   subledgerType: string;
   postingRole: string | null;
-  /** Classifies every till and bank ledger, including extras without a role. */
+  /** Classifies every till, bank and wallet clearing ledger. */
   accountKind?: AccountKind;
+  /** Owner branch; null/undefined means the custody ledger is shared. */
+  branchId?: string | null;
+  providerCode?: string | null;
+  merchantId?: string | null;
+  settlementAccountId?: string | null;
   bankName?: string | null;
   bankBranch?: string | null;
   accountNumber?: string | null;
@@ -87,6 +92,10 @@ export interface StatementQuery {
   to?: string;
   /** Optional period start for the flow statements. */
   from?: string;
+  /** Cash-book custody filter; other statement reads ignore it. */
+  kind?: 'CASH' | 'BANK' | 'WALLET' | 'CASH_BANK';
+  /** Narrow a cash/bank/wallet book to one custody account. */
+  accountId?: string;
 }
 
 export interface StatementAccountAmount {
@@ -594,6 +603,8 @@ export interface CashBookEntry {
   sourceType: string;
   sourceId: string | null;
   branchId: string;
+  branchCode?: string | null;
+  branchName?: string | null;
   memo: string | null;
   debit: number;
   credit: number;
@@ -605,8 +616,15 @@ export interface CashBookAccount {
   accountId: string;
   code: string;
   name: string;
-  accountKind?: 'CASH' | 'BANK';
+  accountKind?: 'CASH' | 'BANK' | 'WALLET';
   postingRole: string | null;
+  branchId?: string | null;
+  branchCode?: string | null;
+  branchName?: string | null;
+  isShared?: boolean;
+  providerCode?: string | null;
+  merchantId?: string | null;
+  settlementAccountId?: string | null;
   bankName?: string | null;
   bankBranch?: string | null;
   accountNumber?: string | null;
@@ -617,11 +635,14 @@ export interface CashBookAccount {
   receipts: number;
   payments: number;
   closing: number;
+  branchReceipts: number;
+  branchPayments: number;
+  branchMovement: number;
   entries: CashBookEntry[];
 }
 
 export interface CashBookResponse {
-  book: 'CASH_BANK';
+  book: 'CASH' | 'BANK' | 'WALLET' | 'CASH_BANK';
   branchId: string | null;
   from: string | null;
   to: string;
@@ -630,6 +651,9 @@ export interface CashBookResponse {
   receipts: number;
   payments: number;
   closing: number;
+  branchReceipts: number;
+  branchPayments: number;
+  branchMovement: number;
 }
 
 export interface BankReconciliationAccount {
@@ -884,6 +908,8 @@ function statementQuery(query: StatementQuery = {}): string {
   if (query.branchId && query.branchId !== 'ALL') params.set('branchId', query.branchId);
   if (query.to) params.set('to', query.to);
   if (query.from) params.set('from', query.from);
+  if (query.kind) params.set('kind', query.kind);
+  if (query.accountId) params.set('accountId', query.accountId);
   const encoded = params.toString();
   return encoded ? `?${encoded}` : '';
 }
@@ -915,6 +941,10 @@ export interface AccountingAccountInput {
   subledgerType?: string;
   postingRole?: string | null;
   accountKind?: AccountKind;
+  branchId?: string | null;
+  providerCode?: string | null;
+  merchantId?: string | null;
+  settlementAccountId?: string | null;
   bankName?: string | null;
   bankBranch?: string | null;
   accountNumber?: string | null;
@@ -933,6 +963,10 @@ export interface AccountingAccountPatch {
   groupId?: string;
   postingRole?: string | null;
   accountKind?: AccountKind;
+  branchId?: string | null;
+  providerCode?: string | null;
+  merchantId?: string | null;
+  settlementAccountId?: string | null;
   bankName?: string | null;
   bankBranch?: string | null;
   accountNumber?: string | null;
@@ -994,7 +1028,7 @@ export async function getAccountingAccounts(includeInactive = false): Promise<Ac
  */
 export async function searchAccountingAccounts(
   query: string,
-  options: { kind?: 'CASH' | 'BANK' | 'CASH_BANK'; limit?: number } = {}
+  options: { kind?: 'CASH' | 'BANK' | 'WALLET' | 'CASH_BANK'; limit?: number } = {}
 ): Promise<AccountingAccount[]> {
   const params = new URLSearchParams({ q: query.trim() });
   if (options.kind) params.set('kind', options.kind);
@@ -1836,6 +1870,10 @@ export async function getTrialBalanceAccountLines(
 
 export async function getCashBook(query: StatementQuery = {}): Promise<CashBookResponse> {
   return fetchJson(`/api/accounting/cash-book${statementQuery(query)}`);
+}
+
+export async function getBankPosition(query: StatementQuery = {}): Promise<CashBookResponse> {
+  return fetchJson(`/api/accounting/bank-position${statementQuery(query)}`);
 }
 
 function bankReconciliationQueryString(query: BankReconciliationQuery = {}): string {

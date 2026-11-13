@@ -2,10 +2,10 @@
  * Daily cash close — every SQL string for the branch cash position and its
  * close record.
  *
- * The figures are derived from POSTED `gl_journal_lines` on accounts carrying
- * the CASH or BANK posting default, exactly like the cash/bank book and the
- * balance sheet. No payment document is re-summed here, so the close cannot
- * disagree with the ledger it is closing.
+ * The figures are derived from POSTED `gl_journal_lines` on accounts classified
+ * CASH only. Bank and wallet custody have their own reads; a physical till
+ * count must not be compared with a bank balance. No payment document is
+ * re-summed here, so the close cannot disagree with the ledger it is closing.
  *
  * Opening is the signed net (debit − credit) before the business day; cash-in
  * and cash-out are that day's gross debits and credits; expected closing is
@@ -55,7 +55,7 @@ export const CASH_BRANCH_FIGURES_SQL = `WITH scoped AS (
   JOIN gl_journals j ON j.id = l.journal_id
   JOIN gl_accounts a ON a.id = l.account_id
   WHERE j.status = 'POSTED'
-    AND a.account_kind IN ('CASH', 'BANK')
+    AND a.account_kind = 'CASH'
     AND j.journal_date_ad <= $1::date
     AND ($2::varchar[] IS NULL OR l.branch_id = ANY($2::varchar[]))
 )

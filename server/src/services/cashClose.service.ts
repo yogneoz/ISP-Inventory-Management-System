@@ -1,12 +1,12 @@
 /**
  * Daily cash close — the branch's cash position for one business day, built
- * from posted cash/bank journal lines, plus the counted close record.
+ * from posted CASH journal lines only, plus the counted close record.
  *
  * The figures deliberately come from the ledger, never from customer_payments
  * or vendor_payments: those documents already posted their journal, and the
- * journal is the single source the cash book and balance sheet also read. The
- * expected closing is therefore the cash book's closing and the balance
- * sheet's cash-and-bank total for the same branch and date.
+ * journal is the single source the cash book also reads. The expected closing
+ * is therefore the cash book's closing, not the balance sheet's combined
+ * cash+bank+wallet total.
  *
  * A close stores a snapshot; a later back-posted journal can move the live
  * figure after the count. The read exposes `stale` in that case rather than

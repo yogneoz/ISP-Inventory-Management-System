@@ -145,7 +145,66 @@ function accountKind(
       `A ${kind} ledger can only hold the ${kind} posting role; ${postingRole} belongs to a different ledger.`
     );
   }
+  if (kind === 'WALLET' && postingRole) {
+    throw new ApiError(400, 'A wallet clearing ledger cannot hold a posting role; settle through its bank account.');
+  }
   return kind;
+}
+
+const PROVIDER_CODES = new Set(['ESEWA', 'KHALTI', 'NEPAL_PAY']);
+
+/**
+ * Custody ownership and PSP metadata. A ledger can name one branch owner; NULL
+ * is a shared/company ledger. Wallet clearing ledgers must name the provider
+ * they represent, and may name the bank account that receives settlements.
+ */
+async function custodyMetadata(
+  client: AccountingClient,
+  input: Record<string, unknown>,
+  kind: AccountKind,
+  existing?: Record<string, any>
+) {
+  const has = (field: string) => Object.prototype.hasOwnProperty.call(input, field);
+  let branchId = has('branchId') ? text(input.branchId, 50) || null : existing?.branchId || null;
+  if (branchId) {
+    if (!(await client.query(BRANCH_EXISTS_SQL, [branchId])).rows[0]) {
+      throw new ApiError(400, `Branch ${branchId} does not exist.`);
+    }
+  }
+  if (kind === 'OTHER') branchId = branchId || null;
+
+  let providerCode = has('providerCode')
+    ? text(input.providerCode, 30).toUpperCase() || null
+    : existing?.providerCode || null;
+  let merchantId = has('merchantId')
+    ? text(input.merchantId, 100) || null
+    : existing?.merchantId || null;
+  let settlementAccountId = has('settlementAccountId')
+    ? text(input.settlementAccountId, 50) || null
+    : existing?.settlementAccountId || null;
+
+  if (kind !== 'WALLET') {
+    if (providerCode || merchantId || settlementAccountId) {
+      throw new ApiError(400, 'Provider and settlement details are only allowed on a WALLET ledger.');
+    }
+    return { branchId, providerCode: null, merchantId: null, settlementAccountId: null };
+  }
+
+  if (!providerCode) {
+    throw new ApiError(400, 'A WALLET ledger must name its provider (ESEWA, KHALTI or NEPAL_PAY).');
+  }
+  if (!PROVIDER_CODES.has(providerCode)) {
+    throw new ApiError(400, 'Provider must be one of: ESEWA, KHALTI, NEPAL_PAY.');
+  }
+  if (settlementAccountId) {
+    const settlement = (await client.query(ACCOUNT_BY_ID_SQL, [settlementAccountId])).rows[0];
+    if (!settlement) throw new ApiError(400, 'The settlement account does not exist.');
+    if (settlement.accountKind !== 'BANK') {
+      throw new ApiError(400, 'A wallet settlement account must be a BANK ledger.');
+    }
+    if (!settlement.isActive) throw new ApiError(400, 'The wallet settlement account is inactive.');
+  }
+  return { branchId, providerCode, merchantId, settlementAccountId };
 }
 
 function bankMetadata(
@@ -549,6 +608,10 @@ export async function createAccount(
     subledgerType?: unknown;
     postingRole?: unknown;
     accountKind?: unknown;
+    branchId?: unknown;
+    providerCode?: unknown;
+    merchantId?: unknown;
+    settlementAccountId?: unknown;
     bankName?: unknown;
     bankBranch?: unknown;
     accountNumber?: unknown;
@@ -587,6 +650,7 @@ export async function createAccount(
     postingRole === 'CASH' ? 'CASH' : postingRole === 'BANK' ? 'BANK' : 'OTHER'
   );
   const bank = bankMetadata(input as Record<string, unknown>, kind);
+  const custody = await custodyMetadata(client, input as Record<string, unknown>, kind);
   if ((await client.query(ACCOUNT_BY_CODE_SQL, [code])).rows[0]) {
     throw new ApiError(409, `Account code ${code} already exists.`);
   }
@@ -608,6 +672,7 @@ export async function createAccount(
       subledgerType,
       postingRole,
       accountKind: kind,
+      ...custody,
       ...bank,
       masterProfile: readMasterProfile(input.masterProfile) || {},
       isDemo: input.isDemo,
@@ -632,6 +697,10 @@ export async function updateAccount(
     postingRole?: unknown;
     isActive?: unknown;
     accountKind?: unknown;
+    branchId?: unknown;
+    providerCode?: unknown;
+    merchantId?: unknown;
+    settlementAccountId?: unknown;
     bankName?: unknown;
     bankBranch?: unknown;
     accountNumber?: unknown;
@@ -666,7 +735,7 @@ export async function updateAccount(
   if (input.isActive === false) postingRole = null;
 
   const existingKind: AccountKind =
-    existing.accountKind === 'CASH' || existing.accountKind === 'BANK'
+    existing.accountKind === 'CASH' || existing.accountKind === 'BANK' || existing.accountKind === 'WALLET'
       ? existing.accountKind
       : existing.postingRole === 'CASH'
         ? 'CASH'
@@ -675,6 +744,7 @@ export async function updateAccount(
           : 'OTHER';
   const kind = accountKind(input.accountKind, postingRole, existingKind);
   const bank = bankMetadata(input as Record<string, unknown>, kind, existing);
+  const custody = await custodyMetadata(client, input as Record<string, unknown>, kind, existing);
 
   const name = Object.prototype.hasOwnProperty.call(input, 'name') ? text(input.name, 150) : undefined;
   if (name !== undefined && !name) throw new ApiError(400, 'Account name cannot be empty.');
@@ -713,6 +783,10 @@ export async function updateAccount(
     isActive === undefined ? null : isActive,
     groupId,
     kind,
+    custody.branchId,
+    custody.providerCode,
+    custody.merchantId,
+    custody.settlementAccountId,
     bank.bankName,
     bank.bankBranch,
     bank.accountNumber,
@@ -833,6 +907,12 @@ export async function postJournal(
     const account = accountsById.get(accountId);
     if (!account) throw new ApiError(400, `Line ${lineNo}: account not found.`);
     if (!account.isActive) throw new ApiError(400, `Line ${lineNo}: account ${account.code} is inactive.`);
+    if (account.branchId && account.branchId !== branchId) {
+      throw new ApiError(
+        400,
+        `Line ${lineNo}: ledger ${account.code} belongs to branch ${account.branchId}, not ${branchId}.`
+      );
+    }
     const debit = amount(raw?.debit, `Line ${lineNo} debit`);
     const credit = amount(raw?.credit, `Line ${lineNo} credit`);
     if ((debit > 0) === (credit > 0)) {

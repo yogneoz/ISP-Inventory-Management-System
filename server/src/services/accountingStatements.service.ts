@@ -75,7 +75,7 @@ export interface AccountBalanceRow {
   isActive: boolean;
   subledgerType: string;
   postingRole: string | null;
-  accountKind: 'CASH' | 'BANK' | 'OTHER';
+  accountKind: 'CASH' | 'BANK' | 'WALLET' | 'OTHER';
   groupId: string;
   parentGroupId: string | null;
   groupCode: string;
@@ -462,7 +462,10 @@ async function loadAccountBalances(
     isActive: row.isActive === true,
     subledgerType: String(row.subledgerType || 'NONE'),
     postingRole: row.postingRole ? String(row.postingRole) : null,
-    accountKind: row.accountKind === 'CASH' || row.accountKind === 'BANK' ? row.accountKind : 'OTHER',
+    accountKind:
+      row.accountKind === 'CASH' || row.accountKind === 'BANK' || row.accountKind === 'WALLET'
+        ? row.accountKind
+        : 'OTHER',
     groupId: String(row.groupId),
     parentGroupId: row.parentGroupId ? String(row.parentGroupId) : null,
     groupCode: String(row.groupCode),
@@ -948,7 +951,7 @@ export async function buildBalanceSheet(client: AccountingClient, window: Statem
   // branch and date, so it is computed from the same posted rows and roles.
   const cashAndBank = roundMoney(
     rows
-      .filter((row) => row.accountKind === 'CASH' || row.accountKind === 'BANK')
+      .filter((row) => row.accountKind === 'CASH' || row.accountKind === 'BANK' || row.accountKind === 'WALLET')
       .reduce((total, row) => total + amountOf(row), 0)
   );
   const totalLiabilities = sectionTotal(liabilitySections);
@@ -1052,7 +1055,14 @@ export async function buildCashFlow(
   if (window.empty) return emptyCashFlow(window);
 
   const [accountRows, journalRows] = await Promise.all([
-    client.query(CASH_BANK_ACCOUNT_ROWS_SQL, [window.from, window.to, window.branchId]),
+    client.query(CASH_BANK_ACCOUNT_ROWS_SQL, [
+      window.from,
+      window.to,
+      window.branchId,
+      ['CASH', 'BANK', 'WALLET'],
+      false,
+      null,
+    ]),
     client.query(CASH_FLOW_JOURNAL_ROWS_SQL, [window.from, window.to, window.branchId]),
   ]);
 
@@ -1076,7 +1086,7 @@ export async function buildCashFlow(
     const bucket = byJournal.get(journalId) ?? { cashNet: 0, counterparts: [] };
     const debit = money(row.debit);
     const credit = money(row.credit);
-    if (row.accountKind === 'CASH' || row.accountKind === 'BANK') {
+    if (row.accountKind === 'CASH' || row.accountKind === 'BANK' || row.accountKind === 'WALLET') {
       bucket.cashNet = roundMoney(bucket.cashNet + debit - credit);
     } else {
       bucket.counterparts.push(row);

@@ -3468,7 +3468,7 @@ export default function App() {
     )),
     screenRoute('general-ledger', (
       <React.Suspense fallback={<TabLoadingFallback />}>
-        <GeneralLedgerMaster currentUser={currentUser} />
+        <GeneralLedgerMaster currentUser={currentUser} branches={branches} />
       </React.Suspense>
     )),
     screenRoute('subledgers', (

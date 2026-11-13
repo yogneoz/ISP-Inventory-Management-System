@@ -1,15 +1,18 @@
 /**
- * Cash/bank book read side.
+ * Cash, bank and wallet book read side (ACC-2).
  *
- * The book is derived only from POSTED journal lines on accounts that carry the
- * CASH or BANK posting default. It deliberately does not read customer_payments
- * or vendor_payments: those documents create the journal, and the journal is
- * what this book — like every other accounting read — trusts.
+ * The book is derived only from POSTED journal lines on the custody ledgers:
+ * CASH for a branch till, BANK for a bank account, WALLET for a provider
+ * clearing account. It deliberately does not read customer_payments or
+ * vendor_payments: those documents create the journal, and the journal is what
+ * this book — like every other accounting read — trusts.
  *
- * Opening is the signed balance before `from`; receipts and payments are the
- * gross debits and credits inside `from`..`to`; closing is opening plus the
- * movement. For the same branch and date the total closing equals the balance
- * sheet's `cashAndBank` figure, because both use the same rows and roles.
+ * Cash books are branch balances: a shared cash ledger's company balance is not
+ * a till. Bank and wallet books are per external account, so their opening,
+ * receipts, payments and closing are company-wide while `branchReceipts` and
+ * `branchPayments` show the selected branch's share. That distinction is why a
+ * branch filter can never turn a shared bank's balance into a fictitious branch
+ * balance.
  */
 import { roundMoney } from '../utils/money';
 import {
@@ -22,6 +25,15 @@ import {
   type StatementWindow,
 } from './accountingStatements.service';
 
+export type CashBookKind = 'CASH' | 'BANK' | 'WALLET' | 'CASH_BANK';
+
+export interface CashBookOptions {
+  /** A single custody kind; omitted keeps the legacy combined cash+bank view. */
+  kind?: CashBookKind;
+  /** Narrow the book to one custody account. */
+  accountId?: string | null;
+}
+
 export interface CashBookEntry {
   journalDateAD: string;
   journalNo: string;
@@ -29,6 +41,8 @@ export interface CashBookEntry {
   sourceType: string;
   sourceId: string | null;
   branchId: string;
+  branchCode: string | null;
+  branchName: string | null;
   memo: string | null;
   debit: number;
   credit: number;
@@ -41,8 +55,16 @@ export interface CashBookAccount {
   accountId: string;
   code: string;
   name: string;
-  accountKind: 'CASH' | 'BANK';
+  accountKind: 'CASH' | 'BANK' | 'WALLET';
   postingRole: string | null;
+  /** Owner branch; NULL means the custody account is shared. */
+  branchId: string | null;
+  branchCode: string | null;
+  branchName: string | null;
+  isShared: boolean;
+  providerCode: string | null;
+  merchantId: string | null;
+  settlementAccountId: string | null;
   bankName: string | null;
   bankBranch: string | null;
   accountNumber: string | null;
@@ -53,6 +75,10 @@ export interface CashBookAccount {
   receipts: number;
   payments: number;
   closing: number;
+  /** Movement in the selected branch/window (company-wide for a global read). */
+  branchReceipts: number;
+  branchPayments: number;
+  branchMovement: number;
   entries: CashBookEntry[];
 }
 
@@ -60,24 +86,61 @@ function money(value: unknown): number {
   return roundMoney(Number(value) || 0);
 }
 
-export async function buildCashBook(client: AccountingClient, window: StatementWindow) {
-  if (window.empty) {
-    return {
-      book: 'CASH_BANK' as const,
-      branchId: statementBranchLabel(window),
-      from: window.from,
-      to: window.to,
-      accounts: [] as CashBookAccount[],
-      opening: 0,
-      receipts: 0,
-      payments: 0,
-      closing: 0,
-    };
-  }
+function emptyBook(window: StatementWindow, book: CashBookKind) {
+  return {
+    book,
+    branchId: statementBranchLabel(window),
+    from: window.from,
+    to: window.to,
+    accounts: [] as CashBookAccount[],
+    opening: 0,
+    receipts: 0,
+    payments: 0,
+    closing: 0,
+    branchReceipts: 0,
+    branchPayments: 0,
+    branchMovement: 0,
+  };
+}
+
+export async function buildCashBook(
+  client: AccountingClient,
+  window: StatementWindow,
+  options: CashBookOptions = {}
+) {
+  const book: CashBookKind = options.kind || 'CASH_BANK';
+  if (window.empty) return emptyBook(window, book);
+
+  const kinds =
+    book === 'CASH'
+      ? ['CASH']
+      : book === 'BANK'
+        ? ['BANK']
+        : book === 'WALLET'
+          ? ['WALLET']
+          : ['CASH', 'BANK', 'WALLET'];
+  // Bank and wallet balances belong to the external account, not to a branch.
+  // Their company balance is returned beside the branch movement.
+  const companyWide = book === 'BANK' || book === 'WALLET';
+  const accountId = options.accountId || null;
 
   const [accountRows, entryRows] = await Promise.all([
-    client.query(CASH_BANK_ACCOUNT_ROWS_SQL, [window.from, window.to, window.branchId]),
-    client.query(CASH_BANK_ENTRY_ROWS_SQL, [window.from, window.to, window.branchId]),
+    client.query(CASH_BANK_ACCOUNT_ROWS_SQL, [
+      window.from,
+      window.to,
+      window.branchId,
+      kinds,
+      companyWide,
+      accountId,
+    ]),
+    client.query(CASH_BANK_ENTRY_ROWS_SQL, [
+      window.from,
+      window.to,
+      window.branchId,
+      kinds,
+      companyWide,
+      accountId,
+    ]),
   ]);
 
   const entriesByAccount = new Map<string, any[]>();
@@ -92,6 +155,8 @@ export async function buildCashBook(client: AccountingClient, window: StatementW
     const opening = money(row.opening);
     const receipts = money(row.receipts);
     const payments = money(row.payments);
+    const branchReceipts = money(row.branchReceipts);
+    const branchPayments = money(row.branchPayments);
     let running = opening;
     const entries = (entriesByAccount.get(String(row.accountId)) || []).map((entry: any) => {
       const debit = money(entry.debit);
@@ -104,6 +169,8 @@ export async function buildCashBook(client: AccountingClient, window: StatementW
         sourceType: String(entry.sourceType),
         sourceId: entry.sourceId ? String(entry.sourceId) : null,
         branchId: String(entry.branchId),
+        branchCode: entry.branchCode ? String(entry.branchCode) : null,
+        branchName: entry.branchName ? String(entry.branchName) : null,
         memo: entry.memo ? String(entry.memo) : null,
         debit,
         credit,
@@ -115,8 +182,16 @@ export async function buildCashBook(client: AccountingClient, window: StatementW
       accountId: String(row.accountId),
       code: String(row.code),
       name: String(row.name),
-      accountKind: row.accountKind === 'CASH' ? 'CASH' : 'BANK',
+      accountKind:
+        row.accountKind === 'CASH' ? 'CASH' : row.accountKind === 'WALLET' ? 'WALLET' : 'BANK',
       postingRole: row.postingRole ? String(row.postingRole) : null,
+      branchId: row.branchId ? String(row.branchId) : null,
+      branchCode: row.branchCode ? String(row.branchCode) : null,
+      branchName: row.branchName ? String(row.branchName) : null,
+      isShared: !row.branchId,
+      providerCode: row.providerCode ? String(row.providerCode) : null,
+      merchantId: row.merchantId ? String(row.merchantId) : null,
+      settlementAccountId: row.settlementAccountId ? String(row.settlementAccountId) : null,
       bankName: row.bankName ? String(row.bankName) : null,
       bankBranch: row.bankBranch ? String(row.bankBranch) : null,
       accountNumber: row.accountNumber ? String(row.accountNumber) : null,
@@ -127,6 +202,9 @@ export async function buildCashBook(client: AccountingClient, window: StatementW
       receipts,
       payments,
       closing: roundMoney(opening + receipts - payments),
+      branchReceipts,
+      branchPayments,
+      branchMovement: roundMoney(branchReceipts - branchPayments),
       entries,
     };
   });
@@ -137,10 +215,11 @@ export async function buildCashBook(client: AccountingClient, window: StatementW
   const opening = sum((account) => account.opening);
   const receipts = sum((account) => account.receipts);
   const payments = sum((account) => account.payments);
-  const closing = roundMoney(opening + receipts - payments);
+  const branchReceipts = sum((account) => account.branchReceipts);
+  const branchPayments = sum((account) => account.branchPayments);
 
   return {
-    book: 'CASH_BANK' as const,
+    book,
     branchId: statementBranchLabel(window),
     from: window.from,
     to: window.to,
@@ -148,6 +227,9 @@ export async function buildCashBook(client: AccountingClient, window: StatementW
     opening,
     receipts,
     payments,
-    closing,
+    closing: roundMoney(opening + receipts - payments),
+    branchReceipts,
+    branchPayments,
+    branchMovement: roundMoney(branchReceipts - branchPayments),
   };
 }

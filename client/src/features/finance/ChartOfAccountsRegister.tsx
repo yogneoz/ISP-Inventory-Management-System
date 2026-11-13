@@ -111,6 +111,7 @@ export const ChartOfAccountsRegister: React.FC<AccountingScreenProps> = ({
         <ChartView
           state={chart}
           branchId={scope.branchId}
+          branches={branches}
           loading={loading}
           canManage={canManage}
           onChanged={() => setReloadKey((key) => key + 1)}

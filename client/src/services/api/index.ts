@@ -621,6 +621,7 @@ export const api = {
   getTrialBalanceGroupLines: accounting.getTrialBalanceGroupLines,
   getTrialBalanceAccountLines: accounting.getTrialBalanceAccountLines,
   getCashBook: accounting.getCashBook,
+  getBankPosition: accounting.getBankPosition,
   getBankReconciliation: accounting.getBankReconciliation,
   importBankStatement: accounting.importBankStatement,
   matchBankStatementLine: accounting.matchBankStatementLine,

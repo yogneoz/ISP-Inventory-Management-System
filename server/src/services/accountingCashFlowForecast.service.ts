@@ -286,7 +286,14 @@ async function cashBookBalanceAsOf(
   // `from = NULL` makes the query's opening zero, so the result is the posted
   // cash/bank balance through `asOf` — the same balance at the end of the
   // cash-flow statement, not a new calculation of cash.
-  const result = await client.query(CASH_BANK_ACCOUNT_ROWS_SQL, [null, asOf, branchId]);
+  const result = await client.query(CASH_BANK_ACCOUNT_ROWS_SQL, [
+    null,
+    asOf,
+    branchId,
+    ['CASH', 'BANK', 'WALLET'],
+    false,
+    null,
+  ]);
   return roundMoney(
     result.rows.reduce(
       (sum, row) => sum + money(row.opening) + money(row.receipts) - money(row.payments),

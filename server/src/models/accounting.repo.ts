@@ -63,10 +63,10 @@ export type PostingRole =
   | 'EMPLOYEE_ADVANCE'
   | 'EMPLOYEE_LOAN';
 
-export type AccountKind = 'CASH' | 'BANK' | 'OTHER';
+export type AccountKind = 'CASH' | 'BANK' | 'WALLET' | 'OTHER';
 
 export const ACCOUNT_TYPES: readonly AccountType[] = ['ASSET', 'LIABILITY', 'EQUITY', 'INCOME', 'EXPENSE'];
-export const ACCOUNT_KINDS: readonly AccountKind[] = ['CASH', 'BANK', 'OTHER'];
+export const ACCOUNT_KINDS: readonly AccountKind[] = ['CASH', 'BANK', 'WALLET', 'OTHER'];
 export const STATEMENT_GROUPS: readonly StatementGroup[] = [
   'CURRENT_ASSET',
   'NON_CURRENT_ASSET',
@@ -141,6 +141,10 @@ export const ACCOUNT_COLUMNS = `a.id,
   a.subledger_type AS "subledgerType",
   a.posting_role AS "postingRole",
   a.account_kind AS "accountKind",
+  a.branch_id AS "branchId",
+  a.provider_code AS "providerCode",
+  a.merchant_id AS "merchantId",
+  a.settlement_account_id AS "settlementAccountId",
   a.bank_name AS "bankName",
   a.bank_branch AS "bankBranch",
   a.account_number AS "accountNumber",
@@ -316,11 +320,13 @@ ON CONFLICT DO NOTHING`;
 
 export const ACCOUNT_SEED_INSERT_SQL = `INSERT INTO gl_accounts (
   id, code, name, group_id, description, is_control, subledger_type,
-  posting_role, account_kind, is_active, is_demo
+  posting_role, account_kind, provider_code, is_active, is_demo
 )
 SELECT $1, $2, $3, g.id, $4, $5, $6, $7,
-  CASE WHEN $7::varchar = 'CASH' THEN 'CASH' WHEN $7::varchar = 'BANK' THEN 'BANK' ELSE 'OTHER' END,
-  TRUE, FALSE
+  CASE WHEN $7::varchar = 'CASH' THEN 'CASH'
+    WHEN $7::varchar = 'BANK' THEN 'BANK'
+    ELSE COALESCE(NULLIF($9::varchar, ''), 'OTHER') END,
+  NULLIF($10::varchar, ''), TRUE, FALSE
 FROM gl_account_groups g
 WHERE g.code = $8
 ON CONFLICT DO NOTHING`;
@@ -334,7 +340,7 @@ export interface AccountSearchOptions {
   /** Code, name or description fragment. Empty means no search. */
   query?: string | null;
   /** Narrow to cash/bank custody ledgers for the settlement picker. */
-  kind?: 'CASH' | 'BANK' | 'CASH_BANK' | null;
+  kind?: 'CASH' | 'BANK' | 'WALLET' | 'CASH_BANK' | null;
   /** Page size; clamped so a picker never asks for the whole chart. */
   limit?: number;
 }
@@ -357,8 +363,8 @@ export function buildAccountSearchQuery(opts: AccountSearchOptions = {}) {
     );
   }
   if (opts.kind === 'CASH_BANK') {
-    conditions.push(`a.account_kind IN ('CASH', 'BANK')`);
-  } else if (opts.kind === 'CASH' || opts.kind === 'BANK') {
+    conditions.push(`a.account_kind IN ('CASH', 'BANK', 'WALLET')`);
+  } else if (opts.kind === 'CASH' || opts.kind === 'BANK' || opts.kind === 'WALLET') {
     params.push(opts.kind);
     conditions.push(`a.account_kind = $${params.length}`);
   }
@@ -487,9 +493,10 @@ LIMIT 1`;
 
 export const ACCOUNT_INSERT_SQL = `INSERT INTO gl_accounts (
   id, code, name, group_id, description, is_control, subledger_type,
-  posting_role, account_kind, bank_name, bank_branch, account_number,
+  posting_role, account_kind, branch_id, provider_code, merchant_id,
+  settlement_account_id, bank_name, bank_branch, account_number,
   account_holder, swift_code, master_profile, is_active, is_demo
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, TRUE, $16)`;
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb, TRUE, $20)`;
 
 export const ACCOUNT_UPDATE_SQL = `UPDATE gl_accounts SET
   name = COALESCE($2, name),
@@ -498,12 +505,16 @@ export const ACCOUNT_UPDATE_SQL = `UPDATE gl_accounts SET
   is_active = COALESCE($5, is_active),
   group_id = COALESCE($6, group_id),
   account_kind = COALESCE($7, account_kind),
-  bank_name = $8,
-  bank_branch = $9,
-  account_number = $10,
-  account_holder = $11,
-  swift_code = $12,
-  master_profile = COALESCE($13::jsonb, master_profile),
+  branch_id = $8,
+  provider_code = $9,
+  merchant_id = $10,
+  settlement_account_id = $11,
+  bank_name = $12,
+  bank_branch = $13,
+  account_number = $14,
+  account_holder = $15,
+  swift_code = $16,
+  master_profile = COALESCE($17::jsonb, master_profile),
   updated_at = CURRENT_TIMESTAMP
 WHERE id = $1`;
 
@@ -1388,6 +1399,18 @@ export const CASH_BANK_ACCOUNT_ROWS_SQL = `WITH scoped AS (
   JOIN gl_journals j ON j.id = l.journal_id
   WHERE j.status = 'POSTED'
     AND j.journal_date_ad <= $2::date
+    AND (
+      $5::boolean = TRUE
+      OR $3::varchar IS NULL
+      OR l.branch_id = $3::varchar
+    )
+), branch_scoped AS (
+  SELECT l.account_id, l.debit, l.credit
+  FROM gl_journal_lines l
+  JOIN gl_journals j ON j.id = l.journal_id
+  WHERE j.status = 'POSTED'
+    AND j.journal_date_ad <= $2::date
+    AND ($1::date IS NULL OR j.journal_date_ad >= $1::date)
     AND ($3::varchar IS NULL OR l.branch_id = $3::varchar)
 )
 SELECT a.id AS "accountId",
@@ -1395,6 +1418,12 @@ SELECT a.id AS "accountId",
   a.name,
   a.account_kind AS "accountKind",
   a.posting_role AS "postingRole",
+  a.branch_id AS "branchId",
+  b.code AS "branchCode",
+  b.name AS "branchName",
+  a.provider_code AS "providerCode",
+  a.merchant_id AS "merchantId",
+  a.settlement_account_id AS "settlementAccountId",
   a.bank_name AS "bankName",
   a.bank_branch AS "bankBranch",
   a.account_number AS "accountNumber",
@@ -1406,35 +1435,52 @@ SELECT a.id AS "accountId",
   COALESCE(SUM(CASE WHEN ($1::date IS NULL OR s.journal_date_ad >= $1::date)
     THEN s.debit ELSE 0 END), 0)::numeric AS receipts,
   COALESCE(SUM(CASE WHEN ($1::date IS NULL OR s.journal_date_ad >= $1::date)
-    THEN s.credit ELSE 0 END), 0)::numeric AS payments
+    THEN s.credit ELSE 0 END), 0)::numeric AS payments,
+  COALESCE((SELECT SUM(bs.debit) FROM branch_scoped bs WHERE bs.account_id = a.id), 0)::numeric AS "branchReceipts",
+  COALESCE((SELECT SUM(bs.credit) FROM branch_scoped bs WHERE bs.account_id = a.id), 0)::numeric AS "branchPayments"
 FROM gl_accounts a
+LEFT JOIN branches b ON b.id = a.branch_id
 LEFT JOIN scoped s ON s.account_id = a.id
-WHERE a.account_kind IN ('CASH', 'BANK')
-GROUP BY a.id, a.code, a.name, a.account_kind, a.posting_role, a.bank_name,
-  a.bank_branch, a.account_number, a.account_holder, a.swift_code, a.is_active
+WHERE a.account_kind = ANY($4::varchar[])
+  AND ($6::varchar IS NULL OR a.id = $6::varchar)
+  AND (
+    $3::varchar IS NULL
+    OR $5::boolean = TRUE
+    OR a.account_kind <> 'CASH'
+    OR a.branch_id IS NULL
+    OR a.branch_id = $3::varchar
+  )
+GROUP BY a.id, a.code, a.name, a.account_kind, a.posting_role, a.branch_id,
+  b.code, b.name, a.provider_code, a.merchant_id, a.settlement_account_id,
+  a.bank_name, a.bank_branch, a.account_number, a.account_holder, a.swift_code, a.is_active
 ORDER BY a.account_kind ASC, a.code ASC`;
 
-/** The individual movements behind the cash/bank book, oldest first. */
+/** The individual movements behind the cash/bank/wallet book, oldest first. */
 export const CASH_BANK_ENTRY_ROWS_SQL = `SELECT a.id AS "accountId",
   a.code,
   a.name,
+  a.account_kind AS "accountKind",
   j.journal_date_ad::text AS "journalDateAD",
   j.journal_no AS "journalNo",
   j.id AS "journalId",
   j.source_type AS "sourceType",
   j.source_id AS "sourceId",
   l.branch_id AS "branchId",
+  b.code AS "branchCode",
+  b.name AS "branchName",
   COALESCE(l.memo, j.memo) AS memo,
   l.debit::numeric AS debit,
   l.credit::numeric AS credit
 FROM gl_journal_lines l
 JOIN gl_journals j ON j.id = l.journal_id
 JOIN gl_accounts a ON a.id = l.account_id
-WHERE a.account_kind IN ('CASH', 'BANK')
+JOIN branches b ON b.id = l.branch_id
+WHERE a.account_kind = ANY($4::varchar[])
   AND j.status = 'POSTED'
   AND ($1::date IS NULL OR j.journal_date_ad >= $1::date)
   AND j.journal_date_ad <= $2::date
-  AND ($3::varchar IS NULL OR l.branch_id = $3::varchar)
+  AND ($5::boolean = TRUE OR $3::varchar IS NULL OR l.branch_id = $3::varchar)
+  AND ($6::varchar IS NULL OR a.id = $6::varchar)
 ORDER BY a.code ASC, j.journal_date_ad ASC, j.journal_no ASC, l.line_no ASC`;
 
 /**
@@ -1452,7 +1498,7 @@ export const CASH_FLOW_JOURNAL_ROWS_SQL = `WITH scoped_journals AS (
   WHERE j.status = 'POSTED'
     AND j.journal_date_ad >= $1::date
     AND j.journal_date_ad <= $2::date
-    AND cash_account.account_kind IN ('CASH', 'BANK')
+    AND cash_account.account_kind IN ('CASH', 'BANK', 'WALLET')
     AND ($3::varchar IS NULL OR cash_line.branch_id = $3::varchar)
 )
 SELECT j.id AS "journalId",
@@ -1517,6 +1563,8 @@ export function accountSeedParams(input: {
   isControl: boolean;
   subledgerType: SubledgerType;
   postingRole: PostingRole | null;
+  accountKind?: AccountKind;
+  providerCode?: string | null;
   groupCode: string;
 }): unknown[] {
   return [
@@ -1528,6 +1576,8 @@ export function accountSeedParams(input: {
     input.subledgerType,
     input.postingRole,
     input.groupCode,
+    input.accountKind || '',
+    input.providerCode || '',
   ];
 }
 
@@ -1555,6 +1605,10 @@ export interface AccountInput {
   subledgerType: SubledgerType;
   postingRole?: PostingRole | null;
   accountKind?: AccountKind;
+  branchId?: string | null;
+  providerCode?: string | null;
+  merchantId?: string | null;
+  settlementAccountId?: string | null;
   bankName?: string | null;
   bankBranch?: string | null;
   accountNumber?: string | null;
@@ -1575,6 +1629,10 @@ export function accountInsertParams(input: AccountInput): unknown[] {
     input.subledgerType,
     input.postingRole || null,
     input.accountKind || 'OTHER',
+    input.branchId || null,
+    input.providerCode || null,
+    input.merchantId || null,
+    input.settlementAccountId || null,
     input.bankName || null,
     input.bankBranch || null,
     input.accountNumber || null,

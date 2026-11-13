@@ -70,7 +70,14 @@ export const ACCOUNT_KIND_OPTIONS: Array<{ value: AccountKind; label: string }> 
   { value: 'OTHER', label: 'Other ledger' },
   { value: 'CASH', label: 'Cash / till' },
   { value: 'BANK', label: 'Bank account' },
+  { value: 'WALLET', label: 'Wallet / PSP clearing' },
 ];
+
+export const WALLET_PROVIDER_OPTIONS = [
+  { value: 'ESEWA', label: 'eSewa' },
+  { value: 'KHALTI', label: 'Khalti' },
+  { value: 'NEPAL_PAY', label: 'Nepal Pay' },
+] as const;
 
 export const STATEMENT_GROUPS_BY_TYPE: Record<AccountType, string[]> = {
   ASSET: ['CURRENT_ASSET', 'NON_CURRENT_ASSET'],
@@ -115,6 +122,10 @@ export interface AccountFormValues {
   subledgerType: string;
   postingRole: string;
   accountKind: AccountKind;
+  branchId: string;
+  providerCode: string;
+  merchantId: string;
+  settlementAccountId: string;
   bankName: string;
   bankBranch: string;
   accountNumber: string;
@@ -126,11 +137,13 @@ export const AccountFormDialog: React.FC<{
   mode: 'create' | 'edit';
   account?: AccountingAccount;
   groups: AccountingGroup[];
+  accounts: AccountingAccount[];
+  branches: Array<{ id: string; code: string; name: string }>;
   busy: boolean;
   error: string;
   onClose: () => void;
   onSubmit: (values: AccountFormValues) => void;
-}> = ({ mode, account, groups, busy, error, onClose, onSubmit }) => {
+}> = ({ mode, account, groups, accounts, branches, busy, error, onClose, onSubmit }) => {
   const [tab, setTab] = useState<'PROFILE' | 'BANK'>('PROFILE');
   const [code, setCode] = useState(account?.code || '');
   const [name, setName] = useState(account?.name || '');
@@ -143,6 +156,12 @@ export const AccountFormDialog: React.FC<{
   const [postingRole, setPostingRole] = useState(account?.postingRole || '');
   const [accountKind, setAccountKind] = useState<AccountKind>(
     account?.accountKind || (account?.postingRole === 'CASH' ? 'CASH' : account?.postingRole === 'BANK' ? 'BANK' : 'OTHER')
+  );
+  const [branchId, setBranchId] = useState(account?.branchId || '');
+  const [providerCode, setProviderCode] = useState(account?.providerCode || '');
+  const [merchantId, setMerchantId] = useState(account?.merchantId || '');
+  const [settlementAccountId, setSettlementAccountId] = useState(
+    account?.settlementAccountId || ''
   );
   const [bankName, setBankName] = useState(account?.bankName || '');
   const [bankBranch, setBankBranch] = useState(account?.bankBranch || '');
@@ -169,6 +188,11 @@ export const AccountFormDialog: React.FC<{
       setAccountHolder('');
       setSwiftCode('');
     }
+    if (kind !== 'WALLET') {
+      setProviderCode('');
+      setMerchantId('');
+      setSettlementAccountId('');
+    }
   };
 
   const chooseRole = (role: string) => {
@@ -193,6 +217,10 @@ export const AccountFormDialog: React.FC<{
               subledgerType: controlAccount ? subledgerType : 'NONE',
               postingRole,
               accountKind,
+              branchId,
+              providerCode,
+              merchantId,
+              settlementAccountId,
               bankName,
               bankBranch,
               accountNumber,
@@ -215,7 +243,7 @@ export const AccountFormDialog: React.FC<{
               Profile
             </button>
             <button type="button" id="chart-tab-bank" className={tabClass(tab === 'BANK')} onClick={() => setTab('BANK')}>
-              Cash / bank details{accountKind === 'BANK' ? ' •' : ''}
+              Custody details{accountKind === 'BANK' || accountKind === 'WALLET' ? ' •' : ''}
             </button>
           </div>
 
@@ -302,7 +330,28 @@ export const AccountFormDialog: React.FC<{
                   ))}
                 </select>
                 <p className="mt-1 text-[10px] text-slate-400">
-                  Cash and bank kinds may have many ledgers. Only the one carrying the matching posting role is the default.
+                  Cash, bank and wallet kinds may have many ledgers. Only the one carrying the matching posting role is the default.
+                </p>
+              </div>
+              <div>
+                <label className={labelClass} htmlFor="chart-account-owner">
+                  Custody owner
+                </label>
+                <select
+                  id="chart-account-owner"
+                  className={inputClass}
+                  value={branchId}
+                  onChange={(event) => setBranchId(event.target.value)}
+                >
+                  <option value="">Shared / company-wide</option>
+                  {branches.map((branch) => (
+                    <option key={branch.id} value={branch.id}>
+                      {branch.code} · {branch.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-[10px] text-slate-400">
+                  A till normally belongs to one branch. A bank or provider clearing account may stay shared.
                 </p>
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -367,11 +416,64 @@ export const AccountFormDialog: React.FC<{
             </div>
           ) : (
             <div className="space-y-3">
-              {accountKind !== 'BANK' ? (
+              {accountKind === 'WALLET' ? (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className={labelClass} htmlFor="chart-wallet-provider">
+                      Provider
+                    </label>
+                    <select
+                      id="chart-wallet-provider"
+                      className={inputClass}
+                      value={providerCode}
+                      onChange={(event) => setProviderCode(event.target.value)}
+                      required
+                    >
+                      <option value="">Select provider</option>
+                      {WALLET_PROVIDER_OPTIONS.map((provider) => (
+                        <option key={provider.value} value={provider.value}>
+                          {provider.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className={labelClass} htmlFor="chart-wallet-merchant">
+                      Merchant / terminal id
+                    </label>
+                    <input
+                      id="chart-wallet-merchant"
+                      className={inputClass}
+                      value={merchantId}
+                      onChange={(event) => setMerchantId(event.target.value)}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className={labelClass} htmlFor="chart-wallet-settlement">
+                      Settlement bank account
+                    </label>
+                    <select
+                      id="chart-wallet-settlement"
+                      className={inputClass}
+                      value={settlementAccountId}
+                      onChange={(event) => setSettlementAccountId(event.target.value)}
+                    >
+                      <option value="">Not set</option>
+                      {accounts
+                        .filter((row) => row.accountKind === 'BANK' && row.isActive)
+                        .map((row) => (
+                          <option key={row.id} value={row.id}>
+                            {row.code} · {row.name}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
+              ) : accountKind !== 'BANK' ? (
                 <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-[11px] text-slate-600 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-300">
                   {accountKind === 'CASH'
                     ? 'This is a cash / till ledger. It has no bank details; give it a clear name so the payment picker can distinguish it from other tills.'
-                    : 'This ledger is not a cash or bank account. Set Ledger kind to Bank account on the Profile tab to record bank details.'}
+                    : 'This ledger is not a cash, bank or wallet account. Set Ledger kind on the Profile tab to record custody details.'}
                 </div>
               ) : (
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

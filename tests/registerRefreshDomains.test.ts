@@ -996,7 +996,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       'getCashFlowForecastCsv',
       'getCashFlowPdf',
     ],
-    'finance/CashBookRegister.tsx': ['getCashBook'],
+    'finance/CashBookRegister.tsx': ['getBankPosition', 'getCashBook'],
     'finance/RecurringCloseRegister.tsx': [
       'closeAccountingPeriod',
       'createRecurringTemplate',

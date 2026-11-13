@@ -17,7 +17,7 @@ import { useDialog } from '../../components/common/DialogProvider';
 import { useActivationKey } from '../../components/common/KeepMounted';
 import { api } from '../../services/api';
 import { isOperationAllowed } from '../../utils/permissions';
-import type { User } from '../../types';
+import type { Branch, User } from '../../types';
 import type {
   AccountingAccount,
   AccountingGroup,
@@ -29,6 +29,7 @@ import {
   ACCOUNT_TYPE_OPTIONS,
   POSTING_ROLE_OPTIONS,
   SUBLEDGER_TYPE_OPTIONS,
+  WALLET_PROVIDER_OPTIONS,
 } from '../../components/accounting/ChartMaintenanceDialogs';
 import {
   groupAncestors,
@@ -46,6 +47,10 @@ interface LedgerForm {
   groupSubId: string;
   postingRole: string;
   accountKind: AccountKind;
+  branchId: string;
+  providerCode: string;
+  merchantId: string;
+  settlementAccountId: string;
   isControl: boolean;
   subledgerType: string;
   isActive: boolean;
@@ -82,6 +87,10 @@ const EMPTY_FORM: LedgerForm = {
   groupSubId: '',
   postingRole: '',
   accountKind: 'OTHER',
+  branchId: '',
+  providerCode: '',
+  merchantId: '',
+  settlementAccountId: '',
   isControl: false,
   subledgerType: 'NONE',
   isActive: true,
@@ -128,7 +137,10 @@ const textProfile = (account: AccountingAccount | null, key: string): string => 
 const boolProfile = (account: AccountingAccount | null, key: string): boolean =>
   account?.masterProfile?.[key] === true;
 
-export const GeneralLedgerMaster: React.FC<{ currentUser?: User | null }> = ({ currentUser }) => {
+export const GeneralLedgerMaster: React.FC<{
+  currentUser?: User | null;
+  branches?: Branch[];
+}> = ({ currentUser, branches = [] }) => {
   const { confirm: confirmDialog, alert: alertDialog } = useDialog();
   const canManage = isOperationAllowed('gl-chart-manage', currentUser?.role);
   const [groups, setGroups] = useState<AccountingGroup[]>([]);
@@ -187,6 +199,10 @@ export const GeneralLedgerMaster: React.FC<{ currentUser?: User | null }> = ({ c
       groupSubId: ancestry.length > 1 ? account.groupId : '',
       postingRole: account.postingRole || '',
       accountKind: account.accountKind || 'OTHER',
+      branchId: account.branchId || '',
+      providerCode: account.providerCode || '',
+      merchantId: account.merchantId || '',
+      settlementAccountId: account.settlementAccountId || '',
       isControl: account.isControl,
       subledgerType: account.subledgerType || 'NONE',
       isActive: account.isActive,
@@ -274,6 +290,8 @@ export const GeneralLedgerMaster: React.FC<{ currentUser?: User | null }> = ({ c
             : form.postingRole === 'CASH' || form.postingRole === 'BANK'
               ? ''
               : form.postingRole,
+      ...(kind === 'BANK' ? {} : { bankName: '', bankBranch: '', accountNumber: '', accountHolder: '', swiftCode: '' }),
+      ...(kind === 'WALLET' ? {} : { providerCode: '', merchantId: '', settlementAccountId: '' }),
     });
   };
 
@@ -314,6 +332,10 @@ export const GeneralLedgerMaster: React.FC<{ currentUser?: User | null }> = ({ c
       masterProfile,
       postingRole: form.postingRole || null,
       accountKind: form.accountKind,
+      branchId: form.branchId || null,
+      providerCode: form.providerCode || null,
+      merchantId: form.merchantId.trim() || null,
+      settlementAccountId: form.settlementAccountId || null,
       bankName: form.bankName.trim() || null,
       bankBranch: form.bankBranch.trim() || null,
       accountNumber: form.accountNumber.trim() || null,
@@ -553,9 +575,16 @@ export const GeneralLedgerMaster: React.FC<{ currentUser?: User | null }> = ({ c
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
               <div>
-                <label className={label} htmlFor="gl-kind">Cash / Bank</label>
+                <label className={label} htmlFor="gl-kind">Custody kind</label>
                 <select id="gl-kind" className={input} value={form.accountKind} onChange={(event) => chooseKind(event.target.value as AccountKind)}>
                   {ACCOUNT_KIND_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className={label} htmlFor="gl-owner">Custody owner</label>
+                <select id="gl-owner" className={input} value={form.branchId} onChange={(event) => setForm({ ...form, branchId: event.target.value })}>
+                  <option value="">Shared / company-wide</option>
+                  {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.code} · {branch.name}</option>)}
                 </select>
               </div>
               <div>
@@ -715,6 +744,30 @@ export const GeneralLedgerMaster: React.FC<{ currentUser?: User | null }> = ({ c
 
         {tab === 'BANK' && (
           <div className="space-y-3">
+            {form.accountKind === 'WALLET' && (
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div>
+                  <label className={label} htmlFor="gl-wallet-provider">Provider</label>
+                  <select id="gl-wallet-provider" className={input} value={form.providerCode} onChange={(event) => setForm({ ...form, providerCode: event.target.value })} required>
+                    <option value="">Select provider</option>
+                    {WALLET_PROVIDER_OPTIONS.map((provider) => <option key={provider.value} value={provider.value}>{provider.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className={label} htmlFor="gl-wallet-merchant">Merchant / terminal id</label>
+                  <input id="gl-wallet-merchant" className={input} value={form.merchantId} onChange={(event) => setForm({ ...form, merchantId: event.target.value })} />
+                </div>
+                <div>
+                  <label className={label} htmlFor="gl-wallet-settlement">Settlement bank</label>
+                  <select id="gl-wallet-settlement" className={input} value={form.settlementAccountId} onChange={(event) => setForm({ ...form, settlementAccountId: event.target.value })}>
+                    <option value="">Not set</option>
+                    {accounts.filter((account) => account.accountKind === 'BANK' && account.isActive).map((account) => (
+                      <option key={account.id} value={account.id}>{account.code} · {account.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <div>
                 <label className={label} htmlFor="gl-bank-name">Bank name</label>
@@ -743,7 +796,7 @@ export const GeneralLedgerMaster: React.FC<{ currentUser?: User | null }> = ({ c
             </div>
             {form.accountKind !== 'BANK' && (
               <p className="text-[11px] text-amber-600 dark:text-amber-400">
-                Bank details are saved only for a bank ledger. Set Cash / Bank to “Bank account” on Account Information to use them.
+                Bank details are saved only for a bank ledger. Set Custody kind to “Bank account” on Account Information to use them.
               </p>
             )}
           </div>

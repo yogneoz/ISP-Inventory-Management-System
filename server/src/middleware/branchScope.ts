@@ -168,6 +168,11 @@ export const BRANCH_SCOPE_EXEMPTIONS: readonly BranchScopeExemption[] = [
       "Batch fiscal-year register (supplier × branch): the GET filters and the PUT refuses rows outside the actor's allowed branches in fiscal.routes.ts. The path id is the fiscal year, not a row id, so the by-id lookup does not apply.",
   },
   {
+    table: 'gl_accounts',
+    reason:
+      'Custody ownership (NULL = shared, branch id = owned) is not a row-level branch guard: every branch must be able to read the shared chart for posting, and the chart list is the same master data for all branches. The controller (`post_account`/`patch_account`) refuses a branch-owned account outside the caller\'s allowed branches on create and edit, and `postJournal` refuses a journal line whose account owner differs from the journal branch.',
+  },
+  {
     table: 'gl_opening_balance_slots',
     reason:
       'Internal pointer to the active opening journal of one branch + Opening Balances register. It is written only inside the branch-guarded opening transaction after the register and branch are validated, has no route or row id, and is never accepted as client input.',

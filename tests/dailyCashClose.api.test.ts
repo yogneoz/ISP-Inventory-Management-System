@@ -4,9 +4,9 @@
  * The claims this suite pins are the ones a cash screen can fake but a ledger
  * cannot:
  *
- *   1. the day's opening/in/out/expected closing are the posted cash/bank
- *      lines — the expected closing equals both the cash book and the balance
- *      sheet's cash-and-bank total for the same branch and date;
+ *   1. the day's opening/in/out/expected closing are the posted CASH lines
+ *      only; bank and wallet custody are excluded from the physical till count
+ *      and read through the separate bank-position endpoint;
  *   2. closing with a counted figure records the variance (counted − expected);
  *   3. a second close of the same branch/day is refused and writes nothing;
  *   4. a closed day reopens and can be counted again without creating a second
@@ -87,6 +87,7 @@ describe('daily cash close (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => 
   const managerToken = issueAuthToken(MANAGER_NO_LEDGER);
   let closeId = '';
   let dayBS = '';
+  let testBankId = '';
 
   async function request(method: 'GET' | 'POST', path: string, body?: unknown, auth = token) {
     const res = await fetch('http://127.0.0.1:' + port + path, {
@@ -111,6 +112,8 @@ describe('daily cash close (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => 
   async function cleanup() {
     await pool!.query('DELETE FROM daily_cash_closes WHERE branch_id = ANY($1::varchar[])', [BRANCH_IDS]);
     await pool!.query('DELETE FROM gl_journals WHERE branch_id = ANY($1::varchar[])', [BRANCH_IDS]);
+    await pool!.query("DELETE FROM gl_accounts WHERE code = 'CCT-BANK'");
+    testBankId = '';
     await pool!.query('DELETE FROM audit_logs WHERE details LIKE $1', ['%cash-close-test%']);
     await pool!.query('DELETE FROM branches WHERE id = ANY($1::varchar[])', [BRANCH_IDS]);
   }
@@ -159,12 +162,24 @@ describe('daily cash close (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => 
         server.close(() => done());
       });
 
-    const [cash, bank, sales, expense] = await Promise.all([
+    const [cash, sales, expense, groups] = await Promise.all([
       postingDefault('CASH'),
-      postingDefault('BANK'),
       postingDefault('SALES'),
       postingDefault('SALARY_EXPENSE'),
+      get('/api/accounting/groups'),
     ]);
+    assert.equal(groups.status, 200, JSON.stringify(groups.json));
+    const assetGroup = groups.json.find((group: any) => group.code === '1000');
+    const bankAccount = await post('/api/accounting/accounts', {
+      code: 'CCT-BANK',
+      name: 'Cash Close Test Bank',
+      groupId: assetGroup.id,
+      accountKind: 'BANK',
+      subledgerType: 'NONE',
+    });
+    assert.equal(bankAccount.status, 201, JSON.stringify(bankAccount.json));
+    testBankId = bankAccount.json.id;
+    const bank = { accountId: testBankId };
     const line = (accountId: string, debit: number, credit: number, memo: string) => ({
       accountId,
       debit,
@@ -218,9 +233,9 @@ describe('daily cash close (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => 
     assert.equal(res.json.branchId, BR_A);
     assert.equal(res.json.branch.status, 'OPEN');
     assert.equal(res.json.branch.opening, 1000);
-    assert.equal(res.json.branch.cashIn, 800);
+    assert.equal(res.json.branch.cashIn, 300);
     assert.equal(res.json.branch.cashOut, 100);
-    assert.equal(res.json.branch.expectedClosing, 1700);
+    assert.equal(res.json.branch.expectedClosing, 1200, 'the 500 bank deposit is not cash');
     assert.equal(res.json.branch.countedClosing, null);
     assert.equal(res.json.branch.variance, null);
 
@@ -234,20 +249,30 @@ describe('daily cash close (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => 
     const sheet = await get(`/api/accounting/statements/balance-sheet?branchId=${BR_A}&asOf=${DAY}`);
     assert.equal(sheet.status, 200, JSON.stringify(sheet.json));
     assert.equal(sheet.json.cashAndBank, 1700);
-    assert.equal(res.json.branch.expectedClosing, book.json.closing);
-    assert.equal(res.json.branch.expectedClosing, sheet.json.cashAndBank);
+    const bank = await get(
+      `/api/accounting/bank-position?branchId=${BR_A}&from=${DAY}&to=${DAY}&accountId=${testBankId}`
+    );
+    assert.equal(bank.status, 200, JSON.stringify(bank.json));
+    assert.equal(bank.json.book, 'BANK');
+    assert.equal(bank.json.closing, 550, 'the test bank holds A and B deposits');
+    assert.equal(bank.json.branchMovement, 500, 'only A\'s deposit is this branch\'s movement');
+    assert.equal(
+      res.json.branch.expectedClosing + bank.json.branchMovement,
+      sheet.json.cashAndBank,
+      'cash close + this branch\'s bank movement = the branch custody total'
+    );
   });
 
   test('closing records the counted figure and its deliberate variance, once', async () => {
     const closed = await post('/api/accounting/cash-close', {
       branchId: BR_A,
       dateAD: DAY,
-      countedClosing: 1650,
+      countedClosing: 1150,
     });
     assert.equal(closed.status, 201, JSON.stringify(closed.json));
     assert.equal(closed.json.status, 'CLOSED');
-    assert.equal(closed.json.expectedClosing, 1700);
-    assert.equal(closed.json.countedClosing, 1650);
+    assert.equal(closed.json.expectedClosing, 1200);
+    assert.equal(closed.json.countedClosing, 1150);
     assert.equal(closed.json.variance, -50);
     assert.equal(closed.json.branchId, BR_A);
     assert.equal(closed.json.businessDateAD, DAY);
@@ -258,10 +283,10 @@ describe('daily cash close (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => 
     const read = await get(`/api/accounting/cash-close?branchId=${BR_A}&dateAD=${DAY}`);
     assert.equal(read.status, 200, JSON.stringify(read.json));
     assert.equal(read.json.branch.status, 'CLOSED');
-    assert.equal(read.json.branch.countedClosing, 1650);
+    assert.equal(read.json.branch.countedClosing, 1150);
     assert.equal(read.json.branch.variance, -50);
     assert.equal(read.json.branch.close.id, closeId);
-    assert.equal(read.json.branch.close.expectedClosing, 1700);
+    assert.equal(read.json.branch.close.expectedClosing, 1200);
     assert.equal(read.json.branch.close.businessDateBS, dayBS);
     assert.equal(read.json.dateBS, dayBS);
     assert.equal(read.json.branch.stale, false);
@@ -273,7 +298,7 @@ describe('daily cash close (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => 
     const again = await post('/api/accounting/cash-close', {
       branchId: BR_A,
       dateAD: DAY,
-      countedClosing: 1700,
+      countedClosing: 1200,
     });
     assert.equal(again.status, 409, JSON.stringify(again.json));
     assert.match(again.json.message, /already closed/i);
@@ -310,7 +335,7 @@ describe('daily cash close (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => 
     const reclosed = await post('/api/accounting/cash-close', {
       branchId: BR_A,
       dateAD: DAY,
-      countedClosing: 1700,
+      countedClosing: 1200,
     });
     assert.equal(reclosed.status, 201, JSON.stringify(reclosed.json));
     assert.equal(reclosed.json.id, closeId, 're-closing updates the day instead of creating a second record');
@@ -324,7 +349,7 @@ describe('daily cash close (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => 
     assert.equal(Number(rows.rows[0].count), 1);
   });
 
-  test('the consolidated read sums branches and ties to the all-branch balance sheet', async () => {
+  test('the consolidated read sums branches and each branch sees the same bank balance', async () => {
     const res = await get(`/api/accounting/cash-close/consolidated?dateAD=${DAY}`);
     assert.equal(res.status, 200, JSON.stringify(res.json));
     assert.equal(res.json.branchId, 'ALL');
@@ -334,10 +359,10 @@ describe('daily cash close (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => 
     assert.ok(a, 'branch A must be in the consolidated table');
     assert.ok(b, 'branch B must be in the consolidated table');
     assert.equal(a.status, 'CLOSED');
-    assert.equal(a.expectedClosing, 1700);
+    assert.equal(a.expectedClosing, 1200);
     assert.equal(b.status, 'OPEN');
-    assert.equal(b.expectedClosing, 250);
-    assert.equal(b.cashIn, 250);
+    assert.equal(b.expectedClosing, 200);
+    assert.equal(b.cashIn, 200);
 
     const sum = (pick: (row: any) => number) =>
       res.json.branches.reduce((total: number, row: any) => total + pick(row), 0);
@@ -347,16 +372,29 @@ describe('daily cash close (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => 
     assert.equal(res.json.totals.closedBranches, res.json.branches.filter((row: any) => row.status === 'CLOSED').length);
     assert.ok(res.json.totals.closedBranches >= 1);
 
-    const sheet = await get(`/api/accounting/statements/balance-sheet?asOf=${DAY}`);
-    assert.equal(sheet.status, 200, JSON.stringify(sheet.json));
-    assert.equal(res.json.totals.expectedClosing, sheet.json.cashAndBank);
+    const bankA = await get(
+      `/api/accounting/bank-position?branchId=${BR_A}&asOf=${DAY}&accountId=${testBankId}`
+    );
+    const bankB = await get(
+      `/api/accounting/bank-position?branchId=${BR_B}&asOf=${DAY}&accountId=${testBankId}`
+    );
+    assert.equal(bankA.status, 200, JSON.stringify(bankA.json));
+    assert.equal(bankB.status, 200, JSON.stringify(bankB.json));
+    assert.equal(bankA.json.closing, 550, 'the bank balance stays company-wide');
+    assert.equal(bankA.json.branchMovement, 500);
+    assert.equal(bankB.json.closing, 550, 'B sees the same external bank balance');
+    assert.equal(bankB.json.branchMovement, 50);
+    assert.equal(
+      res.json.totals.expectedClosing,
+      res.json.branches.reduce((total: number, row: any) => total + row.expectedClosing, 0)
+    );
   });
 
   test('a branch accountant sees only its branch and is refused another branch', async () => {
     const own = await get(`/api/accounting/cash-close?branchId=${BR_B}&dateAD=${DAY}`, branchBToken);
     assert.equal(own.status, 200, JSON.stringify(own.json));
     assert.equal(own.json.branch.branchId, BR_B);
-    assert.equal(own.json.branch.expectedClosing, 250);
+    assert.equal(own.json.branch.expectedClosing, 200);
 
     const other = await get(`/api/accounting/cash-close?branchId=${BR_A}&dateAD=${DAY}`, branchBToken);
     assert.equal(other.status, 403, JSON.stringify(other.json));
@@ -368,12 +406,12 @@ describe('daily cash close (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => 
       [BR_B],
       'a branch account can only consolidate the branches it may see'
     );
-    assert.equal(consolidated.json.totals.expectedClosing, 250);
+    assert.equal(consolidated.json.totals.expectedClosing, 200);
 
     const refusedClose = await post('/api/accounting/cash-close', {
       branchId: BR_A,
       dateAD: DAY,
-      countedClosing: 1700,
+      countedClosing: 1200,
     }, branchBToken);
     assert.equal(refusedClose.status, 403, JSON.stringify(refusedClose.json));
 

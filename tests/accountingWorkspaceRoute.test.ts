@@ -576,6 +576,9 @@ const cashBook: CashBookResponse = {
       receipts: 500,
       payments: 200,
       closing: 1300,
+      branchReceipts: 500,
+      branchPayments: 200,
+      branchMovement: 300,
       entries: [
         {
           journalDateAD: '2026-10-05',
@@ -597,6 +600,9 @@ const cashBook: CashBookResponse = {
   receipts: 500,
   payments: 200,
   closing: 1300,
+  branchReceipts: 500,
+  branchPayments: 200,
+  branchMovement: 300,
 };
 
 const bankReconciliation: BankReconciliationResponse = {

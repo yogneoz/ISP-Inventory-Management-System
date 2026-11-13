@@ -77,6 +77,8 @@ export async function ensureDefaultChart(
         isControl: account.isControl,
         subledgerType: account.subledgerType,
         postingRole: account.postingRole,
+        accountKind: account.accountKind,
+        providerCode: account.providerCode,
         groupCode: account.groupCode,
       })
     );

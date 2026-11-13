@@ -38,12 +38,13 @@ const toolbarGhost =
 export const ChartView: React.FC<{
   state: ChartState;
   branchId: string;
+  branches: Array<{ id: string; code: string; name: string }>;
   loading: boolean;
   /** `gl-chart-manage`: without it the chart stays readable but has no action buttons. */
   canManage: boolean;
   /** Re-read the chart after a successful mutation. */
   onChanged: () => void;
-}> = ({ state, branchId, loading, canManage, onChanged }) => {
+}> = ({ state, branchId, branches, loading, canManage, onChanged }) => {
   const { confirm: confirmDialog } = useDialog();
   const [accountDialog, setAccountDialog] = useState<{ mode: 'create' | 'edit'; account?: AccountingAccount } | null>(null);
   const [groupDialog, setGroupDialog] = useState<{
@@ -97,6 +98,10 @@ export const ChartView: React.FC<{
           description: values.description,
           postingRole: values.postingRole || null,
           accountKind: values.accountKind,
+          branchId: values.branchId || null,
+          providerCode: values.providerCode || null,
+          merchantId: values.merchantId || null,
+          settlementAccountId: values.settlementAccountId || null,
           bankName: values.bankName || null,
           bankBranch: values.bankBranch || null,
           accountNumber: values.accountNumber || null,
@@ -112,6 +117,10 @@ export const ChartView: React.FC<{
           subledgerType: values.subledgerType,
           postingRole: values.postingRole || null,
           accountKind: values.accountKind,
+          branchId: values.branchId || null,
+          providerCode: values.providerCode || null,
+          merchantId: values.merchantId || null,
+          settlementAccountId: values.settlementAccountId || null,
           bankName: values.bankName || null,
           bankBranch: values.bankBranch || null,
           accountNumber: values.accountNumber || null,
@@ -548,6 +557,8 @@ export const ChartView: React.FC<{
           mode={accountDialog.mode}
           account={accountDialog.account}
           groups={state.groups}
+          accounts={state.accounts}
+          branches={branches}
           busy={dialogBusy}
           error={dialogError}
           onClose={() => {

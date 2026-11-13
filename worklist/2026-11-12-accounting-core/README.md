@@ -311,19 +311,22 @@ on the account (not with one party) and its difference is zero.
 
 Priority: P0/P1 · Depends on: ACC-1 for receipt links · Blocks: PSP reconciliation
 
-- [ ] Split the Cash & Bank Book into **Cash Book** and **Bank Book** views.
-- [ ] Make daily cash close read only `account_kind = 'CASH'`; add a separate
-      bank position read.
-- [ ] Add `WALLET` to `account_kind` and custody metadata:
+- [x] Split the Cash & Bank Book into **Cash Book**, **Bank Book**, **Wallet
+      Clearing** and **Bank reconciliation** views.
+- [x] Make daily cash close read only `account_kind = 'CASH'`; add a separate
+      `GET /api/accounting/bank-position` read.
+- [x] Add `WALLET` to `account_kind` and custody metadata:
       `provider_code`, `merchant_id`, `settlement_account_id`.
-- [ ] Seed one clearing ledger per provider in the default chart.
-- [ ] Add branch ownership to custody accounts:
+- [x] Seed one clearing ledger per provider in the default chart (`1030` eSewa,
+      `1040` Khalti, `1050` Nepal Pay).
+- [x] Add branch ownership to custody accounts:
       `gl_accounts.branch_id` nullable; `NULL` = shared.
-- [ ] Validate account owner vs journal line branch on posting.
-- [ ] Add a per-account Bank Book that shows company balance and branch
+- [x] Validate account owner vs journal line branch on posting and on account
+      create/edit.
+- [x] Add a per-account Bank Book that shows company balance and branch
       movement separately.
-- [ ] Add tests for two banks, a branch-owned bank, a shared bank, and a branch
-      cash till.
+- [x] Add tests for two banks, a branch-owned bank, a shared bank, and a branch
+      cash till (`tests/cashCustody.api.test.ts`, `tests/dailyCashClose.api.test.ts`).
 
 Acceptance: a branch cashier’s daily close uses only that branch’s cash tills;
 a bank book shows the real bank balance per account; a branch filter never
@@ -523,6 +526,15 @@ Before a slice is marked done:
       the new opening + manual + invoice + receipt + unapplied-advance tie-out.
 - `[x]` ACC-7 ledger immutability trigger installed in `scripts/schema.sql`;
       re-applying the schema is idempotent with the trigger present.
-- `[~]` ACC-2…ACC-6 are planned but not implemented.
-- Next action: start ACC-2 (cash/bank/wallet custody) or ACC-4’s VAT/TDS
-  coverage rows, depending on priority.
+- `[x]` ACC-2 implementation: migration `0010_cash_bank_wallet_custody`,
+      branch-owned/shared custody accounts, `WALLET` provider metadata, cash-only
+      daily close, separate bank position, and split cash/bank/wallet books.
+- `[x]` ACC-2 verified against PostgreSQL: 5/5 custody tests plus 6/6 updated
+      daily cash-close tests over real HTTP, including a shared bank that keeps
+      its company balance under either branch filter and a cross-branch posting
+      refusal. Full suite and fresh-install evidence are in SESSION_NOTES.
+- `[~]` ACC-3…ACC-6 are planned but not implemented. ACC-3 (wallet receipts and
+      PSP settlement) is the next slice; wallet ledgers are not yet offered as a
+      payment settlement account.
+- Next action: start ACC-3 (wallet receipts, settlements and PSP
+  reconciliation).
