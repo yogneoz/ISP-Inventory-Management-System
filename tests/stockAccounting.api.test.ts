@@ -32,6 +32,7 @@ import { issueAuthToken } from '../server/src/middleware/auth';
 import { setPermissionMatrix } from '../server/src/state/runtimeState';
 import {
   approvalRequests as liveApprovalRequests,
+  setApprovalRequests,
   setBranches,
   setInventoryStock,
   setProducts,
@@ -654,10 +655,20 @@ describe('stock operations post value to the ledger (real HTTP + PostgreSQL)', {
       auditRefNumber: 'SA-AUDIT-APPROVAL',
       varianceItems: [{ productId: PRODUCT, productName: PRODUCT_NAME, countedQty, unitCost: 999 }],
     });
-    assert.ok(
-      liveApprovalRequests.find((entry) => entry.id === created.json.id)?.auditData,
-      'the created request should be in the live approval queue with its audit data'
+    const persisted = await pool!.query(
+      'SELECT audit_data AS "auditData" FROM approval_requests WHERE id = $1',
+      [created.json.id]
     );
+    assert.deepEqual(persisted.rows[0]?.auditData, {
+      auditRefNumber: 'SA-AUDIT-APPROVAL',
+      varianceItems: [{ productId: PRODUCT, productName: PRODUCT_NAME, countedQty, unitCost: 999 }],
+    }, 'auditData must survive on the approval row');
+
+    // Simulate a server restart: the process-local queue no longer has this
+    // request, so the approval processor must reload the audit payload from
+    // PostgreSQL. Without audit_data this approval would leave stock unchanged.
+    setApprovalRequests(liveApprovalRequests.filter((entry) => entry.id !== created.json.id));
+    assert.equal(liveApprovalRequests.some((entry) => entry.id === created.json.id), false);
 
     const approved = await post(`/api/approval-requests/${created.json.id}/process`, { status: 'APPROVED' });
     assert.equal(approved.status, 200, JSON.stringify(approved.json));

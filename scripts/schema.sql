@@ -1172,6 +1172,7 @@ CREATE TABLE IF NOT EXISTS approval_requests (
     status VARCHAR(30) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'CANCELLED')),
     requested_at_ad TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     requested_at_bs VARCHAR(20),
+    audit_data JSONB,
     processed_by_email VARCHAR(150),
     processed_by_name VARCHAR(150),
     processed_by_role VARCHAR(50),
@@ -3705,6 +3706,7 @@ ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL 
 ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
 ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
 ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS audit_data JSONB;
 ALTER TABLE bs_day_records ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
 
 -- v3.1 MIGRATION: Special Hardware Tracking flag on categories

@@ -300,9 +300,10 @@ try {
       });
     }
 
-    // The approval queue row is persisted in PostgreSQL; this process keeps the
-    // just-created request in memory because audit_data has no column and the
-    // approval processor reads it back from the request it was created with.
+    // Persist the complete approval snapshot, including auditData, before it
+    // enters the process-local queue. An approval handled after a restart must
+    // read the same variance payload from PostgreSQL, not depend on this
+    // process still holding the object.
     setApprovalRequests(withPrepended(approvalRequests, newRequest));
     if (getPgConnected()) {
       await pgPool.query(AR_INSERT_SQL, arInsertParams(newRequest));

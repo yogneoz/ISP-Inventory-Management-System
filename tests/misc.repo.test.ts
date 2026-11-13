@@ -185,9 +185,9 @@ describe('buildApprovalRequestQuery', () => {
 });
 
 describe('arInsertParams', () => {
-  test('fills all 20 columns with documented defaults', () => {
+  test('fills all 21 columns with documented defaults', () => {
     const params = arInsertParams(baseApproval);
-    assert.equal(params.length, 20);
+    assert.equal(params.length, 21);
     assert.deepEqual(params, [
       'apr-1', 'APR-2083-001', 'CUSTOMER_DEVICE_STATUS',
       null,            // targetId '' → null
@@ -203,6 +203,7 @@ describe('arInsertParams', () => {
       false,           // restockQtyOnApproval
       'PENDING',       // status literal
       '',              // requestedAtBS passed through (fixture is empty)
+      null,            // auditData absent → NULL
     ]);
   });
 
@@ -221,6 +222,13 @@ describe('arInsertParams', () => {
     assert.equal(params[17], true);
     assert.equal(params[18], 'PENDING');
     assert.equal(params[19], '2083-04-22 BS');
+    assert.equal(params[20], null);
+  });
+
+  test('serializes the audit payload for the JSONB column', () => {
+    const auditData = { auditRefNumber: 'AUD-1', varianceItems: [{ productId: 'p1', countedQty: 3 }] };
+    const params = arInsertParams({ ...baseApproval, auditData } as ApprovalRequest);
+    assert.deepEqual(JSON.parse(String(params[20])), auditData);
   });
 
   test('AR_INSERT_SQL placeholder count matches the param list', () => {
