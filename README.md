@@ -556,13 +556,15 @@ and pagination, so the client loads exactly one page of rows at a time.
 > `tests/registerRefreshDomains.test.ts` until it is wired to a register
 > refresh key (see **Targeted Real-Time Refresh** below).
 
-### Capacity profile: 100k customers, 50 branches, 500 readers
+### Capacity profile: millions of customers, 50 branches, 500 readers
 
-The read paths are sized for **100,000 customers across 50 branches, 1,000
-product types and 500 concurrent users**, with five years of transaction
-history. The directory pages by a stable name order in SQL; national, branch
-and status filters each have a matching index, and the six-column contains
-search keeps its trigram index. The high-volume registers (sales invoices,
+The read paths are sized for a customer directory that can grow into the
+**millions** (recorded at 1,000,000 customers) across 50 branches, 1,000
+product types and 500 concurrent users, with five years of transaction
+history. The directory pages by a stable name order in SQL with an opaque
+keyset cursor, so page depth never walks an OFFSET; national, branch and
+status filters each have a matching index, and the six-column contains search
+keeps its trigram index. The high-volume registers (sales invoices,
 purchase orders, purchase invoices, stock operations, transaction and audit
 logs) order by `created_at`/`timestamp_ad` through composite branch indexes,
 so a page does not sort a branch's whole history.
@@ -755,7 +757,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 2279-test suite against a PostgreSQL 16 service container (zero DB skips;
+  full 2285-test suite against a PostgreSQL 16 service container (zero DB skips;
   the two unconditional skips are Windows-only real-signal checks, which CI runs,
   and the live-drain check runs under `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1` so its
   preconditions cannot silently skip it) →

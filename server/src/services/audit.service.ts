@@ -85,7 +85,13 @@ export function logAuditEvent(
   // Demo mode (PostgreSQL down): the register lives in memory only; skip the
   // pool insert instead of spamming connection errors for every event.
   if (getPgConnected()) {
-    insertAudit(pgPool).catch((e: any) => console.error('audit_logs persist failed:', auditItem.action, e?.message || e));
+    // Return the insert promise so an awaiting caller (the normal write path)
+    // does not answer before its audit row exists. Callers that deliberately
+    // fire-and-forget still ignore the promise.
+    return insertAudit(pgPool).catch((e: any) => {
+      console.error('audit_logs persist failed:', auditItem.action, e?.message || e);
+      return auditItem;
+    });
   }
   return auditItem;
 }

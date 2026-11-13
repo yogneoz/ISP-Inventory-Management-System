@@ -22,8 +22,14 @@ const ROOT = path.resolve('.');
 const SCHEMA_SQL = fs.readFileSync(path.join(ROOT, 'scripts', 'schema.sql'), 'utf8');
 const OUTPUT_DIR = path.join(ROOT, 'docs', 'performance');
 const BASE_URL = process.env.DATABASE_URL || '';
-const DB_NAME = process.env.PHASE0B_DB || 'inventory_phase0b_baseline';
 const CUSTOMER_COUNT = Number(process.env.PHASE0B_CUSTOMERS || 100_000);
+const SCALE_LABEL =
+  CUSTOMER_COUNT >= 1_000_000
+    ? `${Math.round(CUSTOMER_COUNT / 1_000_000)}m`
+    : CUSTOMER_COUNT >= 1_000
+      ? `${Math.round(CUSTOMER_COUNT / 1_000)}k`
+      : String(CUSTOMER_COUNT);
+const DB_NAME = process.env.PHASE0B_DB || `inventory_phase0b_${SCALE_LABEL}`;
 const KEEP_DB = process.env.PHASE0B_KEEP_DB === '1';
 const BRANCH_ID = 'P0B';
 const ANCHOR_INDEX = Math.max(1, Math.floor(CUSTOMER_COUNT * 0.9));
@@ -298,7 +304,8 @@ async function main() {
       ],
     };
 
-    const jsonPath = path.join(OUTPUT_DIR, 'phase0b-baseline.json');
+    const outputBase = SCALE_LABEL === '100k' ? 'phase0b-baseline' : `phase0b-baseline-${SCALE_LABEL}`;
+    const jsonPath = path.join(OUTPUT_DIR, `${outputBase}.json`);
     fs.writeFileSync(jsonPath, JSON.stringify(baseline, null, 2) + '\n');
 
     const cacheRows = cacheLoads
@@ -350,9 +357,9 @@ only to show the cost is stable and reference-sized.
 ${cacheRows}
 
 The complete measurements and EXPLAIN (ANALYZE, BUFFERS) plans are in
-\`phase0b-baseline.json\`.
+\`${outputBase}.json\`.
 `;
-    fs.writeFileSync(path.join(OUTPUT_DIR, 'phase0b-baseline.md'), markdown);
+    fs.writeFileSync(path.join(OUTPUT_DIR, `${outputBase}.md`), markdown);
     console.log(`Wrote ${jsonPath}`);
     console.log(markdown);
   } finally {

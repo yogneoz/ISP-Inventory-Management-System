@@ -1437,7 +1437,13 @@ try {
     if (stockConsumingType) {
       for (const item of operationItems) {
         const product = products.find((entry) => entry.id === item.productId);
-        const stockRecord = inventoryStock.find((entry) => entry.productId === item.productId && entry.branchId === req.body.branchId);
+        let stockRecord: any;
+        if (getPgConnected()) {
+          const stockRead = await pgPool.query(STOCK_FIND_BY_PRODUCT_BRANCH_SQL, [item.productId, req.body.branchId]);
+          stockRecord = stockRead.rows[0];
+        } else {
+          stockRecord = inventoryStock.find((entry) => entry.productId === item.productId && entry.branchId === req.body.branchId);
+        }
         const manualDelta = manualDeltaOf(item);
         const quantity = opType === 'MANUAL_ADJUSTMENT' ? Math.abs(manualDelta) : Number(item.quantity) || 0;
         const availableQuantity = usesDamagedPool(item)

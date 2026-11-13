@@ -230,7 +230,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 2279 tests; CI runs
+                                        #   drift/concurrency guards — 2285 tests; CI runs
                                         #   tsc + npm test + the source guards + the
                                         #   production build + the boot-timing gate +
                                         #   npm audit on every push/PR
@@ -1205,11 +1205,13 @@ comes back). Optional guarded knobs not shown above: `PG_POOL_MAX`
 on) and `RETURNS_APPROVAL_THRESHOLD_NPR` (default 200000 — returns at or
 above it wait for approval).
 
-**Capacity profile (2026-11-06).** The modelled ceiling is 100,000 customers
-across 50 branches, 1,000 product types, 500 concurrent readers and five years
-of history. The directory has national/branch/status name-order indexes and a
-trigram contains-search index; the device-count subquery is indexed on both
-`customer_code` and `customer_id`. Sales-invoice number/customer search is
+**Capacity profile (2026-11-13).** The directory is sized beyond the 100k
+baseline and recorded at 1,000,000 customers across 50 branches, 1,000 product
+types, 500 concurrent readers and five years of history; the harness takes any
+larger `PHASE0B_CUSTOMERS` value. The directory pages by a keyset cursor on
+national/branch/status name-order indexes and keeps a trigram contains-search
+index; the device-count subquery is indexed on both `customer_code` and
+`customer_id`. Sales-invoice number/customer search is
 trigram-indexed, and the newest-first registers (sales invoices, purchase
 orders/invoices, stock operations, transaction/audit logs) have branch-leading
 page indexes. `PG_POOL_MAX` defaults to 40 and JSON responses above 1 KiB are
@@ -1468,7 +1470,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 2279 tests against a real PostgreSQL 16 service container
+2. `npm test` — 2285 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM
