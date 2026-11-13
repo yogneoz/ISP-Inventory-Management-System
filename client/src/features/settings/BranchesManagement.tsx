@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { Branch, User } from '../../types';
+import React, { useEffect, useState } from 'react';
+import { Branch, CostCenter, User } from '../../types';
 import { Building2, Plus, Search, CheckCircle2, Phone, MapPin, Star, Edit, Trash2 } from 'lucide-react';
 import { isOperationAllowed } from '../../utils/permissions';
+import { api } from '../../services/api';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { PageHeader } from '../../components/common/PageHeader';
 import { useDialog } from '../../components/common/DialogProvider';
@@ -36,6 +37,24 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
   const [isWarehouse, setIsWarehouse] = useState(false);
   const [allowProcurement, setAllowProcurement] = useState(true);
   const [allowWarehouseTransfer, setAllowWarehouseTransfer] = useState(true);
+  const [defaultCostCenterId, setDefaultCostCenterId] = useState('');
+  const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
+
+  useEffect(() => {
+    if (!canManageBranches) return;
+    let alive = true;
+    api.getCostCenters(false)
+      .then((rows) => {
+        if (alive) setCostCenters(rows);
+      })
+      .catch(() => {
+        // The branch can still be saved with its existing default if the
+        // dimension list is temporarily unavailable.
+      });
+    return () => {
+      alive = false;
+    };
+  }, [canManageBranches]);
 
   const filtered = branches.filter(
     (b) =>
@@ -56,6 +75,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
     setIsWarehouse(false);
     setAllowProcurement(true);
     setAllowWarehouseTransfer(true);
+    setDefaultCostCenterId('');
     setIsModalOpen(true);
   };
 
@@ -69,6 +89,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
     setIsWarehouse(!!b.isWarehouse || b.code.toUpperCase().startsWith('WH'));
     setAllowProcurement(b.allowProcurement !== false);
     setAllowWarehouseTransfer(b.allowWarehouseTransfer !== false);
+    setDefaultCostCenterId(b.defaultCostCenterId || '');
     setIsModalOpen(true);
   };
 
@@ -95,6 +116,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
           isWarehouse,
           allowProcurement,
           allowWarehouseTransfer,
+          defaultCostCenterId: defaultCostCenterId || null,
         });
       }
     } else {
@@ -109,6 +131,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
           active: true,
           allowProcurement,
           allowWarehouseTransfer,
+          defaultCostCenterId: defaultCostCenterId || null,
         });
       }
     }
@@ -120,6 +143,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
     setIsHeadquarters(false);
     setAllowProcurement(true);
     setAllowWarehouseTransfer(true);
+    setDefaultCostCenterId('');
     setEditingBranch(null);
     setIsModalOpen(false);
   };
@@ -317,6 +341,28 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
                   placeholder="Example Street, Example City"
                   className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent px-3 py-2"
                 />
+              </div>
+
+              <div>
+                <label className="block font-semibold mb-1">Default cost centre</label>
+                <select
+                  aria-label="Branch default cost centre"
+                  value={defaultCostCenterId}
+                  onChange={(e) => setDefaultCostCenterId(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0f1218] px-3 py-2"
+                >
+                  <option value="">No branch default</option>
+                  {costCenters
+                    .filter((center) => !center.branchId || center.branchId === editingBranch?.id)
+                    .map((center) => (
+                      <option key={center.id} value={center.id}>
+                        {center.code} · {center.name}
+                      </option>
+                    ))}
+                </select>
+                <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
+                  Used for postings when the employee has no own default. A centre chosen on a document is never replaced.
+                </p>
               </div>
 
               <div className="space-y-2 pt-2">

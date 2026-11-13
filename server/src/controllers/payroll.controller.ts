@@ -48,10 +48,14 @@ import {
   EMPLOYEE_SET_BRANCH_SQL,
   EMPLOYEE_SET_USER_SQL,
   EMPLOYEE_PROFILE_PHOTO_SQL,
+  EMPLOYEE_SET_DEFAULT_COST_CENTER_SQL,
   EMPLOYEE_UPDATE_SQL,
   EMPLOYEE_USER_OPTIONS_SQL,
   HR_USER_BY_ID_SQL,
   EMPLOYEES_BY_IDS_SQL,
+  PAYROLL_BRANCH_DEFAULT_COST_CENTER_SQL,
+  PAYROLL_COST_CENTER_FOR_BRANCH_SQL,
+  PAYROLL_COST_CENTERS_BY_BRANCH_SQL,
   PAYROLL_EMPLOYEE_PERIOD_CONFLICTS_SQL,
   PAYROLL_LINES_BY_RUN_SQL,
   PAYROLL_LINES_FOR_OUTPUT_SQL,
@@ -309,6 +313,28 @@ function normalizeEmployeeCode(value: unknown): string {
 function optionalText(value: unknown, max: number): string | null {
   const parsed = text(value, max);
   return parsed || null;
+}
+
+/**
+ * ACC-5: an employee default is an analytical dimension owned by HR, but it
+ * must be a real active centre for the employee's branch (or a shared centre).
+ * The same resolver is used by create, edit and the payroll posting path.
+ */
+async function employeeDefaultCostCenter(
+  client: any,
+  branchId: string,
+  value: unknown
+): Promise<string | null> {
+  const id = optionalText(value, 50);
+  if (!id) return null;
+  const row = (await client.query(PAYROLL_COST_CENTER_FOR_BRANCH_SQL, [id, branchId])).rows[0];
+  if (!row) {
+    throw new ApiError(
+      400,
+      'The default cost centre must be an active centre for this employee branch (or a shared centre).'
+    );
+  }
+  return id;
 }
 
 /** Optional non-negative money value; an empty value means "not supplied". */
@@ -617,6 +643,11 @@ export async function post_employee(req: any, res: Response): Promise<any> {
     if (!(await client.query(BRANCH_EXISTS_SQL, [branchId])).rows[0]) {
       throw new ApiError(400, `Branch ${branchId} does not exist.`);
     }
+    const defaultCostCenterId = await employeeDefaultCostCenter(
+      client,
+      branchId,
+      req.body?.defaultCostCenterId
+    );
     if ((await client.query(EMPLOYEE_BY_CODE_SQL, [employeeCode])).rows[0]) {
       throw new ApiError(409, `Employee code ${employeeCode} already exists.`);
     }
@@ -652,6 +683,7 @@ export async function post_employee(req: any, res: Response): Promise<any> {
           personalEmail: optionalText(req.body?.personalEmail, 150),
           monthlySalary: optionalAmount(req.body?.monthlySalary, 'Monthly salary'),
           ssfEligible: optionalBoolean(req.body?.ssfEligible) ?? false,
+          defaultCostCenterId,
           // A record created with a separation date that has already passed
           // starts closed: the person is no longer employed, so the login (if
           // any) must not start open. A future contract end stays employed.
@@ -727,6 +759,14 @@ export async function patch_employee(req: any, res: Response): Promise<any> {
     }
     // Photo first: this statement is what can set NULL, and the COALESCE update
     // below then returns the stored row with the new picture already in it.
+    let defaultCostCenterId: string | null = null;
+    if (has('defaultCostCenterId')) {
+      defaultCostCenterId = await employeeDefaultCostCenter(
+        client,
+        String(existing.branchId),
+        req.body.defaultCostCenterId
+      );
+    }
     if (has('profilePhoto')) {
       const raw = req.body.profilePhoto;
       if (raw !== null && raw !== undefined) {
@@ -791,6 +831,15 @@ export async function patch_employee(req: any, res: Response): Promise<any> {
         nextSeparationDateAD,
       ])
     ).rows[0];
+    if (has('defaultCostCenterId')) {
+      updated = (
+        await client.query(EMPLOYEE_SET_DEFAULT_COST_CENTER_SQL, [
+          id,
+          defaultCostCenterId,
+          actorOf(req),
+        ])
+      ).rows[0];
+    }
     if (has('userId')) {
       const userId = optionalText(req.body.userId, 50);
       if (userId) await assertEmployeeUserLinkable(client, userId, id);
@@ -1398,6 +1447,14 @@ export async function post_payrollRun(req: any, res: Response): Promise<any> {
 
   const employees = (await pgPool.query(EMPLOYEES_BY_IDS_SQL, [employeeIds])).rows;
   const byId = new Map<string, any>(employees.map((employee: any) => [String(employee.id), employee]));
+  const [branchDefaultRow, allowedCenterRows] = await Promise.all([
+    pgPool.query(PAYROLL_BRANCH_DEFAULT_COST_CENTER_SQL, [branchId]),
+    pgPool.query(PAYROLL_COST_CENTERS_BY_BRANCH_SQL, [branchId]),
+  ]);
+  const branchDefaultCostCenterId = branchDefaultRow.rows[0]?.defaultCostCenterId || null;
+  const allowedCenterIds = new Set(
+    allowedCenterRows.rows.map((center: any) => String(center.id))
+  );
   const missing = employeeIds.filter((id: string) => !byId.has(id));
   if (missing.length > 0) throw new ApiError(400, `Employee not found: ${missing.join(', ')}.`);
 
@@ -1425,6 +1482,19 @@ export async function post_payrollRun(req: any, res: Response): Promise<any> {
     const ssf = nonNegativeAmount(raw?.ssf, `SSF for ${employee.employeeCode}`);
     const advance = nonNegativeAmount(raw?.advance, `Advance for ${employee.employeeCode}`);
     const loan = nonNegativeAmount(raw?.loan, `Loan for ${employee.employeeCode}`);
+    // Explicit line > employee default > branch default. A selected centre is
+    // never replaced; an invalid one is refused instead of silently changed.
+    const costCenterId =
+      optionalText(raw?.costCenterId, 50) ||
+      employee.defaultCostCenterId ||
+      branchDefaultCostCenterId ||
+      null;
+    if (costCenterId && !allowedCenterIds.has(costCenterId)) {
+      throw new ApiError(
+        400,
+        `Cost centre ${costCenterId} for ${employee.employeeCode} is not an active centre for branch ${branchId}.`
+      );
+    }
     const deductions = roundMoney(tds + ssf + advance + loan);
     if (deductions > gross + 0.005) {
       throw new ApiError(
@@ -1444,6 +1514,7 @@ export async function post_payrollRun(req: any, res: Response): Promise<any> {
       advance,
       loan,
       net: roundMoney(gross - deductions),
+      costCenterId,
     });
   }
 

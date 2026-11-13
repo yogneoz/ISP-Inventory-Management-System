@@ -35,7 +35,7 @@ import type {
   AccountingEmployee,
   SettlementAccount,
 } from '../../services/api/accounting';
-import type { Branch, Supplier, User } from '../../types';
+import type { Branch, CostCenter, Supplier, User } from '../../types';
 import { localTodayAD } from '../../utils/localDate';
 import { formatMoney } from '../../utils/nprFormat';
 import { getScopedBranches, isOperationAllowed } from '../../utils/permissions';
@@ -51,6 +51,7 @@ export interface VoucherEntryProps {
 interface VoucherLine {
   key: string;
   accountId: string;
+  costCenterId: string;
   partyId: string;
   partyName: string;
   debit: string;
@@ -93,6 +94,7 @@ function blankLine(): VoucherLine {
   return {
     key: `voucher-line-${lineSequence}`,
     accountId: '',
+    costCenterId: '',
     partyId: '',
     partyName: '',
     debit: '',
@@ -165,6 +167,7 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
   const [lines, setLines] = useState<VoucherLine[]>(() => [blankLine(), blankLine()]);
   const [knownAccounts, setKnownAccounts] = useState<Record<string, AccountingAccount>>({});
   const [settlementAccounts, setSettlementAccounts] = useState<SettlementAccount[]>([]);
+  const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
   const [currentBalance, setCurrentBalance] = useState<number | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -180,6 +183,17 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
         label: `${branch.code} · ${branch.name}`,
       })),
     [scopedBranches]
+  );
+
+  const costCenterOptions = useMemo<SearchSelectOption[]>(
+    () =>
+      costCenters
+        .filter((center) => !center.branchId || center.branchId === branchId)
+        .map((center) => ({
+          value: center.id,
+          label: `${center.code} · ${center.name}`,
+        })),
+    [branchId, costCenters]
   );
 
   const cashAccountOptions = useMemo<SearchSelectOption[]>(
@@ -234,11 +248,12 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
       // from the search endpoint as the operator picks them, and employees are
       // searched per branch. Only the small cash/bank settlement list is loaded
       // eagerly so the default till is ready on the cash screen.
-      if (isCash) {
-        setSettlementAccounts(await api.getSettlementAccounts());
-      } else {
-        setSettlementAccounts([]);
-      }
+      const [centers, settlement] = await Promise.all([
+        api.getCostCenters(false),
+        isCash ? api.getSettlementAccounts() : Promise.resolve([]),
+      ]);
+      setCostCenters(centers);
+      setSettlementAccounts(settlement);
     } catch (err: any) {
       setError(err?.message || 'The voucher screen could not load its ledgers.');
     } finally {
@@ -533,6 +548,7 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
           debit: row.line.payment ? roundMoney(amountOf(row.line.payment) * rateValue) : 0,
           credit: row.line.receipt ? roundMoney(amountOf(row.line.receipt) * rateValue) : 0,
           memo: row.line.memo.trim() || null,
+          costCenterId: row.line.costCenterId || null,
           ...partyFor(row.line, row.account),
         })),
       ];
@@ -548,6 +564,7 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
         debit: row.debit,
         credit: row.credit,
         memo: row.line.memo.trim() || null,
+        costCenterId: row.line.costCenterId || null,
         ...partyFor(row.line, row.account),
       }));
       const debit = journalLines.reduce((sum, line) => sum + Number(line.debit || 0), 0);
@@ -673,7 +690,15 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
             <SearchSelect
               value={branchId}
               options={branchOptions}
-              onChange={(next) => { if (next) setBranchId(next); }}
+              onChange={(next) => {
+                if (!next) return;
+                setBranchId(next);
+                // A branch change invalidates an analytical dimension selected
+                // against the previous branch; the operator re-picks it.
+                setLines((current) =>
+                  current.map((line) => (line.costCenterId ? { ...line, costCenterId: '' } : line))
+                );
+              }}
               allowClear={false}
               placeholder="Search branches…"
               ariaLabel={`${isCash ? 'Cash and bank' : 'Journal'} voucher branch`}
@@ -854,6 +879,7 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
                 <th className="w-10 px-2 py-2">S.No</th>
                 <th className="min-w-[230px] px-2 py-2">General Ledger</th>
                 <th className="min-w-[190px] px-2 py-2">Sub Ledger / Party</th>
+                <th className="min-w-[150px] px-2 py-2">Cost centre</th>
                 <th className="w-[130px] px-2 py-2">{isCash ? 'Rec Amount' : 'Dr Amount'}</th>
                 <th className="w-[130px] px-2 py-2">{isCash ? 'Pay Amount' : 'Cr Amount'}</th>
                 <th className="min-w-[190px] px-2 py-2">Narration</th>
@@ -952,12 +978,21 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
                               ? { id: line.partyId, label: line.partyName || line.partyId }
                               : null
                           }
-                          onSelect={(employee) =>
+                          onSelect={(employee) => {
+                            const branchDefault =
+                              scopedBranches.find((branch) => branch.id === branchId)
+                                ?.defaultCostCenterId || '';
                             updateLine(line.key, {
                               partyId: employee?.id || '',
                               partyName: employee?.name || '',
-                            })
-                          }
+                              // A centre the operator already selected wins;
+                              // otherwise use employee master, then branch master.
+                              costCenterId:
+                                line.costCenterId ||
+                                employee?.defaultCostCenterId ||
+                                branchDefault,
+                            });
+                          }}
                           search={searchEmployees}
                           itemKey={(row) => row.id}
                           itemLabel={(row) => `${row.name} (${row.employeeCode})`}
@@ -1001,6 +1036,18 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
                           placeholder="Party id"
                         />
                       )}
+                    </td>
+                    <td className="px-2 py-2">
+                      <SearchSelect
+                        value={line.costCenterId}
+                        options={costCenterOptions}
+                        onChange={(next) => updateLine(line.key, { costCenterId: next })}
+                        placeholder="No cost centre"
+                        inputClassName="h-8 text-[10px]"
+                        ariaLabel={`Line ${index + 1} cost centre`}
+                        portal
+                        emptyLabel="No cost centre matches this search."
+                      />
                     </td>
                     <td className="px-2 py-2">
                       <input

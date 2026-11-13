@@ -7,6 +7,7 @@ export interface EmployeeRecord {
   name: string;
   branchId: string;
   userId: string | null;
+  defaultCostCenterId: string | null;
   department: string | null;
   designation: string | null;
   departmentId: string | null;
@@ -81,6 +82,7 @@ export interface EmployeeInput {
   name: string;
   branchId: string;
   userId?: string | null;
+  defaultCostCenterId?: string | null;
   /** Creates a login for this employee in the same save (create or first link). */
   createLogin?: boolean;
   /** Role the new login starts with. Defaults to FRONT_DESK on the server. */

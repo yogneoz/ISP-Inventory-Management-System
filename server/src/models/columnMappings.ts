@@ -74,6 +74,7 @@ export const BOOTSTRAP_TABLES = {
       ['active', 'active'],
       ['allow_procurement', 'allowProcurement'],
       ['allow_warehouse_transfer', 'allowWarehouseTransfer'],
+      ['default_cost_center_id', 'defaultCostCenterId'],
     ],
   },
   products: {

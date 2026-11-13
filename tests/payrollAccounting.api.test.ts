@@ -946,7 +946,7 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
     assert.deepEqual(byCode.json.map((row: any) => row.employeeCode), ['PAYT-001']);
     assert.deepEqual(
       Object.keys(byCode.json[0]).sort(),
-      ['branchId', 'department', 'designation', 'employeeCode', 'id', 'isActive', 'name']
+      ['branchId', 'defaultCostCenterId', 'department', 'designation', 'employeeCode', 'id', 'isActive', 'name']
     );
     assert.equal(byCode.json[0].panNumber, undefined);
     assert.equal(byCode.json[0].ssfNumber, undefined);

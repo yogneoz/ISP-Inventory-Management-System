@@ -28,6 +28,7 @@ import type {
 import { HR_BLOOD_GROUPS, HR_LOGIN_ROLES, HR_PROFILE_MAX_ROWS } from '../../services/api/hr';
 import { APP_ROLE_LABELS } from '../../utils/permissionMatrixData';
 import { EmployeeSelfServicePhotoDialog } from './EmployeeSelfServicePhotoDialog';
+import type { CostCenter } from '../../types';
 
 const ORG_KIND_NOUN: Record<HrOrgMasterKind, string> = {
   DEPARTMENT: 'department',
@@ -60,6 +61,7 @@ interface RecordDraft {
   name: string;
   branchId: string;
   userId: string;
+  defaultCostCenterId: string;
   department: string;
   designation: string;
   designationCode: string;
@@ -94,6 +96,7 @@ const recordFrom = (employee: EmployeeRecord | null, defaultBranchId: string): R
   name: employee?.name ?? '',
   branchId: employee?.branchId ?? defaultBranchId,
   userId: employee?.userId ?? '',
+  defaultCostCenterId: text(employee?.defaultCostCenterId),
   department: text(employee?.department),
   designation: text(employee?.designation),
   designationCode: text(employee?.designationCode),
@@ -298,6 +301,7 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
   const [masked, setMasked] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedNote, setSavedNote] = useState('');
+  const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
   // The employee-master half of the record. It is saved by the same Save as the
   // F1 sections, so editing a person is one dialog instead of two.
   const [photo, setPhoto] = useState<string | null>(employee?.profilePhoto ?? null);
@@ -330,6 +334,20 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
   const [qualifications, setQualifications] = useState<QualificationDraft[]>([]);
   const [references, setReferences] = useState<ReferenceDraft[]>([]);
   const [branchTransfers, setBranchTransfers] = useState<HrEmployeeBranchTransfer[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    api.getCostCenters(false)
+      .then((rows) => {
+        if (alive) setCostCenters(rows);
+      })
+      .catch(() => {
+        // The employee can still be saved without a default centre.
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const readOnly = !canManage || masked;
 
@@ -682,6 +700,7 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
         // the dedicated transfer process so it carries a date and reason, and
         // a stale open form cannot move the employee back.
         userId: record.userId || null,
+        defaultCostCenterId: record.defaultCostCenterId || null,
         department: nullable(record.department),
         designation: nullable(record.designation),
         designationCode: nullable(record.designationCode),
@@ -716,6 +735,7 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
           employeeCode,
           branchId: record.branchId,
           ...master,
+          defaultCostCenterId: record.defaultCostCenterId || null,
           ...(createLogin ? { createLogin: true, loginRole } : {}),
         });
         await api.saveEmployeeProfile(created.id, payload, created.branchId);
@@ -1071,6 +1091,32 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
                     )}
                   </div>
                 ) : null}
+                <div>
+                  <label className={labelClass}>Default cost centre</label>
+                  <select
+                    aria-label="Employee default cost centre"
+                    disabled={readOnly}
+                    value={record.defaultCostCenterId}
+                    onChange={(event) =>
+                      setRecord({ ...record, defaultCostCenterId: event.target.value })
+                    }
+                    className={inputClass}
+                  >
+                    <option value="">Use the branch default</option>
+                    {costCenters
+                      .filter(
+                        (center) => !center.branchId || center.branchId === record.branchId
+                      )
+                      .map((center) => (
+                        <option key={center.id} value={center.id}>
+                          {center.code} · {center.name}
+                        </option>
+                      ))}
+                  </select>
+                  <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
+                    Postings use this centre first, then the branch default. A centre chosen on a voucher is kept.
+                  </p>
+                </div>
                 <div>
                   <div className="flex items-center justify-between gap-2">
                     <label className={labelClass}>Department</label>

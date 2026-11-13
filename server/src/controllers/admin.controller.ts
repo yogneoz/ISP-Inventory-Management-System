@@ -35,6 +35,7 @@ import {
   COMPANY_PROFILE_UPSERT_SQL,
   companyProfileUpsertParams,
   BRANCH_SELECT_SQL,
+  BRANCH_DEFAULT_COST_CENTER_SQL,
   BRANCH_UPSERT_SQL,
   branchUpsertParams,
   BRANCH_UPDATE_SQL,
@@ -199,6 +200,15 @@ try {
 
 }
 
+async function branchDefaultCostCenterError(defaultCostCenterId: unknown, branchId: string): Promise<string | null> {
+  const id = typeof defaultCostCenterId === 'string' ? defaultCostCenterId.trim() : '';
+  if (!id || !getPgConnected()) return null;
+  const row = (await pgPool.query(BRANCH_DEFAULT_COST_CENTER_SQL, [id, branchId])).rows[0];
+  return row
+    ? null
+    : 'The branch default cost centre must be an active centre for this branch (or a shared centre).';
+}
+
 /** Forwarded from admin.routes.ts (get_branches). */
 export async function get_branches(req: any, res: Response): Promise<any> {
 if (getPgConnected()) {
@@ -227,7 +237,16 @@ try {
       active: req.body.active !== false,
       allowProcurement: req.body.allowProcurement !== false,
       allowWarehouseTransfer: req.body.allowWarehouseTransfer !== false,
+      defaultCostCenterId:
+        typeof req.body.defaultCostCenterId === 'string' && req.body.defaultCostCenterId.trim()
+          ? req.body.defaultCostCenterId.trim()
+          : null,
     };
+    const costCenterError = await branchDefaultCostCenterError(
+      newBranch.defaultCostCenterId,
+      newBranch.id
+    );
+    if (costCenterError) return res.status(400).json({ message: costCenterError });
     const idx = branches.findIndex((b) => b.id === newBranch.id);
     setBranches(idx >= 0 ? withReplaced(branches, idx, newBranch) : withAppended(branches, newBranch));
 
@@ -249,6 +268,8 @@ try {
     const { id } = req.params;
     const idx = branches.findIndex((b) => b.id === id);
     if (idx === -1) return res.status(404).json({ message: 'Branch not found' });
+    const costCenterError = await branchDefaultCostCenterError(req.body.defaultCostCenterId, id);
+    if (costCenterError) return res.status(400).json({ message: costCenterError });
     setBranches(withReplaced(branches, idx, { ...branches[idx], ...req.body }));
     const b = branches[idx];
 

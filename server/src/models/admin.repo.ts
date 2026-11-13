@@ -258,10 +258,16 @@ export function companyProfileUpsertNoStampParams(p: CompanyProfile): unknown[] 
 // ---------------------------------------------------------------------------
 
 export const BRANCH_SELECT_SQL =
-  'SELECT id, code, name, location, phone, is_headquarters AS "isHeadquarters", active, allow_procurement AS "allowProcurement", allow_warehouse_transfer AS "allowWarehouseTransfer" FROM branches ORDER BY name ASC';
+  'SELECT id, code, name, location, phone, is_headquarters AS "isHeadquarters", active, allow_procurement AS "allowProcurement", allow_warehouse_transfer AS "allowWarehouseTransfer", default_cost_center_id AS "defaultCostCenterId" FROM branches ORDER BY name ASC';
 
-export const BRANCH_UPSERT_SQL = `INSERT INTO branches (id, code, name, location, phone, is_headquarters, active, allow_procurement, allow_warehouse_transfer)
- VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+/** A branch default must be an active cost centre that belongs to this branch or is shared. */
+export const BRANCH_DEFAULT_COST_CENTER_SQL = `SELECT id
+FROM cost_centers
+WHERE id = $1 AND active = TRUE AND (branch_id IS NULL OR branch_id = $2)
+LIMIT 1`;
+
+export const BRANCH_UPSERT_SQL = `INSERT INTO branches (id, code, name, location, phone, is_headquarters, active, allow_procurement, allow_warehouse_transfer, default_cost_center_id)
+ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
  ON CONFLICT (id) DO UPDATE SET
    code = EXCLUDED.code,
    name = EXCLUDED.name,
@@ -270,7 +276,8 @@ export const BRANCH_UPSERT_SQL = `INSERT INTO branches (id, code, name, location
    is_headquarters = EXCLUDED.is_headquarters,
    active = EXCLUDED.active,
    allow_procurement = EXCLUDED.allow_procurement,
-   allow_warehouse_transfer = EXCLUDED.allow_warehouse_transfer;`;
+   allow_warehouse_transfer = EXCLUDED.allow_warehouse_transfer,
+   default_cost_center_id = EXCLUDED.default_cost_center_id;`;
 
 export function branchUpsertParams(b: Branch): unknown[] {
   return [
@@ -283,12 +290,13 @@ export function branchUpsertParams(b: Branch): unknown[] {
     b.active,
     b.allowProcurement,
     b.allowWarehouseTransfer,
+    b.defaultCostCenterId ?? null,
   ];
 }
 
 export const BRANCH_UPDATE_SQL = `UPDATE branches SET
-   code = $1, name = $2, location = $3, phone = $4, is_headquarters = $5, active = $6, allow_procurement = $7, allow_warehouse_transfer = $8
- WHERE id = $9;`;
+   code = $1, name = $2, location = $3, phone = $4, is_headquarters = $5, active = $6, allow_procurement = $7, allow_warehouse_transfer = $8, default_cost_center_id = $9
+ WHERE id = $10;`;
 
 export function branchUpdateParams(b: Partial<Branch> & Pick<Branch, 'id'>): unknown[] {
   return [
@@ -300,6 +308,7 @@ export function branchUpdateParams(b: Partial<Branch> & Pick<Branch, 'id'>): unk
     b.active !== false,
     b.allowProcurement !== false,
     b.allowWarehouseTransfer !== false,
+    b.defaultCostCenterId ?? null,
     b.id,
   ];
 }

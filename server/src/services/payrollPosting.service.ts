@@ -56,6 +56,8 @@ export interface PayrollPostingLine {
   advance: number | string;
   loan: number | string;
   net: number | string;
+  /** ACC-5 employee default, branch default, or explicit line override. */
+  costCenterId?: string | null;
 }
 
 export interface PayrollRunPostingInput {
@@ -166,6 +168,7 @@ export async function postPayrollRunJournal(
   let totalGross = 0;
   let totalEmployerSsf = 0;
   let totalCredits = 0;
+  const salaryCostByCenter = new Map<string | null, { gross: number; employerSsf: number }>();
 
   for (const line of input.lines) {
     const gross = money(line.gross);
@@ -187,6 +190,11 @@ export async function postPayrollRunJournal(
 
     totalGross = roundMoney(totalGross + gross);
     totalEmployerSsf = roundMoney(totalEmployerSsf + employerSsf);
+    const centerId = line.costCenterId || null;
+    const centerCost = salaryCostByCenter.get(centerId) || { gross: 0, employerSsf: 0 };
+    centerCost.gross = roundMoney(centerCost.gross + gross);
+    centerCost.employerSsf = roundMoney(centerCost.employerSsf + employerSsf);
+    salaryCostByCenter.set(centerId, centerCost);
 
     for (const [amount, role, label] of [
       [tds, 'TDS_PAYABLE', 'TDS withheld'],
@@ -212,18 +220,26 @@ export async function postPayrollRunJournal(
   // the employee share (the old behaviour) understated salary expense and left
   // SSF payable short of the contribution actually due.
   const totalSalaryCost = roundMoney(totalGross + totalEmployerSsf);
-  // One cost debit for the run, before the per-employee credits. The detail
-  // lives in payroll_run_lines and in each subledger line's memo.
-  lines.unshift(
-    ordinaryLine(
-      salaryExpense,
-      totalSalaryCost,
-      0,
-      totalEmployerSsf > 0
-        ? `${memo} — gross wages ${totalGross.toFixed(2)} + employer SSF ${totalEmployerSsf.toFixed(2)}`
-        : `${memo} — gross wages`
-    )
+  // Salary cost is split by the employee/branch default cost centre so the
+  // analytical ledger follows the master data. One centre keeps one debit; a
+  // run with several centres posts one debit per centre, in stable order.
+  const salaryCostLines: JournalLineInput[] = [...salaryCostByCenter.entries()].map(
+    ([costCenterId, cost]) => {
+      const centerCost = roundMoney(cost.gross + cost.employerSsf);
+      return {
+        ...ordinaryLine(
+          salaryExpense,
+          centerCost,
+          0,
+          cost.employerSsf > 0
+            ? `${memo} — gross wages ${cost.gross.toFixed(2)} + employer SSF ${cost.employerSsf.toFixed(2)}`
+            : `${memo} — gross wages`
+        ),
+        costCenterId,
+      };
+    }
   );
+  lines.unshift(...salaryCostLines);
   if (Math.abs(totalSalaryCost - totalCredits) >= 0.005) {
     throw new ApiError(
       400,

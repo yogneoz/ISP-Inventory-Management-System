@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS branches (
     allow_procurement BOOLEAN DEFAULT TRUE,
     allow_warehouse_transfer BOOLEAN DEFAULT TRUE,
     is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    default_cost_center_id VARCHAR(50),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -1736,6 +1737,20 @@ CREATE TABLE IF NOT EXISTS cost_centers (
 CREATE INDEX IF NOT EXISTS idx_cost_centers_parent ON cost_centers(parent_id);
 CREATE INDEX IF NOT EXISTS idx_cost_centers_branch ON cost_centers(branch_id);
 
+-- ACC-5: branch master default cost centre. Employees may override it; a
+-- posting uses the employee default first, then this branch default.
+ALTER TABLE branches ADD COLUMN IF NOT EXISTS default_cost_center_id VARCHAR(50);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'branches_default_cost_center_id_fkey'
+  ) THEN
+    ALTER TABLE branches
+      ADD CONSTRAINT branches_default_cost_center_id_fkey
+      FOREIGN KEY (default_cost_center_id) REFERENCES cost_centers(id) ON DELETE RESTRICT;
+  END IF;
+END $$;
+
 -- Narration templates are quick-pick text only. The journal stores the chosen
 -- text, never the template id, so editing a template never rewrites history.
 CREATE TABLE IF NOT EXISTS narration_templates (
@@ -2513,6 +2528,7 @@ CREATE TABLE IF NOT EXISTS employees (
     user_id VARCHAR(50) REFERENCES users(id) ON DELETE SET NULL,
     department VARCHAR(120),
     department_id VARCHAR(50),
+    default_cost_center_id VARCHAR(50) REFERENCES cost_centers(id) ON DELETE RESTRICT,
     designation VARCHAR(120),
     designation_id VARCHAR(50),
     workstation_id VARCHAR(50),

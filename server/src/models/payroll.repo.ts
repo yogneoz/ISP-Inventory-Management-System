@@ -15,6 +15,7 @@ export const EMPLOYEE_COLUMNS = `id,
   name,
   branch_id AS "branchId",
   user_id AS "userId",
+  default_cost_center_id AS "defaultCostCenterId",
   department,
   designation,
   department_id AS "departmentId",
@@ -53,6 +54,7 @@ export const EMPLOYEE_PICKER_COLUMNS = `id,
   employee_code AS "employeeCode",
   name,
   branch_id AS "branchId",
+  default_cost_center_id AS "defaultCostCenterId",
   department,
   designation,
   is_active AS "isActive"`;
@@ -242,10 +244,10 @@ export const EMPLOYEE_INSERT_SQL = `INSERT INTO employees (
   date_of_birth_ad, contract_expiry_ad, separation_date_ad, designation_code,
   work_station, address, personal_contact, emergency_contact_person,
   emergency_contact_number, internal_email, personal_email, monthly_salary,
-  ssf_eligible, is_active, user_id, is_demo, created_by,
+  ssf_eligible, is_active, user_id, is_demo, created_by, default_cost_center_id,
   department_id, designation_id, workstation_id
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-  $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, FALSE, $28,
+  $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, FALSE, $28, $29,
   (SELECT id FROM hr_org_masters WHERE kind = 'DEPARTMENT'
     AND lower(name) = lower($5::varchar) LIMIT 1),
   (SELECT id FROM hr_org_masters WHERE kind = 'DESIGNATION'
@@ -286,6 +288,7 @@ export interface EmployeeInsertInput {
   ssfEligible: boolean;
   isActive: boolean;
   createdBy: string | null;
+  defaultCostCenterId: string | null;
 }
 
 export function employeeInsertParams(input: EmployeeInsertInput): unknown[] {
@@ -318,6 +321,7 @@ export function employeeInsertParams(input: EmployeeInsertInput): unknown[] {
     input.isActive,
     input.userId,
     input.createdBy,
+    input.defaultCostCenterId,
   ];
 }
 
@@ -370,6 +374,29 @@ export const EMPLOYEE_UPDATE_SQL = `UPDATE employees SET
 WHERE id = $1
 RETURNING ${EMPLOYEE_COLUMNS}`;
 
+/** The employee default can be cleared, so it has its own nullable write. */
+export const EMPLOYEE_SET_DEFAULT_COST_CENTER_SQL = `UPDATE employees SET
+  default_cost_center_id = $2,
+  updated_by = COALESCE($3, updated_by),
+  updated_at = CURRENT_TIMESTAMP
+WHERE id = $1
+RETURNING ${EMPLOYEE_COLUMNS}`;
+
+/** One active centre that belongs to the branch (or is shared). */
+export const PAYROLL_COST_CENTER_FOR_BRANCH_SQL = `SELECT id
+FROM cost_centers
+WHERE id = $1 AND active = TRUE AND (branch_id IS NULL OR branch_id = $2)
+LIMIT 1`;
+
+export const PAYROLL_BRANCH_DEFAULT_COST_CENTER_SQL = `SELECT default_cost_center_id AS "defaultCostCenterId"
+FROM branches WHERE id = $1`;
+
+/** Active centres a payroll line may use: shared or owned by the run branch. */
+export const PAYROLL_COST_CENTERS_BY_BRANCH_SQL = `SELECT id, code, name, branch_id AS "branchId"
+FROM cost_centers
+WHERE active = TRUE AND (branch_id IS NULL OR branch_id = $1)
+ORDER BY code ASC`;
+
 /**
  * A branch transfer is deliberately separate from the PATCH's COALESCE list:
  * the caller validates the target branch and its scope, and the transfer gets
@@ -377,7 +404,17 @@ RETURNING ${EMPLOYEE_COLUMNS}`;
  * they were posted to.
  */
 export const EMPLOYEE_SET_BRANCH_SQL = `UPDATE employees
-  SET branch_id = $2,
+  SET branch_id = $2::varchar,
+      default_cost_center_id = CASE
+        WHEN default_cost_center_id IS NULL THEN NULL
+        WHEN EXISTS (
+          SELECT 1 FROM cost_centers c
+          WHERE c.id = employees.default_cost_center_id
+            AND c.active = TRUE
+            AND (c.branch_id IS NULL OR c.branch_id = $2::varchar)
+        ) THEN default_cost_center_id
+        ELSE NULL
+      END,
       updated_by = COALESCE($3, updated_by),
       updated_at = CURRENT_TIMESTAMP
   WHERE id = $1

@@ -219,29 +219,29 @@ describe('branch params', () => {
     isHeadquarters: false, active: true, allowProcurement: false, allowWarehouseTransfer: true,
   };
 
-  test('branchUpsertParams passes all nine columns through', () => {
-    assert.deepEqual(branchUpsertParams(branch), [
-      'br-1', 'BR-01', 'Pokhara', 'Pokhara', '061-1', false, true, false, true,
+  test('branchUpsertParams passes all ten columns through', () => {
+    assert.deepEqual(branchUpsertParams({ ...branch, defaultCostCenterId: 'cc-1' }), [
+      'br-1', 'BR-01', 'Pokhara', 'Pokhara', '061-1', false, true, false, true, 'cc-1',
     ]);
   });
 
   test('branchUpdateParams coerces flags with the documented defaults', () => {
     assert.deepEqual(
       branchUpdateParams({ id: 'br-2', code: 'C', name: 'N', location: 'L' }),
-      ['C', 'N', 'L', '', false, true, true, true, 'br-2']
+      ['C', 'N', 'L', '', false, true, true, true, null, 'br-2']
     );
   });
 
   test('upsert SQL syncs every column on conflict', () => {
-    assert.equal(maxPlaceholder(BRANCH_UPSERT_SQL), 9);
-    for (const col of ['code', 'name', 'location', 'phone', 'is_headquarters', 'active', 'allow_procurement', 'allow_warehouse_transfer']) {
+    assert.equal(maxPlaceholder(BRANCH_UPSERT_SQL), 10);
+    for (const col of ['code', 'name', 'location', 'phone', 'is_headquarters', 'active', 'allow_procurement', 'allow_warehouse_transfer', 'default_cost_center_id']) {
       assert.ok(BRANCH_UPSERT_SQL.includes(`${col} = EXCLUDED.${col}`), `missing conflict update for ${col}`);
     }
   });
 
-  test('update SQL takes 9 binds with id last; delete is id-scoped', () => {
-    assert.equal(maxPlaceholder(BRANCH_UPDATE_SQL), 9);
-    assert.match(BRANCH_UPDATE_SQL, /WHERE id = \$9;$/);
+  test('update SQL takes 10 binds with id last; delete is id-scoped', () => {
+    assert.equal(maxPlaceholder(BRANCH_UPDATE_SQL), 10);
+    assert.match(BRANCH_UPDATE_SQL, /WHERE id = \$10;$/);
     assert.equal(BRANCH_DELETE_SQL, 'DELETE FROM branches WHERE id = $1');
     assert.match(BRANCH_SELECT_SQL, / FROM branches ORDER BY name ASC$/);
   });

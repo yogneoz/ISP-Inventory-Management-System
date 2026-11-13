@@ -488,6 +488,7 @@ export async function post_hrEmployeeImport(req: any, res: Response): Promise<an
               ssfEligible: record.ssfEligible ?? false,
               isActive: record.isActive ?? true,
               createdBy: actorOf(req),
+              defaultCostCenterId: null,
             })
           );
         } else if (record.existingId) {

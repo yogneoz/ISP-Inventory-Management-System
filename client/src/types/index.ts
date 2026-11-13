@@ -164,6 +164,8 @@ export interface Branch {
   active: boolean;
   allowProcurement?: boolean;
   allowWarehouseTransfer?: boolean;
+  /** ACC-5 default cost centre used when an employee has no own default. */
+  defaultCostCenterId?: string | null;
   isWarehouse?: boolean;
 }
 

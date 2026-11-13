@@ -1058,6 +1058,7 @@ export async function post_hrRecruitmentHire(req: any, res: Response): Promise<a
             ssfEligible: false,
             isActive: true,
             createdBy: actorOf(req),
+            defaultCostCenterId: null,
           })
         )
       ).rows[0];

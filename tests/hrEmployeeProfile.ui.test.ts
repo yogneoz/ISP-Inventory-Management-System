@@ -91,6 +91,14 @@ const typeInto = async (input: HTMLInputElement | HTMLTextAreaElement, value: st
   });
 };
 
+const choose = async (select: HTMLSelectElement, value: string): Promise<void> => {
+  const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(select), 'value')?.set;
+  await act(async () => {
+    setter?.call(select, value);
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+};
+
 const mountDialog = () =>
   mountTree(
     createElement(
@@ -187,6 +195,54 @@ test('family rows can be added and removed', async () => {
       '',
       'the remaining row is the blank one that was just added'
     );
+  } finally {
+    tree.unmount();
+    restore();
+  }
+});
+
+test('the employee default cost centre is branch-filtered and saved with the master', async () => {
+  let masterArgs: unknown[] = [];
+  const restore = installApiStubs({
+    getCostCenters: async () => [
+      { id: 'cc-own', code: 'CC-1', name: 'Branch centre', branchId: employee.branchId, active: true },
+      { id: 'cc-other', code: 'CC-2', name: 'Other centre', branchId: 'WH002', active: true },
+      { id: 'cc-shared', code: 'CC-S', name: 'Shared centre', branchId: null, active: true },
+    ],
+    getEmployeeProfile: async () => profileResponse(),
+    updateEmployee: async (...received: unknown[]) => {
+      masterArgs = received;
+      return employee;
+    },
+    saveEmployeeProfile: async () => profileResponse(),
+  });
+  const tree = mountTree(
+    createElement(
+      DialogProvider,
+      null,
+      createElement(EmployeeProfileDialog, {
+        employee: { ...employee, defaultCostCenterId: 'cc-own' } as EmployeeRecord,
+        canManage: true,
+        onClose: () => undefined,
+      })
+    )
+  );
+  try {
+    await settle();
+    const select = document.querySelector(
+      'select[aria-label="Employee default cost centre"]'
+    ) as HTMLSelectElement | null;
+    assert.ok(select, 'the employee default centre is editable');
+    assert.equal(select.value, 'cc-own');
+    const values = Array.from(select.options).map((option) => option.value);
+    assert.ok(values.includes('cc-shared'), 'a shared centre is selectable');
+    assert.equal(values.includes('cc-other'), false, 'another branch centre is excluded');
+
+    await choose(select!, 'cc-shared');
+    await click(buttonByText('Save profile') as HTMLButtonElement);
+    await settle();
+    const master = masterArgs[1] as Record<string, unknown>;
+    assert.equal(master.defaultCostCenterId, 'cc-shared');
   } finally {
     tree.unmount();
     restore();

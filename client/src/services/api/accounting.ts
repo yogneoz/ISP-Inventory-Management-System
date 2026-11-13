@@ -2445,6 +2445,7 @@ export interface AccountingEmployee {
   employeeCode: string;
   name: string;
   branchId: string;
+  defaultCostCenterId: string | null;
   department: string | null;
   designation: string | null;
   isActive: boolean;

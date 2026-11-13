@@ -1034,6 +1034,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       'getAccountingEmployees',
       'getActiveBranchId',
       'getCashBook',
+      'getCostCenters',
       'getSettlementAccounts',
       'postAccountingJournal',
       'searchAccountingAccounts',
@@ -1309,6 +1310,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       'HR_PROFILE_MAX_ROWS',
       'createEmployee',
       'createHrOrgMaster',
+      'getCostCenters',
       'getEmployeeProfile',
       'saveEmployeeProfile',
       'updateEmployee',
@@ -1408,7 +1410,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'sales/SalesAgentsAreasManagement.tsx': ['createArea', 'createSalesAgent', 'deleteArea', 'deleteSalesAgent', 'getAreas', 'getSalesAgents', 'updateArea', 'updateSalesAgent'],
     'sales/ImportCustomers.tsx': [],
     'settings/ApprovalWorkflowCenter.tsx': [],
-    'settings/BranchesManagement.tsx': [],
+    'settings/BranchesManagement.tsx': ['getCostCenters'],
     'settings/CompanySetupManagement.tsx': [],
 
     // — StockOperations tab panels (StockOperations decomposition): commit 1
