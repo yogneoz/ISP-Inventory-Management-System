@@ -18,16 +18,13 @@
  * so a stale mirror row could reject a rename that PostgreSQL accepted.
  *
  * The fix: each site is now gated on `!getPgConnected()` — the mirror serves
- * PG-down demo mode only. When PG is connected, cacheRefreshHook
- * (runtimeState.CACHE_LOADS includes serial_log) re-derives serialLogs from
- * PG truth before the response is sent, so the UI never depends on the
+ * PG-down demo mode only. When PG is connected, every read goes to PostgreSQL
+ * (there is no full serial-log cache), so the UI never depends on the
  * in-request mirror writes.
  *
  * PROVES (source pins, no DB needed):
  *   1. All five mirror serialLogs decision/mutation sites are PG-down gated.
- *   2. serial_log stays in CACHE_LOADS — the reconciliation path that makes
- *      the gate safe (if someone removed it, PG-connected responses would
- *      serve a stale mirror).
+ *   2. serial_log is NOT hydrated as a boot cache — it is a bounded paged read.
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
@@ -80,14 +77,11 @@ describe('mirror retirement step 4 — serialLogs mirror is demo-mode only', () 
     assertGated(src, 'setSerialLogs(applyInMemorySerialRename(', 700);
   });
 
-  test('serial_log reconciliation stays in runtime cache loads', () => {
+  test('serial_log is not a boot cache load', () => {
     const src = read('server/src/state/runtimeState.ts');
-    const entryIdx = src.indexOf("name: 'serial_log'");
-    assert.ok(entryIdx !== -1, "serial_log must be a CACHE_LOADS entry");
-    const entry = src.slice(entryIdx, entryIdx + 500);
     assert.ok(
-      entry.includes('serialLogs = rows.map('),
-      'the serial_log cache load must reassign serialLogs from PG rows (unconditional, no rows.length guard) so PG-connected responses never depend on the in-request mirror writes'
+      !/name:\s*'serial_log'/.test(src),
+      'serial_log must not be a CACHE_LOADS entry — the register is served by the bounded serial-log query'
     );
   });
 });

@@ -35,6 +35,7 @@ import {
   SI_BLOCKING_PAYMENTS_SQL, SI_BLOCKING_RETURNS_SQL,
   SI_CLAIMED_SERIALS_SQL, SI_RELEASE_SERIAL_SQL, siCancelTxnLogParams,
 } from '../models/sales.repo';
+import { CUSTOMER_FIND_BY_ID_OR_CODE_SQL, CUSTOMER_FIND_BY_NAME_SQL } from '../models/masterdata.repo';
 import { planSerialGateEntries, resolveSerialGateInDb, serialGateKey } from '../services/serialGate.service';
 import { findAreaById, findSalesAgentById } from './salesMasters.controller';
 import {
@@ -1060,7 +1061,13 @@ export async function get_customerLedger(req: any, res: Response): Promise<any> 
   try {
     const { customerId } = req.params;
     const { fromAd, toAd, branchId } = req.query;
-    const customer = customerMasterRecords.find((c: any) => c.id === customerId || c.customerId === customerId);
+    let customer: any;
+    if (getPgConnected()) {
+      const found = await pgPool.query(CUSTOMER_FIND_BY_ID_OR_CODE_SQL, [customerId]);
+      customer = found.rows[0];
+    } else {
+      customer = customerMasterRecords.find((c: any) => c.id === customerId || c.customerId === customerId);
+    }
     if (!customer) {
       return res.status(404).json({ message: 'Customer not found.' });
     }
@@ -1136,15 +1143,27 @@ export async function post_customerPayments(req: any, res: Response): Promise<an
     let customerId: string | null = body.customerId || linkedInvoice?.customerId || null;
     let customerName = body.customerName || linkedInvoice?.customerName || '';
     if (!customerId && customerName) {
-      const matched = customerMasterRecords.find((c: any) =>
-        c.customerName.toLowerCase() === customerName.toLowerCase()
-      ) || customerMasterRecords.find((c: any) =>
-        customerName.toLowerCase().includes(c.customerName.toLowerCase())
-      );
+      let matched: any;
+      if (getPgConnected()) {
+        const found = await pgPool.query(CUSTOMER_FIND_BY_NAME_SQL, [customerName]);
+        matched = found.rows[0];
+      } else {
+        matched = customerMasterRecords.find((c: any) =>
+          c.customerName.toLowerCase() === customerName.toLowerCase()
+        ) || customerMasterRecords.find((c: any) =>
+          customerName.toLowerCase().includes(c.customerName.toLowerCase())
+        );
+      }
       customerId = matched?.id || null;
     }
     if (!customerName && customerId) {
-      const cust = customerMasterRecords.find((c: any) => c.id === customerId);
+      let cust: any;
+      if (getPgConnected()) {
+        const found = await pgPool.query(CUSTOMER_FIND_BY_ID_OR_CODE_SQL, [customerId]);
+        cust = found.rows[0];
+      } else {
+        cust = customerMasterRecords.find((c: any) => c.id === customerId);
+      }
       customerName = cust?.customerName || '';
     }
     if (!customerName) {

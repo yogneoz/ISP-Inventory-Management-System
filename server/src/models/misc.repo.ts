@@ -229,6 +229,8 @@ export const AR_FIND_BY_ID_SQL = AR_SELECT_PREFIX_SHORT + ' WHERE id = $1';
 
 export const AR_FIND_BY_ANY_ID_SQL = 'SELECT * FROM approval_requests WHERE id = $1';
 
+export const AR_COUNT_SQL = 'SELECT COUNT(*)::int AS count FROM approval_requests';
+
 /** Full close-out update (used for rejection and cancellation). */
 export const AR_CLOSE_OUT_SQL =
   'UPDATE approval_requests SET status = $1, processed_by_email = $2, processed_by_name = $3, processed_by_role = $4, processed_at_ad = NOW(), processed_at_bs = $5, rejection_reason = $6 WHERE id = $7';

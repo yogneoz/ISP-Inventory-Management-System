@@ -8,8 +8,7 @@
  * array, never mutating the previous generation (safe under concurrent
  * request reads). `mutable()` is the documented escape hatch for legacy
  * demo-mode (non-PG) in-memory behaviors that only run when isPgConnected
- * is false; in PG mode those mirror writes are discarded by the next
- * refreshOperationalCache() swap.
+ * is false; PG-connected reads never consult these mirrors.
  */
 export function withPrepended<T>(arr: readonly T[], item: T): T[] {
   return [item, ...arr];

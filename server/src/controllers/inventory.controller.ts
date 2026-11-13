@@ -139,6 +139,7 @@ import {
   SERIAL_LOG_SYNC_ON_CDR_SQL,
   serialLogCdrSyncParams,
   SERIAL_LOG_IDENTITY_BY_SERIAL_SQL,
+  STOCK_FIND_BY_PRODUCT_BRANCH_SQL,
 } from '../models/inventory.repo';
 import {
   serialStatusForCdrStatus,
@@ -861,7 +862,13 @@ try {
     if (deployFromStock) {
       const qty = 1;
       const branchId = String(newAsset.branchId);
-      const stockRecord = inventoryStock.find((entry) => entry.productId === newAsset.productId && entry.branchId === branchId);
+      let stockRecord: any;
+      if (getPgConnected()) {
+        const stockRead = await pgPool.query(STOCK_FIND_BY_PRODUCT_BRANCH_SQL, [newAsset.productId, branchId]);
+        stockRecord = stockRead.rows[0];
+      } else {
+        stockRecord = inventoryStock.find((entry) => entry.productId === newAsset.productId && entry.branchId === branchId);
+      }
       if (!stockRecord || Number(stockRecord.quantityOnHand) < qty) {
         res.status(400).json({ message: `Insufficient inventory for ${newAsset.name}. Available: ${stockRecord ? Number(stockRecord.quantityOnHand) : 0}, requested: ${qty}.` });
         return;
@@ -1027,8 +1034,7 @@ try {
       setTransactionLogs([txn as any, ...transactionLogs]);
       // PG-down demo mode only: flip the mirror serial directly. With PG
       // connected, SERIAL_LOG_ASSIGN_ON_DEPLOY_SQL already ran inside the
-      // write transaction above and cacheRefreshHook re-derives serialLogs
-      // from PG truth before the response is sent (mirror step 4).
+      // write transaction above and the register is read from PG on demand.
       if (newAsset.deviceSerial && !getPgConnected()) {
         const sl = serialLogs.find((e) => String(e.deviceSerial || '').trim().toLowerCase() === String(newAsset.deviceSerial).trim().toLowerCase() && e.status === 'IN_STOCK');
         // Slice 2 (demo mode: PostgreSQL down): the SAME gate rule against the
@@ -1881,8 +1887,7 @@ try {
             // PG-down demo mode only: mirror the serial quarantine directly.
             // With PG connected, quarantineSerialsInDb already wrote the
             // IN_STOCK → DAMAGED transition inside the same transaction and
-            // the Serial Log Register reads PG (cacheRefreshHook reconciles
-            // the mirror after the response).
+            // the Serial Log Register reads PG on demand.
             if (!getPgConnected()) {
               quarantineInMemorySerials(serialLogs, [item] as any, newOp as any);
             }
@@ -1901,8 +1906,8 @@ try {
         }
       }
     }
-    // Demo-mode twin of the issue transition (PG-connected responses re-derive
-    // the mirror from PG in cacheRefreshHook).
+    // Demo-mode twin of the issue transition (PG-connected responses read the
+    // register from PostgreSQL).
     if (!getPgConnected() && serialGatePlan.entries.length > 0) {
       setSerialLogs(
         issueOperationSerialsInMemory(serialLogs as any, serialGatePlan.entries, newOp as any, newOp.dateAD) as any
@@ -2112,7 +2117,7 @@ try {
 
     // PG-down demo mode only: mirror the serial restoration directly. With PG
     // connected, restoreSerialsInDb already ran inside the transaction above
-    // and cacheRefreshHook re-derives the mirror from PG after the response.
+    // and the register is read from PG on demand.
     if (!getPgConnected()) {
       restoreInMemorySerials(
         mutable(serialLogs),
@@ -2452,8 +2457,8 @@ async function reverseIssuedOperation(
       reversalLedger = buildLedger();
     }
 
-    // Mirror updates so the UI reflects the reversal immediately; the PG
-    // response is re-derived by cacheRefreshHook when connected.
+    // Demo-mode mirror updates so the UI reflects the reversal immediately;
+    // PG-connected reads come from the transaction's rows.
     const stockRows = [...inventoryStock];
     for (const item of usableItems) {
       const qty = Number(item.quantity) || 0;

@@ -320,6 +320,12 @@ export interface CustomerListQueryOptions {
   pageSize?: unknown;
   /** CSV export path: one envelope with every matching row. */
   all?: boolean;
+  /**
+   * Keyset anchor: return rows strictly after this (customer_name,
+   * customer_id) pair. The directory's primary paging path; page/pageSize
+   * remain for older clients and the existing footer contract.
+   */
+  cursor?: { name: string; id: string };
 }
 
 /** Only the two statuses the directory offers are filters; never trust the query string. */
@@ -390,14 +396,39 @@ export function normalizeCustomerPaging(page?: unknown, pageSize?: unknown): { p
  * Paged customer list. `all` skips LIMIT/OFFSET for the CSV export and reports
  * pageSize as 0 here; the caller replaces it with the row count.
  */
-export function buildCustomerListQuery(opts: CustomerListQueryOptions = {}): { sql: string; params: unknown[]; page: number; pageSize: number } {
+export function buildCustomerListQuery(opts: CustomerListQueryOptions = {}): {
+  sql: string;
+  params: unknown[];
+  page: number;
+  pageSize: number;
+  cursor: boolean;
+} {
   const { whereSql, params } = buildCustomerListWhere(opts);
   const paging = normalizeCustomerPaging(opts.page, opts.pageSize);
-  let sql = `SELECT ${CUSTOMER_SELECT_COLUMNS}, ${CUSTOMER_DEVICE_COUNT_SQL} AS "assignedDevicesCount" FROM customer_records${whereSql} ORDER BY customer_name ASC, customer_id ASC`;
-  if (!opts.all) {
-    sql += ` LIMIT ${paging.pageSize} OFFSET ${(paging.page - 1) * paging.pageSize}`;
+  const useCursor = Boolean(opts.cursor) && !opts.all;
+  let cursorSql = '';
+  if (useCursor && opts.cursor) {
+    params.push(opts.cursor.name, opts.cursor.id);
+    const nameParam = params.length - 1;
+    const idParam = params.length;
+    cursorSql =
+      `${whereSql ? ' AND' : ' WHERE'} ` +
+      `(customer_name, customer_id) > ($${nameParam}, $${idParam})`;
   }
-  return { sql, params, page: paging.page, pageSize: opts.all ? 0 : paging.pageSize };
+  let sql = `SELECT ${CUSTOMER_SELECT_COLUMNS}, ${CUSTOMER_DEVICE_COUNT_SQL} AS "assignedDevicesCount" FROM customer_records${whereSql}${cursorSql} ORDER BY customer_name ASC, customer_id ASC`;
+  if (!opts.all) {
+    // Fetch one extra row so the caller can emit nextCursor without a count.
+    const limit = useCursor ? paging.pageSize + 1 : paging.pageSize;
+    sql += ` LIMIT ${limit}`;
+    if (!useCursor) sql += ` OFFSET ${(paging.page - 1) * paging.pageSize}`;
+  }
+  return {
+    sql,
+    params,
+    page: useCursor ? 1 : paging.page,
+    pageSize: opts.all ? 0 : paging.pageSize,
+    cursor: useCursor,
+  };
 }
 
 /** One aggregate row for the directory KPIs under the same WHERE. */
@@ -436,6 +467,15 @@ export function customerUpsertParams(c: Record<string, any>): unknown[] {
     c.areaId || null, c.agentId || null, c.assignedDevicesCount,
   ];
 }
+
+export const CUSTOMER_FIND_BY_ID_OR_CODE_SQL = `SELECT ${CUSTOMER_SELECT_COLUMNS}, ${CUSTOMER_DEVICE_COUNT_SQL} AS "assignedDevicesCount" FROM customer_records WHERE id = $1 OR customer_id = $1 LIMIT 1`;
+
+export const CUSTOMER_COUNT_SQL = 'SELECT COUNT(*)::int AS count FROM customer_records';
+
+export const CUSTOMER_FIND_BY_NAME_SQL = `SELECT ${CUSTOMER_SELECT_COLUMNS} FROM customer_records
+  WHERE lower(customer_name) = lower($1) OR POSITION(lower($1) IN lower(customer_name)) > 0
+  ORDER BY (lower(customer_name) = lower($1)) DESC, customer_name ASC
+  LIMIT 1`;
 
 /** Customer master update (PUT): matches by id or customer_id with one value. */
 export const CUSTOMER_UPDATE_BY_ID_OR_CODE_SQL = `UPDATE customer_records SET

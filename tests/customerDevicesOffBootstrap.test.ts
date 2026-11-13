@@ -126,10 +126,9 @@ describe('VOL-4b — customer devices off the bootstrap', () => {
       'the customer_device_records mapping must stay for the operational cache (CDR-2)'
     );
     const runtimeState = fs.readFileSync(path.join(ROOT, 'server/src/state/runtimeState.ts'), 'utf8');
-    assert.match(
-      runtimeState,
-      /buildCacheSelectSql\(CACHE_ONLY_TABLES\.customerDevices\)/,
-      'CACHE_LOADS must keep the device mirror hydrated from the cache-only mapping'
+    assert.ok(
+      !/CUSTOMER_DEVICE|CACHE_ONLY_TABLES\.customerDevices/.test(runtimeState),
+      'customer_devices must not be hydrated into memory; the register is a bounded paged read'
     );
     assert.match(
       controller,

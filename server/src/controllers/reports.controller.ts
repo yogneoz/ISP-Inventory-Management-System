@@ -7,6 +7,7 @@
  */
 import type { Response } from 'express';
 import { getPgConnected, pickCurrentFiscalYear, mutable, fiscalYears, pgPool, inventoryStock, assetRegister, purchaseInvoices, stockOperations, products, computeTradingFromOps } from '../app';
+import { reportingPool } from '../../db';
 import {
   fetchFinancialSummaryFromDb,
   type FinancialSummary,
@@ -88,7 +89,9 @@ function summaryFromCache(branchId?: string): FinancialSummary {
 async function readSummary(scope: FinancialSummaryScope): Promise<FinancialSummary> {
   if (getPgConnected()) {
     try {
-      return await fetchFinancialSummaryFromDb(pgPool, scope);
+      // Read-only report: prefer a configured reporting replica/PgBouncer and
+      // fall back to the primary when none is configured.
+      return await fetchFinancialSummaryFromDb(reportingPool, scope);
     } catch (err) {
       console.error('Error fetching financial summary report from DB:', err);
     }

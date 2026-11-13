@@ -1,6 +1,7 @@
 import pg from 'pg';
 import dotenv from 'dotenv';
 import { intFromEnv } from './src/utils/envGuard';
+import { recordDbQuery, recordPoolAcquire } from './src/observability/metrics';
 
 dotenv.config();
 
@@ -60,6 +61,69 @@ try {
 } catch (_e) {}
 
 /**
+ * Optional reporting read path: a replica, or PgBouncer in front of one.
+ * Reporting queries tolerate a little replication lag and must not queued
+ * behind write traffic on the 40-connection primary pool. When unset, every
+ * reporting read falls back to the primary, so a single-database install is
+ * unchanged.
+ */
+export const REPORT_DATABASE_URL =
+  process.env.REPORT_DATABASE_URL || process.env.READ_REPLICA_DATABASE_URL || '';
+
+export let reportPoolInstance: any = null;
+try {
+  if (REPORT_DATABASE_URL) {
+    reportPoolInstance = new RealPgPool({
+      connectionString: REPORT_DATABASE_URL,
+      ...buildPoolConfig(),
+    });
+  }
+} catch (_e) {}
+
+/** True when reporting reads are routed away from the primary. */
+export function isReportingReplicaConfigured(): boolean {
+  return Boolean(reportPoolInstance);
+}
+
+/**
+ * Reporting pool. The primary is the default; a configured replica is used
+ * only by read-only reporting endpoints, never by the write/ledger path.
+ */
+export const reportingPool: { query: (text: string, params?: any[]) => Promise<any> } = {
+  async query(text: string, params?: any[]) {
+    if (!isPgConnected) {
+      throw new Error('PostgreSQL is not connected. Database operations are unavailable.');
+    }
+    if (!reportPoolInstance) return pgPool.query(text, params);
+    const startedAt = performance.now();
+    let client: any = null;
+    let queryStarted = false;
+    let failed = false;
+    try {
+      const acquireStartedAt = performance.now();
+      try {
+        client = await reportPoolInstance.connect();
+        recordPoolAcquire(performance.now() - acquireStartedAt);
+      } catch (err) {
+        recordPoolAcquire(performance.now() - acquireStartedAt, true);
+        throw err;
+      }
+      queryStarted = true;
+      return await client.query(text, params);
+    } catch (err) {
+      failed = true;
+      console.error('PostgreSQL reporting query failed:', (err as any)?.message || err);
+      throw err;
+    } finally {
+      if (client && typeof client.release === 'function') {
+        try { client.release(); } catch (_e) {}
+      }
+      if (queryStarted) recordDbQuery(performance.now() - startedAt, text, failed);
+    }
+  },
+};
+
+/**
  * Rechecks a previously unavailable pool. This lets the API recover after
  * PostgreSQL is started or briefly restarted without requiring an app restart.
  */
@@ -117,18 +181,51 @@ export const pgPool = {
     if (!isPgConnected || !realPoolInstance) {
       throw new Error('PostgreSQL is not connected. Database operations are unavailable.');
     }
+    const startedAt = performance.now();
+    let client: any = null;
+    let queryStarted = false;
+    let failed = false;
+    let releaseError: any = null;
     try {
-      return await realPoolInstance.query(text, params);
+      const acquireStartedAt = performance.now();
+      try {
+        client = await realPoolInstance.connect();
+        recordPoolAcquire(performance.now() - acquireStartedAt);
+      } catch (err) {
+        recordPoolAcquire(performance.now() - acquireStartedAt, true);
+        throw err;
+      }
+      queryStarted = true;
+      return await client.query(text, params);
     } catch (err: any) {
-      if (isConnectionLevelFailure(err)) isPgConnected = false;
+      failed = true;
+      if (isConnectionLevelFailure(err)) {
+        isPgConnected = false;
+        releaseError = err;
+      }
       console.error('PostgreSQL query failed:', err?.message || err);
       throw err;
+    } finally {
+      if (client && typeof client.release === 'function') {
+        try {
+          client.release(releaseError);
+        } catch (_e) {}
+      }
+      if (queryStarted) recordDbQuery(performance.now() - startedAt, text, failed);
     }
   },
   async connect() {
     if (!realPoolInstance) {
       throw new Error('PostgreSQL connection is not configured.');
     }
-    return realPoolInstance.connect();
+    const startedAt = performance.now();
+    try {
+      const client = await realPoolInstance.connect();
+      recordPoolAcquire(performance.now() - startedAt);
+      return client;
+    } catch (err) {
+      recordPoolAcquire(performance.now() - startedAt, true);
+      throw err;
+    }
   }
 };

@@ -1,0 +1,708 @@
+{
+  "generatedAt": "2026-11-13T01:02:35.538Z",
+  "phase": "0B",
+  "database": {
+    "name": "inventory_phase0b_baseline",
+    "serverVersion": "18.6",
+    "customerCount": 100000,
+    "size": "93 MB",
+    "bytes": 97862159,
+    "schemaVersion": "0001_baseline (scripts/schema.sql direct)"
+  },
+  "seed": {
+    "customers": 100000,
+    "elapsedMs": 15287.9
+  },
+  "measurements": {
+    "customer_page_1": {
+      "p50Ms": 0.75,
+      "minMs": 0.54,
+      "maxMs": 1.53,
+      "samples": [
+        1.53,
+        1.14,
+        0.97,
+        1,
+        0.7,
+        0.61,
+        0.59,
+        0.6,
+        0.75,
+        0.64,
+        1.08,
+        0.84,
+        0.64,
+        0.54,
+        0.61,
+        0.64,
+        0.94,
+        1.11,
+        0.94,
+        1.24
+      ]
+    },
+    "customer_deep_offset_before": {
+      "p50Ms": 48.35,
+      "minMs": 46.72,
+      "maxMs": 56.47,
+      "samples": [
+        48.64,
+        48.35,
+        47.3,
+        46.72,
+        56.47
+      ]
+    },
+    "customer_keyset": {
+      "p50Ms": 0.65,
+      "minMs": 0.59,
+      "maxMs": 1.54,
+      "samples": [
+        1.14,
+        0.83,
+        0.68,
+        0.63,
+        1.41,
+        0.73,
+        0.61,
+        0.6,
+        0.63,
+        0.75,
+        0.65,
+        0.6,
+        0.61,
+        0.59,
+        0.6,
+        0.61,
+        0.85,
+        1.54,
+        1.24,
+        1.13
+      ],
+      "anchor": {
+        "name": "Baseline Customer 00090000",
+        "id": "P0B-00090000"
+      },
+      "rows": 50
+    },
+    "customer_search": {
+      "p50Ms": 6.64,
+      "minMs": 5.93,
+      "maxMs": 9.48,
+      "samples": [
+        9.48,
+        7.88,
+        7.6,
+        7.54,
+        6.33,
+        6.64,
+        6.15,
+        7.37,
+        6.1,
+        5.93
+      ]
+    },
+    "customer_search_name_scan_before": {
+      "p50Ms": 109.21,
+      "minMs": 99.71,
+      "maxMs": 111.39,
+      "samples": [
+        109.73,
+        109.21,
+        106.52,
+        111.39,
+        99.71
+      ]
+    },
+    "cache_hydration": {
+      "mode": "reference-only",
+      "loads": [
+        "branches",
+        "users",
+        "uom",
+        "locations",
+        "suppliers",
+        "fiscalYears",
+        "companyProfile",
+        "products",
+        "categories",
+        "product_groups",
+        "inventory_stock"
+      ],
+      "transactionalPresent": [],
+      "passes": 2,
+      "samples": [
+        41.45,
+        5.5
+      ],
+      "p50Ms": 5.5,
+      "maxMs": 41.45
+    },
+    "cache_loads": [
+      {
+        "name": "product_groups",
+        "p50Ms": 0.72,
+        "maxMs": 0.78
+      },
+      {
+        "name": "inventory_stock",
+        "p50Ms": 0.57,
+        "maxMs": 0.65
+      },
+      {
+        "name": "suppliers",
+        "p50Ms": 0.52,
+        "maxMs": 0.64
+      },
+      {
+        "name": "fiscalYears",
+        "p50Ms": 0.51,
+        "maxMs": 1.19
+      },
+      {
+        "name": "categories",
+        "p50Ms": 0.49,
+        "maxMs": 0.61
+      },
+      {
+        "name": "branches",
+        "p50Ms": 0.44,
+        "maxMs": 0.58
+      },
+      {
+        "name": "locations",
+        "p50Ms": 0.43,
+        "maxMs": 0.54
+      },
+      {
+        "name": "users",
+        "p50Ms": 0.41,
+        "maxMs": 0.41
+      },
+      {
+        "name": "companyProfile",
+        "p50Ms": 0.35,
+        "maxMs": 0.39
+      },
+      {
+        "name": "products",
+        "p50Ms": 0.35,
+        "maxMs": 0.39
+      },
+      {
+        "name": "uom",
+        "p50Ms": 0.29,
+        "maxMs": 0.3
+      }
+    ]
+  },
+  "comparison": {
+    "source": "phase0a-baseline.json",
+    "customer_page_1": {
+      "phase0a_p50Ms": 0.93,
+      "phase0b_p50Ms": 0.75
+    },
+    "customer_deep_offset": {
+      "phase0a_p50Ms": 46.42,
+      "phase0b_p50Ms": 0.65
+    },
+    "customer_search": {
+      "phase0a_p50Ms": 109.91,
+      "phase0b_p50Ms": 6.64
+    },
+    "cache_hydration": {
+      "phase0a_p50Ms": 466.61,
+      "phase0b_p50Ms": 5.5
+    }
+  },
+  "explain": {
+    "customer_page_1": [
+      {
+        "Plan": {
+          "Node Type": "Limit",
+          "Parallel Aware": false,
+          "Async Capable": false,
+          "Startup Cost": 0.42,
+          "Total Cost": 5.31,
+          "Plan Rows": 50,
+          "Plan Width": 73,
+          "Actual Startup Time": 0.015,
+          "Actual Total Time": 0.037,
+          "Actual Rows": 50,
+          "Actual Loops": 1,
+          "Disabled": false,
+          "Shared Hit Blocks": 5,
+          "Shared Read Blocks": 0,
+          "Shared Dirtied Blocks": 0,
+          "Shared Written Blocks": 0,
+          "Local Hit Blocks": 0,
+          "Local Read Blocks": 0,
+          "Local Dirtied Blocks": 0,
+          "Local Written Blocks": 0,
+          "Temp Read Blocks": 0,
+          "Temp Written Blocks": 0,
+          "Plans": [
+            {
+              "Node Type": "Index Scan",
+              "Parent Relationship": "Outer",
+              "Parallel Aware": false,
+              "Async Capable": false,
+              "Scan Direction": "Forward",
+              "Index Name": "idx_customer_records_name_all",
+              "Relation Name": "customer_records",
+              "Alias": "customer_records",
+              "Startup Cost": 0.42,
+              "Total Cost": 9784.79,
+              "Plan Rows": 100000,
+              "Plan Width": 73,
+              "Actual Startup Time": 0.014,
+              "Actual Total Time": 0.033,
+              "Actual Rows": 50,
+              "Actual Loops": 1,
+              "Disabled": false,
+              "Filter": "((branch_id)::text = 'P0B'::text)",
+              "Rows Removed by Filter": 0,
+              "Index Searches": 1,
+              "Shared Hit Blocks": 5,
+              "Shared Read Blocks": 0,
+              "Shared Dirtied Blocks": 0,
+              "Shared Written Blocks": 0,
+              "Local Hit Blocks": 0,
+              "Local Read Blocks": 0,
+              "Local Dirtied Blocks": 0,
+              "Local Written Blocks": 0,
+              "Temp Read Blocks": 0,
+              "Temp Written Blocks": 0
+            }
+          ]
+        },
+        "Planning": {
+          "Shared Hit Blocks": 0,
+          "Shared Read Blocks": 0,
+          "Shared Dirtied Blocks": 0,
+          "Shared Written Blocks": 0,
+          "Local Hit Blocks": 0,
+          "Local Read Blocks": 0,
+          "Local Dirtied Blocks": 0,
+          "Local Written Blocks": 0,
+          "Temp Read Blocks": 0,
+          "Temp Written Blocks": 0
+        },
+        "Planning Time": 0.177,
+        "Triggers": [],
+        "Execution Time": 0.049
+      }
+    ],
+    "customer_deep_offset_before": [
+      {
+        "Plan": {
+          "Node Type": "Limit",
+          "Parallel Aware": false,
+          "Async Capable": false,
+          "Startup Cost": 9779.9,
+          "Total Cost": 9784.79,
+          "Plan Rows": 50,
+          "Plan Width": 73,
+          "Actual Startup Time": 46.129,
+          "Actual Total Time": 46.159,
+          "Actual Rows": 50,
+          "Actual Loops": 1,
+          "Disabled": false,
+          "Shared Hit Blocks": 2940,
+          "Shared Read Blocks": 0,
+          "Shared Dirtied Blocks": 0,
+          "Shared Written Blocks": 0,
+          "Local Hit Blocks": 0,
+          "Local Read Blocks": 0,
+          "Local Dirtied Blocks": 0,
+          "Local Written Blocks": 0,
+          "Temp Read Blocks": 0,
+          "Temp Written Blocks": 0,
+          "Plans": [
+            {
+              "Node Type": "Index Scan",
+              "Parent Relationship": "Outer",
+              "Parallel Aware": false,
+              "Async Capable": false,
+              "Scan Direction": "Forward",
+              "Index Name": "idx_customer_records_name_all",
+              "Relation Name": "customer_records",
+              "Alias": "customer_records",
+              "Startup Cost": 0.42,
+              "Total Cost": 9784.79,
+              "Plan Rows": 100000,
+              "Plan Width": 73,
+              "Actual Startup Time": 0.014,
+              "Actual Total Time": 43.272,
+              "Actual Rows": 100000,
+              "Actual Loops": 1,
+              "Disabled": false,
+              "Filter": "((branch_id)::text = 'P0B'::text)",
+              "Rows Removed by Filter": 0,
+              "Index Searches": 1,
+              "Shared Hit Blocks": 2940,
+              "Shared Read Blocks": 0,
+              "Shared Dirtied Blocks": 0,
+              "Shared Written Blocks": 0,
+              "Local Hit Blocks": 0,
+              "Local Read Blocks": 0,
+              "Local Dirtied Blocks": 0,
+              "Local Written Blocks": 0,
+              "Temp Read Blocks": 0,
+              "Temp Written Blocks": 0
+            }
+          ]
+        },
+        "Planning": {
+          "Shared Hit Blocks": 0,
+          "Shared Read Blocks": 0,
+          "Shared Dirtied Blocks": 0,
+          "Shared Written Blocks": 0,
+          "Local Hit Blocks": 0,
+          "Local Read Blocks": 0,
+          "Local Dirtied Blocks": 0,
+          "Local Written Blocks": 0,
+          "Temp Read Blocks": 0,
+          "Temp Written Blocks": 0
+        },
+        "Planning Time": 0.164,
+        "Triggers": [],
+        "Execution Time": 46.175
+      }
+    ],
+    "customer_keyset": [
+      {
+        "Plan": {
+          "Node Type": "Limit",
+          "Parallel Aware": false,
+          "Async Capable": false,
+          "Startup Cost": 0.42,
+          "Total Cost": 22.96,
+          "Plan Rows": 50,
+          "Plan Width": 73,
+          "Actual Startup Time": 0.029,
+          "Actual Total Time": 0.108,
+          "Actual Rows": 50,
+          "Actual Loops": 1,
+          "Disabled": false,
+          "Shared Hit Blocks": 6,
+          "Shared Read Blocks": 0,
+          "Shared Dirtied Blocks": 0,
+          "Shared Written Blocks": 0,
+          "Local Hit Blocks": 0,
+          "Local Read Blocks": 0,
+          "Local Dirtied Blocks": 0,
+          "Local Written Blocks": 0,
+          "Temp Read Blocks": 0,
+          "Temp Written Blocks": 0,
+          "Plans": [
+            {
+              "Node Type": "Index Scan",
+              "Parent Relationship": "Outer",
+              "Parallel Aware": false,
+              "Async Capable": false,
+              "Scan Direction": "Forward",
+              "Index Name": "idx_customer_records_name_all",
+              "Relation Name": "customer_records",
+              "Alias": "customer_records",
+              "Startup Cost": 0.42,
+              "Total Cost": 4509.79,
+              "Plan Rows": 10000,
+              "Plan Width": 73,
+              "Actual Startup Time": 0.028,
+              "Actual Total Time": 0.104,
+              "Actual Rows": 50,
+              "Actual Loops": 1,
+              "Disabled": false,
+              "Index Cond": "(ROW((customer_name)::text, (customer_id)::text) > ROW('Baseline Customer 00090000'::text, 'P0B-00090000'::text))",
+              "Rows Removed by Index Recheck": 0,
+              "Filter": "((branch_id)::text = 'P0B'::text)",
+              "Rows Removed by Filter": 0,
+              "Index Searches": 1,
+              "Shared Hit Blocks": 6,
+              "Shared Read Blocks": 0,
+              "Shared Dirtied Blocks": 0,
+              "Shared Written Blocks": 0,
+              "Local Hit Blocks": 0,
+              "Local Read Blocks": 0,
+              "Local Dirtied Blocks": 0,
+              "Local Written Blocks": 0,
+              "Temp Read Blocks": 0,
+              "Temp Written Blocks": 0
+            }
+          ]
+        },
+        "Planning": {
+          "Shared Hit Blocks": 0,
+          "Shared Read Blocks": 0,
+          "Shared Dirtied Blocks": 0,
+          "Shared Written Blocks": 0,
+          "Local Hit Blocks": 0,
+          "Local Read Blocks": 0,
+          "Local Dirtied Blocks": 0,
+          "Local Written Blocks": 0,
+          "Temp Read Blocks": 0,
+          "Temp Written Blocks": 0
+        },
+        "Planning Time": 0.255,
+        "Triggers": [],
+        "Execution Time": 0.125
+      }
+    ],
+    "customer_search": [
+      {
+        "Plan": {
+          "Node Type": "Limit",
+          "Parallel Aware": false,
+          "Async Capable": false,
+          "Startup Cost": 1889.38,
+          "Total Cost": 1889.41,
+          "Plan Rows": 10,
+          "Plan Width": 73,
+          "Actual Startup Time": 5.443,
+          "Actual Total Time": 5.444,
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Disabled": false,
+          "Shared Hit Blocks": 464,
+          "Shared Read Blocks": 0,
+          "Shared Dirtied Blocks": 0,
+          "Shared Written Blocks": 0,
+          "Local Hit Blocks": 0,
+          "Local Read Blocks": 0,
+          "Local Dirtied Blocks": 0,
+          "Local Written Blocks": 0,
+          "Temp Read Blocks": 0,
+          "Temp Written Blocks": 0,
+          "Plans": [
+            {
+              "Node Type": "Sort",
+              "Parent Relationship": "Outer",
+              "Parallel Aware": false,
+              "Async Capable": false,
+              "Startup Cost": 1889.38,
+              "Total Cost": 1889.41,
+              "Plan Rows": 10,
+              "Plan Width": 73,
+              "Actual Startup Time": 5.443,
+              "Actual Total Time": 5.443,
+              "Actual Rows": 0,
+              "Actual Loops": 1,
+              "Disabled": false,
+              "Sort Key": [
+                "customer_name",
+                "customer_id"
+              ],
+              "Sort Method": "quicksort",
+              "Sort Space Used": 25,
+              "Sort Space Type": "Memory",
+              "Shared Hit Blocks": 464,
+              "Shared Read Blocks": 0,
+              "Shared Dirtied Blocks": 0,
+              "Shared Written Blocks": 0,
+              "Local Hit Blocks": 0,
+              "Local Read Blocks": 0,
+              "Local Dirtied Blocks": 0,
+              "Local Written Blocks": 0,
+              "Temp Read Blocks": 0,
+              "Temp Written Blocks": 0,
+              "Plans": [
+                {
+                  "Node Type": "Bitmap Heap Scan",
+                  "Parent Relationship": "Outer",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Relation Name": "customer_records",
+                  "Alias": "customer_records",
+                  "Startup Cost": 1850.8,
+                  "Total Cost": 1889.22,
+                  "Plan Rows": 10,
+                  "Plan Width": 73,
+                  "Actual Startup Time": 5.437,
+                  "Actual Total Time": 5.438,
+                  "Actual Rows": 0,
+                  "Actual Loops": 1,
+                  "Disabled": false,
+                  "Recheck Cond": "(lower((((((((((((COALESCE(customer_id, ''::character varying))::text || ' '::text) || (COALESCE(customer_name, ''::character varying))::text) || ' '::text) || (COALESCE(username, ''::character varying))::text) || ' '::text) || (COALESCE(contact_number, ''::character varying))::text) || ' '::text) || (COALESCE(email, ''::character varying))::text) || ' '::text) || COALESCE(address, ''::text))) ~~ '%customer 999%'::text)",
+                  "Rows Removed by Index Recheck": 111,
+                  "Filter": "((branch_id)::text = 'P0B'::text)",
+                  "Rows Removed by Filter": 0,
+                  "Exact Heap Blocks": 7,
+                  "Lossy Heap Blocks": 0,
+                  "Shared Hit Blocks": 464,
+                  "Shared Read Blocks": 0,
+                  "Shared Dirtied Blocks": 0,
+                  "Shared Written Blocks": 0,
+                  "Local Hit Blocks": 0,
+                  "Local Read Blocks": 0,
+                  "Local Dirtied Blocks": 0,
+                  "Local Written Blocks": 0,
+                  "Temp Read Blocks": 0,
+                  "Temp Written Blocks": 0,
+                  "Plans": [
+                    {
+                      "Node Type": "Bitmap Index Scan",
+                      "Parent Relationship": "Outer",
+                      "Parallel Aware": false,
+                      "Async Capable": false,
+                      "Index Name": "idx_customer_records_search_trgm",
+                      "Startup Cost": 0,
+                      "Total Cost": 1850.8,
+                      "Plan Rows": 10,
+                      "Plan Width": 0,
+                      "Actual Startup Time": 5.148,
+                      "Actual Total Time": 5.148,
+                      "Actual Rows": 111,
+                      "Actual Loops": 1,
+                      "Disabled": false,
+                      "Index Cond": "(lower((((((((((((COALESCE(customer_id, ''::character varying))::text || ' '::text) || (COALESCE(customer_name, ''::character varying))::text) || ' '::text) || (COALESCE(username, ''::character varying))::text) || ' '::text) || (COALESCE(contact_number, ''::character varying))::text) || ' '::text) || (COALESCE(email, ''::character varying))::text) || ' '::text) || COALESCE(address, ''::text))) ~~ '%customer 999%'::text)",
+                      "Index Searches": 1,
+                      "Shared Hit Blocks": 457,
+                      "Shared Read Blocks": 0,
+                      "Shared Dirtied Blocks": 0,
+                      "Shared Written Blocks": 0,
+                      "Local Hit Blocks": 0,
+                      "Local Read Blocks": 0,
+                      "Local Dirtied Blocks": 0,
+                      "Local Written Blocks": 0,
+                      "Temp Read Blocks": 0,
+                      "Temp Written Blocks": 0
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "Planning": {
+          "Shared Hit Blocks": 1,
+          "Shared Read Blocks": 0,
+          "Shared Dirtied Blocks": 0,
+          "Shared Written Blocks": 0,
+          "Local Hit Blocks": 0,
+          "Local Read Blocks": 0,
+          "Local Dirtied Blocks": 0,
+          "Local Written Blocks": 0,
+          "Temp Read Blocks": 0,
+          "Temp Written Blocks": 0
+        },
+        "Planning Time": 0.295,
+        "Triggers": [],
+        "Execution Time": 5.561
+      }
+    ],
+    "customer_search_name_scan_before": [
+      {
+        "Plan": {
+          "Node Type": "Limit",
+          "Parallel Aware": false,
+          "Async Capable": false,
+          "Startup Cost": 3723.17,
+          "Total Cost": 3723.19,
+          "Plan Rows": 10,
+          "Plan Width": 73,
+          "Actual Startup Time": 121.423,
+          "Actual Total Time": 121.424,
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Disabled": false,
+          "Shared Hit Blocks": 2223,
+          "Shared Read Blocks": 0,
+          "Shared Dirtied Blocks": 0,
+          "Shared Written Blocks": 0,
+          "Local Hit Blocks": 0,
+          "Local Read Blocks": 0,
+          "Local Dirtied Blocks": 0,
+          "Local Written Blocks": 0,
+          "Temp Read Blocks": 0,
+          "Temp Written Blocks": 0,
+          "Plans": [
+            {
+              "Node Type": "Sort",
+              "Parent Relationship": "Outer",
+              "Parallel Aware": false,
+              "Async Capable": false,
+              "Startup Cost": 3723.17,
+              "Total Cost": 3723.19,
+              "Plan Rows": 10,
+              "Plan Width": 73,
+              "Actual Startup Time": 121.422,
+              "Actual Total Time": 121.423,
+              "Actual Rows": 0,
+              "Actual Loops": 1,
+              "Disabled": false,
+              "Sort Key": [
+                "customer_name",
+                "customer_id"
+              ],
+              "Sort Method": "quicksort",
+              "Sort Space Used": 25,
+              "Sort Space Type": "Memory",
+              "Shared Hit Blocks": 2223,
+              "Shared Read Blocks": 0,
+              "Shared Dirtied Blocks": 0,
+              "Shared Written Blocks": 0,
+              "Local Hit Blocks": 0,
+              "Local Read Blocks": 0,
+              "Local Dirtied Blocks": 0,
+              "Local Written Blocks": 0,
+              "Temp Read Blocks": 0,
+              "Temp Written Blocks": 0,
+              "Plans": [
+                {
+                  "Node Type": "Seq Scan",
+                  "Parent Relationship": "Outer",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Relation Name": "customer_records",
+                  "Alias": "customer_records",
+                  "Startup Cost": 0,
+                  "Total Cost": 3723,
+                  "Plan Rows": 10,
+                  "Plan Width": 73,
+                  "Actual Startup Time": 121.41,
+                  "Actual Total Time": 121.411,
+                  "Actual Rows": 0,
+                  "Actual Loops": 1,
+                  "Disabled": false,
+                  "Filter": "(((customer_name)::text ~~* '%Customer 999%'::text) AND ((branch_id)::text = 'P0B'::text))",
+                  "Rows Removed by Filter": 100000,
+                  "Shared Hit Blocks": 2223,
+                  "Shared Read Blocks": 0,
+                  "Shared Dirtied Blocks": 0,
+                  "Shared Written Blocks": 0,
+                  "Local Hit Blocks": 0,
+                  "Local Read Blocks": 0,
+                  "Local Dirtied Blocks": 0,
+                  "Local Written Blocks": 0,
+                  "Temp Read Blocks": 0,
+                  "Temp Written Blocks": 0
+                }
+              ]
+            }
+          ]
+        },
+        "Planning": {
+          "Shared Hit Blocks": 0,
+          "Shared Read Blocks": 0,
+          "Shared Dirtied Blocks": 0,
+          "Shared Written Blocks": 0,
+          "Local Hit Blocks": 0,
+          "Local Read Blocks": 0,
+          "Local Dirtied Blocks": 0,
+          "Local Written Blocks": 0,
+          "Temp Read Blocks": 0,
+          "Temp Written Blocks": 0
+        },
+        "Planning Time": 0.293,
+        "Triggers": [],
+        "Execution Time": 121.439
+      }
+    ]
+  },
+  "notes": [
+    "customer_deep_offset_before is the old path, retained only as a before measurement.",
+    "customer_keyset anchors at 90% of the directory and is the path GET /api/customers?cursor=... uses.",
+    "CACHE_LOADS is reference-only; no write triggers a full refresh and no transaction table is hydrated."
+  ]
+}

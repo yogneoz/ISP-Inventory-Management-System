@@ -28,6 +28,22 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- ==========================================
+-- 0. Schema Migration Ledger
+-- ==========================================
+-- Boot records the baseline here and applies only numbered files from
+-- scripts/migrations/ afterwards. It is infrastructure metadata, not business
+-- data, and exists in schema.sql so a fresh reference install and a booted
+-- database have the same shape.
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version VARCHAR(100) PRIMARY KEY,
+    name VARCHAR(200) NOT NULL,
+    checksum VARCHAR(64) NOT NULL,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    source VARCHAR(20) NOT NULL CHECK (source IN ('BASELINE', 'ADOPTED', 'MIGRATION')),
+    applied_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ==========================================
 -- 1. Branches Table
 -- ==========================================
 CREATE TABLE IF NOT EXISTS branches (

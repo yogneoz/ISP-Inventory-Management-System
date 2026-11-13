@@ -35,6 +35,8 @@ export function buildStockListQuery(branchId?: unknown): { sql: string; params: 
   };
 }
 
+export const STOCK_FIND_BY_PRODUCT_BRANCH_SQL = `SELECT ${STOCK_SELECT_COLUMNS} FROM inventory_stock WHERE product_id = $1 AND branch_id = $2 LIMIT 1`;
+
 export const STOCK_FIND_BY_ID_SQL =
   'SELECT id, product_id AS "productId", branch_id AS "branchId", quantity_on_hand AS "quantityOnHand", damaged_qty AS "damagedQty", reserved_qty AS "reservedQty", incoming_qty AS "incomingQty", min_reorder_level AS "minReorderLevel" FROM inventory_stock WHERE id = $1';
 

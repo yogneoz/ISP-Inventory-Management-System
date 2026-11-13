@@ -1,13 +1,12 @@
 /**
  * Fresh-install proof (duplication audit, phase 2 follow-up).
  *
- * Proves the claim "dbBoot.ts executes scripts/schema.sql as the single
- * schema source of truth" against a REAL server boot, not just by parsing
- * files (that static part lives in tests/schemaSource.parity.test.ts):
+ * Proves the fresh-install schema path against a REAL server boot, not just by
+ * parsing files (that static part lives in tests/schemaSource.parity.test.ts):
  *
  *   1. Creates two throwaway databases from the same PostgreSQL instance.
- *   2. `reference`  — scripts/schema.sql applied directly (what a
- *      `psql -f scripts/schema.sql` fresh install gets).
+ *   2. `reference`  — scripts/schema.sql plus numbered scripts/migrations/*.sql
+ *      applied directly (what a psql-style fresh install gets).
  *   3. `boot`       — left EMPTY, then the real server is booted against it
  *      (DATABASE_URL pointed at it), so dbBoot.ts loads and executes
  *      scripts/schema.sql itself, exactly like a production fresh install.
@@ -27,13 +26,14 @@
  */
 import pg from 'pg';
 import { spawn } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCHEMA_SQL_PATH = path.join(ROOT, 'scripts', 'schema.sql');
+const MIGRATIONS_DIR = path.join(ROOT, 'scripts', 'migrations');
 const BOOT_PORT = Number(process.env.PORT_TO_BOOT || 3557);
 const BOOT_TIMEOUT_MS = 120_000;
 
@@ -57,6 +57,18 @@ function setDbName(url, dbName) {
 
 function log(msg) {
   console.log(`[fresh-install] ${msg}`);
+}
+
+/** Numbered migrations are part of a fresh install, after the baseline. */
+function loadMigrationSql() {
+  if (!existsSync(MIGRATIONS_DIR)) return [];
+  return readdirSync(MIGRATIONS_DIR)
+    .filter((name) => /^\d{4}_[A-Za-z0-9_.-]+\.sql$/.test(name))
+    .sort()
+    .map((name) => ({
+      name,
+      sql: readFileSync(path.join(MIGRATIONS_DIR, name), 'utf8'),
+    }));
 }
 
 async function withClient(url, fn) {
@@ -252,6 +264,7 @@ async function waitForHealth(exited, getOutput) {
 // ---------------------------------------------------------------------------
 
 const schemaSql = readFileSync(SCHEMA_SQL_PATH, 'utf8');
+const migrations = loadMigrationSql();
 const admin = new pg.Client({ connectionString: adminUrl });
 // `booted` is assigned inside the try — the server must only be spawned AFTER
 // the throwaway databases exist, otherwise a fast tsx boot connects to a
@@ -265,13 +278,18 @@ try {
   await recreateDatabase(admin, BOOT_DB);
   log(`throwaway databases "${REFERENCE_DB}" (psql-style) and "${BOOT_DB}" (server boot) created`);
 
-  log('applying scripts/schema.sql directly to the reference database…');
-  await withClient(referenceUrl, (client) => client.query(schemaSql));
+  log(
+    `applying scripts/schema.sql and ${migrations.length} numbered migration(s) directly to the reference database…`
+  );
+  await withClient(referenceUrl, async (client) => {
+    await client.query(schemaSql);
+    for (const migration of migrations) await client.query(migration.sql);
+  });
 
   log(`booting the real server on port ${BOOT_PORT} against the empty "${BOOT_DB}"…`);
   booted = bootServerOnBootDb();
   await waitForHealth(booted.exited, booted.getOutput);
-  log('server booted and healthy — dbBoot executed schema.sql itself');
+  log('server booted and healthy — dbBoot verified the baseline and pending migrations');
 
   log('comparing runtime schemas…');
   const ref = await snapshotSchema(referenceUrl);
@@ -296,7 +314,7 @@ try {
     );
     process.exitCode = 1;
   } else {
-    log('PASS — fresh-install runtime schema is identical to scripts/schema.sql');
+    log('PASS — fresh-install runtime schema is identical to schema.sql plus numbered migrations');
   }
 } catch (err) {
   console.error(`\n[fresh-install] FAILED: ${err?.message || err}`);

@@ -1,17 +1,20 @@
 /**
- * Shared runtime state extracted from app.ts (backlog item #6 — app.ts
- * extraction). Owns every mutable runtime value the controllers read and
- * write, the serialized operational-cache refresh, and the CACHE_LOADS list.
+ * Shared runtime state.
+ *
+ * PostgreSQL is the source of truth for every transaction. This module keeps
+ * only small reference data in memory (branches, users, fiscal periods,
+ * company profile, product catalogue, units, locations, suppliers, categories,
+ * product groups and the bounded current stock projection). Customers,
+ * invoices, returns, payments, audit/transaction logs, approvals, damage,
+ * devices, assets, purchase orders, shipments and serial history are read from
+ * PostgreSQL through bounded repository queries instead of being hydrated
+ * wholesale at boot or after a write.
  *
  * The mutable values are declared `export let` IN THIS MODULE so ESM live
  * bindings work: app.ts re-exports them, and every consumer that historically
- * did `import { users } from '../app'` still observes updates. Only this
- * module may ASSIGN the bindings; everyone else mutates through the exported
- * setters.
+ * did `import { users } from '../app'` still observes updates.
  */
-import { pgPool } from '../../db';
-import { BOOTSTRAP_TABLES, CACHE_ONLY_TABLES, buildCacheSelectSql } from '../models/columnMappings';
-import { createCoalescingRunner } from '../utils/coalescingRunner';
+import { BOOTSTRAP_TABLES, buildCacheSelectSql } from '../models/columnMappings';
 import {
   INITIAL_BILL_TERMS,
   INITIAL_COMPANY_PROFILE,
@@ -32,14 +35,10 @@ import type {
   UserPermissionSetGrantMap,
 } from '../models/permissions.repo';
 
-// ---------------------------------------------------------------------------
-// Runtime state seeded from config/seedData.ts constants:
-// ---------------------------------------------------------------------------
+// Reference state seeded from config/seedData.ts constants.
 export let companyProfile: CompanyProfile = { ...INITIAL_COMPANY_PROFILE };
 export let docNumberConfigs: DocumentNumberConfig[] = JSON.parse(JSON.stringify(INITIAL_DOCUMENT_NUMBER_CONFIGS));
 
-// Operational arrays initialized empty by default (refreshed from PostgreSQL
-// at boot and after every write; see refreshOperationalCache below).
 export let users: readonly User[] = [];
 export let suppliers: readonly Supplier[] = [];
 export let uomList: readonly UnitOfMeasure[] = [];
@@ -48,22 +47,17 @@ export let branches: readonly Branch[] = [];
 export let fiscalYears: readonly FiscalYear[] = [];
 export let products: readonly Product[] = [];
 export let categories: readonly Category[] = [];
-// Seeded from the same three groups scripts/schema.sql seeds, so PG-less demo
-// mode resolves behaviour instead of falling back to an empty list.
 export let productGroups: readonly ProductGroup[] = INITIAL_PRODUCT_GROUPS.map((g) => ({ ...g }));
-// Credit terms are master data, not a transaction: PG mode reads them through
-// the API, while this seeded list keeps PG-less demo mode usable.
 export let billTerms: readonly BillTerm[] = INITIAL_BILL_TERMS.map((t) => ({ ...t }));
-// Cost centres and narration templates are master data for the ledger. They
-// have no seed rows; PG mode reads them through their APIs and this mirror
-// keeps PG-less demo mode from throwing on a read.
 export let costCenters: readonly CostCenter[] = [];
 export let narrationTemplates: readonly NarrationTemplate[] = [];
-// Sales territories/agents are master data for customer defaults and invoice
-// snapshots; PG mode reads them directly, this mirror keeps demo mode usable.
 export let areas: readonly Area[] = [];
 export let salesAgents: readonly SalesAgent[] = [];
 export let inventoryStock: readonly InventoryStock[] = [];
+
+// Transactional mirrors retained only for PG-down demo mode and for the
+// response of a write in this process. They are deliberately NOT hydrated
+// from PostgreSQL and never drive a PG-connected read.
 export let assetRegister: readonly Asset[] = [];
 export let customerDeviceRecords: readonly CustomerDeviceRecord[] = [];
 export let customerMasterRecords: readonly CustomerRecord[] = [];
@@ -81,31 +75,17 @@ export let customerPayments: readonly CustomerPayment[] = [];
 export let approvalRequests: readonly ApprovalRequest[] = [];
 export let damageRecords: readonly DamageRecord[] = [];
 export let serialLogs: readonly SerialLog[] = [];
-// WTY-1: PostgreSQL mode reads warranty_coverages directly through the paged
-// register queries. This mirror is for demo mode (PG down) only and is
-// deliberately NOT a bootstrap/cache slice — the registers self-fetch.
 export let warrantyCoverages: readonly WarrantyCoverageRecord[] = [];
 
-// Active user session mirror; authentication always reads PostgreSQL.
 export let activeUser: User | null = null;
-
-// In-memory permission matrix (populated at startup from PostgreSQL).
 export let permissionMatrix: Record<string, Record<string, boolean>> = {};
-// Per-user permission overrides layered on top of the role matrix. Indexed by
-// user and operation at boot and after every committed write; the resolver
-// treats a missing user or operation as "inherit the role's matrix row".
 export let userPermissionOverrides: UserPermissionOverrideMap = new Map();
-// Grants contributed by reusable permission sets, folded to userId -> operations
-// at boot and after every committed set/membership write. Kept separate from
-// the explicit overrides so the resolver can apply "user deny wins over a set".
 export let userPermissionSetGrants: UserPermissionSetGrantMap = new Map();
 
 let isPgConnected = false;
 let dataVersion = Date.now();
 
-// ---------------------------------------------------------------------------
 // Setters — the ONLY way other modules may change these bindings.
-// ---------------------------------------------------------------------------
 export function setCompanyProfile(value: CompanyProfile): void { companyProfile = value; }
 export function setDocNumberConfigs(value: DocumentNumberConfig[]): void { docNumberConfigs = value; }
 export function setUsers(value: readonly User[]): void { users = value; }
@@ -152,33 +132,16 @@ export function getDataVersion(): number { return dataVersion; }
 export function setDataVersion(v: number): void { dataVersion = v; }
 
 // ---------------------------------------------------------------------------
-// Operational cache — PostgreSQL is the single source of truth.
-// These arrays are NOT hand-maintained mirrors. They are declared `readonly`
-// so the typechecker rejects any in-place mirror mutation: after every
-// PostgreSQL write path commits, it calls `await refreshOperationalCache()`,
-// which re-reads ALL cache tables straight from the database through the
-// bootstrap repository's column mappings (one serialized fan-out). Reads
-// served from these arrays therefore always reflect PostgreSQL, and an
-// accidentally-missed refresh self-heals on the next write. Non-PG demo mode
-// (isPgConnected === false) keeps the legacy in-memory behavior by REASSIGNING
-// the arrays, never mutating them.
+// Reference-only hydration.
+//
+// This is the complete set of tables loaded at boot. Everything else is a
+// transaction read through a repository query at the point of use. The stock
+// projection is bounded by product × branch and carries current quantity, not
+// history; it is the one non-master table retained because the stock gates need
+// a consistent current balance without a round-trip per line.
 // ---------------------------------------------------------------------------
-
-// The ONE list of operational cache loads — GENERATED from the per-table
-// column mappings in models/columnMappings.ts (single source of truth,
-// duplication audit phase 3). Every entry carrying a `cache` block in either
-// mapping object (BOOTSTRAP_TABLES or CACHE_ONLY_TABLES) becomes a cache load
-// here: at boot (hydrateOperationalData) and after every
-// committed write (refreshOperationalCache). Adding a cached column or table
-// means editing its entry in columnMappings.ts and nowhere else. The only
-// per-entry code here is the `apply` callback wiring the rows into the
-// runtime arrays (kept `if (rows.length > 0)` so demo-mode in-memory state
-// is not clobbered by an empty table). Note the cache tables deliberately
-// have NO branch/fiscal-year WHERE scoping — the cache is a full mirror.
 export const CACHE_LOADS: Array<{ name: string; query: string; apply: (rows: any[]) => void }> = [
   { name: 'branches', query: buildCacheSelectSql(BOOTSTRAP_TABLES.branches), apply: (rows) => { if (rows.length > 0) branches = rows as any; } },
-  // Password hashes ride along in the users cache: the login endpoint
-  // authenticates from this array.
   { name: 'users', query: buildCacheSelectSql(BOOTSTRAP_TABLES.users), apply: (rows) => { if (rows.length > 0) users = rows as any; } },
   { name: 'uom', query: buildCacheSelectSql(BOOTSTRAP_TABLES.uom), apply: (rows) => { if (rows.length > 0) uomList = rows as any; } },
   { name: 'locations', query: buildCacheSelectSql(BOOTSTRAP_TABLES.locations), apply: (rows) => { if (rows.length > 0) locationRecords = rows as any; } },
@@ -189,144 +152,21 @@ export const CACHE_LOADS: Array<{ name: string; query: string; apply: (rows: any
   { name: 'categories', query: buildCacheSelectSql(BOOTSTRAP_TABLES.categories), apply: (rows) => { categories = rows as any; } },
   { name: 'product_groups', query: buildCacheSelectSql(BOOTSTRAP_TABLES.productGroups), apply: (rows) => { if (rows.length > 0) productGroups = rows as any; } },
   { name: 'inventory_stock', query: buildCacheSelectSql(BOOTSTRAP_TABLES.stock), apply: (rows) => { inventoryStock = rows as any; } },
-  { name: 'fixed_assets', query: buildCacheSelectSql(BOOTSTRAP_TABLES.assets), apply: (rows) => { assetRegister = rows as any; } },
-  { name: 'purchase_orders', query: buildCacheSelectSql(BOOTSTRAP_TABLES.purchaseOrders), apply: (rows) => { purchaseOrders = rows as any; } },
-  { name: 'purchase_invoices', query: buildCacheSelectSql(BOOTSTRAP_TABLES.purchaseInvoices), apply: (rows) => { purchaseInvoices = rows as any; } },
-  { name: 'shipments', query: buildCacheSelectSql(BOOTSTRAP_TABLES.shipments), apply: (rows) => { shipments = rows as any; } },
-  { name: 'sales_invoices', query: buildCacheSelectSql(BOOTSTRAP_TABLES.salesInvoices), apply: (rows) => { salesInvoices = rows as any; } },
-  { name: 'purchase_returns', query: buildCacheSelectSql(BOOTSTRAP_TABLES.purchaseReturns), apply: (rows) => { purchaseReturns = rows as any; } },
-  { name: 'sales_returns', query: buildCacheSelectSql(BOOTSTRAP_TABLES.salesReturns), apply: (rows) => { salesReturns = rows as any; } },
-  { name: 'stock_operations', query: buildCacheSelectSql(BOOTSTRAP_TABLES.stockOperations), apply: (rows) => { stockOperations = rows as any; } },
-  { name: 'audit_logs', query: buildCacheSelectSql(BOOTSTRAP_TABLES.auditLogs), apply: (rows) => { auditTrail = rows as any; } },
-  { name: 'transaction_logs', query: buildCacheSelectSql(BOOTSTRAP_TABLES.transactionLogs), apply: (rows) => { transactionLogs = rows as any; } },
-  // The old hand-written list was missing these two: their caches were never
-  // hydrated at boot and only grew through runtime appends. Generated from
-  // the mappings, they hydrate like every other table.
-  {
-    name: 'approval_requests',
-    query: buildCacheSelectSql(BOOTSTRAP_TABLES.approvalRequests),
-    apply: (rows) => {
-      if (rows.length === 0) return;
-      // `audit_data` and `shipment_data` are request payloads the schema does
-      // not persist; they live only in the in-memory request. The cache hook
-      // re-reads this table after every write, so merge by id instead of
-      // replacing the row and silently dropping the payload an approval needs
-      // to execute (variance items, the shipment a cancel refers to).
-      const previous = new Map(approvalRequests.map((entry) => [entry.id, entry]));
-      approvalRequests = rows.map((row: any) => {
-        const old = previous.get(row.id);
-        if (!old) return row;
-        return {
-          ...old,
-          ...row,
-          auditData: row.auditData ?? old.auditData,
-          shipmentData: row.shipmentData ?? old.shipmentData,
-        };
-      }) as any;
-    },
-  },
-  { name: 'damage_records', query: buildCacheSelectSql(BOOTSTRAP_TABLES.damageRecords), apply: (rows) => { if (rows.length > 0) damageRecords = rows as any; } },
-  { name: 'customer_records', query: buildCacheSelectSql(BOOTSTRAP_TABLES.customers), apply: (rows) => { customerMasterRecords = rows as any; } },
-  // CDR-2: customer_device_records is cache-only — its slice was retired
-  // (whole-table read with no callers left), so the mapping must NOT move back
-  // into BOOTSTRAP_TABLES, where the slice endpoint would serve it again.
-  { name: 'customer_device_records', query: buildCacheSelectSql(CACHE_ONLY_TABLES.customerDevices), apply: (rows) => { customerDeviceRecords = rows as any; } },
-  { name: 'vendor_payments', query: buildCacheSelectSql(BOOTSTRAP_TABLES.vendorPayments), apply: (rows) => { vendorPayments = rows as any; } },
-  { name: 'customer_payments', query: buildCacheSelectSql(BOOTSTRAP_TABLES.customerPayments), apply: (rows) => { customerPayments = rows as any; } },
-  {
-    name: 'serial_log',
-    query: buildCacheSelectSql(BOOTSTRAP_TABLES.serialLogs),
-    apply: (rows) => {
-      serialLogs = rows.map((r: any) => ({
-        ...r,
-        history: (() => { try { return typeof r.historyJson === 'string' ? JSON.parse(r.historyJson || '[]') : (r.historyJson || []); } catch { return []; } })(),
-      }));
-    },
-  },
 ];
 
-// Boot-time hydration runs the same CACHE_LOADS list on the startup client.
+/** Boot-time reference hydration. Transactions are never read here. */
 export async function hydrateOperationalData(client: any) {
   for (const load of CACHE_LOADS) {
     try {
       const result = await client.query(load.query);
       load.apply(result.rows);
     } catch (e: any) {
-      console.warn(`Operational cache hydration skipped for ${load.name}:`, e?.message || e);
+      console.warn(`Reference cache hydration skipped for ${load.name}:`, e?.message || e);
     }
   }
   console.log(
-    `✅ Operational caches hydrated from PostgreSQL: ` +
-    `${products.length} products, ${inventoryStock.length} stock rows, ${purchaseOrders.length} POs, ` +
-    `${purchaseInvoices.length} invoices, ${shipments.length} shipments, ${stockOperations.length} stock ops, ` +
-    `${vendorPayments.length} vendor payments.`
+    `✅ Reference caches hydrated from PostgreSQL: ` +
+    `${branches.length} branches, ${users.length} users, ${products.length} products, ` +
+    `${inventoryStock.length} stock rows. Transactional data is read on demand.`
   );
-}
-
-/**
- * A pass slower than this is logged with its slowest loads. The cache fan-out
- * runs on the write path (the response is flushed after it), so a regression
- * here is a write-latency regression — this line is what makes that visible in
- * the server log instead of only in a benchmark.
- */
-export const CACHE_REFRESH_SLOW_PASS_MS = 250;
-
-async function runCacheRefreshPass(): Promise<void> {
-  const startedAt = Date.now();
-  const timings: Array<{ name: string; ms: number }> = [];
-  const client = await pgPool.connect();
-  try {
-    for (const load of CACHE_LOADS) {
-      const loadStartedAt = Date.now();
-      try {
-        const result = await client.query(load.query);
-        load.apply(result.rows);
-      } catch (e: any) {
-        console.warn(`Operational cache refresh skipped for ${load.name}:`, e?.message || e);
-      }
-      timings.push({ name: load.name, ms: Date.now() - loadStartedAt });
-    }
-  } finally {
-    client.release();
-  }
-
-  const totalMs = Date.now() - startedAt;
-  if (totalMs >= CACHE_REFRESH_SLOW_PASS_MS) {
-    const slowest = [...timings]
-      .sort((a, b) => b.ms - a.ms)
-      .slice(0, 3)
-      .map((entry) => `${entry.name} ${entry.ms}ms`)
-      .join(', ');
-    console.warn(
-      `Operational cache refresh took ${totalMs}ms across ${CACHE_LOADS.length} loads (slowest: ${slowest}).`
-    );
-  }
-}
-
-/**
- * One coalescing runner for the whole process (utils/coalescingRunner).
- *
- * Replaces the old `refreshChain` that ran one full fan-out per write: callers
- * that overlap share a pass, and a caller whose write landed mid-pass gets a
- * trailing pass before its response is flushed, so a read after a write still
- * never sees a pre-commit snapshot. Concurrent write bursts therefore cost two
- * passes rather than one per write.
- */
-const refreshRunner = createCoalescingRunner(async () => {
-  try {
-    await runCacheRefreshPass();
-  } catch (err: any) {
-    // Never crash a write because the follow-up read failed; the next write's
-    // refresh (or the trailing pass) converges the cache.
-    console.error('Operational cache refresh failed:', err?.message || err);
-  }
-}, getPgConnected);
-
-export function refreshOperationalCache(): Promise<void> {
-  return refreshRunner();
-}
-
-/** Refresh instrumentation (passes, coalesced calls, last duration). */
-export function getCacheRefreshStats() {
-  return refreshRunner.stats();
 }

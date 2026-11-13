@@ -9,7 +9,7 @@
  * never imports app.ts (no cycles).
  */
 import pg from 'pg';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, statSync } from 'fs';
 import path from 'path';
 import { pgPool, realPoolInstance, setIsPgConnected } from '../../db';
 import { setPgConnected as setPgConnectedFlag } from '../state/runtimeState';
@@ -36,6 +36,7 @@ import {
 } from '../models/permissions.repo';
 import { hashPassword } from '../middleware/auth';
 import { ensureDefaultChart, ensureDefaultSubledgers } from '../services/accountingSeed.service';
+import { runSchemaMigrations } from './migrations';
 
 import {
   setDocNumberConfigs,
@@ -99,6 +100,28 @@ function loadSchemaSql(): string {
   throw new Error(`scripts/schema.sql not found — looked in:\n  ${candidates.join('\n  ')}`);
 }
 
+/**
+ * Resolve the versioned migration directory next to the baseline schema.
+ * `null` is valid: a fresh checkout has no numbered migrations yet.
+ */
+function resolveMigrationsDir(): string | null {
+  const candidates = [path.resolve(process.cwd(), 'scripts/migrations')];
+  const moduleDir = resolveModuleDir();
+  if (moduleDir) {
+    for (let i = 0; i < 6; i++) {
+      candidates.push(path.resolve(moduleDir, '../'.repeat(i), 'scripts/migrations'));
+    }
+  }
+  for (const candidate of candidates) {
+    try {
+      if (existsSync(candidate) && statSync(candidate).isDirectory()) return candidate;
+    } catch {
+      // A race with deployment cleanup simply means no pending files.
+    }
+  }
+  return null;
+}
+
 export async function syncDatabaseAndIndexes() {
   if (!realPoolInstance) {
     setPgConnectedFlag(false);
@@ -113,13 +136,20 @@ export async function syncDatabaseAndIndexes() {
       setIsPgConnected(false);
       throw new Error('PostgreSQL connection could not be established.');
     }
-    console.log('PostgreSQL Pool connected successfully. Syncing database schema from scripts/schema.sql (single source of truth)...');
+    console.log('PostgreSQL Pool connected successfully. Verifying schema migrations (scripts/schema.sql baseline)...');
 
-    // Single source of truth: execute scripts/schema.sql verbatim. This file
-    // no longer maintains a second inline schema (duplication audit, phase 2).
-    // The static drift guard (tests/schemaSource.parity.test.ts) plus the CI
-    // "apply schema.sql to a fresh database" step keep the two in lockstep.
-    await client.query(loadSchemaSql());
+    // scripts/schema.sql is still the single baseline source: the runner applies
+    // it only on an empty/legacy database, adopts an already-current database,
+    // then applies numbered scripts/migrations/*.sql files exactly once.
+    const migrations = await runSchemaMigrations(client, {
+      baselineSql: loadSchemaSql(),
+      migrationsDir: resolveMigrationsDir(),
+    });
+    console.log(
+      `✅ Schema migrations at ${migrations.currentVersion || 'none'}` +
+        (migrations.baselineSource ? ` (baseline ${migrations.baselineSource.toLowerCase()})` : '') +
+        (migrations.applied.length ? `; applied ${migrations.applied.join(', ')}` : '')
+    );
 
     setPgConnectedFlag(true);
     setIsPgConnected(true);
@@ -166,7 +196,7 @@ export async function syncDatabaseAndIndexes() {
     }
 
     client.release();
-    console.log('✅ Database schema synced from scripts/schema.sql; seeds, caches and permission matrix loaded.');
+    console.log('✅ Database schema verified; seeds, caches and permission matrix loaded.');
   } catch (err: any) {
     setPgConnectedFlag(false);
     setIsPgConnected(false);

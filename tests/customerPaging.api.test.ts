@@ -215,6 +215,31 @@ describe('GET /api/customers — paged customer directory contract (DF-01)', () 
     assert.equal(byCode.json.data[0].customerName, 'DF01 Zeta');
   });
 
+  test('cursor pages are keyset slices with no overlap', { skip: skipNoDb }, async () => {
+    const first = await get('/api/customers?query=DF01&page=1&pageSize=2');
+    assert.equal(first.status, 200, JSON.stringify(first.json));
+    assert.equal(first.json.hasMore, true);
+    assert.ok(first.json.nextCursor, 'page 1 must expose the next keyset anchor');
+
+    const second = await get(
+      '/api/customers?query=DF01&pageSize=2&cursor=' + encodeURIComponent(first.json.nextCursor)
+    );
+    assert.equal(second.status, 200, JSON.stringify(second.json));
+    assert.equal(second.json.page, 1, 'a cursor request is not an OFFSET page');
+    assert.deepEqual(second.json.data.map((c: any) => c.customerName), ['DF01 Charlie', 'DF01 Delta']);
+    assert.equal(second.json.totalItems, 6);
+    assert.ok(second.json.nextCursor);
+
+    const firstIds = new Set(first.json.data.map((c: any) => c.id));
+    assert.ok(second.json.data.every((c: any) => !firstIds.has(c.id)), 'keyset pages never overlap');
+  });
+
+  test('an invalid cursor is a 400, not an unfiltered page', { skip: skipNoDb }, async () => {
+    const { status, json } = await get('/api/customers?query=DF01&cursor=not-a-cursor');
+    assert.equal(status, 400);
+    assert.match(json.message, /cursor is invalid/i);
+  });
+
   test('all=1 returns every filtered row in one envelope', { skip: skipNoDb }, async () => {
     const { status, json } = await get('/api/customers?query=DF01&all=1');
     assert.equal(status, 200, JSON.stringify(json));

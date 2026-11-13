@@ -155,6 +155,7 @@ import {
   PRODUCT_GROUP_SELECT, PRODUCT_GROUP_UPSERT_SQL, productGroupUpsertParams, PRODUCT_GROUP_UPDATE_SQL, productGroupUpdateParams, PRODUCT_GROUP_DELETE_SQL,
   buildCustomerListQuery, buildCustomerListAggregateQuery, normalizeCustomerPaging, CUSTOMER_UPSERT_SQL, customerUpsertParams,
   CUSTOMER_UPDATE_BY_ID_OR_CODE_SQL, customerUpdateByIdOrCodeParams, CUSTOMER_DELETE_BY_ID_OR_CODE_SQL,
+  CUSTOMER_FIND_BY_ID_OR_CODE_SQL, CUSTOMER_COUNT_SQL,
 } from '../models/masterdata.repo';
 import { customerKpiCacheKey, getCustomerKpis, invalidateCustomerKpis } from '../services/customerKpiCache';
 /** Forwarded from masterdata.routes.ts (get_uom). */
@@ -860,8 +861,31 @@ try {
 
 }
 
+function encodeCustomerCursor(row: any): string {
+  return Buffer.from(
+    JSON.stringify([String(row?.customerName ?? ''), String(row?.customerId ?? '')]),
+    'utf8'
+  ).toString('base64url');
+}
+
+function decodeCustomerCursor(raw: unknown): { name: string; id: string } | null {
+  if (typeof raw !== 'string' || !raw.trim()) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
+    if (!Array.isArray(parsed) || parsed.length !== 2) return null;
+    if (typeof parsed[0] !== 'string' || typeof parsed[1] !== 'string') return null;
+    return { name: parsed[0], id: parsed[1] };
+  } catch {
+    return null;
+  }
+}
+
 export async function get_customers(req: any, res: Response): Promise<any> {
-const { branchId, query, status, page, pageSize, all } = req.query;
+const { branchId, query, status, page, pageSize, all, cursor } = req.query;
+  const parsedCursor = cursor === undefined ? undefined : decodeCustomerCursor(cursor);
+  if (cursor !== undefined && !parsedCursor) {
+    return res.status(400).json({ message: 'The customer page cursor is invalid. Reload the directory and retry.' });
+  }
   const exportAll = all === '1' || all === 'true';
 
   // VOL-4a: the customer directory is national data, so branch scope is a
@@ -889,7 +913,7 @@ const { branchId, query, status, page, pageSize, all } = req.query;
     scopedBranchId = undefined;
   }
 
-  const options = { branchId: scopedBranchId, branchScope, query, status, page, pageSize, all: exportAll };
+  const options = { branchId: scopedBranchId, branchScope, query, status, page, pageSize, all: exportAll, cursor: parsedCursor || undefined };
 
   if (getPgConnected()) {
     try {
@@ -910,13 +934,24 @@ const { branchId, query, status, page, pageSize, all } = req.query;
           };
         }),
       ]);
+      const fetched = rows.rows as any[];
+      const hasMore = list.cursor && fetched.length > list.pageSize;
+      const data = hasMore ? fetched.slice(0, list.pageSize) : fetched;
+      const last = data[data.length - 1];
       res.json({
-        data: rows.rows,
+        data,
         page: list.page,
-        pageSize: exportAll ? rows.rows.length : list.pageSize,
+        pageSize: exportAll ? data.length : list.pageSize,
         totalItems: totals.totalItems,
         activeItems: totals.activeItems,
         totalCreditLimit: totals.totalCreditLimit,
+        // The cursor is the primary next-page handle. Page numbers remain for
+        // existing clients, but the UI can advance without a growing OFFSET.
+        nextCursor:
+          !exportAll && last && (hasMore || (!list.cursor && data.length === list.pageSize))
+            ? encodeCustomerCursor(last)
+            : null,
+        hasMore: hasMore || (!list.cursor && data.length === list.pageSize),
       });
       return;
     } catch (err) {
@@ -973,17 +1008,30 @@ const { branchId, query, status, page, pageSize, all } = req.query;
     String(a.customerId || '').localeCompare(String(b.customerId || ''))
   );
   const paging = normalizeCustomerPaging(page, pageSize);
+  let start = (paging.page - 1) * paging.pageSize;
+  if (parsedCursor) {
+    start = sorted.findIndex(
+      (c) =>
+        String(c.customerName || '').localeCompare(parsedCursor.name) > 0 ||
+        (String(c.customerName || '') === parsedCursor.name &&
+          String(c.customerId || '').localeCompare(parsedCursor.id) > 0)
+    );
+    if (start < 0) start = sorted.length;
+  }
   const data = exportAll
     ? sorted
-    : sorted.slice((paging.page - 1) * paging.pageSize, paging.page * paging.pageSize);
+    : sorted.slice(start, start + paging.pageSize);
+  const last = data[data.length - 1];
 
   res.json({
     data,
-    page: paging.page,
+    page: parsedCursor ? 1 : paging.page,
     pageSize: exportAll ? data.length : paging.pageSize,
     totalItems: sorted.length,
     activeItems: sorted.filter((c) => String(c.status || '').toUpperCase() === 'ACTIVE').length,
     totalCreditLimit: sorted.reduce((sum, c) => sum + (Number(c.creditLimit) || 0), 0),
+    nextCursor: !exportAll && last && data.length === paging.pageSize ? encodeCustomerCursor(last) : null,
+    hasMore: !exportAll && start + data.length < sorted.length,
   });
 
 }
@@ -1014,15 +1062,15 @@ try {
       assignedDevicesCount: 0,
     };
 
-    const idx = customerMasterRecords.findIndex((c) => c.id === newRecord.id || c.customerId === newRecord.customerId);
-    if (idx >= 0) {
-      setCustomerMasterRecords(withReplaced(customerMasterRecords, idx, newRecord));
-    } else {
-      setCustomerMasterRecords(withPrepended(customerMasterRecords, newRecord));
-    }
-
     if (getPgConnected()) {
       await pgPool.query(CUSTOMER_UPSERT_SQL, customerUpsertParams(newRecord));
+    } else {
+      const idx = customerMasterRecords.findIndex((c) => c.id === newRecord.id || c.customerId === newRecord.customerId);
+      if (idx >= 0) {
+        setCustomerMasterRecords(withReplaced(customerMasterRecords, idx, newRecord));
+      } else {
+        setCustomerMasterRecords(withPrepended(customerMasterRecords, newRecord));
+      }
     }
     invalidateCustomerKpis();
     logAuditEvent(req, 'CREATE_CUSTOMER', 'MASTER_DATA', `Created / Registered Customer Profile ${newRecord.customerName} (${newRecord.customerId})`, newRecord.branchId);
@@ -1058,13 +1106,6 @@ try {
             assignedDevicesCount: 0,
           };
 
-          const idx = customerMasterRecords.findIndex((c) => c.id === newRecord.id || c.customerId === newRecord.customerId);
-          if (idx >= 0) {
-            setCustomerMasterRecords(withReplaced(customerMasterRecords, idx, newRecord));
-          } else {
-            setCustomerMasterRecords(withPrepended(customerMasterRecords, newRecord));
-          }
-
           await client.query(CUSTOMER_UPSERT_SQL, customerUpsertParams(newRecord) as any[]);
           count++;
         }
@@ -1096,8 +1137,11 @@ try {
       }
     }
     invalidateCustomerKpis();
+    const total = getPgConnected()
+      ? Number((await pgPool.query(CUSTOMER_COUNT_SQL)).rows[0]?.count) || 0
+      : customerMasterRecords.length;
     logAuditEvent(req, 'BULK_IMPORT_CUSTOMERS', 'MASTER_DATA', `Bulk imported ${count} Customer Records into Master Directory`);
-    res.status(201).json({ success: true, count, total: customerMasterRecords.length });
+    res.status(201).json({ success: true, count, total });
   } catch (err: any) {
     console.error('Error bulk importing customers:', err);
     res.status(500).json({ message: `Database error: ${err.message}` });
@@ -1109,8 +1153,15 @@ try {
 export async function put_Id6(req: any, res: Response): Promise<any> {
 try {
     const { id } = req.params;
-    const idx = customerMasterRecords.findIndex((c) => c.id === id || c.customerId === id);
-    if (idx < 0) {
+    let existing: any;
+    if (getPgConnected()) {
+      const found = await pgPool.query(CUSTOMER_FIND_BY_ID_OR_CODE_SQL, [id]);
+      existing = found.rows[0];
+    } else {
+      const idx = customerMasterRecords.findIndex((c) => c.id === id || c.customerId === id);
+      existing = idx >= 0 ? customerMasterRecords[idx] : undefined;
+    }
+    if (!existing) {
       res.status(404).json({ message: 'Customer record not found' });
       return;
     }
@@ -1121,17 +1172,15 @@ try {
       return;
     }
 
-    setCustomerMasterRecords(withReplaced(customerMasterRecords, idx, {
-      ...customerMasterRecords[idx],
-      ...req.body,
-    }));
-    const updated = customerMasterRecords[idx];
-
+    const updated = { ...existing, ...req.body };
     if (getPgConnected()) {
       await pgPool.query(
         CUSTOMER_UPDATE_BY_ID_OR_CODE_SQL,
         [...customerUpdateByIdOrCodeParams(updated), id]
       );
+    } else {
+      const idx = customerMasterRecords.findIndex((c) => c.id === id || c.customerId === id);
+      if (idx >= 0) setCustomerMasterRecords(withReplaced(customerMasterRecords, idx, updated));
     }
     invalidateCustomerKpis();
     logAuditEvent(req, 'UPDATE_CUSTOMER', 'MASTER_DATA', `Updated Customer Master Details for ${updated.customerName} (${updated.customerId})`, updated.branchId);
@@ -1147,11 +1196,14 @@ try {
 export async function delete_Id6(req: any, res: Response): Promise<any> {
 try {
     const { id } = req.params;
-    const cust = customerMasterRecords.find((c) => c.id === id || c.customerId === id);
-    setCustomerMasterRecords(customerMasterRecords.filter((c) => c.id !== id && c.customerId !== id));
-
+    let cust: any;
     if (getPgConnected()) {
+      const found = await pgPool.query(CUSTOMER_FIND_BY_ID_OR_CODE_SQL, [id]);
+      cust = found.rows[0];
       await pgPool.query(CUSTOMER_DELETE_BY_ID_OR_CODE_SQL, [id]);
+    } else {
+      cust = customerMasterRecords.find((c) => c.id === id || c.customerId === id);
+      setCustomerMasterRecords(customerMasterRecords.filter((c) => c.id !== id && c.customerId !== id));
     }
     invalidateCustomerKpis();
     logAuditEvent(req, 'DELETE_CUSTOMER', 'MASTER_DATA', `Deleted Customer Record ${cust?.customerName || id}`);

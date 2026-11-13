@@ -1,6 +1,8 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-11-12 · Branch: main · Tests: 2274/2274; ledger/trigger, payroll and budget-allocation suites green. The seeded KTM branch preview now counts 11 whole periods and reconciles at 880000._
+_Date: 2026-11-12 · Branch: main · Tests: 2279/2279; ledger/trigger, payroll and budget-allocation suites green. The seeded KTM branch preview now counts 11 whole periods and reconciles at 880000._
+
+> **Phase 0A migration safety and measurement (2026-11-13).** Boot now checks `schema_migrations` instead of re-running the full baseline DDL on every start: an empty or legacy database applies `scripts/schema.sql` once, an already-current database records `0001_baseline` as `ADOPTED`, and numbered files in `scripts/migrations/` apply once each under an advisory lock. `GET /api/admin/performance` reports p50/p95/p99 request latency, pool-acquisition wait, slow queries and cache-refresh duration. `npm run bench:phase0a` creates a throwaway 100k-customer database and writes `docs/performance/phase0a-baseline.{json,md}`. Baseline: customer page 1 ~0.9 ms, deep OFFSET ~46 ms, search ~110 ms; the current full cache hydration is ~467–598 ms and `customer_records` alone is ~386 ms, which is the Phase 0B target. Phase 0B is intentionally not included._
 
 > **Seeded KTM budget preview (2026-11-12).** The 800000-vs-880000 preview was test-fixture leakage, not a budget calculation error. `tests/payrollAccounting.api.test.ts` closed `2027-06` for its closed-period case and its cleanup deleted every period with that key, including the canonical `vfy-period-fy-2083-2027-06` row. That orphaned June's demo budget line, so the department preview counted only 10 whole months. Cleanup now deletes only test-created periods (`id LIKE 'glp-%'`), leaving the seeded period intact; the keep-data reseed restored the missing row. Payroll 19/19 → budget allocation 8/8 in sequence, with the KTM preview at 880000 and all tie-outs reconciled.
 

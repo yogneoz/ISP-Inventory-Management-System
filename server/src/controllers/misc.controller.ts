@@ -24,6 +24,7 @@ import {
   arInsertParams,
   AR_FIND_BY_ID_SQL,
   AR_FIND_BY_ANY_ID_SQL,
+  AR_COUNT_SQL,
   AR_CLOSE_OUT_SQL,
   arCloseOutParams,
   AR_APPROVE_SQL,
@@ -276,8 +277,10 @@ const { branchId, status } = req.query;
 /** Forwarded from misc.routes.ts (post_approvalRequests). */
 export async function post_approvalRequests(req: any, res: Response): Promise<any> {
 try {
-    const count = approvalRequests.length + 1;
-    const requestNumber = req.body.requestNumber || `APR-2083-${count.toString().padStart(3, '0')}`;
+    const count = getPgConnected()
+      ? Number((await pgPool.query(AR_COUNT_SQL)).rows[0]?.count) || 0
+      : approvalRequests.length;
+    const requestNumber = req.body.requestNumber || `APR-2083-${(count + 1).toString().padStart(3, '0')}`;
 
     const newRequest: ApprovalRequest = {
       id: `apr-${Date.now()}`,
@@ -297,8 +300,10 @@ try {
       });
     }
 
+    // The approval queue row is persisted in PostgreSQL; this process keeps the
+    // just-created request in memory because audit_data has no column and the
+    // approval processor reads it back from the request it was created with.
     setApprovalRequests(withPrepended(approvalRequests, newRequest));
-
     if (getPgConnected()) {
       await pgPool.query(AR_INSERT_SQL, arInsertParams(newRequest));
     }

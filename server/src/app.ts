@@ -79,7 +79,7 @@ import { registerPayrollRoutes } from './routes/payroll.routes';
 import { registerHrRoutes } from './routes/hr.routes';
 import { registerLeftoverFiscalRoutes } from './routes/fiscal.routes';
 import { setLogAuditEvent } from './routes/fiscal.auditAccess';
-import { cacheRefreshHook } from './middleware/cacheRefreshHook';
+import { httpMetricsMiddleware } from './observability/httpMetrics';
 
 // Extracted modules (see header comment for the full map).
 export {
@@ -101,7 +101,7 @@ export {
   setVendorPayments, setCustomerPayments, setApprovalRequests, setDamageRecords, setSerialLogs,
   setPermissionMatrix, setUserPermissionOverrides, setUserPermissionSetGrants, setActiveUser, setPgConnected, getPgConnected,
   getActiveUser, getDataVersion, setDataVersion, CACHE_LOADS,
-  hydrateOperationalData, refreshOperationalCache,
+  hydrateOperationalData,
 } from './state/runtimeState';
 export { withTransaction, withConnection } from './db/transactions';
 import { transactionRetryMetrics } from './db/transactionMetrics';
@@ -207,6 +207,10 @@ export { sharedStateAccessors };
 export function createApp(): express.Express {
   const app = express();
 
+  // Measure before any router so every API request, including rejected auth
+  // requests and unmatched routes, contributes to the latency snapshot.
+  app.use(httpMetricsMiddleware);
+
   // TRUST_PROXY (documented in .env.example). Behind a reverse proxy every
   // request otherwise appears to arrive from the proxy's own IP, so req.ip
   // would collapse ALL clients into one bucket — which matters here because
@@ -306,10 +310,8 @@ export function createApp(): express.Express {
   app.use('/api', enforceOperationalPermissions);
   app.use('/api', enforceBranchAccess);
 
-  // Cache-refresh hook: on ANY successful mutating API call, re-read every
-  // cache table from PostgreSQL (via CACHE_LOADS) BEFORE the response is sent.
-  // (Hook implementation in ./middleware/cacheRefreshHook.)
-  app.use('/api', cacheRefreshHook);
+  // Every PG-connected list/detail read goes back to PostgreSQL through a
+  // bounded repository query. There is no full-cache refresh on the write path.
 
   return app;
 }

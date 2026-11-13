@@ -1,22 +1,10 @@
 /**
- * CACHE_LOADS ↔ columnMappings parity guard (duplication audit, phase 3).
+ * Phase 0B reference-cache guard.
  *
- * The operational-cache load list (CACHE_LOADS in state/runtimeState.ts) is
- * GENERATED from the per-table column mappings in models/columnMappings.ts —
- * the same single source of truth that drives GET /api/bootstrap. This guard
- * proves the two never re-diverge:
- *
- *   1. runtimeState.ts contains no hand-written cache SQL — every load must
- *      come from buildCacheSelectSql(BOOTSTRAP_TABLES.… / CACHE_ONLY_TABLES.…).
- *   2. Every table config carrying a `cache` block in either mapping object has
- *      exactly one CACHE_LOADS entry.
- *   3. The two not-fetched tables (fiscal_years, customer_payments) are
- *      present, so the cache and bootstrap stay convergent.
- *   4. The retired device slice (CDR-2) stays cache-only: its mapping is in
- *      CACHE_ONLY_TABLES, out of BOOTSTRAP_TABLES, and still wired into
- *      CACHE_LOADS.
- *
- * Pure file-parsing + one import: no database required.
+ * PostgreSQL is the transaction store. Boot may hydrate only small reference
+ * data; customers, invoices, returns, payments, logs, approvals, devices,
+ * assets, POs, shipments and serial history must never be loaded wholesale into
+ * memory again. This guard pins the allowlist and the removed refresh path.
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
@@ -25,55 +13,77 @@ import path from 'node:path';
 
 const ROOT = path.resolve('.');
 const RUNTIME_STATE_PATH = path.join(ROOT, 'server/src/state/runtimeState.ts');
-const COLUMN_MAPPINGS_PATH = path.join(ROOT, 'server/src/models/columnMappings.ts');
+const APP_PATH = path.join(ROOT, 'server/src/app.ts');
 
-describe('CACHE_LOADS generated from columnMappings (single source of truth)', () => {
+const REFERENCE_LOADS = [
+  'branches',
+  'users',
+  'uom',
+  'locations',
+  'suppliers',
+  'fiscalYears',
+  'companyProfile',
+  'products',
+  'categories',
+  'product_groups',
+  'inventory_stock',
+];
+
+const TRANSACTIONAL_LOADS = [
+  'fixed_assets',
+  'purchase_orders',
+  'purchase_invoices',
+  'shipments',
+  'sales_invoices',
+  'purchase_returns',
+  'sales_returns',
+  'stock_operations',
+  'audit_logs',
+  'transaction_logs',
+  'approval_requests',
+  'damage_records',
+  'customer_records',
+  'customer_device_records',
+  'vendor_payments',
+  'customer_payments',
+  'serial_log',
+];
+
+describe('reference-only CACHE_LOADS (Phase 0B)', () => {
   const runtimeState = fs.readFileSync(RUNTIME_STATE_PATH, 'utf8');
-  const columnMappings = fs.readFileSync(COLUMN_MAPPINGS_PATH, 'utf8');
+  const app = fs.readFileSync(APP_PATH, 'utf8');
 
-  test('runtimeState.ts declares no hand-written cache SQL', () => {
-    // The old list embedded a full SELECT literal per entry (`query: 'SELECT …'`).
-    const inlineSql = runtimeState.match(/query:\s*(['"`])\s*SELECT/gi) || [];
-    assert.equal(
-      inlineSql.length, 0,
-      `runtimeState.ts embeds hand-written cache SQL again (${inlineSql.length} occurrences) — add columns/tables to models/columnMappings.ts and wire the entry through buildCacheSelectSql instead.`
-    );
-    assert.ok(
-      /buildCacheSelectSql\((BOOTSTRAP_TABLES|CACHE_ONLY_TABLES)\./.test(runtimeState),
-      'CACHE_LOADS entries must derive their query from buildCacheSelectSql(BOOTSTRAP_TABLES.<config>) or CACHE_ONLY_TABLES.<config>.'
+  test('every boot load is on the reference allowlist', () => {
+    const entries = [...runtimeState.matchAll(/name:\s*'([^']+)'/g)].map((m) => m[1]);
+    assert.deepEqual(
+      [...new Set(entries)].sort(),
+      [...REFERENCE_LOADS].sort(),
+      'CACHE_LOADS changed — add a bounded repository read instead of a boot mirror for transactional data'
     );
   });
 
-  test('every cache-flagged table config has a CACHE_LOADS entry', async () => {
-    const { BOOTSTRAP_TABLES, CACHE_ONLY_TABLES } = await import('../server/src/models/columnMappings');
-    const cacheTables = Object.entries({ ...BOOTSTRAP_TABLES, ...CACHE_ONLY_TABLES })
-      .filter(([, cfg]: any) => cfg.cache)
-      .map(([key]) => key);
-    // A floor, not a contract: the union holds 24+ cached configs, including
-    // the cache-only customer_devices mapping (CDR-2).
-    assert.ok(cacheTables.length >= 24, `expected >=24 cache-flagged tables, found ${cacheTables.length}`);
-
-    for (const key of cacheTables) {
+  test('no transactional table is hydrated from PostgreSQL', () => {
+    for (const name of TRANSACTIONAL_LOADS) {
       assert.ok(
-        runtimeState.includes(`BOOTSTRAP_TABLES.${key}`) || runtimeState.includes(`CACHE_ONLY_TABLES.${key}`),
-        `columnMappings.ts caches table "${key}" but runtimeState.ts has no CACHE_LOADS entry referencing it.`
+        !new RegExp(`name:\\s*'${name}'`).test(runtimeState),
+        `${name} is back in CACHE_LOADS — it must be read through its repository query`
       );
     }
   });
 
-  test('the not-fetched tables and the retired device slice are explicitly present', async () => {
-    assert.ok(runtimeState.includes('BOOTSTRAP_TABLES.fiscalYears'), 'fiscal_years must stay in CACHE_LOADS');
-    assert.ok(runtimeState.includes('BOOTSTRAP_TABLES.customerPayments'), 'customer_payments must stay in CACHE_LOADS');
-
-    // CDR-2: the device slice is retired, so its mapping is cache-only. Both
-    // halves matter: the mirror must stay hydrated, and the slice surface must
-    // not get the mapping back.
-    const { BOOTSTRAP_TABLES, CACHE_ONLY_TABLES } = await import('../server/src/models/columnMappings');
-    assert.ok('customerDevices' in CACHE_ONLY_TABLES, 'the device mirror must keep its cache-only mapping (CDR-2)');
-    assert.ok(!('customerDevices' in BOOTSTRAP_TABLES), 'the customerDevices slice must stay retired (CDR-2)');
+  test('the write-path refresh hook and runner are gone', () => {
+    assert.ok(!runtimeState.includes('refreshOperationalCache'), 'runtimeState still exposes a full refresh');
+    assert.ok(!runtimeState.includes('runCacheRefreshPass'), 'runtimeState still has a full refresh pass');
+    assert.ok(!app.includes('cacheRefreshHook'), 'app.ts still installs the cache-refresh hook');
     assert.ok(
-      runtimeState.includes('CACHE_ONLY_TABLES.customerDevices'),
-      'CACHE_LOADS must hydrate the device mirror from the cache-only mapping (CDR-2)'
+      !fs.existsSync(path.join(ROOT, 'server/src/middleware/cacheRefreshHook.ts')),
+      'cacheRefreshHook.ts still exists'
     );
+  });
+
+  test('reference loads still derive from the column mappings', () => {
+    assert.match(runtimeState, /buildCacheSelectSql\(BOOTSTRAP_TABLES\./);
+    assert.ok(runtimeState.includes('BOOTSTRAP_TABLES.fiscalYears'), 'fiscal years must stay a reference load');
+    assert.ok(runtimeState.includes('BOOTSTRAP_TABLES.products'), 'the product catalogue must stay a reference load');
   });
 });
