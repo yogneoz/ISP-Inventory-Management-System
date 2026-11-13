@@ -360,7 +360,7 @@ Priority: P0 for the matrix/guard, P1 for missing postings · Depends on: ACC-1
 
 This is the “inventory is part of Finance” slice.
 
-- [ ] Build an explicit operation coverage matrix for every inventory value
+- [x] Build an explicit operation coverage matrix for every inventory value
       movement:
 
       | Operation | Financial effect | Posting service | Same transaction | Reversal | Branch | Party | Cost centre |
@@ -382,21 +382,31 @@ This is the “inventory is part of Finance” slice.
       | Warranty vendor credit | Dr AP / Cr Stock Expense or warranty recovery | `warrantyClaim` | yes | claim reversal | yes | supplier | optional |
       | Payroll | Dr Salary Expense / Cr TDS Payable + SSF Payable + Salary Payable + advances | `payrollPosting` | yes | payroll reversal | yes | employee | optional |
 
-- [ ] Verify each row against the actual controller transaction boundary, not
+- [x] Verify each row against the actual controller transaction boundary, not
       just the service name.
-- [ ] Add a source-type registry so a new stock mutation cannot ship without a
-      declared financial effect.
-- [ ] Add a guard/test that fails when an inventory write path has no posting
+- [x] Add a source-type registry so a new stock mutation cannot ship without a
+      declared financial effect (`inventoryPostingRegistry.ts`).
+- [x] Add a guard/test that fails when an inventory write path has no posting
       service or an unhandled source type.
-- [ ] Add idempotency checks on `(source_type, source_id)`.
-- [ ] Add missing postings found by the matrix.
-- [ ] Add reversal coverage for every posting source.
-- [ ] Add a reconciliation report:
+- [x] Add idempotency checks on `(source_type, source_id)` at the posting
+      boundary for stock-mutation sources, with a 409 on replay. Transfer,
+      purchase, sale and CPE families keep their existing document-lifecycle
+      guards because their source id is not unique per posting.
+- [x] Add missing postings found by the matrix: the review found every current
+      inventory value path already posts; the gap was the undeclared source
+      registry and the stock-operation receipt alias.
+- [x] Add reversal coverage for every posting source; the registry names the
+      contra/document/lifecycle reversal and the existing stock tests exercise
+      the posted contra journals.
+- [x] Add a reconciliation report:
       inventory valuation by branch/product vs `INVENTORY` control balance;
       COGS posted vs sales invoice cost; stock expense vs adjustment/damage
-      documents.
-- [ ] Add a branch/cost-centre default from the employee or branch master, but
-      never overwrite a user-selected cost centre silently.
+      documents. `GET /api/accounting/inventory-reconciliation` is the report,
+      and the period close now refuses a non-zero inventory difference unless
+      an override reason is recorded.
+- [ ] Add a branch/cost-centre default from the employee or branch master. This
+      remains open with ACC-5 because the employee/branch boundary owns those
+      defaults; no current posting silently changes a user-selected centre.
 
 Acceptance: every inventory operation that changes value has a posted journal
 in the same transaction, a reversal path, and a reconciliation report. The
@@ -542,6 +552,13 @@ Before a slice is marked done:
       provider auto-match, wrong-match refusal, refund, chargeback and branch
       refusal over real HTTP. Full suite and fresh-install evidence are in
       SESSION_NOTES.
-- `[~]` ACC-4…ACC-6 are planned but not implemented. ACC-4 (inventory-to-finance
-      coverage) is the next slice.
-- Next action: start ACC-4 (inventory-to-finance coverage).
+- `[x]` ACC-4 implementation: source registry, posting-boundary idempotency,
+      branch/product inventory reconciliation, COGS and stock-expense tie-outs,
+      and a required `INVENTORY_RECONCILE` close task plus a hard close guard.
+- `[x]` ACC-4 verified against PostgreSQL: `tests/inventoryCoverage.api.test.ts`
+      drives purchase, sale, stock correction, replay refusal and close-override
+      through real HTTP; the existing stock/invoice suites cover each posting
+      and reversal. Full suite and fresh-install evidence are in SESSION_NOTES.
+- `[~]` ACC-4 leaves the branch/cost-centre default for ACC-5, where employee
+      and branch master data are connected. ACC-5 is the next slice.
+- Next action: start ACC-5 (organisation, HR and permissions boundary).

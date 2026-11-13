@@ -230,7 +230,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 2308 tests; CI runs
+                                        #   drift/concurrency guards — 2313 tests; CI runs
                                         #   tsc + npm test + the source guards + the
                                         #   production build + the boot-timing gate +
                                         #   npm audit on every push/PR
@@ -603,6 +603,7 @@ The server registers ~130 routes. The most important ones:
 | `/api/accounting/cash-book` | GET | Custody book from posted lines: `kind=CASH\|BANK\|WALLET\|CASH_BANK` (default combined), optional `accountId`, `asOf` or `from`/`to`. CASH closing is the branch till and ties to daily cash close; BANK/WALLET opening/receipts/payments/closing are the external account's company balance while `branchReceipts`/`branchPayments`/`branchMovement` are the selected branch's share. `gl-view` |
 | `/api/accounting/bank-position` | GET | Separate company bank position from posted `BANK` lines: one row per bank account with its real company closing balance, owner/shared marker and the selected branch's movement. A branch filter never splits the external bank balance. `asOf` or `from`/`to`, optional `accountId` (`gl-view`) |
 | `/api/accounting/wallet-reconciliation` | GET | Company-wide provider clearing workspace for one `WALLET` ledger and period: ledger opening/receipts/settlements/closing, gross receipts, settled gross, fees, net banked, unsettled gross and their tie-out, pending receipts, settlement allocations, and the imported provider statement with net-deposit suggestions. `accountId`, `from`, `to` (`gl-view`) |
+| `/api/accounting/inventory-reconciliation` | GET | ACC-4 inventory-to-finance report, branch-scoped: register valuation by branch/product vs the INVENTORY control balance with the exact difference and reconciliation flag, plus period COGS posted vs sale/return movement issue cost and stock expense vs adjustment/damage movement rows. `branchId`, `asOf`, `from`, `to` (`gl-view`). The period close runs the same inventory tie and refuses a non-zero difference without an explicit override reason |
 | `/api/accounting/wallet-settlements` | POST | Post one settlement allocation against an ONLINE wallet receipt: Dr bank net + Dr Payment Processing Fees + Cr wallet clearing gross. The receipt is locked, the allocation cannot exceed its gross (partial settlement is allowed), and the wallet/bank ledger kinds and provider must agree (`gl-cash-close`) |
 | `/api/accounting/wallet-reconciliation/import` | POST | Import the provider's CSV/OFX statement into the shared statement-line engine for one `WALLET` ledger, then auto-match net deposits to unmatched settlement nets by amount and provider reference. Duplicate lines are counted, not reinserted (`gl-cash-close`) |
 | `/api/accounting/wallet-reconciliation/lines/:id/match` | POST | Manually match one provider statement line to a settlement. Refuses a line or settlement that is already matched, a different wallet ledger, or a net that differs from the settlement net (`gl-cash-close`) |
@@ -1476,7 +1477,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 2308 tests against a real PostgreSQL 16 service container
+2. `npm test` — 2313 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM
