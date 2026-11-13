@@ -2349,6 +2349,22 @@ export async function postAccountingJournal(
   });
 }
 
+/**
+ * Post one branch's opening trial balance. The server picks the earliest open
+ * period, refuses a second post for the branch, and requires balanced lines.
+ */
+export interface OpeningBalanceInput {
+  branchId: string;
+  lines: AccountingJournalLineInput[];
+}
+
+export async function postOpeningBalances(input: OpeningBalanceInput): Promise<AccountingJournal> {
+  return fetchJson('/api/accounting/opening-balances', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
 export interface AccountingJournalReversalInput {
   journalDateAD: string;
   reason: string;

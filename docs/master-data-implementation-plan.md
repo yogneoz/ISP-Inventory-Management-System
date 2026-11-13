@@ -32,7 +32,7 @@ note still says chart Add/Edit is API-only, which is no longer true.
 | 10 | Currency | Company Profile & Setup → Comms & Currency (`/settings/company`) | Partial | Accounting → Currency & Exchange Rates |
 | 11 | Cost Center | Master Data & Setup → Accounting → Cost Centers (`/finance/accounting/cost-centers`) | Done | Accounting → Cost Centers |
 | 12 | Narration Master | Master Data & Setup → Accounting → Narration Templates (`/finance/accounting/narrations`) | Done | Accounting → Narration Templates |
-| 13 | Opening Balance | Vendor screen, stock workflow, GL API only, no customer register | Partial | Finance & Accounting → General Ledger → Opening Balances |
+| 13 | Opening Balance | Opening Balances screen: Vendors tab and a new GL tab; stock workflow; no customer register | Partial | Finance & Accounting → General Ledger → Opening Balances |
 | 14 | Copy Master | None | Missing | Utilities → Copy Masters |
 
 `Category Management`, `Product Group Management` and `UoM Management` are current
@@ -308,9 +308,9 @@ for that integration without changing posted history.
 
 **Today.** Split:
 
-- Vendor opening balances: `Finance → Vendor Opening Balances`.
+- Vendor opening balances: `Finance → Opening Balances → Vendors`.
 - Opening stock: fiscal-year opening-stock workflow.
-- General ledger: `POST /api/accounting/opening-balances`, API only.
+- General ledger: `Opening Balances → General Ledger` (backed by `POST /api/accounting/opening-balances`).
 - Customer: no register; the sales ledger uses a period-net opening method.
 
 **Decision.** Build one Opening Balances hub with tabs for GL, Customers, Vendors
@@ -535,6 +535,14 @@ target.
 
 - [ ] **Step 7 — Opening Balances hub.**
   Move earlier if existing books must be onboarded before the other steps.
+
+  **First slice shipped — General Ledger tab.** `/finance/opening-balances`
+  is now the Opening Balances hub with Vendors and General Ledger tabs. The GL
+  tab posts a balanced branch trial balance through the existing
+  `POST /api/accounting/opening-balances` route, which keeps its earliest-open
+  period, one-posting-per-branch and branch-scope rules. The form excludes
+  control accounts because this trial-balance path has no party picker.
+  Still open: the Customers register/tab and an in-hub Stock tab.
 
 - [ ] **Step 8 — Currency/FX and Copy Master.**
   Separate projects, not menu items.

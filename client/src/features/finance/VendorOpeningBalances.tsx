@@ -2,13 +2,16 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useActivationKey } from '../../components/common/KeepMounted';
 import {
   AlertTriangle,
+  BookOpen,
   CheckCircle2,
   Download,
   Layers,
   Lock,
   Pencil,
+  Plus,
   RefreshCw,
   Save,
+  Trash2,
   Wallet,
 } from 'lucide-react';
 import { api } from '../../services/api';
@@ -25,6 +28,7 @@ import {
   VendorOpeningBalanceResponse,
   VendorOpeningBalanceRow,
 } from '../../types';
+import type { AccountingAccount, AccountingJournalLineInput } from '../../services/api/accounting';
 
 interface VendorOpeningBalancesProps {
   currentUser?: User | null;
@@ -35,6 +39,21 @@ interface VendorOpeningBalancesProps {
   selectedFiscalYearId?: string;
   /** Update the global fiscal-year view when the user changes it here. */
   onSelectFiscalYear?: (fiscalYearId: string) => void;
+}
+
+type OpeningBalanceTab = 'VENDORS' | 'GL';
+
+interface GlLineDraft {
+  id: string;
+  accountId: string;
+  debit: string;
+  credit: string;
+}
+
+let glDraftSeq = 0;
+function newGlLine(): GlLineDraft {
+  glDraftSeq += 1;
+  return { id: `gl-line-${glDraftSeq}`, accountId: '', debit: '', credit: '' };
 }
 
 /**
@@ -55,6 +74,7 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
   const role = currentUser?.role;
   const canView = isOperationAllowed('opening-stock-view', role);
   const canEditRole = isOperationAllowed('opening-stock-edit', role);
+  const canPostGl = isOperationAllowed('gl-opening-post', role);
 
   // Same branch contract as the opening-stock register: only the account's own
   // branches are offered, displayed or submitted (the server refuses the rest).
@@ -90,11 +110,30 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
   const [vendorNonZeroOnly, setVendorNonZeroOnly] = useState<boolean>(false);
   const [vendorChangedOnly, setVendorChangedOnly] = useState<boolean>(false);
 
+  // Opening Balances hub: Vendors is the existing register; General Ledger is
+  // the screen for the previously API-only `POST /api/accounting/opening-balances`.
+  const [activeTab, setActiveTab] = useState<OpeningBalanceTab>('VENDORS');
+  const [glBranchId, setGlBranchId] = useState<string>('');
+  const [glAccounts, setGlAccounts] = useState<AccountingAccount[]>([]);
+  const [glAccountsLoading, setGlAccountsLoading] = useState<boolean>(false);
+  const [glAccountsError, setGlAccountsError] = useState<string>('');
+  const [glLines, setGlLines] = useState<GlLineDraft[]>(() => [newGlLine(), newGlLine()]);
+  const [glPosting, setGlPosting] = useState<boolean>(false);
+  const [glMessage, setGlMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   // A profile switch must not leave the filter pointing at a branch the
   // account no longer holds.
   useEffect(() => {
     if (vendorBranchFilter !== 'ALL' && !scopedBranchIds.has(vendorBranchFilter)) setVendorBranchFilter('ALL');
   }, [vendorBranchFilter, scopedBranchIds]);
+
+  // Real branches only: `ALL` is a consolidated view, never a posting target.
+  const glBranchOptions = useMemo(() => scopedBranches.filter((b) => b.id !== 'ALL'), [scopedBranches]);
+  useEffect(() => {
+    if (!glBranchOptions.some((b) => b.id === glBranchId)) {
+      setGlBranchId(glBranchOptions[0]?.id || '');
+    }
+  }, [glBranchOptions, glBranchId]);
 
   useEffect(() => {
     if (!fiscalYears.some((f) => f.id === selectedFyId)) {
@@ -286,6 +325,115 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
     });
   };
 
+  // The GL tab loads the active, non-control chart once. Control accounts
+  // need a party on every line and this trial-balance form has no party
+  // picker; showing them would create a submission the ledger must reject.
+  useEffect(() => {
+    if (activeTab !== 'GL' || glAccounts.length > 0) return;
+    let cancelled = false;
+    setGlAccountsLoading(true);
+    setGlAccountsError('');
+    api
+      .getAccountingAccounts(false)
+      .then((rows) => {
+        if (cancelled) return;
+        setGlAccounts(rows.filter((row) => row.isActive && !row.isControl));
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setGlAccountsError(error instanceof Error ? error.message : 'Unable to load the chart of accounts.');
+      })
+      .finally(() => {
+        if (!cancelled) setGlAccountsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, glAccounts.length]);
+
+  const glDraftLines = useMemo(
+    () =>
+      glLines.filter(
+        (line) => line.accountId || line.debit.trim() !== '' || line.credit.trim() !== ''
+      ),
+    [glLines]
+  );
+  const glTotalDebit = useMemo(
+    () => glDraftLines.reduce((sum, line) => sum + (Number(line.debit) || 0), 0),
+    [glDraftLines]
+  );
+  const glTotalCredit = useMemo(
+    () => glDraftLines.reduce((sum, line) => sum + (Number(line.credit) || 0), 0),
+    [glDraftLines]
+  );
+  const glDifference = Math.round((glTotalDebit - glTotalCredit) * 100) / 100;
+  const glBalanced = glTotalDebit > 0 && glDifference === 0;
+
+  const updateGlLine = (lineId: string, patch: Partial<GlLineDraft>) => {
+    setGlLines((prev) => prev.map((line) => (line.id === lineId ? { ...line, ...patch } : line)));
+    setGlMessage(null);
+  };
+  const addGlLine = () => setGlLines((prev) => [...prev, newGlLine()]);
+  const removeGlLine = (lineId: string) => {
+    setGlLines((prev) => (prev.length <= 2 ? prev : prev.filter((line) => line.id !== lineId)));
+    setGlMessage(null);
+  };
+
+  const handlePostGlOpening = async () => {
+    if (!canPostGl || glPosting) return;
+    if (!glBranchId || !glBranchOptions.some((branch) => branch.id === glBranchId)) {
+      setGlMessage({ type: 'error', text: 'Select a branch within your access before posting opening balances.' });
+      return;
+    }
+    if (glDraftLines.length < 2) {
+      setGlMessage({ type: 'error', text: 'At least two opening-balance lines are required.' });
+      return;
+    }
+    const lines: AccountingJournalLineInput[] = [];
+    for (const line of glDraftLines) {
+      if (!line.accountId) {
+        setGlMessage({ type: 'error', text: 'Every line needs an account.' });
+        return;
+      }
+      const debit = line.debit.trim() === '' ? 0 : Number(line.debit);
+      const credit = line.credit.trim() === '' ? 0 : Number(line.credit);
+      if (!Number.isFinite(debit) || !Number.isFinite(credit) || debit < 0 || credit < 0) {
+        setGlMessage({ type: 'error', text: 'Debit and credit must be non-negative numbers.' });
+        return;
+      }
+      if ((debit > 0 && credit > 0) || (debit === 0 && credit === 0)) {
+        setGlMessage({ type: 'error', text: 'Put an amount on exactly one side of each line.' });
+        return;
+      }
+      lines.push({ accountId: line.accountId, debit, credit });
+    }
+    if (glDifference !== 0) {
+      setGlMessage({
+        type: 'error',
+        text: `Opening balances must balance. Debit ${formatNPR(glTotalDebit)} vs credit ${formatNPR(glTotalCredit)} differs by ${formatNPR(Math.abs(glDifference))}.`,
+      });
+      return;
+    }
+    setGlPosting(true);
+    setGlMessage(null);
+    try {
+      const journal = await api.postOpeningBalances({ branchId: glBranchId, lines });
+      setGlMessage({
+        type: 'success',
+        text: `Opening balances posted as journal ${journal.journalNo} in period ${journal.periodKey}.`,
+      });
+      setGlLines([newGlLine(), newGlLine()]);
+      onRefreshData?.();
+    } catch (error) {
+      setGlMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : 'Unable to post opening balances.',
+      });
+    } finally {
+      setGlPosting(false);
+    }
+  };
+
   if (!canView) {
     return (
       <div
@@ -312,11 +460,11 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
           </div>
           <div className="min-w-0">
             <h2 className={`text-base font-bold break-words text-slate-900 dark:text-white`}>
-              Vendor Opening Balances
+              Opening Balances
             </h2>
             <p className={`text-xs mt-0.5 leading-snug break-words text-slate-500 dark:text-slate-400`}>
-              Supplier × branch opening payables (Accounts Payable) rolled forward from the Vendor Ledger close step in
-              the Fiscal Year Closing Wizard. Editable while the fiscal year is open.
+              Bring one branch's books into the system. Vendor balances roll forward from the prior close; the General
+              Ledger tab posts a balanced opening trial balance once per branch.
             </p>
           </div>
         </div>
@@ -344,6 +492,42 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
         </div>
       </div>
 
+      {/* ===== Opening-balances tabs ===== */}
+      <div
+        role="tablist"
+        aria-label="Opening balance registers"
+        className="flex flex-wrap items-center gap-2 shrink-0"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'VENDORS'}
+          onClick={() => setActiveTab('VENDORS')}
+          className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold border transition-colors ${
+            activeTab === 'VENDORS'
+              ? 'bg-emerald-600 text-white border-emerald-600'
+              : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-slate-800'
+          }`}
+        >
+          <Wallet className="h-3.5 w-3.5" /> Vendors
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'GL'}
+          onClick={() => setActiveTab('GL')}
+          className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold border transition-colors ${
+            activeTab === 'GL'
+              ? 'bg-emerald-600 text-white border-emerald-600'
+              : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-slate-800'
+          }`}
+        >
+          <BookOpen className="h-3.5 w-3.5" /> General Ledger
+        </button>
+      </div>
+
+      {activeTab === 'VENDORS' && (
+        <>
       {/* ===== Period-lock / access banners ===== */}
       {periodLocked ? (
         <div
@@ -640,6 +824,191 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
           )}
         </div>
       </div>
+        </>
+      )}
+
+      {activeTab === 'GL' && (
+        <div
+          className={`rounded-xl border p-4 shadow-sm bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="p-2.5 rounded-xl shrink-0 bg-indigo-50 dark:bg-indigo-500/10">
+                <BookOpen className="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-base font-bold break-words text-slate-900 dark:text-white">
+                  General Ledger Opening Trial Balance
+                </h3>
+                <p className="text-xs mt-0.5 leading-snug break-words text-slate-500 dark:text-slate-400">
+                  Posts balanced opening lines through the ledger into the earliest open accounting period. A branch can
+                  take one opening posting; the server refuses a second one and checks permission and branch scope.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Branch
+              </label>
+              <select
+                aria-label="Opening balance branch"
+                value={glBranchId}
+                onChange={(event) => {
+                  setGlBranchId(event.target.value);
+                  setGlMessage(null);
+                }}
+                disabled={!canPostGl || glPosting}
+                className="px-3 py-2 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200 disabled:opacity-50"
+              >
+                {glBranchOptions.length === 0 && <option value="">No branch in scope</option>}
+                {glBranchOptions.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {!canPostGl && (
+            <div className="mt-3 flex items-start gap-2.5 rounded-xl border p-3 text-xs font-semibold bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-500/5 dark:border-amber-500/30 dark:text-amber-300">
+              <Lock className="h-4 w-4 mt-0.5 shrink-0" />
+              <span>
+                Read-only for your role. Posting opening balances requires the Post Opening Balances permission.
+              </span>
+            </div>
+          )}
+
+          <div className="mt-4 rounded-xl border overflow-hidden border-slate-200 dark:border-slate-800">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50 text-slate-500 dark:bg-slate-900 dark:text-slate-400">
+                  {['Account', 'Debit (NPR)', 'Credit (NPR)', ''].map((heading) => (
+                    <th
+                      key={heading || 'actions'}
+                      className="px-3 py-2.5 text-[11px] font-bold uppercase tracking-wide whitespace-nowrap border-b border-slate-200 dark:border-slate-800"
+                    >
+                      {heading}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {glLines.map((line) => (
+                  <tr key={line.id} className="border-b border-slate-100 dark:border-slate-800/70">
+                    <td className="px-3 py-2 min-w-[240px]">
+                      <select
+                        aria-label="Opening balance account"
+                        value={line.accountId}
+                        disabled={!canPostGl || glPosting || glAccountsLoading}
+                        onChange={(event) => updateGlLine(line.id, { accountId: event.target.value })}
+                        className="w-full px-2 py-1.5 rounded-md border text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white border-slate-300 text-slate-700 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300 disabled:opacity-50"
+                      >
+                        <option value="">{glAccountsLoading ? 'Loading accounts…' : 'Select account'}</option>
+                        {glAccounts.map((account) => (
+                          <option key={account.id} value={account.id}>
+                            {account.code} · {account.name}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-3 py-2">
+                      <input
+                        aria-label="Opening balance debit"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={line.debit}
+                        disabled={!canPostGl || glPosting}
+                        onChange={(event) => updateGlLine(line.id, { debit: event.target.value, credit: event.target.value === '' ? line.credit : '' })}
+                        className="w-28 px-2 py-1 rounded-md border text-xs font-bold text-right focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white border-slate-300 text-slate-700 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300 disabled:opacity-50"
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <input
+                        aria-label="Opening balance credit"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={line.credit}
+                        disabled={!canPostGl || glPosting}
+                        onChange={(event) => updateGlLine(line.id, { credit: event.target.value, debit: event.target.value === '' ? line.debit : '' })}
+                        className="w-28 px-2 py-1 rounded-md border text-xs font-bold text-right focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white border-slate-300 text-slate-700 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300 disabled:opacity-50"
+                      />
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <button
+                        type="button"
+                        aria-label="Remove opening balance line"
+                        onClick={() => removeGlLine(line.id)}
+                        disabled={!canPostGl || glPosting || glLines.length <= 2}
+                        className="p-1.5 rounded-md text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 disabled:opacity-30"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="bg-slate-50 dark:bg-slate-900/70">
+                  <td className="px-3 py-2 text-xs font-bold text-slate-600 dark:text-slate-300">Totals</td>
+                  <td className="px-3 py-2 text-xs font-extrabold text-right text-slate-800 dark:text-slate-100">{formatNPR(glTotalDebit)}</td>
+                  <td className="px-3 py-2 text-xs font-extrabold text-right text-slate-800 dark:text-slate-100">{formatNPR(glTotalCredit)}</td>
+                  <td className="px-3 py-2 text-right">
+                    <span className={`text-[10px] font-bold ${glBalanced ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500'}`}>
+                      {glBalanced ? 'Balanced' : `Out by ${formatNPR(Math.abs(glDifference))}`}
+                    </span>
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          {glAccountsError && (
+            <div className="mt-3 flex items-start gap-2 rounded-xl border p-3 text-xs font-semibold bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-500/5 dark:border-rose-500/30 dark:text-rose-300">
+              <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+              <span>{glAccountsError}</span>
+            </div>
+          )}
+
+          {glMessage && (
+            <div
+              className={`mt-3 flex items-start gap-2 rounded-xl border p-3 text-xs font-semibold ${
+                glMessage.type === 'error'
+                  ? 'bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-500/5 dark:border-rose-500/30 dark:text-rose-300'
+                  : 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-500/5 dark:border-emerald-500/30 dark:text-emerald-300'
+              }`}
+            >
+              {glMessage.type === 'error' ? (
+                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+              ) : (
+                <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
+              )}
+              <span>{glMessage.text}</span>
+            </div>
+          )}
+
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={addGlLine}
+              disabled={!canPostGl || glPosting}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-bold border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 disabled:opacity-50"
+            >
+              <Plus className="h-3.5 w-3.5" /> Add line
+            </button>
+            <button
+              type="button"
+              onClick={handlePostGlOpening}
+              disabled={!canPostGl || glPosting || !glBalanced || glDraftLines.length < 2}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Save className="h-3.5 w-3.5" /> {glPosting ? 'Posting…' : 'Post Opening Balances'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

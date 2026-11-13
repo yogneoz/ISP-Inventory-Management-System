@@ -33,6 +33,8 @@
  */
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { postOpeningBalances as postOpeningBalancesClient } from '../client/src/services/api/accounting';
+import { setAuthToken } from '../client/src/services/api/http';
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
@@ -64,6 +66,7 @@ const ROOT = path.resolve('.');
 const SCHEMA_SQL_PATH = path.join(ROOT, 'scripts', 'schema.sql');
 const TEST_DB = 'inventory_opening_closing_test';
 const BR = 'OCBR';
+const CLIENT_BR = 'OCUI';
 const OTHER_BRANCH = 'WH001';
 const FY_ID = 'oc-fy-2079-80';
 const FY_CODE = '2079-80';
@@ -229,6 +232,11 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
       `INSERT INTO branches (id, code, name, location, active, allow_procurement, allow_warehouse_transfer, is_demo)
        VALUES ($1, $1, 'Opening Closing Branch', 'Test', TRUE, TRUE, TRUE, FALSE)`,
       [BR]
+    );
+    await dbPool.query(
+      `INSERT INTO branches (id, code, name, location, active, allow_procurement, allow_warehouse_transfer, is_demo)
+       VALUES ($1, $1, 'Opening Client Branch', 'Test', TRUE, TRUE, TRUE, FALSE)`,
+      [CLIENT_BR]
     );
     await dbPool.query(
       `INSERT INTO fiscal_years (id, code, start_date_ad, end_date_ad, start_date_bs, end_date_bs, is_current, is_closed, is_demo)
@@ -404,6 +412,41 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
     const trial = await trialBalance();
     assert.equal(trial.balanced, true);
     assert.equal(trial.totals.debit, trial.totals.credit);
+  });
+
+  test('the Opening Balances client helper reaches the real opening-balances route', async () => {
+    const nativeFetch = globalThis.fetch;
+    globalThis.fetch = ((input: any, init?: any) => {
+      const url =
+        typeof input === 'string' && input.startsWith('/')
+          ? `http://127.0.0.1:${port}${input}`
+          : input;
+      return nativeFetch(url, init);
+    }) as typeof fetch;
+    setAuthToken(tokens.super);
+    try {
+      const journal = await postOpeningBalancesClient({
+        branchId: CLIENT_BR,
+        lines: [
+          { accountId: accounts.cash, debit: 750, credit: 0 },
+          { accountId: accounts.openingEquity, debit: 0, credit: 750 },
+        ],
+      });
+      assert.equal(journal.branchId, CLIENT_BR);
+      assert.equal(journal.sourceType, 'OPENING_BALANCE');
+      assert.equal(journal.periodKey, PERIOD_KEY);
+      assert.equal(journal.totalDebit, 750);
+    } finally {
+      globalThis.fetch = nativeFetch;
+      setAuthToken(null);
+    }
+
+    const stored = await dbPool!.query(
+      `SELECT COUNT(*)::int AS count FROM gl_journals
+       WHERE branch_id = $1 AND source_type = 'OPENING_BALANCE'`,
+      [CLIENT_BR]
+    );
+    assert.equal(Number(stored.rows[0].count), 1, 'the client helper must leave a posted opening journal');
   });
 
   test('the year-end close moves the result into retained earnings and leaves the trial balance balanced', async () => {

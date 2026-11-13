@@ -59,6 +59,7 @@ const branchUser = (over: Record<string, unknown> = {}) => ({
 } as any);
 
 const hqUser = branchUser({ id: 'u-hq', email: 'hq@example.com', branchId: 'ALL', allowedBranchIds: [] });
+const accountantUser = branchUser({ id: 'u-accountant', email: 'accountant@example.com', role: 'ACCOUNTANT' });
 
 const openingRow = (id: string, branchId: string, branchName: string, quantityOnHand: number) => ({
   id,
@@ -120,6 +121,14 @@ function setNumberInput(input: HTMLInputElement, value: string) {
   });
 }
 
+function setSelectValue(select: HTMLSelectElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value')!.set!;
+  inAct(() => {
+    setter.call(select, value);
+    select.dispatchEvent(new window.Event('change', { bubbles: true }));
+  });
+}
+
 function findButton(container: HTMLElement, pattern: RegExp): HTMLButtonElement | undefined {
   return [...container.querySelectorAll('button')].find((button) =>
     pattern.test((button.textContent || '').trim())
@@ -137,6 +146,8 @@ describe('fiscal opening registers — branch scope', () => {
     adjustOpening: api.adjustFiscalYearOpeningStock,
     getVendor: api.getVendorOpeningBalances,
     adjustVendor: api.adjustVendorOpeningBalances,
+    getAccounts: api.getAccountingAccounts,
+    postOpening: api.postOpeningBalances,
   };
 
   afterEach(() => {
@@ -144,6 +155,8 @@ describe('fiscal opening registers — branch scope', () => {
     api.adjustFiscalYearOpeningStock = real.adjustOpening;
     api.getVendorOpeningBalances = real.getVendor;
     api.adjustVendorOpeningBalances = real.adjustVendor;
+    api.getAccountingAccounts = real.getAccounts;
+    api.postOpeningBalances = real.postOpening;
   });
 
   test('getScopedBranches mirrors the server: only ALL/HQ roles are global', () => {
@@ -272,6 +285,80 @@ describe('fiscal opening registers — branch scope', () => {
         [{ branchId: 'br-a', openingBalance: 150 }],
         'the payload never carries the foreign-branch row that was in the response'
       );
+    } finally {
+      tree.unmount();
+    }
+  });
+
+  test('General Ledger tab posts balanced opening lines for a scoped branch', async () => {
+    const posted: any[] = [];
+    api.getVendorOpeningBalances = async () => vendorPayload as any;
+    api.getAccountingAccounts = async () =>
+      [
+        { id: 'acct-cash', code: '1000', name: 'Cash', isActive: true, isControl: false },
+        { id: 'acct-equity', code: '3100', name: 'Opening Equity', isActive: true, isControl: false },
+      ] as any;
+    api.postOpeningBalances = async (input) => {
+      posted.push(input);
+      return { journalNo: 'JV-OPEN-1', periodKey: '2026-07' } as any;
+    };
+
+    const tree = mountTree(
+      createElement(VendorOpeningBalances, {
+        currentUser: accountantUser,
+        fiscalYears,
+        branches,
+      } as any)
+    );
+    try {
+      await settle();
+
+      const tab = findButton(tree.container, /General Ledger/);
+      assert.ok(tab, 'the hub exposes the General Ledger tab');
+      inAct(() => tab!.click());
+      await settle();
+
+      const branchSelect = tree.container.querySelector(
+        'select[aria-label="Opening balance branch"]'
+      ) as HTMLSelectElement | null;
+      assert.ok(branchSelect, 'the GL form exposes its branch picker');
+      assert.deepEqual(
+        [...branchSelect!.querySelectorAll('option')].map((option) => option.value),
+        ['br-a'],
+        'a branch account can only post to its own branch'
+      );
+
+      const accountSelects = [
+        ...tree.container.querySelectorAll('select[aria-label="Opening balance account"]'),
+      ] as HTMLSelectElement[];
+      assert.equal(accountSelects.length, 2, 'the form starts with two lines');
+      setSelectValue(accountSelects[0], 'acct-cash');
+      setSelectValue(accountSelects[1], 'acct-equity');
+
+      const debitInputs = [
+        ...tree.container.querySelectorAll('input[aria-label="Opening balance debit"]'),
+      ] as HTMLInputElement[];
+      const creditInputs = [
+        ...tree.container.querySelectorAll('input[aria-label="Opening balance credit"]'),
+      ] as HTMLInputElement[];
+      setNumberInput(debitInputs[0], '500');
+      setNumberInput(creditInputs[1], '500');
+
+      const post = findButton(tree.container, /Post Opening Balances/);
+      assert.ok(post, 'a balanced draft exposes the post action');
+      inAct(() => post!.click());
+      await settle();
+
+      assert.deepEqual(posted, [
+        {
+          branchId: 'br-a',
+          lines: [
+            { accountId: 'acct-cash', debit: 500, credit: 0 },
+            { accountId: 'acct-equity', debit: 0, credit: 500 },
+          ],
+        },
+      ]);
+      assert.match(tree.container.textContent || '', /posted as journal JV-OPEN-1/);
     } finally {
       tree.unmount();
     }

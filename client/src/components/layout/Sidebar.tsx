@@ -799,7 +799,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   if (isOperationAllowed('opening-stock-view', currentUser?.role)) {
     financeChildren.push({
       id: 'vendor-opening-balances' as NavTab,
-      label: 'Vendor Opening Balances',
+      label: 'Opening Balances',
       icon: Wallet,
       section: 'Statements & ledgers',
     });

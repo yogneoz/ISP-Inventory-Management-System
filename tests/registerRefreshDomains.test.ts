@@ -1106,6 +1106,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'finance/VendorOpeningBalances.tsx': [
       'adjustVendorOpeningBalances',
       'getVendorOpeningBalances',
+      'postOpeningBalances',
       'rollForwardVendorOpenings',
     ],
     'inventory/CategoryManagement.tsx': ['createCategory', 'deleteCategory', 'getCategories', 'updateCategory'],
