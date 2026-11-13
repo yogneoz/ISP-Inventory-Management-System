@@ -490,20 +490,33 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
     assert.equal(anonymousSnapshot.status, 401);
 
     // The snapshot is evidence: an in-place UPDATE or DELETE is refused by the
-    // database, not merely avoided by application code.
-    await assert.rejects(
-      () =>
-        dbPool!.query(
-          'UPDATE fiscal_year_balances SET post_close_balance = 0 WHERE fiscal_year_id = $1',
-          [FY_ID]
-        ),
-      (error: any) => error?.code === '23514' && /immutable/.test(String(error.message))
-    );
-    await assert.rejects(
-      () =>
-        dbPool!.query('DELETE FROM fiscal_year_balances WHERE fiscal_year_id = $1', [FY_ID]),
-      (error: any) => error?.code === '23514' && /immutable/.test(String(error.message))
-    );
+    // database, not merely avoided by application code. The suite's shared
+    // connection deliberately carries `inventory.allow_ledger_purge=on` for
+    // fixture cleanup, so prove the production guard on a separate connection
+    // that does not carry that test-only option.
+    const immutableUrl = new URL(process.env.DATABASE_URL!);
+    immutableUrl.searchParams.delete('options');
+    const immutableClient = new pg.Client({ connectionString: immutableUrl.toString() });
+    await immutableClient.connect();
+    try {
+      await assert.rejects(
+        () =>
+          immutableClient.query(
+            'UPDATE fiscal_year_balances SET post_close_balance = 0 WHERE fiscal_year_id = $1',
+            [FY_ID]
+          ),
+        (error: any) => error?.code === '23514' && /immutable/.test(String(error.message))
+      );
+      await assert.rejects(
+        () =>
+          immutableClient.query('DELETE FROM fiscal_year_balances WHERE fiscal_year_id = $1', [
+            FY_ID,
+          ]),
+        (error: any) => error?.code === '23514' && /immutable/.test(String(error.message))
+      );
+    } finally {
+      await immutableClient.end();
+    }
 
     const closedLines = await dbPool!.query(
       `SELECT a.code, SUM(l.debit)::numeric AS debit, SUM(l.credit)::numeric AS credit

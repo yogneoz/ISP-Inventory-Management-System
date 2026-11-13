@@ -153,6 +153,11 @@ export const BRANCH_SCOPE_EXEMPTIONS: readonly BranchScopeExemption[] = [
       'Branch-owned recurring templates are scoped in recurringClose.controller: the list filters by the caller branch, and detail/update/delete/run assert the template branch before acting. Generation posts through the branch-bound journal service.',
   },
   {
+    table: 'fiscal_year_balances',
+    reason:
+      "Year-end close snapshots are addressed by fiscal year, never by a row id: GET /api/accounting/fiscal-years/:id/balances resolves the caller's branch scope in accounting.controller and applies it in SQL. No /fiscal-year-balances/:id route exists, so the by-id guard does not apply.",
+  },
+  {
     table: 'fiscal_year_opening_stock',
     reason:
       "Batch fiscal-year register (product × branch): the GET filters and the PUT refuses rows outside the actor's allowed branches in fiscal.routes.ts. The path id is the fiscal year, not a row id, so the by-id lookup does not apply.",
