@@ -8,7 +8,10 @@ import { pgPool } from '../../db';
 import { requirePermission, requireRole, getUserFromReq } from '../middleware/index';
 import { allowedBranchScope } from '../middleware/branchScope';
 import { withTransaction } from '../db/transactions';
-import { postStockOpeningBalances } from '../services/accountingClosing.service';
+import {
+  postStockOpeningBalances,
+  postVendorOpeningBalances,
+} from '../services/accountingClosing.service';
 import { logAuditEvent } from './fiscal.auditAccess';
 
 export function registerLeftoverFiscalRoutes(expressApp: express.Express) {
@@ -381,10 +384,31 @@ expressApp.get(
         [id]
       );
 
+      // Read-only reconciliation reference: posted operational AP entries by
+      // supplier × branch, excluding the opening journal itself (and its
+      // reversal) so the column shows activity separate from this register.
+      const ledgerRes = await pgPool.query(
+        `SELECT se.party_id AS "supplierId", se.branch_id AS "branchId",
+                COALESCE(SUM(se.credit - se.debit), 0)::float AS "ledgerBalance"
+         FROM gl_subledger_entries se
+         JOIN gl_accounts a ON a.id = se.account_id AND a.posting_role = 'AP_CONTROL'
+         JOIN gl_journals j ON j.id = se.journal_id
+         WHERE j.source_type NOT IN ('OPENING_BALANCE', 'OPENING_BALANCE_REVERSAL')
+         GROUP BY se.party_id, se.branch_id`
+      );
+      const ledgerByKey = new Map(
+        ledgerRes.rows.map((r: any) => [`${r.supplierId}:${r.branchId}`, Number(r.ledgerBalance)])
+      );
+
       // Same branch contract as the opening-stock register: a branch account
       // sees only its own branches' supplier × branch balances.
       const scope = allowedBranchScope(getUserFromReq(req));
-      const rows = scope ? rowsRes.rows.filter((r: any) => scope.has(r.branchId)) : rowsRes.rows;
+      const rows = (scope ? rowsRes.rows.filter((r: any) => scope.has(r.branchId)) : rowsRes.rows).map(
+        (r: any) => ({
+          ...r,
+          ledgerBalance: ledgerByKey.get(`${r.supplierId}:${r.branchId}`) || 0,
+        })
+      );
       const stats = {
         totalRows: rows.length,
         manualAdjustments: rows.filter((r: any) => r.sourceType === 'MANUAL_ADJUSTMENT').length,
@@ -417,6 +441,9 @@ expressApp.put(
     const { id } = req.params;
     const user = getUserFromReq(req);
     const incoming: any[] = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    const removedIncoming: any[] = Array.isArray(req.body?.removed) ? req.body.removed : [];
+    const requestedOffsetAccountId =
+      typeof req.body?.offsetAccountId === 'string' ? req.body.offsetAccountId.trim() : '';
 
     try {
       const fyRes = await pgPool.query('SELECT id, code, is_closed AS "isClosed" FROM fiscal_years WHERE id = $1', [id]);
@@ -428,7 +455,7 @@ expressApp.put(
             'This fiscal year is closed and period-locked. Reopen it with Super Admin authorization before adjusting vendor opening balances.',
         });
       }
-      if (incoming.length === 0) {
+      if (incoming.length === 0 && removedIncoming.length === 0) {
         return res.status(400).json({ message: 'No vendor opening-balance rows were provided to adjust.' });
       }
 
@@ -471,9 +498,45 @@ expressApp.put(
         updates.push({ supplierId, branchId, openingBalance });
       }
 
+      const removed: Array<{ supplierId: string; branchId: string }> = [];
+      for (const item of removedIncoming) {
+        const supplierId = String(item?.supplierId || '').trim();
+        const branchId = String(item?.branchId || '').trim();
+        if (!supplierId || !supplierNameById.has(supplierId)) {
+          return res.status(400).json({ message: 'Invalid supplier reference in vendor opening-balance removal.' });
+        }
+        if (!branchId || !branchNameById.has(branchId)) {
+          return res.status(400).json({ message: 'Invalid branch reference in vendor opening-balance removal.' });
+        }
+        if (scope && !scope.has(branchId)) {
+          return res.status(403).json({ message: 'Forbidden: the removal is outside this account\'s branches.' });
+        }
+        if (updates.some((u) => u.supplierId === supplierId && u.branchId === branchId)) {
+          return res.status(400).json({ message: 'A supplier row cannot be saved and removed in the same request.' });
+        }
+        if (!removed.some((u) => u.supplierId === supplierId && u.branchId === branchId)) {
+          removed.push({ supplierId, branchId });
+        }
+      }
+
       const result = await withTransaction(async (client) => {
         const changeLog: string[] = [];
         let createdCount = 0;
+
+        for (const removal of removed) {
+          const deleted = await client.query(
+            `DELETE FROM vendor_opening_balances
+             WHERE fiscal_year_id = $1 AND supplier_id = $2 AND branch_id = $3
+             RETURNING opening_balance::float AS "openingBalance"`,
+            [id, removal.supplierId, removal.branchId]
+          );
+          if (deleted.rowCount) {
+            changeLog.push(
+              `removed ${supplierNameById.get(removal.supplierId)} @ ${branchNameById.get(removal.branchId)}: ` +
+                `NPR ${Number(deleted.rows[0].openingBalance).toLocaleString()}`
+            );
+          }
+        }
 
         for (const u of updates) {
           const beforeRes = await client.query(
@@ -513,7 +576,101 @@ expressApp.put(
           );
         }
 
-        return { appliedCount: changeLog.length, createdCount, changeLog };
+        const fail = (message: string): never => {
+          const error: any = new Error(message);
+          error.statusCode = 400;
+          throw error;
+        };
+        const accountColumns = `a.id, a.is_control AS "isControl", a.is_active AS "isActive",
+          a.subledger_type AS "subledgerType", g.account_type AS "accountType", a.code, a.name`;
+        const apControl = (
+          await client.query(
+            `SELECT ${accountColumns}
+             FROM gl_accounts a JOIN gl_account_groups g ON g.id = a.group_id
+             WHERE a.posting_role = 'AP_CONTROL' AND a.is_active = TRUE
+               AND a.is_control = TRUE AND a.subledger_type = 'SUPPLIER'
+               AND g.account_type = 'LIABILITY'
+             ORDER BY a.code LIMIT 1`
+          )
+        ).rows[0];
+        if (!apControl) {
+          fail('No active AP_CONTROL supplier control account is configured. Assign the AP_CONTROL role before saving vendor opening balances.');
+        }
+        let offsetAccount = (
+          await client.query(
+            `SELECT ${accountColumns}
+             FROM gl_accounts a JOIN gl_account_groups g ON g.id = a.group_id
+             WHERE a.id = $1`,
+            [requestedOffsetAccountId]
+          )
+        ).rows[0];
+        if (!offsetAccount && !requestedOffsetAccountId) {
+          offsetAccount = (
+            await client.query(
+              `SELECT ${accountColumns}
+               FROM gl_accounts a JOIN gl_account_groups g ON g.id = a.group_id
+               WHERE a.posting_role = 'RETAINED_EARNINGS' AND a.is_active = TRUE
+                 AND a.is_control = FALSE AND g.account_type = 'EQUITY'
+               ORDER BY a.code LIMIT 1`
+            )
+          ).rows[0];
+        }
+        if (!offsetAccount) {
+          fail(
+            requestedOffsetAccountId
+              ? 'The selected opening-equity account does not exist.'
+              : 'No active RETAINED_EARNINGS equity account is configured. Select an opening-equity account before saving vendor opening balances.'
+          );
+        }
+        if (!offsetAccount.isActive || offsetAccount.isControl || offsetAccount.accountType !== 'EQUITY') {
+          fail('The opening offset must be an active, non-control equity account.');
+        }
+
+        const affectedBranches = [
+          ...new Set([...updates.map((u) => u.branchId), ...removed.map((u) => u.branchId)]),
+        ];
+        const balances = await client.query(
+          `SELECT o.branch_id AS "branchId", o.supplier_id AS "supplierId",
+                  COALESCE(s.name, o.supplier_id) AS "supplierName",
+                  o.opening_balance::float AS "openingBalance"
+           FROM vendor_opening_balances o
+           LEFT JOIN suppliers s ON s.id = o.supplier_id
+           WHERE o.fiscal_year_id = $1 AND o.branch_id = ANY($2::varchar[])
+           ORDER BY o.branch_id, s.name`,
+          [id, affectedBranches]
+        );
+        const journals: Array<{
+          branchId: string;
+          journalNo: string;
+          periodKey: string;
+          totalValue: number;
+        }> = [];
+        for (const branchId of affectedBranches) {
+          const branchRows = balances.rows
+            .filter((row: any) => row.branchId === branchId)
+            .map((row: any) => ({
+              supplierId: String(row.supplierId),
+              supplierName: String(row.supplierName),
+              openingBalance: Number(row.openingBalance),
+            }));
+          const journal = await postVendorOpeningBalances(client, {
+            branchId,
+            rows: branchRows,
+            apControlAccountId: String(apControl.id),
+            offsetAccountId: String(offsetAccount.id),
+            actor: user.email || 'system',
+          });
+          if (journal) {
+            journals.push({
+              branchId,
+              journalNo: journal.journalNo,
+              periodKey: journal.periodKey,
+              totalValue: Number(journal.totalDebit),
+            });
+          }
+        }
+
+        return { appliedCount: changeLog.length, createdCount, changeLog, journals };
       });
 
       if (result.appliedCount > 0) {
@@ -524,13 +681,25 @@ expressApp.put(
           `(by ${user.email || 'system'})`;
         logAuditEvent(req, 'ADJUST_VENDOR_OPENING_BALANCE', 'FISCAL_YEAR', details);
       }
+      if (result.journals.length > 0) {
+        logAuditEvent(
+          req,
+          'POST_OPENING_BALANCES',
+          'ACCOUNTING',
+          `Posted vendor opening balance(s): ${result.journals
+            .map((j) => `${j.branchId} ${j.journalNo} in ${j.periodKey} (NPR ${j.totalValue.toFixed(2)})`)
+            .join('; ')}`
+        );
+      }
 
       return res.json({
         applied: result.appliedCount,
         created: result.createdCount,
         message: `${result.appliedCount} vendor opening-balance row(s) saved for fiscal year ${fy.code}.`,
+        journals: result.journals,
       });
     } catch (error: any) {
+      if (error?.statusCode) return res.status(error.statusCode).json({ message: error.message });
       console.error('Error adjusting vendor opening balances:', error);
       return res.status(500).json({ message: `Unable to adjust vendor opening balances: ${error.message}` });
     }

@@ -47,6 +47,10 @@ const fiscalYears = [
 ] as any[];
 
 const products = [{ id: 'p1', name: 'Router', sku: 'RTR-1' }] as any[];
+const suppliers = [
+  { id: 'sup-1', name: 'Supplier One', supplierCode: 'SUP-1', status: 'ACTIVE' },
+  { id: 'sup-2', name: 'Supplier Two', supplierCode: 'SUP-2', status: 'ACTIVE' },
+] as any[];
 
 const branchUser = (over: Record<string, unknown> = {}) => ({
   id: 'u-branch',
@@ -260,12 +264,46 @@ describe('fiscal opening registers — branch scope', () => {
     }
   });
 
-  test('VendorOpeningBalances offers only scoped branches and submits only scoped rows', async () => {
-    const submitted: any[] = [];
+  test('VendorOpeningBalances offers only scoped branches and posts scoped add/remove rows', async () => {
+    const submissions: Array<{ rows: any[]; offset?: string; removed: any[] }> = [];
     api.getVendorOpeningBalances = async () => vendorPayload as any;
-    api.adjustVendorOpeningBalances = async (_id: string, rows: any[]) => {
-      submitted.push(...rows);
-      return { applied: rows.length, created: 0, message: 'saved' };
+    api.getAccountingAccounts = async () =>
+      [
+        {
+          id: 'acct-equity',
+          code: '3000',
+          name: 'Retained Earnings',
+          isActive: true,
+          isControl: false,
+          accountType: 'EQUITY',
+          postingRole: 'RETAINED_EARNINGS',
+        },
+      ] as any;
+    api.getPostingDefaults = async () =>
+      ({
+        defaults: {
+          AP_CONTROL: {
+            accountId: 'acct-ap',
+            accountCode: '2100',
+            accountName: 'Accounts Payable',
+            accountType: 'LIABILITY',
+            isControl: true,
+          },
+        },
+      }) as any;
+    api.adjustVendorOpeningBalances = async (
+      _id: string,
+      rows: any[],
+      offset?: string,
+      removed: any[] = []
+    ) => {
+      submissions.push({ rows, offset, removed });
+      return {
+        applied: rows.length + removed.length,
+        created: 0,
+        message: `${rows.length + removed.length} vendor opening-balance row(s) saved for fiscal year 2083/84.`,
+        journals: [{ branchId: 'br-a', journalNo: 'JV-VENDOR-1', periodKey: '2026-07', totalValue: 200 }],
+      } as any;
     };
 
     const tree = mountTree(
@@ -273,6 +311,7 @@ describe('fiscal opening registers — branch scope', () => {
         currentUser: branchUser(),
         fiscalYears,
         branches,
+        suppliers,
       } as any)
     );
     try {
@@ -283,20 +322,118 @@ describe('fiscal opening registers — branch scope', () => {
       assert.ok(!values.includes('br-b'), 'another branch must not be offered');
       assert.ok(!(tree.container.textContent || '').includes('Branch B'), 'another branch’s row must not render');
 
-      const balanceInput = tree.container.querySelector('input[type="number"]') as HTMLInputElement | null;
+      const balanceInput = tree.container.querySelector('tbody input[type="number"]') as HTMLInputElement | null;
       assert.ok(balanceInput, 'the own-branch row renders an editable balance');
       setNumberInput(balanceInput!, '150');
 
-      const save = findButton(tree.container, /^Save \d+ Adjustment/);
-      assert.ok(save, 'a changed scoped row exposes Save');
+      // Add a second supplier in the same scoped branch.
+      const supplierSelect = tree.container.querySelector(
+        'select[aria-label="Vendor opening supplier"]'
+      ) as HTMLSelectElement;
+      const addBranchSelect = tree.container.querySelector(
+        'select[aria-label="Vendor opening add branch"]'
+      ) as HTMLSelectElement;
+      const addAmount = tree.container.querySelector(
+        'input[aria-label="Vendor opening new amount"]'
+      ) as HTMLInputElement;
+      setSelectValue(supplierSelect, 'sup-2');
+      setSelectValue(addBranchSelect, 'br-a');
+      setNumberInput(addAmount, '50');
+      inAct(() => findButton(tree.container, /^Add supplier$/)!.click());
+
+      const save = findButton(tree.container, /^Save & Post 2/);
+      assert.ok(save, 'changed and added rows expose Save & Post');
       inAct(() => save!.click());
       await settle();
 
+      assert.equal(submissions.length, 1);
       assert.deepEqual(
-        submitted.map((row) => ({ branchId: row.branchId, openingBalance: row.openingBalance })),
-        [{ branchId: 'br-a', openingBalance: 150 }],
-        'the payload never carries the foreign-branch row that was in the response'
+        submissions[0].rows.map((row) => ({
+          supplierId: row.supplierId,
+          branchId: row.branchId,
+          openingBalance: row.openingBalance,
+        })),
+        [
+          { supplierId: 'sup-1', branchId: 'br-a', openingBalance: 150 },
+          { supplierId: 'sup-2', branchId: 'br-a', openingBalance: 50 },
+        ],
+        'the payload carries the changed row and the new scoped row, never the foreign row'
       );
+      assert.equal(submissions[0].offset, 'acct-equity', 'the selected equity offset is submitted');
+      assert.deepEqual(submissions[0].removed, []);
+      assert.match(
+        tree.container.textContent || '',
+        /Posted opening journal JV-VENDOR-1 in 2026-07/,
+        'the success message names the posted journal'
+      );
+
+      // Remove the existing supplier row and save that removal.
+      const remove = tree.container.querySelector(
+        'button[aria-label="Remove vendor opening Supplier One"]'
+      ) as HTMLButtonElement;
+      assert.ok(remove, 'each register row exposes a remove action');
+      inAct(() => remove.click());
+      const removeSave = findButton(tree.container, /^Save & Post 1/);
+      assert.ok(removeSave, 'a staged removal exposes Save & Post');
+      inAct(() => removeSave!.click());
+      await settle();
+
+      assert.equal(submissions.length, 2);
+      assert.deepEqual(submissions[1].rows, [], 'a removal-only save carries no upsert rows');
+      assert.deepEqual(submissions[1].removed, [{ supplierId: 'sup-1', branchId: 'br-a' }]);
+    } finally {
+      tree.unmount();
+    }
+  });
+
+  test('VendorOpeningBalances renders a closed year read-only with no save action', async () => {
+    api.getVendorOpeningBalances = async () =>
+      ({ ...vendorPayload, fiscalYear: { ...fiscalYears[0], isClosed: true } }) as any;
+    api.getAccountingAccounts = async () =>
+      [
+        {
+          id: 'acct-equity',
+          code: '3000',
+          name: 'Retained Earnings',
+          isActive: true,
+          isControl: false,
+          accountType: 'EQUITY',
+          postingRole: 'RETAINED_EARNINGS',
+        },
+      ] as any;
+    api.getPostingDefaults = async () =>
+      ({
+        defaults: {
+          AP_CONTROL: {
+            accountId: 'acct-ap',
+            accountCode: '2100',
+            accountName: 'Accounts Payable',
+            accountType: 'LIABILITY',
+            isControl: true,
+          },
+        },
+      }) as any;
+
+    const tree = mountTree(
+      createElement(VendorOpeningBalances, {
+        currentUser: branchUser(),
+        fiscalYears,
+        branches,
+        suppliers,
+      } as any)
+    );
+    try {
+      await settle();
+      const text = tree.container.textContent || '';
+      assert.match(text, /Period locked/);
+      assert.match(text, /read-only/);
+      const balanceInput = tree.container.querySelector('tbody input[type="number"]') as HTMLInputElement;
+      assert.equal(balanceInput.disabled, true, 'a closed year cannot edit an opening balance');
+      const addAmount = tree.container.querySelector(
+        'input[aria-label="Vendor opening new amount"]'
+      ) as HTMLInputElement;
+      assert.equal(addAmount.disabled, true, 'a closed year cannot stage a new supplier row');
+      assert.equal(findButton(tree.container, /^Save & Post/), undefined, 'a closed year exposes no save action');
     } finally {
       tree.unmount();
     }

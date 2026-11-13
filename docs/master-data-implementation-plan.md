@@ -347,6 +347,25 @@ whole save and the quantity rows roll back with it. The prior-close
 behaviour and still seeds quantity rows; saving the Stock tab posts (or
 replaces) the journal for those rows.
 
+The Vendors tab posts supplier balances through the same replacement contract.
+Each positive supplier balance credits the active, non-control `AP_CONTROL`
+role (default `2100 · Accounts Payable`, `SUPPLIER` subledger) with that
+supplier as the party; each negative balance debits the same control account,
+so an advance is a real debit against the supplier. The signed net debits or
+credits the selected active, non-control equity account, defaulting to
+`RETAINED_EARNINGS` (`3000 · Retained Earnings`). The save is one transaction:
+the `vendor_opening_balances` upserts/removals and one balanced branch journal
+with `source_type = 'OPENING_BALANCE'` and `source_id =
+'vendor-opening:<branchId>'` commit or roll back together. A re-save (including
+a removal-only save) reverses the prior vendor opening with a linked
+`OPENING_BALANCE_REVERSAL`, then posts the replacement, so the ledger nets to
+the current register and exactly one opening remains active. The branch/date
+unique opening index now excludes both `stock-opening:%` and
+`vendor-opening:%`; every other opening source keeps the one-per-branch-and-date
+rule. The tab shows the supplier's posted operational AP balance from
+`gl_subledger_entries` as a read-only reconciliation reference, excluding the
+opening and its reversal so it reflects ordinary invoices/payments only.
+
 **Build note.** Use the existing `OPENING_BALANCE` journal source type and an
 opening-balance equity offset. For customers and vendors, create the control-account
 subledger rows so the party ledger and aging work from day one.
@@ -598,6 +617,26 @@ target.
   together. The prior-close roll-forward and
   `POST /api/fiscal-years/:id/initialize-opening-stock` keep their existing
   quantity-row behaviour; the tab save is what posts the journal.
+
+  **Vendors tab — shipped.** The tab edits supplier × branch opening balances
+  and saves them through the extended
+  `PUT /api/fiscal-years/:id/vendor-opening-balances` route. In the same
+  transaction it upserts/removes `vendor_opening_balances` rows and posts one
+  balanced `OPENING_BALANCE` journal per affected branch through the active
+  `AP_CONTROL` posting role (default `2100 · Accounts Payable`) with a
+  `SUPPLIER` subledger party row for each supplier: positive balances credit AP,
+  negative balances debit AP, and the signed net debits or credits the selected
+  active non-control equity account (default `RETAINED_EARNINGS`, `3000`).
+  Re-saving — including removing a supplier — posts a linked
+  `OPENING_BALANCE_REVERSAL` of the prior `vendor-opening:<branchId>` journal
+  and then the current journal, so the ledger nets to the register with exactly
+  one active opening and the original, reversal and replacement stay
+  auditable. The branch/date unique opening index excludes both stock and vendor
+  replacement sources. The tab adds/removes rows, shows live payable/advance
+  totals, locks a closed year read-only, renders the posted journal(s), and
+  shows the supplier's posted operational AP balance from
+  `gl_subledger_entries` (excluding openings) as a read-only reconciliation
+  reference.
 
 - [ ] **Step 8 — Currency/FX and Copy Master.**
   Separate projects, not menu items.

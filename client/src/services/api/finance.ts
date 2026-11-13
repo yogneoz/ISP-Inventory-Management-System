@@ -98,11 +98,17 @@ export async function adjustVendorOpeningBalances(
     supplierId: string;
     branchId: string;
     openingBalance: number;
-  }>
-): Promise<{ applied: number; created: number; message: string }> {
+  }>,
+  offsetAccountId?: string,
+  removed: Array<{ supplierId: string; branchId: string }> = []
+): Promise<OpeningStockSaveResult> {
   return fetchJson(`/api/fiscal-years/${id}/vendor-opening-balances`, {
     method: 'PUT',
-    body: JSON.stringify({ rows }),
+    body: JSON.stringify({
+      rows,
+      removed,
+      ...(offsetAccountId ? { offsetAccountId } : {}),
+    }),
   });
 }
 

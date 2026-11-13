@@ -3622,6 +3622,7 @@ export default function App() {
           fiscalYears={fiscalYears}
           branches={branches}
           products={products}
+          suppliers={suppliers}
           onRefreshData={refreshAllData}
           selectedFiscalYearId={selectedFiscalYearId}
           onSelectFiscalYear={setSelectedFiscalYearId}

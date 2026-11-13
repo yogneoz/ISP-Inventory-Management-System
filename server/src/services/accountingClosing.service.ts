@@ -71,6 +71,8 @@ export interface PostOpeningBalancesResult {
   fiscalYearId: string;
   journalDateAD: string;
   periodKey: string;
+  totalDebit: number;
+  totalCredit: number;
 }
 
 /**
@@ -140,7 +142,60 @@ export async function postOpeningBalances(
     isDemo: false,
   });
 
-  return { ...posted, journalDateAD, periodKey };
+  return {
+    ...posted,
+    journalDateAD,
+    periodKey,
+    totalDebit: roundMoney(lines.reduce((sum, line) => sum + (Number(line.debit) || 0), 0)),
+    totalCredit: roundMoney(lines.reduce((sum, line) => sum + (Number(line.credit) || 0), 0)),
+  };
+}
+
+async function reverseOpeningSource(
+  client: AccountingClient,
+  input: {
+    sourceId: string;
+    branchId: string;
+    label: string;
+    actor?: string | null;
+  }
+): Promise<void> {
+  const existing = (await client.query(OPENING_BALANCE_BY_SOURCE_SQL, [input.sourceId])).rows[0];
+  if (!existing) return;
+  const original = await readJournal(client, String(existing.id));
+  if (!original) throw new ApiError(409, `${input.label} opening journal ${existing.journalNo} could not be read.`);
+  // A control line is only valid with its party, and the party lives on the
+  // subledger row rather than the journal line. Carry it onto the reversal so
+  // AP/AR openings reverse through the same control-account contract.
+  const subledgerByLine = new Map<string, any>(
+    (original.subledgerEntries || []).map((entry: any) => [String(entry.journalLineId), entry])
+  );
+  await postJournal(client, {
+    journalDateAD: original.journalDateAD,
+    branchId: input.branchId,
+    sourceType: 'OPENING_BALANCE_REVERSAL',
+    sourceId: `reversal-of:${existing.id}`,
+    memo: `Reversal of ${input.label.toLowerCase()} opening journal ${original.journalNo} for branch ${input.branchId}`,
+    reversalOfId: existing.id,
+    lines: original.lines.map((line: any) => {
+      const party = subledgerByLine.get(String(line.id));
+      return {
+        accountId: line.accountId,
+        debit: line.credit,
+        credit: line.debit,
+        memo: `Reversal of ${original.journalNo}`,
+        ...(party
+          ? {
+              subledgerType: party.subledgerType,
+              partyId: party.partyId,
+              partyName: party.partyName,
+            }
+          : {}),
+      };
+    }),
+    actor: input.actor || null,
+    isDemo: false,
+  });
 }
 
 export interface PostStockOpeningBalancesInput {
@@ -165,27 +220,12 @@ export async function postStockOpeningBalances(
   const branchId = text(input.branchId, 50);
   if (!branchId) throw new ApiError(400, 'A branch is required for stock opening balances.');
   const sourceId = `stock-opening:${branchId}`;
-  const existing = (await client.query(OPENING_BALANCE_BY_SOURCE_SQL, [sourceId])).rows[0];
-  if (existing) {
-    const original = await readJournal(client, String(existing.id));
-    if (!original) throw new ApiError(409, `Stock opening journal ${existing.journalNo} could not be read.`);
-    await postJournal(client, {
-      journalDateAD: original.journalDateAD,
-      branchId,
-      sourceType: 'OPENING_BALANCE_REVERSAL',
-      sourceId: `${sourceId}:reversal:${existing.id}`,
-      memo: `Reversal of stock opening journal ${original.journalNo} for branch ${branchId}`,
-      reversalOfId: existing.id,
-      lines: original.lines.map((line: any) => ({
-        accountId: line.accountId,
-        debit: line.credit,
-        credit: line.debit,
-        memo: `Reversal of ${original.journalNo}`,
-      })),
-      actor: input.actor || null,
-      isDemo: false,
-    });
-  }
+  await reverseOpeningSource(client, {
+    sourceId,
+    branchId,
+    label: 'Stock',
+    actor: input.actor,
+  });
 
   const total = roundMoney(Number(input.totalValue) || 0);
   if (total <= 0) return null;
@@ -208,6 +248,85 @@ export async function postStockOpeningBalances(
         memo: 'Opening inventory equity offset',
       },
     ],
+  });
+}
+
+export interface VendorOpeningLineInput {
+  supplierId: string;
+  supplierName: string;
+  openingBalance: number;
+}
+
+export interface PostVendorOpeningBalancesInput {
+  branchId: string;
+  rows: VendorOpeningLineInput[];
+  apControlAccountId: string;
+  offsetAccountId: string;
+  actor?: string | null;
+}
+
+/**
+ * Keep one branch's supplier-opening journal equal to vendor_opening_balances.
+ * Positive balances are payables (credit AP); negative balances are advances
+ * (debit AP). The equity offset carries only the signed net, so mixed supplier
+ * signs still produce one balanced journal. A re-save reverses the prior
+ * vendor opening before posting the replacement, exactly like stock.
+ */
+export async function postVendorOpeningBalances(
+  client: AccountingClient,
+  input: PostVendorOpeningBalancesInput
+): Promise<PostOpeningBalancesResult | null> {
+  const branchId = text(input.branchId, 50);
+  if (!branchId) throw new ApiError(400, 'A branch is required for vendor opening balances.');
+  const sourceId = `vendor-opening:${branchId}`;
+  await reverseOpeningSource(client, {
+    sourceId,
+    branchId,
+    label: 'Vendor',
+    actor: input.actor,
+  });
+
+  const lines: JournalLineInput[] = [];
+  let net = 0;
+  for (const row of input.rows) {
+    const balance = roundMoney(Number(row.openingBalance) || 0);
+    if (balance === 0) continue;
+    net = roundMoney(net + balance);
+    const common = {
+      accountId: input.apControlAccountId,
+      subledgerType: 'SUPPLIER' as const,
+      partyId: row.supplierId,
+      partyName: row.supplierName,
+      memo: `Opening ${balance > 0 ? 'payable' : 'advance'} — ${row.supplierName} (${row.supplierId})`,
+    };
+    if (balance > 0) {
+      lines.push({ ...common, debit: 0, credit: balance });
+    } else {
+      lines.push({ ...common, debit: Math.abs(balance), credit: 0 });
+    }
+  }
+  if (net > 0) {
+    lines.push({
+      accountId: input.offsetAccountId,
+      debit: net,
+      credit: 0,
+      memo: 'Opening payables equity offset',
+    });
+  } else if (net < 0) {
+    lines.push({
+      accountId: input.offsetAccountId,
+      debit: 0,
+      credit: Math.abs(net),
+      memo: 'Opening supplier advances equity offset',
+    });
+  }
+  if (lines.length === 0) return null;
+
+  return postOpeningBalances(client, {
+    branchId,
+    sourceId,
+    actor: input.actor || null,
+    lines,
   });
 }
 

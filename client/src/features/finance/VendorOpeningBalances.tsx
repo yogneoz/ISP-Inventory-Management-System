@@ -31,6 +31,7 @@ import {
   FiscalYearOpeningStockResponse,
   FiscalYearOpeningStockRow,
   Product,
+  Supplier,
   User,
   VendorOpeningBalanceResponse,
   VendorOpeningBalanceRow,
@@ -46,6 +47,7 @@ interface VendorOpeningBalancesProps {
   fiscalYears: FiscalYear[];
   branches: Branch[];
   products?: Product[];
+  suppliers?: Supplier[];
   onRefreshData?: () => void;
   /** Globally selected fiscal year id (app-wide scope). */
   selectedFiscalYearId?: string;
@@ -86,6 +88,7 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
   fiscalYears,
   branches,
   products = [],
+  suppliers = [],
   onRefreshData,
   selectedFiscalYearId,
   onSelectFiscalYear,
@@ -128,6 +131,13 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
   const [vendorBranchFilter, setVendorBranchFilter] = useState<string>('ALL');
   const [vendorNonZeroOnly, setVendorNonZeroOnly] = useState<boolean>(false);
   const [vendorChangedOnly, setVendorChangedOnly] = useState<boolean>(false);
+  const [vendorNewRows, setVendorNewRows] = useState<VendorOpeningBalanceRow[]>([]);
+  const [vendorRemoved, setVendorRemoved] = useState<Array<{ supplierId: string; branchId: string }>>([]);
+  const [vendorAddSupplierId, setVendorAddSupplierId] = useState<string>('');
+  const [vendorAddBranchId, setVendorAddBranchId] = useState<string>('');
+  const [vendorAddAmount, setVendorAddAmount] = useState<string>('');
+  const [vendorOffsetAccountId, setVendorOffsetAccountId] = useState<string>('');
+  const vendorNewRowSeq = useRef(0);
 
   // Opening Balances hub: Vendors is the existing register; General Ledger is
   // the screen for the previously API-only `POST /api/accounting/opening-balances`.
@@ -185,6 +195,11 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
       setStockBranchId(glBranchOptions[0]?.id || '');
     }
   }, [glBranchOptions, stockBranchId]);
+  useEffect(() => {
+    if (!glBranchOptions.some((b) => b.id === vendorAddBranchId)) {
+      setVendorAddBranchId(glBranchOptions[0]?.id || '');
+    }
+  }, [glBranchOptions, vendorAddBranchId]);
 
   // Customer rows belong to the selected branch; changing branch must not
   // leave rows from the previous one in a payload for the new one.
@@ -236,6 +251,13 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
 
   // Refetch the register on every tab re-activation (keep-mounted: no remount refetch anymore).
   const activationKey = useActivationKey('vendor-opening-balances');
+
+  useEffect(() => {
+    setVendorNewRows([]);
+    setVendorRemoved([]);
+    setVendorAddSupplierId('');
+    setVendorAddAmount('');
+  }, [selectedFyId]);
 
   useEffect(() => {
     fetchVendorRegister(selectedFyId);
@@ -299,24 +321,33 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
       [rowId]: { openingBalance: value },
     }));
   };
+  const isVendorNewRow = (row: VendorOpeningBalanceRow): boolean => row.id.startsWith('vnew-');
+  const vendorRemovedKeys = useMemo(
+    () => new Set(vendorRemoved.map((row) => `${row.supplierId}:${row.branchId}`)),
+    [vendorRemoved]
+  );
+  const vendorRows = useMemo(
+    () =>
+      [...(vendorData?.rows || []), ...vendorNewRows].filter(
+        (row) => scopedBranchIds.has(row.branchId) && !vendorRemovedKeys.has(`${row.supplierId}:${row.branchId}`)
+      ),
+    [vendorData, vendorNewRows, scopedBranchIds, vendorRemovedKeys]
+  );
   const isVendorRowChanged = (row: VendorOpeningBalanceRow): boolean => {
+    if (isVendorNewRow(row)) return true;
     if (!vendorDrafts[row.id]) return false;
     return Number(vendorDrafts[row.id].openingBalance) !== Number(row.openingBalance);
   };
   const changedVendorRows = useMemo(
-    () => (vendorData ? vendorData.rows.filter((row) => scopedBranchIds.has(row.branchId) && isVendorRowChanged(row)) : []),
+    () => vendorRows.filter((row) => isVendorRowChanged(row)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [vendorData, vendorDrafts, scopedBranchIds]
+    [vendorRows, vendorDrafts]
   );
   const filterVendorRows = (searchTerm: string) => {
-    if (!vendorData) return [];
     const q = searchTerm.trim().toLowerCase();
-    return vendorData.rows.filter((row) => {
-      // Defence in depth: a stale cache or an older payload can still carry
-      // another branch's row, and it must never be shown or edited here.
-      if (!scopedBranchIds.has(row.branchId)) return false;
+    return vendorRows.filter((row) => {
       if (vendorBranchFilter !== 'ALL' && row.branchId !== vendorBranchFilter) return false;
-      if (vendorNonZeroOnly && Number(row.openingBalance) === 0) return false;
+      if (vendorNonZeroOnly && Number(getVendorDraft(row).openingBalance) === 0) return false;
       if (vendorChangedOnly && !isVendorRowChanged(row)) return false;
       if (
         q &&
@@ -331,20 +362,117 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
   const filteredVendorRows = useMemo(
     () => filterVendorRows(vendorSearch),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [vendorData, vendorSearch, vendorBranchFilter, vendorNonZeroOnly, vendorChangedOnly, vendorDrafts, scopedBranchIds]
+    [vendorRows, vendorSearch, vendorBranchFilter, vendorNonZeroOnly, vendorChangedOnly, vendorDrafts]
   );
+  const vendorLiveStats = useMemo(() => {
+    const values = vendorRows.map((row) => Number(getVendorDraft(row).openingBalance) || 0);
+    return {
+      totalRows: values.length,
+      manualAdjustments: vendorRows.filter(
+        (row) => isVendorNewRow(row) || row.sourceType === 'MANUAL_ADJUSTMENT'
+      ).length,
+      totalDebitOpening: values.filter((value) => value > 0).reduce((sum, value) => sum + value, 0),
+      totalCreditOpening: values
+        .filter((value) => value < 0)
+        .reduce((sum, value) => sum + Math.abs(value), 0),
+      netOpening: values.reduce((sum, value) => sum + value, 0),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vendorRows, vendorDrafts]);
 
   const validateVendorDraftRow = (row: VendorOpeningBalanceRow): string | null => {
     const d = getVendorDraft(row);
     const balance = Number(d.openingBalance);
-    if (d.openingBalance === '' || Number.isNaN(balance)) {
+    if (d.openingBalance === '' || !Number.isFinite(balance)) {
       return `Opening balance must be a number for ${row.supplierName} @ ${row.branchName}.`;
+    }
+    if (isVendorNewRow(row) && balance === 0) {
+      return `Opening balance must be non-zero for ${row.supplierName} @ ${row.branchName}.`;
     }
     return null;
   };
 
+  const handleAddVendorRow = () => {
+    const supplier = suppliers.find((entry) => entry.id === vendorAddSupplierId);
+    if (!supplier) {
+      setVendorSaveMessage({ type: 'error', text: 'Select a supplier to add to opening balances.' });
+      return;
+    }
+    if (!vendorAddBranchId || !scopedBranchIds.has(vendorAddBranchId)) {
+      setVendorSaveMessage({ type: 'error', text: 'Select a branch within your access.' });
+      return;
+    }
+    const amount = Number(vendorAddAmount);
+    if (!Number.isFinite(amount) || amount === 0) {
+      setVendorSaveMessage({ type: 'error', text: 'Opening balance must be a non-zero number.' });
+      return;
+    }
+    const key = `${supplier.id}:${vendorAddBranchId}`;
+    if (vendorRemovedKeys.has(key)) {
+      setVendorRemoved((prev) => prev.filter((row) => `${row.supplierId}:${row.branchId}` !== key));
+      setVendorAddSupplierId('');
+      setVendorAddAmount('');
+      setVendorSaveMessage(null);
+      return;
+    }
+    if (vendorRows.some((row) => `${row.supplierId}:${row.branchId}` === key)) {
+      setVendorSaveMessage({ type: 'error', text: 'That supplier already has a row for the selected branch.' });
+      return;
+    }
+    const branch = glBranchOptions.find((entry) => entry.id === vendorAddBranchId);
+    vendorNewRowSeq.current += 1;
+    const row: VendorOpeningBalanceRow = {
+      id: `vnew-${vendorNewRowSeq.current}`,
+      supplierId: supplier.id,
+      supplierName: supplier.name,
+      supplierCode: supplier.supplierCode || supplier.id,
+      branchId: vendorAddBranchId,
+      branchName: branch?.name || vendorAddBranchId,
+      openingBalance: amount,
+      ledgerBalance: 0,
+      sourceType: 'MANUAL_ADJUSTMENT',
+      sourceReference: null,
+      postedAt: null,
+      postedBy: null,
+    };
+    setVendorNewRows((prev) => [...prev, row]);
+    setVendorDrafts((prev) => ({ ...prev, [row.id]: { openingBalance: String(amount) } }));
+    setVendorAddSupplierId('');
+    setVendorAddAmount('');
+    setVendorSaveMessage(null);
+  };
+
+  const removeVendorRow = (row: VendorOpeningBalanceRow) => {
+    if (isVendorNewRow(row)) {
+      setVendorNewRows((prev) => prev.filter((entry) => entry.id !== row.id));
+      setVendorDrafts((prev) => {
+        const next = { ...prev };
+        delete next[row.id];
+        return next;
+      });
+    } else {
+      setVendorRemoved((prev) => [
+        ...prev.filter((entry) => `${entry.supplierId}:${entry.branchId}` !== `${row.supplierId}:${row.branchId}`),
+        { supplierId: row.supplierId, branchId: row.branchId },
+      ]);
+    }
+    setVendorSaveMessage(null);
+  };
+
   const handleSaveVendorAdjustments = async () => {
     if (!vendorData || !canEdit) return;
+    if (!apControl) {
+      setVendorSaveMessage({
+        type: 'error',
+        text: 'The chart has no active AP_CONTROL supplier account. Configure posting defaults first.',
+      });
+      return;
+    }
+    if (!vendorOffsetAccountId || !customerOffsetAccounts.some((account) => account.id === vendorOffsetAccountId)) {
+      setVendorSaveMessage({ type: 'error', text: 'Select an equity account for the opening-balance offset.' });
+      return;
+    }
+    if (changedVendorRows.length === 0 && vendorRemoved.length === 0) return;
     for (const row of changedVendorRows) {
       const issue = validateVendorDraftRow(row);
       if (issue) {
@@ -360,9 +488,25 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
         branchId: row.branchId,
         openingBalance: Number(getVendorDraft(row).openingBalance),
       }));
-      const res = await api.adjustVendorOpeningBalances(selectedFyId, payload);
-      setVendorSaveMessage({ type: 'success', text: res.message });
+      const res = await api.adjustVendorOpeningBalances(
+        selectedFyId,
+        payload,
+        vendorOffsetAccountId,
+        vendorRemoved
+      );
       await fetchVendorRegister(selectedFyId);
+      setVendorNewRows([]);
+      setVendorRemoved([]);
+      const posted = (res.journals || [])
+        .map(
+          (entry) =>
+            `${entry.journalNo} in ${entry.periodKey} (${formatNPR(entry.totalValue)})`
+        )
+        .join('; ');
+      setVendorSaveMessage({
+        type: 'success',
+        text: `${res.message}${posted ? ` Posted opening journal ${posted}.` : ' No non-zero balances remain, so no opening journal was posted.'}`,
+      });
       onRefreshData?.();
     } catch (error) {
       setVendorSaveMessage({
@@ -396,6 +540,8 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
           (res.manualRowsPreserved ? ` ${res.manualRowsPreserved} manual adjustment row(s) were preserved.` : '')
       );
       await fetchVendorRegister(selectedFyId);
+      setVendorNewRows([]);
+      setVendorRemoved([]);
       onRefreshData?.();
     } catch (error) {
       setVendorGenMessage(error instanceof Error ? error.message : 'Unable to roll forward vendor opening balances.');
@@ -428,7 +574,11 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
   // need a party on every line and this trial-balance form has no party
   // picker; showing them would create a submission the ledger must reject.
   useEffect(() => {
-    if ((activeTab !== 'GL' && activeTab !== 'CUSTOMERS' && activeTab !== 'STOCK') || glAccounts.length > 0) return;
+    if (
+      (activeTab !== 'GL' && activeTab !== 'CUSTOMERS' && activeTab !== 'STOCK' && activeTab !== 'VENDORS') ||
+      glAccounts.length > 0
+    )
+      return;
     let cancelled = false;
     setGlAccountsLoading(true);
     setGlAccountsError('');
@@ -451,7 +601,12 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
   }, [activeTab, glAccounts.length]);
 
   useEffect(() => {
-    if ((activeTab !== 'CUSTOMERS' && activeTab !== 'STOCK') || postingDefaults || postingDefaultsError) return;
+    if (
+      (activeTab !== 'CUSTOMERS' && activeTab !== 'STOCK' && activeTab !== 'VENDORS') ||
+      postingDefaults ||
+      postingDefaultsError
+    )
+      return;
     let cancelled = false;
     api
       .getPostingDefaults()
@@ -471,6 +626,7 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
   }, [activeTab, postingDefaults, postingDefaultsError]);
 
   const arControl = postingDefaults?.defaults?.AR_CONTROL || null;
+  const apControl = postingDefaults?.defaults?.AP_CONTROL || null;
   const inventoryControl = postingDefaults?.defaults?.INVENTORY || null;
   const customerOffsetAccounts = useMemo(
     () => glAccounts.filter((account) => account.accountType === 'EQUITY' && !account.isControl),
@@ -492,6 +648,14 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
     const retained = customerOffsetAccounts.find((account) => account.postingRole === 'RETAINED_EARNINGS');
     setStockOffsetAccountId(retained?.id || customerOffsetAccounts[0]?.id || '');
   }, [customerOffsetAccounts, stockOffsetAccountId]);
+
+  useEffect(() => {
+    if (vendorOffsetAccountId && customerOffsetAccounts.some((account) => account.id === vendorOffsetAccountId)) {
+      return;
+    }
+    const retained = customerOffsetAccounts.find((account) => account.postingRole === 'RETAINED_EARNINGS');
+    setVendorOffsetAccountId(retained?.id || customerOffsetAccounts[0]?.id || '');
+  }, [customerOffsetAccounts, vendorOffsetAccountId]);
 
   const searchOpeningCustomers = useCallback(
     async (query: string) => {
@@ -1063,27 +1227,28 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {canEdit && changedVendorRows.length > 0 && (
+            {canEdit && (changedVendorRows.length > 0 || vendorRemoved.length > 0) && (
               <button
                 type="button"
                 onClick={handleSaveVendorAdjustments}
-                disabled={vendorSaving}
+                disabled={vendorSaving || !apControl || !vendorOffsetAccountId}
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Save className="h-3.5 w-3.5" /> Save {changedVendorRows.length} Adjustment{changedVendorRows.length > 1 ? 's' : ''}
+                <Save className="h-3.5 w-3.5" /> Save & Post {changedVendorRows.length + vendorRemoved.length} Change
+                {changedVendorRows.length + vendorRemoved.length > 1 ? 's' : ''}
               </button>
             )}
           </div>
         </div>
 
-        {/* Vendor summary stats */}
+        {/* Vendor summary stats — live over drafts, additions and removals. */}
         {vendorData && (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
             {[
-              { label: 'Registered Rows', value: String(vendorData.stats.totalRows), icon: Layers },
-              { label: 'Manual Adjustments', value: String(vendorData.stats.manualAdjustments), icon: Pencil },
-              { label: 'Opening Payables (Debit)', value: formatNPR(vendorData.stats.totalDebitOpening), icon: Wallet },
-              { label: 'Opening Advances (Credit)', value: formatNPR(vendorData.stats.totalCreditOpening), icon: Wallet },
+              { label: 'Registered Rows', value: String(vendorLiveStats.totalRows), icon: Layers },
+              { label: 'Manual / New Rows', value: String(vendorLiveStats.manualAdjustments), icon: Pencil },
+              { label: 'Opening Payables (Cr)', value: formatNPR(vendorLiveStats.totalDebitOpening), icon: Wallet },
+              { label: 'Opening Advances (Dr)', value: formatNPR(vendorLiveStats.totalCreditOpening), icon: Wallet },
             ].map((card) => (
               <div
                 key={card.label}
@@ -1098,6 +1263,123 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
                 <div className={`text-lg font-extrabold mt-1 text-slate-900 dark:text-white`}>{card.value}</div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Posting-role accounts and add-row form. */}
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          <div className="rounded-xl border p-3 bg-slate-50 border-slate-200 dark:bg-slate-900/40 dark:border-slate-800">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              AP control account (credit payables)
+            </div>
+            <div className="text-xs font-bold mt-1 text-slate-800 dark:text-slate-100">
+              {apControl ? `${apControl.accountCode} · ${apControl.accountName}` : 'Loading AP_CONTROL posting default…'}
+            </div>
+            <div className="text-[10px] mt-1 text-slate-400 dark:text-slate-500">
+              Resolved from the active AP_CONTROL role; each supplier line writes a SUPPLIER subledger entry.
+            </div>
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+              Opening equity offset
+            </label>
+            <select
+              aria-label="Vendor opening offset account"
+              value={vendorOffsetAccountId}
+              onChange={(event) => setVendorOffsetAccountId(event.target.value)}
+              disabled={!canEdit || vendorSaving || glAccountsLoading}
+              className="w-full px-3 py-2 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200 disabled:opacity-50"
+            >
+              {customerOffsetAccounts.length === 0 && <option value="">No equity account</option>}
+              {customerOffsetAccounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.code} · {account.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        {postingDefaultsError && (
+          <div className="mt-3 flex items-start gap-2 rounded-xl border p-3 text-xs font-semibold bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-500/5 dark:border-rose-500/30 dark:text-rose-300">
+            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+            <span>{postingDefaultsError}</span>
+          </div>
+        )}
+
+        <div className="mt-3 grid gap-2 rounded-xl border p-3 bg-slate-50 border-slate-200 dark:bg-slate-900/40 dark:border-slate-800 lg:grid-cols-[minmax(220px,2fr)_minmax(170px,1fr)_minmax(120px,1fr)_auto]">
+          <div>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+              Supplier
+            </label>
+            <select
+              aria-label="Vendor opening supplier"
+              value={vendorAddSupplierId}
+              onChange={(event) => setVendorAddSupplierId(event.target.value)}
+              disabled={!canEdit || vendorSaving}
+              className="w-full h-9 px-3 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200 disabled:opacity-50"
+            >
+              <option value="">{suppliers.length ? 'Select supplier' : 'No suppliers available'}</option>
+              {suppliers.map((supplier) => (
+                <option key={supplier.id} value={supplier.id}>
+                  {supplier.supplierCode ? `${supplier.supplierCode} · ` : ''}{supplier.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+              Branch
+            </label>
+            <select
+              aria-label="Vendor opening add branch"
+              value={vendorAddBranchId}
+              onChange={(event) => setVendorAddBranchId(event.target.value)}
+              disabled={!canEdit || vendorSaving}
+              className="w-full h-9 px-3 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200 disabled:opacity-50"
+            >
+              {glBranchOptions.length === 0 && <option value="">No branch in scope</option>}
+              {glBranchOptions.map((branch) => (
+                <option key={branch.id} value={branch.id}>
+                  {branch.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+              Opening balance (NPR)
+            </label>
+            <input
+              aria-label="Vendor opening new amount"
+              type="number"
+              step="0.01"
+              value={vendorAddAmount}
+              onChange={(event) => setVendorAddAmount(event.target.value)}
+              disabled={!canEdit || vendorSaving}
+              className="w-full h-9 px-3 rounded-lg border text-xs font-bold text-right focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white border-slate-300 text-slate-700 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300 disabled:opacity-50"
+            />
+          </div>
+          <div className="flex items-end">
+            <button
+              type="button"
+              onClick={handleAddVendorRow}
+              disabled={!canEdit || vendorSaving || !vendorAddSupplierId || !vendorAddAmount}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-bold border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 disabled:opacity-50"
+            >
+              <Plus className="h-3.5 w-3.5" /> Add supplier
+            </button>
+          </div>
+        </div>
+        {vendorRemoved.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs font-semibold bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-500/5 dark:border-amber-500/30 dark:text-amber-300">
+            <span>{vendorRemoved.length} row(s) will be removed when you save.</span>
+            <button
+              type="button"
+              onClick={() => setVendorRemoved([])}
+              className="font-bold underline underline-offset-2"
+            >
+              Undo removals
+            </button>
           </div>
         )}
 
@@ -1206,7 +1488,7 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
                 <RefreshCw className="h-3.5 w-3.5" /> Retry
               </button>
             </div>
-          ) : !vendorData || vendorData.rows.length === 0 ? (
+          ) : !vendorData || vendorRows.length === 0 ? (
             <div className={`flex flex-col items-center justify-center text-center p-8 gap-3 text-slate-500 dark:text-slate-400`}>
               <Wallet className="h-10 w-10 opacity-50" />
               <div>
@@ -1233,7 +1515,7 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
               <table className="w-full text-left border-collapse">
                 <thead className="sticky top-0 z-10">
                   <tr className="bg-slate-50 text-slate-500 dark:bg-slate-900 dark:text-slate-400">
-                    {['Supplier', 'Branch', 'Opening Balance (NPR)', 'Source', 'Posted'].map((h) => (
+                    {['Supplier', 'Branch', 'Opening Balance (NPR)', 'Operational AP (Cr)', 'Source', 'Posted', ''].map((h) => (
                       <th
                         key={h}
                         className={`px-3 py-2.5 text-[11px] font-bold uppercase tracking-wide whitespace-nowrap border-b border-slate-200 dark:border-slate-800`}
@@ -1246,7 +1528,7 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
                 <tbody>
                   {filteredVendorRows.length === 0 && (
                     <tr>
-                      <td colSpan={5} className={`px-3 py-8 text-center text-xs font-semibold text-slate-400 dark:text-slate-500`}>
+                      <td colSpan={7} className={`px-3 py-8 text-center text-xs font-semibold text-slate-400 dark:text-slate-500`}>
                         No rows match the current filters.
                       </td>
                     </tr>
@@ -1289,8 +1571,15 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
                             )}
                           </div>
                         </td>
+                        <td className="px-3 py-2 text-xs font-semibold text-right whitespace-nowrap text-slate-600 dark:text-slate-300">
+                          {formatNPR(Number(row.ledgerBalance) || 0)}
+                        </td>
                         <td className="px-3 py-2">
-                          {row.sourceType === 'MANUAL_ADJUSTMENT' ? (
+                          {isVendorNewRow(row) ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/10 text-sky-600 dark:text-sky-400 whitespace-nowrap">
+                              <Plus className="h-3 w-3" /> New
+                            </span>
+                          ) : row.sourceType === 'MANUAL_ADJUSTMENT' ? (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-500 whitespace-nowrap">
                               <Pencil className="h-3 w-3" /> Manual
                             </span>
@@ -1305,6 +1594,17 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
                             <div className="font-semibold truncate max-w-[130px]">{row.postedBy || '—'}</div>
                             <div>{row.postedAt ? row.postedAt.replace('T', ' ').slice(0, 16) : '—'}</div>
                           </div>
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <button
+                            type="button"
+                            aria-label={`Remove vendor opening ${row.supplierName}`}
+                            onClick={() => removeVendorRow(row)}
+                            disabled={!canEdit || vendorSaving}
+                            className="p-1.5 rounded-md text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 disabled:opacity-30"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
                         </td>
                       </tr>
                     );

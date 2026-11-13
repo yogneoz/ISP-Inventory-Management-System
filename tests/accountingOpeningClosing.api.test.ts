@@ -69,7 +69,10 @@ const BR = 'OCBR';
 const CLIENT_BR = 'OCUI';
 const CUSTOMER_BR = 'OCCUST';
 const STOCK_BR = 'OCSTOCK';
+const VENDOR_BR = 'OCVEND';
 const STOCK_PRODUCT_ID = 'OC-PROD-1';
+const SUPPLIER_A = 'OC-SUP-A';
+const SUPPLIER_B = 'OC-SUP-B';
 const CUSTOMER_ID = 'OC-CUST-1';
 const CUSTOMER_NAME = 'Opening Customer';
 const OTHER_BRANCH = 'WH001';
@@ -110,6 +113,7 @@ interface Fixture {
   expense: string;
   retained: string;
   inventory: string;
+  apControl: string;
 }
 
 describe('opening balances and year-end close API (real HTTP + throwaway PostgreSQL)', { skip: skipNoDb }, () => {
@@ -256,6 +260,17 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
       [STOCK_BR]
     );
     await dbPool.query(
+      `INSERT INTO branches (id, code, name, location, active, allow_procurement, allow_warehouse_transfer, is_demo)
+       VALUES ($1, $1, 'Opening Vendor Branch', 'Test', TRUE, TRUE, TRUE, FALSE)`,
+      [VENDOR_BR]
+    );
+    await dbPool.query(
+      `INSERT INTO suppliers (id, supplier_code, name, status, is_demo)
+       VALUES ($1, $1, 'Opening Supplier A', 'ACTIVE', FALSE),
+              ($2, $2, 'Opening Supplier B', 'ACTIVE', FALSE)`,
+      [SUPPLIER_A, SUPPLIER_B]
+    );
+    await dbPool.query(
       `INSERT INTO products (
          id, sku, name, category, product_group, unit, cost_price, selling_price, tax_rate, status, is_demo
        ) VALUES ($1, $1, 'Opening Stock Product', 'Test', 'Product Item', 'Pcs', 25, 30, 13, 'ACTIVE', FALSE)`,
@@ -322,6 +337,7 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
     accounts.sales = defaults.json.defaults.SALES.accountId;
     accounts.retained = defaults.json.defaults.RETAINED_EARNINGS.accountId;
     accounts.inventory = defaults.json.defaults.INVENTORY.accountId;
+    accounts.apControl = defaults.json.defaults.AP_CONTROL.accountId;
 
     const groups = await get('/api/accounting/groups', tokens.super);
     const equityGroup = groups.json.find((group: any) => group.code === '3000');
@@ -661,6 +677,137 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
       [FY_ID, STOCK_PRODUCT_ID, STOCK_BR]
     );
     assert.deepEqual(afterFailure.rows[0], { quantityOnHand: 12, unitCost: 30 });
+  });
+
+  test('vendor opening rows post AP control and equity, and a re-save reverses then replaces them', async () => {
+    const first = await put(`/api/fiscal-years/${FY_ID}/vendor-opening-balances`, tokens.super, {
+      offsetAccountId: accounts.retained,
+      rows: [
+        { supplierId: SUPPLIER_A, branchId: VENDOR_BR, openingBalance: 1000 },
+        { supplierId: SUPPLIER_B, branchId: VENDOR_BR, openingBalance: -300 },
+      ],
+    });
+    assert.equal(first.status, 200, JSON.stringify(first.json));
+    assert.equal(first.json.journals.length, 1, 'the branch gets one vendor opening journal');
+    assert.equal(first.json.journals[0].branchId, VENDOR_BR);
+    assert.equal(first.json.journals[0].totalValue, 1000);
+
+    const firstLines = await dbPool!.query(
+      `SELECT a.id, COALESCE(SUM(l.debit), 0)::float AS debit,
+              COALESCE(SUM(l.credit), 0)::float AS credit
+       FROM gl_journal_lines l
+       JOIN gl_journals j ON j.id = l.journal_id
+       JOIN gl_accounts a ON a.id = l.account_id
+       WHERE j.journal_no = $1
+       GROUP BY a.id`,
+      [first.json.journals[0].journalNo]
+    );
+    const firstByAccount = new Map(firstLines.rows.map((row: any) => [String(row.id), row]));
+    assert.equal(firstByAccount.get(accounts.apControl)?.credit, 1000, 'payables credit AP control');
+    assert.equal(firstByAccount.get(accounts.apControl)?.debit, 300, 'advances debit AP control');
+    assert.equal(firstByAccount.get(accounts.retained)?.debit, 700, 'the signed net lands in opening equity');
+    assert.equal(firstByAccount.get(accounts.retained)?.credit, 0);
+
+    const supplierLines = await dbPool!.query(
+      `SELECT party_id AS "partyId", COALESCE(SUM(debit), 0)::float AS debit,
+              COALESCE(SUM(credit), 0)::float AS credit
+       FROM gl_subledger_entries
+       WHERE journal_id = (SELECT id FROM gl_journals WHERE journal_no = $1)
+         AND subledger_type = 'SUPPLIER'
+       GROUP BY party_id`,
+      [first.json.journals[0].journalNo]
+    );
+    const bySupplier = new Map(supplierLines.rows.map((row: any) => [String(row.partyId), row]));
+    assert.equal(bySupplier.get(SUPPLIER_A)?.credit, 1000);
+    assert.equal(bySupplier.get(SUPPLIER_B)?.debit, 300);
+
+    const second = await put(`/api/fiscal-years/${FY_ID}/vendor-opening-balances`, tokens.super, {
+      offsetAccountId: accounts.retained,
+      rows: [
+        { supplierId: SUPPLIER_A, branchId: VENDOR_BR, openingBalance: 400 },
+        { supplierId: SUPPLIER_B, branchId: VENDOR_BR, openingBalance: -100 },
+      ],
+    });
+    assert.equal(second.status, 200, JSON.stringify(second.json));
+    assert.equal(second.json.journals.length, 1);
+    assert.equal(second.json.journals[0].totalValue, 400);
+
+    const net = await dbPool!.query(
+      `SELECT
+         COALESCE(SUM(CASE WHEN l.account_id = $2 THEN l.debit - l.credit ELSE 0 END), 0)::float AS ap,
+         COALESCE(SUM(CASE WHEN l.account_id = $3 THEN l.debit - l.credit ELSE 0 END), 0)::float AS equity
+       FROM gl_journal_lines l
+       JOIN gl_journals j ON j.id = l.journal_id
+       WHERE j.branch_id = $1`,
+      [VENDOR_BR, accounts.apControl, accounts.retained]
+    );
+    assert.equal(net.rows[0].ap, -300, 'the replacement nets AP to the register net payable');
+    assert.equal(net.rows[0].equity, 300, 'the replacement nets opening equity to the same signed net');
+
+    const active = await dbPool!.query(
+      `SELECT COUNT(*)::int AS count
+       FROM gl_journals j
+       WHERE j.branch_id = $1 AND j.source_type = 'OPENING_BALANCE'
+         AND NOT EXISTS (
+           SELECT 1 FROM gl_journals r
+           WHERE r.reversal_of_id = j.id AND r.status = 'POSTED'
+         )`,
+      [VENDOR_BR]
+    );
+    assert.equal(Number(active.rows[0].count), 1, 'a re-save leaves exactly one active vendor opening');
+    assert.equal(
+      await journalCount(
+        "branch_id = $1 AND source_type IN ('OPENING_BALANCE', 'OPENING_BALANCE_REVERSAL')",
+        [VENDOR_BR]
+      ),
+      3,
+      'the replacement keeps the original, its reversal and the new journal'
+    );
+
+    const invalidOffset = await put(`/api/fiscal-years/${FY_ID}/vendor-opening-balances`, tokens.super, {
+      offsetAccountId: 'oc-missing-equity',
+      rows: [{ supplierId: SUPPLIER_A, branchId: VENDOR_BR, openingBalance: 999 }],
+    });
+    assert.equal(invalidOffset.status, 400, JSON.stringify(invalidOffset.json));
+    assert.match(invalidOffset.json.message, /does not exist/i);
+    const afterFailure = await dbPool!.query(
+      `SELECT supplier_id AS "supplierId", opening_balance::float AS "openingBalance"
+       FROM vendor_opening_balances
+       WHERE fiscal_year_id = $1 AND branch_id = $2
+       ORDER BY supplier_id`,
+      [FY_ID, VENDOR_BR]
+    );
+    assert.deepEqual(
+      afterFailure.rows,
+      [
+        { supplierId: SUPPLIER_A, openingBalance: 400 },
+        { supplierId: SUPPLIER_B, openingBalance: -100 },
+      ],
+      'a failed post rolls the row upserts back with the journal'
+    );
+
+    const removed = await put(`/api/fiscal-years/${FY_ID}/vendor-opening-balances`, tokens.super, {
+      offsetAccountId: accounts.retained,
+      rows: [{ supplierId: SUPPLIER_B, branchId: VENDOR_BR, openingBalance: -100 }],
+      removed: [{ supplierId: SUPPLIER_A, branchId: VENDOR_BR }],
+    });
+    assert.equal(removed.status, 200, JSON.stringify(removed.json));
+    assert.equal(removed.json.applied, 2, 'one update and one removal are applied');
+    assert.equal(removed.json.journals[0].totalValue, 100, 'only the remaining advance is posted');
+
+    const register = await get(`/api/fiscal-years/${FY_ID}/vendor-opening-balances`, tokens.super);
+    assert.equal(register.status, 200, JSON.stringify(register.json));
+    assert.equal(register.json.rows.length, 1);
+    assert.equal(register.json.rows[0].supplierId, SUPPLIER_B);
+    assert.equal(register.json.rows[0].ledgerBalance, 0, 'the read-only AP reference excludes opening journals');
+    assert.equal(
+      await journalCount(
+        "branch_id = $1 AND source_type IN ('OPENING_BALANCE', 'OPENING_BALANCE_REVERSAL')",
+        [VENDOR_BR]
+      ),
+      5,
+      'removing a supplier reverses and replaces the branch opening too'
+    );
   });
 
   test('the year-end close moves the result into retained earnings and leaves the trial balance balanced', async () => {

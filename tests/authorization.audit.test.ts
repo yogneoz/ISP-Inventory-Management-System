@@ -405,8 +405,12 @@ describe('authorization audit (AUTHZ-1…13)', () => {
     );
     assert.equal(Number(untouched.rows[0]?.opening_balance), 200, 'the refused write changed nothing');
 
+    // AUTHZ-12 already posted the branch's one opening for azq-a. This test is
+    // about nested-row branch scope, so save a zero balance: the row write still
+    // proves the scope gate without tripping the one-active-opening guard, while
+    // the real vendor posting path is covered in accountingOpeningClosing.api.
     const ownWrite = await call('PUT', '/api/fiscal-years/azq-fy/vendor-opening-balances', tokens.inv, {
-      rows: [{ supplierId: 'azq-sup', branchId: 'azq-a', openingBalance: 150 }],
+      rows: [{ supplierId: 'azq-sup', branchId: 'azq-a', openingBalance: 0 }],
     });
     assert.equal(ownWrite.status, 200, 'the own-branch batch write is allowed');
   });

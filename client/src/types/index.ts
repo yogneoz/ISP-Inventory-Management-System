@@ -1042,8 +1042,10 @@ export interface VendorOpeningBalanceRow {
   supplierCode: string;
   branchId: string;
   branchName: string;
-  /** Signed: positive = payable (debit) owed to supplier, negative = advance/credit. */
+  /** Signed: positive = payable (credit AP), negative = advance (debit AP). */
   openingBalance: number;
+  /** Read-only AP balance from posted operational subledger entries, excluding openings. */
+  ledgerBalance?: number;
   sourceType: string; // 'FISCAL_CLOSE' | 'MANUAL_ADJUSTMENT'
   sourceReference: string | null;
   postedAt: string | null;
