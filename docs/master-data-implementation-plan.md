@@ -317,6 +317,17 @@ for that integration without changing posted history.
 and Stock. Every tab posts a balanced opening journal or subledger rows. Do not
 allow a one-sided balance edit.
 
+**Status (2026-11-13).** GL, Customers and Vendors are shipped. The Stock tab is
+deliberately open: the existing opening-stock workflow writes only
+`fiscal_year_opening_stock` quantity, damaged-quantity and unit-cost rows (from
+the prior close or a manual adjustment); it has no opening-stock journal path
+and no inventory-opening posting account or contract. A compliant Stock tab
+needs a product decision on the inventory/opening-equity accounts, whether one
+branch journal aggregates product rows or posts item-level lines, and how
+damaged units and valuation reconcile to `inventory_stock` and the existing
+roll-forward. Do not build a one-sided stock editor in this hub before those
+are decided.
+
 **Build note.** Use the existing `OPENING_BALANCE` journal source type and an
 opening-balance equity offset. For customers and vendors, create the control-account
 subledger rows so the party ledger and aging work from day one.
@@ -549,8 +560,20 @@ target.
   account. Duplicate customer rows are refused in the form, and the server's
   one-posting-per-branch rule remains the durable duplicate guard. Both tabs
   show the returned journal number and period and surface backend validation
-  errors. Still open: an in-hub Stock tab; the existing opening-stock workflow
-  already covers stock data, and the hub tab is not yet built.
+  errors.
+
+  **Stock tab — open.** Blocked on a product decision and missing posting
+  configuration, not on UI work. `fiscal_year_opening_stock` already stores
+  quantity, damaged quantity and unit cost per product × branch and is populated
+  by the prior-close roll-forward or manual adjustment; it is read by stock
+  reports but never posted to `gl_journals`. The plan requires a balanced
+  journal or subledger rows per tab and forbids a one-sided balance edit, so
+  the tab cannot reuse the existing editor as-is. It needs a decision on the
+  Dr Inventory / Cr opening-equity accounts and posting role, whether a branch
+  posts one aggregate journal or item-level lines, and how damaged units and
+  valuation reconcile to `inventory_stock` and the existing roll-forward. Until
+  those are decided, the opening-stock workflow remains the supported stock
+  surface and this tab stays unbuilt.
 
 - [ ] **Step 8 — Currency/FX and Copy Master.**
   Separate projects, not menu items.
