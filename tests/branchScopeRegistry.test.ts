@@ -36,7 +36,7 @@ interface TableColumns {
 /** Parse every CREATE TABLE IF NOT EXISTS block out of schema.sql. */
 function parseSchemaSql(sqlText: string): TableColumns {
   const tables: TableColumns = {};
-  const re = /CREATE TABLE IF NOT EXISTS (\w+) \(([\s\S]*?)\n\);/g;
+  const re = /CREATE TABLE IF NOT EXISTS (\w+) \(([\s\S]*?)\n\)(?: PARTITION BY [^;]+)?;/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(sqlText)) !== null) {
     const name = m[1];

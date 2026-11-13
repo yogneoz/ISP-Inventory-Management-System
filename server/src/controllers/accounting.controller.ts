@@ -46,6 +46,7 @@ import {
 } from '../services/accounting.service';
 import {
   buildBalanceSheet,
+  buildBsLedgerSummary,
   buildCashFlow,
   buildProfitAndLoss,
   buildStatementGroupLines,
@@ -572,6 +573,13 @@ export async function get_trialBalance(req: any, res: Response): Promise<any> {
   const window = await statementWindow(req, res, 'TRIAL_BALANCE');
   if (!window) return;
   return res.json(await buildTrialBalance(pgPool, window));
+}
+
+/** GET /api/accounting/statements/bs-summary — BS month/quarter ledger view */
+export async function get_bsLedgerSummary(req: any, res: Response): Promise<any> {
+  const window = await statementWindow(req, res, 'PROFIT_AND_LOSS');
+  if (!window) return;
+  return res.json(await buildBsLedgerSummary(pgPool, window));
 }
 
 /**

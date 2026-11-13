@@ -220,6 +220,7 @@ describe('finance dual-date guard: INSERT columns must pair AD business dates wi
     const schema = read('scripts/schema.sql');
     const required = [
       'gl_journals ALTER COLUMN journal_date_bs SET NOT NULL',
+      'gl_journal_lines ALTER COLUMN journal_date_bs SET NOT NULL',
       'gl_subledger_entries ALTER COLUMN entry_date_bs SET NOT NULL',
       'gl_periods ALTER COLUMN start_date_bs SET NOT NULL',
       'gl_periods ALTER COLUMN end_date_bs SET NOT NULL',

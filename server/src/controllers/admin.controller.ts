@@ -59,6 +59,7 @@ import {
   BS_DAY_RECORDS_DELETE_BY_YEARS_SQL,
   BS_DAY_RECORD_UPSERT_SQL,
   BS_DAY_RECORD_UPSERT_WITH_FY_SQL,
+  BS_MONTHS_REBUILD_SQL,
   bsDayRecordParams,
   buildBsDayRecordsQuery,
   COLUMN_EXISTS_SQL,
@@ -610,6 +611,7 @@ try {
         }
         regeneratedRecords = count;
       });
+      await pgPool.query(BS_MONTHS_REBUILD_SQL);
       pgSynced = true;
     }
 
@@ -1399,6 +1401,7 @@ export async function post_integrityApply(req: any, res: Response): Promise<any>
     // The calendar (or the fiscal years derived from it) changed: every open
     // client must re-read bs_calendar_years instead of keeping a stale mirror.
     if (result.applied.length > 0) {
+      await pgPool.query(BS_MONTHS_REBUILD_SQL);
       await hydrateDynamicState();
       broadcastChange({ type: 'BS_CALENDAR_UPDATED', entity: 'MASTER_DATA' });
       logAuditEvent(
@@ -1513,6 +1516,7 @@ const { yearBS, daysInMonths, customStartAD, onlyIfNew } = req.body;
         runningDate.setDate(runningDate.getDate() + 1);
       }
     }
+    await pgPool.query(BS_MONTHS_REBUILD_SQL);
     pgSynced = true;
   } catch (_err) {
     // PostgreSQL is unreachable; continue with the in-memory fallback cache only
@@ -1640,6 +1644,7 @@ const { years, onlyIfNew } = req.body;
 
     inMemoryBsCalendarYears.sort((a, b) => a.yearBS - b.yearBS);
     generateInMemoryBsDayRecords();
+    await pgPool.query(BS_MONTHS_REBUILD_SQL);
     pgSynced = true;
   } catch (_err) {
     // PostgreSQL is unreachable; in-memory fallback only
@@ -1860,6 +1865,7 @@ const { dayRecords } = req.body;
     for (const rec of dayRecords) {
       await pgPool.query(BS_DAY_RECORD_UPSERT_SQL, bsDayRecordParams(rec));
     }
+    await pgPool.query(BS_MONTHS_REBUILD_SQL);
     pgSynced = true;
   } catch (_err) {
     // PostgreSQL is unreachable; continue with the in-memory fallback cache only

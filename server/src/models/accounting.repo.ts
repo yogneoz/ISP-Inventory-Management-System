@@ -681,6 +681,14 @@ ORDER BY account_code ASC, branch_id ASC`;
 
 export const BRANCH_EXISTS_SQL = `SELECT id FROM branches WHERE id = $1`;
 
+/**
+ * Create the month's journal and line partitions before the header insert.
+ * The default partition catches anything that bypasses postJournal, but an
+ * explicit month keeps normal writes out of the catch-all so later partition
+ * creation is never blocked by rows already sitting in DEFAULT.
+ */
+export const ENSURE_JOURNAL_PARTITION_SQL = `SELECT ensure_journal_month_partition($1::date)`;
+
 /** Next value of the durable journal-number sequence. */
 export const NEXT_JOURNAL_SEQUENCE_SQL = `SELECT nextval('gl_journal_no_seq')::bigint AS seq`;
 
@@ -695,8 +703,8 @@ export const JOURNAL_INSERT_SQL = `INSERT INTO gl_journals (
 )`;
 
 export const JOURNAL_LINE_INSERT_SQL = `INSERT INTO gl_journal_lines (
-  id, journal_id, line_no, account_id, cost_center_id, branch_id, debit, credit, memo
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`;
+  id, journal_id, journal_date_ad, journal_date_bs, line_no, account_id, cost_center_id, branch_id, debit, credit, memo
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`;
 
 export const SUBLEDGER_INSERT_SQL = `INSERT INTO gl_subledger_entries (
   id, journal_id, journal_line_id, account_id, subledger_id, subledger_type,
@@ -1253,6 +1261,36 @@ ORDER BY CASE WHEN r.line_window = 'OPENING' THEN 0 ELSE 1 END,
   r.journal_date_ad ASC, r.journal_no ASC, r.line_no ASC, r.id ASC`;
 
 /** The fiscal year containing `$1`, with its bounds as plain YYYY-MM-DD text. */
+/**
+ * BS-native ledger summary: every POSTED line is grouped by the Nepali year,
+ * month and quarter that `bs_day_records` assigns to its AD journal date.
+ * The AD range remains the query window; the response never asks a screen to
+ * translate dates or derive a quarter itself.
+ */
+export const BS_LEDGER_SUMMARY_SQL = `SELECT
+  d.fiscal_year AS "fiscalYear",
+  d.bs_year AS "bsYear",
+  d.bs_month AS "bsMonth",
+  d.bs_month_name AS "bsMonthName",
+  d.bs_month_name_np AS "bsMonthNameNp",
+  d.quarter,
+  MIN(l.journal_date_ad)::text AS "startAD",
+  MAX(l.journal_date_ad)::text AS "endAD",
+  COALESCE(SUM(l.debit), 0)::numeric AS debit,
+  COALESCE(SUM(l.credit), 0)::numeric AS credit,
+  COALESCE(SUM(l.debit - l.credit), 0)::numeric AS balance
+FROM gl_journal_lines l
+JOIN gl_journals j
+  ON j.id = l.journal_id AND j.journal_date_ad = l.journal_date_ad
+JOIN bs_day_records d ON d.ad_date = l.journal_date_ad
+WHERE j.status = 'POSTED'
+  AND ($1::date IS NULL OR l.journal_date_ad >= $1::date)
+  AND ($2::date IS NULL OR l.journal_date_ad <= $2::date)
+  AND ($3::varchar IS NULL OR l.branch_id = $3::varchar)
+GROUP BY d.fiscal_year, d.bs_year, d.bs_month, d.bs_month_name,
+         d.bs_month_name_np, d.quarter
+ORDER BY d.bs_year ASC, d.bs_month ASC`;
+
 export const FISCAL_YEAR_BOUNDS_SQL = `SELECT id, code,
   start_date_ad::text AS "startDateAD",
   end_date_ad::text AS "endDateAD"
@@ -1563,6 +1601,8 @@ export function journalInsertParams(input: JournalInsertInput): unknown[] {
 export function journalLineInsertParams(input: {
   id: string;
   journalId: string;
+  journalDateAD: string;
+  journalDateBS: string;
   lineNo: number;
   accountId: string;
   costCenterId?: string | null;
@@ -1574,6 +1614,8 @@ export function journalLineInsertParams(input: {
   return [
     input.id,
     input.journalId,
+    input.journalDateAD,
+    input.journalDateBS,
     input.lineNo,
     input.accountId,
     input.costCenterId || null,

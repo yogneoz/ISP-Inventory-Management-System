@@ -473,6 +473,9 @@ export const BS_CALENDAR_YEAR_SET_SOURCE_SQL =
 
 export const BS_DAY_RECORDS_DELETE_BY_YEARS_SQL = 'DELETE FROM bs_day_records WHERE bs_year = ANY($1::int[]);';
 
+/** Refresh the derived BS-month/quarter cache after any calendar write. */
+export const BS_MONTHS_REBUILD_SQL = 'SELECT rebuild_bs_months()';
+
 /** Day-record insert without a fiscal_year_id bind (seed / sync-range paths). */
 export const BS_DAY_RECORD_UPSERT_SQL = `INSERT INTO bs_day_records (
    ad_date, bs_date, bs_year, bs_month, bs_month_name, bs_month_name_np,

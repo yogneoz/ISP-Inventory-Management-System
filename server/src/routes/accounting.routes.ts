@@ -11,6 +11,7 @@ import {
   get_accountGroups,
   get_accounts,
   get_aging,
+  get_bsLedgerSummary,
   get_balanceSheet,
   get_cashFlow,
   get_cashFlowForecast,
@@ -377,6 +378,9 @@ export function registerAccountingRoutes(app: Express) {
   });
   app.get('/api/accounting/statements/balance-sheet', requirePermission('gl-view'), async (req, res, next) => {
     get_balanceSheet(req as any, res as any).catch(next);
+  });
+  app.get('/api/accounting/statements/bs-summary', requirePermission('gl-view'), async (req, res, next) => {
+    get_bsLedgerSummary(req as any, res as any).catch(next);
   });
   app.get('/api/accounting/statements/cash-flow', requirePermission('gl-view'), async (req, res, next) => {
     get_cashFlow(req as any, res as any).catch(next);

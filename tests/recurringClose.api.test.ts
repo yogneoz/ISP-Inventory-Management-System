@@ -218,7 +218,9 @@ describe('recurring journals and month-end close (real HTTP + PostgreSQL)', { sk
               j.status, COALESCE(SUM(l.debit), 0)::numeric AS debit,
               COALESCE(SUM(l.credit), 0)::numeric AS credit
        FROM gl_journals j JOIN gl_journal_lines l ON l.journal_id = j.id
-       WHERE j.id = $1 GROUP BY j.id`,
+       WHERE j.id = $1
+       GROUP BY j.id, j.source_type, j.source_id, j.branch_id, j.status`,
+
       [first.json.journal.id]
     )).rows[0];
     assert.equal(journal.sourceType, 'RECURRING_JOURNAL');

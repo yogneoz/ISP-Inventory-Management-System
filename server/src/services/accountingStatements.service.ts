@@ -35,6 +35,7 @@ import { roundMoney } from '../utils/money';
 import {
   ACCOUNT_BALANCE_ROWS_SQL,
   ACCOUNT_BY_ID_SQL,
+  BS_LEDGER_SUMMARY_SQL,
   ACCOUNT_GROUP_LIST_SQL,
   CASH_BANK_ACCOUNT_ROWS_SQL,
   CASH_FLOW_JOURNAL_ROWS_SQL,
@@ -739,6 +740,93 @@ export async function buildTrialBalance(client: AccountingClient, window: Statem
     balanced,
     controls,
     controlsReconciled: controls.every((control) => control.status === 'RECONCILED'),
+  };
+}
+
+export interface BsLedgerMonth {
+  fiscalYear: string;
+  bsYear: number;
+  bsMonth: number;
+  bsMonthName: string;
+  bsMonthNameNp: string;
+  quarter: string;
+  startAD: string;
+  endAD: string;
+  debit: number;
+  credit: number;
+  balance: number;
+}
+
+export interface BsLedgerQuarter {
+  fiscalYear: string;
+  bsYear: number;
+  quarter: string;
+  debit: number;
+  credit: number;
+  balance: number;
+}
+
+/**
+ * BS-native ledger report. The AD window selects the rows; `bs_day_records`
+ * supplies the Nepali year/month/quarter for every line, so this report is
+ * complete without any client-side calendar conversion. A missing day record
+ * cannot create a guessed month: the write gate already refuses that date.
+ */
+export async function buildBsLedgerSummary(client: AccountingClient, window: StatementWindow) {
+  const rows = window.empty
+    ? []
+    : (await client.query(BS_LEDGER_SUMMARY_SQL, [window.from, window.to, window.branchId])).rows;
+
+  const months: BsLedgerMonth[] = rows.map((row: any) => ({
+    fiscalYear: String(row.fiscalYear),
+    bsYear: Number(row.bsYear),
+    bsMonth: Number(row.bsMonth),
+    bsMonthName: String(row.bsMonthName),
+    bsMonthNameNp: String(row.bsMonthNameNp),
+    quarter: String(row.quarter),
+    startAD: String(row.startAD),
+    endAD: String(row.endAD),
+    debit: roundMoney(Number(row.debit)),
+    credit: roundMoney(Number(row.credit)),
+    balance: roundMoney(Number(row.balance)),
+  }));
+
+  const quarterMap = new Map<string, BsLedgerQuarter>();
+  for (const month of months) {
+    const key = `${month.bsYear}|${month.quarter}`;
+    const quarter = quarterMap.get(key) ?? {
+      fiscalYear: month.fiscalYear,
+      bsYear: month.bsYear,
+      quarter: month.quarter,
+      debit: 0,
+      credit: 0,
+      balance: 0,
+    };
+    quarter.debit = roundMoney(quarter.debit + month.debit);
+    quarter.credit = roundMoney(quarter.credit + month.credit);
+    quarter.balance = roundMoney(quarter.balance + month.balance);
+    quarterMap.set(key, quarter);
+  }
+
+  const totals = months.reduce(
+    (sum, month) => ({
+      debit: roundMoney(sum.debit + month.debit),
+      credit: roundMoney(sum.credit + month.credit),
+      balance: roundMoney(sum.balance + month.balance),
+    }),
+    { debit: 0, credit: 0, balance: 0 }
+  );
+
+  return {
+    statement: 'BS_LEDGER_SUMMARY' as const,
+    branchId: statementBranchLabel(window),
+    from: window.from,
+    to: window.to,
+    months,
+    quarters: [...quarterMap.values()].sort(
+      (a, b) => a.bsYear - b.bsYear || a.quarter.localeCompare(b.quarter)
+    ),
+    totals,
   };
 }
 

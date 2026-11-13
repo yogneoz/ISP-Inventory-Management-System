@@ -39,6 +39,7 @@ import {
   ACCOUNT_UPDATE_SQL,
   ACCOUNTS_BY_IDS_SQL,
   BRANCH_EXISTS_SQL,
+  ENSURE_JOURNAL_PARTITION_SQL,
   FISCAL_YEAR_BOUNDS_SQL,
   GL_CONTROL_BALANCE_SQL,
   JOURNAL_BY_ID_SQL,
@@ -902,6 +903,7 @@ export async function postJournal(
   }
 
   const period = await ensureOpenPeriod(client, journalDateAD);
+  await client.query(ENSURE_JOURNAL_PARTITION_SQL, [journalDateAD]);
   const sequence = Number((await client.query(NEXT_JOURNAL_SEQUENCE_SQL)).rows[0]?.seq);
   if (!Number.isFinite(sequence) || sequence <= 0) {
     throw new ApiError(500, 'Could not allocate a journal number.');
@@ -972,6 +974,8 @@ export async function postJournal(
       journalLineInsertParams({
         id: lineId,
         journalId,
+        journalDateAD,
+        journalDateBS,
         lineNo: line.lineNo,
         accountId: line.account.id,
         costCenterId: line.costCenterId,

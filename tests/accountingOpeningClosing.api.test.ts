@@ -423,6 +423,57 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
     });
     assert.equal(expense.status, 201, JSON.stringify(expense.json));
 
+    // The two journals are in different calendar months, so their rows must
+    // be in different monthly partitions. The line rows follow their header.
+    const journalParts = await dbPool!.query(
+      `SELECT id, tableoid::regclass::text AS partition
+       FROM gl_journals WHERE id = ANY($1::varchar[]) ORDER BY id`,
+      [[revenue.json.id, expense.json.id]]
+    );
+    assert.equal(journalParts.rowCount, 2);
+    assert.notEqual(
+      journalParts.rows[0].partition,
+      journalParts.rows[1].partition,
+      'journals in different months must not share a partition'
+    );
+    const lineParts = await dbPool!.query(
+      `SELECT DISTINCT journal_id, journal_date_bs, tableoid::regclass::text AS partition
+       FROM gl_journal_lines WHERE journal_id = ANY($1::varchar[])`,
+      [[revenue.json.id, expense.json.id]]
+    );
+    assert.equal(lineParts.rowCount, 2);
+    assert.notEqual(lineParts.rows[0].partition, lineParts.rows[1].partition);
+    assert.match(lineParts.rows[0].journal_date_bs, /^\d{4}-\d{2}-\d{2} BS$/);
+    assert.match(lineParts.rows[1].journal_date_bs, /^\d{4}-\d{2}-\d{2} BS$/);
+
+    // The composite FK is real: a line cannot name a journal that does not
+    // exist, even when a date is supplied.
+    await assert.rejects(
+      () =>
+        dbPool!.query(
+          `INSERT INTO gl_journal_lines
+             (id, journal_id, journal_date_ad, journal_date_bs, line_no, account_id, branch_id, debit, credit)
+           VALUES ('partition-orphan', 'missing-journal', $1::date, '2080-01-01 BS', 1, $2, $3, 1, 0)`,
+          [REVENUE_DATE, accounts.cash, BR]
+        ),
+      (error: any) => error?.code === '23503'
+    );
+
+    // The BS-native summary groups the same posted lines by Nepali month and
+    // quarter; no client-side date conversion is involved.
+    const bsSummary = await get(
+      `/api/accounting/statements/bs-summary?from=${REVENUE_DATE}&to=${EXPENSE_DATE}&branchId=${BR}`,
+      tokens.super
+    );
+    assert.equal(bsSummary.status, 200, JSON.stringify(bsSummary.json));
+    assert.equal(bsSummary.json.months.length, 2, JSON.stringify(bsSummary.json));
+    assert.ok(bsSummary.json.months.every((month: any) => /^Q[1-4]$/.test(month.quarter)));
+    assert.ok(bsSummary.json.months.every((month: any) => month.bsMonthName && month.bsMonthNameNp));
+    assert.equal(bsSummary.json.quarters.length, 1, JSON.stringify(bsSummary.json.quarters));
+    assert.equal(bsSummary.json.totals.debit, 7000);
+    assert.equal(bsSummary.json.totals.credit, 7000);
+    assert.equal(bsSummary.json.totals.balance, 0);
+
     const before = await balanceSheet();
     assert.equal(before.balanced, true);
     assert.equal(before.totalAssets, 13000);

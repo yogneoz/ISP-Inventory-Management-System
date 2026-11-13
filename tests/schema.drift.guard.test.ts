@@ -35,11 +35,12 @@ interface TableColumns {
 /** Parse every CREATE TABLE IF NOT EXISTS block out of schema.sql. */
 function parseSchemaSql(sqlText: string): TableColumns {
   const tables: TableColumns = {};
-  const re = /CREATE TABLE IF NOT EXISTS (\w+) \(([\s\S]*?)\n\);/g;
+  const re =
+    /CREATE TABLE IF NOT EXISTS (\w+) \(([\s\S]*?)\n\)(?: PARTITION BY [^;]+)?;|CREATE TABLE IF NOT EXISTS (\w+) PARTITION OF [^;]+;/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(sqlText)) !== null) {
-    const name = m[1];
-    const body = m[2];
+    const name = m[1] ?? m[3];
+    const body = m[2] ?? '';
     const cols = new Set<string>();
     for (const line of body.split(/\r?\n/)) {
       const t = line.trim();
@@ -47,7 +48,7 @@ function parseSchemaSql(sqlText: string): TableColumns {
       // Table-level constraints never introduce a column.
       // Match table-level constraints only. A bare /^CHECK/i also skipped real
       // columns named check_in_time / check_out_time.
-      if (/^(PRIMARY KEY|UNIQUE\b|CONSTRAINT\b|CHECK\s*\(|FOREIGN KEY\b|AND\b|OR\b)/i.test(t)) continue;
+      if (/^(PRIMARY KEY|UNIQUE\b|CONSTRAINT\b|CHECK\s*\(|FOREIGN KEY\b|REFERENCES\b|AND\b|OR\b)/i.test(t)) continue;
       const cm = t.match(/^(\w+)\s+(.+?),?$/);
       if (
         cm &&
@@ -59,6 +60,10 @@ function parseSchemaSql(sqlText: string): TableColumns {
       }
     }
     tables[name] = cols;
+    if (name.endsWith('_default')) {
+      const parent = name.slice(0, -'_default'.length);
+      tables[name] = new Set(tables[parent] ?? []);
+    }
   }
   return tables;
 }
@@ -83,10 +88,10 @@ describe('schema.sql vs live database drift guard', () => {
     if (pool) await pool.end();
   });
 
-  test('schema.sql exists and parses to the expected 107 tables', () => {
+  test('schema.sql exists and parses to the expected 112 tables', () => {
     const sqlText = fs.readFileSync(SCHEMA_SQL_PATH, 'utf8');
     const tables = parseSchemaSql(sqlText);
-    assert.equal(Object.keys(tables).length, 107, 'schema.sql should declare exactly 107 tables');
+    assert.equal(Object.keys(tables).length, 112, 'schema.sql should declare exactly 112 tables (including the two default partitions)');
   });
 
   test('every live database column is declared in a schema.sql CREATE TABLE block', async () => {
@@ -95,9 +100,14 @@ describe('schema.sql vs live database drift guard', () => {
     const schemaTables = parseSchemaSql(sqlText);
 
     const res = await pool.query<{ table_name: string; column_name: string }>(
-      `SELECT table_name, column_name FROM information_schema.columns
-       WHERE table_schema = 'public'
-       ORDER BY table_name, ordinal_position`
+      `SELECT c.relname AS table_name, a.attname AS column_name
+       FROM pg_class c
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+       JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+       WHERE n.nspname = 'public'
+         AND c.relkind IN ('r', 'p')
+         AND (NOT c.relispartition OR c.relname LIKE '%\\_default')
+       ORDER BY c.relname, a.attnum`
     );
     const liveTables: TableColumns = {};
     for (const row of res.rows) {

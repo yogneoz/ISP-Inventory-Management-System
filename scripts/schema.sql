@@ -1228,6 +1228,43 @@ CREATE TABLE IF NOT EXISTS bs_day_records (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- One row per BS month, derived from the authoritative day records above.
+-- Reports group by `quarter` and the Nepali month names without re-deriving
+-- either from a screen; `ad_date`/`bs_date` are the first day of the month and
+-- `ad_end_date`/`bs_end_date` are its last day. `rebuild_bs_months()` is called
+-- after every calendar seed/repair so this cache cannot drift from the days.
+CREATE TABLE IF NOT EXISTS bs_months (
+    bs_year INT NOT NULL,
+    bs_month INT NOT NULL,
+    bs_date VARCHAR(20) NOT NULL,
+    ad_date DATE NOT NULL,
+    ad_end_date DATE NOT NULL,
+    bs_end_date VARCHAR(20) NOT NULL,
+    bs_month_name VARCHAR(50) NOT NULL,
+    bs_month_name_np VARCHAR(50) NOT NULL,
+    fiscal_year VARCHAR(20) NOT NULL,
+    fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL,
+    quarter VARCHAR(10) NOT NULL CHECK (quarter IN ('Q1', 'Q2', 'Q3', 'Q4')),
+    PRIMARY KEY (bs_year, bs_month)
+);
+
+CREATE OR REPLACE FUNCTION rebuild_bs_months()
+RETURNS void AS $$
+BEGIN
+  DELETE FROM bs_months;
+  INSERT INTO bs_months (
+    bs_year, bs_month, bs_date, ad_date, ad_end_date, bs_end_date,
+    bs_month_name, bs_month_name_np, fiscal_year, fiscal_year_id, quarter
+  )
+  SELECT
+    bs_year, bs_month, MIN(bs_date), MIN(ad_date), MAX(ad_date), MAX(bs_date),
+    MIN(bs_month_name), MIN(bs_month_name_np), MIN(fiscal_year),
+    MIN(fiscal_year_id), MIN(quarter)
+  FROM bs_day_records
+  GROUP BY bs_year, bs_month;
+END;
+$$ LANGUAGE plpgsql;
+
 -- ==========================================
 -- 21. UOM (Unit of Measure) Table
 -- ==========================================
@@ -1841,9 +1878,18 @@ CREATE INDEX IF NOT EXISTS idx_gl_budget_allocation_lines_cost_center
 
 CREATE SEQUENCE IF NOT EXISTS gl_journal_no_seq AS BIGINT START WITH 1;
 
-CREATE TABLE IF NOT EXISTS gl_journals (
+-- Journal identity is non-partitioned so every existing foreign key that names
+-- only a journal id can keep its current shape while the ledger rows live in
+-- monthly partitions. The trigger at the end of this file keeps it in step.
+CREATE TABLE IF NOT EXISTS gl_journals_registry (
     id VARCHAR(50) PRIMARY KEY,
     journal_no VARCHAR(50) UNIQUE NOT NULL,
+    journal_date_ad DATE NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS gl_journals (
+    id VARCHAR(50) NOT NULL,
+    journal_no VARCHAR(50) NOT NULL,
     journal_date_ad DATE NOT NULL,
     journal_date_bs VARCHAR(20),
     fiscal_year_id VARCHAR(50) NOT NULL REFERENCES fiscal_years(id) ON DELETE RESTRICT,
@@ -1865,19 +1911,21 @@ CREATE TABLE IF NOT EXISTS gl_journals (
     exchange_rate NUMERIC(14, 6) NOT NULL DEFAULT 1,
     memo TEXT,
     status VARCHAR(10) NOT NULL DEFAULT 'POSTED' CHECK (status IN ('POSTED', 'REVERSED')),
-    reversal_of_id VARCHAR(50) REFERENCES gl_journals(id) ON DELETE SET NULL,
+    reversal_of_id VARCHAR(50) REFERENCES gl_journals_registry(id) ON DELETE SET NULL,
     posted_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     posted_by VARCHAR(150),
     is_demo BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id, journal_date_ad),
+    UNIQUE (journal_no, journal_date_ad)
+) PARTITION BY RANGE (journal_date_ad);
 
 CREATE INDEX IF NOT EXISTS idx_gl_journals_date ON gl_journals(journal_date_ad);
 CREATE INDEX IF NOT EXISTS idx_gl_journals_branch ON gl_journals(branch_id, journal_date_ad);
-CREATE INDEX IF NOT EXISTS idx_gl_journals_period ON gl_journals(period_id);
-CREATE INDEX IF NOT EXISTS idx_gl_journals_source ON gl_journals(source_type, source_id);
-CREATE INDEX IF NOT EXISTS idx_gl_journals_reversal_of ON gl_journals(reversal_of_id);
+CREATE INDEX IF NOT EXISTS idx_gl_journals_period ON gl_journals(period_id, journal_date_ad);
+CREATE INDEX IF NOT EXISTS idx_gl_journals_source ON gl_journals(source_type, source_id, journal_date_ad);
+CREATE INDEX IF NOT EXISTS idx_gl_journals_reversal_of ON gl_journals(reversal_of_id, journal_date_ad);
 ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS voucher_type VARCHAR(30) NOT NULL DEFAULT 'JOURNAL';
 ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS voucher_class VARCHAR(50);
 ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS reference_no VARCHAR(100);
@@ -1889,15 +1937,24 @@ ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS cheque_date_bs VARCHAR(20);
 ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS journal_date_bs VARCHAR(20);
 ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS currency VARCHAR(10) NOT NULL DEFAULT 'NPR';
 ALTER TABLE gl_journals ADD COLUMN IF NOT EXISTS exchange_rate NUMERIC(14, 6) NOT NULL DEFAULT 1;
--- Opening balances are posted once per branch. The service also takes a
--- per-branch advisory lock and pre-checks, but this partial unique index is
--- the durable guard against a concurrent double post.
+-- A partitioned unique index must include the partition key. The registry's
+-- unique journal_no remains the global identity guard.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_gl_journals_opening_balance
-  ON gl_journals(branch_id) WHERE source_type = 'OPENING_BALANCE';
+  ON gl_journals(branch_id, journal_date_ad) WHERE source_type = 'OPENING_BALANCE';
+
+CREATE TABLE IF NOT EXISTS gl_journal_line_registry (
+    id VARCHAR(60) PRIMARY KEY,
+    journal_id VARCHAR(50) NOT NULL REFERENCES gl_journals_registry(id) ON DELETE CASCADE,
+    line_no INT NOT NULL,
+    journal_date_ad DATE NOT NULL,
+    UNIQUE (journal_id, line_no)
+);
 
 CREATE TABLE IF NOT EXISTS gl_journal_lines (
-    id VARCHAR(60) PRIMARY KEY,
-    journal_id VARCHAR(50) NOT NULL REFERENCES gl_journals(id) ON DELETE CASCADE,
+    id VARCHAR(60) NOT NULL,
+    journal_id VARCHAR(50) NOT NULL,
+    journal_date_ad DATE NOT NULL,
+    journal_date_bs VARCHAR(20) NOT NULL,
     line_no INT NOT NULL,
     account_id VARCHAR(50) NOT NULL REFERENCES gl_accounts(id) ON DELETE RESTRICT,
     cost_center_id VARCHAR(50) REFERENCES cost_centers(id) ON DELETE RESTRICT,
@@ -1910,12 +1967,30 @@ CREATE TABLE IF NOT EXISTS gl_journal_lines (
         debit >= 0 AND credit >= 0 AND
         ((debit > 0 AND credit = 0) OR (credit > 0 AND debit = 0))
     ),
-    UNIQUE (journal_id, line_no)
-);
+    PRIMARY KEY (id, journal_date_ad),
+    UNIQUE (journal_id, line_no, journal_date_ad),
+    FOREIGN KEY (journal_id, journal_date_ad)
+      REFERENCES gl_journals(id, journal_date_ad) ON DELETE CASCADE
+) PARTITION BY RANGE (journal_date_ad);
 
-CREATE INDEX IF NOT EXISTS idx_gl_journal_lines_account ON gl_journal_lines(account_id, branch_id);
-CREATE INDEX IF NOT EXISTS idx_gl_journal_lines_journal ON gl_journal_lines(journal_id);
+CREATE INDEX IF NOT EXISTS idx_gl_journal_lines_account ON gl_journal_lines(account_id, branch_id, journal_date_ad);
+CREATE INDEX IF NOT EXISTS idx_gl_journal_lines_journal ON gl_journal_lines(journal_id, journal_date_ad);
 ALTER TABLE gl_journal_lines ADD COLUMN IF NOT EXISTS cost_center_id VARCHAR(50) REFERENCES cost_centers(id) ON DELETE RESTRICT;
+ALTER TABLE gl_journal_lines ADD COLUMN IF NOT EXISTS journal_date_bs VARCHAR(20);
+DO $$
+BEGIN
+  -- Existing installs: inherit the header's already-resolved BS half. The
+  -- one-time backfill is allowed through the append-only guard.
+  PERFORM set_config('inventory.allow_ledger_purge', 'on', true);
+  EXECUTE $backfill$
+    UPDATE gl_journal_lines l
+       SET journal_date_bs = j.journal_date_bs
+      FROM gl_journals j
+     WHERE j.id = l.journal_id
+       AND l.journal_date_bs IS NULL
+  $backfill$;
+END $$;
+ALTER TABLE gl_journal_lines ALTER COLUMN journal_date_bs SET NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_gl_journal_lines_cost_center ON gl_journal_lines(cost_center_id);
 
 -- ==========================================
@@ -1948,8 +2023,8 @@ CREATE INDEX IF NOT EXISTS idx_fiscal_year_balances_account
 
 CREATE TABLE IF NOT EXISTS gl_subledger_entries (
     id VARCHAR(60) PRIMARY KEY,
-    journal_id VARCHAR(50) NOT NULL REFERENCES gl_journals(id) ON DELETE CASCADE,
-    journal_line_id VARCHAR(60) NOT NULL REFERENCES gl_journal_lines(id) ON DELETE CASCADE,
+    journal_id VARCHAR(50) NOT NULL REFERENCES gl_journals_registry(id) ON DELETE CASCADE,
+    journal_line_id VARCHAR(60) NOT NULL REFERENCES gl_journal_line_registry(id) ON DELETE CASCADE,
     account_id VARCHAR(50) NOT NULL REFERENCES gl_accounts(id) ON DELETE RESTRICT,
     -- The book this row belongs to. Declared here for a fresh install; the
     -- ALTER below adopts rows written before the master existed.
@@ -2064,7 +2139,7 @@ CREATE TABLE IF NOT EXISTS bank_statement_lines (
     import_batch_id VARCHAR(60) NOT NULL,
     import_source VARCHAR(10) NOT NULL CHECK (import_source IN ('CSV', 'OFX')),
     fingerprint VARCHAR(64) NOT NULL,
-    matched_journal_line_id VARCHAR(60) REFERENCES gl_journal_lines(id) ON DELETE RESTRICT,
+    matched_journal_line_id VARCHAR(60) REFERENCES gl_journal_line_registry(id) ON DELETE RESTRICT,
     matched_at TIMESTAMP WITH TIME ZONE,
     matched_by VARCHAR(150),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -2184,7 +2259,7 @@ CREATE TABLE IF NOT EXISTS gl_recurring_templates (
     end_date_ad DATE,
     next_run_date DATE NOT NULL,
     last_run_date DATE,
-    last_journal_id VARCHAR(50) REFERENCES gl_journals(id) ON DELETE SET NULL,
+    last_journal_id VARCHAR(50) REFERENCES gl_journals_registry(id) ON DELETE SET NULL,
     active BOOLEAN NOT NULL DEFAULT TRUE,
     created_by VARCHAR(150),
     updated_by VARCHAR(150),
@@ -2221,7 +2296,7 @@ CREATE TABLE IF NOT EXISTS gl_recurring_runs (
     id VARCHAR(60) PRIMARY KEY,
     template_id VARCHAR(60) NOT NULL REFERENCES gl_recurring_templates(id) ON DELETE CASCADE,
     run_date DATE NOT NULL,
-    journal_id VARCHAR(50) NOT NULL REFERENCES gl_journals(id) ON DELETE RESTRICT,
+    journal_id VARCHAR(50) NOT NULL REFERENCES gl_journals_registry(id) ON DELETE RESTRICT,
     generated_by VARCHAR(150),
     generated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (template_id, run_date)
@@ -3339,8 +3414,8 @@ CREATE TABLE IF NOT EXISTS payroll_runs (
     arrears_total NUMERIC(14, 2) NOT NULL DEFAULT 0,
     net_total NUMERIC(14, 2) NOT NULL DEFAULT 0,
     status VARCHAR(10) NOT NULL DEFAULT 'POSTED' CHECK (status IN ('DRAFT', 'APPROVED', 'POSTED', 'PAID')),
-    journal_id VARCHAR(50) REFERENCES gl_journals(id) ON DELETE SET NULL,
-    paid_journal_id VARCHAR(50) REFERENCES gl_journals(id) ON DELETE SET NULL,
+    journal_id VARCHAR(50) REFERENCES gl_journals_registry(id) ON DELETE SET NULL,
+    paid_journal_id VARCHAR(50) REFERENCES gl_journals_registry(id) ON DELETE SET NULL,
     paid_date_ad DATE,
     paid_date_bs VARCHAR(20),
     payment_method VARCHAR(30),
@@ -4399,7 +4474,8 @@ WHERE s.source_type = 'PURCHASE'
 ON CONFLICT DO NOTHING;
 
 -- ============================================================================
--- Scale profile: 100k customers, 50 branches, 1k product types, 500 readers.
+-- Scale fixture: 100k customers for the cheap baseline. The production design
+-- target is millions of customers; the recorded 1M run is under docs/performance.
 -- These indexes match the actual WHERE/ORDER BY shapes of the paged registers;
 -- they do not replace the older branch/date indexes, which still serve reports.
 -- ============================================================================
@@ -4579,3 +4655,61 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE TRIGGER trg_fiscal_year_balances_immutable
   BEFORE UPDATE OR DELETE ON fiscal_year_balances
   FOR EACH ROW EXECUTE FUNCTION reject_fiscal_year_balance_mutation();
+
+-- ============================================================================
+-- Monthly journal partitions: default catch-all and on-demand month creator
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS gl_journals_default PARTITION OF gl_journals DEFAULT;
+CREATE TABLE IF NOT EXISTS gl_journal_lines_default PARTITION OF gl_journal_lines DEFAULT;
+
+CREATE OR REPLACE FUNCTION ensure_journal_month_partition(p_date DATE)
+RETURNS void AS $$
+DECLARE
+  v_start DATE := date_trunc('month', p_date)::date;
+  v_end DATE := (date_trunc('month', p_date) + INTERVAL '1 month')::date;
+  v_suffix TEXT := to_char(p_date, 'YYYYMM');
+BEGIN
+  EXECUTE format(
+    'CREATE TABLE IF NOT EXISTS %I PARTITION OF gl_journals FOR VALUES FROM (%L) TO (%L)',
+    'gl_journals_' || v_suffix, v_start, v_end
+  );
+  EXECUTE format(
+    'CREATE TABLE IF NOT EXISTS %I PARTITION OF gl_journal_lines FOR VALUES FROM (%L) TO (%L)',
+    'gl_journal_lines_' || v_suffix, v_start, v_end
+  );
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION sync_gl_journal_registry()
+RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    INSERT INTO gl_journals_registry (id, journal_no, journal_date_ad)
+    VALUES (NEW.id, NEW.journal_no, NEW.journal_date_ad);
+  ELSIF TG_OP = 'DELETE' THEN
+    DELETE FROM gl_journals_registry WHERE id = OLD.id;
+  END IF;
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION sync_gl_journal_line_registry()
+RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    INSERT INTO gl_journal_line_registry (id, journal_id, line_no, journal_date_ad)
+    VALUES (NEW.id, NEW.journal_id, NEW.line_no, NEW.journal_date_ad);
+  ELSIF TG_OP = 'DELETE' THEN
+    DELETE FROM gl_journal_line_registry WHERE id = OLD.id;
+  END IF;
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER trg_gl_journals_registry_sync
+  AFTER INSERT OR DELETE ON gl_journals
+  FOR EACH ROW EXECUTE FUNCTION sync_gl_journal_registry();
+
+CREATE OR REPLACE TRIGGER trg_gl_journal_lines_registry_sync
+  AFTER INSERT OR DELETE ON gl_journal_lines
+  FOR EACH ROW EXECUTE FUNCTION sync_gl_journal_line_registry();
