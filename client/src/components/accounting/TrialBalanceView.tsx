@@ -61,6 +61,7 @@ const groupLabel = (group: TrialBalanceGroup, depth: number) => (
 const toGroupRows = (
   group: TrialBalanceGroup,
   depth: number,
+  includeAccounts: boolean,
   onOpenGroup?: (group: TrialBalanceGroup) => void,
   onOpenAccount?: (account: TrialBalanceAccount) => void
 ): React.ReactNode[] => [
@@ -90,18 +91,24 @@ const toGroupRows = (
     <td className="px-2.5 py-1.5 text-right font-mono">{amountCell(group.closingDebit)}</td>
     <td className="px-2.5 py-1.5 text-right font-mono">{amountCell(group.closingCredit)}</td>
   </tr>,
-  ...group.accounts.map((account) => toRow(account, depth, onOpenAccount)),
-  ...group.children.flatMap((child) => toGroupRows(child, depth + 1, onOpenGroup, onOpenAccount)),
+  ...(includeAccounts ? group.accounts.map((account) => toRow(account, depth, onOpenAccount)) : []),
+  ...group.children.flatMap((child) =>
+    toGroupRows(child, depth + 1, includeAccounts, onOpenGroup, onOpenAccount)
+  ),
 ];
 
 export const TrialBalanceView: React.FC<{
   data: TrialBalanceResponse;
+  /** `GROUP_TOTALS` keeps group and sub-group subtotals but hides ledger rows. */
+  detail?: 'DETAILED' | 'GROUP_TOTALS';
   onOpenGroup?: (group: TrialBalanceGroup) => void;
   onOpenAccount?: (account: TrialBalanceAccount) => void;
-}> = ({ data, onOpenGroup, onOpenAccount }) => {
+}> = ({ data, detail = 'DETAILED', onOpenGroup, onOpenAccount }) => {
   const groups = data.groups || [];
   const rows = groups.length > 0
-    ? groups.flatMap((group) => toGroupRows(group, 0, onOpenGroup, onOpenAccount))
+    ? groups.flatMap((group) =>
+        toGroupRows(group, 0, detail === 'DETAILED', onOpenGroup, onOpenAccount)
+      )
     : data.accounts.map((account) => toRow(account, 0, onOpenAccount));
 
   return (
@@ -115,7 +122,10 @@ export const TrialBalanceView: React.FC<{
 
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-900/40">
         <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-          Debits must equal credits in every column. Group and sub-group rows are subtotals.
+          Debits must equal credits in every column.{' '}
+          {detail === 'GROUP_TOTALS'
+            ? 'Only group and sub-group subtotals are shown.'
+            : 'Group and sub-group rows are subtotals.'}
         </p>
         <StatusPill ok={data.balanced} okLabel="Debits = Credits" badLabel="Out of balance" />
       </div>

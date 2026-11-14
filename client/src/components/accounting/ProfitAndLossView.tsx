@@ -2,15 +2,34 @@ import React from 'react';
 import { StatCard } from '../common/StatCard';
 import type { ProfitAndLossResponse, StatementGroupBlock } from '../../services/api/accounting';
 import { SectionBody } from './StatementPrimitives';
+import { TAccountView } from './TAccountView';
+import { buildProfitAndLossTAccount, type StatementFormat } from './statementTFormat';
 import { money } from './statementFormat';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 
 export const ProfitAndLossView: React.FC<{
   data: ProfitAndLossResponse;
+  /** Normal or two-sided presentation; the figures are identical. */
+  format?: StatementFormat;
   /** Opens the posted journal lines behind a group subtotal. */
   onOpenGroup?: (group: StatementGroupBlock) => void;
-}> = ({ data, onOpenGroup }) => (
-  <div className="space-y-4">
+}> = ({ data, format = 'NORMAL', onOpenGroup }) => {
+  if (format === 'T_FORMAT') {
+    return (
+      <TAccountView
+        title="Profit & loss — T format"
+        subtitle={`Turnover in the period ${data.from ? formatDualDate(data.from) : 'from inception'} → ${formatDualDate(data.to)}, from posted journal lines.`}
+        report={buildProfitAndLossTAccount(data)}
+        debitLabel="Expenses"
+        creditLabel="Income"
+        note="Gross profit is brought down from the trading account; a net profit is carried down on the debit side, and a net loss is carried down on the credit side."
+        onOpenGroup={onOpenGroup}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-4">
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       <StatCard label="TOTAL INCOME" value={money(data.totalIncome)} tone="emerald" hint="Revenue and other income" />
       <StatCard label="COST OF SALES" value={money(data.costOfSales)} tone="rose" hint="Inventory consumed by sales" />
@@ -48,5 +67,6 @@ export const ProfitAndLossView: React.FC<{
         </div>
       </div>
     </div>
-  </div>
-);
+    </div>
+  );
+};

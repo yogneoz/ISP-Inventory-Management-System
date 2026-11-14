@@ -1298,6 +1298,17 @@ test('trial balance register renders the endpoint figures', async () => {
     assert.ok(text(tree.container).includes(formatNPR(11300)), 'the trial balance must show the endpoint total');
     assert.match(text(tree.container), /Control accounts/);
     assert.match(text(tree.container), /Reconciled/);
+
+    inAct(() => buttonByText(tree.container, 'Groups only').click());
+    assert.match(text(tree.container), /Only group and sub-group subtotals are shown/);
+    const trialTable = tree.container.querySelector('table');
+    assert.ok(trialTable, 'the trial balance table must render');
+    assert.doesNotMatch(
+      trialTable.textContent || '',
+      /Accounts Receivable/,
+      'group totals must hide the ledger account rows'
+    );
+    assert.match(trialTable.textContent || '', /CA · Current Assets/);
   } finally {
     tree.unmount();
     restoreApi();
@@ -1453,6 +1464,17 @@ test('profit and loss register renders the endpoint figures and drills into a gr
       await settleUntil(() => !text(tree.container).includes('Counter sales')),
       'closing the panel must return to the statement'
     );
+
+    inAct(() => buttonByText(tree.container, 'T-Format').click());
+    assert.match(text(tree.container), /Profit & loss — T format/);
+    assert.match(text(tree.container), /Gross profit b\/d/);
+    assert.match(text(tree.container), /Net profit c\/d/);
+    assert.match(text(tree.container), /Both sides agree/);
+
+    inAct(() => buttonByText(tree.container, 'Trading').click());
+    assert.match(text(tree.container), /Trading account — T format/);
+    assert.match(text(tree.container), /Gross profit c\/d/);
+    assert.match(text(tree.container), /Cost of sales/, 'the trading debit side must show cost of sales');
   } finally {
     tree.unmount();
     restoreApi();
@@ -1482,6 +1504,12 @@ test('balance sheet register renders the endpoint figures and drills into a grou
     assert.equal(window.location.pathname, '/finance/accounting/balance-sheet');
     assert.ok(text(tree.container).includes(formatNPR(50000)), 'total assets must match the endpoint');
     assert.ok(text(tree.container).includes(formatNPR(1300)), 'cash and bank must match the endpoint');
+
+    inAct(() => buttonByText(tree.container, 'T-Format').click());
+    assert.match(text(tree.container), /Balance sheet — T format/);
+    assert.match(text(tree.container), /Assets/);
+    assert.match(text(tree.container), /Liabilities & equity/);
+    assert.match(text(tree.container), /Both sides agree/);
 
     clickAria(tree.container, 'Open journal lines for CA Current Assets');
     assert.ok(

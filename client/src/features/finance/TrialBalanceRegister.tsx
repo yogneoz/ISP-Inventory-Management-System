@@ -17,6 +17,10 @@ import {
 import type { AccountingScreenProps } from '../../components/accounting/AccountingRegisterShell';
 import { TrialBalanceView } from '../../components/accounting/TrialBalanceView';
 import {
+  TrialBalanceDetailToggle,
+  type TrialBalanceDetail,
+} from '../../components/accounting/StatementViewControls';
+import {
   TrialBalanceDrilldown,
   type TrialBalanceDrilldownTarget,
 } from '../../components/accounting/TrialBalanceDrilldown';
@@ -29,6 +33,7 @@ export const TrialBalanceRegister: React.FC<AccountingScreenProps> = ({
   const scope = useAccountingScope(branches, currentUser);
   const [data, setData] = useState<TrialBalanceResponse | null>(null);
   const [drilldown, setDrilldown] = useState<TrialBalanceDrilldownTarget | null>(null);
+  const [detail, setDetail] = useState<TrialBalanceDetail>('DETAILED');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
@@ -58,12 +63,11 @@ export const TrialBalanceRegister: React.FC<AccountingScreenProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isVisible, scope.branchId, scope.asOfDate, activationKey, reloadKey]);
 
-  // A refreshed trial balance is a new set of figures; close a drill-down
-  // opened from the previous response rather than comparing it with a stale
-  // group subtotal.
+  // A refreshed trial balance or a new level of detail closes a drill-down
+  // opened from the previous presentation.
   useEffect(() => {
     setDrilldown(null);
-  }, [data]);
+  }, [data, detail]);
 
   return (
     <AccountingRegisterShell
@@ -75,6 +79,7 @@ export const TrialBalanceRegister: React.FC<AccountingScreenProps> = ({
       dateMode={dateMode}
       loading={loading}
       error={error}
+      headerActions={<TrialBalanceDetailToggle detail={detail} onChange={setDetail} />}
       onRefresh={() => setReloadKey((key) => key + 1)}
       onRetry={() => setReloadKey((key) => key + 1)}
     >
@@ -82,6 +87,7 @@ export const TrialBalanceRegister: React.FC<AccountingScreenProps> = ({
         <>
           <TrialBalanceView
             data={data}
+            detail={detail}
             onOpenGroup={(group) => setDrilldown({ kind: 'GROUP', group })}
             onOpenAccount={(account) => setDrilldown({ kind: 'ACCOUNT', account })}
           />

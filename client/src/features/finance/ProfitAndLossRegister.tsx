@@ -14,6 +14,13 @@ import {
 } from '../../components/accounting/AccountingRegisterShell';
 import type { AccountingScreenProps } from '../../components/accounting/AccountingRegisterShell';
 import { ProfitAndLossView } from '../../components/accounting/ProfitAndLossView';
+import { TradingAccountView } from '../../components/accounting/TradingAccountView';
+import {
+  ProfitAndLossViewToggle,
+  StatementFormatToggle,
+  type ProfitAndLossReportView,
+} from '../../components/accounting/StatementViewControls';
+import type { StatementFormat } from '../../components/accounting/statementTFormat';
 import { StatementGroupDrilldown } from '../../components/accounting/StatementGroupDrilldown';
 
 export const ProfitAndLossRegister: React.FC<AccountingScreenProps> = ({
@@ -24,6 +31,8 @@ export const ProfitAndLossRegister: React.FC<AccountingScreenProps> = ({
   const scope = useAccountingScope(branches, currentUser);
   const [data, setData] = useState<ProfitAndLossResponse | null>(null);
   const [openGroup, setOpenGroup] = useState<StatementGroupBlock | null>(null);
+  const [view, setView] = useState<ProfitAndLossReportView>('PROFIT_AND_LOSS');
+  const [format, setFormat] = useState<StatementFormat>('NORMAL');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
@@ -53,11 +62,11 @@ export const ProfitAndLossRegister: React.FC<AccountingScreenProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isVisible, scope.branchId, scope.asOfDate, activationKey, reloadKey]);
 
-  // A refreshed statement is a new set of figures; close a drill-down opened
-  // from the previous response rather than comparing it with a stale subtotal.
+  // A refreshed statement, a new report or a new presentation no longer shows
+  // the same group in the same context; close the old drill-down.
   useEffect(() => {
     setOpenGroup(null);
-  }, [data]);
+  }, [data, view, format]);
 
   return (
     <AccountingRegisterShell
@@ -69,12 +78,22 @@ export const ProfitAndLossRegister: React.FC<AccountingScreenProps> = ({
       dateMode={dateMode}
       loading={loading}
       error={error}
+      headerActions={
+        <>
+          <ProfitAndLossViewToggle view={view} onChange={setView} />
+          <StatementFormatToggle format={format} onChange={setFormat} />
+        </>
+      }
       onRefresh={() => setReloadKey((key) => key + 1)}
       onRetry={() => setReloadKey((key) => key + 1)}
     >
       {data ? (
         <>
-          <ProfitAndLossView data={data} onOpenGroup={setOpenGroup} />
+          {view === 'TRADING' ? (
+            <TradingAccountView data={data} format={format} onOpenGroup={setOpenGroup} />
+          ) : (
+            <ProfitAndLossView data={data} format={format} onOpenGroup={setOpenGroup} />
+          )}
           {openGroup && (
             <StatementGroupDrilldown
               group={openGroup}

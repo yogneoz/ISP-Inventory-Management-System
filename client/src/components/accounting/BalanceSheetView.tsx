@@ -1,15 +1,34 @@
 import React from 'react';
 import type { BalanceSheetResponse, StatementGroupBlock } from '../../services/api/accounting';
 import { SectionBody, StatusPill } from './StatementPrimitives';
+import { TAccountView } from './TAccountView';
+import { buildBalanceSheetTAccount, type StatementFormat } from './statementTFormat';
 import { money } from './statementFormat';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 
 export const BalanceSheetView: React.FC<{
   data: BalanceSheetResponse;
+  /** Normal or two-sided presentation; the figures are identical. */
+  format?: StatementFormat;
   /** Opens the posted journal lines behind a group subtotal. */
   onOpenGroup?: (group: StatementGroupBlock) => void;
-}> = ({ data, onOpenGroup }) => (
-  <div className="space-y-4">
+}> = ({ data, format = 'NORMAL', onOpenGroup }) => {
+  if (format === 'T_FORMAT') {
+    return (
+      <TAccountView
+        title="Balance sheet — T format"
+        subtitle={`Assets against liabilities and equity as of ${formatDualDate(data.asOf)}, from posted journal lines.`}
+        report={buildBalanceSheetTAccount(data)}
+        debitLabel="Assets"
+        creditLabel="Liabilities & equity"
+        note="Current earnings is the same equity line shown on the normal balance sheet; it is included once in the credit total."
+        onOpenGroup={onOpenGroup}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-4">
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-900/40">
       <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
         Assets must equal liabilities plus equity as of {formatDualDate(data.asOf)}.
@@ -80,5 +99,6 @@ export const BalanceSheetView: React.FC<{
         </div>
       </div>
     </div>
-  </div>
-);
+    </div>
+  );
+};
