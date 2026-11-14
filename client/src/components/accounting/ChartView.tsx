@@ -23,6 +23,7 @@ import type {
   ControlReconciliationResponse,
   PostingDefault,
 } from '../../services/api/accounting';
+import { normalizeChartHealth } from '../../utils/chartHealth';
 import { StatusPill } from './StatementPrimitives';
 import { money } from './statementFormat';
 import {
@@ -458,7 +459,11 @@ export const ChartView: React.FC<{
   const reconciliationByAccount = new Map(
     state.reconciliations.map((row) => [row.accountId, row])
   );
-  const health = state.health;
+  // A mounted screen can receive a payload from a server that predates the
+  // unlinked-subledger field during a rolling upgrade. Normalize at the render
+  // boundary as well as at the API boundary so no caller can crash the chart.
+  const health = state.health ? normalizeChartHealth(state.health) : null;
+  const unlinkedAvailable = health?.unlinkedSubledgerRows.available !== false;
   const healthIssues =
     (health?.missingPostingRoles.length ?? 0) +
     (health?.controlAccountsWithoutSubledger.length ?? 0) +
@@ -773,9 +778,9 @@ export const ChartView: React.FC<{
             />
             <StatCard
               label="UNLINKED SUBLEDGER ROWS"
-              value={String(health?.unlinkedSubledgerRows.count ?? 0)}
-              tone={(health?.unlinkedSubledgerRows.count ?? 0) > 0 ? 'amber' : 'emerald'}
-              hint="Posted party rows with no book"
+              value={unlinkedAvailable ? String(health?.unlinkedSubledgerRows.count ?? 0) : '—'}
+              tone={unlinkedAvailable && (health?.unlinkedSubledgerRows.count ?? 0) > 0 ? 'amber' : 'emerald'}
+              hint={unlinkedAvailable ? 'Posted party rows with no book' : 'Not reported by this server'}
             />
           </div>
 
@@ -817,7 +822,10 @@ export const ChartView: React.FC<{
                 ))}
                 {health && healthIssues === 0 && (
                   <p className="flex items-center gap-1.5 py-2 font-semibold text-emerald-700 dark:text-emerald-400">
-                    <CheckCircle2 className="h-4 w-4" /> Every posting role has an active ledger, every control has a book, and no retired ledger claims a role.
+                    <CheckCircle2 className="h-4 w-4" />{' '}
+                    {unlinkedAvailable
+                      ? 'Every posting role has an active ledger, every control has a book, no retired ledger claims a role, and every party row has a book.'
+                      : 'Every posting role has an active ledger, every control has a book, and no retired ledger claims a role. Unlinked-row health is not reported by this server.'}
                   </p>
                 )}
               </div>
@@ -841,7 +849,13 @@ export const ChartView: React.FC<{
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-medium dark:divide-slate-800/60">
-                    {!health || health.unlinkedSubledgerRows.rows.length === 0 ? (
+                    {!health || !unlinkedAvailable ? (
+                      <tr>
+                        <td colSpan={4} className="px-3 py-4 text-center text-slate-400">
+                          This server did not report unlinked subledger rows. The rest of the chart is available.
+                        </td>
+                      </tr>
+                    ) : health.unlinkedSubledgerRows.rows.length === 0 ? (
                       <tr>
                         <td colSpan={4} className="px-3 py-4 text-center text-slate-400">
                           Every posted subledger row is linked to a book.
@@ -860,7 +874,7 @@ export const ChartView: React.FC<{
                   </tbody>
                 </table>
               </div>
-              {health && health.unlinkedSubledgerRows.count > health.unlinkedSubledgerRows.rows.length && (
+              {health && unlinkedAvailable && health.unlinkedSubledgerRows.count > health.unlinkedSubledgerRows.rows.length && (
                 <p className="border-t border-slate-200 px-3 py-2 text-[11px] text-slate-500 dark:border-slate-800 dark:text-slate-400">
                   Showing {health.unlinkedSubledgerRows.rows.length} of {health.unlinkedSubledgerRows.count} rows.
                 </p>

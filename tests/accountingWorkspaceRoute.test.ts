@@ -1918,6 +1918,60 @@ test('chart maintenance creates, edits, retires and deletes through the mounted 
   }
 });
 
+test('chart register renders when the server omits unlinkedSubledgerRows', async () => {
+  const restored = mountWorkspace(accountant, 'accounting-chart');
+  let healthCalls = 0;
+  const legacyHealth = {
+    missingPostingRoles: [],
+    controlAccountsWithoutSubledger: [],
+    inactiveAccountsHoldingRole: [],
+    totals: {
+      accounts: accounts.length,
+      controlAccounts: accounts.filter((account) => account.isControl).length,
+      subledgers: 1,
+      activeSubledgers: 1,
+    },
+  };
+  const restoreApi = installApiStubs(
+    accountingStubs({
+      getBootstrapState: async () => bootstrapWithTab('accounting-chart'),
+      getMyPermissions: async () => ({
+        role: 'ACCOUNTANT',
+        operations: ['gl-view', 'gl-chart-manage'],
+        version: 1,
+      }),
+      getChartHealth: async () => {
+        healthCalls += 1;
+        return legacyHealth as any;
+      },
+    })
+  );
+  const tree = mountAppRouteTree();
+
+  try {
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes('Chart of accounts')),
+      'the chart register must load even when the health payload is older'
+    );
+    assert.ok(healthCalls > 0, 'the chart loader must read the chart-health endpoint');
+    inAct(() => buttonByText(tree.container, 'Reconciliation Health').click());
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes('Setup gaps')),
+      'the health tab must still render its setup-gap section'
+    );
+    assert.match(
+      text(tree.container),
+      /This server did not report unlinked subledger rows\. The rest of the chart is available\./
+    );
+    assert.match(text(tree.container), /Not reported by this server/);
+    assert.doesNotMatch(text(tree.container), /Cannot read properties of undefined/);
+  } finally {
+    tree.unmount();
+    restoreApi();
+    restored.restoreEventSource();
+  }
+});
+
 test('the chart screen is hidden without gl-chart-manage', async () => {
   const auditor = { ...accountant, id: 'u-auditor', role: 'AUDITOR' } as unknown as User;
   const restored = mountWorkspace(auditor, 'accounting-chart');

@@ -7,6 +7,7 @@
  * endpoints so it cannot quietly disagree with the ledger.
  */
 import { fetchJson } from './http';
+import { normalizeChartHealth } from '../../utils/chartHealth';
 import type { BillTerm, CostCenter, NarrationTemplate, NarrationTransactionType } from '../../types';
 
 export type AccountType = 'ASSET' | 'LIABILITY' | 'EQUITY' | 'INCOME' | 'EXPENSE';
@@ -2325,6 +2326,8 @@ export interface ChartHealth {
     postingRole: string;
   }>;
   unlinkedSubledgerRows: {
+    /** False when the server omits the field (an older chart-health payload). */
+    available?: boolean;
     count: number;
     amount: number;
     rows: Array<{
@@ -2397,7 +2400,7 @@ export async function generateAccountingSubledgers(mainAccountId: string): Promi
 }
 
 export async function getChartHealth(): Promise<ChartHealth> {
-  return fetchJson('/api/accounting/chart-health');
+  return normalizeChartHealth(await fetchJson<unknown>('/api/accounting/chart-health'));
 }
 
 export async function seedChartDefaults(): Promise<{

@@ -9,7 +9,8 @@ import { ListTree } from 'lucide-react';
 import { useActivationKey, useTabActive } from '../../components/common/KeepMounted';
 import { api } from '../../services/api';
 import { isOperationAllowed } from '../../utils/permissions';
-import type { ChartHealth, ControlReconciliationResponse } from '../../services/api/accounting';
+import type { ControlReconciliationResponse } from '../../services/api/accounting';
+import { normalizeChartHealth } from '../../utils/chartHealth';
 import {
   AccountingRegisterShell,
   RegisterEmpty,
@@ -81,7 +82,7 @@ export const ChartOfAccountsRegister: React.FC<AccountingScreenProps> = ({
           defaults: defaults.defaults || {},
           reconciliations,
           reconciliationErrors,
-          health: health as ChartHealth,
+          health: normalizeChartHealth(health),
         });
         setLoaded(true);
       } catch (err: any) {

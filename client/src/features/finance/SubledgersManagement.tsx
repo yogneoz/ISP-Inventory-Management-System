@@ -17,6 +17,8 @@ import {
   AlertTriangle,
   BookOpen,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Eye,
   Pencil,
   Plus,
@@ -29,6 +31,8 @@ import { ModalPanel } from '../../components/common/ModalPanel';
 import { useDialog } from '../../components/common/DialogProvider';
 import { useActivationKey } from '../../components/common/KeepMounted';
 import { api } from '../../services/api';
+import { normalizeChartHealth } from '../../utils/chartHealth';
+import { buildSubledgerGroups } from './subledgerGroups';
 import { getScopedBranches, hasGlobalBranchScope, isOperationAllowed } from '../../utils/permissions';
 import type { Branch, User } from '../../types';
 import type {
@@ -69,6 +73,12 @@ const codeFromName = (name: string): string =>
     .replace(/[^A-Z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '')
     .slice(0, 30);
+
+const numberOrNull = (value: unknown): number | null => {
+  if (value == null || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+};
 
 const errorClass =
   'rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-800 dark:border-rose-500/40 dark:bg-rose-950/30 dark:text-rose-300';
@@ -115,6 +125,9 @@ export const SubledgersManagement: React.FC<SubledgersManagementProps> = ({
   const [ledgerTo, setLedgerTo] = useState('');
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [ledgerError, setLedgerError] = useState('');
+  // Collapse state is deliberately independent of the loaded rows: Refresh
+  // replaces the payload but must not reopen groups the operator closed.
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
 
   const load = async () => {
     setLoading(true);
@@ -126,7 +139,7 @@ export const SubledgersManagement: React.FC<SubledgersManagementProps> = ({
       ]);
       setSubledgers(Array.isArray(books) ? books : []);
       setAccounts(Array.isArray(chartAccounts) ? chartAccounts : []);
-      setHealth(chartHealth);
+      setHealth(normalizeChartHealth(chartHealth));
       setLoadError('');
     } catch (err: any) {
       setLoadError(err?.message || 'The subledger register could not be read.');
@@ -177,6 +190,15 @@ export const SubledgersManagement: React.FC<SubledgersManagementProps> = ({
       .filter((book) => Math.abs(Number(book.difference)) >= 0.005)
       .map((book) => book.mainAccountId)
   ).size;
+  const bookGroups = useMemo(() => buildSubledgerGroups(subledgers), [subledgers]);
+  const toggleGroup = (key: string) => {
+    setCollapsedGroups((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
   const unassignedControls = health?.controlAccountsWithoutSubledger.length ?? 0;
   const missingRoles = health?.missingPostingRoles.length ?? 0;
   const retiredRoleAccounts = health?.inactiveAccountsHoldingRole.length ?? 0;
@@ -327,6 +349,65 @@ export const SubledgersManagement: React.FC<SubledgersManagementProps> = ({
     setLedgerFrom('');
     setLedgerTo('');
     void loadLedger(book, '', '');
+  };
+
+  const renderBookRow = (book: AccountingSubledger) => {
+    const difference = numberOrNull(book.difference);
+    const entryCount = numberOrNull(book.entryCount);
+    const bookBalance = numberOrNull(book.bookBalance);
+    const subledgerBalance = numberOrNull(book.subledgerBalance);
+    const glBalance = numberOrNull(book.glBalance);
+    const unlinkedCount = numberOrNull(book.unlinkedCount);
+    return (
+      <tr key={book.id} className="text-slate-800 dark:text-slate-300">
+        <td className="px-2.5 py-1.5 font-mono text-[11px] text-indigo-600 dark:text-indigo-400">{book.code}</td>
+        <td className="px-2.5 py-1.5 font-bold">{book.name}</td>
+        <td className="px-2.5 py-1.5 text-slate-500 dark:text-slate-400">{book.subledgerType || '—'}</td>
+        <td className="px-2.5 py-1.5 font-mono text-[10px] text-slate-500 dark:text-slate-400">
+          {book.partyId || 'Account-wide'}
+        </td>
+        <td className="px-2.5 py-1.5">
+          <span className="mr-1.5 font-mono text-[10px] text-slate-400">{book.accountCode || '—'}</span>
+          {book.accountName || '—'}
+        </td>
+        <td className="px-2.5 py-1.5 text-right font-mono">{entryCount === null ? '—' : entryCount}</td>
+        <td className="px-2.5 py-1.5 text-right font-mono">
+          {bookBalance === null ? '—' : money(bookBalance)} /{' '}
+          {subledgerBalance === null ? '—' : money(subledgerBalance)}
+          <span className="ml-1 text-[10px] text-slate-400">
+            GL {glBalance === null ? '—' : money(glBalance)}
+          </span>
+        </td>
+        <td className={`px-2.5 py-1.5 text-right font-mono ${difference !== null && Math.abs(difference) >= 0.005 ? 'text-rose-600 dark:text-rose-400' : ''}`}>
+          {difference === null ? '—' : money(difference)}
+        </td>
+        <td className={`px-2.5 py-1.5 text-right font-mono ${unlinkedCount !== null && unlinkedCount > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`}>
+          {unlinkedCount === null ? '—' : unlinkedCount}
+        </td>
+        <td className="px-2.5 py-1.5 text-center">
+          <button type="button" className={rowAction} aria-label={`View ledger for ${book.code}`} onClick={() => openLedger(book)}>
+            <Eye className="h-3 w-3" /> Ledger
+          </button>
+        </td>
+        <td className="px-2.5 py-1.5 text-center">
+          <span className={`text-[10px] font-bold ${book.isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}>
+            {book.isActive ? 'ACTIVE' : 'INACTIVE'}
+          </span>
+        </td>
+        {canManage && (
+          <td className="px-2.5 py-1.5 text-right">
+            <span className="inline-flex items-center gap-1">
+              <button type="button" className={rowAction} aria-label={`Edit subledger ${book.code}`} onClick={() => openEdit(book)}>
+                <Pencil className="h-3 w-3" /> Edit
+              </button>
+              <button type="button" className={rowAction} aria-label={`Delete subledger ${book.code}`} onClick={() => void remove(book)}>
+                <Trash2 className="h-3 w-3" /> Delete
+              </button>
+            </span>
+          </td>
+        )}
+      </tr>
+    );
   };
 
   return (
@@ -553,54 +634,41 @@ export const SubledgersManagement: React.FC<SubledgersManagementProps> = ({
                   </td>
                 </tr>
               ) : (
-                subledgers.map((book) => {
-                  const difference = Number(book.difference);
+                bookGroups.map((group) => {
+                  const collapsed = collapsedGroups.has(group.key);
                   return (
-                    <tr key={book.id} className="text-slate-800 dark:text-slate-300">
-                      <td className="px-2.5 py-1.5 font-mono text-[11px] text-indigo-600 dark:text-indigo-400">{book.code}</td>
-                      <td className="px-2.5 py-1.5 font-bold">{book.name}</td>
-                      <td className="px-2.5 py-1.5 text-slate-500 dark:text-slate-400">{book.subledgerType}</td>
-                      <td className="px-2.5 py-1.5 font-mono text-[10px] text-slate-500 dark:text-slate-400">
-                        {book.partyId || 'Account-wide'}
-                      </td>
-                      <td className="px-2.5 py-1.5">
-                        <span className="mr-1.5 font-mono text-[10px] text-slate-400">{book.accountCode}</span>
-                        {book.accountName}
-                      </td>
-                      <td className="px-2.5 py-1.5 text-right font-mono">{book.entryCount}</td>
-                      <td className="px-2.5 py-1.5 text-right font-mono">
-                        {money(book.bookBalance)} / {money(book.subledgerBalance)}
-                        <span className="ml-1 text-[10px] text-slate-400">GL {money(book.glBalance)}</span>
-                      </td>
-                      <td className={`px-2.5 py-1.5 text-right font-mono ${Math.abs(difference) >= 0.005 ? 'text-rose-600 dark:text-rose-400' : ''}`}>
-                        {money(difference)}
-                      </td>
-                      <td className={`px-2.5 py-1.5 text-right font-mono ${book.unlinkedCount > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`}>
-                        {book.unlinkedCount}
-                      </td>
-                      <td className="px-2.5 py-1.5 text-center">
-                        <button type="button" className={rowAction} aria-label={`View ledger for ${book.code}`} onClick={() => openLedger(book)}>
-                          <Eye className="h-3 w-3" /> Ledger
-                        </button>
-                      </td>
-                      <td className="px-2.5 py-1.5 text-center">
-                        <span className={`text-[10px] font-bold ${book.isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}>
-                          {book.isActive ? 'ACTIVE' : 'INACTIVE'}
-                        </span>
-                      </td>
-                      {canManage && (
-                        <td className="px-2.5 py-1.5 text-right">
-                          <span className="inline-flex items-center gap-1">
-                            <button type="button" className={rowAction} aria-label={`Edit subledger ${book.code}`} onClick={() => openEdit(book)}>
-                              <Pencil className="h-3 w-3" /> Edit
-                            </button>
-                            <button type="button" className={rowAction} aria-label={`Delete subledger ${book.code}`} onClick={() => void remove(book)}>
-                              <Trash2 className="h-3 w-3" /> Delete
-                            </button>
-                          </span>
+                    <React.Fragment key={group.key}>
+                      <tr className="border-t border-slate-200 bg-slate-50/90 dark:border-slate-800 dark:bg-slate-800/40">
+                        <td colSpan={canManage ? 12 : 11} className="px-2.5 py-1.5">
+                          <button
+                            type="button"
+                            aria-expanded={!collapsed}
+                            aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${group.label} subledgers`}
+                            onClick={() => toggleGroup(group.key)}
+                            className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-left"
+                          >
+                            {collapsed ? (
+                              <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
+                            ) : (
+                              <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+                            )}
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-200">
+                              {group.label}
+                            </span>
+                            <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-bold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                              {group.bookCount} book{group.bookCount === 1 ? '' : 's'}
+                            </span>
+                            <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                              {group.entryCount === null ? 'rows not reported' : `${group.entryCount} row${group.entryCount === 1 ? '' : 's'}`}
+                            </span>
+                            <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                              {group.bookBalance === null ? 'Book total not reported' : `Book ${money(group.bookBalance)}`}
+                            </span>
+                          </button>
                         </td>
-                      )}
-                    </tr>
+                      </tr>
+                      {!collapsed && group.books.map(renderBookRow)}
+                    </React.Fragment>
                   );
                 })
               )}
