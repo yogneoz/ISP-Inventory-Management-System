@@ -470,21 +470,42 @@ fresh-install counts are recorded in SESSION_NOTES.
 
 Priority: P1/P2 · Depends on: ACC-1, ACC-2
 
-- [ ] Add `Trade Receivables` and `Trade Payables` groups to the default chart;
-      keep AR/AP as control ledgers under them.
-- [ ] Split Chart & Defaults into clear tabs:
+- [x] Add `Trade Receivables` and `Trade Payables` groups to the default chart;
+      keep AR/AP as control ledgers under them. The seed creates groups `1110`
+      and `2110` under `1000`/`2000`, and migration
+      `0014_chart_governance` moves only the still-default AR/AP accounts under
+      them. A chart the operator has already reorganised is left untouched.
+- [x] Split Chart & Defaults into clear tabs:
       Ledgers · Groups & Sub-Groups · Control Accounts · Posting Defaults ·
-      Reconciliation Health.
-- [ ] Keep arbitrary group depth; do not introduce a second sub-group table.
-- [ ] Add a chart health report:
+      Reconciliation Health. Each tab is a mounted section of the same register,
+      not a second chart read.
+- [x] Keep arbitrary group depth; do not introduce a second sub-group table.
+      The existing `gl_account_groups.parent_id` hierarchy is used by both the
+      seeded trade groups and the group tab; there is no sub-group table.
+- [x] Add a chart health report:
       control accounts with no book, posting roles with no active ledger,
-      retired ledgers still claiming roles, unlinked subledger rows.
-- [ ] Add party statements and control tie-outs to the reporting surface.
-- [ ] Add inventory/GL reconciliation and PSP reconciliation to month-end close.
+      retired ledgers still claiming roles, unlinked subledger rows. The last
+      category reports both count/amount and a bounded row sample.
+- [x] Add party statements and control tie-outs to the reporting surface. Each
+      AR/AP aging row opens that party's posted statement in place, including
+      the party, GL-control, all-books and difference figures behind the tie-out.
+- [x] Add inventory/GL reconciliation and PSP reconciliation to month-end close.
+      `INVENTORY_RECONCILE` remains required from ACC-4; migration
+      `0015_reconciliation_close_tasks` adds required `PSP_RECONCILE` for existing
+      periods and every new period copied from the template.
 
 Acceptance: the chart shows the business structure without per-customer GL
 accounts; every control account has a book and a visible tie-out; groups and
 sub-groups remain one hierarchy.
+
+Evidence: `tests/acc6ChartGovernance.api.test.ts` (3/3, real HTTP + throwaway
+PostgreSQL) proves the seeded group hierarchy and AR/AP placement, a posted
+subledger row that lost its book link appearing in chart health with its amount
+and sample row, and both reconciliation tasks on a real period checklist.
+`tests/acc6ChartGovernance.ui.test.ts` (2/2, mounted) drives all five chart tabs
+and opens a party statement from an aging row with its control tie-out.
+`tests/accountingWorkspaceRoute.test.ts` keeps the full chart maintenance flow
+(create/edit/delete group and account) green through the new tabs.
 
 ### ACC-7 — Migration, demo data and rollout
 
@@ -605,4 +626,13 @@ Before a slice is marked done:
   workflow for adjustments, payments and close is intentionally not claimed:
   the current model separates those duties with distinct permission grants, and
   ACC-5 verifies those gates rather than inventing an approval field.
-- Next action: start ACC-6 (chart governance and reporting).
+- `[x]` ACC-6 implementation: migrations `0014_chart_governance` and
+      `0015_reconciliation_close_tasks`, trade-receivable/payable groups, the
+      five-tab chart register, chart health including unlinked rows, party
+      statements from aging, and PSP reconciliation at close.
+- `[x]` ACC-6 verified against PostgreSQL: `tests/acc6ChartGovernance.api.test.ts`
+      (3/3), `tests/acc6ChartGovernance.ui.test.ts` (2/2), the full mounted
+      accounting workspace (24/24) and the recurring-close suite. Full suite and
+      fresh-install evidence are in SESSION_NOTES.
+- No ACC-6 acceptance criterion remains open.
+- Next action: start ACC-7 (migration, demo data and rollout).
