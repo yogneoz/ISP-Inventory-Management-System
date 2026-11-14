@@ -848,6 +848,224 @@ describe('financial statements API (real HTTP + PostgreSQL)', { skip: skipNoDb }
     assert.equal(res.json.assets.sections[0].label, 'Current assets');
   });
 
+  test('the balance-sheet movement view splits opening, period and closing and ties each column', async () => {
+    const res = await get(
+      `/api/accounting/statements/balance-sheet-movement?from=2026-07-24&to=${TO}&branchId=${BR}`,
+      tokens.super
+    );
+    assert.equal(res.status, 200, JSON.stringify(res.json));
+    assert.equal(res.json.statement, 'BALANCE_SHEET_MOVEMENT');
+    assert.equal(res.json.branchId, BR);
+    assert.equal(res.json.from, '2026-07-24');
+    assert.equal(res.json.asOf, TO);
+    assert.equal(res.json.balanced, true);
+
+    // Opening is before 24 July: AR 1130, cash −500 and due-from 500 make
+    // assets 1130; due-to 500 plus current earnings 630 make the other side.
+    assert.deepEqual(res.json.totalAssets, {
+      opening: 1130, period: 159, closing: 1289, change: 159, changePercent: (159 / 1130) * 100,
+    });
+    assert.deepEqual(res.json.totalLiabilities, {
+      opening: 500, period: 239, closing: 739, change: 239, changePercent: (239 / 500) * 100,
+    });
+    assert.deepEqual(res.json.equity.currentEarnings, {
+      opening: 630, period: -80, closing: 550, change: -80, changePercent: (-80 / 630) * 100,
+    });
+    assert.deepEqual(res.json.totalEquity, res.json.equity.currentEarnings);
+    assert.deepEqual(res.json.difference, {
+      opening: 0, period: 0, closing: 0, change: 0, changePercent: null,
+    });
+    assert.deepEqual(res.json.totalLiabilitiesAndEquity, {
+      opening: 1130, period: 159, closing: 1289, change: 159, changePercent: (159 / 1130) * 100,
+    });
+
+    const assets = res.json.assets.sections.find((section: any) => section.statementGroup === 'CURRENT_ASSET');
+    assert.ok(assets, 'the movement view keeps the statement sections');
+    assert.equal(assets.opening, 1130);
+    assert.equal(assets.period, 159);
+    assert.equal(assets.closing, 1289);
+
+    const expenseGroup = assets.groups.find((group: any) => group.groupCode === 'AST-CA');
+    assert.ok(expenseGroup, 'the balance-sheet account group is present');
+    const expense = expenseGroup.accounts.find((account: any) => account.code === 'AST-6100');
+    assert.equal(expense, undefined, 'an expense account is not an asset line');
+    const supplier = res.json.liabilities.sections
+      .flatMap((section: any) => section.groups)
+      .flatMap((group: any) => group.accounts)
+      .find((account: any) => account.code === 'AST-2000');
+    assert.deepEqual(
+      { opening: supplier.opening, period: supplier.period, closing: supplier.closing, change: supplier.change },
+      { opening: 0, period: 200, closing: 200, change: 200 }
+    );
+    assert.equal(supplier.changePercent, null, 'zero opening has no percentage base');
+  });
+
+  test('the branch-consolidated P&L matrix shows one column per branch and a summed total', async () => {
+    const res = await get(
+      `/api/accounting/statements/branch-profit-and-loss?from=2026-07-01&to=${TO}`,
+      tokens.super
+    );
+    assert.equal(res.status, 200, JSON.stringify(res.json));
+    assert.equal(res.json.statement, 'BRANCH_PROFIT_AND_LOSS');
+    assert.equal(res.json.branchId, 'ALL');
+    assert.equal(res.json.from, '2026-07-01');
+    assert.equal(res.json.to, TO);
+    assert.ok(res.json.branches.some((branch: any) => branch.branchId === BR));
+    assert.ok(res.json.branches.some((branch: any) => branch.branchId === OTHER));
+
+    const row = (key: string) => res.json.rows.find((item: any) => item.key === key);
+    const revenue = row('section:REVENUE');
+    assert.ok(revenue, 'the matrix must keep the P&L statement sections');
+    assert.equal(revenue.amounts[BR], 1430);
+    assert.equal(revenue.amounts[OTHER], 50);
+    assert.ok(revenue.total >= 1480, 'the total column rolls the branch columns up');
+
+    assert.equal(row('summary:GROSS_PROFIT').amounts[BR], 1250);
+    assert.equal(row('summary:GROSS_PROFIT').amounts[OTHER], 50);
+    assert.equal(row('summary:NET_PROFIT').amounts[BR], 550);
+    assert.equal(row('summary:NET_PROFIT').amounts[OTHER], 50);
+
+    for (const item of res.json.rows) {
+      const columnSum = res.json.branches.reduce(
+        (sum: number, branch: any) => sum + Number(item.amounts[branch.branchId] || 0),
+        0
+      );
+      assert.equal(item.total, columnSum, `row ${item.key} total must equal its branch columns`);
+    }
+
+    const ownScope = await get(
+      `/api/accounting/statements/branch-profit-and-loss?from=2026-07-01&to=${TO}`,
+      tokens.accountant
+    );
+    assert.equal(ownScope.status, 200, JSON.stringify(ownScope.json));
+    assert.deepEqual(
+      ownScope.json.branches.map((branch: any) => branch.branchId),
+      [BR],
+      'a branch account sees only its own branch column'
+    );
+    assert.equal(ownScope.json.rows.find((item: any) => item.key === 'summary:NET_PROFIT').total, 550);
+
+    assert.equal(
+      (await get(
+        `/api/accounting/statements/branch-profit-and-loss?from=2026-07-01&to=${TO}`,
+        tokens.noView
+      )).status,
+      403
+    );
+    assert.equal(
+      (await get(
+        `/api/accounting/statements/branch-profit-and-loss?from=2026-08-01&to=2026-07-01`,
+        tokens.super
+      )).status,
+      400,
+      'a reversed period must be refused'
+    );
+  });
+
+  test('the branch-consolidated balance sheet separates closing columns from period movement', async () => {
+    const closing = await get(
+      `/api/accounting/statements/branch-balance-sheet?asOf=${TO}`,
+      tokens.super
+    );
+    assert.equal(closing.status, 200, JSON.stringify(closing.json));
+    assert.equal(closing.json.statement, 'BRANCH_BALANCE_SHEET');
+    assert.equal(closing.json.view, 'CLOSING');
+    assert.equal(closing.json.branchId, 'ALL');
+    assert.equal(closing.json.from, null);
+    assert.equal(closing.json.asOf, TO);
+    assert.ok(closing.json.branches.some((branch: any) => branch.branchId === BR));
+    assert.ok(closing.json.branches.some((branch: any) => branch.branchId === OTHER));
+
+    const closingRow = (key: string) => closing.json.rows.find((item: any) => item.key === key);
+    assert.equal(closingRow('total:assets').amounts[BR], 1289);
+    assert.equal(closingRow('total:liabilities').amounts[BR], 739);
+    assert.equal(closingRow('equity:current-earnings').amounts[BR], 550);
+    assert.equal(closingRow('total:equity').amounts[BR], 550);
+    assert.equal(closingRow('total:liabilities-and-equity').amounts[BR], 1289);
+    assert.equal(closingRow('check:difference').amounts[BR], 0);
+    assert.equal(
+      closing.json.rows.find((item: any) => item.key === 'asset:section:CURRENT_ASSET').amounts[BR],
+      1289
+    );
+
+    for (const item of closing.json.rows) {
+      const columnSum = closing.json.branches.reduce(
+        (sum: number, branch: any) => sum + Number(item.amounts[branch.branchId] || 0),
+        0
+      );
+      assert.equal(item.total, columnSum, `row ${item.key} total must equal its branch columns`);
+    }
+
+    const ownScope = await get(
+      `/api/accounting/statements/branch-balance-sheet?asOf=${TO}`,
+      tokens.accountant
+    );
+    assert.equal(ownScope.status, 200, JSON.stringify(ownScope.json));
+    assert.deepEqual(
+      ownScope.json.branches.map((branch: any) => branch.branchId),
+      [BR],
+      'a branch account sees only its own balance-sheet column'
+    );
+    assert.equal(
+      ownScope.json.rows.find((item: any) => item.key === 'total:assets').total,
+      1289
+    );
+
+    assert.equal(
+      (await get(
+        `/api/accounting/statements/branch-balance-sheet?asOf=${TO}`,
+        tokens.noView
+      )).status,
+      403
+    );
+    assert.equal(
+      (await get(
+        `/api/accounting/statements/branch-balance-sheet?asOf=${TO}&view=BAD`,
+        tokens.super
+      )).status,
+      400
+    );
+    assert.equal(
+      (await get(
+        `/api/accounting/statements/branch-balance-sheet?asOf=${TO}&from=2026-07-24&view=CLOSING`,
+        tokens.super
+      )).status,
+      400,
+      'the closing matrix keeps the point-in-time contract and refuses a period start'
+    );
+
+    const movement = await get(
+      `/api/accounting/statements/branch-balance-sheet?from=2026-07-24&to=${TO}&view=MOVEMENT`,
+      tokens.super
+    );
+    assert.equal(movement.status, 200, JSON.stringify(movement.json));
+    assert.equal(movement.json.statement, 'BRANCH_BALANCE_SHEET');
+    assert.equal(movement.json.view, 'MOVEMENT');
+    assert.equal(movement.json.from, '2026-07-24');
+    assert.equal(movement.json.asOf, TO);
+
+    const movementRow = (key: string) => movement.json.rows.find((item: any) => item.key === key);
+    assert.equal(movementRow('total:assets').amounts[BR], 159);
+    assert.equal(movementRow('total:liabilities').amounts[BR], 239);
+    assert.equal(movementRow('equity:current-earnings').amounts[BR], -80);
+    assert.equal(movementRow('total:equity').amounts[BR], -80);
+    assert.equal(movementRow('total:liabilities-and-equity').amounts[BR], 159);
+    assert.equal(movementRow('check:difference').amounts[BR], 0);
+    assert.equal(
+      movementRow('asset:section:CURRENT_ASSET').amounts[BR],
+      159,
+      'movement columns use the posted period change, not the closing balance'
+    );
+
+    for (const item of movement.json.rows) {
+      const columnSum = movement.json.branches.reduce(
+        (sum: number, branch: any) => sum + Number(item.amounts[branch.branchId] || 0),
+        0
+      );
+      assert.equal(item.total, columnSum, `row ${item.key} total must equal its branch columns`);
+    }
+  });
+
   test('the company level rolls the branches up and one branch still balances alone', async () => {
     const company = await get(
       `/api/accounting/statements/balance-sheet?asOf=${TO}&branchId=ALL`,

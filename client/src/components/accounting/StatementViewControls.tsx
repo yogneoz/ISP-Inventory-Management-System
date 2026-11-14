@@ -59,6 +59,79 @@ export const StatementFormatToggle: React.FC<{
 
 export type ProfitAndLossReportView = 'PROFIT_AND_LOSS' | 'TRADING';
 
+export type BranchConsolidatedReportView =
+  | 'PROFIT_AND_LOSS'
+  | 'TRADING'
+  | 'BALANCE_SHEET';
+
+/** Which statement the branch-consolidated register is showing. */
+export const BranchConsolidatedViewToggle: React.FC<{
+  view: BranchConsolidatedReportView;
+  onChange: (view: BranchConsolidatedReportView) => void;
+}> = ({ view, onChange }) => (
+  <div
+    role="group"
+    aria-label="Branch consolidated statement"
+    className="inline-flex rounded-xl border border-slate-300 bg-white p-0.5 dark:border-slate-700 dark:bg-slate-900"
+  >
+    <button
+      type="button"
+      aria-pressed={view === 'PROFIT_AND_LOSS'}
+      className={buttonClass(view === 'PROFIT_AND_LOSS')}
+      onClick={() => onChange('PROFIT_AND_LOSS')}
+    >
+      P&amp;L
+    </button>
+    <button
+      type="button"
+      aria-pressed={view === 'TRADING'}
+      className={buttonClass(view === 'TRADING')}
+      onClick={() => onChange('TRADING')}
+    >
+      Trading
+    </button>
+    <button
+      type="button"
+      aria-pressed={view === 'BALANCE_SHEET'}
+      className={buttonClass(view === 'BALANCE_SHEET')}
+      onClick={() => onChange('BALANCE_SHEET')}
+    >
+      Balance Sheet
+    </button>
+  </div>
+);
+
+/** Closing only (statutory) vs opening / period / closing movement view. */
+export type BalanceSheetReportView = 'CLOSING' | 'MOVEMENT';
+
+export const BalanceSheetViewToggle: React.FC<{
+  view: BalanceSheetReportView;
+  onChange: (view: BalanceSheetReportView) => void;
+}> = ({ view, onChange }) => (
+  <div
+    role="group"
+    aria-label="Balance sheet view"
+    className="inline-flex rounded-xl border border-slate-300 bg-white p-0.5 dark:border-slate-700 dark:bg-slate-900"
+  >
+    <button
+      type="button"
+      aria-pressed={view === 'CLOSING'}
+      className={buttonClass(view === 'CLOSING')}
+      onClick={() => onChange('CLOSING')}
+    >
+      Closing
+    </button>
+    <button
+      type="button"
+      aria-pressed={view === 'MOVEMENT'}
+      className={buttonClass(view === 'MOVEMENT')}
+      onClick={() => onChange('MOVEMENT')}
+    >
+      Movement
+    </button>
+  </div>
+);
+
 export type TrialBalanceDetail = 'DETAILED' | 'GROUP_TOTALS';
 
 /** Detailed ledgers vs group/sub-group subtotals for the trial balance. */

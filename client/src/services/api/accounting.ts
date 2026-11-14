@@ -98,6 +98,8 @@ export interface StatementQuery {
   kind?: 'CASH' | 'BANK' | 'WALLET' | 'CASH_BANK';
   /** Narrow a cash/bank/wallet book to one custody account. */
   accountId?: string;
+  /** Closing or movement presentation for the branch balance-sheet matrix. */
+  view?: 'CLOSING' | 'MOVEMENT';
 }
 
 export interface StatementAccountAmount {
@@ -251,6 +253,46 @@ export interface ProfitAndLossResponse {
   netProfit: number;
 }
 
+export interface BranchProfitAndLossMatrixBranch {
+  branchId: string;
+  code: string;
+  name: string;
+}
+
+export type BranchProfitAndLossMatrixRowKind = 'SECTION' | 'GROUP' | 'ACCOUNT' | 'SUMMARY';
+
+export interface BranchProfitAndLossMatrixRow {
+  key: string;
+  kind: BranchProfitAndLossMatrixRowKind;
+  statementGroup: string | null;
+  code: string | null;
+  label: string;
+  level: number;
+  amounts: Record<string, number>;
+  total: number;
+}
+
+export interface BranchProfitAndLossMatrixResponse {
+  statement: 'BRANCH_PROFIT_AND_LOSS';
+  branchId: string | null;
+  from: string | null;
+  to: string;
+  branches: BranchProfitAndLossMatrixBranch[];
+  rows: BranchProfitAndLossMatrixRow[];
+}
+
+export type BranchBalanceSheetView = 'CLOSING' | 'MOVEMENT';
+
+export interface BranchBalanceSheetMatrixResponse {
+  statement: 'BRANCH_BALANCE_SHEET';
+  branchId: string | null;
+  from: string | null;
+  asOf: string;
+  view: BranchBalanceSheetView;
+  branches: BranchProfitAndLossMatrixBranch[];
+  rows: BranchProfitAndLossMatrixRow[];
+}
+
 export interface BalanceSheetResponse {
   statement: 'BALANCE_SHEET';
   branchId: string | null;
@@ -272,6 +314,68 @@ export interface BalanceSheetResponse {
   difference: number;
   balanced: boolean;
   interBranch: { dueFromHeadOffice: number; dueToHeadOffice: number };
+}
+
+/** One opening/period/closing line on the balance-sheet movement view. */
+export interface BalanceSheetMovementAmount {
+  opening: number;
+  period: number;
+  closing: number;
+  /** Closing − opening. */
+  change: number;
+  /** Null when opening is zero. */
+  changePercent: number | null;
+}
+
+export interface BalanceSheetMovementAccount extends BalanceSheetMovementAmount {
+  accountId: string;
+  code: string;
+  name: string;
+  groupCode: string;
+  groupName: string;
+  accountType: AccountType;
+}
+
+export interface BalanceSheetMovementGroup extends BalanceSheetMovementAmount {
+  groupId: string;
+  parentGroupId: string | null;
+  groupCode: string;
+  groupName: string;
+  sortOrder: number;
+  accounts: BalanceSheetMovementAccount[];
+  children: BalanceSheetMovementGroup[];
+}
+
+export interface BalanceSheetMovementSection extends BalanceSheetMovementAmount {
+  statementGroup: string;
+  label: string;
+  groups: BalanceSheetMovementGroup[];
+}
+
+export interface BalanceSheetMovementResponse {
+  statement: 'BALANCE_SHEET_MOVEMENT';
+  branchId: string | null;
+  from: string;
+  asOf: string;
+  assets: { sections: BalanceSheetMovementSection[]; total: BalanceSheetMovementAmount };
+  liabilities: { sections: BalanceSheetMovementSection[]; total: BalanceSheetMovementAmount };
+  equity: {
+    sections: BalanceSheetMovementSection[];
+    postedTotal: BalanceSheetMovementAmount;
+    currentEarnings: BalanceSheetMovementAmount;
+    total: BalanceSheetMovementAmount;
+  };
+  totalAssets: BalanceSheetMovementAmount;
+  cashAndBank: BalanceSheetMovementAmount;
+  totalLiabilities: BalanceSheetMovementAmount;
+  totalEquity: BalanceSheetMovementAmount;
+  totalLiabilitiesAndEquity: BalanceSheetMovementAmount;
+  difference: BalanceSheetMovementAmount;
+  balanced: boolean;
+  interBranch: {
+    dueFromHeadOffice: BalanceSheetMovementAmount;
+    dueToHeadOffice: BalanceSheetMovementAmount;
+  };
 }
 
 export type CashFlowSectionKey = 'OPERATING' | 'INVESTING' | 'FINANCING';
@@ -1068,6 +1172,7 @@ function statementQuery(query: StatementQuery = {}): string {
   if (query.from) params.set('from', query.from);
   if (query.kind) params.set('kind', query.kind);
   if (query.accountId) params.set('accountId', query.accountId);
+  if (query.view) params.set('view', query.view);
   const encoded = params.toString();
   return encoded ? `?${encoded}` : '';
 }
@@ -1907,8 +2012,26 @@ export async function getProfitAndLoss(query: StatementQuery = {}): Promise<Prof
   return fetchJson(`/api/accounting/statements/profit-and-loss${statementQuery(query)}`);
 }
 
+export async function getBranchProfitAndLossMatrix(
+  query: StatementQuery = {}
+): Promise<BranchProfitAndLossMatrixResponse> {
+  return fetchJson(`/api/accounting/statements/branch-profit-and-loss${statementQuery(query)}`);
+}
+
+export async function getBranchBalanceSheetMatrix(
+  query: StatementQuery = {}
+): Promise<BranchBalanceSheetMatrixResponse> {
+  return fetchJson(`/api/accounting/statements/branch-balance-sheet${statementQuery(query)}`);
+}
+
 export async function getBalanceSheet(query: StatementQuery = {}): Promise<BalanceSheetResponse> {
   return fetchJson(`/api/accounting/statements/balance-sheet${statementQuery({ branchId: query.branchId, to: query.to })}`);
+}
+
+export async function getBalanceSheetMovement(
+  query: StatementQuery = {}
+): Promise<BalanceSheetMovementResponse> {
+  return fetchJson(`/api/accounting/statements/balance-sheet-movement${statementQuery(query)}`);
 }
 
 export async function getCashFlow(query: StatementQuery = {}): Promise<CashFlowResponse> {

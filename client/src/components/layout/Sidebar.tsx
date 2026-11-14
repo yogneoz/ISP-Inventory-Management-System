@@ -139,6 +139,7 @@ export type NavTab =
   | 'accounting'
   | 'accounting-bs-summary'
   | 'accounting-profit-loss'
+  | 'accounting-branch-consolidated'
   | 'accounting-balance-sheet'
   | 'accounting-cash-flow'
   | 'accounting-cash-book'
@@ -249,6 +250,7 @@ export const NAV_TABS: NavTab[] = [
   'accounting',
   'accounting-bs-summary',
   'accounting-profit-loss',
+  'accounting-branch-consolidated',
   'accounting-balance-sheet',
   'accounting-cash-flow',
   'accounting-cash-book',
@@ -765,6 +767,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       { id: 'accounting' as NavTab, label: 'Trial Balance', icon: Scale, section: 'Statements & ledgers' },
       { id: 'accounting-bs-summary' as NavTab, label: 'BS Ledger Summary', icon: CalendarDays, section: 'Statements & ledgers' },
       { id: 'accounting-profit-loss' as NavTab, label: 'Profit & Loss', icon: TrendingUp, section: 'Statements & ledgers' },
+      { id: 'accounting-branch-consolidated' as NavTab, label: 'Branch Consolidated', icon: Grid, section: 'Statements & ledgers' },
       { id: 'accounting-balance-sheet' as NavTab, label: 'Balance Sheet', icon: Landmark, section: 'Statements & ledgers' },
       { id: 'accounting-cash-flow' as NavTab, label: 'Cash Flow', icon: TrendingUp, section: 'Statements & ledgers' },
       { id: 'accounting-cash-book' as NavTab, label: 'Cash & Bank Book', icon: Wallet, section: 'Statements & ledgers' },

@@ -13,6 +13,9 @@ import {
   get_aging,
   get_bsLedgerSummary,
   get_balanceSheet,
+  get_balanceSheetMovement,
+  get_branchBalanceSheet,
+  get_branchProfitAndLoss,
   get_cashFlow,
   get_cashFlowForecast,
   get_cashFlowForecastExport,
@@ -386,6 +389,17 @@ export function registerAccountingRoutes(app: Express) {
   });
   app.get('/api/accounting/statements/balance-sheet', requirePermission('gl-view'), async (req, res, next) => {
     get_balanceSheet(req as any, res as any).catch(next);
+  });
+  // Opening/period/closing movement view. It is intentionally separate from
+  // the point-in-time statement above, which must keep rejecting `from`.
+  app.get('/api/accounting/statements/balance-sheet-movement', requirePermission('gl-view'), async (req, res, next) => {
+    get_balanceSheetMovement(req as any, res as any).catch(next);
+  });
+  app.get('/api/accounting/statements/branch-profit-and-loss', requirePermission('gl-view'), async (req, res, next) => {
+    get_branchProfitAndLoss(req as any, res as any).catch(next);
+  });
+  app.get('/api/accounting/statements/branch-balance-sheet', requirePermission('gl-view'), async (req, res, next) => {
+    get_branchBalanceSheet(req as any, res as any).catch(next);
   });
   app.get('/api/accounting/statements/bs-summary', requirePermission('gl-view'), async (req, res, next) => {
     get_bsLedgerSummary(req as any, res as any).catch(next);

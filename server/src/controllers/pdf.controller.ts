@@ -69,7 +69,7 @@ function canReadRecordBranch(req: any, res: Response, branchId: string): boolean
   return true;
 }
 
-type PrintableStatementMode = StatementMode;
+type PrintableStatementMode = Exclude<StatementMode, 'BALANCE_SHEET_MOVEMENT'>;
 
 function sendPdf(res: Response, buffer: Buffer, filename: string): void {
   const safe = filename.replace(/[^A-Za-z0-9._-]+/g, '-');

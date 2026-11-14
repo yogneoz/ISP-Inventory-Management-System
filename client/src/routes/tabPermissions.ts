@@ -78,6 +78,7 @@ export const TAB_PERMISSIONS: Record<string, string | string[]> = {
   accounting: 'gl-view',
   'accounting-bs-summary': 'gl-view',
   'accounting-profit-loss': 'gl-view',
+  'accounting-branch-consolidated': 'gl-view',
   'accounting-balance-sheet': 'gl-view',
   'accounting-cash-flow': 'gl-view',
   'accounting-cash-book': 'gl-view',

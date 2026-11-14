@@ -159,6 +159,9 @@ const BsLedgerSummaryRegister = React.lazy(() =>
 const ProfitAndLossRegister = React.lazy(() =>
   import('./features/finance/ProfitAndLossRegister').then((m) => ({ default: m.ProfitAndLossRegister }))
 );
+const BranchConsolidatedRegister = React.lazy(() =>
+  import('./features/finance/BranchConsolidatedRegister').then((m) => ({ default: m.BranchConsolidatedRegister }))
+);
 const BalanceSheetRegister = React.lazy(() =>
   import('./features/finance/BalanceSheetRegister').then((m) => ({ default: m.BalanceSheetRegister }))
 );
@@ -3416,6 +3419,11 @@ export default function App() {
     screenRoute('accounting-profit-loss', (
       <React.Suspense fallback={<TabLoadingFallback />}>
         <ProfitAndLossRegister branches={branches} dateMode={dateMode} currentUser={currentUser} fiscalYearStartAD={selectedFiscalYear?.startDateAD} />
+      </React.Suspense>
+    )),
+    screenRoute('accounting-branch-consolidated', (
+      <React.Suspense fallback={<TabLoadingFallback />}>
+        <BranchConsolidatedRegister branches={branches} dateMode={dateMode} currentUser={currentUser} fiscalYearStartAD={selectedFiscalYear?.startDateAD} />
       </React.Suspense>
     )),
     screenRoute('accounting-balance-sheet', (

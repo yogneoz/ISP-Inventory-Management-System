@@ -746,6 +746,12 @@ ORDER BY account_code ASC, branch_id ASC`;
 
 export const BRANCH_EXISTS_SQL = `SELECT id FROM branches WHERE id = $1`;
 
+/** Active branch options for the consolidated statement column set. */
+export const STATEMENT_BRANCHES_SQL = `SELECT id, code, name
+FROM branches
+WHERE active IS NOT FALSE
+ORDER BY code ASC, name ASC`;
+
 /**
  * Create the month's journal and line partitions before the header insert.
  * The default partition catches anything that bypasses postJournal, but an

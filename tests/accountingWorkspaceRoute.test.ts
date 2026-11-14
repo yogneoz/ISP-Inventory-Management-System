@@ -15,7 +15,10 @@ import type {
   AccountingAccount,
   AccountingGroup,
   AgingResponse,
+  BalanceSheetMovementResponse,
   BalanceSheetResponse,
+  BranchBalanceSheetMatrixResponse,
+  BranchProfitAndLossMatrixResponse,
   BankReconciliationResponse,
   CashBookResponse,
   CashFlowForecastBucket,
@@ -336,6 +339,102 @@ const profitAndLoss: ProfitAndLossResponse = {
   netProfit: 5000,
 };
 
+const branchProfitAndLossMatrix: BranchProfitAndLossMatrixResponse = {
+  statement: 'BRANCH_PROFIT_AND_LOSS',
+  branchId: 'ALL',
+  from: '2026-07-17',
+  to: '2026-11-02',
+  branches: [
+    { branchId: 'WH001', code: 'WH001', name: 'Warehouse' },
+    { branchId: 'BRH01', code: 'BRH01', name: 'Branch 2' },
+  ],
+  rows: [
+    {
+      key: 'section:REVENUE', kind: 'SECTION', statementGroup: 'REVENUE', code: null,
+      label: 'Revenue', level: 0, amounts: { WH001: 10000, BRH01: 5000 }, total: 15000,
+    },
+    {
+      key: 'group:REVENUE:REV', kind: 'GROUP', statementGroup: 'REVENUE', code: 'REV',
+      label: 'Trading Revenue', level: 1, amounts: { WH001: 10000, BRH01: 5000 }, total: 15000,
+    },
+    {
+      key: 'account:REVENUE:REV:4000', kind: 'ACCOUNT', statementGroup: 'REVENUE', code: '4000',
+      label: 'Sales Revenue', level: 2, amounts: { WH001: 10000, BRH01: 5000 }, total: 15000,
+    },
+    {
+      key: 'section:COST_OF_SALES', kind: 'SECTION', statementGroup: 'COST_OF_SALES', code: null,
+      label: 'Cost of sales', level: 0, amounts: { WH001: 4000, BRH01: 2000 }, total: 6000,
+    },
+    {
+      key: 'section:OPERATING_EXPENSE', kind: 'SECTION', statementGroup: 'OPERATING_EXPENSE', code: null,
+      label: 'Operating expenses', level: 0, amounts: { WH001: 1000, BRH01: 500 }, total: 1500,
+    },
+    {
+      key: 'summary:TOTAL_INCOME', kind: 'SUMMARY', statementGroup: null, code: null,
+      label: 'Total income', level: 0, amounts: { WH001: 10000, BRH01: 5000 }, total: 15000,
+    },
+    {
+      key: 'summary:GROSS_PROFIT', kind: 'SUMMARY', statementGroup: null, code: null,
+      label: 'Gross profit', level: 0, amounts: { WH001: 6000, BRH01: 3000 }, total: 9000,
+    },
+    {
+      key: 'summary:TOTAL_EXPENSES', kind: 'SUMMARY', statementGroup: null, code: null,
+      label: 'Total expenses', level: 0, amounts: { WH001: 5000, BRH01: 2500 }, total: 7500,
+    },
+    {
+      key: 'summary:NET_PROFIT', kind: 'SUMMARY', statementGroup: null, code: null,
+      label: 'Net profit', level: 0, amounts: { WH001: 5000, BRH01: 2500 }, total: 7500,
+    },
+  ],
+};
+
+const branchBalanceSheetMatrix: BranchBalanceSheetMatrixResponse = {
+  statement: 'BRANCH_BALANCE_SHEET',
+  branchId: 'ALL',
+  from: null,
+  asOf: '2026-11-02',
+  view: 'CLOSING',
+  branches: [
+    { branchId: 'WH001', code: 'WH001', name: 'Warehouse' },
+    { branchId: 'BRH01', code: 'BRH01', name: 'Branch 2' },
+  ],
+  rows: [
+    {
+      key: 'asset:section:CURRENT_ASSET', kind: 'SECTION', statementGroup: 'CURRENT_ASSET', code: null,
+      label: 'Current assets', level: 0, amounts: { WH001: 500, BRH01: 300 }, total: 800,
+    },
+    {
+      key: 'total:assets', kind: 'SUMMARY', statementGroup: null, code: null,
+      label: 'Total assets', level: 0, amounts: { WH001: 500, BRH01: 300 }, total: 800,
+    },
+    {
+      key: 'liability:section:CURRENT_LIABILITY', kind: 'SECTION', statementGroup: 'CURRENT_LIABILITY', code: null,
+      label: 'Current liabilities', level: 0, amounts: { WH001: 200, BRH01: 100 }, total: 300,
+    },
+    {
+      key: 'total:liabilities', kind: 'SUMMARY', statementGroup: null, code: null,
+      label: 'Total liabilities', level: 0, amounts: { WH001: 200, BRH01: 100 }, total: 300,
+    },
+    {
+      key: 'equity:current-earnings', kind: 'SUMMARY', statementGroup: 'EQUITY', code: null,
+      label: 'Current earnings', level: 1, amounts: { WH001: 300, BRH01: 200 }, total: 500,
+    },
+    {
+      key: 'total:equity', kind: 'SUMMARY', statementGroup: 'EQUITY', code: null,
+      label: 'Total equity', level: 0, amounts: { WH001: 300, BRH01: 200 }, total: 500,
+    },
+    {
+      key: 'total:liabilities-and-equity', kind: 'SUMMARY', statementGroup: null, code: null,
+      label: 'Total liabilities & equity', level: 0, amounts: { WH001: 500, BRH01: 300 }, total: 800,
+    },
+    {
+      key: 'check:difference', kind: 'SUMMARY', statementGroup: null, code: null,
+      label: 'Difference (assets − liabilities − equity)', level: 0,
+      amounts: { WH001: 0, BRH01: 0 }, total: 0,
+    },
+  ],
+};
+
 const profitGroupLines: StatementGroupLinesResponse = {
   statement: 'PROFIT_AND_LOSS',
   branchId: 'ALL',
@@ -560,6 +659,75 @@ const balanceSheet: BalanceSheetResponse = {
   difference: 0,
   balanced: true,
   interBranch: { dueFromHeadOffice: 0, dueToHeadOffice: 0 },
+};
+
+const balanceSheetMovement: BalanceSheetMovementResponse = {
+  statement: 'BALANCE_SHEET_MOVEMENT',
+  branchId: 'ALL',
+  from: '2026-07-17',
+  asOf: '2026-11-02',
+  assets: {
+    sections: [
+      {
+        statementGroup: 'CURRENT_ASSET',
+        label: 'Current assets',
+        opening: 40000,
+        period: 10000,
+        closing: 50000,
+        change: 10000,
+        changePercent: 25,
+        groups: [
+          {
+            groupId: 'g-ca',
+            parentGroupId: null,
+            groupCode: 'CA',
+            groupName: 'Current Assets',
+            sortOrder: 10,
+            opening: 40000,
+            period: 10000,
+            closing: 50000,
+            change: 10000,
+            changePercent: 25,
+            accounts: [],
+            children: [],
+          },
+        ],
+      },
+    ],
+    total: { opening: 40000, period: 10000, closing: 50000, change: 10000, changePercent: 25 },
+  },
+  liabilities: {
+    sections: [
+      {
+        statementGroup: 'CURRENT_LIABILITY',
+        label: 'Current liabilities',
+        opening: 8000,
+        period: 2000,
+        closing: 10000,
+        change: 2000,
+        changePercent: 25,
+        groups: [],
+      },
+    ],
+    total: { opening: 8000, period: 2000, closing: 10000, change: 2000, changePercent: 25 },
+  },
+  equity: {
+    sections: [],
+    postedTotal: { opening: 20000, period: 0, closing: 20000, change: 0, changePercent: 0 },
+    currentEarnings: { opening: 12000, period: 8000, closing: 20000, change: 8000, changePercent: 66.66666666666666 },
+    total: { opening: 32000, period: 8000, closing: 40000, change: 8000, changePercent: 25 },
+  },
+  totalAssets: { opening: 40000, period: 10000, closing: 50000, change: 10000, changePercent: 25 },
+  cashAndBank: { opening: 1000, period: 300, closing: 1300, change: 300, changePercent: 30 },
+  totalLiabilities: { opening: 8000, period: 2000, closing: 10000, change: 2000, changePercent: 25 },
+  totalEquity: { opening: 32000, period: 8000, closing: 40000, change: 8000, changePercent: 25 },
+  totalLiabilitiesAndEquity: { opening: 40000, period: 10000, closing: 50000, change: 10000, changePercent: 25 },
+  difference: { opening: 0, period: 0, closing: 0, change: 0, changePercent: null },
+  balanced: true,
+  interBranch: {
+    dueFromHeadOffice: { opening: 0, period: 0, closing: 0, change: 0, changePercent: null },
+    dueToHeadOffice: { opening: 0, period: 0, closing: 0, change: 0, changePercent: null },
+  },
 };
 
 const cashBook: CashBookResponse = {
@@ -1199,6 +1367,16 @@ function buttonByTextOrNull(container: HTMLElement, label: string): HTMLButtonEl
   ) as HTMLButtonElement | undefined) || null;
 }
 
+function buttonInGroup(container: HTMLElement, groupLabel: string, label: string): HTMLButtonElement {
+  const group = container.querySelector(`[aria-label="${groupLabel}"]`);
+  assert.ok(group, `group "${groupLabel}" must be on screen`);
+  const button = [...group.querySelectorAll('button')].find(
+    (candidate) => (candidate.textContent || '').trim() === label
+  ) as HTMLButtonElement | undefined;
+  assert.ok(button, `button "${label}" must be in "${groupLabel}"`);
+  return button;
+}
+
 function clickAria(container: HTMLElement, label: string): void {
   const target = container.querySelector(`[aria-label="${label}"]`) as HTMLElement | null;
   assert.ok(target, `an element labelled "${label}" must be on screen`);
@@ -1751,6 +1929,171 @@ test('balance sheet register renders the endpoint figures and drills into a grou
       to: '2026-11-02',
       limit: 500,
     });
+  } finally {
+    tree.unmount();
+    restoreApi();
+    restored.restoreEventSource();
+  }
+});
+
+test('balance sheet movement view loads its additive endpoint with a period start and renders all columns', async () => {
+  const calls: StatementQuery[] = [];
+  const restored = mountWorkspace(accountant, 'accounting-balance-sheet');
+  const restoreApi = installApiStubs(
+    accountingStubs({
+      getBootstrapState: async () => bootstrapWithTab('accounting-balance-sheet'),
+      getBalanceSheetMovement: async (query: any) => {
+        calls.push(query);
+        return balanceSheetMovement;
+      },
+    })
+  );
+  const tree = mountAppRouteTree();
+
+  try {
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes('Balance sheet balances')),
+      'the closing balance sheet loads before switching views'
+    );
+    inAct(() => buttonByText(tree.container, 'Movement').click());
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes('Movement balances')),
+      'the movement endpoint must load'
+    );
+
+    assert.match(text(tree.container), /Opening/);
+    assert.match(text(tree.container), /Period/);
+    assert.match(text(tree.container), /Closing/);
+    assert.match(text(tree.container), /Change %/);
+    assert.match(text(tree.container), /25\.0%/);
+    assert.ok(text(tree.container).includes(formatNPR(40000)), 'opening assets must be shown');
+    assert.ok(text(tree.container).includes(formatNPR(50000)), 'closing assets must be shown');
+    assert.ok(text(tree.container).includes(formatNPR(1300)), 'cash movement must be shown');
+    assert.equal(window.location.pathname, '/finance/accounting/balance-sheet');
+
+    const start = tree.container.querySelector('input[aria-label="Accounting period start"]') as HTMLInputElement | null;
+    assert.ok(start, 'the movement view must expose a period-start control');
+    assert.equal(start.value, '2026-07-17', 'the fiscal-year start is the default opening point');
+    assert.deepEqual(calls[0], {
+      branchId: undefined,
+      to: (tree.container.querySelector('input[aria-label="Accounting as of date"]') as HTMLInputElement).value,
+      from: '2026-07-17',
+    });
+  } finally {
+    tree.unmount();
+    restoreApi();
+    restored.restoreEventSource();
+  }
+});
+
+test('branch-consolidated register renders every branch column, the total and the trading filter', async () => {
+  const calls: StatementQuery[] = [];
+  const restored = mountWorkspace(accountant, 'accounting-branch-consolidated');
+  const restoreApi = installApiStubs(
+    accountingStubs({
+      getBootstrapState: async () => bootstrapWithTab('accounting-branch-consolidated'),
+      getBranchProfitAndLossMatrix: async (query: any) => {
+        calls.push(query);
+        return branchProfitAndLossMatrix;
+      },
+    })
+  );
+  const tree = mountAppRouteTree();
+
+  try {
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes('Branch Consolidated')),
+      'the consolidated register must render'
+    );
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes(formatNPR(15000))),
+      'the matrix must render the endpoint totals'
+    );
+    assert.equal(window.location.pathname, '/finance/accounting/branch-consolidated');
+    assert.match(text(tree.container), /Warehouse/);
+    assert.match(text(tree.container), /Branch 2/);
+    assert.match(text(tree.container), /Total/);
+    assert.match(text(tree.container), /Net profit/);
+
+    const start = tree.container.querySelector('input[aria-label="Accounting period start"]') as HTMLInputElement | null;
+    assert.ok(start, 'the consolidated screen must expose a period start');
+    assert.equal(start.value, '2026-07-17');
+    assert.deepEqual(calls[0], {
+      to: (tree.container.querySelector('input[aria-label="Accounting as of date"]') as HTMLInputElement).value,
+      from: '2026-07-17',
+    });
+
+    inAct(() => buttonByText(tree.container, 'Trading').click());
+    assert.match(text(tree.container), /Gross profit/);
+    assert.doesNotMatch(text(tree.container), /Net profit/);
+    assert.match(text(tree.container), /Cost of sales/);
+  } finally {
+    tree.unmount();
+    restoreApi();
+    restored.restoreEventSource();
+  }
+});
+
+test('branch-consolidated balance sheet switches closing and movement and exposes CSV and print', async () => {
+  const calls: any[] = [];
+  const restored = mountWorkspace(accountant, 'accounting-branch-consolidated');
+  const restoreApi = installApiStubs(
+    accountingStubs({
+      getBootstrapState: async () => bootstrapWithTab('accounting-branch-consolidated'),
+      getBranchProfitAndLossMatrix: async () => branchProfitAndLossMatrix,
+      getBranchBalanceSheetMatrix: async (query: any) => {
+        calls.push(query);
+        return {
+          ...branchBalanceSheetMatrix,
+          view: query.view,
+          from: query.view === 'MOVEMENT' ? query.from : null,
+        };
+      },
+    })
+  );
+  const tree = mountAppRouteTree();
+
+  try {
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes('Branch Consolidated')),
+      'the consolidated register must render before switching statement'
+    );
+    inAct(() =>
+      buttonInGroup(tree.container, 'Branch consolidated statement', 'Balance Sheet').click()
+    );
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes('Current assets')),
+      'the branch balance-sheet matrix must render its closing columns'
+    );
+    assert.match(text(tree.container), /Total assets/);
+    assert.match(text(tree.container), /Closing/);
+    assert.equal(
+      tree.container.querySelector('input[aria-label="Accounting period start"]'),
+      null,
+      'the closing balance sheet does not take a period start'
+    );
+    assert.deepEqual(calls[0], {
+      to: (tree.container.querySelector('input[aria-label="Accounting as of date"]') as HTMLInputElement).value,
+      view: 'CLOSING',
+    });
+
+    inAct(() => buttonInGroup(tree.container, 'Balance sheet view', 'Movement').click());
+    assert.ok(
+      await settleUntil(() => calls.length >= 2 && calls[1].view === 'MOVEMENT'),
+      'the movement selector must request the movement matrix'
+    );
+    assert.deepEqual(calls[1], {
+      to: (tree.container.querySelector('input[aria-label="Accounting as of date"]') as HTMLInputElement).value,
+      view: 'MOVEMENT',
+      from: '2026-07-17',
+    });
+    const start = tree.container.querySelector('input[aria-label="Accounting period start"]') as HTMLInputElement | null;
+    assert.ok(start, 'the movement balance sheet exposes a period start');
+    assert.equal(start.value, '2026-07-17');
+    assert.match(text(tree.container), /Movement/);
+
+    assert.ok(buttonByText(tree.container, 'CSV'), 'the matrix exposes a CSV action');
+    assert.ok(buttonByText(tree.container, 'Print'), 'the matrix exposes a print action');
   } finally {
     tree.unmount();
     restoreApi();

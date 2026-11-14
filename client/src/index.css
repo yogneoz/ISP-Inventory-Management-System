@@ -103,6 +103,11 @@ button {
 	.printable-document input,
 	.printable-document select,
 	.printable-document textarea { display: none !important; }
+	/* A wide branch matrix must shrink to the printed page instead of keeping
+	   the screen's per-branch minimum width and clipping the total column. */
+	.printable-document .branch-consolidated-table { min-width: 0 !important; font-size: 9px; }
+	.printable-document .branch-consolidated-table th,
+	.printable-document .branch-consolidated-table td { min-width: 0 !important; }
 }
 
 /* =====================================================================

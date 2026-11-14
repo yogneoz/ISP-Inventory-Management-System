@@ -96,6 +96,10 @@ export const AccountingRegisterShell: React.FC<{
   dateMode: 'BS' | 'AD';
   /** Optional period start for flow statements such as cash flow. */
   periodStart?: { value: string; onChange: (value: string) => void };
+  /** Consolidated screens show every branch as a table column. */
+  hideBranchSelector?: boolean;
+  /** Replaces the default showing-branch/as-of sentence. */
+  scopeNote?: React.ReactNode;
   /** Optional screen-specific actions rendered beside Refresh. */
   headerActions?: React.ReactNode;
   /** Marks the whole register as the print document and hides screen chrome. */
@@ -113,6 +117,8 @@ export const AccountingRegisterShell: React.FC<{
   scope,
   dateMode,
   periodStart,
+  hideBranchSelector = false,
+  scopeNote,
   headerActions,
   printable = false,
   loading,
@@ -123,6 +129,9 @@ export const AccountingRegisterShell: React.FC<{
 }) => {
   const { allowed, canSeeAllBranches, scopedBranches, branchId, setBranchId, asOfDate, setAsOfDate } =
     scope;
+  const scopeFieldCount = (hideBranchSelector ? 0 : 1) + 1 + (periodStart ? 1 : 0) + 1;
+  const scopeGridClass =
+    scopeFieldCount >= 4 ? 'md:grid-cols-4' : scopeFieldCount === 3 ? 'md:grid-cols-3' : 'md:grid-cols-2';
 
   if (!allowed) {
     return (
@@ -167,25 +176,27 @@ export const AccountingRegisterShell: React.FC<{
         }
       />
 
-      <div className={`grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900/40 ${printable ? 'print:hidden' : ''} ${periodStart ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
-        <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400">
-          Branch
-          <select
-            aria-label="Accounting branch"
-            value={branchId}
-            onChange={(event) => setBranchId(event.target.value)}
-            className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
-          >
-            {canSeeAllBranches && (
-              <option value="ALL">All Branches (company level)</option>
-            )}
-            {scopedBranches.map((branch) => (
-              <option key={branch.id} value={branch.id}>
-                {branch.code} · {branch.name}
-              </option>
-            ))}
-          </select>
-        </label>
+      <div className={`grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900/40 ${printable ? 'print:hidden' : ''} ${scopeGridClass}`}>
+        {!hideBranchSelector && (
+          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400">
+            Branch
+            <select
+              aria-label="Accounting branch"
+              value={branchId}
+              onChange={(event) => setBranchId(event.target.value)}
+              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+            >
+              {canSeeAllBranches && (
+                <option value="ALL">All Branches (company level)</option>
+              )}
+              {scopedBranches.map((branch) => (
+                <option key={branch.id} value={branch.id}>
+                  {branch.code} · {branch.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400">
           As of (AD)
           <input
@@ -211,8 +222,12 @@ export const AccountingRegisterShell: React.FC<{
         )}
         <div className="flex items-end">
           <p className="rounded-lg bg-slate-50 px-3 py-2 text-[11px] leading-snug text-slate-500 dark:bg-slate-800/50 dark:text-slate-400">
-            Showing {branchId === 'ALL' ? 'all branches (company level)' : scopedBranches.find((branch) => branch.id === branchId)?.name || branchId} as of{' '}
-            <span className="font-semibold text-slate-700 dark:text-slate-200">{formatDualDate(asOfDate, dateMode)}</span>.
+            {scopeNote || (
+              <>
+                Showing {branchId === 'ALL' ? 'all branches (company level)' : scopedBranches.find((branch) => branch.id === branchId)?.name || branchId} as of{' '}
+                <span className="font-semibold text-slate-700 dark:text-slate-200">{formatDualDate(asOfDate, dateMode)}</span>.
+              </>
+            )}
           </p>
         </div>
       </div>

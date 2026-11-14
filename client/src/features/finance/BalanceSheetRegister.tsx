@@ -1,12 +1,18 @@
 /**
  * Balance Sheet register — assets, liabilities and equity as of the selected
- * date, posted from the ledger under the `gl-view` gate.
+ * date, posted from the ledger under the `gl-view` gate. The Movement view is
+ * an additive opening/period/closing presentation from its own server read;
+ * the Closing view keeps the statutory point-in-time contract.
  */
 import React, { useEffect, useState } from 'react';
 import { Landmark } from 'lucide-react';
 import { useActivationKey, useTabActive } from '../../components/common/KeepMounted';
 import { api } from '../../services/api';
-import type { BalanceSheetResponse, StatementGroupBlock } from '../../services/api/accounting';
+import type {
+  BalanceSheetMovementResponse,
+  BalanceSheetResponse,
+  StatementGroupBlock,
+} from '../../services/api/accounting';
 import {
   AccountingRegisterShell,
   RegisterEmpty,
@@ -14,9 +20,14 @@ import {
 } from '../../components/accounting/AccountingRegisterShell';
 import type { AccountingScreenProps } from '../../components/accounting/AccountingRegisterShell';
 import { BalanceSheetView } from '../../components/accounting/BalanceSheetView';
+import { BalanceSheetMovementView } from '../../components/accounting/BalanceSheetMovementView';
 import {
+  BalanceSheetViewToggle,
   ComparativeToggle,
   StatementFormatToggle,
+} from '../../components/accounting/StatementViewControls';
+import type {
+  BalanceSheetReportView,
 } from '../../components/accounting/StatementViewControls';
 import type { StatementFormat } from '../../components/accounting/statementTFormat';
 import { priorBalanceSheetDate } from '../../utils/comparativePeriod';
@@ -30,17 +41,28 @@ export const BalanceSheetRegister: React.FC<AccountingScreenProps> = ({
 }) => {
   const scope = useAccountingScope(branches, currentUser);
   const [data, setData] = useState<BalanceSheetResponse | null>(null);
+  const [movement, setMovement] = useState<BalanceSheetMovementResponse | null>(null);
   const [openGroup, setOpenGroup] = useState<StatementGroupBlock | null>(null);
+  const [view, setView] = useState<BalanceSheetReportView>('CLOSING');
   const [format, setFormat] = useState<StatementFormat>('NORMAL');
   const [comparative, setComparative] = useState(false);
+  const [periodStart, setPeriodStart] = useState(fiscalYearStartAD || '');
   const [prior, setPrior] = useState<BalanceSheetResponse | null>(null);
   const [priorLoading, setPriorLoading] = useState(false);
   const [priorError, setPriorError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [movementLoading, setMovementLoading] = useState(false);
   const [error, setError] = useState('');
+  const [movementError, setMovementError] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
   const activationKey = useActivationKey('accounting-balance-sheet');
   const isVisible = useTabActive('accounting-balance-sheet') && scope.allowed;
+
+  // The fiscal-year start is the natural default opening point for a movement
+  // view. Do not overwrite a start the user has explicitly changed or cleared.
+  useEffect(() => {
+    setPeriodStart((current) => current || fiscalYearStartAD || '');
+  }, [fiscalYearStartAD]);
 
   useEffect(() => {
     if (!isVisible) return;
@@ -64,6 +86,34 @@ export const BalanceSheetRegister: React.FC<AccountingScreenProps> = ({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isVisible, scope.branchId, scope.asOfDate, activationKey, reloadKey]);
+
+  useEffect(() => {
+    if (!isVisible || view !== 'MOVEMENT') return;
+    let live = true;
+    setMovementLoading(true);
+    setMovementError('');
+    setMovement(null);
+    void api.getBalanceSheetMovement({
+      branchId: scope.query.branchId,
+      to: scope.asOfDate,
+      ...(periodStart ? { from: periodStart } : {}),
+    })
+      .then((next) => {
+        if (live) setMovement(next);
+      })
+      .catch((err: any) => {
+        if (!live) return;
+        setMovement(null);
+        setMovementError(err?.message || 'Failed to load the balance-sheet movement.');
+      })
+      .finally(() => {
+        if (live) setMovementLoading(false);
+      });
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isVisible, view, scope.branchId, scope.asOfDate, periodStart, activationKey, reloadKey]);
 
   const priorAsOf = data ? priorBalanceSheetDate(fiscalYearStartAD, data.asOf) : null;
 
@@ -105,28 +155,50 @@ export const BalanceSheetRegister: React.FC<AccountingScreenProps> = ({
   // it cannot be compared with figures from a different view.
   useEffect(() => {
     setOpenGroup(null);
-  }, [data, format, comparative]);
+  }, [data, format, comparative, view, periodStart]);
+
+  const activeLoading = view === 'MOVEMENT' ? movementLoading : loading;
+  const activeError = view === 'MOVEMENT' ? movementError : error;
 
   return (
     <AccountingRegisterShell
       title="Balance Sheet"
-      description="Assets, liabilities and equity as of the selected date, from posted journal lines."
+      description={
+        view === 'MOVEMENT'
+          ? 'Opening, period and closing balances from posted journal lines.'
+          : 'Assets, liabilities and equity as of the selected date, from posted journal lines.'
+      }
       icon={<Landmark className="h-5 w-5 text-indigo-500" />}
-      registerName="balance sheet"
+      registerName={view === 'MOVEMENT' ? 'balance-sheet movement' : 'balance sheet'}
       scope={scope}
       dateMode={dateMode}
-      loading={loading}
-      error={error}
+      periodStart={
+        view === 'MOVEMENT' ? { value: periodStart, onChange: setPeriodStart } : undefined
+      }
+      loading={activeLoading}
+      error={activeError}
       headerActions={
         <>
-          <ComparativeToggle enabled={comparative} onChange={setComparative} />
-          <StatementFormatToggle format={format} onChange={setFormat} />
+          <BalanceSheetViewToggle view={view} onChange={setView} />
+          {view === 'CLOSING' && (
+            <>
+              <ComparativeToggle enabled={comparative} onChange={setComparative} />
+              <StatementFormatToggle format={format} onChange={setFormat} />
+            </>
+          )}
         </>
       }
       onRefresh={() => setReloadKey((key) => key + 1)}
       onRetry={() => setReloadKey((key) => key + 1)}
     >
-      {data ? (
+      {view === 'MOVEMENT' ? (
+        movement ? (
+          <BalanceSheetMovementView data={movement} />
+        ) : (
+          !movementLoading &&
+          !movementError && <RegisterEmpty message="No balance-sheet movement has been loaded yet." />
+        )
+      ) : data ? (
         <>
           <BalanceSheetView
             data={data}

@@ -44,6 +44,7 @@ import {
   FISCAL_YEAR_BOUNDS_SQL,
   STATEMENT_GROUP_LINES_SQL,
   STATEMENT_GROUPS,
+  STATEMENT_BRANCHES_SQL,
   TRIAL_BALANCE_ACCOUNT_LINES_SQL,
   TRIAL_BALANCE_GROUP_LINES_SQL,
   type AccountType,
@@ -51,7 +52,12 @@ import {
 } from '../models/accounting.repo';
 import { isAccountingDate, type AccountingClient } from './accounting.service';
 
-export type StatementMode = 'TRIAL_BALANCE' | 'PROFIT_AND_LOSS' | 'BALANCE_SHEET' | 'CASH_FLOW';
+export type StatementMode =
+  | 'TRIAL_BALANCE'
+  | 'PROFIT_AND_LOSS'
+  | 'BALANCE_SHEET'
+  | 'BALANCE_SHEET_MOVEMENT'
+  | 'CASH_FLOW';
 
 export interface StatementWindow {
   /** Opening window starts here; `null` means "from inception". */
@@ -156,6 +162,69 @@ export interface StatementSection {
   groups: StatementGroupBlock[];
 }
 
+/** Opening, in-period and closing figures for one movement-view line. */
+export interface BalanceSheetMovementAmount {
+  opening: number;
+  period: number;
+  closing: number;
+  /** Closing − opening; this is the same movement as `period` after tie-out. */
+  change: number;
+  /** Null when opening is zero, because there is no meaningful base. */
+  changePercent: number | null;
+}
+
+export interface BalanceSheetMovementAccount extends BalanceSheetMovementAmount {
+  accountId: string;
+  code: string;
+  name: string;
+  groupCode: string;
+  groupName: string;
+  accountType: AccountType;
+}
+
+export interface BalanceSheetMovementGroup extends BalanceSheetMovementAmount {
+  groupId: string;
+  parentGroupId: string | null;
+  groupCode: string;
+  groupName: string;
+  sortOrder: number;
+  accounts: BalanceSheetMovementAccount[];
+  children: BalanceSheetMovementGroup[];
+}
+
+export interface BalanceSheetMovementSection extends BalanceSheetMovementAmount {
+  statementGroup: StatementGroup;
+  label: string;
+  groups: BalanceSheetMovementGroup[];
+}
+
+export interface BalanceSheetMovementResponse {
+  statement: 'BALANCE_SHEET_MOVEMENT';
+  branchId: string | null;
+  /** First day of the movement window; opening is the balance before it. */
+  from: string;
+  asOf: string;
+  assets: { sections: BalanceSheetMovementSection[]; total: BalanceSheetMovementAmount };
+  liabilities: { sections: BalanceSheetMovementSection[]; total: BalanceSheetMovementAmount };
+  equity: {
+    sections: BalanceSheetMovementSection[];
+    postedTotal: BalanceSheetMovementAmount;
+    currentEarnings: BalanceSheetMovementAmount;
+    total: BalanceSheetMovementAmount;
+  };
+  totalAssets: BalanceSheetMovementAmount;
+  cashAndBank: BalanceSheetMovementAmount;
+  totalLiabilities: BalanceSheetMovementAmount;
+  totalEquity: BalanceSheetMovementAmount;
+  totalLiabilitiesAndEquity: BalanceSheetMovementAmount;
+  difference: BalanceSheetMovementAmount;
+  balanced: boolean;
+  interBranch: {
+    dueFromHeadOffice: BalanceSheetMovementAmount;
+    dueToHeadOffice: BalanceSheetMovementAmount;
+  };
+}
+
 export type CashFlowSectionKey = 'OPERATING' | 'INVESTING' | 'FINANCING';
 
 export interface CashFlowLine {
@@ -191,6 +260,52 @@ export interface CashFlowResponse {
   difference: number;
   reconciled: boolean;
   sections: CashFlowSection[];
+}
+
+export type BranchStatementMatrixRowKind = 'SECTION' | 'GROUP' | 'ACCOUNT' | 'SUMMARY';
+
+/** One branch column on the consolidated statement. */
+export interface BranchStatementMatrixBranch {
+  branchId: string;
+  code: string;
+  name: string;
+}
+
+/**
+ * One line of the branch matrix. `amounts` is keyed by branch id; a branch
+ * with no activity for this line is absent from the map (the client displays
+ * zero). `total` is the sum of every branch column.
+ */
+export interface BranchStatementMatrixRow {
+  key: string;
+  kind: BranchStatementMatrixRowKind;
+  statementGroup: StatementGroup | null;
+  code: string | null;
+  label: string;
+  level: number;
+  amounts: Record<string, number>;
+  total: number;
+}
+
+export interface BranchProfitAndLossMatrixResponse {
+  statement: 'BRANCH_PROFIT_AND_LOSS';
+  branchId: string | null;
+  from: string | null;
+  to: string;
+  branches: BranchStatementMatrixBranch[];
+  rows: BranchStatementMatrixRow[];
+}
+
+export type BranchBalanceSheetView = 'CLOSING' | 'MOVEMENT';
+
+export interface BranchBalanceSheetMatrixResponse {
+  statement: 'BRANCH_BALANCE_SHEET';
+  branchId: string | null;
+  from: string | null;
+  asOf: string;
+  view: BranchBalanceSheetView;
+  branches: BranchStatementMatrixBranch[];
+  rows: BranchStatementMatrixRow[];
 }
 
 export type StatementGroupDrilldownMode = Extract<
@@ -899,6 +1014,335 @@ export async function buildProfitAndLoss(client: AccountingClient, window: State
   };
 }
 
+/** Active branches available as columns, narrowed by the session's branch scope. */
+export async function loadStatementBranches(
+  client: AccountingClient,
+  allowed?: Set<string>
+): Promise<BranchStatementMatrixBranch[]> {
+  const rows = (await client.query(STATEMENT_BRANCHES_SQL)).rows;
+  return rows
+    .map((row: any) => ({
+      branchId: String(row.id),
+      code: String(row.code),
+      name: String(row.name),
+    }))
+    .filter((branch) => !allowed || allowed.has(branch.branchId));
+}
+
+/**
+ * Branch-consolidated P&L/Trading matrix. Each column is built by the same
+ * `buildProfitAndLoss` read as the single-branch statement, so a branch column
+ * can never diverge from that branch's own P&L. The chart is shared, but the
+ * merge is keyed by statement group, group code and account code so a
+ * branch-specific chart row still gets its own line instead of being dropped.
+ */
+export async function buildBranchProfitAndLossMatrix(
+  client: AccountingClient,
+  window: StatementWindow,
+  branches: readonly BranchStatementMatrixBranch[]
+): Promise<BranchProfitAndLossMatrixResponse> {
+  const rows: BranchStatementMatrixRow[] = [];
+  const byKey = new Map<string, BranchStatementMatrixRow>();
+
+  const add = (
+    branchId: string,
+    base: Omit<BranchStatementMatrixRow, 'amounts' | 'total'>,
+    amount: number
+  ) => {
+    let row = byKey.get(base.key);
+    if (!row) {
+      row = { ...base, amounts: {}, total: 0 };
+      byKey.set(base.key, row);
+      rows.push(row);
+    }
+    row.amounts[branchId] = roundMoney(amount);
+    row.total = roundMoney(row.total + amount);
+  };
+
+  for (const branch of branches) {
+    const pnl = await buildProfitAndLoss(client, {
+      ...window,
+      branchId: branch.branchId,
+      empty: false,
+    });
+
+    const addGroups = (
+      groups: readonly any[],
+      depth: number,
+      statementGroup: StatementGroup
+    ) => {
+      for (const group of groups) {
+        add(
+          branch.branchId,
+          {
+            key: `group:${statementGroup}:${group.groupCode}`,
+            kind: 'GROUP',
+            statementGroup,
+            code: group.groupCode,
+            label: group.groupName,
+            level: depth,
+          },
+          group.amount
+        );
+        for (const account of group.accounts) {
+          add(
+            branch.branchId,
+            {
+              key: `account:${statementGroup}:${group.groupCode}:${account.code}`,
+              kind: 'ACCOUNT',
+              statementGroup,
+              code: account.code,
+              label: account.name,
+              level: depth + 1,
+            },
+            account.amount
+          );
+        }
+        addGroups(group.children, depth + 1, statementGroup);
+      }
+    };
+
+    for (const section of pnl.sections) {
+      add(
+        branch.branchId,
+        {
+          key: `section:${section.statementGroup}`,
+          kind: 'SECTION',
+          statementGroup: section.statementGroup,
+          code: null,
+          label: section.label,
+          level: 0,
+        },
+        section.amount
+      );
+      addGroups(section.groups, 1, section.statementGroup);
+    }
+
+    const summaries: Array<[string, string, number]> = [
+      ['TOTAL_INCOME', 'Total income', pnl.totalIncome],
+      ['GROSS_PROFIT', 'Gross profit', pnl.grossProfit],
+      ['TOTAL_EXPENSES', 'Total expenses', pnl.totalExpenses],
+      ['NET_PROFIT', 'Net profit', pnl.netProfit],
+    ];
+    for (const [key, label, amount] of summaries) {
+      add(
+        branch.branchId,
+        {
+          key: `summary:${key}`,
+          kind: 'SUMMARY',
+          statementGroup: null,
+          code: null,
+          label,
+          level: 0,
+        },
+        amount
+      );
+    }
+  }
+
+  return {
+    statement: 'BRANCH_PROFIT_AND_LOSS',
+    branchId: statementBranchLabel(window),
+    from: window.from,
+    to: window.to,
+    branches: [...branches],
+    rows,
+  };
+}
+
+/**
+ * Branch-consolidated balance sheet. Closing columns come from the statutory
+ * per-branch balance sheet; Movement columns use the same per-branch movement
+ * read and present the posted period change. The Total column is always the
+ * sum of the branch columns for the selected presentation.
+ */
+export async function buildBranchBalanceSheetMatrix(
+  client: AccountingClient,
+  window: StatementWindow,
+  branches: readonly BranchStatementMatrixBranch[],
+  view: BranchBalanceSheetView
+): Promise<BranchBalanceSheetMatrixResponse> {
+  const rows: BranchStatementMatrixRow[] = [];
+  const byKey = new Map<string, BranchStatementMatrixRow>();
+
+  const add = (
+    branchId: string,
+    base: Omit<BranchStatementMatrixRow, 'amounts' | 'total'>,
+    amount: number
+  ) => {
+    let row = byKey.get(base.key);
+    if (!row) {
+      row = { ...base, amounts: {}, total: 0 };
+      byKey.set(base.key, row);
+      rows.push(row);
+    }
+    row.amounts[branchId] = roundMoney(amount);
+    row.total = roundMoney(row.total + amount);
+  };
+
+  const valueOf = (item: any): number =>
+    typeof item === 'number'
+      ? roundMoney(item)
+      : roundMoney(Number(view === 'MOVEMENT' ? item?.period : item?.amount) || 0);
+
+  for (const branch of branches) {
+    const statement: any =
+      view === 'MOVEMENT'
+        ? await buildBalanceSheetMovement(client, {
+            ...window,
+            branchId: branch.branchId,
+          })
+        : await buildBalanceSheet(client, {
+            ...window,
+            branchId: branch.branchId,
+            from: null,
+          });
+
+    const addGroups = (
+      groups: readonly any[],
+      depth: number,
+      prefix: string,
+      statementGroup: StatementGroup
+    ) => {
+      for (const group of groups) {
+        add(
+          branch.branchId,
+          {
+            key: `${prefix}:group:${statementGroup}:${group.groupCode}`,
+            kind: 'GROUP',
+            statementGroup,
+            code: group.groupCode,
+            label: group.groupName,
+            level: depth,
+          },
+          valueOf(group)
+        );
+        for (const account of group.accounts) {
+          add(
+            branch.branchId,
+            {
+              key: `${prefix}:account:${statementGroup}:${group.groupCode}:${account.code}`,
+              kind: 'ACCOUNT',
+              statementGroup,
+              code: account.code,
+              label: account.name,
+              level: depth + 1,
+            },
+            valueOf(account)
+          );
+        }
+        addGroups(group.children, depth + 1, prefix, statementGroup);
+      }
+    };
+
+    const addSections = (sections: readonly any[], prefix: string) => {
+      for (const section of sections) {
+        add(
+          branch.branchId,
+          {
+            key: `${prefix}:section:${section.statementGroup}`,
+            kind: 'SECTION',
+            statementGroup: section.statementGroup,
+            code: null,
+            label: section.label,
+            level: 0,
+          },
+          valueOf(section)
+        );
+        addGroups(section.groups, 1, prefix, section.statementGroup as StatementGroup);
+      }
+    };
+
+    addSections(statement.assets.sections, 'asset');
+    add(
+      branch.branchId,
+      {
+        key: 'total:assets',
+        kind: 'SUMMARY',
+        statementGroup: null,
+        code: null,
+        label: 'Total assets',
+        level: 0,
+      },
+      valueOf(statement.assets.total)
+    );
+
+    addSections(statement.liabilities.sections, 'liability');
+    add(
+      branch.branchId,
+      {
+        key: 'total:liabilities',
+        kind: 'SUMMARY',
+        statementGroup: null,
+        code: null,
+        label: 'Total liabilities',
+        level: 0,
+      },
+      valueOf(statement.liabilities.total)
+    );
+
+    addSections(statement.equity.sections, 'equity');
+    add(
+      branch.branchId,
+      {
+        key: 'equity:current-earnings',
+        kind: 'SUMMARY',
+        statementGroup: 'EQUITY',
+        code: null,
+        label: 'Current earnings',
+        level: 1,
+      },
+      valueOf(statement.equity.currentEarnings)
+    );
+    add(
+      branch.branchId,
+      {
+        key: 'total:equity',
+        kind: 'SUMMARY',
+        statementGroup: 'EQUITY',
+        code: null,
+        label: 'Total equity',
+        level: 0,
+      },
+      valueOf(statement.equity.total)
+    );
+    add(
+      branch.branchId,
+      {
+        key: 'total:liabilities-and-equity',
+        kind: 'SUMMARY',
+        statementGroup: null,
+        code: null,
+        label: 'Total liabilities & equity',
+        level: 0,
+      },
+      valueOf(statement.totalLiabilitiesAndEquity)
+    );
+    add(
+      branch.branchId,
+      {
+        key: 'check:difference',
+        kind: 'SUMMARY',
+        statementGroup: null,
+        code: null,
+        label: 'Difference (assets − liabilities − equity)',
+        level: 0,
+      },
+      valueOf(statement.difference)
+    );
+  }
+
+  return {
+    statement: 'BRANCH_BALANCE_SHEET',
+    branchId: statementBranchLabel(window),
+    from: view === 'MOVEMENT' ? window.from : null,
+    asOf: window.to,
+    view,
+    branches: [...branches],
+    rows,
+  };
+}
+
 /**
  * Balance sheet as of `to`. `currentEarnings` keeps the accounting equation
  * closed while there is no year-end transfer; `interBranch` names the two
@@ -992,6 +1436,263 @@ export async function buildBalanceSheet(client: AccountingClient, window: Statem
     totalLiabilitiesAndEquity,
     difference,
     balanced: Math.abs(difference) < 0.005,
+    interBranch: { dueFromHeadOffice, dueToHeadOffice },
+  };
+}
+
+/**
+ * One movement triple. The `period` figure is the posted turnover inside the
+ * window; `change` is computed from the two balances instead of trusting a
+ * separately accumulated number, so the columns always reconcile by
+ * construction. A zero opening balance has no meaningful percentage base.
+ */
+function movementAmount(
+  openingValue: number,
+  periodValue: number,
+  closingValue: number
+): BalanceSheetMovementAmount {
+  const opening = roundMoney(openingValue);
+  const period = roundMoney(periodValue);
+  const closing = roundMoney(closingValue);
+  const change = roundMoney(closing - opening);
+  return {
+    opening,
+    period,
+    closing,
+    change,
+    changePercent: opening === 0 ? null : (change / Math.abs(opening)) * 100,
+  };
+}
+
+function sumMovement(amounts: readonly BalanceSheetMovementAmount[]): BalanceSheetMovementAmount {
+  let opening = 0;
+  let period = 0;
+  let closing = 0;
+  for (const amount of amounts) {
+    opening += amount.opening;
+    period += amount.period;
+    closing += amount.closing;
+  }
+  return movementAmount(opening, period, closing);
+}
+
+function addMovement(
+  left: BalanceSheetMovementAmount,
+  right: BalanceSheetMovementAmount
+): BalanceSheetMovementAmount {
+  return movementAmount(
+    left.opening + right.opening,
+    left.period + right.period,
+    left.closing + right.closing
+  );
+}
+
+function subtractMovement(
+  left: BalanceSheetMovementAmount,
+  right: BalanceSheetMovementAmount
+): BalanceSheetMovementAmount {
+  return movementAmount(
+    left.opening - right.opening,
+    left.period - right.period,
+    left.closing - right.closing
+  );
+}
+
+function movementAccount(row: AccountBalanceRow): BalanceSheetMovementAccount {
+  return {
+    accountId: row.accountId,
+    code: row.code,
+    name: row.name,
+    groupCode: row.groupCode,
+    groupName: row.groupName,
+    accountType: row.accountType,
+    ...movementAmount(
+      presented(row.accountType, row.openingBalance),
+      presented(row.accountType, periodSigned(row)),
+      presented(row.accountType, closingSigned(row))
+    ),
+  };
+}
+
+function hasMovement(row: AccountBalanceRow): boolean {
+  return (
+    presented(row.accountType, row.openingBalance) !== 0 ||
+    presented(row.accountType, periodSigned(row)) !== 0 ||
+    presented(row.accountType, closingSigned(row)) !== 0
+  );
+}
+
+/**
+ * Movement-view group tree. It mirrors the closing balance sheet's hierarchy,
+ * but a group is retained when it had an opening balance or a movement even if
+ * its closing balance is zero — otherwise a fully reversed account would
+ * disappear from the reconciliation.
+ */
+function buildBalanceSheetMovementTree(
+  groupRows: readonly any[],
+  rows: readonly AccountBalanceRow[],
+  statementGroup: StatementGroup
+): BalanceSheetMovementGroup[] {
+  const candidates = groupRows.filter((group) => String(group.statementGroup) === statementGroup);
+  if (candidates.length === 0) return [];
+
+  const nodes = new Map<string, BalanceSheetMovementGroup>();
+  for (const group of candidates) {
+    const id = String(group.id);
+    nodes.set(id, {
+      groupId: id,
+      parentGroupId: group.parentId ? String(group.parentId) : null,
+      groupCode: String(group.code),
+      groupName: String(group.name),
+      sortOrder: Number(group.sortOrder) || 0,
+      ...movementAmount(0, 0, 0),
+      accounts: [],
+      children: [],
+    });
+  }
+
+  const roots: BalanceSheetMovementGroup[] = [];
+  for (const group of candidates) {
+    const node = nodes.get(String(group.id))!;
+    const parent = node.parentGroupId ? nodes.get(node.parentGroupId) : undefined;
+    if (parent) parent.children.push(node);
+    else roots.push(node);
+  }
+
+  for (const row of rows) {
+    nodes.get(row.groupId)?.accounts.push(movementAccount(row));
+  }
+
+  const byName = (left: BalanceSheetMovementGroup, right: BalanceSheetMovementGroup) =>
+    left.sortOrder - right.sortOrder || left.groupCode.localeCompare(right.groupCode);
+
+  const finalize = (node: BalanceSheetMovementGroup): boolean => {
+    node.children = node.children.filter(finalize).sort(byName);
+    node.accounts.sort((left, right) => left.code.localeCompare(right.code));
+    const total = sumMovement([...node.accounts, ...node.children]);
+    Object.assign(node, total);
+    return node.accounts.length > 0 || node.children.length > 0;
+  };
+
+  return roots.filter(finalize).sort(byName);
+}
+
+function sectionizeMovement(
+  groupRows: readonly any[],
+  rows: readonly AccountBalanceRow[],
+  order: readonly StatementGroup[]
+): BalanceSheetMovementSection[] {
+  const sections: BalanceSheetMovementSection[] = [];
+  for (const statementGroup of order) {
+    const inSection = rows.filter((row) => row.statementGroup === statementGroup);
+    if (inSection.length === 0) continue;
+    const groups = buildBalanceSheetMovementTree(groupRows, inSection, statementGroup);
+    if (groups.length === 0) continue;
+    sections.push({
+      statementGroup,
+      label: GROUP_LABELS[statementGroup],
+      ...sumMovement(groups),
+      groups,
+    });
+  }
+  return sections;
+}
+
+/**
+ * Balance-sheet movement view: opening before `from`, turnover inside
+ * `from`..`asOf`, and the closing balance. Current earnings is split the same
+ * way as every other equity line (opening earnings + period profit = closing
+ * earnings), so profit is counted exactly once in the closing column.
+ */
+export async function buildBalanceSheetMovement(
+  client: AccountingClient,
+  window: StatementWindow
+): Promise<BalanceSheetMovementResponse> {
+  if (!window.from) {
+    throw new ApiError(400, 'A balance-sheet movement view needs a period start date.');
+  }
+  const allRows = await loadAccountBalances(client, window);
+  const balanceRows = allRows.filter(
+    (row) =>
+      (row.accountType === 'ASSET' || row.accountType === 'LIABILITY' || row.accountType === 'EQUITY') &&
+      hasMovement(row)
+  );
+  const groupRows = await loadGroupRows(client, window);
+
+  const assetSections = sectionizeMovement(
+    groupRows,
+    balanceRows.filter((row) => row.accountType === 'ASSET'),
+    STATEMENT_GROUPS
+  );
+  const liabilitySections = sectionizeMovement(
+    groupRows,
+    balanceRows.filter((row) => row.accountType === 'LIABILITY'),
+    STATEMENT_GROUPS
+  );
+  const equitySections = sectionizeMovement(
+    groupRows,
+    balanceRows.filter((row) => row.accountType === 'EQUITY'),
+    STATEMENT_GROUPS
+  );
+
+  // Current earnings is a movement line too: opening earnings is cumulative
+  // income and expense before the window, and the period figure is this
+  // window's profit. Adding closing earnings here instead would double-count.
+  let openingEarnings = 0;
+  let periodEarnings = 0;
+  let closingEarnings = 0;
+  for (const row of allRows) {
+    if (row.accountType !== 'INCOME' && row.accountType !== 'EXPENSE') continue;
+    const sign = row.accountType === 'INCOME' ? 1 : -1;
+    openingEarnings += sign * presented(row.accountType, row.openingBalance);
+    periodEarnings += sign * presented(row.accountType, periodSigned(row));
+    closingEarnings += sign * presented(row.accountType, closingSigned(row));
+  }
+  const currentEarnings = movementAmount(openingEarnings, periodEarnings, closingEarnings);
+
+  const totalAssets = sumMovement(assetSections);
+  const totalLiabilities = sumMovement(liabilitySections);
+  const postedEquity = sumMovement(equitySections);
+  const totalEquity = addMovement(postedEquity, currentEarnings);
+  const totalLiabilitiesAndEquity = addMovement(totalLiabilities, totalEquity);
+  const difference = subtractMovement(totalAssets, totalLiabilitiesAndEquity);
+
+  const cashAndBank = sumMovement(
+    balanceRows
+      .filter((row) => row.accountKind === 'CASH' || row.accountKind === 'BANK' || row.accountKind === 'WALLET')
+      .map(movementAccount)
+  );
+  const interBranchRows = balanceRows.filter((row) => row.subledgerType === 'INTER_BRANCH');
+  const dueFromHeadOffice = sumMovement(
+    interBranchRows.filter((row) => row.accountType === 'ASSET').map(movementAccount)
+  );
+  const dueToHeadOffice = sumMovement(
+    interBranchRows.filter((row) => row.accountType === 'LIABILITY').map(movementAccount)
+  );
+
+  return {
+    statement: 'BALANCE_SHEET_MOVEMENT',
+    branchId: statementBranchLabel(window),
+    from: window.from,
+    asOf: window.to,
+    assets: { sections: assetSections, total: totalAssets },
+    liabilities: { sections: liabilitySections, total: totalLiabilities },
+    equity: {
+      sections: equitySections,
+      postedTotal: postedEquity,
+      currentEarnings,
+      total: totalEquity,
+    },
+    totalAssets,
+    cashAndBank,
+    totalLiabilities,
+    totalEquity,
+    totalLiabilitiesAndEquity,
+    difference,
+    balanced:
+      Math.abs(difference.opening) < 0.005 &&
+      Math.abs(difference.period) < 0.005 &&
+      Math.abs(difference.closing) < 0.005,
     interBranch: { dueFromHeadOffice, dueToHeadOffice },
   };
 }

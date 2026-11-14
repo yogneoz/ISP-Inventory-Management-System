@@ -48,6 +48,9 @@ import {
 } from '../services/accounting.service';
 import {
   buildBalanceSheet,
+  buildBalanceSheetMovement,
+  buildBranchBalanceSheetMatrix,
+  buildBranchProfitAndLossMatrix,
   buildBsLedgerSummary,
   buildCashFlow,
   buildProfitAndLoss,
@@ -55,6 +58,7 @@ import {
   buildTrialBalance,
   buildTrialBalanceAccountLines,
   buildTrialBalanceGroupLines,
+  loadStatementBranches,
   resolveStatementWindow,
   type StatementGroupDrilldownMode,
   type StatementMode,
@@ -695,6 +699,74 @@ export async function get_balanceSheet(req: any, res: Response): Promise<any> {
   const window = await statementWindow(req, res, 'BALANCE_SHEET');
   if (!window) return;
   return res.json(await buildBalanceSheet(pgPool, window));
+}
+
+/**
+ * GET /api/accounting/statements/balance-sheet-movement — opening, period and
+ * closing figures. This is additive: the statutory closing statement above
+ * keeps its point-in-time contract and does not accept `from`.
+ */
+export async function get_balanceSheetMovement(req: any, res: Response): Promise<any> {
+  const window = await statementWindow(req, res, 'BALANCE_SHEET_MOVEMENT');
+  if (!window) return;
+  return res.json(await buildBalanceSheetMovement(pgPool, window));
+}
+
+/**
+ * GET /api/accounting/statements/branch-profit-and-loss — one P&L/Trading
+ * matrix for every branch in the session's ledger scope. Columns are built by
+ * the same per-branch P&L service as the individual statement.
+ */
+export async function get_branchProfitAndLoss(req: any, res: Response): Promise<any> {
+  if (!getPgConnected()) throw new ApiError(503, 'PostgreSQL is unavailable.');
+  const scope = resolveBranchScope(req, res);
+  if (!scope) return;
+  const window = await resolveStatementWindow(pgPool, req.query || {}, 'PROFIT_AND_LOSS', {
+    branchId: scope.branchId || null,
+    empty: Boolean(scope.empty),
+  });
+  const branches = await loadStatementBranches(pgPool, scope.allowed);
+  return res.json(
+    await buildBranchProfitAndLossMatrix(
+      pgPool,
+      { ...window, branchId: null, empty: Boolean(scope.empty) },
+      branches
+    )
+  );
+}
+
+/**
+ * GET /api/accounting/statements/branch-balance-sheet — one closing or movement
+ * balance-sheet matrix for every branch in the session's ledger scope. The
+ * closing matrix uses the statutory per-branch statement; the movement matrix
+ * uses the per-branch opening/period/closing read and exposes its period change.
+ */
+export async function get_branchBalanceSheet(req: any, res: Response): Promise<any> {
+  if (!getPgConnected()) throw new ApiError(503, 'PostgreSQL is unavailable.');
+  const view = String(req.query?.view || 'CLOSING').toUpperCase();
+  if (view !== 'CLOSING' && view !== 'MOVEMENT') {
+    throw new ApiError(400, 'Balance-sheet view must be CLOSING or MOVEMENT.');
+  }
+  const scope = resolveBranchScope(req, res);
+  if (!scope) return;
+  const window = await resolveStatementWindow(
+    pgPool,
+    req.query || {},
+    view === 'MOVEMENT' ? 'BALANCE_SHEET_MOVEMENT' : 'BALANCE_SHEET',
+    {
+      branchId: scope.branchId || null,
+      empty: Boolean(scope.empty),
+    }
+  );
+  const branches = await loadStatementBranches(pgPool, scope.allowed);
+  return res.json(
+    await buildBranchBalanceSheetMatrix(
+      pgPool,
+      { ...window, branchId: null, empty: Boolean(scope.empty) },
+      branches,
+      view
+    )
+  );
 }
 
 /** GET /api/accounting/statements/cash-flow */

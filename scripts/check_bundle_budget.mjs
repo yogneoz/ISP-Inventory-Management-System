@@ -90,9 +90,15 @@ const ASSETS = path.join(DIST, 'assets');
 // stays lazy; the entry gate moves 21 -> 21.5 kB. Startup measures 319.2 kB
 // against the unchanged 320 kB total after the permission catalogue and the
 // shared companyOverview contract were split out of their lazy screens.
+// 2026-11-14 (branch consolidated): measured entry 21.9 kB and startup total
+// 320.9 kB after the new lazy route, sidebar item, canonical path, tab gate,
+// preloader entry and API barrel function joined the shell. The screen chunk
+// itself stays dynamic (the lazy-screen leak guard is clean); this is required
+// shell wiring plus the eager API barrel, so the entry gate moves 21.5 -> 22 kB
+// and the startup total 320 -> 322 kB.
 const BUDGETS = {
-  entryGz: 21.5 * 1024, // entry chunk alone
-  startupTotalGz: 320 * 1024, // entry + all statically-imported chunks
+  entryGz: 22 * 1024, // entry chunk alone
+  startupTotalGz: 322 * 1024, // entry + all statically-imported chunks
 };
 
 /** Budget labels keep fractional kB (20.125) instead of truncating to 20. */

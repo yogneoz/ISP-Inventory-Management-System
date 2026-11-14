@@ -38,7 +38,7 @@ describe('canonical workspace paths', () => {
     }
 
     const liveTabs = NAV_TABS.filter((tab) => canonicalTab(tab) === tab);
-    assert.equal(liveTabs.length, 105, '105 rendered screens, excluding the retired alias');
+    assert.equal(liveTabs.length, 106, '106 rendered screens, excluding the retired alias');
     const paths = liveTabs.map(pathForTab);
     assert.equal(new Set(paths).size, paths.length, 'two live screens cannot share a path');
 
@@ -50,7 +50,7 @@ describe('canonical workspace paths', () => {
   test('every route App renders is reachable by its canonical path', () => {
     const app = read('client/src/App.tsx');
     const routeKeys = [...app.matchAll(/screenRoute\('([^']+)'/g)].map((match) => match[1]);
-    assert.equal(routeKeys.length, 105, 'the route table must still declare 105 screens');
+    assert.equal(routeKeys.length, 106, 'the route table must still declare 106 screens');
     for (const key of routeKeys) {
       assert.equal(
         tabFromPath(pathForTab(key as NavTab)),

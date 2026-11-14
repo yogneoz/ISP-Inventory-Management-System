@@ -697,7 +697,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   passing its counter (2 PurchaseOrders, 2 PurchaseInvoices, 1
   SerialLogRegister, 11 StockOperations, 4 ReturnsRegister, 2 SalesInvoices).
   A newly added unwired mount fails.
-- **All 115 feature screens pinned** — a coverage table asserts every screen
+- **All 116 feature screens pinned** — a coverage table asserts every screen
   under `client/src/features` exists in `SCREEN_SURFACE_PINS` with its exact
   server-call surface (`api.*` methods **and** named `services/api` imports —
   a bare `api.*` scan misses a named helper), so a fetch added by any mechanism must be
@@ -766,7 +766,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 2346-test suite against a PostgreSQL 16 service container (zero DB skips;
+  full 2352-test suite against a PostgreSQL 16 service container (zero DB skips;
   the two unconditional skips are Windows-only real-signal checks, which CI runs,
   and the live-drain check runs under `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1` so its
   preconditions cannot silently skip it) →
