@@ -9,6 +9,10 @@ import type {
 } from '../../services/api/accounting';
 import { StatusPill } from './StatementPrimitives';
 import { amountCell, money } from './statementFormat';
+import { ComparativePanel } from './ComparativePanel';
+import { trialBalanceComparisonRows } from './comparative';
+import { formatDualDate } from '../../utils/nepaliCalendar';
+import { precedingEqualWindow } from '../../utils/comparativePeriod';
 
 const toRow = (
   account: TrialBalanceAccount,
@@ -101,10 +105,24 @@ export const TrialBalanceView: React.FC<{
   data: TrialBalanceResponse;
   /** `GROUP_TOTALS` keeps group and sub-group subtotals but hides ledger rows. */
   detail?: 'DETAILED' | 'GROUP_TOTALS';
+  comparative?: boolean;
+  prior?: TrialBalanceResponse | null;
+  priorLoading?: boolean;
+  priorError?: string;
   onOpenGroup?: (group: TrialBalanceGroup) => void;
   onOpenAccount?: (account: TrialBalanceAccount) => void;
-}> = ({ data, detail = 'DETAILED', onOpenGroup, onOpenAccount }) => {
+}> = ({
+  data,
+  detail = 'DETAILED',
+  comparative = false,
+  prior = null,
+  priorLoading = false,
+  priorError = '',
+  onOpenGroup,
+  onOpenAccount,
+}) => {
   const groups = data.groups || [];
+  const priorWindow = precedingEqualWindow(data.from, data.to);
   const rows = groups.length > 0
     ? groups.flatMap((group) =>
         toGroupRows(group, 0, detail === 'DETAILED', onOpenGroup, onOpenAccount)
@@ -113,6 +131,18 @@ export const TrialBalanceView: React.FC<{
 
   return (
     <div className="space-y-4">
+      {comparative && (
+        <ComparativePanel
+          title="Comparative trial balance"
+          currentLabel={`${data.from ? formatDualDate(data.from) : 'From inception'} → ${formatDualDate(data.to)}`}
+          priorLabel={priorWindow ? `${formatDualDate(priorWindow.from)} → ${formatDualDate(priorWindow.to)}` : null}
+          rows={trialBalanceComparisonRows(data, prior, detail === 'DETAILED')}
+          note="Balances are closing debit minus closing credit per group and sub-group. Prior figures use the equal-length period ending the day before the current period start; a group absent from the prior chart contributes zero."
+          loading={priorLoading}
+          error={priorError}
+        />
+      )}
+
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="OPENING DEBIT / CREDIT" value={`${money(data.totals.openingDebit)} / ${money(data.totals.openingCredit)}`} tone="indigo" hint="Balance brought forward" />
         <StatCard label="PERIOD DEBIT" value={money(data.totals.periodDebit)} tone="emerald" hint="Posted debits in the period" />

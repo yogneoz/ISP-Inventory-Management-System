@@ -4,8 +4,11 @@ import type { ProfitAndLossResponse, StatementGroupBlock } from '../../services/
 import { SectionBody } from './StatementPrimitives';
 import { TAccountView } from './TAccountView';
 import { buildTradingAccount, type StatementFormat } from './statementTFormat';
+import { ComparativePanel } from './ComparativePanel';
+import { tradingAccountComparisonRows } from './comparative';
 import { money } from './statementFormat';
 import { formatDualDate } from '../../utils/nepaliCalendar';
+import { precedingEqualWindow } from '../../utils/comparativePeriod';
 
 const TRADING_NOTE =
   'Trading account uses the chart’s Revenue and Cost of sales groups. Closing stock is already reflected in cost of sales, so it is not added as a second line.';
@@ -18,29 +21,57 @@ const TRADING_NOTE =
 export const TradingAccountView: React.FC<{
   data: ProfitAndLossResponse;
   format?: StatementFormat;
+  comparative?: boolean;
+  prior?: ProfitAndLossResponse | null;
+  priorLoading?: boolean;
+  priorError?: string;
   onOpenGroup?: (group: StatementGroupBlock) => void;
-}> = ({ data, format = 'NORMAL', onOpenGroup }) => {
+}> = ({
+  data,
+  format = 'NORMAL',
+  comparative = false,
+  prior = null,
+  priorLoading = false,
+  priorError = '',
+  onOpenGroup,
+}) => {
   const tradingSections = data.sections.filter(
     (section) => section.statementGroup === 'REVENUE' || section.statementGroup === 'COST_OF_SALES'
   );
   const period = `${data.from ? formatDualDate(data.from) : 'From inception'} → ${formatDualDate(data.to)}`;
+  const priorWindow = precedingEqualWindow(data.from, data.to);
+  const comparison = comparative ? (
+    <ComparativePanel
+      title="Comparative trading account"
+      currentLabel={period}
+      priorLabel={priorWindow ? `${formatDualDate(priorWindow.from)} → ${formatDualDate(priorWindow.to)}` : null}
+      rows={tradingAccountComparisonRows(data, prior)}
+      note="Prior figures use the equal-length period ending the day before the current period start. Closing stock is not a separate comparative line because cost of sales already carries the stock movement."
+      loading={priorLoading}
+      error={priorError}
+    />
+  ) : null;
 
   if (format === 'T_FORMAT') {
     return (
-      <TAccountView
-        title="Trading account — T format"
-        subtitle={`${period}, from posted journal lines.`}
-        report={buildTradingAccount(data)}
-        debitLabel="Cost of sales"
-        creditLabel="Revenue"
-        note={TRADING_NOTE}
-        onOpenGroup={onOpenGroup}
-      />
+      <div className="space-y-4">
+        {comparison}
+        <TAccountView
+          title="Trading account — T format"
+          subtitle={`${period}, from posted journal lines.`}
+          report={buildTradingAccount(data)}
+          debitLabel="Cost of sales"
+          creditLabel="Revenue"
+          note={TRADING_NOTE}
+          onOpenGroup={onOpenGroup}
+        />
+      </div>
     );
   }
 
   return (
     <div className="space-y-4">
+      {comparison}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <StatCard label="REVENUE" value={money(data.revenue)} tone="emerald" hint="Trading income for the period" />
         <StatCard label="COST OF SALES" value={money(data.costOfSales)} tone="rose" hint="Inventory consumed by sales" />

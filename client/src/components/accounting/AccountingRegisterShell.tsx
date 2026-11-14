@@ -24,6 +24,8 @@ export interface AccountingScope {
 export interface AccountingScreenProps {
   branches: Branch[];
   dateMode: 'BS' | 'AD';
+  /** Current fiscal-year start; the balance-sheet prior column is its eve. */
+  fiscalYearStartAD?: string;
   /** The signed-in account; the ledger read is gated by `gl-view`. */
   currentUser?: User | null;
 }

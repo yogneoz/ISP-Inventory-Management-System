@@ -8,6 +8,26 @@ const buttonClass = (active: boolean): string =>
       : 'text-slate-600 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-slate-700'
   }`;
 
+/** Current period only vs the equal-length preceding period. */
+export const ComparativeToggle: React.FC<{
+  enabled: boolean;
+  onChange: (enabled: boolean) => void;
+}> = ({ enabled, onChange }) => (
+  <button
+    type="button"
+    aria-pressed={enabled}
+    aria-label="Compare periods"
+    className={`rounded-xl border px-3 py-1.5 text-[11px] font-bold transition-colors ${
+      enabled
+        ? 'border-indigo-600 bg-indigo-600 text-white'
+        : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800'
+    }`}
+    onClick={() => onChange(!enabled)}
+  >
+    Compare
+  </button>
+);
+
 /** Normal statement vs two-sided T-account presentation. */
 export const StatementFormatToggle: React.FC<{
   format: StatementFormat;

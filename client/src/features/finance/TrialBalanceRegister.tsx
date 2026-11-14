@@ -17,9 +17,11 @@ import {
 import type { AccountingScreenProps } from '../../components/accounting/AccountingRegisterShell';
 import { TrialBalanceView } from '../../components/accounting/TrialBalanceView';
 import {
+  ComparativeToggle,
   TrialBalanceDetailToggle,
   type TrialBalanceDetail,
 } from '../../components/accounting/StatementViewControls';
+import { precedingEqualWindow } from '../../utils/comparativePeriod';
 import {
   TrialBalanceDrilldown,
   type TrialBalanceDrilldownTarget,
@@ -34,6 +36,10 @@ export const TrialBalanceRegister: React.FC<AccountingScreenProps> = ({
   const [data, setData] = useState<TrialBalanceResponse | null>(null);
   const [drilldown, setDrilldown] = useState<TrialBalanceDrilldownTarget | null>(null);
   const [detail, setDetail] = useState<TrialBalanceDetail>('DETAILED');
+  const [comparative, setComparative] = useState(false);
+  const [prior, setPrior] = useState<TrialBalanceResponse | null>(null);
+  const [priorLoading, setPriorLoading] = useState(false);
+  const [priorError, setPriorError] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
@@ -63,11 +69,50 @@ export const TrialBalanceRegister: React.FC<AccountingScreenProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isVisible, scope.branchId, scope.asOfDate, activationKey, reloadKey]);
 
+  useEffect(() => {
+    if (!comparative || !data) {
+      setPrior(null);
+      setPriorError('');
+      setPriorLoading(false);
+      return;
+    }
+    const window = precedingEqualWindow(data.from, data.to);
+    if (!window) {
+      setPrior(null);
+      setPriorError('This trial balance has no period start, so a prior period cannot be derived.');
+      setPriorLoading(false);
+      return;
+    }
+    let live = true;
+    setPriorLoading(true);
+    setPriorError('');
+    setPrior(null);
+    void api.getTrialBalance({
+      branchId: scope.query.branchId,
+      from: window.from,
+      to: window.to,
+    })
+      .then((next) => {
+        if (live) setPrior(next);
+      })
+      .catch((err: any) => {
+        if (!live) return;
+        setPrior(null);
+        setPriorError(err?.message || 'The prior trial balance could not be loaded.');
+      })
+      .finally(() => {
+        if (live) setPriorLoading(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [comparative, data, scope.query.branchId]);
+
   // A refreshed trial balance or a new level of detail closes a drill-down
   // opened from the previous presentation.
   useEffect(() => {
     setDrilldown(null);
-  }, [data, detail]);
+  }, [data, detail, comparative]);
 
   return (
     <AccountingRegisterShell
@@ -79,7 +124,12 @@ export const TrialBalanceRegister: React.FC<AccountingScreenProps> = ({
       dateMode={dateMode}
       loading={loading}
       error={error}
-      headerActions={<TrialBalanceDetailToggle detail={detail} onChange={setDetail} />}
+      headerActions={
+        <>
+          <ComparativeToggle enabled={comparative} onChange={setComparative} />
+          <TrialBalanceDetailToggle detail={detail} onChange={setDetail} />
+        </>
+      }
       onRefresh={() => setReloadKey((key) => key + 1)}
       onRetry={() => setReloadKey((key) => key + 1)}
     >
@@ -88,6 +138,10 @@ export const TrialBalanceRegister: React.FC<AccountingScreenProps> = ({
           <TrialBalanceView
             data={data}
             detail={detail}
+            comparative={comparative}
+            prior={prior}
+            priorLoading={priorLoading}
+            priorError={priorError}
             onOpenGroup={(group) => setDrilldown({ kind: 'GROUP', group })}
             onOpenAccount={(account) => setDrilldown({ kind: 'ACCOUNT', account })}
           />

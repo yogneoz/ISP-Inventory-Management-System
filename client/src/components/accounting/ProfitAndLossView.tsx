@@ -4,32 +4,64 @@ import type { ProfitAndLossResponse, StatementGroupBlock } from '../../services/
 import { SectionBody } from './StatementPrimitives';
 import { TAccountView } from './TAccountView';
 import { buildProfitAndLossTAccount, type StatementFormat } from './statementTFormat';
+import { ComparativePanel } from './ComparativePanel';
+import { profitAndLossComparisonRows } from './comparative';
 import { money } from './statementFormat';
 import { formatDualDate } from '../../utils/nepaliCalendar';
+import { precedingEqualWindow } from '../../utils/comparativePeriod';
 
 export const ProfitAndLossView: React.FC<{
   data: ProfitAndLossResponse;
   /** Normal or two-sided presentation; the figures are identical. */
   format?: StatementFormat;
+  comparative?: boolean;
+  prior?: ProfitAndLossResponse | null;
+  priorLoading?: boolean;
+  priorError?: string;
   /** Opens the posted journal lines behind a group subtotal. */
   onOpenGroup?: (group: StatementGroupBlock) => void;
-}> = ({ data, format = 'NORMAL', onOpenGroup }) => {
+}> = ({
+  data,
+  format = 'NORMAL',
+  comparative = false,
+  prior = null,
+  priorLoading = false,
+  priorError = '',
+  onOpenGroup,
+}) => {
+  const priorWindow = precedingEqualWindow(data.from, data.to);
+  const comparison = comparative ? (
+    <ComparativePanel
+      title="Comparative profit & loss"
+      currentLabel={`${data.from ? formatDualDate(data.from) : 'From inception'} → ${formatDualDate(data.to)}`}
+      priorLabel={priorWindow ? `${formatDualDate(priorWindow.from)} → ${formatDualDate(priorWindow.to)}` : null}
+      rows={profitAndLossComparisonRows(data, prior)}
+      note="Prior figures use the equal-length period ending the day before the current period start. Change % is shown only when the prior figure is non-zero."
+      loading={priorLoading}
+      error={priorError}
+    />
+  ) : null;
+
   if (format === 'T_FORMAT') {
     return (
-      <TAccountView
-        title="Profit & loss — T format"
-        subtitle={`Turnover in the period ${data.from ? formatDualDate(data.from) : 'from inception'} → ${formatDualDate(data.to)}, from posted journal lines.`}
-        report={buildProfitAndLossTAccount(data)}
-        debitLabel="Expenses"
-        creditLabel="Income"
-        note="Gross profit is brought down from the trading account; a net profit is carried down on the debit side, and a net loss is carried down on the credit side."
-        onOpenGroup={onOpenGroup}
-      />
+      <div className="space-y-4">
+        {comparison}
+        <TAccountView
+          title="Profit & loss — T format"
+          subtitle={`Turnover in the period ${data.from ? formatDualDate(data.from) : 'from inception'} → ${formatDualDate(data.to)}, from posted journal lines.`}
+          report={buildProfitAndLossTAccount(data)}
+          debitLabel="Expenses"
+          creditLabel="Income"
+          note="Gross profit is brought down from the trading account; a net profit is carried down on the debit side, and a net loss is carried down on the credit side."
+          onOpenGroup={onOpenGroup}
+        />
+      </div>
     );
   }
 
   return (
     <div className="space-y-4">
+      {comparison}
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       <StatCard label="TOTAL INCOME" value={money(data.totalIncome)} tone="emerald" hint="Revenue and other income" />
       <StatCard label="COST OF SALES" value={money(data.costOfSales)} tone="rose" hint="Inventory consumed by sales" />

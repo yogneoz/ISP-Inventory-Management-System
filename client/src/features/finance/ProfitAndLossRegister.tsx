@@ -16,11 +16,13 @@ import type { AccountingScreenProps } from '../../components/accounting/Accounti
 import { ProfitAndLossView } from '../../components/accounting/ProfitAndLossView';
 import { TradingAccountView } from '../../components/accounting/TradingAccountView';
 import {
+  ComparativeToggle,
   ProfitAndLossViewToggle,
   StatementFormatToggle,
   type ProfitAndLossReportView,
 } from '../../components/accounting/StatementViewControls';
 import type { StatementFormat } from '../../components/accounting/statementTFormat';
+import { precedingEqualWindow } from '../../utils/comparativePeriod';
 import { StatementGroupDrilldown } from '../../components/accounting/StatementGroupDrilldown';
 
 export const ProfitAndLossRegister: React.FC<AccountingScreenProps> = ({
@@ -33,6 +35,10 @@ export const ProfitAndLossRegister: React.FC<AccountingScreenProps> = ({
   const [openGroup, setOpenGroup] = useState<StatementGroupBlock | null>(null);
   const [view, setView] = useState<ProfitAndLossReportView>('PROFIT_AND_LOSS');
   const [format, setFormat] = useState<StatementFormat>('NORMAL');
+  const [comparative, setComparative] = useState(false);
+  const [prior, setPrior] = useState<ProfitAndLossResponse | null>(null);
+  const [priorLoading, setPriorLoading] = useState(false);
+  const [priorError, setPriorError] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
@@ -62,11 +68,50 @@ export const ProfitAndLossRegister: React.FC<AccountingScreenProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isVisible, scope.branchId, scope.asOfDate, activationKey, reloadKey]);
 
+  useEffect(() => {
+    if (!comparative || !data) {
+      setPrior(null);
+      setPriorError('');
+      setPriorLoading(false);
+      return;
+    }
+    const window = precedingEqualWindow(data.from, data.to);
+    if (!window) {
+      setPrior(null);
+      setPriorError('This report has no period start, so a prior period cannot be derived.');
+      setPriorLoading(false);
+      return;
+    }
+    let live = true;
+    setPriorLoading(true);
+    setPriorError('');
+    setPrior(null);
+    void api.getProfitAndLoss({
+      branchId: scope.query.branchId,
+      from: window.from,
+      to: window.to,
+    })
+      .then((next) => {
+        if (live) setPrior(next);
+      })
+      .catch((err: any) => {
+        if (!live) return;
+        setPrior(null);
+        setPriorError(err?.message || 'The prior profit and loss statement could not be loaded.');
+      })
+      .finally(() => {
+        if (live) setPriorLoading(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [comparative, data, scope.query.branchId]);
+
   // A refreshed statement, a new report or a new presentation no longer shows
   // the same group in the same context; close the old drill-down.
   useEffect(() => {
     setOpenGroup(null);
-  }, [data, view, format]);
+  }, [data, view, format, comparative]);
 
   return (
     <AccountingRegisterShell
@@ -80,6 +125,7 @@ export const ProfitAndLossRegister: React.FC<AccountingScreenProps> = ({
       error={error}
       headerActions={
         <>
+          <ComparativeToggle enabled={comparative} onChange={setComparative} />
           <ProfitAndLossViewToggle view={view} onChange={setView} />
           <StatementFormatToggle format={format} onChange={setFormat} />
         </>
@@ -90,9 +136,25 @@ export const ProfitAndLossRegister: React.FC<AccountingScreenProps> = ({
       {data ? (
         <>
           {view === 'TRADING' ? (
-            <TradingAccountView data={data} format={format} onOpenGroup={setOpenGroup} />
+            <TradingAccountView
+              data={data}
+              format={format}
+              comparative={comparative}
+              prior={prior}
+              priorLoading={priorLoading}
+              priorError={priorError}
+              onOpenGroup={setOpenGroup}
+            />
           ) : (
-            <ProfitAndLossView data={data} format={format} onOpenGroup={setOpenGroup} />
+            <ProfitAndLossView
+              data={data}
+              format={format}
+              comparative={comparative}
+              prior={prior}
+              priorLoading={priorLoading}
+              priorError={priorError}
+              onOpenGroup={setOpenGroup}
+            />
           )}
           {openGroup && (
             <StatementGroupDrilldown

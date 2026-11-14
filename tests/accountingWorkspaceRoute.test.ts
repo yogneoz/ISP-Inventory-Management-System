@@ -1369,6 +1369,56 @@ test('trial balance register drills into a group and shows opening and period se
   }
 });
 
+test('trial balance comparative mode shows prior group balances and survives Groups only', async () => {
+  const calls: any[] = [];
+  const priorTrialBalance = { ...trialBalance('ALL', '2026-07-16', 8000), from: '2026-03-30' };
+  const restored = mountWorkspace(accountant);
+  const restoreApi = installApiStubs(
+    accountingStubs({
+      getTrialBalance: async (query: any) => {
+        calls.push(query);
+        return query.from === '2026-03-30' ? priorTrialBalance : trialBalance();
+      },
+    })
+  );
+  const tree = mountAppRouteTree();
+
+  try {
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes('Accounts Receivable')),
+      'the current trial balance must load before comparing'
+    );
+    inAct(() => buttonByText(tree.container, 'Compare').click());
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes('Comparative trial balance')),
+      'the comparative panel must open'
+    );
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes(formatNPR(8000))),
+      'the prior group balance must load'
+    );
+    assert.match(text(tree.container), /\+41\.3%/, 'the prior-to-current change must render');
+    assert.deepEqual(calls[1], {
+      branchId: undefined,
+      from: '2026-03-30',
+      to: '2026-07-16',
+    });
+
+    inAct(() => buttonByText(tree.container, 'Groups only').click());
+    assert.match(text(tree.container), /Only group and sub-group subtotals are shown/);
+    assert.match(text(tree.container), /Comparative trial balance/);
+    assert.doesNotMatch(
+      text(tree.container),
+      /1100 · Accounts Receivable/,
+      'Groups only must hide ledger rows in the comparative table too'
+    );
+  } finally {
+    tree.unmount();
+    restoreApi();
+    restored.restoreEventSource();
+  }
+});
+
 test('trial balance register drills into an account and shows its running balance', async () => {
   const calls: any[] = [];
   const restored = mountWorkspace(accountant);
@@ -1409,6 +1459,133 @@ test('trial balance register drills into an account and shows its running balanc
     assert.ok(
       await settleUntil(() => !text(tree.container).includes('Customer invoice')),
       'closing the panel must return to the trial balance'
+    );
+  } finally {
+    tree.unmount();
+    restoreApi();
+    restored.restoreEventSource();
+  }
+});
+
+test('P&L comparative mode works in normal, T-format and trading views', async () => {
+  const calls: any[] = [];
+  const prior = {
+    ...profitAndLoss,
+    revenue: 8000,
+    totalIncome: 8000,
+    costOfSales: 3000,
+    operatingExpense: 500,
+    totalExpenses: 3500,
+    grossProfit: 5000,
+    netProfit: 4500,
+  };
+  const restored = mountWorkspace(accountant, 'accounting-profit-loss');
+  const restoreApi = installApiStubs(
+    accountingStubs({
+      getBootstrapState: async () => bootstrapWithTab('accounting-profit-loss'),
+      getProfitAndLoss: async (query: any) => {
+        calls.push(query);
+        if (query.from) return prior;
+        return query.to === '2026-11-03' ? { ...profitAndLoss, to: '2026-11-03' } : profitAndLoss;
+      },
+    })
+  );
+  const tree = mountAppRouteTree();
+
+  try {
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes('Statement of profit or loss')),
+      'the current profit and loss must load before comparing'
+    );
+    clickAria(tree.container, 'Open journal lines for REV Trading Revenue');
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes('Counter sales')),
+      'the drill-down must open before the mode changes'
+    );
+    inAct(() => buttonByText(tree.container, 'Compare').click());
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes(formatNPR(8000))),
+      'the prior profit and loss must load'
+    );
+    assert.match(text(tree.container), /Comparative profit & loss/);
+    assert.doesNotMatch(text(tree.container), /Counter sales/, 'switching to comparative must close the drill-down');
+    assert.match(text(tree.container), /\+25\.0%/, 'the revenue change percentage must render');
+    assert.deepEqual(calls[1], {
+      branchId: undefined,
+      from: '2026-03-30',
+      to: '2026-07-16',
+    });
+
+    inAct(() => buttonByText(tree.container, 'T-Format').click());
+    assert.match(text(tree.container), /Profit & loss — T format/);
+    assert.match(text(tree.container), /Both sides agree/);
+    assert.match(text(tree.container), /Comparative profit & loss/);
+
+    inAct(() => buttonByText(tree.container, 'Trading').click());
+    assert.match(text(tree.container), /Comparative trading account/);
+    assert.match(text(tree.container), /Trading account — T format/);
+    assert.match(text(tree.container), /Gross profit c\/d/);
+
+    inAct(() => buttonByText(tree.container, 'Normal').click());
+    assert.match(text(tree.container), /Trading account/);
+    assert.doesNotMatch(text(tree.container), /Trading account — T format/);
+    assert.match(text(tree.container), /Comparative trading account/);
+
+    const asOf = tree.container.querySelector('[aria-label="Accounting as of date"]') as HTMLInputElement;
+    setInputValue(asOf, '2026-11-03');
+    assert.ok(
+      await settleUntil(
+        () =>
+          calls.some((call) => call.to === '2026-11-03') &&
+          calls.some((call) => call.from === '2026-03-29')
+      ),
+      'changing the current period must refetch the current statement and its new prior window'
+    );
+  } finally {
+    tree.unmount();
+    restoreApi();
+    restored.restoreEventSource();
+  }
+});
+
+test('comparative trading account shows a real zero prior when the prior window has no activity', async () => {
+  const emptyPrior = {
+    ...profitAndLoss,
+    sections: [],
+    revenue: 0,
+    otherIncome: 0,
+    totalIncome: 0,
+    costOfSales: 0,
+    operatingExpense: 0,
+    otherExpense: 0,
+    totalExpenses: 0,
+    grossProfit: 0,
+    netProfit: 0,
+  };
+  const restored = mountWorkspace(accountant, 'accounting-profit-loss');
+  const restoreApi = installApiStubs(
+    accountingStubs({
+      getBootstrapState: async () => bootstrapWithTab('accounting-profit-loss'),
+      getProfitAndLoss: async (query: any) =>
+        query.from === '2026-03-30' ? emptyPrior : profitAndLoss,
+    })
+  );
+  const tree = mountAppRouteTree();
+
+  try {
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes('Statement of profit or loss')),
+      'the current profit and loss must load'
+    );
+    inAct(() => buttonByText(tree.container, 'Compare').click());
+    inAct(() => buttonByText(tree.container, 'Trading').click());
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes('Comparative trading account')),
+      'the comparative trading panel must open'
+    );
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes(formatNPR(0))),
+      'an empty prior window must render zero, not a fabricated value'
     );
   } finally {
     tree.unmount();
@@ -1475,6 +1652,54 @@ test('profit and loss register renders the endpoint figures and drills into a gr
     assert.match(text(tree.container), /Trading account — T format/);
     assert.match(text(tree.container), /Gross profit c\/d/);
     assert.match(text(tree.container), /Cost of sales/, 'the trading debit side must show cost of sales');
+  } finally {
+    tree.unmount();
+    restoreApi();
+    restored.restoreEventSource();
+  }
+});
+
+test('balance sheet comparative mode shows the prior fiscal-year end and still ties in T-format', async () => {
+  const calls: any[] = [];
+  const priorBalanceSheet = {
+    ...balanceSheet,
+    totalAssets: 40000,
+    totalLiabilities: 5000,
+    equity: { ...balanceSheet.equity, currentEarnings: 15000, total: 35000 },
+    totalEquity: 35000,
+    totalLiabilitiesAndEquity: 40000,
+    asOf: '2026-07-16',
+  };
+  const restored = mountWorkspace(accountant, 'accounting-balance-sheet');
+  const restoreApi = installApiStubs(
+    accountingStubs({
+      getBootstrapState: async () => bootstrapWithTab('accounting-balance-sheet'),
+      getBalanceSheet: async (query: any) => {
+        calls.push(query);
+        return query.to === '2026-07-16' ? priorBalanceSheet : balanceSheet;
+      },
+    })
+  );
+  const tree = mountAppRouteTree();
+
+  try {
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes('Balance sheet balances')),
+      'the current balance sheet must load before comparing'
+    );
+    inAct(() => buttonByText(tree.container, 'Compare').click());
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes(formatNPR(40000))),
+      'the prior balance sheet must load'
+    );
+    assert.match(text(tree.container), /Comparative balance sheet/);
+    assert.match(text(tree.container), /As of 2083-03-32/, 'the prior fiscal-year end must be labelled');
+    assert.deepEqual(calls[1], { branchId: undefined, to: '2026-07-16' });
+
+    inAct(() => buttonByText(tree.container, 'T-Format').click());
+    assert.match(text(tree.container), /Balance sheet — T format/);
+    assert.match(text(tree.container), /Both sides agree/);
+    assert.match(text(tree.container), /Comparative balance sheet/);
   } finally {
     tree.unmount();
     restoreApi();

@@ -3401,7 +3401,7 @@ export default function App() {
     )),
     screenRoute('accounting', (
       <React.Suspense fallback={<TabLoadingFallback />}>
-        <TrialBalanceRegister branches={branches} dateMode={dateMode} currentUser={currentUser} />
+        <TrialBalanceRegister branches={branches} dateMode={dateMode} currentUser={currentUser} fiscalYearStartAD={selectedFiscalYear?.startDateAD} />
       </React.Suspense>
     )),
     screenRoute('accounting-bs-summary', (
@@ -3415,12 +3415,12 @@ export default function App() {
     )),
     screenRoute('accounting-profit-loss', (
       <React.Suspense fallback={<TabLoadingFallback />}>
-        <ProfitAndLossRegister branches={branches} dateMode={dateMode} currentUser={currentUser} />
+        <ProfitAndLossRegister branches={branches} dateMode={dateMode} currentUser={currentUser} fiscalYearStartAD={selectedFiscalYear?.startDateAD} />
       </React.Suspense>
     )),
     screenRoute('accounting-balance-sheet', (
       <React.Suspense fallback={<TabLoadingFallback />}>
-        <BalanceSheetRegister branches={branches} dateMode={dateMode} currentUser={currentUser} />
+        <BalanceSheetRegister branches={branches} dateMode={dateMode} currentUser={currentUser} fiscalYearStartAD={selectedFiscalYear?.startDateAD} />
       </React.Suspense>
     )),
     screenRoute('accounting-cash-flow', (

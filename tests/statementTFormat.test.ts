@@ -145,3 +145,13 @@ test('balance sheet T view adds current earnings exactly once', () => {
   assert.equal(report.credit.entries[0].amount, 200);
   assert.equal(report.balanced, true);
 });
+
+test('a T-format side with a difference reports it instead of forcing a balance', () => {
+  const report = buildProfitAndLossTAccount(
+    profitAndLoss({ grossProfit: 500, netProfit: 240 })
+  );
+  assert.equal(report.debit.total, 450);
+  assert.equal(report.credit.total, 550);
+  assert.equal(report.balanced, false);
+  assert.equal(report.difference, -100);
+});

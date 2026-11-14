@@ -3,6 +3,8 @@ import type { BalanceSheetResponse, StatementGroupBlock } from '../../services/a
 import { SectionBody, StatusPill } from './StatementPrimitives';
 import { TAccountView } from './TAccountView';
 import { buildBalanceSheetTAccount, type StatementFormat } from './statementTFormat';
+import { ComparativePanel } from './ComparativePanel';
+import { balanceSheetComparisonRows } from './comparative';
 import { money } from './statementFormat';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 
@@ -10,25 +12,56 @@ export const BalanceSheetView: React.FC<{
   data: BalanceSheetResponse;
   /** Normal or two-sided presentation; the figures are identical. */
   format?: StatementFormat;
+  comparative?: boolean;
+  prior?: BalanceSheetResponse | null;
+  priorLoading?: boolean;
+  priorError?: string;
+  /** Prior fiscal-year-end date, even while its response is loading. */
+  priorAsOf?: string | null;
   /** Opens the posted journal lines behind a group subtotal. */
   onOpenGroup?: (group: StatementGroupBlock) => void;
-}> = ({ data, format = 'NORMAL', onOpenGroup }) => {
+}> = ({
+  data,
+  format = 'NORMAL',
+  comparative = false,
+  prior = null,
+  priorLoading = false,
+  priorError = '',
+  priorAsOf = null,
+  onOpenGroup,
+}) => {
+  const comparison = comparative ? (
+    <ComparativePanel
+      title="Comparative balance sheet"
+      currentLabel={`As of ${formatDualDate(data.asOf)}`}
+      priorLabel={priorAsOf ? `As of ${formatDualDate(priorAsOf)}` : null}
+      rows={balanceSheetComparisonRows(data, prior)}
+      note="Prior figures are the end of the immediately preceding fiscal year (the day before the current fiscal-year start). Current earnings and the balancing equity line come from each period's own response, never from the current column."
+      loading={priorLoading}
+      error={priorError}
+    />
+  ) : null;
+
   if (format === 'T_FORMAT') {
     return (
-      <TAccountView
-        title="Balance sheet — T format"
-        subtitle={`Assets against liabilities and equity as of ${formatDualDate(data.asOf)}, from posted journal lines.`}
-        report={buildBalanceSheetTAccount(data)}
-        debitLabel="Assets"
-        creditLabel="Liabilities & equity"
-        note="Current earnings is the same equity line shown on the normal balance sheet; it is included once in the credit total."
-        onOpenGroup={onOpenGroup}
-      />
+      <div className="space-y-4">
+        {comparison}
+        <TAccountView
+          title="Balance sheet — T format"
+          subtitle={`Assets against liabilities and equity as of ${formatDualDate(data.asOf)}, from posted journal lines.`}
+          report={buildBalanceSheetTAccount(data)}
+          debitLabel="Assets"
+          creditLabel="Liabilities & equity"
+          note="Current earnings is the same equity line shown on the normal balance sheet; it is included once in the credit total."
+          onOpenGroup={onOpenGroup}
+        />
+      </div>
     );
   }
 
   return (
     <div className="space-y-4">
+      {comparison}
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-900/40">
       <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
         Assets must equal liabilities plus equity as of {formatDualDate(data.asOf)}.
