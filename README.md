@@ -319,6 +319,15 @@ npm run integrity:check
 
 ---
 
+### Accounting upgrade & rollout
+
+Existing installs apply numbered migrations automatically at boot; posted
+history is never rewritten and party books plus the close checklist are
+backfilled by `0016_existing_install_backfill`. The operator runbook — chart and
+custody end state, the historical online-receipt limitation, the deterministic
+demo seed and the pre-production checks — is
+[`docs/accounting-upgrade-rollout.md`](docs/accounting-upgrade-rollout.md).
+
 ## 🏭 Production Deployment Guide (Ubuntu / Debian VPS)
 
 ### 📋 Recommended Server Specifications
@@ -757,7 +766,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 2323-test suite against a PostgreSQL 16 service container (zero DB skips;
+  full 2325-test suite against a PostgreSQL 16 service container (zero DB skips;
   the two unconditional skips are Windows-only real-signal checks, which CI runs,
   and the live-drain check runs under `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1` so its
   preconditions cannot silently skip it) →

@@ -227,6 +227,17 @@ export const EXTRA_CHART_ACCOUNTS = [
   { code: '1400', name: 'Prepaid & Deposits', groupCode: '1000', description: 'Rent deposits and prepaid expenses.', isControl: false, subledgerType: 'NONE', postingRole: null },
   { code: '3010', name: 'Share Capital', groupCode: '3000', description: 'Capital introduced by the owners.', isControl: false, subledgerType: 'NONE', postingRole: null },
   { code: '4020', name: 'Service Revenue', groupCode: '4000', description: 'Internet subscription and service-plan revenue.', isControl: false, subledgerType: 'NONE', postingRole: null },
+  // Demo custody: one shared operating bank (1020) plus three more banks, and
+  // a till owned by each branch. They deliberately have no posting role, so
+  // the posting defaults stay unambiguous while the custody screens have a
+  // realistic set of accounts.
+  { code: '1021', name: 'Nabil Bank — Operations', groupCode: '1000', description: 'Operations current account at Nabil Bank.', isControl: false, subledgerType: 'NONE', postingRole: null, accountKind: 'BANK', bankName: 'Nabil Bank' },
+  { code: '1022', name: 'NIC Asia — Collections', groupCode: '1000', description: 'Customer collections account at NIC Asia.', isControl: false, subledgerType: 'NONE', postingRole: null, accountKind: 'BANK', bankName: 'NIC Asia' },
+  { code: '1023', name: 'Rastriya Banijya — Payroll', groupCode: '1000', description: 'Payroll disbursement account at Rastriya Banijya Bank.', isControl: false, subledgerType: 'NONE', postingRole: null, accountKind: 'BANK', bankName: 'Rastriya Banijya Bank' },
+  { code: '1011', name: 'Kathmandu Till', groupCode: '1000', description: 'Kathmandu branch cash till.', isControl: false, subledgerType: 'NONE', postingRole: null, accountKind: 'CASH', branchId: 'BR-KTM' },
+  { code: '1012', name: 'Pokhara Till', groupCode: '1000', description: 'Pokhara branch cash till.', isControl: false, subledgerType: 'NONE', postingRole: null, accountKind: 'CASH', branchId: 'BR-PKR' },
+  { code: '1013', name: 'Butwal Till', groupCode: '1000', description: 'Butwal branch cash till.', isControl: false, subledgerType: 'NONE', postingRole: null, accountKind: 'CASH', branchId: 'BR-BTL' },
+  { code: '1014', name: 'Dharan Till', groupCode: '1000', description: 'Dharan branch cash till.', isControl: false, subledgerType: 'NONE', postingRole: null, accountKind: 'CASH', branchId: 'BR-DHN' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -298,6 +309,7 @@ export interface VerificationDataset {
   salesInvoices: any[];
   customerPayments: any[];
   vendorPayments: any[];
+  paymentSettlements: any[];
   journals: any[];
   journalLines: any[];
   subledgerEntries: any[];
@@ -1029,6 +1041,56 @@ export function buildVerificationDataset(): VerificationDataset {
     });
   }
 
+  // A representative PSP settlement row: one KTM wallet receipt paid out net
+  // of a provider fee. It points at the receipt journal the demo receipt
+  // already posted; the seeded ledger targets stay untouched.
+  const settledPayment = customerPayments.find((payment) => payment.id === 'cp-ktm-4');
+  const settledJournal = settledPayment
+    ? journals.find(
+        (journal) =>
+          journal.sourceType === 'CUSTOMER_RECEIPT' && journal.sourceId === settledPayment.id
+      )
+    : null;
+  const paymentSettlements = settledPayment && settledJournal
+    ? [{
+        id: 'demo-settlement-esewa-1',
+        settlementNumber: 'PSP-ESEWA-2083-0001',
+        customerPaymentId: settledPayment.id,
+        walletAccountId: 'gla-1030',
+        bankAccountId: 'gla-1020',
+        settlementDateAD: settledPayment.paymentDateAD,
+        settlementDateBS: settledPayment.paymentDateBS,
+        grossAmount: settledPayment.amount,
+        feeAmount: 25,
+        netAmount: settledPayment.amount - 25,
+        providerReference: 'ESEWA-DEMO-0001',
+        journalId: settledJournal.id,
+        status: 'POSTED',
+        isDemo: true,
+      }]
+    : [];
+
+  // A deliberate, balanced demo control difference: an employee advance with no
+  // party row, so chart health and the control tie-out have something real to
+  // show. It does not touch AR/AP/cash/inventory/equity/fixed assets/prepaid;
+  // the credit reclassifies a previously expensed advance and keeps the balance
+  // sheet in balance.
+  post({
+    branchId: 'BR-KTM',
+    date: '2026-10-31',
+    sourceType: 'OPENING',
+    sourceId: 'demo-health-difference',
+    memo: 'Demo control-account difference — employee advance without a party row',
+    lines: [
+      { code: '1620', debit: 100, memo: 'Employee advance (no party detail)' },
+      { code: '6100', credit: 100, memo: 'Previously expensed advance reclassified' },
+    ],
+  });
+
+  // One posted party row without a subledger book id, so the chart-health
+  // unlinked-row report is exercised by the demo dataset itself.
+  if (subledgerEntries.length > 0) subledgerEntries[0].subledgerId = null;
+
   return {
     company: {
       id: 'COMP-001',
@@ -1080,6 +1142,7 @@ export function buildVerificationDataset(): VerificationDataset {
     salesInvoices,
     customerPayments,
     vendorPayments,
+    paymentSettlements,
     journals,
     journalLines,
     subledgerEntries,

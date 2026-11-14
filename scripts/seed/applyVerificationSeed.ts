@@ -196,23 +196,25 @@ export async function applyVerificationSeed(client: any, dataset: VerificationDa
 
   const groupIdByCode = new Map<string, string>();
   await insertRows(client, 'gl_account_groups',
-    ['id', 'code', 'name', 'account_type', 'statement_group', 'normal_balance', 'sort_order', 'is_active', 'is_demo'],
+    ['id', 'parent_id', 'code', 'name', 'account_type', 'statement_group', 'normal_balance', 'sort_order', 'is_active', 'is_demo'],
     count('chartGroups', dataset.chartGroups).map((g) => {
       const id = `glg-${g.code}`;
       groupIdByCode.set(g.code, id);
       return {
-        id, code: g.code, name: g.name, account_type: g.accountType, statement_group: g.statementGroup,
+        id, parent_id: g.parentCode ? `glg-${g.parentCode}` : null,
+        code: g.code, name: g.name, account_type: g.accountType, statement_group: g.statementGroup,
         normal_balance: g.normalBalance, sort_order: g.sortOrder, is_active: true, is_demo: true,
       };
     }));
 
   await insertRows(client, 'gl_accounts',
-    ['id', 'code', 'name', 'group_id', 'description', 'is_control', 'subledger_type', 'posting_role', 'is_active', 'is_demo', 'account_kind'],
+    ['id', 'code', 'name', 'group_id', 'description', 'is_control', 'subledger_type', 'posting_role', 'is_active', 'is_demo', 'account_kind', 'branch_id'],
     count('chartAccounts', dataset.chartAccounts).map((a) => ({
       id: `gla-${a.code}`, code: a.code, name: a.name, group_id: groupIdByCode.get(a.groupCode),
       description: a.description, is_control: a.isControl, subledger_type: a.subledgerType,
       posting_role: a.postingRole, is_active: true, is_demo: true,
-      account_kind: a.code === '1010' ? 'CASH' : a.code === '1020' ? 'BANK' : 'OTHER',
+      account_kind: a.accountKind || (a.code === '1010' ? 'CASH' : a.code === '1020' ? 'BANK' : 'OTHER'),
+      branch_id: a.branchId || null,
     })));
 
   await insertRows(client, 'gl_subledgers',
@@ -223,6 +225,29 @@ export async function applyVerificationSeed(client: any, dataset: VerificationDa
       description: `Subledger book behind the ${a.name} control account.`,
       is_active: true, is_demo: true,
     })));
+
+  // Demo party books: one per control account/party that already has posted
+  // rows. They are read-time attribution, exactly like the application's
+  // Generate action; no posted row is rewritten.
+  const partyBooks = new Map<string, any>();
+  for (const entry of dataset.subledgerEntries) {
+    const key = `${entry.accountCode}:${entry.partyId}`;
+    if (partyBooks.has(key)) continue;
+    partyBooks.set(key, {
+      id: `gls-${entry.accountCode}-${String(entry.partyId).replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 34)}`,
+      code: `SL-${entry.accountCode}-${String(entry.partyId).replace(/[^A-Za-z0-9]/g, '').slice(0, 18)}`,
+      name: String(entry.partyName || entry.partyId).slice(0, 150),
+      subledger_type: entry.subledgerType,
+      main_account_id: `gla-${entry.accountCode}`,
+      party_id: entry.partyId,
+      description: `Party book for ${entry.partyName || entry.partyId}.`,
+      is_active: true,
+      is_demo: true,
+    });
+  }
+  await insertRows(client, 'gl_subledgers',
+    ['id', 'code', 'name', 'subledger_type', 'main_account_id', 'party_id', 'description', 'is_active', 'is_demo'],
+    [...partyBooks.values()]);
 
   await insertRows(client, 'bill_terms',
     ['id', 'code', 'name', 'due_days', 'discount_days', 'discount_percent', 'active', 'is_demo'],
@@ -402,6 +427,18 @@ export async function applyVerificationSeed(client: any, dataset: VerificationDa
     })));
 
   // ---- ledger ------------------------------------------------------------
+  // Every demo period carries the full close checklist, including the
+  // inventory and PSP reconciliation tasks. ON CONFLICT keeps a reseed
+  // deterministic without resetting an operator's task status.
+  await client.query(
+    `INSERT INTO gl_close_checklist_items (id, period_id, task_code, title, required, sort_order)
+     SELECT 'glci-' || md5(p.id || ':' || t.code), p.id, t.code, t.title, t.required, t.sort_order
+       FROM gl_periods p
+       CROSS JOIN gl_close_task_templates t
+      WHERE t.active = TRUE
+     ON CONFLICT (period_id, task_code) DO NOTHING`
+  );
+
   await insertRows(client, 'gl_journals',
     ['id', 'journal_no', 'journal_date_ad', 'journal_date_bs', 'fiscal_year_id', 'period_id', 'branch_id', 'source_type', 'source_id', 'memo', 'status', 'posted_by', 'is_demo'],
     count('journals', dataset.journals).map((j) => ({
@@ -411,19 +448,25 @@ export async function applyVerificationSeed(client: any, dataset: VerificationDa
       memo: j.memo, status: j.status, posted_by: j.postedBy, is_demo: j.isDemo,
     })));
 
-  // line_no is per journal, even though ids are global.
+  // line_no is per journal, even though ids are global. The partition key and
+  // its BS half come from the header, because gl_journal_lines is partitioned
+  // by journal_date_ad and both columns are NOT NULL.
+  const journalDates = new Map(dataset.journals.map((journal) => [journal.id, journal.journalDateAD]));
   const lineNumbers = new Map<string, number>();
   const lineRows = dataset.journalLines.map((line) => {
     const next = (lineNumbers.get(line.journalId) || 0) + 1;
     lineNumbers.set(line.journalId, next);
+    const journalDate = journalDates.get(line.journalId);
+    if (!journalDate) throw new Error(`verification seed: journal ${line.journalId} has no date`);
     return {
-      id: line.id, journal_id: line.journalId, line_no: next, account_id: `gla-${line.accountCode}`,
+      id: line.id, journal_id: line.journalId, journal_date_ad: journalDate,
+      journal_date_bs: bsLabel(journalDate), line_no: next, account_id: `gla-${line.accountCode}`,
       branch_id: line.branchId, cost_center_id: line.costCenterId || null,
       debit: line.debit, credit: line.credit, memo: line.memo,
     };
   });
   await insertRows(client, 'gl_journal_lines',
-    ['id', 'journal_id', 'line_no', 'account_id', 'branch_id', 'cost_center_id', 'debit', 'credit', 'memo'],
+    ['id', 'journal_id', 'journal_date_ad', 'journal_date_bs', 'line_no', 'account_id', 'branch_id', 'cost_center_id', 'debit', 'credit', 'memo'],
     count('journalLines', lineRows));
   // Existing demo databases have the same lines without the analytical tag.
   // The insert above skips them on conflict, so backfill NULLs separately.
@@ -433,9 +476,21 @@ export async function applyVerificationSeed(client: any, dataset: VerificationDa
     ['id', 'journal_id', 'journal_line_id', 'account_id', 'subledger_id', 'subledger_type', 'party_id', 'party_name', 'branch_id', 'entry_date_ad', 'entry_date_bs', 'debit', 'credit'],
     dataset.subledgerEntries.map((s) => ({
       id: s.id, journal_id: s.journalId, journal_line_id: s.journalLineId, account_id: `gla-${s.accountCode}`,
-      subledger_id: `gls-${s.accountCode}`,
+      subledger_id: s.subledgerId === null ? null : `gls-${s.accountCode}`,
       subledger_type: s.subledgerType, party_id: s.partyId, party_name: s.partyName, branch_id: s.branchId,
       entry_date_ad: s.entryDateAD, entry_date_bs: bsLabel(s.entryDateAD), debit: s.debit, credit: s.credit,
+    })));
+
+  await insertRows(client, 'payment_settlements',
+    ['id', 'settlement_number', 'customer_payment_id', 'wallet_account_id', 'bank_account_id',
+      'settlement_date_ad', 'settlement_date_bs', 'gross_amount', 'fee_amount', 'net_amount',
+      'provider_reference', 'journal_id', 'status', 'is_demo'],
+    count('paymentSettlements', dataset.paymentSettlements).map((s) => ({
+      id: s.id, settlement_number: s.settlementNumber, customer_payment_id: s.customerPaymentId,
+      wallet_account_id: s.walletAccountId, bank_account_id: s.bankAccountId,
+      settlement_date_ad: s.settlementDateAD, settlement_date_bs: bsLabel(s.settlementDateAD),
+      gross_amount: s.grossAmount, fee_amount: s.feeAmount, net_amount: s.netAmount,
+      provider_reference: s.providerReference, journal_id: s.journalId, status: s.status, is_demo: s.isDemo,
     })));
 
   return summary;

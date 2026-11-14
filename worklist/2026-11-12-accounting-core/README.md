@@ -1,6 +1,6 @@
 # Round 10 — Accounting as the financial spine of inventory operations
 
-Status: `[~]` planning / approval · Opened 2026-11-12 · Owner: main
+Status: `[x]` complete · Opened 2026-11-12 · Owner: main
 Goal: make every inventory operation financially complete, branch-aware and
 reconcilable, without turning the general ledger into a stock-quantity ledger.
 
@@ -511,14 +511,15 @@ and opens a party statement from an aging row with its control tie-out.
 
 Priority: P2 · Depends on: ACC-1…ACC-6
 
-- [ ] Migrate existing installs without rewriting posted history:
-      create new bank/wallet accounts, post reclassification/opening entries,
-      keep historical online receipts where they are and disclose the limitation.
-- [ ] Backfill party subledger books before switching ledger reads.
-- [ ] Update the demo seed with four banks, three wallets, branch tills and
+- [x] Migrate existing installs without rewriting posted history: boot seed
+      creates missing custody/wallet ledgers, `0016` backfills party books and
+      close tasks, and ambiguous historical online receipts stay in place with
+      the limitation documented instead of being silently reclassified.
+- [x] Backfill party subledger books before switching ledger reads.
+- [x] Update the demo seed with four banks, three wallets, branch tills and
       representative settlement/fee rows.
-- [ ] Update README, handoff, SESSION_NOTES and table/screen/route counts.
-- [ ] Run the full gate chain at round close.
+- [x] Update README, handoff, SESSION_NOTES and table/screen/route counts.
+- [x] Run the full gate chain at round close.
 
 ## Order of work
 
@@ -635,4 +636,25 @@ Before a slice is marked done:
       accounting workspace (24/24) and the recurring-close suite. Full suite and
       fresh-install evidence are in SESSION_NOTES.
 - No ACC-6 acceptance criterion remains open.
-- Next action: start ACC-7 (migration, demo data and rollout).
+- `[x]` ACC-7 implementation: migration `0016_existing_install_backfill`
+      backfills one deterministic party book per posted control-account party and
+      the full required close checklist on every existing period, and adds the
+      fee constraint migration `0011` missed. Boot seeding creates any missing
+      wallet clearing ledger; trade groups stay under their roots, while an
+      operator-reorganised AR/AP account is preserved. Historical online
+      receipts are left in their posted custody ledger with the limitation in
+      `docs/accounting-upgrade-rollout.md`; no ambiguous reclassification is
+      posted automatically.
+- `[x]` Demo seed expanded deterministically: four banks, three wallet ledgers,
+      four branch tills, party books, one unlinked subledger row, one balanced
+      employee-advance control difference, one eSewa settlement with a fee, and
+      the seven-task checklist on every demo period. The published AR/AP/
+      inventory/cash/equity targets are unchanged.
+- `[x]` ACC-7 verified against PostgreSQL: `tests/acc7Upgrade.api.test.ts`
+      upgrades a schema from commit `1e9bbeb`, preserves operator chart moves,
+      backfills books/tasks, replays with zero applied migrations and unchanged
+      data, and matches a fresh install's schema signature.
+      `tests/acc7DemoSeed.api.test.ts` proves the expanded demo surface and a
+      no-op repeat seed. Rollout is linked from the README. Full gate chain and
+      fresh-install evidence are in SESSION_NOTES.
+- No ACC-7 acceptance criterion remains open. The round is complete.

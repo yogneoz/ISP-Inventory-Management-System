@@ -183,7 +183,8 @@ describe('verification dataset', () => {
 
     // Assets = liabilities + equity + current-year result.
     const assets =
-      balance('1100') + balance('1200') + balance('1010') + balance('1020') + balance('1400') + balance('1520');
+      balance('1100') + balance('1200') + balance('1010') + balance('1020') + balance('1400') +
+      balance('1520') + balance('1620');
     const liabilities = -balance('2100');
     const equity = -balance('3010');
     const result = -(balance('4000') + balance('4020') + balance('5000') + balance('6100') + balance('6400'));
