@@ -53,6 +53,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          # ACC-7's upgrade test compares the current schema with the prior
+          # released schema via `git show <commit>:scripts/schema.sql`.
+          fetch-depth: 0
       - uses: actions/setup-node@v5
         with:
           node-version: 24

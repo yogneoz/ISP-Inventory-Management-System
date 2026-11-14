@@ -26,7 +26,7 @@ import { createApp, registerAllRoutes } from '../server/src/app';
 import { issueAuthToken } from '../server/src/middleware/auth';
 import { setPermissionMatrix } from '../server/src/state/runtimeState';
 import { DEFAULT_PERMISSIONS_MATRIX } from '../client/src/utils/permissionMatrixData';
-import { ensureReferenceData } from './fixtures/referenceData';
+import { ensureBsDayRecords, ensureReferenceData } from './fixtures/referenceData';
 import {
   INVENTORY_SOURCE_REGISTRY,
   inventorySourceTypes,
@@ -293,7 +293,16 @@ describe('inventory-to-finance coverage (real HTTP + PostgreSQL)', { skip: skipN
 
     const periods = await get('/api/accounting/periods');
     assert.equal(periods.status, 200, JSON.stringify(periods.json));
-    const period = periods.json.find((entry: any) => entry.periodKey === CLOSE_PERIOD);
+    let period = periods.json.find((entry: any) => entry.periodKey === CLOSE_PERIOD);
+    if (!period) {
+      // A schema-only CI database has only the periods the suite creates.
+      // Seed the two BS bounds this period needs, then create it through the
+      // same route an operator would use.
+      await ensureBsDayRecords(pool!, [`${CLOSE_PERIOD}-01`, `${CLOSE_PERIOD}-30`]);
+      const created = await post('/api/accounting/periods', { periodKey: CLOSE_PERIOD });
+      assert.equal(created.status, 201, JSON.stringify(created.json));
+      period = created.json;
+    }
     assert.ok(period, `the fixture must provide period ${CLOSE_PERIOD}`);
     if (period.status === 'CLOSED') {
       const reset = await post(`/api/accounting/periods/${period.id}/reopen`, {});

@@ -293,10 +293,10 @@ export const BranchConsolidatedRegister: React.FC<AccountingScreenProps> = ({
                     </th>
                     {branchColumns.map((branch) => (
                       <th key={branch.branchId} className="min-w-[135px] px-3 py-2 text-right">
-                        <span className="block font-mono text-[9px] text-slate-400">{branch.code}</span>
+                        <span className="block font-mono text-[10px] text-slate-400">{branch.code}</span>
                         {branch.name}
                         {isBalanceSheet && (
-                          <span className="mt-0.5 block text-[9px] font-semibold normal-case text-slate-400">
+                          <span className="mt-0.5 block text-[10px] font-semibold normal-case text-slate-400">
                             {columnLabel}
                           </span>
                         )}
@@ -305,7 +305,7 @@ export const BranchConsolidatedRegister: React.FC<AccountingScreenProps> = ({
                     <th className="min-w-[145px] border-l border-slate-200 px-3 py-2 text-right dark:border-slate-700">
                       Total
                       {isBalanceSheet && (
-                        <span className="mt-0.5 block text-[9px] font-semibold normal-case text-slate-400">
+                        <span className="mt-0.5 block text-[10px] font-semibold normal-case text-slate-400">
                           {columnLabel}
                         </span>
                       )}

@@ -989,7 +989,10 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'finance/TrialBalanceRegister.tsx': ['getTrialBalance'],
     'finance/BsLedgerSummaryRegister.tsx': ['getBsLedgerSummary'],
     'finance/ProfitAndLossRegister.tsx': ['getProfitAndLoss'],
-    'finance/BranchConsolidatedRegister.tsx': ['getBranchProfitAndLossMatrix'],
+    'finance/BranchConsolidatedRegister.tsx': [
+      'getBranchBalanceSheetMatrix',
+      'getBranchProfitAndLossMatrix',
+    ],
     'finance/BalanceSheetRegister.tsx': ['getBalanceSheet', 'getBalanceSheetMovement'],
     'finance/CashFlowRegister.tsx': [
       'getCashFlow',
