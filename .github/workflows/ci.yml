@@ -12,10 +12,9 @@ jobs:
     # default (360 minutes) per push: the suite sat in the npm test step for 86
     # minutes with every test green, because the lifecycle process tests left
     # node's runner unable to exit (fixed in tests/lifecycleProcess.test.ts).
-    # 30 minutes is ~6x the real runtime (measured: ~5 min here), so this can
-    # only ever fire on a genuine hang — where a fast, visible failure beats six
-    # hours of nothing.
-    timeout-minutes: 30
+    # The 2,352-test suite now runs close to 40 minutes on the CI runner; 60
+    # keeps a genuine hang bounded without cancelling a healthy full run.
+    timeout-minutes: 60
 
     # PostgreSQL service container: lets the DB-dependent integration tests
     # run in CI instead of skipping (real-PG concurrency proofs, schema drift
