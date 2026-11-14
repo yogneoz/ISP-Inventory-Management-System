@@ -62,6 +62,7 @@ export async function ensureDefaultChart(
         statementGroup: group.statementGroup,
         normalBalance: group.normalBalance,
         sortOrder: group.sortOrder,
+        parentCode: group.parentCode,
       })
     );
     groups += result.rowCount || 0;

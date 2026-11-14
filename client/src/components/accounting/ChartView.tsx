@@ -1,11 +1,25 @@
 import React, { useMemo, useState } from 'react';
-import { Pencil, Plus, Power, RefreshCw, Trash2 } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Layers,
+  ListTree,
+  Pencil,
+  Plus,
+  Power,
+  RefreshCw,
+  ShieldCheck,
+  SlidersHorizontal,
+  Stethoscope,
+  Trash2,
+} from 'lucide-react';
 import { StatCard } from '../common/StatCard';
 import { useDialog } from '../common/DialogProvider';
 import { api } from '../../services/api';
 import type {
   AccountingAccount,
   AccountingGroup,
+  ChartHealth,
   ControlReconciliationResponse,
   PostingDefault,
 } from '../../services/api/accounting';
@@ -24,7 +38,18 @@ export interface ChartState {
   defaults: Record<string, PostingDefault>;
   reconciliations: ControlReconciliationResponse[];
   reconciliationErrors: Record<string, string>;
+  health: ChartHealth | null;
 }
+
+type ChartTab = 'ledgers' | 'groups' | 'controls' | 'defaults' | 'health';
+
+const CHART_TABS: Array<{ id: ChartTab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
+  { id: 'ledgers', label: 'Ledgers', icon: ListTree },
+  { id: 'groups', label: 'Groups & Sub-Groups', icon: Layers },
+  { id: 'controls', label: 'Control Accounts', icon: ShieldCheck },
+  { id: 'defaults', label: 'Posting Defaults', icon: SlidersHorizontal },
+  { id: 'health', label: 'Reconciliation Health', icon: Stethoscope },
+];
 
 const rowAction =
   'inline-flex min-h-[24px] items-center gap-1 rounded-md border border-slate-300 px-1.5 py-0.5 text-[10px] font-bold text-slate-600 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800';
@@ -46,6 +71,7 @@ export const ChartView: React.FC<{
   onChanged: () => void;
 }> = ({ state, branchId, branches, loading, canManage, onChanged }) => {
   const { confirm: confirmDialog } = useDialog();
+  const [tab, setTab] = useState<ChartTab>('ledgers');
   const [accountDialog, setAccountDialog] = useState<{ mode: 'create' | 'edit'; account?: AccountingAccount } | null>(null);
   const [groupDialog, setGroupDialog] = useState<{
     mode: 'create' | 'edit';
@@ -355,6 +381,90 @@ export const ChartView: React.FC<{
     );
   };
 
+  const renderGroupOnly = (group: AccountingGroup, depth: number): React.ReactNode => {
+    const accountCount = (accountsByGroup.get(group.code) ?? []).length;
+    const children = groupsByParent.get(group.id) ?? [];
+    return (
+      <React.Fragment key={group.id}>
+        <tr className="text-slate-800 dark:text-slate-300">
+          <td className="px-2.5 py-1.5 font-mono text-[11px] text-indigo-600 dark:text-indigo-400">{group.code}</td>
+          <td className="px-2.5 py-1.5 font-bold" style={{ paddingLeft: 8 + depth * 18 }}>
+            {depth > 0 && <span className="mr-1 text-slate-400">↳</span>}
+            {group.name}
+            {group.parentId && (
+              <span className="ml-2 rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                SUB-GROUP
+              </span>
+            )}
+          </td>
+          <td className="px-2.5 py-1.5 text-slate-500 dark:text-slate-400">{group.accountType}</td>
+          <td className="px-2.5 py-1.5 text-slate-500 dark:text-slate-400">{group.statementGroup}</td>
+          <td className="px-2.5 py-1.5 text-right font-mono">{accountCount}</td>
+          <td className="px-2.5 py-1.5 text-right font-mono">{children.length}</td>
+          <td className="px-2.5 py-1.5 text-right font-mono">{group.sortOrder}</td>
+          {canManage && (
+            <td className="px-2.5 py-1.5 text-right">
+              <span className="inline-flex items-center gap-1">
+                <button
+                  type="button"
+                  className={rowAction}
+                  aria-label={`Add sub-group under ${group.code}`}
+                  disabled={dialogBusy}
+                  onClick={() => {
+                    setDialogError('');
+                    setGroupDialog({ mode: 'create', initialParentId: group.id });
+                  }}
+                >
+                  <Plus className="h-3 w-3" /> Sub-group
+                </button>
+                <button
+                  type="button"
+                  className={rowAction}
+                  aria-label={`Edit group ${group.code}`}
+                  disabled={dialogBusy}
+                  onClick={() => {
+                    setDialogError('');
+                    setGroupDialog({ mode: 'edit', group });
+                  }}
+                >
+                  <Pencil className="h-3 w-3" /> Edit
+                </button>
+                <button
+                  type="button"
+                  className={dangerAction}
+                  aria-label={`Delete group ${group.code}`}
+                  disabled={dialogBusy}
+                  onClick={() => void removeGroup(group)}
+                >
+                  <Trash2 className="h-3 w-3" /> Delete
+                </button>
+              </span>
+            </td>
+          )}
+        </tr>
+        {accountCount === 0 && children.length === 0 && (
+          <tr>
+            <td colSpan={canManage ? 8 : 7} className="px-3 py-2 text-[11px] italic text-slate-400">
+              No accounts or sub-groups in this group.
+            </td>
+          </tr>
+        )}
+        {children.map((child) => renderGroupOnly(child, depth + 1))}
+      </React.Fragment>
+    );
+  };
+
+  const controlAccounts = state.accounts.filter((account) => account.isControl);
+  const reconciliationByAccount = new Map(
+    state.reconciliations.map((row) => [row.accountId, row])
+  );
+  const health = state.health;
+  const healthIssues =
+    (health?.missingPostingRoles.length ?? 0) +
+    (health?.controlAccountsWithoutSubledger.length ?? 0) +
+    (health?.inactiveAccountsHoldingRole.length ?? 0) +
+    (health?.unlinkedSubledgerRows.count ?? 0);
+
   return (
     <div className="space-y-4">
       {actionError && (
@@ -377,6 +487,36 @@ export const ChartView: React.FC<{
         />
       </div>
 
+      <div
+        role="tablist"
+        aria-label="Chart & Defaults sections"
+        className="flex flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-900/40"
+      >
+        {CHART_TABS.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            onClick={() => setTab(id)}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-bold transition ${
+              tab === id
+                ? 'bg-indigo-600 text-white'
+                : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
+            }`}
+          >
+            <Icon className="h-3.5 w-3.5" />
+            {label}
+            {id === 'health' && healthIssues > 0 && (
+              <span className="rounded-full bg-amber-400 px-1.5 py-0.5 text-[10px] font-bold text-amber-950">
+                {healthIssues}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'ledgers' && (
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
         <div className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-200 px-3 py-2 dark:border-slate-800">
           <div>
@@ -441,8 +581,130 @@ export const ChartView: React.FC<{
           </table>
         </div>
       </div>
+      )}
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+      {tab === 'groups' && (
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
+          <div className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-200 px-3 py-2 dark:border-slate-800">
+            <div>
+              <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200">Groups and sub-groups</h3>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                One hierarchy to any depth. A sub-group inherits its type and statement mapping from the parent; only ledger accounts receive postings.
+              </p>
+            </div>
+            {canManage && (
+              <button
+                type="button"
+                className={toolbarPrimary}
+                disabled={loading || dialogBusy}
+                onClick={() => {
+                  setDialogError('');
+                  setGroupDialog({ mode: 'create' });
+                }}
+              >
+                <Plus className="h-3 w-3" /> New group
+              </button>
+            )}
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="border-b border-slate-200 bg-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-700 dark:border-slate-700 dark:bg-slate-800/90 dark:text-slate-300">
+                <tr>
+                  <th className="px-2.5 py-1.5">Code</th>
+                  <th className="px-2.5 py-1.5">Group</th>
+                  <th className="px-2.5 py-1.5">Type</th>
+                  <th className="px-2.5 py-1.5">Statement group</th>
+                  <th className="px-2.5 py-1.5 text-right">Accounts</th>
+                  <th className="px-2.5 py-1.5 text-right">Sub-groups</th>
+                  <th className="px-2.5 py-1.5 text-right">Order</th>
+                  {canManage && <th className="px-2.5 py-1.5 text-right">Actions</th>}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-medium dark:divide-slate-800/60">
+                {rootGroups.length === 0 ? (
+                  <tr>
+                    <td colSpan={canManage ? 8 : 7} className="px-3 py-6 text-center text-slate-400">
+                      No account groups are configured.
+                    </td>
+                  </tr>
+                ) : (
+                  rootGroups.map((group) => renderGroupOnly(group, 0))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {tab === 'controls' && (
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
+          <div className="border-b border-slate-200 px-3 py-2 dark:border-slate-800">
+            <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200">Control accounts</h3>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              Each control ledger holds no party detail itself; the tied-out book does. Branch scope: {branchId === 'ALL' ? 'all branches' : branchId}.
+            </p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="border-b border-slate-200 bg-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-700 dark:border-slate-700 dark:bg-slate-800/90 dark:text-slate-300">
+                <tr>
+                  <th className="px-2.5 py-1.5">Control account</th>
+                  <th className="px-2.5 py-1.5">Book type</th>
+                  <th className="px-2.5 py-1.5">Posting role</th>
+                  <th className="px-2.5 py-1.5">Custody owner</th>
+                  <th className="px-2.5 py-1.5 text-right">GL / subledger</th>
+                  <th className="px-2.5 py-1.5 text-right">Difference</th>
+                  <th className="px-2.5 py-1.5 text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-medium dark:divide-slate-800/60">
+                {controlAccounts.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-3 py-6 text-center text-slate-400">
+                      No control account is configured.
+                    </td>
+                  </tr>
+                ) : (
+                  controlAccounts.map((account) => {
+                    const reconciliation = reconciliationByAccount.get(account.id);
+                    const error = state.reconciliationErrors[account.id];
+                    return (
+                      <tr key={account.id} className="text-slate-800 dark:text-slate-300">
+                        <td className="px-2.5 py-1.5 font-bold">
+                          <span className="mr-2 font-mono text-[10px] text-slate-400">{account.code}</span>
+                          {account.name}
+                        </td>
+                        <td className="px-2.5 py-1.5 text-slate-500 dark:text-slate-400">{account.subledgerType}</td>
+                        <td className="px-2.5 py-1.5 font-mono text-[10px] text-indigo-600 dark:text-indigo-400">{account.postingRole || '—'}</td>
+                        <td className="px-2.5 py-1.5 text-slate-500 dark:text-slate-400">
+                          {account.branchId ? account.branchId : 'Shared'}
+                        </td>
+                        <td className="px-2.5 py-1.5 text-right font-mono">
+                          {reconciliation ? `${money(reconciliation.glBalance)} / ${money(reconciliation.subledgerBalance)}` : '—'}
+                        </td>
+                        <td className={`px-2.5 py-1.5 text-right font-mono ${reconciliation && Math.abs(reconciliation.difference) >= 0.005 ? 'text-rose-600 dark:text-rose-400' : ''}`}>
+                          {reconciliation ? money(reconciliation.difference) : '—'}
+                        </td>
+                        <td className="px-2.5 py-1.5 text-center">
+                          {error ? (
+                            <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400">FAILED</span>
+                          ) : reconciliation ? (
+                            <StatusPill ok={reconciliation.status === 'RECONCILED'} okLabel="Reconciled" badLabel="Difference" />
+                          ) : (
+                            <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400">NO BOOK</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {tab === 'defaults' && (
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
           <div className="border-b border-slate-200 px-3 py-2 dark:border-slate-800">
             <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200">Posting defaults</h3>
@@ -486,71 +748,187 @@ export const ChartView: React.FC<{
             </table>
           </div>
         </div>
+      )}
 
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3 py-2 dark:border-slate-800">
-            <div>
-              <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200">Control-account reconciliation</h3>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Branch scope: {branchId === 'ALL' ? 'all branches' : branchId}.
-              </p>
-            </div>
-            {loading && <RefreshCw className="h-3.5 w-3.5 animate-spin text-slate-400" />}
+      {tab === 'health' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <StatCard
+              label="MISSING POSTING ROLES"
+              value={String(health?.missingPostingRoles.length ?? 0)}
+              tone={(health?.missingPostingRoles.length ?? 0) > 0 ? 'rose' : 'emerald'}
+              hint="Roles no active ledger holds"
+            />
+            <StatCard
+              label="CONTROLS WITHOUT BOOK"
+              value={String(health?.controlAccountsWithoutSubledger.length ?? 0)}
+              tone={(health?.controlAccountsWithoutSubledger.length ?? 0) > 0 ? 'rose' : 'emerald'}
+              hint="Control ledgers with no active book"
+            />
+            <StatCard
+              label="RETIRED LEDGERS WITH ROLE"
+              value={String(health?.inactiveAccountsHoldingRole.length ?? 0)}
+              tone={(health?.inactiveAccountsHoldingRole.length ?? 0) > 0 ? 'rose' : 'emerald'}
+              hint="Inactive accounts that still claim a posting role"
+            />
+            <StatCard
+              label="UNLINKED SUBLEDGER ROWS"
+              value={String(health?.unlinkedSubledgerRows.count ?? 0)}
+              tone={(health?.unlinkedSubledgerRows.count ?? 0) > 0 ? 'amber' : 'emerald'}
+              hint="Posted party rows with no book"
+            />
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="border-b border-slate-200 bg-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-700 dark:border-slate-700 dark:bg-slate-800/90 dark:text-slate-300">
-                <tr>
-                  <th className="px-2.5 py-1.5">Account</th>
-                  <th className="px-2.5 py-1.5">Subledger</th>
-                  <th className="px-2.5 py-1.5 text-right">GL / subledger</th>
-                  <th className="px-2.5 py-1.5 text-right">Difference</th>
-                  <th className="px-2.5 py-1.5 text-center">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 font-medium dark:divide-slate-800/60">
-                {state.reconciliations.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="px-3 py-4 text-center text-slate-400">
-                      No control account is configured.
-                    </td>
-                  </tr>
-                ) : (
-                  state.reconciliations.map((reconciliation) => {
-                    const error = state.reconciliationErrors[reconciliation.accountId];
-                    return (
-                      <tr key={reconciliation.accountId} className="text-slate-800 dark:text-slate-300">
-                        <td className="px-2.5 py-1.5 font-bold">
-                          <span className="mr-2 font-mono text-[10px] text-slate-400">{reconciliation.accountCode}</span>
-                          {reconciliation.accountName}
-                        </td>
-                        <td className="px-2.5 py-1.5 text-slate-500 dark:text-slate-400">{reconciliation.subledgerType}</td>
-                        <td className="px-2.5 py-1.5 text-right font-mono">
-                          {money(reconciliation.glBalance)} / {money(reconciliation.subledgerBalance)}
-                        </td>
-                        <td className={`px-2.5 py-1.5 text-right font-mono ${Math.abs(reconciliation.difference) >= 0.005 ? 'text-rose-600 dark:text-rose-400' : ''}`}>
-                          {money(reconciliation.difference)}
-                        </td>
-                        <td className="px-2.5 py-1.5 text-center">
-                          {error ? (
-                            <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400">FAILED</span>
-                          ) : (
-                            <StatusPill
-                              ok={reconciliation.status === 'RECONCILED'}
-                              okLabel="Reconciled"
-                              badLabel="Difference"
-                            />
-                          )}
+
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
+              <div className="border-b border-slate-200 px-3 py-2 dark:border-slate-800">
+                <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200">Setup gaps</h3>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Every gap here refuses a posting later, so repair it before documents depend on it.
+                </p>
+              </div>
+              <div className="divide-y divide-slate-100 p-3 text-xs dark:divide-slate-800/60">
+                {health?.missingPostingRoles.length ? (
+                  <div className="py-2">
+                    <p className="flex items-center gap-1 font-bold text-rose-700 dark:text-rose-400">
+                      <AlertTriangle className="h-3.5 w-3.5" /> Missing posting roles
+                    </p>
+                    <p className="mt-1 font-mono text-[11px] text-slate-600 dark:text-slate-300">
+                      {health.missingPostingRoles.join(', ')}
+                    </p>
+                  </div>
+                ) : null}
+                {health?.controlAccountsWithoutSubledger.map((account) => (
+                  <div key={account.accountId} className="py-2 text-slate-700 dark:text-slate-300">
+                    <p className="font-bold text-rose-700 dark:text-rose-400">
+                      {account.code} {account.name} has no active {account.subledgerType} book
+                    </p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Create a book in Subledgers or seed the missing defaults.
+                    </p>
+                  </div>
+                ))}
+                {health?.inactiveAccountsHoldingRole.map((account) => (
+                  <div key={account.accountId} className="py-2 text-slate-700 dark:text-slate-300">
+                    <p className="font-bold text-rose-700 dark:text-rose-400">
+                      {account.code} {account.name} is retired but still holds {account.postingRole}
+                    </p>
+                  </div>
+                ))}
+                {health && healthIssues === 0 && (
+                  <p className="flex items-center gap-1.5 py-2 font-semibold text-emerald-700 dark:text-emerald-400">
+                    <CheckCircle2 className="h-4 w-4" /> Every posting role has an active ledger, every control has a book, and no retired ledger claims a role.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
+              <div className="border-b border-slate-200 px-3 py-2 dark:border-slate-800">
+                <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200">Unlinked subledger rows</h3>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Posted party rows with no book id. Their control balance still ties; only book-level attribution is missing.
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="border-b border-slate-200 bg-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-700 dark:border-slate-700 dark:bg-slate-800/90 dark:text-slate-300">
+                    <tr>
+                      <th className="px-2.5 py-1.5">Account</th>
+                      <th className="px-2.5 py-1.5">Party</th>
+                      <th className="px-2.5 py-1.5">Date</th>
+                      <th className="px-2.5 py-1.5 text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-medium dark:divide-slate-800/60">
+                    {!health || health.unlinkedSubledgerRows.rows.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="px-3 py-4 text-center text-slate-400">
+                          Every posted subledger row is linked to a book.
                         </td>
                       </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+                    ) : (
+                      health.unlinkedSubledgerRows.rows.map((row) => (
+                        <tr key={row.id} className="text-slate-800 dark:text-slate-300">
+                          <td className="px-2.5 py-1.5 font-bold">{row.accountCode} {row.accountName}</td>
+                          <td className="px-2.5 py-1.5">{row.partyName || row.partyId || '—'}</td>
+                          <td className="px-2.5 py-1.5 font-mono text-[11px]">{row.entryDateAD}</td>
+                          <td className="px-2.5 py-1.5 text-right font-mono">{money(Number(row.debit) - Number(row.credit))}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {health && health.unlinkedSubledgerRows.count > health.unlinkedSubledgerRows.rows.length && (
+                <p className="border-t border-slate-200 px-3 py-2 text-[11px] text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                  Showing {health.unlinkedSubledgerRows.rows.length} of {health.unlinkedSubledgerRows.count} rows.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3 py-2 dark:border-slate-800">
+              <div>
+                <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200">Control-account reconciliation</h3>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Branch scope: {branchId === 'ALL' ? 'all branches' : branchId}.
+                </p>
+              </div>
+              {loading && <RefreshCw className="h-3.5 w-3.5 animate-spin text-slate-400" />}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="border-b border-slate-200 bg-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-700 dark:border-slate-700 dark:bg-slate-800/90 dark:text-slate-300">
+                  <tr>
+                    <th className="px-2.5 py-1.5">Account</th>
+                    <th className="px-2.5 py-1.5">Subledger</th>
+                    <th className="px-2.5 py-1.5 text-right">GL / subledger</th>
+                    <th className="px-2.5 py-1.5 text-right">Difference</th>
+                    <th className="px-2.5 py-1.5 text-center">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium dark:divide-slate-800/60">
+                  {state.reconciliations.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-3 py-4 text-center text-slate-400">
+                        No control account is configured.
+                      </td>
+                    </tr>
+                  ) : (
+                    state.reconciliations.map((reconciliation) => {
+                      const error = state.reconciliationErrors[reconciliation.accountId];
+                      return (
+                        <tr key={reconciliation.accountId} className="text-slate-800 dark:text-slate-300">
+                          <td className="px-2.5 py-1.5 font-bold">
+                            <span className="mr-2 font-mono text-[10px] text-slate-400">{reconciliation.accountCode}</span>
+                            {reconciliation.accountName}
+                          </td>
+                          <td className="px-2.5 py-1.5 text-slate-500 dark:text-slate-400">{reconciliation.subledgerType}</td>
+                          <td className="px-2.5 py-1.5 text-right font-mono">
+                            {money(reconciliation.glBalance)} / {money(reconciliation.subledgerBalance)}
+                          </td>
+                          <td className={`px-2.5 py-1.5 text-right font-mono ${Math.abs(reconciliation.difference) >= 0.005 ? 'text-rose-600 dark:text-rose-400' : ''}`}>
+                            {money(reconciliation.difference)}
+                          </td>
+                          <td className="px-2.5 py-1.5 text-center">
+                            {error ? (
+                              <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400">FAILED</span>
+                            ) : (
+                              <StatusPill ok={reconciliation.status === 'RECONCILED'} okLabel="Reconciled" badLabel="Difference" />
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {canManage && accountDialog && (
         <AccountFormDialog

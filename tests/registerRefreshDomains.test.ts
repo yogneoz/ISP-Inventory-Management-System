@@ -1017,6 +1017,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'finance/ChartOfAccountsRegister.tsx': [
       'getAccountingAccounts',
       'getAccountingGroups',
+      'getChartHealth',
       'getControlReconciliation',
       'getPostingDefaults',
     ],

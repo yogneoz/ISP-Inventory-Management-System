@@ -27,6 +27,8 @@ export interface DefaultChartGroup {
   statementGroup: StatementGroup;
   normalBalance: NormalBalance;
   sortOrder: number;
+  /** Optional parent code; groups stay one arbitrary-depth hierarchy. */
+  parentCode?: string;
 }
 
 export interface DefaultChartAccount {
@@ -52,6 +54,15 @@ export const DEFAULT_CHART_GROUPS: readonly DefaultChartGroup[] = [
     sortOrder: 10,
   },
   {
+    code: '1110',
+    name: 'Trade Receivables',
+    parentCode: '1000',
+    accountType: 'ASSET',
+    statementGroup: 'CURRENT_ASSET',
+    normalBalance: 'DEBIT',
+    sortOrder: 15,
+  },
+  {
     code: '1500',
     name: 'Non-current Assets',
     accountType: 'ASSET',
@@ -66,6 +77,15 @@ export const DEFAULT_CHART_GROUPS: readonly DefaultChartGroup[] = [
     statementGroup: 'CURRENT_LIABILITY',
     normalBalance: 'CREDIT',
     sortOrder: 30,
+  },
+  {
+    code: '2110',
+    name: 'Trade Payables',
+    parentCode: '2000',
+    accountType: 'LIABILITY',
+    statementGroup: 'CURRENT_LIABILITY',
+    normalBalance: 'CREDIT',
+    sortOrder: 35,
   },
   {
     code: '2500',
@@ -182,7 +202,7 @@ export const DEFAULT_CHART_ACCOUNTS: readonly DefaultChartAccount[] = [
   {
     code: '1100',
     name: 'Accounts Receivable',
-    groupCode: '1000',
+    groupCode: '1110',
     description: 'Amounts due from customers, reconciled to the customer subledger.',
     isControl: true,
     subledgerType: 'CUSTOMER',
@@ -281,7 +301,7 @@ export const DEFAULT_CHART_ACCOUNTS: readonly DefaultChartAccount[] = [
   {
     code: '2100',
     name: 'Accounts Payable',
-    groupCode: '2000',
+    groupCode: '2110',
     description: 'Amounts due to suppliers, reconciled to the supplier subledger.',
     isControl: true,
     subledgerType: 'SUPPLIER',

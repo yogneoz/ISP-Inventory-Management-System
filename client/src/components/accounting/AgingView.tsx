@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { StatCard } from '../common/StatCard';
 import type { AgingBucketKey, AgingResponse, AgingType } from '../../services/api/accounting';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { StatusPill } from './StatementPrimitives';
 import { amountCell, money } from './statementFormat';
+import { PartyStatementDialog } from './PartyStatementDialog';
 
 const AGING_BUCKET_KEYS: AgingBucketKey[] = [
   'CURRENT',
@@ -18,7 +19,10 @@ export const AgingView: React.FC<{
   type: AgingType;
   onTypeChange: (type: AgingType) => void;
   dateMode: 'BS' | 'AD';
-}> = ({ data, type, onTypeChange, dateMode }) => {
+  /** Scope the party statement must use, matching the aging report. */
+  branchId?: string;
+}> = ({ data, type, onTypeChange, dateMode, branchId }) => {
+  const [statement, setStatement] = useState<{ partyId: string; partyName: string } | null>(null);
   const outstandingLabel = type === 'AR' ? 'NET RECEIVABLE' : 'NET PAYABLE';
   const openItems = data.parties.flatMap((party) =>
     party.rows.map((row) => ({ partyName: party.partyName, row }))
@@ -128,6 +132,13 @@ export const AgingView: React.FC<{
                     <td className="px-2.5 py-1.5 font-bold">
                       {party.partyName}
                       <span className="ml-2 font-mono text-[10px] text-slate-400">{party.partyId}</span>
+                      <button
+                        type="button"
+                        className="ml-2 rounded-md border border-slate-300 px-1.5 py-0.5 text-[10px] font-bold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                        onClick={() => setStatement({ partyId: party.partyId, partyName: party.partyName })}
+                      >
+                        Statement
+                      </button>
                     </td>
                     {AGING_BUCKET_KEYS.map((key) => (
                       <td key={key} className="px-2.5 py-1.5 text-right font-mono">
@@ -230,6 +241,18 @@ export const AgingView: React.FC<{
           </table>
         </div>
       </div>
+
+      {statement && (
+        <PartyStatementDialog
+          type={type}
+          partyId={statement.partyId}
+          partyName={statement.partyName}
+          branchId={branchId === 'ALL' ? undefined : branchId}
+          asOf={data.asOf}
+          dateMode={dateMode}
+          onClose={() => setStatement(null)}
+        />
+      )}
     </div>
   );
 };

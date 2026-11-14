@@ -286,12 +286,15 @@ describe('recurring journals and month-end close (real HTTP + PostgreSQL)', { sk
   test('checklist state persists, required tasks block close, and an override reason closes with audit', async () => {
     const checklist = await get(`/api/accounting/periods/${periodOneId}/checklist`, tokens.super);
     assert.equal(checklist.status, 200, JSON.stringify(checklist.json));
-    assert.equal(checklist.json.tasks.length, 6);
+    assert.equal(checklist.json.tasks.length, 7);
     assert.ok(
       checklist.json.tasks.some((task: any) => task.taskCode === 'INVENTORY_RECONCILE'),
       'inventory valuation must be an explicit close control'
     );
-    assert.equal(checklist.json.summary.requiredIncomplete, 5);
+    const pspTask = checklist.json.tasks.find((task: any) => task.taskCode === 'PSP_RECONCILE');
+    assert.ok(pspTask, 'provider settlement reconciliation must be an explicit close control');
+    assert.equal(pspTask.required, true);
+    assert.equal(checklist.json.summary.requiredIncomplete, 6);
     const bankTask = checklist.json.tasks.find((task: any) => task.taskCode === 'BANK_RECONCILE');
     const agingTask = checklist.json.tasks.find((task: any) => task.taskCode === 'REVIEW_AGING');
     const accrueTask = checklist.json.tasks.find((task: any) => task.taskCode === 'ACCRUE_EXPENSES');

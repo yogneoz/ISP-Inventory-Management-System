@@ -316,8 +316,8 @@ export const ACCOUNT_GROUP_INSERT_SQL = `INSERT INTO gl_account_groups (
  * application instances booting at once cannot fail each other's seed.
  */
 export const ACCOUNT_GROUP_SEED_INSERT_SQL = `INSERT INTO gl_account_groups (
-  id, code, name, account_type, statement_group, normal_balance, sort_order, is_active, is_demo
-) VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, FALSE)
+  id, parent_id, code, name, account_type, statement_group, normal_balance, sort_order, is_active, is_demo
+) VALUES ($1, (SELECT id FROM gl_account_groups WHERE code = $8), $2, $3, $4, $5, $6, $7, TRUE, FALSE)
 ON CONFLICT DO NOTHING`;
 
 export const ACCOUNT_SEED_INSERT_SQL = `INSERT INTO gl_accounts (
@@ -1571,6 +1571,7 @@ export function accountGroupSeedParams(input: {
   statementGroup: StatementGroup;
   normalBalance: NormalBalance;
   sortOrder: number;
+  parentCode?: string;
 }): unknown[] {
   return [
     input.id,
@@ -1580,6 +1581,7 @@ export function accountGroupSeedParams(input: {
     input.statementGroup,
     input.normalBalance,
     input.sortOrder,
+    input.parentCode || null,
   ];
 }
 
@@ -1980,6 +1982,36 @@ export const SUBLEDGER_BOOK_UNLINKED_COUNT_SQL = `SELECT COUNT(*)::int AS count
 FROM gl_subledger_entries
 WHERE account_id = $1 AND subledger_id IS NULL
   AND ($2::varchar IS NULL OR branch_id = $2)`;
+
+/**
+ * Chart-wide unlinked subledger rows: posted party rows whose `subledger_id`
+ * is still NULL, so the book register cannot attribute them to a named book.
+ * These are a setup gap, not a ledger difference — the control still totals.
+ */
+export const CHART_HEALTH_UNLINKED_SUBLEDGER_SQL = `SELECT
+  COUNT(*)::int AS count,
+  COALESCE(SUM(e.debit - e.credit), 0)::numeric AS amount
+FROM gl_subledger_entries e
+WHERE e.subledger_id IS NULL`;
+
+export const CHART_HEALTH_UNLINKED_SUBLEDGER_SAMPLE_SQL = `SELECT
+  e.id,
+  e.journal_id AS "journalId",
+  e.account_id AS "accountId",
+  a.code AS "accountCode",
+  a.name AS "accountName",
+  e.subledger_type AS "subledgerType",
+  e.party_id AS "partyId",
+  e.party_name AS "partyName",
+  e.branch_id AS "branchId",
+  e.entry_date_ad::text AS "entryDateAD",
+  e.debit,
+  e.credit
+FROM gl_subledger_entries e
+JOIN gl_accounts a ON a.id = e.account_id
+WHERE e.subledger_id IS NULL
+ORDER BY e.entry_date_ad DESC, e.id DESC
+LIMIT 20`;
 
 /**
  * Party masters for book generation. Customer ids are

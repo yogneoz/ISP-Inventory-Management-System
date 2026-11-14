@@ -29,6 +29,8 @@ import { resolveBranchScope } from './accounting.controller';
 import {
   ACCOUNT_BY_ID_SQL,
   ACCOUNT_LIST_SQL,
+  CHART_HEALTH_UNLINKED_SUBLEDGER_SAMPLE_SQL,
+  CHART_HEALTH_UNLINKED_SUBLEDGER_SQL,
   POSTING_ROLES,
   CUSTOMER_PARTY_BY_ID_SQL,
   EMPLOYEE_PARTY_BY_ID_SQL,
@@ -480,6 +482,13 @@ export async function post_generateSubledgers(req: any, res: Response): Promise<
 export async function get_chartHealth(_req: any, res: Response): Promise<any> {
   const accounts = (await pgPool.query(ACCOUNT_LIST_SQL)).rows as any[];
   const subledgers = (await pgPool.query(SUBLEDGER_LIST_SQL, [null])).rows as any[];
+  const unlinked = (await pgPool.query(CHART_HEALTH_UNLINKED_SUBLEDGER_SQL)).rows[0] as {
+    count: number;
+    amount: string | number;
+  };
+  const unlinkedRows = ((await pgPool.query(CHART_HEALTH_UNLINKED_SUBLEDGER_SAMPLE_SQL)).rows as any[]).map(
+    (row) => ({ ...row, debit: Number(row.debit), credit: Number(row.credit) })
+  );
   // An inactive book cannot accept a posting, so it does not satisfy the
   // control account's setup requirement.
   const assigned = new Set(
@@ -503,11 +512,17 @@ export async function get_chartHealth(_req: any, res: Response): Promise<any> {
     inactiveAccountsHoldingRole: accounts
       .filter((account) => !account.isActive && account.postingRole)
       .map((account) => ({ accountId: account.id, code: account.code, name: account.name, postingRole: account.postingRole })),
+    unlinkedSubledgerRows: {
+      count: Number(unlinked?.count || 0),
+      amount: Number(unlinked?.amount || 0),
+      rows: unlinkedRows,
+    },
     totals: {
       accounts: accounts.length,
       controlAccounts: controlAccounts.length,
       subledgers: subledgers.length,
       activeSubledgers: subledgers.filter((row) => row.isActive).length,
+      unlinkedSubledgerRows: Number(unlinked?.count || 0),
     },
   });
 }

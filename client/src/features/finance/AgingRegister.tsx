@@ -80,6 +80,7 @@ export const AgingRegister: React.FC<AccountingScreenProps> = ({
           type={agingType}
           onTypeChange={setAgingType}
           dateMode={dateMode}
+          branchId={scope.branchId}
         />
       ) : (
         !loading && !error && <RegisterEmpty message="No aging report has been loaded yet." />

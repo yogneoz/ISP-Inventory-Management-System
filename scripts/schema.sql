@@ -2508,6 +2508,8 @@ VALUES
      'Post known expenses that belong to the period but are not yet invoiced.', TRUE, 40),
     ('glct-inventory-reconcile', 'INVENTORY_RECONCILE', 'Reconcile inventory valuation',
      'Confirm the stock register valuation equals the INVENTORY control and explain every difference before close.', TRUE, 45),
+    ('glct-psp-reconcile', 'PSP_RECONCILE', 'Reconcile provider settlements',
+     'Match eSewa, Khalti and Nepal Pay settlements to the wallet clearing ledger and explain every unresolved receipt or statement line before close.', TRUE, 46),
     ('glct-lock-period', 'LOCK_PERIOD', 'Lock period',
      'Mark the period locked after the checklist is complete.', FALSE, 50)
 ON CONFLICT (code) DO NOTHING;

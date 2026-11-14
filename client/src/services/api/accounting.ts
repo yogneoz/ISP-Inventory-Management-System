@@ -2324,7 +2324,31 @@ export interface ChartHealth {
     name: string;
     postingRole: string;
   }>;
-  totals: { accounts: number; controlAccounts: number; subledgers: number; activeSubledgers: number };
+  unlinkedSubledgerRows: {
+    count: number;
+    amount: number;
+    rows: Array<{
+      id: string;
+      journalId: string;
+      accountId: string;
+      accountCode: string;
+      accountName: string;
+      subledgerType: string;
+      partyId: string | null;
+      partyName: string | null;
+      branchId: string;
+      entryDateAD: string;
+      debit: number;
+      credit: number;
+    }>;
+  };
+  totals: {
+    accounts: number;
+    controlAccounts: number;
+    subledgers: number;
+    activeSubledgers: number;
+    unlinkedSubledgerRows: number;
+  };
 }
 
 export async function getAccountingSubledgers(

@@ -9,7 +9,7 @@ import { ListTree } from 'lucide-react';
 import { useActivationKey, useTabActive } from '../../components/common/KeepMounted';
 import { api } from '../../services/api';
 import { isOperationAllowed } from '../../utils/permissions';
-import type { ControlReconciliationResponse } from '../../services/api/accounting';
+import type { ChartHealth, ControlReconciliationResponse } from '../../services/api/accounting';
 import {
   AccountingRegisterShell,
   RegisterEmpty,
@@ -25,6 +25,7 @@ const EMPTY_CHART: ChartState = {
   defaults: {},
   reconciliations: [],
   reconciliationErrors: {},
+  health: null,
 };
 
 export const ChartOfAccountsRegister: React.FC<AccountingScreenProps> = ({
@@ -49,10 +50,11 @@ export const ChartOfAccountsRegister: React.FC<AccountingScreenProps> = ({
     setError('');
     void (async () => {
       try {
-        const [groups, accounts, defaults] = await Promise.all([
+        const [groups, accounts, defaults, health] = await Promise.all([
           api.getAccountingGroups(),
           api.getAccountingAccounts(true),
           api.getPostingDefaults(),
+          api.getChartHealth(),
         ]);
         const controlAccounts = accounts.filter((account) => account.isControl);
         const settled = await Promise.allSettled(
@@ -79,6 +81,7 @@ export const ChartOfAccountsRegister: React.FC<AccountingScreenProps> = ({
           defaults: defaults.defaults || {},
           reconciliations,
           reconciliationErrors,
+          health: health as ChartHealth,
         });
         setLoaded(true);
       } catch (err: any) {

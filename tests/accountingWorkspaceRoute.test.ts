@@ -1219,6 +1219,19 @@ function accountingStubs(overrides: Record<string, unknown> = {}) {
     getMyPermissions: async () => ({ role: 'ACCOUNTANT', operations: ['gl-view'], version: 1 }),
     getAccountingGroups: async () => groups,
     getAccountingAccounts: async () => accounts,
+    getChartHealth: async () => ({
+      missingPostingRoles: [],
+      controlAccountsWithoutSubledger: [],
+      inactiveAccountsHoldingRole: [],
+      unlinkedSubledgerRows: { count: 0, amount: 0, rows: [] },
+      totals: {
+        accounts: accounts.length,
+        controlAccounts: accounts.filter((account) => account.isControl).length,
+        subledgers: 1,
+        activeSubledgers: 1,
+        unlinkedSubledgerRows: 0,
+      },
+    }),
     getPostingDefaults: async () => ({
       defaults: {
         AR: {
@@ -1716,13 +1729,25 @@ test('chart and defaults register renders accounts, defaults and reconciliation'
 
   try {
     assert.ok(
-      await settleUntil(() => text(tree.container).includes('Posting defaults')),
-      'the chart register must load posting defaults'
+      await settleUntil(() => text(tree.container).includes('Chart of accounts')),
+      'the chart register must load the ledger tab'
     );
     assert.equal(window.location.pathname, '/finance/accounting/chart');
-    assert.match(text(tree.container), /Chart of accounts/);
+    assert.match(text(tree.container), /Groups & Sub-Groups/);
+    assert.match(text(tree.container), /Reconciliation Health/);
     assert.match(text(tree.container), /Sales Revenue/);
     assert.match(text(tree.container), /CUSTOMER/);
+
+    inAct(() => buttonByText(tree.container, 'Posting Defaults').click());
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes('Posting defaults')),
+      'the defaults tab must render the posting-role table'
+    );
+    inAct(() => buttonByText(tree.container, 'Reconciliation Health').click());
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes('Setup gaps')),
+      'the health tab must render the setup gaps and control tie-out'
+    );
     assert.match(text(tree.container), /Reconciled/);
   } finally {
     tree.unmount();
@@ -1775,8 +1800,13 @@ test('chart maintenance creates, edits, retires and deletes through the mounted 
 
   try {
     assert.ok(
-      await settleUntil(() => text(tree.container).includes('Posting defaults')),
+      await settleUntil(() => text(tree.container).includes('Chart of accounts')),
       'the chart register must load before it can be maintained'
+    );
+    inAct(() => buttonByText(tree.container, 'Groups & Sub-Groups').click());
+    assert.ok(
+      await settleUntil(() => text(tree.container).includes('Groups and sub-groups')),
+      'group maintenance lives on the group tab'
     );
 
     // A sub-group and an empty group must both stay reachable.
@@ -1832,6 +1862,8 @@ test('chart maintenance creates, edits, retires and deletes through the mounted 
     assert.equal(createdGroups[1].accountType, 'ASSET');
     assert.equal(createdGroups[1].statementGroup, 'CURRENT_ASSET');
 
+    inAct(() => buttonByText(tree.container, 'Ledgers').click());
+    assert.ok(await settleUntil(() => text(tree.container).includes('Chart of accounts')));
     inAct(() => buttonByText(tree.container, 'New account').click());
     assert.ok(await settleUntil(() => Boolean(tree.container.querySelector('#chart-account-code'))));
     assert.ok(
