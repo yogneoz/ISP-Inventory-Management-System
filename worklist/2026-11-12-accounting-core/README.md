@@ -277,12 +277,6 @@ round index; it is not a substitute for the slice’s acceptance checklist.
 
 Priority: P0 · Depends on: none · Blocks: ACC-4 reporting
 
-- [ ] Add a shared party-ledger read over `gl_subledger_entries` + `gl_journals`
-      + `gl_journal_lines`, with `party_id`, `subledger_id`, branch and date
-      filters.
-- [ ] Route the customer ledger through it; keep invoice/payment/return data as
-      enrichment, not as the debit/credit source.
-- [ ] Route the vendor ledger through it the same way.
 - [x] Add a shared party-ledger read over `gl_subledger_entries` + `gl_journals`
       + `gl_journal_lines`, with `party_id`, `subledger_id`, branch and date
       filters.
