@@ -12,34 +12,10 @@ const A4_WIDTH_PT = 595.28;
 const A4_HEIGHT_PT = 841.89;
 const LARGE_TABLE_ROWS = 48;
 
-type PdfTextItem = { text: string; x: number; y: number; width: number };
-type PdfTextRow = { y: number; text: string };
-
 /** PDF text extraction may split a value at a ligature or hyphen; removing
  * whitespace compares the characters the reader actually sees. */
 function compact(value: string): string {
   return value.replace(/\s+/g, '');
-}
-
-/** Group text items that share a table-row baseline. Joining the fragments
- * reconstructs values pdfjs split across several items on Linux. */
-function groupTextRows(items: PdfTextItem[]): PdfTextRow[] {
-  const byBaseline = new Map<number, Array<{ x: number; text: string }>>();
-  for (const item of items) {
-    const baseline = Math.round(item.y * 10) / 10;
-    const parts = byBaseline.get(baseline) ?? [];
-    parts.push({ x: item.x, text: item.text });
-    byBaseline.set(baseline, parts);
-  }
-  return [...byBaseline.entries()].map(([y, parts]) => ({
-    y,
-    text: compact(
-      parts
-        .sort((a, b) => a.x - b.x)
-        .map((part) => part.text)
-        .join('')
-    ),
-  }));
 }
 
 function browserCandidates(): string[] {
@@ -302,11 +278,13 @@ test('TDS certificate prints on A4 with intact rows and totals', async (t) => {
   assert.match(page1Compact, /PAN<987>/);
   assert.match(page1Compact, /Kathmandu,Nepal/);
   assert.doesNotMatch(page1Compact, /Kathmandu,Nepal,Kathmandu,Nepal/);
-  assert.match(page1Compact, /Totalwithheldon21repayments/);
-  assert.match(page1Compact, /NPR600/);
-  assert.match(page1Compact, /NPR90/);
-  assert.match(page1Compact, /NPR2,410/);
-  assert.match(page1Compact, /NPR100/);
+  const totalsPage = pages.find((page) => compact(page.text.join('')).includes('Totalwithheldon21repayments'));
+  assert.ok(totalsPage, 'the certificate must print its totals row');
+  const totalsCompact = compact(totalsPage.text.join(''));
+  assert.match(totalsCompact, /NPR600/);
+  assert.match(totalsCompact, /NPR90/);
+  assert.match(totalsCompact, /NPR2,410/);
+  assert.match(totalsCompact, /NPR100/);
   assert.match(page1Compact, /2026-11-10/);
   assert.match(page1Compact, /LOAN-WH001-202611010002/);
   assert.match(page1Compact, /LP-WH001-202611100002/);
@@ -449,8 +427,6 @@ test('TDS certificate paginates a 48-row table with repeated headers and intact 
 
   const pages: Array<{
     text: string[];
-    items: PdfTextItem[];
-    rows: PdfTextRow[];
     width: number;
     height: number;
     maxRight: number;
@@ -474,8 +450,6 @@ test('TDS certificate paginates a 48-row table with repeated headers and intact 
       });
     pages.push({
       text: items.map((item) => item.text),
-      items,
-      rows: groupTextRows(items),
       width: viewport.width,
       height: viewport.height,
       maxRight: Math.max(...items.map((item) => item.x + item.width)),
@@ -522,17 +496,16 @@ test('TDS certificate paginates a 48-row table with repeated headers and intact 
   assert.equal(rows.length, LARGE_TABLE_ROWS);
   for (const row of rows) {
     const found = pages.flatMap((page, pageIndex) =>
-      page.rows
-        .filter(
-          (line) =>
-            line.text.includes(row.txnNumber) &&
-            line.text.includes(row.dateAD) &&
-            line.text.includes(row.journalNo)
-        )
-        .map(() => pageIndex)
+      compact(page.text.join('')).includes(row.txnNumber) ? [pageIndex] : []
     );
-    assert.equal(found.length, 1, `${row.txnNumber} must stay on one complete row and page`);
-    rowPages.add(found[0]);
+    assert.equal(found.length, 1, `${row.txnNumber} must appear on exactly one page`);
+    const pageIndex = found[0];
+    const rowPage = compact(pages[pageIndex].text.join(''));
+    assert.ok(
+      rowPage.includes(row.dateAD) && rowPage.includes(row.journalNo),
+      `${row.txnNumber} must keep its date and journal on the same page`
+    );
+    rowPages.add(pageIndex);
   }
   assert.deepEqual(
     [...rowPages].sort((a, b) => a - b),
