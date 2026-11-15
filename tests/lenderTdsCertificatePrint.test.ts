@@ -199,7 +199,8 @@ test('TDS certificate prints on A4 with intact rows and totals', async (t) => {
 
   const htmlPath = path.join(dir, 'certificate.html');
   const pdfPath = path.join(dir, 'certificate.pdf');
-  const html = buildLenderTdsCertificateHtml(printStatement(), {
+  const statement = printStatement();
+  const html = buildLenderTdsCertificateHtml(statement, {
     name: 'Example Co',
     legalName: 'Example Co Pvt. Ltd.',
     address: 'Kathmandu, Nepal',
@@ -292,11 +293,32 @@ test('TDS certificate prints on A4 with intact rows and totals', async (t) => {
   assert.match(page1Compact, /NPR200/);
   assert.match(page1Compact, /NPR1,170/);
   assert.equal(
-    (page1Compact.match(/LP-(?:WH001|PRINT)-[0-9]+/g) || []).length,
+    (allCompact.match(/LP-(?:WH001|PRINT)-[0-9]+/g) || []).length,
     21,
-    'every withheld repayment must survive on page 1'
+    'every withheld repayment must survive exactly once across both pages'
   );
-  assert.doesNotMatch(page2Compact, /LP-(?:WH001|PRINT)-[0-9]+/, 'no table row may be split onto the signature page');
+  assert.equal((allCompact.match(/Totalwithheldon21repayments/g) || []).length, 1);
+
+  const tablePages = pages.filter((page) => /LP-(?:WH001|PRINT)-[0-9]+/.test(compact(page.text.join(''))));
+  assert.ok(tablePages.length >= 1, 'the certificate must print its repayment table');
+  for (const [index, page] of tablePages.entries()) {
+    assert.match(compact(page.text.join('')), /DATE\(AD\)/, `table page ${index + 1} must repeat the header`);
+  }
+
+  const rows = statement.tdsEntries.filter((entry: any) => entry.tdsStatus === 'WITHHELD');
+  assert.equal(rows.length, 21);
+  for (const row of rows) {
+    const found = pages.flatMap((page, pageIndex) =>
+      compact(page.text.join('')).includes(row.txnNumber) ? [pageIndex] : []
+    );
+    assert.equal(found.length, 1, `${row.txnNumber} must appear on exactly one page`);
+    const rowPage = compact(pages[found[0]].text.join(''));
+    assert.ok(
+      rowPage.includes(row.dateAD) && rowPage.includes(row.journalNo),
+      `${row.txnNumber} must keep its date and journal on the same page`
+    );
+  }
+
   assert.match(page2Compact, /Registerreconciliation:/);
   assert.match(page2Compact, /RECONCILED\./);
   assert.match(page2Compact, /Place\/date/);
