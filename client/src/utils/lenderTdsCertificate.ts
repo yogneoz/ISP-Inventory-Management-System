@@ -116,6 +116,7 @@ export function buildLenderTdsCertificateHtml(
     .no-print { display: none; }
     thead { display: table-header-group; }
     tr, .summary, .note, .sign { break-inside: avoid; }
+    .sign { break-before: avoid; }
     .company, .cert-no, .meta { break-after: avoid; }
   }
 </style>
