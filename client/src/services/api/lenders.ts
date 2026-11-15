@@ -5,7 +5,7 @@
  * Lenders screen and the lazy voucher-entry screen use these calls, so their
  * code belongs in a screen chunk rather than the startup graph.
  */
-import { fetchJson } from './http';
+import { fetchJson, getActiveBranchId } from './http';
 
 export type LenderType = 'OWNER' | 'RELATED_PARTY' | 'OTHER';
 export type LoanStatus = 'OPEN' | 'CLOSED' | 'CANCELLED';
@@ -385,6 +385,8 @@ export async function getLoans(
   if (query.lenderId) params.set('lenderId', query.lenderId);
   if (query.status) params.set('status', query.status);
   if (query.overdue) params.set('overdue', '1');
+  const branchId = getActiveBranchId();
+  if (branchId) params.set('branchId', branchId);
   const suffix = params.toString();
   return fetchJson(`/api/accounting/loans${suffix ? `?${suffix}` : ''}`);
 }
@@ -447,7 +449,8 @@ export async function getLenderTdsWorklist(
   const params = new URLSearchParams();
   if (query.from) params.set('from', query.from);
   if (query.to) params.set('to', query.to);
-  if (query.branchId && query.branchId !== 'ALL') params.set('branchId', query.branchId);
+  const branchId = query.branchId && query.branchId !== 'ALL' ? query.branchId : getActiveBranchId();
+  if (branchId) params.set('branchId', branchId);
   const suffix = params.toString();
   return fetchJson(`/api/accounting/lenders/tds-worklist${suffix ? `?${suffix}` : ''}`);
 }
@@ -469,7 +472,8 @@ export async function getLenderStatement(
   const params = new URLSearchParams();
   if (query.from) params.set('from', query.from);
   if (query.to) params.set('to', query.to);
-  if (query.branchId && query.branchId !== 'ALL') params.set('branchId', query.branchId);
+  const branchId = query.branchId && query.branchId !== 'ALL' ? query.branchId : getActiveBranchId();
+  if (branchId) params.set('branchId', branchId);
   const suffix = params.toString();
   return fetchJson(
     `/api/accounting/lenders/${encodeURIComponent(id)}/statement${suffix ? `?${suffix}` : ''}`
