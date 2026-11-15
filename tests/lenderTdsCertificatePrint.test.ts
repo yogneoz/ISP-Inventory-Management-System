@@ -267,3 +267,189 @@ test('TDS certificate prints on A4 with intact rows and totals', async (t) => {
   assert.doesNotMatch(allText, /Print \/ Save as PDF/);
   assert.doesNotMatch(allText, /TDS CSV/);
 });
+
+function stressStatement() {
+  const withheld = Array.from({ length: 48 }, (_, index) => {
+    const date = new Date(Date.UTC(2026, 10, 1 + index));
+    return {
+      id: `txn-stress-${index + 1}`,
+      txnNumber: `LP-STRESS-2026-${String(index + 1).padStart(3, '0')}`,
+      dateAD: date.toISOString().slice(0, 10),
+      dateBS: '2083-07-15',
+      principalAmount: 1000,
+      interestAmount: 100,
+      tdsAmount: 15,
+      cashAmount: 1085,
+      tdsStatus: 'WITHHELD' as const,
+      exemptionReason: null,
+      exemptionReference: null,
+      loanNumber: 'LOAN-STRESS-2026-0001',
+      journalNo: `MJ-STRESS-${String(index + 1).padStart(3, '0')}`,
+    };
+  });
+
+  return {
+    ...printStatement(),
+    lender: {
+      ...printStatement().lender,
+      code: 'UICERT-STRESS-2026-LONG-CODE',
+      name:
+        'UI Certificate <Bank> & Co — National Infrastructure and Rural Electrification Finance Corporation Limited (Stress Test)',
+      panNumber: 'PAN-ABCDEFGH-1234567890-SUPER-LONG-IDENTIFIER',
+    },
+    from: '2026-11-01',
+    to: '2026-12-31',
+    tdsEntries: [
+      ...withheld,
+      {
+        id: 'txn-stress-exempt',
+        txnNumber: 'LP-STRESS-EXEMPT-001',
+        dateAD: '2026-12-20',
+        dateBS: '2083-09-04',
+        principalAmount: 100,
+        interestAmount: 100,
+        tdsAmount: 0,
+        cashAmount: 200,
+        tdsStatus: 'EXEMPT' as const,
+        exemptionReason: 'RESIDENT_BANK',
+        exemptionReference: 'Stress-test bank certificate',
+        loanNumber: 'LOAN-STRESS-2026-0001',
+        journalNo: 'MJ-STRESS-EXEMPT',
+      },
+    ],
+    tdsTotals: {
+      principal: 48100,
+      interest: 4900,
+      tds: 720,
+      cash: 52280,
+      withheldInterest: 4800,
+      withheldTax: 720,
+      exemptInterest: 100,
+      unexplainedInterest: 0,
+      noInterestPrincipal: 0,
+      withheldCount: 48,
+      exemptCount: 1,
+      unexplainedCount: 0,
+      noInterestCount: 0,
+      ledgerPrincipal: 48100,
+      ledgerInterest: 4900,
+      ledgerTds: 720,
+      ledgerCash: 52280,
+      principalDifference: 0,
+      interestDifference: 0,
+      tdsDifference: 0,
+      cashDifference: 0,
+      reconciled: true,
+    },
+  } as any;
+}
+
+test('TDS certificate paginates a large table and wraps a long lender identity', async (t) => {
+  const browser = findBrowser();
+  if (!browser) {
+    t.skip('No Chrome/Chromium/Edge executable found for headless PDF rendering.');
+    return;
+  }
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tds-certificate-stress-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const htmlPath = path.join(dir, 'certificate.html');
+  const pdfPath = path.join(dir, 'certificate.pdf');
+  const html = buildLenderTdsCertificateHtml(stressStatement(), {
+    name: 'Example Co',
+    legalName: 'Example Co Pvt. Ltd.',
+    address: 'Kathmandu, Nepal',
+    city: 'Kathmandu',
+    country: 'Nepal',
+    panVatNumber: '300000000',
+  });
+  fs.writeFileSync(htmlPath, html.replace(/<script>[\s\S]*?<\/script>/i, ''));
+
+  execFileSync(
+    browser,
+    [
+      '--headless=new',
+      '--disable-gpu',
+      '--disable-dev-shm-usage',
+      '--no-sandbox',
+      '--no-first-run',
+      '--no-pdf-header-footer',
+      `--user-data-dir=${path.join(dir, 'profile')}`,
+      `--print-to-pdf=${pdfPath}`,
+      '--virtual-time-budget=1500',
+      pathToFileURL(htmlPath).href,
+    ],
+    { stdio: 'pipe', timeout: 30_000 }
+  );
+  assert.ok(fs.existsSync(pdfPath), 'headless Chrome must write a PDF');
+
+  const doc = await getDocument({ data: new Uint8Array(fs.readFileSync(pdfPath)) }).promise;
+  assert.equal(doc.numPages, 2, '48 withheld rows must paginate to two A4 pages');
+
+  const pages: Array<{ text: string[]; width: number; height: number; maxRight: number; minY: number; maxY: number }> = [];
+  for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber += 1) {
+    const page = await doc.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: 1 });
+    const content = await page.getTextContent();
+    const items = content.items
+      .filter((item) => 'str' in item && Boolean(item.str.trim()))
+      .map((item) => {
+        const textItem = item as { str: string; transform: number[]; width: number };
+        return {
+          text: textItem.str.trim(),
+          x: textItem.transform[4],
+          y: textItem.transform[5],
+          width: textItem.width,
+        };
+      });
+    pages.push({
+      text: items.map((item) => item.text),
+      width: viewport.width,
+      height: viewport.height,
+      maxRight: Math.max(...items.map((item) => item.x + item.width)),
+      minY: Math.min(...items.map((item) => item.y)),
+      maxY: Math.max(...items.map((item) => item.y)),
+    });
+  }
+
+  for (const [index, page] of pages.entries()) {
+    assert.ok(
+      Math.abs(page.width - A4_WIDTH_PT) < 1 && Math.abs(page.height - A4_HEIGHT_PT) < 1,
+      `page ${index + 1} must be A4 (${page.width}x${page.height}pt)`
+    );
+    assert.ok(page.maxRight <= page.width - 20, `page ${index + 1} must keep content inside the right margin`);
+    assert.ok(page.minY >= 20, `page ${index + 1} must keep content inside the bottom margin`);
+    assert.ok(page.maxY <= page.height - 20, `page ${index + 1} must keep content inside the top margin`);
+  }
+
+  const page1 = pages[0].text.join('\n');
+  const page2 = pages[1].text.join('\n');
+  const allText = `${page1}\n${page2}`;
+
+  assert.match(page1, /TDS\/UICERT-STRESS-2026-LONG-CODE\/2026-11-01\/2026-12-31/);
+  assert.match(page1, /UI Certificate <Bank> & Co/);
+  assert.match(page1, /National Infrastructure and Rural/);
+  assert.match(page1, /PAN-ABCDEFGH-/);
+  assert.match(page1, /1234567890-SUPER-LONG-/);
+  assert.match(page1, /IDENTIFIER/);
+  assert.equal(new Set(allText.match(/LP-STRESS-2026-\d{3}/g) || []).size, 48);
+  assert.equal(
+    (allText.match(/LP-STRESS-2026-\d{3}/g) || []).length,
+    48,
+    'every large-table repayment must survive exactly once'
+  );
+  assert.doesNotMatch(page1, /Total withheld on 48 repayments/, 'the grand total must not repeat before the table ends');
+  assert.equal((page2.match(/Total withheld on 48 repayments/g) || []).length, 1);
+  assert.match(page2, /DATE \(AD\)/);
+  assert.match(page2, /NPR 4,800/);
+  assert.match(page2, /NPR 720/);
+  assert.match(page2, /NPR 52,080/);
+  assert.match(page2, /NPR 100/);
+  assert.match(page2, /Register reconciliation:/);
+  assert.match(page2, /RECONCILED\./);
+  assert.match(page2, /Place \/ date/);
+  assert.match(page2, /Authorised signatory/);
+  assert.doesNotMatch(allText, /Print \/ Save as PDF/);
+  assert.doesNotMatch(allText, /TDS CSV/);
+});
