@@ -8,14 +8,17 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  AlertTriangle,
   BookOpen,
   CalendarClock,
   Download,
   Edit2,
   HandCoins,
   Landmark,
+  ListChecks,
   Loader2,
   Plus,
+  Printer,
   RefreshCw,
   Trash2,
   Undo2,
@@ -61,12 +64,16 @@ import type {
 import { getAccountingAccounts, type AccountingAccount } from '../../services/api/accounting';
 import { money } from '../../components/accounting/statementFormat';
 import { exportToCSV, type CSVColumn } from '../../utils/exportUtils';
-import type { Branch, User } from '../../types';
+import type { Branch, CompanyProfile, User } from '../../types';
 import { isOperationAllowed } from '../../utils/permissions';
+import { printLenderTdsCertificate } from '../../utils/lenderTdsCertificate';
+import { TDS_REASON_LABEL, TDS_REFERENCE_REQUIRED } from '../../utils/tdsExemption';
+import { LenderTdsWorklist } from '../../components/accounting/LenderTdsWorklist';
 
 interface LendersManagementProps {
   branches?: Branch[];
   currentUser?: User | null;
+  companyProfile?: CompanyProfile | null;
 }
 
 interface LenderForm {
@@ -189,26 +196,6 @@ const LENDER_TYPE_LABEL: Record<LenderType, string> = {
   OTHER: 'Other',
 };
 
-const TDS_REASON_LABEL: Record<TdsExemptionReason, string> = {
-  RESIDENT_BANK: 'Resident bank lender',
-  RESIDENT_FI: 'Resident financial institution',
-  INTER_COOP: 'Inter-co-operative lending',
-  NO_INTEREST: 'No interest charged',
-  TREATY: 'Treaty / non-resident relief',
-  EXEMPT_INCOME: 'Exempt income',
-  OTHER: 'Other documented exemption',
-};
-
-const TDS_REFERENCE_REQUIRED: Record<TdsExemptionReason, boolean> = {
-  RESIDENT_BANK: true,
-  RESIDENT_FI: true,
-  INTER_COOP: true,
-  NO_INTEREST: false,
-  TREATY: true,
-  EXEMPT_INCOME: true,
-  OTHER: true,
-};
-
 const FREQUENCY_LABEL: Record<LoanRepaymentFrequency, string> = {
   LUMP_SUM: 'Lump sum',
   MONTHLY: 'Monthly',
@@ -236,6 +223,7 @@ function statusBadge(status: LoanStatus) {
 export const LendersManagement: React.FC<LendersManagementProps> = ({
   branches = [],
   currentUser,
+  companyProfile = null,
 }) => {
   const { confirm: confirmDialog, alert: alertDialog } = useDialog();
   const canManage = isOperationAllowed('gl-subledger-manage', currentUser?.role);
@@ -256,6 +244,7 @@ export const LendersManagement: React.FC<LendersManagementProps> = ({
   const [accounts, setAccounts] = useState<AccountingAccount[]>([]);
   const [loanStatusFilter, setLoanStatusFilter] = useState<'ALL' | LoanStatus>('ALL');
   const [loanOverdueOnly, setLoanOverdueOnly] = useState(false);
+  const [workspaceView, setWorkspaceView] = useState<'REGISTER' | 'TDS_WORKLIST'>('REGISTER');
 
   const [lenderModal, setLenderModal] = useState(false);
   const [editingLender, setEditingLender] = useState<LenderRecord | null>(null);
@@ -726,6 +715,13 @@ export const LendersManagement: React.FC<LendersManagementProps> = ({
     }
   };
 
+  const handlePrintCertificate = () => {
+    if (!statement || statement.tdsEntries.length === 0) return;
+    if (!printLenderTdsCertificate(statement, companyProfile)) {
+      alertDialog('Allow pop-ups for this site to open the printable TDS certificate.');
+    }
+  };
+
   const handleExportTds = () => {
     if (!statement || statement.tdsEntries.length === 0) return;
     const rows: LoanTdsEntry[] = statement.tdsEntries;
@@ -786,35 +782,70 @@ export const LendersManagement: React.FC<LendersManagementProps> = ({
       <PageHeader
         title="Lenders"
         description={
-          loadError && lenders.length === 0
-            ? 'Lender register unavailable — retry below'
-            : `${lenders.length} lenders · owner and related-party borrowing in the Loan Payable ledger`
+          workspaceView === 'TDS_WORKLIST'
+            ? 'Legacy zero-TDS repayments that still need audit evidence'
+            : loadError && lenders.length === 0
+              ? 'Lender register unavailable — retry below'
+              : `${lenders.length} lenders · owner and related-party borrowing in the Loan Payable ledger`
         }
         icon={<Landmark className="h-5 w-5 text-indigo-500" />}
         actions={
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                void loadLenders(true);
-                void loadDetail(selectedId);
-              }}
-              className="flex cursor-pointer items-center gap-1.5 rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-            >
-              <RefreshCw className="h-3.5 w-3.5" /> Refresh
-            </button>
-            {canManage ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex rounded-xl border border-slate-300 p-0.5 dark:border-slate-700">
               <button
                 type="button"
-                onClick={openCreateLender}
-                className="flex cursor-pointer items-center gap-2 rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-md hover:bg-indigo-500"
+                onClick={() => setWorkspaceView('REGISTER')}
+                className={`flex cursor-pointer items-center gap-1.5 rounded-[9px] px-2.5 py-1 text-[11px] font-semibold ${
+                  workspaceView === 'REGISTER'
+                    ? 'bg-indigo-600 text-white'
+                    : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
+                }`}
               >
-                <Plus className="h-4 w-4" /> Add Lender
+                <Landmark className="h-3.5 w-3.5" /> Register
               </button>
+              <button
+                type="button"
+                onClick={() => setWorkspaceView('TDS_WORKLIST')}
+                className={`flex cursor-pointer items-center gap-1.5 rounded-[9px] px-2.5 py-1 text-[11px] font-semibold ${
+                  workspaceView === 'TDS_WORKLIST'
+                    ? 'bg-amber-600 text-white'
+                    : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
+                }`}
+              >
+                <ListChecks className="h-3.5 w-3.5" /> TDS cleanup
+              </button>
+            </div>
+            {workspaceView === 'REGISTER' ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void loadLenders(true);
+                    void loadDetail(selectedId);
+                  }}
+                  className="flex cursor-pointer items-center gap-1.5 rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" /> Refresh
+                </button>
+                {canManage ? (
+                  <button
+                    type="button"
+                    onClick={openCreateLender}
+                    className="flex cursor-pointer items-center gap-2 rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-md hover:bg-indigo-500"
+                  >
+                    <Plus className="h-4 w-4" /> Add Lender
+                  </button>
+                ) : null}
+              </>
             ) : null}
           </div>
         }
       />
+
+      {workspaceView === 'TDS_WORKLIST' ? (
+        <LenderTdsWorklist currentUser={currentUser} />
+      ) : (
+        <>
 
       <FilterCard
         searchPlaceholder="Search code, name or lender type…"
@@ -1315,14 +1346,26 @@ export const LendersManagement: React.FC<LendersManagementProps> = ({
                             {money(statement.tdsTotals.unexplainedInterest)}
                           </p>
                         </div>
-                        <button
-                          type="button"
-                          onClick={handleExportTds}
-                          disabled={statement.tdsEntries.length === 0}
-                          className="flex h-7 cursor-pointer items-center gap-1 rounded-lg border border-slate-300 px-2 text-[10px] font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                        >
-                          <Download className="h-3 w-3" /> TDS CSV
-                        </button>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={handlePrintCertificate}
+                            disabled={
+                              !statement.tdsEntries.some((row) => row.tdsStatus === 'WITHHELD')
+                            }
+                            className="flex h-7 cursor-pointer items-center gap-1 rounded-lg border border-indigo-300 px-2 text-[10px] font-semibold text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-700 dark:text-indigo-300 dark:hover:bg-indigo-950/30"
+                          >
+                            <Printer className="h-3 w-3" /> Certificate
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleExportTds}
+                            disabled={statement.tdsEntries.length === 0}
+                            className="flex h-7 cursor-pointer items-center gap-1 rounded-lg border border-slate-300 px-2 text-[10px] font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                          >
+                            <Download className="h-3 w-3" /> TDS CSV
+                          </button>
+                        </div>
                       </div>
                       <div
                         className={`mx-2.5 mt-2 rounded-lg border px-2.5 py-1.5 text-[10px] font-semibold ${
@@ -1451,6 +1494,8 @@ export const LendersManagement: React.FC<LendersManagementProps> = ({
           )}
         </section>
       </div>
+        </>
+      )}
 
       {lenderModal ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">

@@ -3407,7 +3407,11 @@ export default function App() {
         <SubledgersManagement branches={branches} currentUser={currentUser} />
     )),
     screenRoute('lenders', (
-        <LendersManagement branches={branches} currentUser={currentUser} />
+        <LendersManagement
+          branches={branches}
+          currentUser={currentUser}
+          companyProfile={companyProfile}
+        />
     )),
     screenRoute('bill-terms', (
         <BillTermsManagement currentUser={currentUser} />

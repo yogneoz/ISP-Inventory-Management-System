@@ -249,6 +249,42 @@ export interface LoanTdsEntry {
   journalNo: string;
 }
 
+export interface LenderTdsWorklistEntry {
+  id: string;
+  txnNumber: string;
+  dateAD: string;
+  dateBS: string;
+  principalAmount: number;
+  interestAmount: number;
+  tdsAmount: number;
+  cashAmount: number;
+  loanId: string;
+  loanNumber: string;
+  lenderId: string;
+  lenderCode: string;
+  lenderName: string;
+  branchId: string;
+  branchCode: string;
+  branchName: string;
+  journalNo: string;
+  referenceNo: string | null;
+  createdBy: string | null;
+  createdAt: string | null;
+}
+
+export interface LenderTdsWorklist {
+  from: string | null;
+  to: string | null;
+  branchId: string;
+  entries: LenderTdsWorklistEntry[];
+  totals: { count: number; principal: number; interest: number; cash: number };
+}
+
+export interface LenderTdsEvidenceInput {
+  tdsExemptionReason: TdsExemptionReason;
+  tdsExemptionReference: string;
+}
+
 export interface LoanRepaymentInput {
   dateAD?: string;
   principal?: number;
@@ -400,6 +436,27 @@ export async function createLoan(input: LoanInput): Promise<LoanRecord> {
 
 export async function updateLoan(id: string, input: Partial<LoanInput>): Promise<LoanRecord> {
   return fetchJson(`/api/accounting/loans/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function getLenderTdsWorklist(
+  query: { from?: string; to?: string; branchId?: string } = {}
+): Promise<LenderTdsWorklist> {
+  const params = new URLSearchParams();
+  if (query.from) params.set('from', query.from);
+  if (query.to) params.set('to', query.to);
+  if (query.branchId && query.branchId !== 'ALL') params.set('branchId', query.branchId);
+  const suffix = params.toString();
+  return fetchJson(`/api/accounting/lenders/tds-worklist${suffix ? `?${suffix}` : ''}`);
+}
+
+export async function recordLenderTdsEvidence(
+  id: string,
+  input: LenderTdsEvidenceInput
+): Promise<{ entry: LoanTransaction & { loanNumber?: string }; tdsStatus: TdsStatus }> {
+  return fetchJson(`/api/accounting/lenders/tds-worklist/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     body: JSON.stringify(input),
   });

@@ -917,4 +917,137 @@ describe('lender master, loan register and statement API (real HTTP + PostgreSQL
     assert.equal(ownerRegister.json.tdsTotals.withheldTax, 3);
     assert.equal(ownerRegister.json.tdsTotals.reconciled, true);
   });
+
+  test('cleans up legacy zero-TDS repayments through the evidence worklist', async () => {
+    const lender = await post('/api/accounting/lenders', tokens.super, {
+      code: 'LNT-LEGACY',
+      name: 'LENDER TEST Legacy History',
+      lenderType: 'OTHER',
+    });
+    assert.equal(lender.status, 201, JSON.stringify(lender.json));
+    const legacyLenderId = lender.json.id as string;
+
+    const loan = await post('/api/accounting/loans', tokens.super, {
+      lenderId: legacyLenderId,
+      branchId: BR,
+      principal: 500,
+      interestRate: 12,
+      startDateAD: '2026-08-01',
+      repaymentFrequency: 'LUMP_SUM',
+      securityType: 'UNSECURED',
+      status: 'OPEN',
+    });
+    assert.equal(loan.status, 201, JSON.stringify(loan.json));
+    const legacyLoanId = loan.json.id as string;
+
+    const received = await post(`/api/accounting/loans/${legacyLoanId}/receipts`, tokens.super, {
+      dateAD: JOURNAL_DATE,
+      principal: 500,
+      cashAccountId,
+    });
+    assert.equal(received.status, 201, JSON.stringify(received.json));
+
+    const explainedToday = await post(
+      `/api/accounting/loans/${legacyLoanId}/repayments`,
+      tokens.super,
+      {
+        dateAD: '2026-08-20',
+        principal: 100,
+        interestAmount: 30,
+        tdsAmount: 0,
+        cashAccountId,
+        tdsExemptionReason: 'RESIDENT_FI',
+        tdsExemptionReference: 'Temporary evidence that will be removed',
+      }
+    );
+    assert.equal(explainedToday.status, 201, JSON.stringify(explainedToday.json));
+    const legacyTxnId = explainedToday.json.transaction.id as string;
+
+    // Simulate a repayment posted before the evidence columns existed.
+    await pool!.query(
+      `UPDATE loan_transactions
+          SET tds_exemption_reason = NULL,
+              tds_exemption_reference = NULL
+        WHERE id = $1`,
+      [legacyTxnId]
+    );
+
+    const worklist = await get(
+      '/api/accounting/lenders/tds-worklist?from=2026-08-01&to=2026-08-31',
+      tokens.super
+    );
+    assert.equal(worklist.status, 200, JSON.stringify(worklist.json));
+    assert.equal(worklist.json.entries.length, 1);
+    assert.equal(worklist.json.entries[0].id, legacyTxnId);
+    assert.equal(worklist.json.entries[0].lenderCode, 'LNT-LEGACY');
+    assert.equal(worklist.json.entries[0].loanNumber, loan.json.loanNumber);
+    assert.equal(worklist.json.entries[0].interestAmount, 30);
+    assert.equal(worklist.json.entries[0].tdsAmount, 0);
+    assert.equal(worklist.json.totals.count, 1);
+    assert.equal(worklist.json.totals.interest, 30);
+
+    const noReference = await patch(
+      `/api/accounting/lenders/tds-worklist/${legacyTxnId}`,
+      tokens.super,
+      { tdsExemptionReason: 'RESIDENT_FI' }
+    );
+    assert.equal(noReference.status, 400, JSON.stringify(noReference.json));
+    assert.match(noReference.json.message, /certificate|notification/i);
+
+    const noInterestReason = await patch(
+      `/api/accounting/lenders/tds-worklist/${legacyTxnId}`,
+      tokens.super,
+      { tdsExemptionReason: 'NO_INTEREST', tdsExemptionReference: 'Zero interest' }
+    );
+    assert.equal(noInterestReason.status, 400, JSON.stringify(noInterestReason.json));
+    assert.match(noInterestReason.json.message, /NO_INTEREST applies only/i);
+
+    const resolved = await patch(
+      `/api/accounting/lenders/tds-worklist/${legacyTxnId}`,
+      tokens.super,
+      {
+        tdsExemptionReason: 'RESIDENT_FI',
+        tdsExemptionReference: 'FY 2082/83 interest certificate · Institution licence 44',
+      }
+    );
+    assert.equal(resolved.status, 200, JSON.stringify(resolved.json));
+    assert.equal(resolved.json.entry.tdsExemptionReason, 'RESIDENT_FI');
+    assert.match(resolved.json.entry.tdsExemptionReference, /Institution licence 44/);
+
+    const cleared = await get(
+      '/api/accounting/lenders/tds-worklist?from=2026-08-01&to=2026-08-31',
+      tokens.super
+    );
+    assert.equal(cleared.status, 200, JSON.stringify(cleared.json));
+    assert.equal(cleared.json.entries.length, 0);
+    assert.equal(cleared.json.totals.count, 0);
+
+    const duplicate = await patch(
+      `/api/accounting/lenders/tds-worklist/${legacyTxnId}`,
+      tokens.super,
+      { tdsExemptionReason: 'RESIDENT_BANK', tdsExemptionReference: 'Another certificate' }
+    );
+    assert.equal(duplicate.status, 409, JSON.stringify(duplicate.json));
+    assert.match(duplicate.json.message, /already has TDS exemption evidence/i);
+
+    const register = await get(
+      `/api/accounting/lenders/${legacyLenderId}/statement?from=2026-08-01&to=2026-08-31`,
+      tokens.super
+    );
+    assert.equal(register.status, 200, JSON.stringify(register.json));
+    assert.equal(register.json.tdsEntries.length, 1);
+    assert.equal(register.json.tdsEntries[0].tdsStatus, 'EXEMPT');
+    assert.equal(register.json.tdsEntries[0].exemptionReason, 'RESIDENT_FI');
+    assert.match(register.json.tdsEntries[0].exemptionReference, /Institution licence 44/);
+    assert.equal(register.json.tdsTotals.exemptInterest, 30);
+    assert.equal(register.json.tdsTotals.reconciled, true);
+
+    const audit = await pool!.query(
+      `SELECT action FROM audit_logs
+        WHERE action = 'LOAN_TDS_EVIDENCE'
+          AND details LIKE '%Institution licence 44%'
+        ORDER BY timestamp_ad DESC LIMIT 1`
+    );
+    assert.equal(audit.rowCount, 1, 'the cleanup must leave an audit-log entry');
+  });
 });

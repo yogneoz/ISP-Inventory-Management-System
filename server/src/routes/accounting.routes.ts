@@ -138,12 +138,14 @@ import {
   delete_lender,
   get_lenderOptions,
   get_lenderStatement,
+  get_lenderTdsWorklist,
   get_lenders,
   get_loan,
   get_loans,
   get_loanTransactions,
   patch_lender,
   patch_loan,
+  patch_loanTdsEvidence,
   post_lender,
   post_loan,
   post_loanInterestAccrual,
@@ -239,6 +241,20 @@ export function registerAccountingRoutes(app: Express) {
   app.get('/api/accounting/lenders', requirePermission('gl-view'), async (req, res, next) => {
     get_lenders(req as any, res as any).catch(next);
   });
+  app.get(
+    '/api/accounting/lenders/tds-worklist',
+    requirePermission('gl-view'),
+    async (req, res, next) => {
+      get_lenderTdsWorklist(req as any, res as any).catch(next);
+    }
+  );
+  app.patch(
+    '/api/accounting/lenders/tds-worklist/:id',
+    requirePermission('gl-subledger-manage'),
+    async (req, res, next) => {
+      patch_loanTdsEvidence(req as any, res as any).catch(next);
+    }
+  );
   app.get('/api/accounting/lenders/:id/statement', requirePermission('gl-view'), async (req, res, next) => {
     get_lenderStatement(req as any, res as any).catch(next);
   });

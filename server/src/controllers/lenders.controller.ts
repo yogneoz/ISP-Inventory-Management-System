@@ -49,6 +49,7 @@ import {
   LENDER_STATEMENT_ENTRIES_SQL,
   LENDER_STATEMENT_OPENING_SQL,
   LENDER_TDS_ACCOUNT_SQL,
+  LENDER_TDS_WORKLIST_SQL,
   LENDER_UNASSIGNED_BALANCE_SQL,
   LENDER_UPDATE_SQL,
   LOAN_ACCRUAL_BY_ID_SQL,
@@ -73,6 +74,8 @@ import {
   LOAN_STATUS_UPDATE_SQL,
   LOAN_TRANSACTION_BY_ID_SQL,
   LOAN_TRANSACTION_INSERT_SQL,
+  LOAN_TRANSACTION_TDS_EVIDENCE_ROW_SQL,
+  LOAN_TRANSACTION_TDS_EVIDENCE_UPDATE_SQL,
   LOAN_TRANSACTION_LIST_SQL,
   LOAN_REPAYMENT_COUNT_SQL,
   LOAN_TRANSACTION_SUM_SQL,
@@ -1611,6 +1614,121 @@ export async function post_loanInterestAccrual(req: any, res: Response): Promise
     };
   });
   return res.status(201).json(result);
+}
+
+/** GET /api/accounting/lenders/tds-worklist?from=&to=&branchId= */
+export async function get_lenderTdsWorklist(req: any, res: Response): Promise<any> {
+  requireDb();
+  const scope = resolveBranchScope(req, res);
+  if (!scope) return;
+  const empty = {
+    from: null,
+    to: null,
+    branchId: 'ALL',
+    entries: [],
+    totals: { count: 0, principal: 0, interest: 0, cash: 0 },
+  };
+  if (scope.empty) return res.json(empty);
+  const from = isoDateOrNull(req.query?.from);
+  const to = isoDateOrNull(req.query?.to);
+  if (from && to && from > to) throw new ApiError(400, 'The from date must not be after the to date.');
+  const branchId = scope.branchId || null;
+  const rows = (
+    await pgPool.query(LENDER_TDS_WORKLIST_SQL, [from, to, branchId])
+  ).rows as any[];
+  const entries = rows.map((row) => ({
+    ...row,
+    principalAmount: money(row.principalAmount),
+    interestAmount: money(row.interestAmount),
+    tdsAmount: money(row.tdsAmount),
+    cashAmount: money(row.cashAmount),
+  }));
+  const total = (key: 'principalAmount' | 'interestAmount' | 'cashAmount') =>
+    money(entries.reduce((sum, row) => sum + row[key], 0));
+  res.setHeader('Cache-Control', 'private, no-store');
+  return res.json({
+    from,
+    to,
+    branchId: branchId || 'ALL',
+    entries,
+    totals: {
+      count: entries.length,
+      principal: total('principalAmount'),
+      interest: total('interestAmount'),
+      cash: total('cashAmount'),
+    },
+  });
+}
+
+/**
+ * PATCH /api/accounting/lenders/tds-worklist/:id
+ * Records audit evidence for a legacy zero-TDS repayment. The journal, amounts
+ * and tax already posted are untouched; only the explanation is stored.
+ */
+export async function patch_loanTdsEvidence(req: any, res: Response): Promise<any> {
+  requireDb();
+  const id = text(req.params?.id, 50);
+  if (!id) throw new ApiError(400, 'A repayment id is required.');
+  const body = req.body || {};
+  const reasonRaw = text(body.tdsExemptionReason, 30).toUpperCase();
+  const reason = parseTdsExemptionReason(reasonRaw);
+  if (!reason) {
+    throw new ApiError(
+      400,
+      'TDS exemption reason must be RESIDENT_BANK, RESIDENT_FI, INTER_COOP, NO_INTEREST, TREATY, EXEMPT_INCOME or OTHER.'
+    );
+  }
+  if (reason === 'NO_INTEREST') {
+    throw new ApiError(400, 'NO_INTEREST applies only to a repayment that paid no interest.');
+  }
+  const reference = text(body.tdsExemptionReference, 500);
+  if (!reference) {
+    throw new ApiError(
+      400,
+      'Record the certificate, agreement clause or notification relied on for this TDS exemption.'
+    );
+  }
+
+  const updated = await withTransaction(async (client: any) => {
+    const row = (await client.query(LOAN_TRANSACTION_TDS_EVIDENCE_ROW_SQL, [id])).rows[0];
+    if (!row) throw new ApiError(404, 'Repayment not found.');
+    assertBranchAllowed(req, row.branchId);
+    if (row.txnType !== 'REPAYMENT') {
+      throw new ApiError(409, 'Only lender repayments can carry TDS exemption evidence.');
+    }
+    if (row.journalStatus !== 'POSTED') {
+      throw new ApiError(409, 'The repayment journal is not posted.');
+    }
+    if (money(row.interestAmount) <= 0.004) {
+      throw new ApiError(409, 'This repayment paid no interest; no TDS evidence is required.');
+    }
+    if (money(row.tdsAmount) > 0.004) {
+      throw new ApiError(409, 'This repayment already withheld TDS and cannot be marked exempt.');
+    }
+    if (row.tdsExemptionReason) {
+      throw new ApiError(409, 'This repayment already has TDS exemption evidence.');
+    }
+    await client.query(LOAN_TRANSACTION_TDS_EVIDENCE_UPDATE_SQL, [id, reason, reference]);
+    await logAuditEvent(
+      req,
+      'LOAN_TDS_EVIDENCE',
+      'ACCOUNTING',
+      `Recorded ${reason} evidence for zero-TDS repayment ${row.txnNumber} on loan ${row.loanNumber}: ${reference}`,
+      undefined,
+      client
+    );
+    return {
+      ...row,
+      tdsExemptionReason: reason,
+      tdsExemptionReference: reference,
+    };
+  });
+
+  res.setHeader('Cache-Control', 'private, no-store');
+  return res.json({
+    entry: loanTransactionResponse(updated),
+    tdsStatus: 'EXEMPT',
+  });
 }
 
 /** GET /api/accounting/lenders/:id/statement?from=&to=&branchId= */

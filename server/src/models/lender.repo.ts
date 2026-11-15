@@ -331,6 +331,61 @@ FROM loan_transactions t
 JOIN gl_journals j ON j.id = t.journal_id
 WHERE t.id = $1`;
 
+/** Lock one repayment while its audit-only TDS evidence is recorded. */
+export const LOAN_TRANSACTION_TDS_EVIDENCE_ROW_SQL = `SELECT ${LOAN_TRANSACTION_COLUMNS},
+  ln.loan_number AS "loanNumber"
+FROM loan_transactions t
+JOIN gl_journals j ON j.id = t.journal_id
+JOIN loans ln ON ln.id = t.loan_id
+WHERE t.id = $1
+FOR UPDATE OF t`;
+
+/** Evidence is metadata only; the posted journal and its amounts never move. */
+export const LOAN_TRANSACTION_TDS_EVIDENCE_UPDATE_SQL = `UPDATE loan_transactions
+SET tds_exemption_reason = $2,
+    tds_exemption_reference = $3
+WHERE id = $1
+RETURNING id`;
+
+/**
+ * Legacy zero-TDS repayments that still need audit evidence. New postings are
+ * refused by the controller, so this list is the cleanup queue for history.
+ */
+export const LENDER_TDS_WORKLIST_SQL = `SELECT
+  t.id,
+  t.txn_number AS "txnNumber",
+  t.txn_date_ad::text AS "dateAD",
+  t.txn_date_bs AS "dateBS",
+  t.principal_amount::numeric AS "principalAmount",
+  t.interest_amount::numeric AS "interestAmount",
+  t.tds_amount::numeric AS "tdsAmount",
+  t.cash_amount::numeric AS "cashAmount",
+  t.loan_id AS "loanId",
+  ln.loan_number AS "loanNumber",
+  t.lender_id AS "lenderId",
+  l.code AS "lenderCode",
+  l.name AS "lenderName",
+  t.branch_id AS "branchId",
+  b.code AS "branchCode",
+  b.name AS "branchName",
+  j.journal_no AS "journalNo",
+  t.reference_no AS "referenceNo",
+  t.created_by AS "createdBy",
+  t.created_at::text AS "createdAt"
+FROM loan_transactions t
+JOIN gl_journals j ON j.id = t.journal_id AND j.status = 'POSTED'
+JOIN loans ln ON ln.id = t.loan_id
+JOIN lenders l ON l.id = t.lender_id
+JOIN branches b ON b.id = t.branch_id
+WHERE t.txn_type = 'REPAYMENT'
+  AND t.tds_amount = 0
+  AND t.interest_amount > 0
+  AND t.tds_exemption_reason IS NULL
+  AND ($1::date IS NULL OR t.txn_date_ad >= $1::date)
+  AND ($2::date IS NULL OR t.txn_date_ad <= $2::date)
+  AND ($3::varchar IS NULL OR t.branch_id = $3)
+ORDER BY t.txn_date_ad ASC, t.txn_number ASC`;
+
 export const LOAN_TRANSACTION_INSERT_SQL = `INSERT INTO loan_transactions (
   id, txn_number, loan_id, lender_id, branch_id, txn_type, txn_date_ad,
   txn_date_bs, principal_amount, interest_amount, tds_amount, cash_amount,
