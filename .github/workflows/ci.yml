@@ -3,26 +3,134 @@ name: CI
 on:
   push:
     branches: ['**']
+    paths-ignore:
+      - '**.md'
   pull_request:
+    paths-ignore:
+      - '**.md'
 
 jobs:
-  typecheck-and-test:
+  # No database needed. Typechecking and repository conventions are independent
+  # of the build and the PostgreSQL-backed tests, so they run in parallel.
+  static-checks:
     runs-on: ubuntu-latest
-    # A bound on the whole job. Without it a wedged step burns the GitHub
-    # default (360 minutes) per push: the suite sat in the npm test step for 86
-    # minutes with every test green, because the lifecycle process tests left
-    # node's runner unable to exit (fixed in tests/lifecycleProcess.test.ts).
-    # The 2,352-test suite now runs close to 40 minutes on the CI runner; 60
-    # keeps a genuine hang bounded without cancelling a healthy full run.
-    timeout-minutes: 60
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - name: Enforce repo-layer convention (no raw SQL in controllers)
+        run: npm run check:no-inline-sql
+      # The window.alert monkey-patch was removed when all ~100 raw call
+      # sites migrated to useDialog(); this keeps new native dialog calls
+      # from creeping back in (see scripts/check_no_raw_dialogs.ts).
+      - name: Enforce dialog convention (no native alert/confirm/prompt in client)
+        run: npm run check:no-raw-dialogs
+      # npm audit exits non-zero when vulnerabilities are found; gating on
+      # --omit=dev covers the deployable dependency surface (dev tooling
+      # advisories are surfaced in local audits but do not block the build).
+      - name: Fail on npm audit vulnerabilities (production deps)
+        run: npm audit --omit=dev
 
-    # PostgreSQL service container: lets the DB-dependent integration tests
-    # run in CI instead of skipping (real-PG concurrency proofs, schema drift
-    # guard, authenticated positive-path HTTP tests). The credentials must
-    # match DATABASE_URL below. Tests only run against throwaway databases
-    # (inventory_concurrency_test etc.) or read information_schema — the app
-    # database is never modified by the suite. The boot-timing seed below
-    # rebuilds it with the demo dataset after the suite has finished.
+  # Build and boot proof, with its own PostgreSQL service. This job runs in
+  # parallel with static-checks and the test matrix.
+  build-and-boot-timing:
+    runs-on: ubuntu-latest
+    # Build plus the fresh-install and browser boot probes; the old shared job
+    # needed 60 minutes only because the test suite ran inside it.
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: inventory_user
+          POSTGRES_PASSWORD: securepassword
+          POSTGRES_DB: inventory_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U inventory_user -d inventory_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://inventory_user:securepassword@localhost:5432/inventory_db
+      AUTH_TOKEN_SECRET: ci-test-only-secret-do-not-use-in-production
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Apply schema.sql to the CI database (fresh-install proof + drift-guard baseline)
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/schema.sql
+      # Duplication-audit phase 2 runtime proof: boots the real server against
+      # an EMPTY throwaway database (dbBoot executes scripts/schema.sql itself)
+      # and diffs the resulting runtime schema against a reference database
+      # created by applying scripts/schema.sql directly. Catches runtime DDL
+      # that re-inlines a second schema outside scripts/schema.sql on every
+      # push. Requires CREATEDB — the CI service superuser has it.
+      - name: Fresh-install proof — boot server on empty DB and assert schema parity
+        run: node scripts/verify_fresh_install.mjs
+      # Backlog #7: CI previously never built the frontend or audited
+      # dependencies, so a bundling-only type error or a newly-advised
+      # dependency could reach main undetected.
+      - name: Build client + server production bundles
+        run: npm run build
+      # Startup-budget gate: computes the transitive static-import closure of
+      # index.html's entry chunk and fails if the entry chunk or the whole
+      # eager graph exceeds its gzip budget — so a screen accidentally re-added
+      # to the eager imports or a shared module merged into the wrong chunk
+      # (see scripts/check_bundle_budget.mjs for the incident) fails CI.
+      - name: Enforce startup bundle size budget
+        run: npm run check:bundle-budget
+      # Paint-order gate, measured on the production build above: the splash
+      # must cover the lazy route fallback and the shell sync spinner on a cold
+      # reload, and a warm reload must paint cached bootstrap immediately (no
+      # spinner). A missing browser or a failed login FAILS the job — there is
+      # no skip path, so this cannot silently become a green no-op. The demo
+      # seed is the documented setup:pg path; the tests run against their own
+      # throwaway databases, so rebuilding the app database here cannot
+      # invalidate a test result.
+      - name: Seed demo data for the boot-timing check
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: '5432'
+          POSTGRES_DB: inventory_db
+          POSTGRES_USER: inventory_user
+          POSTGRES_PASSWORD: securepassword
+        run: npm run setup:pg
+      # 12 s is a generous CI-only wall-clock bound; locally the default is
+      # 6 s. The gate itself is frame visibility, not speed: a splash that never
+      # lifts ends the trace as "timeout" and fails either way.
+      - name: Production boot timing — splash covers loading, warm cache paints instantly
+        env:
+          BOOT_TRACE_NO_SANDBOX: '1'
+        run: npm run check:boot-timing -- --budget-ms 12000
+
+  # The suite is partitioned at the test-file level by node:test's supported
+  # --test-shard flag. Each matrix runner is a separate VM with its own
+  # PostgreSQL container, so the fixed-name throwaway databases
+  # (inventory_concurrency_test, inventory_drain_test, ...) cannot collide.
+  # fail-fast stays off so one red shard still lets the other three report.
+  test-suite:
+    name: test-suite (${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+
     services:
       postgres:
         image: postgres:16
@@ -50,6 +158,15 @@ jobs:
       # a token (tests/sseAuth.guard.test.ts) then signs it with the same secret
       # the module loaded, which is what it does on a developer machine too.
       AUTH_TOKEN_SECRET: ci-test-only-secret-do-not-use-in-production
+      # The live graceful-drain check creates its own throwaway database and
+      # boots the real entry. These skips are failures in CI: this is the only
+      # place the real-signal proof runs, so a missing POSIX signal, service
+      # container or CREATEDB must break the build instead of disappearing.
+      LIVE_DRAIN_REQUIRE_REAL_SIGNAL: '1'
+      # Pin the browser used by the TDS certificate print regression. CI has no
+      # skip path for that test: a missing binary or a runner image that moves
+      # Chrome must fail the job, not silently drop the proof.
+      TDS_CERT_BROWSER: /usr/bin/google-chrome
 
     steps:
       - uses: actions/checkout@v5
@@ -62,82 +179,80 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - name: Apply schema.sql to the CI database (fresh-install proof + drift-guard baseline)
+      - name: Apply schema.sql to this shard's CI database
         run: |
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/schema.sql
-      # Duplication-audit phase 2 runtime proof: boots the real server against
-      # an EMPTY throwaway database (dbBoot executes scripts/schema.sql itself)
-      # and diffs the resulting runtime schema against a reference database
-      # created by applying scripts/schema.sql directly. Catches runtime DDL
-      # that re-inlines a second schema outside scripts/schema.sql on every
-      # push. Requires CREATEDB — the CI service superuser has it.
-      - name: Fresh-install proof — boot server on empty DB and assert schema parity
-        run: node scripts/verify_fresh_install.mjs
-      - run: npx tsc --noEmit
-      # npm test includes the live graceful-drain check
-      # (tests/lifecycleLiveDrain.test.ts). It creates its own throwaway database
-      # (inventory_drain_test), boots the REAL entry (server/index.ts) against it,
-      # sends a real SIGTERM while an authenticated request is genuinely in flight
-      # and asserts that response completes and the process exits 0 by itself.
-      # Like the concurrency tests it needs CREATEDB — which the service
-      # superuser has — and it never touches the application database.
-      #
-      # LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1 turns the check's skips into failures:
-      # this job is the only place the real-signal drain is proven, so a runner
-      # image without POSIX signals, a missing service container or a user
-      # without CREATEDB must fail the build rather than leave the proof as a
-      # green no-op. (Skipping stays normal for local/dev runs, which do not
-      # set the variable.)
-      - run: npm test
+      # Each shard owns a separate database. Seed the full bundled BS calendar
+      # here so a test that used to pick up another file's calendar seed in the
+      # unsharded run cannot fail just because its neighbour landed in another
+      # shard. This is reference data only; every test still creates its own
+      # business fixtures.
+      - name: Seed this shard's BS reference calendar
+        run: npx tsx scripts/seedShardCalendar.ts
+      # scripts/run_tests.mjs is the same runner `npm test` uses; the static
+      # job already ran tsc, so each shard does not repeat it four times.
+      # TEST_SHARD=1/4 ... 4/4 makes node:test select one quarter of the test
+      # files. The shard writes its own totals for the docs-count gate below.
+      - name: Run test shard ${{ matrix.shard }}/4
+        run: node scripts/run_tests.mjs
         env:
-          LIVE_DRAIN_REQUIRE_REAL_SIGNAL: '1'
-          # Pin the browser used by the TDS certificate print regression. CI
-          # has no skip path for that test: a missing binary or a runner image
-          # that moves Chrome must fail the job, not silently drop the proof.
-          TDS_CERT_BROWSER: /usr/bin/google-chrome
-      - name: Enforce repo-layer convention (no raw SQL in controllers)
-        run: npm run check:no-inline-sql
-      # The window.alert monkey-patch was removed when all ~100 raw call
-      # sites migrated to useDialog(); this keeps new native dialog calls
-      # from creeping back in (see scripts/check_no_raw_dialogs.ts).
-      - name: Enforce dialog convention (no native alert/confirm/prompt in client)
-        run: npm run check:no-raw-dialogs
-      # Backlog #7: CI previously never built the frontend or audited
-      # dependencies, so a bundling-only type error or a newly-advised
-      # dependency could reach main undetected.
-      - name: Build client + server production bundles
-        run: npm run build
-      # Startup-budget gate: computes the transitive static-import closure of
-      # index.html's entry chunk and fails if the entry chunk or the whole
-      # eager graph exceeds its gzip budget — so a screen accidentally re-added
-      # to the eager imports or a shared module merged into the wrong chunk
-      # (see scripts/check_bundle_budget.mjs for the incident) fails CI.
-      - name: Enforce startup bundle size budget
-        run: npm run check:bundle-budget
-      # Paint-order gate, measured on the production build above: the splash
-      # must cover the lazy route fallback and the shell sync spinner on a cold
-      # reload, and a warm reload must paint cached bootstrap immediately (no
-      # spinner). A missing browser or a failed login FAILS the job — there is
-      # no skip path, so this cannot silently become a green no-op. The demo
-      # seed is the documented setup:pg path; the suite above never touches the
-      # app database, so rebuilding it here cannot invalidate a test result.
-      - name: Seed demo data for the boot-timing check
-        env:
-          POSTGRES_HOST: localhost
-          POSTGRES_PORT: '5432'
-          POSTGRES_DB: inventory_db
-          POSTGRES_USER: inventory_user
-          POSTGRES_PASSWORD: securepassword
-        run: npm run setup:pg
-      # 12 s is a generous CI-only wall-clock bound; locally the default is
-      # 6 s. The gate itself is frame visibility, not speed: a splash that never
-      # lifts ends the trace as "timeout" and fails either way.
-      - name: Production boot timing — splash covers loading, warm cache paints instantly
-        env:
-          BOOT_TRACE_NO_SANDBOX: '1'
-        run: npm run check:boot-timing -- --budget-ms 12000
-      # npm audit exits non-zero when vulnerabilities are found; gating on
-      # --omit=dev covers the deployable dependency surface (dev tooling
-      # advisories are surfaced in local audits but do not block the build).
-      - name: Fail on npm audit vulnerabilities (production deps)
-        run: npm audit --omit=dev
+          TEST_SHARD: ${{ matrix.shard }}/4
+          TEST_SUMMARY_PATH: test-summary-${{ matrix.shard }}.json
+      - name: Upload shard totals
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-summary-${{ matrix.shard }}
+          path: test-summary-${{ matrix.shard }}.json
+          if-no-files-found: ignore
+          retention-days: 1
+
+  # `npm test` normally checks every current-state test-count claim in the docs
+  # against the total its single process executed. A shard only sees its own
+  # quarter, so this tiny dependent job sums the four artifacts and runs the
+  # exact same gate once. It adds no test work and does not run in the parallel
+  # wall-clock path until the shards finish.
+  docs-count-gate:
+    needs: test-suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: test-summary-*
+          path: test-summaries
+          merge-multiple: true
+      - name: Check docs test-count claims against all four shards
+        run: |
+          TOTAL=$(node -e '
+            const fs = require("node:fs");
+            const path = require("node:path");
+            const dir = "test-summaries";
+            const files = fs.readdirSync(dir).filter((name) => name.endsWith(".json"));
+            if (files.length !== 4) {
+              console.error(`docs-count gate: expected 4 shard summaries, found ${files.length}`);
+              process.exit(1);
+            }
+            let tests = 0;
+            let pass = 0;
+            let skipped = 0;
+            for (const name of files) {
+              const summary = JSON.parse(fs.readFileSync(path.join(dir, name), "utf8"));
+              tests += summary.tests;
+              pass += summary.pass;
+              skipped += summary.skipped;
+              if (summary.fail !== 0) {
+                console.error(`docs-count gate: shard ${summary.shard} reported ${summary.fail} failure(s)`);
+                process.exit(1);
+              }
+            }
+            console.error(`docs-count gate: ${files.length} shards, ${tests} tests, ${pass} pass, ${skipped} skipped`);
+            process.stdout.write(String(tests));
+          ')
+          # Node 24 strips the types in this gate directly; no dependency
+          # install is needed for this final aggregate step.
+          node scripts/docsTestCounts.ts "$TOTAL"

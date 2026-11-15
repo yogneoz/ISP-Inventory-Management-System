@@ -259,6 +259,17 @@ describe('budget allocation API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
         server.close(() => done());
       });
 
+    // The budget fixture writes a September line but does not post a September
+    // journal. Create the period explicitly so the test does not depend on a
+    // different test file having opened it in the same database.
+    const septemberPeriod = await post('/api/accounting/periods', tokens.super, {
+      periodKey: '2026-09',
+    });
+    assert.ok(
+      [201, 409].includes(septemberPeriod.status),
+      `September period: ${JSON.stringify(septemberPeriod.json)}`
+    );
+
     const assetGroup = await createGroup('BGA-AS', 'BGA Test Assets', 'CURRENT_ASSET', 'ASSET');
     const opexGroup = await createGroup('BGA-OE', 'BGA Operating Expenses', 'OPERATING_EXPENSE');
     const cosGroup = await createGroup('BGA-COS', 'BGA Cost of Sales', 'COST_OF_SALES');

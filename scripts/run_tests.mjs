@@ -45,6 +45,25 @@ const npxCmd = isWindows ? 'npx.cmd' : 'npx';
 const spawnEnv = { ...process.env, NODE_ENV: 'test' };
 
 /**
+ * CI runs the suite in four isolated matrix runners. Node's --test-shard
+ * partitions TEST FILES (not individual subtests), so the docs-count gate
+ * cannot run here: it would compare the docs against one quarter of the suite.
+ * The workflow sums the four summary files and runs that gate once after all
+ * shards finish. Local/unsharded `npm test` keeps the gate in this process.
+ */
+const shard = (process.env.TEST_SHARD || '').trim();
+if (shard) {
+  const match = /^([1-9]\d*)\/([1-9]\d*)$/.exec(shard);
+  if (!match || Number(match[1]) > Number(match[2])) {
+    console.error(`test runner: invalid TEST_SHARD "${shard}" (expected N/M with 1 <= N <= M)`);
+    process.exit(2);
+  }
+}
+const suiteArgs = ['tsx', '--test'];
+if (shard) suiteArgs.push(`--test-shard=${shard}`);
+suiteArgs.push('tests/*.test.ts');
+
+/**
  * Fixture cleanup deletes the test's own posted journals. The ACC-7 trigger
  * correctly refuses that on an application connection, so the test runner gives
  * only this child process a session-local bypass through the PostgreSQL
@@ -73,7 +92,7 @@ spawnEnv.DATABASE_URL = withLedgerPurgeBypass(spawnEnv.DATABASE_URL);
 
 // Piped stdout so the summary line can be parsed, while the bytes still
 // stream straight through to the terminal / CI log unchanged.
-const suite = spawn(npxCmd, ['tsx', '--test', 'tests/*.test.ts'], {
+const suite = spawn(npxCmd, suiteArgs, {
   cwd: root,
   shell: isWindows,
   env: spawnEnv,
@@ -141,14 +160,37 @@ suite.on('close', (code) => {
     .toString('utf8')
     // eslint-disable-next-line no-control-regex
     .replace(/\u001b\[[0-9;]*m/g, '');
-  const match = output.match(/ℹ tests (\d+)/) ?? output.match(/# tests (\d+)/);
-  if (!match) {
+  const read = (pattern) => {
+    const match = output.match(pattern);
+    return match ? Number(match[1]) : null;
+  };
+  const realCount = read(/ℹ tests (\d+)/) ?? read(/# tests (\d+)/);
+  if (realCount === null) {
     console.error(
       'docs-count gate: could not read the suite size from the test runner output — refusing to skip the gate.'
     );
     process.exit(1);
   }
-  const realCount = Number(match[1]);
+
+  if (shard) {
+    const summary = {
+      shard,
+      tests: realCount,
+      pass: read(/ℹ pass (\d+)/) ?? read(/# pass (\d+)/) ?? 0,
+      fail: read(/ℹ fail (\d+)/) ?? read(/# fail (\d+)/) ?? 0,
+      skipped: read(/ℹ skipped (\d+)/) ?? read(/# skipped (\d+)/) ?? 0,
+    };
+    const summaryPath = process.env.TEST_SUMMARY_PATH;
+    if (!summaryPath) {
+      console.error('test runner: TEST_SHARD is set but TEST_SUMMARY_PATH is missing — cannot aggregate the docs gate.');
+      process.exit(1);
+    }
+    fs.writeFileSync(summaryPath, JSON.stringify(summary) + '\n');
+    console.log(
+      `test shard ${shard}: ${summary.tests} tests (${summary.pass} pass, ${summary.fail} fail, ${summary.skipped} skipped)`
+    );
+    process.exit(0);
+  }
 
   const gate = spawnSync(npxCmd, ['tsx', 'scripts/docsTestCounts.ts', String(realCount)], {
     cwd: root,
