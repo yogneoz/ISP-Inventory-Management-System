@@ -10,6 +10,7 @@ import { buildLenderTdsCertificateHtml } from '../client/src/utils/lenderTdsCert
 
 const A4_WIDTH_PT = 595.28;
 const A4_HEIGHT_PT = 841.89;
+const LARGE_TABLE_ROWS = 48;
 
 function browserCandidates(): string[] {
   const programFiles = process.env.ProgramFiles || '';
@@ -269,7 +270,7 @@ test('TDS certificate prints on A4 with intact rows and totals', async (t) => {
 });
 
 function stressStatement() {
-  const withheld = Array.from({ length: 48 }, (_, index) => {
+  const withheld = Array.from({ length: LARGE_TABLE_ROWS }, (_, index) => {
     const date = new Date(Date.UTC(2026, 10, 1 + index));
     return {
       id: `txn-stress-${index + 1}`,
@@ -327,7 +328,7 @@ function stressStatement() {
       exemptInterest: 100,
       unexplainedInterest: 0,
       noInterestPrincipal: 0,
-      withheldCount: 48,
+      withheldCount: LARGE_TABLE_ROWS,
       exemptCount: 1,
       unexplainedCount: 0,
       noInterestCount: 0,
@@ -344,7 +345,7 @@ function stressStatement() {
   } as any;
 }
 
-test('TDS certificate paginates a large table and wraps a long lender identity', async (t) => {
+test('TDS certificate paginates a 48-row table with repeated headers and intact rows', async (t) => {
   const browser = findBrowser();
   if (!browser) {
     t.skip('No Chrome/Chromium/Edge executable found for headless PDF rendering.');
@@ -356,7 +357,8 @@ test('TDS certificate paginates a large table and wraps a long lender identity',
 
   const htmlPath = path.join(dir, 'certificate.html');
   const pdfPath = path.join(dir, 'certificate.pdf');
-  const html = buildLenderTdsCertificateHtml(stressStatement(), {
+  const statement = stressStatement();
+  const html = buildLenderTdsCertificateHtml(statement, {
     name: 'Example Co',
     legalName: 'Example Co Pvt. Ltd.',
     address: 'Kathmandu, Nepal',
@@ -387,7 +389,15 @@ test('TDS certificate paginates a large table and wraps a long lender identity',
   const doc = await getDocument({ data: new Uint8Array(fs.readFileSync(pdfPath)) }).promise;
   assert.equal(doc.numPages, 2, '48 withheld rows must paginate to two A4 pages');
 
-  const pages: Array<{ text: string[]; width: number; height: number; maxRight: number; minY: number; maxY: number }> = [];
+  const pages: Array<{
+    text: string[];
+    items: Array<{ text: string; x: number; y: number; width: number }>;
+    width: number;
+    height: number;
+    maxRight: number;
+    minY: number;
+    maxY: number;
+  }> = [];
   for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber += 1) {
     const page = await doc.getPage(pageNumber);
     const viewport = page.getViewport({ scale: 1 });
@@ -405,6 +415,7 @@ test('TDS certificate paginates a large table and wraps a long lender identity',
       });
     pages.push({
       text: items.map((item) => item.text),
+      items,
       width: viewport.width,
       height: viewport.height,
       maxRight: Math.max(...items.map((item) => item.x + item.width)),
@@ -431,15 +442,40 @@ test('TDS certificate paginates a large table and wraps a long lender identity',
   assert.match(page1, /UI Certificate <Bank> & Co/);
   assert.match(page1, /National Infrastructure and Rural/);
   assert.match(page1.replace(/\s+/g, ''), /PAN:PANABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789SUPERLONGIDENTIFIER/);
-  assert.equal(new Set(allText.match(/LP-STRESS-2026-\d{3}/g) || []).size, 48);
+  assert.equal(new Set(allText.match(/LP-STRESS-2026-\d{3}/g) || []).size, LARGE_TABLE_ROWS);
   assert.equal(
     (allText.match(/LP-STRESS-2026-\d{3}/g) || []).length,
-    48,
+    LARGE_TABLE_ROWS,
     'every large-table repayment must survive exactly once'
   );
+
+  for (const [index, page] of pages.entries()) {
+    assert.match(page.text.join('\n'), /DATE \(AD\)/, `page ${index + 1} must repeat the table header`);
+  }
+
+  const rowPages = new Set<number>();
+  const rows = statement.tdsEntries.filter((entry: any) => entry.tdsStatus === 'WITHHELD');
+  assert.equal(rows.length, LARGE_TABLE_ROWS);
+  for (const row of rows) {
+    const found = pages.flatMap((page, pageIndex) =>
+      page.items
+        .filter((item) => item.text === row.txnNumber)
+        .map((item) => ({ pageIndex, y: item.y }))
+    );
+    assert.equal(found.length, 1, `${row.txnNumber} must appear on exactly one page`);
+    const [{ pageIndex, y }] = found;
+    rowPages.add(pageIndex);
+    for (const companion of [row.dateAD, row.journalNo]) {
+      assert.ok(
+        pages[pageIndex].items.some((item) => item.text === companion && Math.abs(item.y - y) < 1),
+        `${row.txnNumber} must keep ${companion} on the same row and page`
+      );
+    }
+  }
+  assert.deepEqual([...rowPages].sort((a, b) => a - b), [0, 1], 'the table itself must continue onto page 2');
+
   assert.doesNotMatch(page1, /Total withheld on 48 repayments/, 'the grand total must not repeat before the table ends');
   assert.equal((page2.match(/Total withheld on 48 repayments/g) || []).length, 1);
-  assert.match(page2, /DATE \(AD\)/);
   assert.match(page2, /NPR 4,800/);
   assert.match(page2, /NPR 720/);
   assert.match(page2, /NPR 52,080/);
