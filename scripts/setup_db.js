@@ -97,14 +97,35 @@ async function wipeOperationalData(client) {
   }
 }
 
-function runDatasetSeeder() {
+function tsxCliPath() {
   const tsxCli = path.join(process.cwd(), 'node_modules', 'tsx', 'dist', 'cli.mjs');
   if (!fs.existsSync(tsxCli)) {
     throw new Error(
       'tsx is not installed (node_modules/tsx/dist/cli.mjs missing). Run `npm install` first, then `npm run setup:pg`.'
     );
   }
-  const args = [tsxCli, path.join('scripts', 'seed_verification_data.ts'), '--keep-data', '--skip-schema'];
+  return tsxCli;
+}
+
+function runMigrationRecorder() {
+  // Record the baseline before seeding. Boot adopts the current shape and then
+  // applies every unrecorded migration; replaying 0011 after LOAN_PAYABLE is
+  // seeded would fail its older role CHECK constraint.
+  execFileSync(process.execPath, [tsxCliPath(), path.join('scripts', 'record_schema_migrations.ts')], {
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      POSTGRES_HOST: DB_CONFIG.host,
+      POSTGRES_PORT: String(DB_CONFIG.port),
+      POSTGRES_DB: DB_CONFIG.database,
+      POSTGRES_USER: DB_CONFIG.user,
+      POSTGRES_PASSWORD: DB_CONFIG.password,
+    },
+  });
+}
+
+function runDatasetSeeder() {
+  const args = [tsxCliPath(), path.join('scripts', 'seed_verification_data.ts'), '--keep-data', '--skip-schema'];
   execFileSync(process.execPath, args, {
     stdio: 'inherit',
     env: {
@@ -155,6 +176,7 @@ async function runSetup() {
     await pool.end();
   }
 
+  if (!KEEP_DATA) runMigrationRecorder();
   runDatasetSeeder();
   console.log('🎉 PostgreSQL setup verified and operational!');
 }
