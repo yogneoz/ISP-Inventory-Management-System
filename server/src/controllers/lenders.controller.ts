@@ -13,7 +13,7 @@ import { ApiError } from '../errors/ApiError';
 import { allowedBranchScope } from '../middleware/branchScope';
 import { resolveBranchScope } from './accounting.controller';
 import { logAuditEvent } from '../services/audit.service';
-import { postJournal } from '../services/accounting.service';
+import { postJournalLegs, type JournalLeg } from '../services/accounting.service';
 import { ACCOUNT_BY_ID_SQL } from '../models/accounting.repo';
 import { bsDateOrThrow } from '../utils/bsDate';
 import { booleanFlag } from '../utils/booleanFlag';
@@ -1108,7 +1108,7 @@ async function requireTdsAccount(client: any, lender: LenderRow, explicitId: str
 async function requireInterestPayableAccount(client: any): Promise<any> {
   const id = (await client.query(LENDER_INTEREST_PAYABLE_ACCOUNT_SQL)).rows[0]?.id;
   if (!id) {
-    throw new ApiError(400, 'The chart has no active Interest Payable — Lender account (2370).');
+    throw new ApiError(400, 'The chart has no active Interest Payable — Lender account (5020 Accrued Expenses and Utility Bills Payable).');
   }
   const account = await loadAccount(client, id);
   assertUsableDefaultAccount(
@@ -1210,7 +1210,7 @@ export async function post_loanReceipt(req: any, res: Response): Promise<any> {
     const dateBS = await bsDateOrThrow(dateAD, client);
     const id = `lnt-${crypto.randomUUID()}`;
     const txnNumber = await issueNextDocNumber(loan.branchId, 'LOAN_RECEIPT', dateAD, client);
-    const journal = await postJournal(client, {
+    const journal = await postJournalLegs(client, {
       journalDateAD: dateAD,
       branchId: loan.branchId,
       memo: `Loan receipt ${loan.loanNumber} — ${lender.name}`,
@@ -1221,17 +1221,17 @@ export async function post_loanReceipt(req: any, res: Response): Promise<any> {
       chequeNo: text(body.chequeNo, 100) || null,
       chequeDateAD: optionalDate(body.chequeDateAD, 'Cheque date'),
       actor: actorOf(req),
-      lines: [
+      legs: [
         {
           accountId: cashAccount.id,
-          debit: amount,
-          credit: 0,
+          increase: true,
+          amount,
           memo: `Loan received — ${loan.loanNumber}`,
         },
         {
           accountId: loanAccount.id,
-          debit: 0,
-          credit: amount,
+          increase: true,
+          amount,
           memo: `Loan payable — ${lender.name}`,
           subledgerType: 'LENDER',
           partyId: lender.id,
@@ -1399,11 +1399,14 @@ export async function post_loanRepayment(req: any, res: Response): Promise<any> 
     const dateBS = await bsDateOrThrow(dateAD, client);
     const id = `lnt-${crypto.randomUUID()}`;
     const txnNumber = await issueNextDocNumber(loan.branchId, 'LOAN_REPAYMENT', dateAD, client);
-    const lines: any[] = [
+    // Principal and accrued interest reduce credit-normal liabilities; the
+    // unaccrued portion is current-period interest expense; TDS withholds a
+    // new liability; the cash paid leaves a debit-normal ledger.
+    const legs: JournalLeg[] = [
       {
         accountId: loanAccount.id,
-        debit: principal,
-        credit: 0,
+        increase: false,
+        amount: principal,
         memo: `Loan principal repaid — ${loan.loanNumber}`,
         subledgerType: 'LENDER',
         partyId: lender.id,
@@ -1411,36 +1414,36 @@ export async function post_loanRepayment(req: any, res: Response): Promise<any> 
       },
     ];
     if (interestPayableAccount) {
-      lines.push({
+      legs.push({
         accountId: interestPayableAccount.id,
-        debit: interestPayableApplied,
-        credit: 0,
+        increase: false,
+        amount: interestPayableApplied,
         memo: `Accrued interest cleared — ${loan.loanNumber}`,
       });
     }
     if (interestAccount && unaccruedInterest > 0) {
-      lines.push({
+      legs.push({
         accountId: interestAccount.id,
-        debit: unaccruedInterest,
-        credit: 0,
+        increase: true,
+        amount: unaccruedInterest,
         memo: `Interest on ${loan.loanNumber}`,
       });
     }
     if (tdsAccount) {
-      lines.push({
+      legs.push({
         accountId: tdsAccount.id,
-        debit: 0,
-        credit: tds,
+        increase: true,
+        amount: tds,
         memo: `TDS withheld on interest — ${loan.loanNumber}`,
       });
     }
-    lines.push({
+    legs.push({
       accountId: cashAccount.id,
-      debit: 0,
-      credit: cashAmount,
+      increase: false,
+      amount: cashAmount,
       memo: `Loan repayment — ${loan.loanNumber}`,
     });
-    const journal = await postJournal(client, {
+    const journal = await postJournalLegs(client, {
       journalDateAD: dateAD,
       branchId: loan.branchId,
       memo: `Loan repayment ${loan.loanNumber} — ${lender.name}`,
@@ -1451,7 +1454,7 @@ export async function post_loanRepayment(req: any, res: Response): Promise<any> 
       chequeNo: text(body.chequeNo, 100) || null,
       chequeDateAD: optionalDate(body.chequeDateAD, 'Cheque date'),
       actor: actorOf(req),
-      lines,
+      legs,
     });
     await client.query(LOAN_TRANSACTION_INSERT_SQL, [
       id,
@@ -1557,7 +1560,7 @@ export async function post_loanInterestAccrual(req: any, res: Response): Promise
     const payableAccount = await requireInterestPayableAccount(client);
     const id = `lna-${crypto.randomUUID()}`;
     const accrualNumber = await issueNextDocNumber(loan.branchId, 'LOAN_ACCRUAL', toAD, client);
-    const journal = await postJournal(client, {
+    const journal = await postJournalLegs(client, {
       journalDateAD: toAD,
       branchId: loan.branchId,
       memo: `Interest accrual ${loan.loanNumber} — ${lender.name}`,
@@ -1566,17 +1569,17 @@ export async function post_loanInterestAccrual(req: any, res: Response): Promise
       voucherType: 'LOAN_ACCRUAL',
       referenceNo: accrualNumber,
       actor: actorOf(req),
-      lines: [
+      legs: [
         {
           accountId: interestAccount.id,
-          debit: interest,
-          credit: 0,
+          increase: true,
+          amount: interest,
           memo: `Interest accrued ${fromAD} to ${toAD} — ${loan.loanNumber}`,
         },
         {
           accountId: payableAccount.id,
-          debit: 0,
-          credit: interest,
+          increase: true,
+          amount: interest,
           memo: `Interest payable — ${lender.name}`,
         },
       ],

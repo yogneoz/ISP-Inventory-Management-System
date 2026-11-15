@@ -118,25 +118,28 @@ describe('ACC-6 chart governance (real HTTP + throwaway PostgreSQL)', { skip: sk
     if (throwaway) await dropThrowawayDatabase(throwaway.adminPool, TEST_DB);
   });
 
-  test('the default chart nests AR and AP controls under trade groups', async () => {
+  test('the default chart files the AR and AP controls under their NFRS sections', async () => {
     const groups = (await request('GET', '/api/accounting/groups')).json as any[];
     const accounts = (await request('GET', '/api/accounting/accounts?includeInactive=1')).json as any[];
 
-    const receivables = groups.find((group) => group.code === '1110');
-    const payables = groups.find((group) => group.code === '2110');
-    assert.ok(receivables, 'Trade Receivables must be a group');
-    assert.ok(payables, 'Trade Payables must be a group');
-    assert.equal(receivables.name, 'Trade Receivables');
-    assert.equal(payables.name, 'Trade Payables');
-    assert.equal(receivables.parentId, groups.find((group) => group.code === '1000').id);
-    assert.equal(payables.parentId, groups.find((group) => group.code === '2000').id);
+    const assetSection = groups.find((group) => group.code === '2000');
+    const liabilitySection = groups.find((group) => group.code === '5000');
+    assert.ok(assetSection, 'the current-asset section must exist');
+    assert.ok(liabilitySection, 'the current-liability section must exist');
 
-    const ar = accounts.find((account) => account.code === '1100');
-    const ap = accounts.find((account) => account.code === '2100');
-    assert.equal(ar.groupCode, '1110');
-    assert.equal(ap.groupCode, '2110');
+    // NFRS numbers the controls themselves (2110 trade receivables, 5010 trade
+    // payables) and the sections they roll into, so the section is the bucket
+    // and the account code is the standard's own reference.
+    const ar = accounts.find((account) => account.code === '2110');
+    const ap = accounts.find((account) => account.code === '5010');
+    assert.equal(ar.groupCode, '2000');
+    assert.equal(ap.groupCode, '5000');
+    assert.equal(ar.statementGroup, 'CURRENT_ASSET');
+    assert.equal(ap.statementGroup, 'CURRENT_LIABILITY');
     assert.equal(ar.isControl, true);
     assert.equal(ap.isControl, true);
+    assert.equal(ar.statutoryReference, 'NFRS 15 / NFRS 9');
+    assert.ok(ar.description, 'a chart account must carry its note');
     assert.equal(
       accounts.some((account) => account.code.startsWith('CUST-')),
       false,
@@ -175,7 +178,7 @@ describe('ACC-6 chart governance (real HTTP + throwaway PostgreSQL)', { skip: sk
     assert.equal(health.json.unlinkedSubledgerRows.amount, 50);
     assert.ok(
       health.json.unlinkedSubledgerRows.rows.some((row: any) =>
-        row.partyId === PARTY_ID && row.accountCode === '1100' && row.debit === 50
+        row.partyId === PARTY_ID && row.accountCode === '2110' && row.debit === 50
       ),
       JSON.stringify(health.json.unlinkedSubledgerRows.rows)
     );

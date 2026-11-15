@@ -721,7 +721,7 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
 
   test('a lender control posts to its own LENDER subledger, not AP', async () => {
     const chart = await get('/api/accounting/accounts?includeInactive=1', tokens.super);
-    const loan = (chart.json as any[]).find((account) => account.code === '2350');
+    const loan = (chart.json as any[]).find((account) => account.code === '4010');
     assert.ok(loan, 'the seeded Loan Payable control account is required');
     assert.equal(loan.postingRole, 'LOAN_PAYABLE');
     assert.equal(loan.subledgerType, 'LENDER');
@@ -746,7 +746,7 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
     assert.equal(posted.json.subledgerEntries[0].credit, 1000);
 
     const ap = await get('/api/accounting/accounts?includeInactive=1', tokens.super);
-    const payable = (ap.json as any[]).find((account) => account.code === '2100');
+    const payable = (ap.json as any[]).find((account) => account.code === '5010');
     assert.ok(payable);
     assert.notEqual(loan.id, payable.id, 'loan payable is a separate control from trade AP');
   });

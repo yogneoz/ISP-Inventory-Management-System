@@ -6,6 +6,12 @@
  * already enforces — balanced lines, active accounts, control-account parties,
  * an open period and the fiscal-year membership — true for these entries too.
  *
+ * These two deliberately stay on explicit debit/credit instead of the
+ * `increase` leg engine: an opening balance is operator-entered Dr/Cr data (a
+ * manual voucher in effect), and a year-end close is the mechanical mirror of a
+ * signed trial balance. Neither picks a side for a business reason, so neither
+ * may claim to. Policy postings — the document services — use legs.
+ *
  * Opening balances:
  *   - one active posting per branch and Opening Balances register, into the
  *     earliest OPEN monthly period (or the earliest OPEN fiscal year's first

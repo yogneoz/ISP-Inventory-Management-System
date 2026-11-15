@@ -73,21 +73,37 @@ describe('ACC-7 demo seed', { skip: skipNoDb }, () => {
     const dataset = buildVerificationDataset();
     await applyVerificationSeed(demo!.pool as any, dataset);
 
+    // NFRS files the trade controls straight into the statement sections
+    // (2110 receivables under current assets, 5010 payables under current
+    // liabilities); the section is the group and the account code is the
+    // standard's own reference.
     const groups = (
       await demo!.pool.query(
-        `SELECT code, name, parent_id AS "parentId" FROM gl_account_groups
-          WHERE code IN ('1110','2110') ORDER BY code`
+        `SELECT code, name, statement_group AS "statementGroup" FROM gl_account_groups
+          WHERE code IN ('2000','5000') ORDER BY code`
       )
     ).rows;
-    assert.deepEqual(groups.map((row) => row.code), ['1110', '2110']);
-    assert.equal(groups[0].name, 'Trade Receivables');
-    assert.equal(groups[1].name, 'Trade Payables');
-    assert.ok(groups.every((row) => row.parentId), 'trade groups must sit under their roots');
+    assert.deepEqual(groups.map((row) => row.code), ['2000', '5000']);
+    assert.equal(groups[0].name, 'Current Assets');
+    assert.equal(groups[1].name, 'Current Liabilities');
+    assert.deepEqual(groups.map((row) => row.statementGroup), ['CURRENT_ASSET', 'CURRENT_LIABILITY']);
+
+    const controls = (
+      await demo!.pool.query(
+        `SELECT a.code, g.code AS "groupCode" FROM gl_accounts a
+           JOIN gl_account_groups g ON g.id = a.group_id
+          WHERE a.code IN ('2110','5010') ORDER BY a.code`
+      )
+    ).rows;
+    assert.deepEqual(controls, [
+      { code: '2110', groupCode: '2000' },
+      { code: '5010', groupCode: '5000' },
+    ]);
 
     const custody = (
       await demo!.pool.query(
         `SELECT code, account_kind AS "kind", branch_id AS "branchId"
-           FROM gl_accounts WHERE code IN ('1020','1021','1022','1023','1030','1040','1050','1011','1012','1013','1014')
+           FROM gl_accounts WHERE code IN ('2320','2321','2322','2323','9030','9040','9050','2311','2312','2313','2314')
           ORDER BY code`
       )
     ).rows;
@@ -111,7 +127,7 @@ describe('ACC-7 demo seed', { skip: skipNoDb }, () => {
       await demo!.pool.query(
         `SELECT ABS(COALESCE(SUM(l.debit - l.credit), 0))::numeric AS difference
            FROM gl_journal_lines l JOIN gl_journals j ON j.id = l.journal_id AND j.journal_date_ad = l.journal_date_ad
-          WHERE l.account_id = 'gla-1620' AND j.status = 'POSTED'`
+          WHERE l.account_id = 'gla-2140' AND j.status = 'POSTED'`
       )
     ).rows[0].difference;
     assert.equal(Number(difference), 100, 'the employee-advance control has a visible tie-out difference');

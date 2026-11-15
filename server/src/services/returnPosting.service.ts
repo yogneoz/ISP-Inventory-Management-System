@@ -3,11 +3,16 @@
  *
  * A return is the mirror of the document that created the balance, not a new
  * transaction class:
- *   - sales return: debit the sales revenue and output-VAT sides, credit the
- *     customer's AR, and put the goods back into inventory at the exact issue
- *     cost the original sale relieved (debit inventory / credit COGS);
+ *   - sales return: debit the dedicated Sales Returns contra-income ledger and
+ *     the output-VAT side, credit the customer's AR, and put the goods back
+ *     into inventory at the exact issue cost the original sale relieved
+ *     (debit inventory / credit COGS);
  *   - purchase return: debit the supplier's AP, credit inventory at the bill
  *     value being returned, and credit input VAT.
+ *
+ * Sales returns do not post against the sales revenue account: gross revenue
+ * and returns stay separately visible, and the return's direction comes from
+ * the Sales Returns account's own debit-normal side.
  *
  * The caller owns the transaction and supplies already-resolved costs. A
  * missing cost is refused before any stock moves: a return that silently
@@ -21,13 +26,13 @@ import {
 } from '../models/accounting.repo';
 import { SR_ISSUE_COSTS_SQL } from '../models/sales.repo';
 import {
-  postJournal,
+  postJournalLegs,
   type AccountingClient,
-  type JournalLineInput,
+  type JournalLeg,
 } from './accounting.service';
 import { reverseSourceJournal } from './invoicePosting.service';
 
-const SALES_RETURN_ROLES = ['AR_CONTROL', 'SALES', 'TAX_OUTPUT', 'COGS', 'INVENTORY'] as const satisfies readonly PostingRole[];
+const SALES_RETURN_ROLES = ['AR_CONTROL', 'SALES_RETURNS', 'TAX_OUTPUT', 'COGS', 'INVENTORY'] as const satisfies readonly PostingRole[];
 const PURCHASE_RETURN_ROLES = ['AP_CONTROL', 'INVENTORY', 'TAX_INPUT'] as const satisfies readonly PostingRole[];
 
 interface PostingAccount {
@@ -37,6 +42,8 @@ interface PostingAccount {
   isControl: boolean;
   subledgerType: string;
   postingRole: string | null;
+  /** `D` or `C`: the permanent side the leg engine posts against. */
+  accountNormalBalance: string;
 }
 
 function money(value: unknown): number {
@@ -65,18 +72,18 @@ async function loadDefaults(
   return byRole;
 }
 
-function controlLine(
+function controlLeg(
   account: PostingAccount,
-  debit: number,
-  credit: number,
+  increase: boolean,
+  amount: number,
   partyId: unknown,
   partyName: unknown,
   memo: string
-): JournalLineInput {
+): JournalLeg {
   return {
     accountId: account.id,
-    debit,
-    credit,
+    increase,
+    amount,
     memo,
     subledgerType: account.subledgerType,
     partyId: typeof partyId === 'string' && partyId.trim() ? partyId.trim() : null,
@@ -84,8 +91,8 @@ function controlLine(
   };
 }
 
-function ordinaryLine(account: PostingAccount, debit: number, credit: number, memo: string): JournalLineInput {
-  return { accountId: account.id, debit, credit, memo };
+function ordinaryLeg(account: PostingAccount, increase: boolean, amount: number, memo: string): JournalLeg {
+  return { accountId: account.id, increase, amount, memo };
 }
 
 export interface ReturnCogsEntry {
@@ -147,12 +154,12 @@ export async function postSalesReturnJournal(client: AccountingClient, input: Sa
 
   const defaults = await loadDefaults(client, SALES_RETURN_ROLES, 'sales returns');
   const memo = `Sales return ${input.ret.returnNumber}`;
-  const lines: JournalLineInput[] = [];
+  const legs: JournalLeg[] = [];
   if (total > 0) {
-    lines.push(
-      controlLine(
+    legs.push(
+      controlLeg(
         defaults.AR_CONTROL,
-        0,
+        false,
         total,
         input.ret.customerId,
         input.ret.customerName,
@@ -160,22 +167,25 @@ export async function postSalesReturnJournal(client: AccountingClient, input: Sa
       )
     );
   }
-  if (revenue > 0) lines.push(ordinaryLine(defaults.SALES, revenue, 0, `${memo} — revenue reversed`));
-  if (vat > 0) lines.push(ordinaryLine(defaults.TAX_OUTPUT, vat, 0, `${memo} — output VAT reversed`));
+  // Contra-income: the returns ledger is debit-normal, so a return increases
+  // it. Revenue itself is left untouched, so gross sales and returns are both
+  // readable.
+  if (revenue > 0) legs.push(ordinaryLeg(defaults.SALES_RETURNS, true, revenue, `${memo} — revenue returned`));
+  if (vat > 0) legs.push(ordinaryLeg(defaults.TAX_OUTPUT, false, vat, `${memo} — output VAT reversed`));
   if (cogsTotal > 0) {
-    lines.push(ordinaryLine(defaults.INVENTORY, cogsTotal, 0, `${memo} — inventory restored at issue cost`));
-    lines.push(ordinaryLine(defaults.COGS, 0, cogsTotal, `${memo} — COGS reversed at issue cost`));
+    legs.push(ordinaryLeg(defaults.INVENTORY, true, cogsTotal, `${memo} — inventory restored at issue cost`));
+    legs.push(ordinaryLeg(defaults.COGS, false, cogsTotal, `${memo} — COGS reversed at issue cost`));
   }
-  if (lines.length < 2) return null;
+  if (legs.length < 2) return null;
 
-  return postJournal(client, {
+  return postJournalLegs(client, {
     journalDateAD: input.ret.returnDateAD,
     branchId: input.ret.branchId,
     memo,
     sourceType: 'SALES_RETURN',
     sourceId: input.ret.id,
     actor: input.actor || null,
-    lines,
+    legs,
   });
 }
 
@@ -202,28 +212,28 @@ export async function postPurchaseReturnJournal(client: AccountingClient, input:
 
   const defaults = await loadDefaults(client, PURCHASE_RETURN_ROLES, 'purchase returns');
   const memo = `Purchase return ${input.ret.returnNumber}`;
-  const lines: JournalLineInput[] = [
-    controlLine(
+  const legs: JournalLeg[] = [
+    controlLeg(
       defaults.AP_CONTROL,
+      false,
       total,
-      0,
       input.ret.supplierId,
       input.ret.supplierName,
       `${memo} — supplier debit`
     ),
   ];
-  if (net > 0) lines.push(ordinaryLine(defaults.INVENTORY, 0, net, `${memo} — inventory returned`));
-  if (vat > 0) lines.push(ordinaryLine(defaults.TAX_INPUT, 0, vat, `${memo} — input VAT reversed`));
-  if (lines.length < 2) return null;
+  if (net > 0) legs.push(ordinaryLeg(defaults.INVENTORY, false, net, `${memo} — inventory returned`));
+  if (vat > 0) legs.push(ordinaryLeg(defaults.TAX_INPUT, false, vat, `${memo} — input VAT reversed`));
+  if (legs.length < 2) return null;
 
-  return postJournal(client, {
+  return postJournalLegs(client, {
     journalDateAD: input.ret.returnDateAD,
     branchId: input.ret.branchId,
     memo,
     sourceType: 'PURCHASE_RETURN',
     sourceId: input.ret.id,
     actor: input.actor || null,
-    lines,
+    legs,
   });
 }
 

@@ -379,9 +379,9 @@ describe('invoice ledger posting (real HTTP + PostgreSQL)', { skip: skipNoDb }, 
     assert.equal(totals.credit, 1017);
 
     const lines = await journalLines(journal.id);
-    const inventory = lines.find((line) => line.code === '1200');
-    const inputVat = lines.find((line) => line.code === '1300');
-    const payable = lines.find((line) => line.code === '2100');
+    const inventory = lines.find((line) => line.code === '2030');
+    const inputVat = lines.find((line) => line.code === '2210');
+    const payable = lines.find((line) => line.code === '5010');
     assert.equal(inventory?.debit, 900, 'inventory is debited at the net bill value');
     assert.equal(inputVat?.debit, 117);
     assert.equal(payable?.credit, 1017, 'AP is credited at the grand total');
@@ -430,11 +430,11 @@ describe('invoice ledger posting (real HTTP + PostgreSQL)', { skip: skipNoDb }, 
     assert.equal(totals.credit, 519, 'revenue 300 + VAT 39 + inventory 180');
 
     const lines = await journalLines(journal.id);
-    assert.equal(lines.find((line) => line.code === '1100')?.debit, 339);
-    assert.equal(lines.find((line) => line.code === '4000')?.credit, 300);
-    assert.equal(lines.find((line) => line.code === '2200')?.credit, 39);
-    assert.equal(lines.find((line) => line.code === '5000')?.debit, 180, '2 × 90 weighted average');
-    assert.equal(lines.find((line) => line.code === '1200')?.credit, 180);
+    assert.equal(lines.find((line) => line.code === '2110')?.debit, 339);
+    assert.equal(lines.find((line) => line.code === '6010')?.credit, 300);
+    assert.equal(lines.find((line) => line.code === '5210')?.credit, 39);
+    assert.equal(lines.find((line) => line.code === '7000')?.debit, 180, '2 × 90 weighted average');
+    assert.equal(lines.find((line) => line.code === '2030')?.credit, 180);
 
     const subledger = await subledgerRows(journal.id);
     assert.equal(subledger.length, 1);
@@ -470,9 +470,9 @@ describe('invoice ledger posting (real HTTP + PostgreSQL)', { skip: skipNoDb }, 
     const originalLines = await journalLines(originals[0].id);
     const reversalLines = await journalLines(reversals[0].id);
     assert.equal(reversalLines.length, originalLines.length);
-    const ar = reversalLines.find((line) => line.code === '1100');
+    const ar = reversalLines.find((line) => line.code === '2110');
     assert.equal(ar?.credit, 339, 'the contra journal swaps debit and credit');
-    assert.equal(reversalLines.find((line) => line.code === '5000')?.credit, 180);
+    assert.equal(reversalLines.find((line) => line.code === '7000')?.credit, 180);
 
     const reversalSubledger = await subledgerRows(reversals[0].id);
     assert.equal(reversalSubledger[0].subledgerType, 'CUSTOMER');
@@ -512,7 +512,7 @@ describe('invoice ledger posting (real HTTP + PostgreSQL)', { skip: skipNoDb }, 
     const inventoryBalance = await pool!.query(
       `SELECT COALESCE(SUM(l.debit - l.credit), 0)::numeric AS balance
          FROM gl_journal_lines l JOIN gl_accounts a ON a.id = l.account_id
-        WHERE a.code = '1200' AND l.branch_id = $1`,
+        WHERE a.code = '2030' AND l.branch_id = $1`,
       [BR]
     );
     assert.equal(Number(inventoryBalance.rows[0].balance), 0);

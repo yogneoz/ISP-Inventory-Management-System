@@ -13,6 +13,10 @@
  *                cost;
  *   - purchases: inventory, input VAT, AP control (supplier subledger).
  *
+ * Each line is written as a leg that names the account and whether its normal
+ * side increases. The engine derives the debit/credit from the account's
+ * permanent `normal_balance`, so this file never states a column.
+ *
  * A missing default is a configuration failure and refuses the document. It is
  * never silently skipped: an invoice that quietly posts no journal is worse
  * than one that refuses and says which account to map.
@@ -31,8 +35,10 @@ import {
 } from '../models/accounting.repo';
 import {
   postJournal,
+  postJournalLegs,
   readJournal,
   type AccountingClient,
+  type JournalLeg,
   type JournalLineInput,
 } from './accounting.service';
 
@@ -52,6 +58,8 @@ interface PostingAccount {
   name: string;
   isControl: boolean;
   subledgerType: string;
+  /** `D` or `C`: the permanent side the leg engine posts against. */
+  accountNormalBalance: string;
 }
 
 async function loadPostingDefaults(
@@ -79,18 +87,18 @@ function money(value: unknown): number {
   return roundMoney(Number(value) || 0);
 }
 
-function controlLine(
+function controlLeg(
   account: PostingAccount,
-  debit: number,
-  credit: number,
+  increase: boolean,
+  amount: number,
   partyId: unknown,
   partyName: unknown,
   memo: string
-): JournalLineInput {
+): JournalLeg {
   return {
     accountId: account.id,
-    debit,
-    credit,
+    increase,
+    amount,
     memo,
     subledgerType: account.subledgerType,
     partyId: typeof partyId === 'string' && partyId.trim() ? partyId.trim() : null,
@@ -98,8 +106,8 @@ function controlLine(
   };
 }
 
-function ordinaryLine(account: PostingAccount, debit: number, credit: number, memo: string): JournalLineInput {
-  return { accountId: account.id, debit, credit, memo };
+function ordinaryLeg(account: PostingAccount, increase: boolean, amount: number, memo: string): JournalLeg {
+  return { accountId: account.id, increase, amount, memo };
 }
 
 export interface InvoiceCogsEntry {
@@ -140,28 +148,28 @@ export async function postSalesInvoiceLedger(client: AccountingClient, input: Sa
 
   const defaults = await loadPostingDefaults(client, SALES_ROLES);
   const memo = `Sales invoice ${input.invoice.invoiceNumber}`;
-  const lines: JournalLineInput[] = [];
+  const legs: JournalLeg[] = [];
   if (total > 0) {
-    lines.push(
-      controlLine(defaults.AR_CONTROL, total, 0, input.invoice.customerId, input.invoice.customerName, memo)
+    legs.push(
+      controlLeg(defaults.AR_CONTROL, true, total, input.invoice.customerId, input.invoice.customerName, memo)
     );
   }
-  if (revenue > 0) lines.push(ordinaryLine(defaults.SALES, 0, revenue, memo));
-  if (vat > 0) lines.push(ordinaryLine(defaults.TAX_OUTPUT, 0, vat, memo));
+  if (revenue > 0) legs.push(ordinaryLeg(defaults.SALES, true, revenue, memo));
+  if (vat > 0) legs.push(ordinaryLeg(defaults.TAX_OUTPUT, true, vat, memo));
   if (cogsTotal > 0) {
-    lines.push(ordinaryLine(defaults.COGS, cogsTotal, 0, `${memo} — weighted-average cost`));
-    lines.push(ordinaryLine(defaults.INVENTORY, 0, cogsTotal, `${memo} — weighted-average cost`));
+    legs.push(ordinaryLeg(defaults.COGS, true, cogsTotal, `${memo} — weighted-average cost`));
+    legs.push(ordinaryLeg(defaults.INVENTORY, false, cogsTotal, `${memo} — weighted-average cost`));
   }
-  if (lines.length < 2) return null;
+  if (legs.length < 2) return null;
 
-  return postJournal(client, {
+  return postJournalLegs(client, {
     journalDateAD: input.invoice.invoiceDateAD,
     branchId: input.invoice.branchId,
     memo,
     sourceType: 'SALES_INVOICE',
     sourceId: input.invoice.id,
     actor: input.actor || null,
-    lines,
+    legs,
   });
 }
 
@@ -188,24 +196,24 @@ export async function postPurchaseInvoiceLedger(client: AccountingClient, input:
 
   const defaults = await loadPostingDefaults(client, PURCHASE_ROLES);
   const memo = `Purchase invoice ${input.invoice.invoiceNumber}`;
-  const lines: JournalLineInput[] = [];
-  if (net > 0) lines.push(ordinaryLine(defaults.INVENTORY, net, 0, memo));
-  if (vat > 0) lines.push(ordinaryLine(defaults.TAX_INPUT, vat, 0, memo));
+  const legs: JournalLeg[] = [];
+  if (net > 0) legs.push(ordinaryLeg(defaults.INVENTORY, true, net, memo));
+  if (vat > 0) legs.push(ordinaryLeg(defaults.TAX_INPUT, true, vat, memo));
   if (total > 0) {
-    lines.push(
-      controlLine(defaults.AP_CONTROL, 0, total, input.invoice.supplierId, input.invoice.supplierName, memo)
+    legs.push(
+      controlLeg(defaults.AP_CONTROL, true, total, input.invoice.supplierId, input.invoice.supplierName, memo)
     );
   }
-  if (lines.length < 2) return null;
+  if (legs.length < 2) return null;
 
-  return postJournal(client, {
+  return postJournalLegs(client, {
     journalDateAD: input.invoice.invoiceDateAD,
     branchId: input.invoice.branchId,
     memo,
     sourceType: 'PURCHASE_INVOICE',
     sourceId: input.invoice.id,
     actor: input.actor || null,
-    lines,
+    legs,
   });
 }
 
@@ -229,6 +237,10 @@ export interface ReverseSourceJournalInput {
  * net to exactly zero, while the reversal is a first-class auditable document.
  * A legacy document that predates ledger posting has no journal, so there is
  * nothing to reverse and the caller can still cancel it.
+ *
+ * A contra journal mirrors the stored lines it is reversing, so it stays on
+ * explicit debit/credit: the direction is already in history, not a business
+ * decision this code makes. Only original postings use `increase` legs.
  */
 export async function reverseSourceJournal(
   client: AccountingClient,

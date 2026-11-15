@@ -29,9 +29,9 @@ import {
   STOCK_SET_AVERAGE_COST_IF_ZERO_SQL,
 } from '../models/inventory.repo';
 import {
-  postJournal,
+  postJournalLegs,
   type AccountingClient,
-  type JournalLineInput,
+  type JournalLeg,
 } from './accounting.service';
 import { reverseSourceJournal } from './invoicePosting.service';
 import { assertInventoryPostingRegistered } from './inventoryPostingRegistry';
@@ -42,6 +42,8 @@ interface PostingAccount {
   id: string;
   code: string;
   name: string;
+  /** `D` or `C`: the permanent side the leg engine posts against. */
+  accountNormalBalance: string;
 }
 
 /** Read the weighted-average cost of each (product, branch) row under the
@@ -135,44 +137,44 @@ export async function postStockValueJournal(
 
   const defaults = await loadStockDefaults(client);
   const memo = String(input.memo || 'Stock movement');
-  const lines: JournalLineInput[] = [];
+  const legs: JournalLeg[] = [];
   if (net > 0) {
-    lines.push({
+    legs.push({
       accountId: defaults.INVENTORY.id,
-      debit: net,
-      credit: 0,
+      increase: true,
+      amount: net,
       memo: `${memo} — inventory increase`,
     });
-    lines.push({
+    legs.push({
       accountId: defaults.STOCK_EXPENSE.id,
-      debit: 0,
-      credit: net,
+      increase: false,
+      amount: net,
       memo: `${memo} — stock expense reversed`,
     });
   } else {
-    lines.push({
+    legs.push({
       accountId: defaults.STOCK_EXPENSE.id,
-      debit: -net,
-      credit: 0,
+      increase: true,
+      amount: -net,
       memo: `${memo} — stock expense`,
     });
-    lines.push({
+    legs.push({
       accountId: defaults.INVENTORY.id,
-      debit: 0,
-      credit: -net,
+      increase: false,
+      amount: -net,
       memo: `${memo} — inventory decrease`,
     });
   }
-  if (lines.length < 2) return null;
+  if (legs.length < 2) return null;
 
-  const journal = await postJournal(client, {
+  const journal = await postJournalLegs(client, {
     journalDateAD: input.journalDateAD,
     branchId: input.branchId,
     memo,
     sourceType: input.sourceType,
     sourceId: input.sourceId,
     actor: input.actor || null,
-    lines,
+    legs,
   });
 
   // A positive movement into a row with no average (manual found stock,

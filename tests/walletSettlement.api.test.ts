@@ -130,9 +130,9 @@ describe('wallet receipts, settlements and PSP reconciliation (real HTTP + Postg
 
     const accounts = await get('/api/accounting/accounts');
     assert.equal(accounts.status, 200, JSON.stringify(accounts.json));
-    walletId = accounts.json.find((row: any) => row.code === '1030').id;
-    khaltiId = accounts.json.find((row: any) => row.code === '1040').id;
-    bankId = accounts.json.find((row: any) => row.code === '1020').id;
+    walletId = accounts.json.find((row: any) => row.code === '9030').id;
+    khaltiId = accounts.json.find((row: any) => row.code === '9040').id;
+    bankId = accounts.json.find((row: any) => row.code === '2320').id;
     assert.ok(walletId && khaltiId && bankId, 'default wallet and bank ledgers must be seeded');
   });
 
@@ -179,7 +179,7 @@ describe('wallet receipts, settlements and PSP reconciliation (real HTTP + Postg
     assert.equal(journal.rows.length, 2);
     assert.equal(journal.rows[0].account_id, walletId);
     assert.equal(Number(journal.rows[0].debit), 1000);
-    assert.equal(journal.rows[1].account_id, 'gla-1100');
+    assert.equal(journal.rows[1].account_id, 'gla-2110');
     assert.equal(Number(journal.rows[1].credit), 1000);
     walletJournalIds.push(journal.rows[0].id);
 
@@ -346,7 +346,7 @@ describe('wallet receipts, settlements and PSP reconciliation (real HTTP + Postg
       [secondPayment]
     );
     assert.equal(refundJournal.rows.length, 2);
-    assert.equal(refundJournal.rows[0].account_id, 'gla-1100');
+    assert.equal(refundJournal.rows[0].account_id, 'gla-2110');
     assert.equal(Number(refundJournal.rows[0].debit), 500);
     assert.equal(refundJournal.rows[1].account_id, walletId);
     assert.equal(Number(refundJournal.rows[1].credit), 500);
@@ -370,9 +370,9 @@ describe('wallet receipts, settlements and PSP reconciliation (real HTTP + Postg
       [firstPayment]
     );
     assert.equal(chargebackJournal.rows.length, 2);
-    assert.equal(chargebackJournal.rows[0].code, '6600');
+    assert.equal(chargebackJournal.rows[0].code, '7430');
     assert.equal(Number(chargebackJournal.rows[0].debit), 1000);
-    assert.equal(chargebackJournal.rows[1].account_id ?? chargebackJournal.rows[1].code, '1030');
+    assert.equal(chargebackJournal.rows[1].account_id ?? chargebackJournal.rows[1].code, '9030');
   });
 
   test('branch-scoped users cannot reconcile or settle provider clearing', async () => {

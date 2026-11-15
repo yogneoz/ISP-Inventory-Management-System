@@ -6,6 +6,10 @@
  * active accounts, control/subledger parties, branch access and closed periods.
  * A template can be saved with an unbalanced preview, but it cannot be run until
  * the preview balances.
+ *
+ * A template is operator-authored Dr/Cr data, so it stays on explicit
+ * debit/credit: the `increase` leg engine is for automated postings that must
+ * not decide a side, not for a voucher a person wrote.
  */
 import crypto from 'crypto';
 import { ApiError } from '../errors/ApiError';

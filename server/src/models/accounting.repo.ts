@@ -13,6 +13,13 @@
 
 export type AccountType = 'ASSET' | 'LIABILITY' | 'EQUITY' | 'INCOME' | 'EXPENSE';
 export type NormalBalance = 'DEBIT' | 'CREDIT';
+/**
+ * The permanent balance side of one account: `D` (debit-normal) or `C`
+ * (credit-normal). Unlike the group-level `NormalBalance` label this is the
+ * side the posting engine uses to turn an `increase` leg into a debit or a
+ * credit, so it lives on every account and is never inferred at post time.
+ */
+export type NormalBalanceCode = 'D' | 'C';
 export type StatementGroup =
   | 'CURRENT_ASSET'
   | 'NON_CURRENT_ASSET'
@@ -64,7 +71,8 @@ export type PostingRole =
   | 'SSF_PAYABLE'
   | 'EMPLOYEE_ADVANCE'
   | 'EMPLOYEE_LOAN'
-  | 'LOAN_PAYABLE';
+  | 'LOAN_PAYABLE'
+  | 'SALES_RETURNS';
 
 export type AccountKind = 'CASH' | 'BANK' | 'WALLET' | 'OTHER';
 
@@ -124,7 +132,56 @@ export const POSTING_ROLES: readonly PostingRole[] = [
   'EMPLOYEE_ADVANCE',
   'EMPLOYEE_LOAN',
   'LOAN_PAYABLE',
+  'SALES_RETURNS',
 ];
+
+/**
+ * The balance side each posting purpose belongs to.
+ *
+ * An account's normal balance is permanent data on the account itself (the
+ * posting engine reads `gl_accounts.normal_balance`), but a role always implies
+ * one side: revenue and liabilities are credit-normal, costs and assets are
+ * debit-normal, and the two contra roles (accumulated depreciation and sales
+ * returns) are the deliberate exceptions. The default chart, the upgrade
+ * backfill and the account-creation fallback all derive from this one map so a
+ * role can never mean two different sides in two places.
+ */
+export const NORMAL_BALANCE_BY_POSTING_ROLE: Readonly<Record<PostingRole, NormalBalanceCode>> = {
+  AR_CONTROL: 'D',
+  AP_CONTROL: 'C',
+  CASH: 'D',
+  BANK: 'D',
+  INVENTORY: 'D',
+  SALES: 'C',
+  SALES_RETURNS: 'D',
+  COGS: 'D',
+  TAX_OUTPUT: 'C',
+  TAX_INPUT: 'D',
+  RETAINED_EARNINGS: 'C',
+  SALARY_PAYABLE: 'C',
+  INTER_BRANCH_CLEARING: 'D',
+  STOCK_EXPENSE: 'D',
+  CPE_ASSET: 'D',
+  DUE_FROM_HO: 'D',
+  DUE_TO_HO: 'C',
+  FIXED_ASSET: 'D',
+  ACCUMULATED_DEPRECIATION: 'C',
+  DEPRECIATION_EXPENSE: 'D',
+  GAIN_ON_DISPOSAL: 'C',
+  LOSS_ON_DISPOSAL: 'D',
+  SALARY_EXPENSE: 'D',
+  PAYMENT_FEE_EXPENSE: 'D',
+  TDS_PAYABLE: 'C',
+  SSF_PAYABLE: 'C',
+  EMPLOYEE_ADVANCE: 'D',
+  EMPLOYEE_LOAN: 'D',
+  LOAN_PAYABLE: 'C',
+};
+
+/** The side a brand-new account of this type starts on. */
+export function normalBalanceForAccountType(type: AccountType): NormalBalanceCode {
+  return type === 'ASSET' || type === 'EXPENSE' ? 'D' : 'C';
+}
 
 export const ACCOUNT_GROUP_COLUMNS = `g.id,
   g.parent_id AS "parentId",
@@ -142,10 +199,15 @@ export const ACCOUNT_COLUMNS = `a.id,
   a.name,
   a.group_id AS "groupId",
   a.description,
+  a.statutory_reference AS "statutoryReference",
   a.master_profile AS "masterProfile",
   a.is_control AS "isControl",
   a.subledger_type AS "subledgerType",
   a.posting_role AS "postingRole",
+  -- The account's own permanent side (D or C), which the posting engine turns
+  -- an "increase" leg into a debit or credit. The group's DEBIT/CREDIT label
+  -- keeps its old alias so statements and the chart screens are unchanged.
+  a.normal_balance AS "accountNormalBalance",
   a.account_kind AS "accountKind",
   a.branch_id AS "branchId",
   a.provider_code AS "providerCode",
@@ -326,13 +388,14 @@ ON CONFLICT DO NOTHING`;
 
 export const ACCOUNT_SEED_INSERT_SQL = `INSERT INTO gl_accounts (
   id, code, name, group_id, description, is_control, subledger_type,
-  posting_role, account_kind, provider_code, is_active, is_demo
+  posting_role, account_kind, provider_code, normal_balance, statutory_reference,
+  is_active, is_demo
 )
 SELECT $1, $2, $3, g.id, $4, $5, $6, $7,
   CASE WHEN $7::varchar = 'CASH' THEN 'CASH'
     WHEN $7::varchar = 'BANK' THEN 'BANK'
     ELSE COALESCE(NULLIF($9::varchar, ''), 'OTHER') END,
-  NULLIF($10::varchar, ''), TRUE, FALSE
+  NULLIF($10::varchar, ''), $11, NULLIF($12::varchar, ''), TRUE, FALSE
 FROM gl_account_groups g
 WHERE g.code = $8
 ON CONFLICT DO NOTHING`;
@@ -507,8 +570,8 @@ export const ACCOUNT_INSERT_SQL = `INSERT INTO gl_accounts (
   id, code, name, group_id, description, is_control, subledger_type,
   posting_role, account_kind, branch_id, provider_code, merchant_id,
   settlement_account_id, bank_name, bank_branch, account_number,
-  account_holder, swift_code, master_profile, is_active, is_demo
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb, TRUE, $20)`;
+  account_holder, swift_code,   master_profile, is_active, is_demo, normal_balance, statutory_reference
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb, TRUE, $20, $21, $22)`;
 
 export const ACCOUNT_UPDATE_SQL = `UPDATE gl_accounts SET
   name = COALESCE($2, name),
@@ -536,6 +599,7 @@ export const WALLET_ACCOUNT_BY_PROVIDER_SQL = `SELECT a.id,
   a.name,
   a.is_control AS "isControl",
   a.subledger_type AS "subledgerType",
+  a.normal_balance AS "accountNormalBalance",
   a.account_kind AS "accountKind",
   a.provider_code AS "providerCode",
   a.settlement_account_id AS "settlementAccountId",
@@ -1647,6 +1711,8 @@ export function accountSeedParams(input: {
   postingRole: PostingRole | null;
   accountKind?: AccountKind;
   providerCode?: string | null;
+  normalBalance: NormalBalanceCode;
+  statutoryReference?: string | null;
   groupCode: string;
 }): unknown[] {
   return [
@@ -1660,6 +1726,8 @@ export function accountSeedParams(input: {
     input.groupCode,
     input.accountKind || '',
     input.providerCode || '',
+    input.normalBalance,
+    input.statutoryReference || null,
   ];
 }
 
@@ -1697,6 +1765,8 @@ export interface AccountInput {
   accountHolder?: string | null;
   swiftCode?: string | null;
   masterProfile?: Record<string, unknown>;
+  normalBalance: NormalBalanceCode;
+  statutoryReference?: string | null;
   isDemo?: boolean;
 }
 
@@ -1722,6 +1792,8 @@ export function accountInsertParams(input: AccountInput): unknown[] {
     input.swiftCode || null,
     input.masterProfile || {},
     Boolean(input.isDemo),
+    input.normalBalance,
+    input.statutoryReference || null,
   ];
 }
 

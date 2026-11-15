@@ -10,6 +10,7 @@
 // ============================================================================
 import crypto from 'node:crypto';
 import { buildBsDayRecordsForYear, DEFAULT_BS_YEARS_SERVER } from '../../server/src/config/bsCalendar';
+import { defaultAccountSide } from '../../server/src/config/defaultChart';
 import { COST_CENTER_BY_EXPENSE_ACCOUNT } from './verificationDataset';
 import type { VerificationDataset } from './verificationDataset';
 
@@ -57,6 +58,15 @@ async function insertRows(client: any, table: string, columns: string[], rows: a
   for (const row of rows) {
     await client.query(sql, columns.map((c) => row[c] ?? null));
   }
+}
+
+/**
+ * The permanent balance side of a seeded chart account, resolved by the chart's
+ * own rule so the demo seed and the boot seed can never disagree: pinned side,
+ * then posting role, then the section the account reports under.
+ */
+function seededNormalBalance(account: any): 'D' | 'C' {
+  return defaultAccountSide(account);
 }
 
 /**
@@ -208,12 +218,15 @@ export async function applyVerificationSeed(client: any, dataset: VerificationDa
     }));
 
   await insertRows(client, 'gl_accounts',
-    ['id', 'code', 'name', 'group_id', 'description', 'is_control', 'subledger_type', 'posting_role', 'is_active', 'is_demo', 'account_kind', 'branch_id'],
+    ['id', 'code', 'name', 'group_id', 'description', 'statutory_reference', 'is_control', 'subledger_type', 'posting_role', 'is_active', 'is_demo', 'account_kind', 'provider_code', 'branch_id', 'normal_balance'],
     count('chartAccounts', dataset.chartAccounts).map((a) => ({
       id: `gla-${a.code}`, code: a.code, name: a.name, group_id: groupIdByCode.get(a.groupCode),
-      description: a.description, is_control: a.isControl, subledger_type: a.subledgerType,
+      description: a.description, statutory_reference: a.statutoryReference ?? null,
+      is_control: a.isControl, subledger_type: a.subledgerType,
       posting_role: a.postingRole, is_active: true, is_demo: true,
-      account_kind: a.accountKind || (a.code === '1010' ? 'CASH' : a.code === '1020' ? 'BANK' : 'OTHER'),
+      normal_balance: seededNormalBalance(a),
+      account_kind: a.accountKind || (a.code === '2310' ? 'CASH' : a.code === '2320' ? 'BANK' : 'OTHER'),
+      provider_code: a.providerCode || null,
       branch_id: a.branchId || null,
     })));
 
@@ -511,13 +524,13 @@ export async function verifySeededDatabase(client: any): Promise<{ ok: boolean; 
       ).rows[0].v
     );
 
-  const ar = await balance(['1100']);
-  const ap = -(await balance(['2100']));
-  const inventory = await balance(['1200']);
-  const cashAndBank = (await balance(['1010'])) + (await balance(['1020']));
+  const ar = await balance(['2110']);
+  const ap = -(await balance(['5010']));
+  const inventory = await balance(['2030']);
+  const cashAndBank = (await balance(['2310'])) + (await balance(['2320']));
   const equity = -(await balance(['3010']));
-  const fixedAssets = await balance(['1520']);
-  const prepaid = await balance(['1400']);
+  const fixedAssets = await balance(['1000']);
+  const prepaid = await balance(['2150']);
 
   const perBranch = (
     await client.query(

@@ -120,10 +120,10 @@ export const POSTING_RULES: readonly PostingRule[] = [
     group: 'SALES',
     name: 'Sales return',
     description:
-      'Reverses the original sale and restores sellable stock at the exact issue cost.',
+      'Credits the customer, books the return against the contra-income Sales Returns ledger and restores sellable stock at the exact issue cost.',
     source: 'Sales return posting',
     lines: [
-      { side: 'DEBIT', label: 'Sales revenue reversed', roles: ['SALES'] },
+      { side: 'DEBIT', label: 'Sales returns (contra-income)', roles: ['SALES_RETURNS'] },
       {
         side: 'DEBIT',
         label: 'Output VAT reversed',
@@ -150,7 +150,7 @@ export const POSTING_RULES: readonly PostingRule[] = [
       },
     ],
     note:
-      'A damaged return that is not put back into sellable stock posts the revenue and receivable sides only.',
+      'Sales returns never post against the sales revenue account: gross revenue and returns stay separately visible. A damaged return that is not put back into sellable stock posts the returns and receivable sides only.',
   },
   {
     id: 'customer-receipt',

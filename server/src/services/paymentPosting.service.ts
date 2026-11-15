@@ -33,9 +33,9 @@ import {
   type PostingRole,
 } from '../models/accounting.repo';
 import {
-  postJournal,
+  postJournalLegs,
   type AccountingClient,
-  type JournalLineInput,
+  type JournalLeg,
 } from './accounting.service';
 import { reverseSourceJournal } from './invoicePosting.service';
 
@@ -45,6 +45,8 @@ interface PostingAccount {
   name: string;
   isControl: boolean;
   subledgerType: string;
+  /** `D` or `C`: the permanent side the leg engine posts against. */
+  accountNormalBalance: string;
   accountKind?: string | null;
   isActive?: boolean;
 }
@@ -171,18 +173,18 @@ function paymentMemo(label: string, doc: PaymentDocument): string {
   return parts.join(' - ');
 }
 
-function controlLine(
+function controlLeg(
   account: PostingAccount,
-  debit: number,
-  credit: number,
+  increase: boolean,
+  amount: number,
   partyId: unknown,
   partyName: unknown,
   memo: string
-): JournalLineInput {
+): JournalLeg {
   return {
     accountId: account.id,
-    debit,
-    credit,
+    increase,
+    amount,
     memo,
     subledgerType: account.subledgerType,
     partyId: text(partyId),
@@ -190,8 +192,8 @@ function controlLine(
   };
 }
 
-function ordinaryLine(account: PostingAccount, debit: number, credit: number, memo: string): JournalLineInput {
-  return { accountId: account.id, debit, credit, memo };
+function ordinaryLeg(account: PostingAccount, increase: boolean, amount: number, memo: string): JournalLeg {
+  return { accountId: account.id, increase, amount, memo };
 }
 
 /**
@@ -246,16 +248,16 @@ export async function postCustomerReceiptLedger(
   }
   const memo = paymentMemo('Customer receipt', input.receipt);
 
-  return postJournal(client, {
+  return postJournalLegs(client, {
     journalDateAD: input.receipt.paymentDateAD,
     branchId: input.receipt.branchId,
     memo,
     sourceType: 'CUSTOMER_PAYMENT',
     sourceId: input.receipt.id,
     actor: input.actor || null,
-    lines: [
-      ordinaryLine(settlementAccount, amount, 0, memo),
-      controlLine(defaults.AR_CONTROL, 0, amount, input.receipt.customerId, partyName, memo),
+    legs: [
+      ordinaryLeg(settlementAccount, true, amount, memo),
+      controlLeg(defaults.AR_CONTROL, false, amount, input.receipt.customerId, partyName, memo),
     ],
   });
 }
@@ -286,23 +288,23 @@ export async function postWalletRefundLedger(
     providerCode
   );
   const memo = `Wallet refund ${input.receipt.paymentNumber} - ${input.reason}`;
-  return postJournal(client, {
+  return postJournalLegs(client, {
     journalDateAD: reversalDateAD(),
     branchId: input.receipt.branchId,
     memo,
     sourceType: 'WALLET_REFUND',
     sourceId: input.receipt.id,
     actor: input.actor || null,
-    lines: [
-      controlLine(
+    legs: [
+      controlLeg(
         defaults.AR_CONTROL,
+        true,
         amount,
-        0,
         input.receipt.customerId,
         input.receipt.customerName,
         memo
       ),
-      ordinaryLine(wallet, 0, amount, memo),
+      ordinaryLeg(wallet, false, amount, memo),
     ],
   });
 }
@@ -332,14 +334,17 @@ export async function postWalletChargebackLedger(
     providerCode
   );
   const memo = `Wallet chargeback ${input.receipt.paymentNumber} - ${input.reason}`;
-  return postJournal(client, {
+  return postJournalLegs(client, {
     journalDateAD: reversalDateAD(),
     branchId: input.receipt.branchId,
     memo,
     sourceType: 'WALLET_CHARGEBACK',
     sourceId: input.receipt.id,
     actor: input.actor || null,
-    lines: [ordinaryLine(defaults.PAYMENT_FEE_EXPENSE, amount, 0, memo), ordinaryLine(wallet, 0, amount, memo)],
+    legs: [
+      ordinaryLeg(defaults.PAYMENT_FEE_EXPENSE, true, amount, memo),
+      ordinaryLeg(wallet, false, amount, memo),
+    ],
   });
 }
 
@@ -370,16 +375,16 @@ export async function postVendorPaymentLedger(
     : defaults[settlementRole];
   const memo = paymentMemo('Vendor payment', input.payment);
 
-  return postJournal(client, {
+  return postJournalLegs(client, {
     journalDateAD: input.payment.paymentDateAD,
     branchId: input.payment.branchId,
     memo,
     sourceType: 'VENDOR_PAYMENT',
     sourceId: input.payment.id,
     actor: input.actor || null,
-    lines: [
-      controlLine(defaults.AP_CONTROL, amount, 0, input.payment.supplierId, partyName, memo),
-      ordinaryLine(settlementAccount, 0, amount, memo),
+    legs: [
+      controlLeg(defaults.AP_CONTROL, false, amount, input.payment.supplierId, partyName, memo),
+      ordinaryLeg(settlementAccount, false, amount, memo),
     ],
   });
 }

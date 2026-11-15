@@ -175,7 +175,7 @@ export function buildDemoOperationsFixtures(dataset: VerificationDataset): DemoO
       damage_date_bs: bsOn(damageDates[index]),
       damage_reason: index % 2 === 0 ? 'PHYSICAL_DAMAGE' : 'STORAGE_DAMAGE',
       status,
-      gl_account_code: '6200',
+      gl_account_code: '7050',
       write_off_loss: status === 'IDENTIFIED' ? 0 : (product.costPrice ?? 50),
       disposal_method: status === 'DISPOSED' ? 'SCRAP_DESTRUCTION' : null,
       disposal_date_ad: status === 'DISPOSED' ? '2026-10-20' : null,

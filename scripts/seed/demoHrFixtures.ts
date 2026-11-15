@@ -476,15 +476,15 @@ export function buildDemoHrFixtures(dataset: VerificationDataset): DemoHrFixture
     voucher_type: 'PAYROLL', currency: 'NPR', exchange_rate: 1, is_demo: true,
   }];
   // The salary line is an expense, so it carries its operational cost centre,
-  // exactly like the demo ledger lines (COST_CENTER_BY_EXPENSE_ACCOUNT['6400']
+  // exactly like the demo ledger lines (COST_CENTER_BY_EXPENSE_ACCOUNT['7110']
   // in verificationDataset.ts). Without it the branch's department preview
   // counts payroll as untagged actuals. The credit legs are liabilities and
   // stay untagged.
   const journalLines: Row[] = [
-    { id: 'demo-payroll-journal-line-1', journal_id: 'demo-payroll-journal-2083-11', journal_date_ad: '2026-11-29', journal_date_bs: bsOn('2026-11-29'), line_no: 1, account_id: 'gla-6400', branch_id: 'BR-KTM', cost_center_id: 'cc-demo-ops', debit: 167_000, credit: 0, memo: 'Salaries and wages' },
-    { id: 'demo-payroll-journal-line-2', journal_id: 'demo-payroll-journal-2083-11', journal_date_ad: '2026-11-29', journal_date_bs: bsOn('2026-11-29'), line_no: 2, account_id: 'gla-2330', branch_id: 'BR-KTM', cost_center_id: null, debit: 0, credit: 8_000, memo: 'TDS payable' },
-    { id: 'demo-payroll-journal-line-3', journal_id: 'demo-payroll-journal-2083-11', journal_date_ad: '2026-11-29', journal_date_bs: bsOn('2026-11-29'), line_no: 3, account_id: 'gla-2340', branch_id: 'BR-KTM', cost_center_id: null, debit: 0, credit: 6_600, memo: 'SSF payable' },
-    { id: 'demo-payroll-journal-line-4', journal_id: 'demo-payroll-journal-2083-11', journal_date_ad: '2026-11-29', journal_date_bs: bsOn('2026-11-29'), line_no: 4, account_id: 'gla-2320', branch_id: 'BR-KTM', cost_center_id: null, debit: 0, credit: 152_400, memo: 'Net salaries payable' },
+    { id: 'demo-payroll-journal-line-1', journal_id: 'demo-payroll-journal-2083-11', journal_date_ad: '2026-11-29', journal_date_bs: bsOn('2026-11-29'), line_no: 1, account_id: 'gla-7110', branch_id: 'BR-KTM', cost_center_id: 'cc-demo-ops', debit: 167_000, credit: 0, memo: 'Salaries and wages' },
+    { id: 'demo-payroll-journal-line-2', journal_id: 'demo-payroll-journal-2083-11', journal_date_ad: '2026-11-29', journal_date_bs: bsOn('2026-11-29'), line_no: 2, account_id: 'gla-5220', branch_id: 'BR-KTM', cost_center_id: null, debit: 0, credit: 8_000, memo: 'TDS payable' },
+    { id: 'demo-payroll-journal-line-3', journal_id: 'demo-payroll-journal-2083-11', journal_date_ad: '2026-11-29', journal_date_bs: bsOn('2026-11-29'), line_no: 3, account_id: 'gla-5250', branch_id: 'BR-KTM', cost_center_id: null, debit: 0, credit: 6_600, memo: 'SSF payable' },
+    { id: 'demo-payroll-journal-line-4', journal_id: 'demo-payroll-journal-2083-11', journal_date_ad: '2026-11-29', journal_date_bs: bsOn('2026-11-29'), line_no: 4, account_id: 'gla-5270', branch_id: 'BR-KTM', cost_center_id: null, debit: 0, credit: 152_400, memo: 'Net salaries payable' },
   ];
 
   // The payroll journal is inserted directly (the demo run is already POSTED),
@@ -492,18 +492,18 @@ export function buildDemoHrFixtures(dataset: VerificationDataset): DemoHrFixture
   // service would have written. Without these the GL ties to the trial balance
   // but Salary Payable, TDS and SSF show a false control difference.
   const payrollSubledgers: Row[] = [
-    { id: 'gls-demo-2320-emp-001', code: 'SL-2320-EMP-001', name: 'Aarav Sharma — Salary Payable', subledger_type: 'EMPLOYEE', main_account_id: 'gla-2320', party_id: 'demo-emp-001', description: 'Demo payroll book for Aarav Sharma.', is_active: true, is_demo: true },
-    { id: 'gls-demo-2320-emp-002', code: 'SL-2320-EMP-002', name: 'Nisha Karki — Salary Payable', subledger_type: 'EMPLOYEE', main_account_id: 'gla-2320', party_id: 'demo-emp-002', description: 'Demo payroll book for Nisha Karki.', is_active: true, is_demo: true },
-    { id: 'gls-demo-2330-emp-001', code: 'SL-2330-EMP-001', name: 'Aarav Sharma — TDS Payable', subledger_type: 'EMPLOYEE', main_account_id: 'gla-2330', party_id: 'demo-emp-001', description: 'Demo TDS book for Aarav Sharma.', is_active: true, is_demo: true },
-    { id: 'gls-demo-2330-emp-002', code: 'SL-2330-EMP-002', name: 'Nisha Karki — TDS Payable', subledger_type: 'EMPLOYEE', main_account_id: 'gla-2330', party_id: 'demo-emp-002', description: 'Demo TDS book for Nisha Karki.', is_active: true, is_demo: true },
-    { id: 'gls-demo-2340-emp-001', code: 'SL-2340-EMP-001', name: 'Aarav Sharma — SSF Payable', subledger_type: 'EMPLOYEE', main_account_id: 'gla-2340', party_id: 'demo-emp-001', description: 'Demo SSF book for Aarav Sharma.', is_active: true, is_demo: true },
+    { id: 'gls-demo-2320-emp-001', code: 'SL-5270-EMP-001', name: 'Aarav Sharma — Salary Payable', subledger_type: 'EMPLOYEE', main_account_id: 'gla-5270', party_id: 'demo-emp-001', description: 'Demo payroll book for Aarav Sharma.', is_active: true, is_demo: true },
+    { id: 'gls-demo-2320-emp-002', code: 'SL-5270-EMP-002', name: 'Nisha Karki — Salary Payable', subledger_type: 'EMPLOYEE', main_account_id: 'gla-5270', party_id: 'demo-emp-002', description: 'Demo payroll book for Nisha Karki.', is_active: true, is_demo: true },
+    { id: 'gls-demo-2330-emp-001', code: 'SL-5220-EMP-001', name: 'Aarav Sharma — TDS Payable', subledger_type: 'EMPLOYEE', main_account_id: 'gla-5220', party_id: 'demo-emp-001', description: 'Demo TDS book for Aarav Sharma.', is_active: true, is_demo: true },
+    { id: 'gls-demo-2330-emp-002', code: 'SL-5220-EMP-002', name: 'Nisha Karki — TDS Payable', subledger_type: 'EMPLOYEE', main_account_id: 'gla-5220', party_id: 'demo-emp-002', description: 'Demo TDS book for Nisha Karki.', is_active: true, is_demo: true },
+    { id: 'gls-demo-2340-emp-001', code: 'SL-5250-EMP-001', name: 'Aarav Sharma — SSF Payable', subledger_type: 'EMPLOYEE', main_account_id: 'gla-5250', party_id: 'demo-emp-001', description: 'Demo SSF book for Aarav Sharma.', is_active: true, is_demo: true },
   ];
   const payrollSubledgerEntries: Row[] = [
-    { id: 'gls-demo-payroll-001', journal_id: 'demo-payroll-journal-2083-11', journal_line_id: 'demo-payroll-journal-line-4', account_id: 'gla-2320', subledger_id: 'gls-demo-2320-emp-001', subledger_type: 'EMPLOYEE', party_id: 'demo-emp-001', party_name: 'Aarav Sharma', branch_id: 'BR-KTM', entry_date_ad: '2026-11-29', entry_date_bs: bsOn('2026-11-29'), debit: 0, credit: 92_400 },
-    { id: 'gls-demo-payroll-002', journal_id: 'demo-payroll-journal-2083-11', journal_line_id: 'demo-payroll-journal-line-4', account_id: 'gla-2320', subledger_id: 'gls-demo-2320-emp-002', subledger_type: 'EMPLOYEE', party_id: 'demo-emp-002', party_name: 'Nisha Karki', branch_id: 'BR-KTM', entry_date_ad: '2026-11-29', entry_date_bs: bsOn('2026-11-29'), debit: 0, credit: 60_000 },
-    { id: 'gls-demo-payroll-003', journal_id: 'demo-payroll-journal-2083-11', journal_line_id: 'demo-payroll-journal-line-2', account_id: 'gla-2330', subledger_id: 'gls-demo-2330-emp-001', subledger_type: 'EMPLOYEE', party_id: 'demo-emp-001', party_name: 'Aarav Sharma', branch_id: 'BR-KTM', entry_date_ad: '2026-11-29', entry_date_bs: bsOn('2026-11-29'), debit: 0, credit: 6_000 },
-    { id: 'gls-demo-payroll-004', journal_id: 'demo-payroll-journal-2083-11', journal_line_id: 'demo-payroll-journal-line-2', account_id: 'gla-2330', subledger_id: 'gls-demo-2330-emp-002', subledger_type: 'EMPLOYEE', party_id: 'demo-emp-002', party_name: 'Nisha Karki', branch_id: 'BR-KTM', entry_date_ad: '2026-11-29', entry_date_bs: bsOn('2026-11-29'), debit: 0, credit: 2_000 },
-    { id: 'gls-demo-payroll-005', journal_id: 'demo-payroll-journal-2083-11', journal_line_id: 'demo-payroll-journal-line-3', account_id: 'gla-2340', subledger_id: 'gls-demo-2340-emp-001', subledger_type: 'EMPLOYEE', party_id: 'demo-emp-001', party_name: 'Aarav Sharma', branch_id: 'BR-KTM', entry_date_ad: '2026-11-29', entry_date_bs: bsOn('2026-11-29'), debit: 0, credit: 6_600 },
+    { id: 'gls-demo-payroll-001', journal_id: 'demo-payroll-journal-2083-11', journal_line_id: 'demo-payroll-journal-line-4', account_id: 'gla-5270', subledger_id: 'gls-demo-2320-emp-001', subledger_type: 'EMPLOYEE', party_id: 'demo-emp-001', party_name: 'Aarav Sharma', branch_id: 'BR-KTM', entry_date_ad: '2026-11-29', entry_date_bs: bsOn('2026-11-29'), debit: 0, credit: 92_400 },
+    { id: 'gls-demo-payroll-002', journal_id: 'demo-payroll-journal-2083-11', journal_line_id: 'demo-payroll-journal-line-4', account_id: 'gla-5270', subledger_id: 'gls-demo-2320-emp-002', subledger_type: 'EMPLOYEE', party_id: 'demo-emp-002', party_name: 'Nisha Karki', branch_id: 'BR-KTM', entry_date_ad: '2026-11-29', entry_date_bs: bsOn('2026-11-29'), debit: 0, credit: 60_000 },
+    { id: 'gls-demo-payroll-003', journal_id: 'demo-payroll-journal-2083-11', journal_line_id: 'demo-payroll-journal-line-2', account_id: 'gla-5220', subledger_id: 'gls-demo-2330-emp-001', subledger_type: 'EMPLOYEE', party_id: 'demo-emp-001', party_name: 'Aarav Sharma', branch_id: 'BR-KTM', entry_date_ad: '2026-11-29', entry_date_bs: bsOn('2026-11-29'), debit: 0, credit: 6_000 },
+    { id: 'gls-demo-payroll-004', journal_id: 'demo-payroll-journal-2083-11', journal_line_id: 'demo-payroll-journal-line-2', account_id: 'gla-5220', subledger_id: 'gls-demo-2330-emp-002', subledger_type: 'EMPLOYEE', party_id: 'demo-emp-002', party_name: 'Nisha Karki', branch_id: 'BR-KTM', entry_date_ad: '2026-11-29', entry_date_bs: bsOn('2026-11-29'), debit: 0, credit: 2_000 },
+    { id: 'gls-demo-payroll-005', journal_id: 'demo-payroll-journal-2083-11', journal_line_id: 'demo-payroll-journal-line-3', account_id: 'gla-5250', subledger_id: 'gls-demo-2340-emp-001', subledger_type: 'EMPLOYEE', party_id: 'demo-emp-001', party_name: 'Aarav Sharma', branch_id: 'BR-KTM', entry_date_ad: '2026-11-29', entry_date_bs: bsOn('2026-11-29'), debit: 0, credit: 6_600 },
   ];
 
   const payrollRuns: Row[] = [{

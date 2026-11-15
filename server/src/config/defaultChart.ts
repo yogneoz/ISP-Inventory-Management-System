@@ -1,17 +1,23 @@
 /**
  * Default chart of accounts seeded on a fresh database.
  *
- * These are the minimum accounts a working ledger needs: one posting default
- * per role an operational document uses (sales/purchase invoices today,
- * payroll and inter-branch transfers in later slices), plus a usable statement
- * mapping. They are ordinary editable data — `ensureDefaultChart` inserts them
- * idempotently by code, so changing a name or retiring an account in the UI is
- * never undone by the next boot.
+ * The data lives in `nfrsChart.ts` and is the NFRS-aligned statutory chart:
+ * exact 4-digit codes, exact class order, the standard's statutory reference
+ * and an operator note per account. This module only adapts that data to the
+ * shape the seed and the chart screens consume, so there is exactly one place
+ * to correct a code, a name, a reference or a note.
  *
- * Codes are intentionally stable and human-readable: the reconciliation
- * screens and VAT reports expose them, and a trial balance grouped by code is
- * far easier to audit than random ids.
+ * `ensureDefaultChart` inserts these idempotently by code: changing a name or
+ * retiring an account in the UI is never undone by the next boot.
+ *
+ * Codes are stable and human-readable: reconciliation screens and the VAT and
+ * NFRS reports expose them, and a trial balance grouped by code is far easier to
+ * audit than random ids.
  */
+import {
+  NORMAL_BALANCE_BY_POSTING_ROLE,
+  normalBalanceForAccountType,
+} from '../models/accounting.repo';
 import type {
   AccountType,
   NormalBalance,
@@ -19,6 +25,7 @@ import type {
   StatementGroup,
   SubledgerType,
 } from '../models/accounting.repo';
+import { NFRS_CHART_ACCOUNTS, NFRS_CHART_GROUPS } from './nfrsChart';
 
 export interface DefaultChartGroup {
   code: string;
@@ -35,472 +42,69 @@ export interface DefaultChartAccount {
   code: string;
   name: string;
   groupCode: string;
+  /** The operator note: what belongs here and how it posts. */
   description: string;
+  /** The standard's own reference (NFRS / statutory), kept verbatim. */
+  statutoryReference: string;
   isControl: boolean;
   subledgerType: SubledgerType;
   postingRole: PostingRole | null;
-  /** Defaults from the posting role for legacy rows; WALLET names it explicitly. */
+  /** Pinned side for a contra account the group alone would mis-state. */
+  normalBalance?: 'DEBIT' | 'CREDIT';
+  /** WALLET names its custody kind explicitly; role defaults cover CASH/BANK. */
   accountKind?: 'CASH' | 'BANK' | 'WALLET' | 'OTHER';
   providerCode?: 'ESEWA' | 'KHALTI' | 'NEPAL_PAY';
 }
 
-export const DEFAULT_CHART_GROUPS: readonly DefaultChartGroup[] = [
-  {
-    code: '1000',
-    name: 'Current Assets',
-    accountType: 'ASSET',
-    statementGroup: 'CURRENT_ASSET',
-    normalBalance: 'DEBIT',
-    sortOrder: 10,
-  },
-  {
-    code: '1110',
-    name: 'Trade Receivables',
-    parentCode: '1000',
-    accountType: 'ASSET',
-    statementGroup: 'CURRENT_ASSET',
-    normalBalance: 'DEBIT',
-    sortOrder: 15,
-  },
-  {
-    code: '1500',
-    name: 'Non-current Assets',
-    accountType: 'ASSET',
-    statementGroup: 'NON_CURRENT_ASSET',
-    normalBalance: 'DEBIT',
-    sortOrder: 20,
-  },
-  {
-    code: '2000',
-    name: 'Current Liabilities',
-    accountType: 'LIABILITY',
-    statementGroup: 'CURRENT_LIABILITY',
-    normalBalance: 'CREDIT',
-    sortOrder: 30,
-  },
-  {
-    code: '2110',
-    name: 'Trade Payables',
-    parentCode: '2000',
-    accountType: 'LIABILITY',
-    statementGroup: 'CURRENT_LIABILITY',
-    normalBalance: 'CREDIT',
-    sortOrder: 35,
-  },
-  {
-    code: '2120',
-    name: 'Loans & Borrowings',
-    parentCode: '2000',
-    accountType: 'LIABILITY',
-    statementGroup: 'CURRENT_LIABILITY',
-    normalBalance: 'CREDIT',
-    sortOrder: 37,
-  },
-  {
-    code: '2500',
-    name: 'Non-current Liabilities',
-    accountType: 'LIABILITY',
-    statementGroup: 'NON_CURRENT_LIABILITY',
-    normalBalance: 'CREDIT',
-    sortOrder: 40,
-  },
-  {
-    code: '3000',
-    name: 'Equity',
-    accountType: 'EQUITY',
-    statementGroup: 'EQUITY',
-    normalBalance: 'CREDIT',
-    sortOrder: 50,
-  },
-  {
-    code: '4000',
-    name: 'Revenue',
-    accountType: 'INCOME',
-    statementGroup: 'REVENUE',
-    normalBalance: 'CREDIT',
-    sortOrder: 60,
-  },
-  {
-    code: '5000',
-    name: 'Cost of Sales',
-    accountType: 'EXPENSE',
-    statementGroup: 'COST_OF_SALES',
-    normalBalance: 'DEBIT',
-    sortOrder: 70,
-  },
-  {
-    code: '6000',
-    name: 'Operating Expenses',
-    accountType: 'EXPENSE',
-    statementGroup: 'OPERATING_EXPENSE',
-    normalBalance: 'DEBIT',
-    sortOrder: 80,
-  },
-  // Disposal gains and losses sit outside trading operations, so they need
-  // their own statement groups rather than inflating operating expense/income.
-  {
-    code: '4500',
-    name: 'Other Income',
-    accountType: 'INCOME',
-    statementGroup: 'OTHER_INCOME',
-    normalBalance: 'CREDIT',
-    sortOrder: 65,
-  },
-  {
-    code: '6500',
-    name: 'Other Expenses',
-    accountType: 'EXPENSE',
-    statementGroup: 'OTHER_EXPENSE',
-    normalBalance: 'DEBIT',
-    sortOrder: 85,
-  },
-];
+/**
+ * The permanent side a seeded account carries.
+ *
+ * Order matters: an explicit pin wins (a contra ledger reports with its section
+ * but belongs on the other side), then the posting role (a posting service
+ * always increases the natural side of the role), and only then the reporting
+ * group, which is a section and not a side.
+ */
+export function defaultAccountSide(account: DefaultChartAccount): 'D' | 'C' {
+  if (account.normalBalance) return account.normalBalance === 'CREDIT' ? 'C' : 'D';
+  if (account.postingRole) {
+    const side = NORMAL_BALANCE_BY_POSTING_ROLE[account.postingRole];
+    if (side) return side;
+  }
+  const group = DEFAULT_CHART_GROUPS.find((entry) => entry.code === account.groupCode);
+  return normalBalanceForAccountType(group?.accountType || 'ASSET');
+}
 
-export const DEFAULT_CHART_ACCOUNTS: readonly DefaultChartAccount[] = [
-  {
-    code: '1010',
-    name: 'Cash on Hand',
-    groupCode: '1000',
-    description: 'Till and petty cash.',
-    isControl: false,
-    subledgerType: 'NONE',
-    postingRole: 'CASH',
-  },
-  {
-    code: '1020',
-    name: 'Bank Account',
-    groupCode: '1000',
-    description: 'Operating bank account.',
-    isControl: false,
-    subledgerType: 'NONE',
-    postingRole: 'BANK',
-  },
-  {
-    code: '1030',
-    name: 'eSewa Clearing',
-    groupCode: '1000',
-    description: 'Gross eSewa wallet receipts awaiting settlement; reconciled to the provider statement.',
-    isControl: false,
-    subledgerType: 'NONE',
-    postingRole: null,
-    accountKind: 'WALLET',
-    providerCode: 'ESEWA',
-  },
-  {
-    code: '1040',
-    name: 'Khalti Clearing',
-    groupCode: '1000',
-    description: 'Gross Khalti wallet receipts awaiting settlement; reconciled to the provider statement.',
-    isControl: false,
-    subledgerType: 'NONE',
-    postingRole: null,
-    accountKind: 'WALLET',
-    providerCode: 'KHALTI',
-  },
-  {
-    code: '1050',
-    name: 'Nepal Pay Clearing',
-    groupCode: '1000',
-    description: 'Gross Nepal Pay wallet receipts awaiting settlement; reconciled to the provider statement.',
-    isControl: false,
-    subledgerType: 'NONE',
-    postingRole: null,
-    accountKind: 'WALLET',
-    providerCode: 'NEPAL_PAY',
-  },
-  {
-    code: '1100',
-    name: 'Accounts Receivable',
-    groupCode: '1110',
-    description: 'Amounts due from customers, reconciled to the customer subledger.',
-    isControl: true,
-    subledgerType: 'CUSTOMER',
-    postingRole: 'AR_CONTROL',
-  },
-  {
-    code: '1200',
-    name: 'Inventory',
-    groupCode: '1000',
-    description: 'Stock at weighted-average cost.',
-    isControl: false,
-    subledgerType: 'NONE',
-    postingRole: 'INVENTORY',
-  },
-  {
-    code: '1510',
-    name: 'Deployed CPE Assets',
-    groupCode: '1500',
-    description: 'Customer-premises equipment issued from branch stock, at its issue cost.',
-    isControl: false,
-    subledgerType: 'NONE',
-    postingRole: 'CPE_ASSET',
-  },
-  {
-    code: '1520',
-    name: 'Fixed Assets at Cost',
-    groupCode: '1500',
-    description: 'Capitalised plant, equipment and vehicles acquired outside branch stock.',
-    isControl: false,
-    subledgerType: 'NONE',
-    postingRole: 'FIXED_ASSET',
-  },
-  {
-    code: '1525',
-    name: 'Accumulated Depreciation',
-    groupCode: '1500',
-    description:
-      'Contra-asset: depreciation charged against capitalised assets. Carries a credit balance.',
-    isControl: false,
-    subledgerType: 'NONE',
-    postingRole: 'ACCUMULATED_DEPRECIATION',
-  },
-  {
-    code: '1300',
-    name: 'VAT Input (Recoverable)',
-    groupCode: '1000',
-    description: 'Input VAT claimable against output VAT.',
-    isControl: false,
-    subledgerType: 'NONE',
-    postingRole: 'TAX_INPUT',
-  },
-  // Inter-branch custody accounts. They are ordinary control accounts (a
-  // branch must name the counterparty branch on every line), and they carry
-  // the two posting defaults the transfer posting uses. The balance sheet
-  // reports both as due to/from head office, so a branch's statement has a
-  // defined home for that balance instead of an unexplained asset/liability.
-  {
-    code: '1610',
-    name: 'Due from Head Office',
-    groupCode: '1000',
-    description: 'Inter-branch receivable from head office, cleared when the transfer settles.',
-    isControl: true,
-    subledgerType: 'INTER_BRANCH',
-    postingRole: 'DUE_FROM_HO',
-  },
-  {
-    code: '1620',
-    name: 'Employee Advances',
-    groupCode: '1000',
-    description:
-      'Salary advances paid to employees, recovered through payroll deductions (employee subledger).',
-    isControl: true,
-    subledgerType: 'EMPLOYEE',
-    postingRole: 'EMPLOYEE_ADVANCE',
-  },
-  {
-    code: '1630',
-    name: 'Employee Loans',
-    groupCode: '1000',
-    description:
-      'Loans extended to employees, recovered through payroll deductions (employee subledger).',
-    isControl: true,
-    subledgerType: 'EMPLOYEE',
-    postingRole: 'EMPLOYEE_LOAN',
-  },
-  {
-    code: '1640',
-    name: 'Inter-branch Clearing',
-    groupCode: '1000',
-    description:
-      'Holds the value of an inter-branch movement between dispatch and receipt, so each branch and the company roll-up stay balanced.',
-    isControl: false,
-    subledgerType: 'NONE',
-    postingRole: 'INTER_BRANCH_CLEARING',
-  },
-  {
-    code: '2100',
-    name: 'Accounts Payable',
-    groupCode: '2110',
-    description: 'Amounts due to suppliers, reconciled to the supplier subledger.',
-    isControl: true,
-    subledgerType: 'SUPPLIER',
-    postingRole: 'AP_CONTROL',
-  },
-  {
-    code: '2350',
-    name: 'Loan Payable — Unsecured',
-    groupCode: '2120',
-    description:
-      'Owner and third-party unsecured loans, tracked per lender in the LENDER subledger. Never a trade payable.',
-    isControl: true,
-    subledgerType: 'LENDER',
-    postingRole: 'LOAN_PAYABLE',
-  },
-  {
-    code: '2200',
-    name: 'VAT Output Payable',
-    groupCode: '2000',
-    description: 'Output VAT collected on sales.',
-    isControl: false,
-    subledgerType: 'NONE',
-    postingRole: 'TAX_OUTPUT',
-  },
-  {
-    code: '2310',
-    name: 'Due to Head Office',
-    groupCode: '2000',
-    description: 'Inter-branch payable to head office, cleared when the transfer settles.',
-    isControl: true,
-    subledgerType: 'INTER_BRANCH',
-    postingRole: 'DUE_TO_HO',
-  },
-  {
-    code: '2320',
-    name: 'Salary Payable',
-    groupCode: '2000',
-    description:
-      'Net salary owed to employees after TDS, SSF and advance/loan recoveries (employee subledger).',
-    isControl: true,
-    subledgerType: 'EMPLOYEE',
-    postingRole: 'SALARY_PAYABLE',
-  },
-  {
-    code: '2330',
-    name: 'TDS Payable',
-    groupCode: '2000',
-    description:
-      'Tax deducted at source on salaries, owed to the tax authority and tracked per employee.',
-    isControl: true,
-    subledgerType: 'EMPLOYEE',
-    postingRole: 'TDS_PAYABLE',
-  },
-  {
-    code: '2340',
-    name: 'SSF Payable',
-    groupCode: '2000',
-    description:
-      'Social Security Fund contribution withheld from salaries, tracked per employee.',
-    isControl: true,
-    subledgerType: 'EMPLOYEE',
-    postingRole: 'SSF_PAYABLE',
-  },
-  {
-    code: '2360',
-    name: 'TDS Payable — Lender Interest',
-    groupCode: '2000',
-    description:
-      'Tax withheld from interest paid to a lender; a non-control liability, not the employee TDS book.',
-    isControl: false,
-    subledgerType: 'NONE',
-    postingRole: null,
-  },
-  {
-    code: '2370',
-    name: 'Interest Payable — Lender',
-    groupCode: '2000',
-    description:
-      'Interest accrued on lender borrowings and not yet paid; cleared by loan repayments.',
-    isControl: false,
-    subledgerType: 'NONE',
-    postingRole: null,
-  },
-  {
-    code: '3000',
-    name: 'Retained Earnings',
-    groupCode: '3000',
-    description: 'Accumulated results carried into equity.',
-    isControl: false,
-    subledgerType: 'NONE',
-    postingRole: 'RETAINED_EARNINGS',
-  },
-  {
-    code: '4000',
-    name: 'Sales Revenue',
-    groupCode: '4000',
-    description: 'Revenue from goods sold.',
-    isControl: false,
-    subledgerType: 'NONE',
-    postingRole: 'SALES',
-  },
-  {
-    code: '4200',
-    name: 'Gain on Asset Disposal',
-    groupCode: '4500',
-    description: 'Proceeds above the net book value of a disposed fixed asset.',
-    isControl: false,
-    subledgerType: 'NONE',
-    postingRole: 'GAIN_ON_DISPOSAL',
-  },
-  {
-    code: '5000',
-    name: 'Cost of Goods Sold',
-    groupCode: '5000',
-    description: 'Weighted-average cost of goods sold.',
-    isControl: false,
-    subledgerType: 'NONE',
-    postingRole: 'COGS',
-  },
-  {
-    code: '6300',
-    name: 'Depreciation Expense',
-    groupCode: '6000',
-    description: 'Periodic depreciation charge on capitalised fixed assets.',
-    isControl: false,
-    subledgerType: 'NONE',
-    postingRole: 'DEPRECIATION_EXPENSE',
-  },
-  {
-    code: '6400',
-    name: 'Salaries & Wages',
-    groupCode: '6000',
-    description: 'Gross salaries and wages plus the employer SSF share for a posted payroll run.',
-    isControl: false,
-    subledgerType: 'NONE',
-    postingRole: 'SALARY_EXPENSE',
-  },
-  {
-    code: '6500',
-    name: 'Loss on Asset Disposal',
-    groupCode: '6500',
-    description: 'Net book value above the proceeds of a disposed fixed asset.',
-    isControl: false,
-    subledgerType: 'NONE',
-    postingRole: 'LOSS_ON_DISPOSAL',
-  },
-  {
-    code: '6100',
-    name: 'General Operating Expense',
-    groupCode: '6000',
-    description: 'Default expense account for manual entries.',
-    isControl: false,
-    subledgerType: 'NONE',
-    postingRole: null,
-  },
-  {
-    code: '6600',
-    name: 'Payment Processing Fees',
-    groupCode: '6000',
-    description: 'Provider and bank charges withheld from customer receipts at settlement.',
-    isControl: false,
-    subledgerType: 'NONE',
-    postingRole: 'PAYMENT_FEE_EXPENSE',
-  },
-  {
-    code: '6700',
-    name: 'Interest Expense — Borrowings',
-    groupCode: '6000',
-    description:
-      'Interest charged on lender borrowings, including owner and related-party loans.',
-    isControl: false,
-    subledgerType: 'NONE',
-    postingRole: null,
-  },
-  {
-    code: '6200',
-    name: 'Inventory Shrinkage & Stock Expense',
-    groupCode: '6000',
-    description:
-      'Cost of stock lost to damage, consumables, pullouts and adjustments; credited when an adjustment adds stock.',
-    isControl: false,
-    subledgerType: 'NONE',
-    postingRole: 'STOCK_EXPENSE',
-  },
-];
+export const DEFAULT_CHART_GROUPS: readonly DefaultChartGroup[] = NFRS_CHART_GROUPS.map(
+  (group) => ({
+    code: group.code,
+    name: group.name,
+    accountType: group.accountType,
+    statementGroup: group.statementGroup,
+    normalBalance: group.normalBalance,
+    sortOrder: group.sortOrder,
+  })
+);
+
+export const DEFAULT_CHART_ACCOUNTS: readonly DefaultChartAccount[] = NFRS_CHART_ACCOUNTS.map(
+  (account) => ({
+    code: account.code,
+    name: account.name,
+    groupCode: account.groupCode,
+    description: account.note,
+    statutoryReference: account.statutoryReference,
+    isControl: account.isControl === true,
+    subledgerType: account.subledgerType || 'NONE',
+    postingRole: account.postingRole ?? null,
+    normalBalance: account.normalBalance,
+    accountKind: account.accountKind,
+    providerCode: account.providerCode,
+  })
+);
 
 /**
  * One default subledger book per default control account. Deriving it from the
  * chart keeps the two seeds in lockstep: adding a control account adds its
- * book, and the code/name pair stays human-readable (`SL-1100`).
+ * book, and the code/name pair stays human-readable (`SL-2110`).
  */
 export const DEFAULT_CHART_SUBLEDGERS = DEFAULT_CHART_ACCOUNTS.filter(
   (account) => account.isControl

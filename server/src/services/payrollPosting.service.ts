@@ -18,7 +18,7 @@
 import { ApiError } from '../errors/ApiError';
 import { roundMoney } from '../utils/money';
 import { ACCOUNTS_BY_POSTING_ROLES_SQL, type PostingRole } from '../models/accounting.repo';
-import { postJournal, type AccountingClient, type JournalLineInput } from './accounting.service';
+import { postJournalLegs, type AccountingClient, type JournalLeg } from './accounting.service';
 
 interface PostingAccount {
   id: string;
@@ -26,6 +26,8 @@ interface PostingAccount {
   name: string;
   isControl: boolean;
   subledgerType: string;
+  /** `D` or `C`: the permanent side the leg engine posts against. */
+  accountNormalBalance: string;
 }
 
 type PayrollAccountRole = Extract<
@@ -117,25 +119,26 @@ function needAccount(
   return account;
 }
 
-function ordinaryLine(
+function ordinaryLeg(
   account: PostingAccount,
-  debit: number,
-  credit: number,
+  increase: boolean,
+  amount: number,
   memo: string
-): JournalLineInput {
-  return { accountId: account.id, debit, credit, memo };
+): JournalLeg {
+  return { accountId: account.id, increase, amount, memo };
 }
 
-function employeeLine(
+function employeeLeg(
   account: PostingAccount,
+  increase: boolean,
   line: PayrollPostingLine,
   amount: number,
   memo: string
-): JournalLineInput {
+): JournalLeg {
   return {
     accountId: account.id,
-    debit: 0,
-    credit: amount,
+    increase,
+    amount,
     memo,
     subledgerType: 'EMPLOYEE',
     partyId: line.employeeId,
@@ -164,7 +167,7 @@ export async function postPayrollRunJournal(
   const salaryPayable = needAccount(accounts, 'SALARY_PAYABLE', 'payroll runs');
 
   const memo = `Payroll run ${input.runNo} for ${input.periodKey}`;
-  const lines: JournalLineInput[] = [];
+  const legs: JournalLeg[] = [];
   let totalGross = 0;
   let totalEmployerSsf = 0;
   let totalCredits = 0;
@@ -196,17 +199,23 @@ export async function postPayrollRunJournal(
     centerCost.employerSsf = roundMoney(centerCost.employerSsf + employerSsf);
     salaryCostByCenter.set(centerId, centerCost);
 
-    for (const [amount, role, label] of [
-      [tds, 'TDS_PAYABLE', 'TDS withheld'],
-      [ssf, 'SSF_PAYABLE', 'SSF withheld'],
-      [employerSsf, 'SSF_PAYABLE', 'employer SSF contribution'],
-      [advance, 'EMPLOYEE_ADVANCE', 'advance recovered'],
-      [loan, 'EMPLOYEE_LOAN', 'loan recovered'],
-      [net, 'SALARY_PAYABLE', 'net salary payable'],
+    // A deduction either creates a liability (it increases a credit-normal
+    // payable) or recovers an asset already on the books (it decreases the
+    // employee advance/loan). Both are credits today, but the leg states the
+    // effect on the account rather than the column.
+    for (const [amount, role, label, increases] of [
+      [tds, 'TDS_PAYABLE', 'TDS withheld', true],
+      [ssf, 'SSF_PAYABLE', 'SSF withheld', true],
+      [employerSsf, 'SSF_PAYABLE', 'employer SSF contribution', true],
+      [advance, 'EMPLOYEE_ADVANCE', 'advance recovered', false],
+      [loan, 'EMPLOYEE_LOAN', 'loan recovered', false],
+      [net, 'SALARY_PAYABLE', 'net salary payable', true],
     ] as const) {
       if (amount <= 0) continue;
       const account = needAccount(accounts, role, `payroll runs (${label})`);
-      lines.push(employeeLine(account, line, amount, `${memo} — ${line.employeeCode} ${label}`));
+      legs.push(
+        employeeLeg(account, increases, line, amount, `${memo} — ${line.employeeCode} ${label}`)
+      );
       totalCredits = roundMoney(totalCredits + amount);
     }
   }
@@ -223,14 +232,14 @@ export async function postPayrollRunJournal(
   // Salary cost is split by the employee/branch default cost centre so the
   // analytical ledger follows the master data. One centre keeps one debit; a
   // run with several centres posts one debit per centre, in stable order.
-  const salaryCostLines: JournalLineInput[] = [...salaryCostByCenter.entries()].map(
+  const salaryCostLegs: JournalLeg[] = [...salaryCostByCenter.entries()].map(
     ([costCenterId, cost]) => {
       const centerCost = roundMoney(cost.gross + cost.employerSsf);
       return {
-        ...ordinaryLine(
+        ...ordinaryLeg(
           salaryExpense,
+          true,
           centerCost,
-          0,
           cost.employerSsf > 0
             ? `${memo} — gross wages ${cost.gross.toFixed(2)} + employer SSF ${cost.employerSsf.toFixed(2)}`
             : `${memo} — gross wages`
@@ -239,7 +248,7 @@ export async function postPayrollRunJournal(
       };
     }
   );
-  lines.unshift(...salaryCostLines);
+  legs.unshift(...salaryCostLegs);
   if (Math.abs(totalSalaryCost - totalCredits) >= 0.005) {
     throw new ApiError(
       400,
@@ -247,14 +256,14 @@ export async function postPayrollRunJournal(
     );
   }
 
-  return postJournal(client, {
+  return postJournalLegs(client, {
     journalDateAD: input.dateAD,
     branchId: input.branchId,
     memo,
     sourceType: 'PAYROLL_RUN',
     sourceId: input.runId,
     actor: input.actor || null,
-    lines,
+    legs,
   });
 }
 
@@ -272,32 +281,26 @@ export async function postPayrollPaymentJournal(
   const settlement = needAccount(accounts, role, 'payroll payments');
 
   const memo = `Salary payment for ${input.runNo} (${input.periodKey})`;
-  const lines: JournalLineInput[] = [];
+  const legs: JournalLeg[] = [];
   let totalNet = 0;
   for (const line of input.lines) {
     const net = money(line.net);
     if (net <= 0) continue;
-    lines.push({
-      accountId: salaryPayable.id,
-      debit: net,
-      credit: 0,
-      memo: `${memo} — ${line.employeeCode} net salary`,
-      subledgerType: 'EMPLOYEE',
-      partyId: line.employeeId,
-      partyName: line.employeeName,
-    });
+    legs.push(
+      employeeLeg(salaryPayable, false, line, net, `${memo} — ${line.employeeCode} net salary`)
+    );
     totalNet = roundMoney(totalNet + net);
   }
   if (totalNet <= 0) return null;
 
-  lines.push(ordinaryLine(settlement, 0, totalNet, memo));
-  return postJournal(client, {
+  legs.push(ordinaryLeg(settlement, false, totalNet, memo));
+  return postJournalLegs(client, {
     journalDateAD: input.dateAD,
     branchId: input.branchId,
     memo,
     sourceType: 'PAYROLL_PAYMENT',
     sourceId: input.runId,
     actor: input.actor || null,
-    lines,
+    legs,
   });
 }

@@ -104,20 +104,25 @@ export const LOAN_PAYABLE_ACCOUNT_BY_ID_SQL = `SELECT id, code, name, subledger_
 FROM gl_accounts
 WHERE id = $1 AND posting_role = 'LOAN_PAYABLE' AND is_control = TRUE AND is_active = TRUE`;
 
-/** Stable lender-interest defaults seeded by migration 0025. */
+/**
+ * The NFRS chart's own lines for the lender module. Interest expense, vendor TDS
+ * and accrued interest are statute-named accounts (NAS 23 / Income Tax Act
+ * 2058 / NAS 37), so the module resolves them by those fixed codes rather than
+ * by account name: a rename in the chart must not break lender postings.
+ */
 export const LENDER_INTEREST_ACCOUNT_SQL = `SELECT id, code, name
 FROM gl_accounts
-WHERE code = '6700' AND is_active = TRUE
+WHERE code = '7410' AND is_active = TRUE
 LIMIT 1`;
 
 export const LENDER_TDS_ACCOUNT_SQL = `SELECT id, code, name
 FROM gl_accounts
-WHERE code = '2360' AND is_active = TRUE
+WHERE code = '5230' AND is_active = TRUE
 LIMIT 1`;
 
 export const LENDER_INTEREST_PAYABLE_ACCOUNT_SQL = `SELECT id, code, name
 FROM gl_accounts
-WHERE code = '2370' AND is_active = TRUE
+WHERE code = '5020' AND is_active = TRUE
 LIMIT 1`;
 
 export const LENDER_BOOK_BY_PARTY_SQL = `SELECT id, code, name, main_account_id AS "mainAccountId", is_active AS active

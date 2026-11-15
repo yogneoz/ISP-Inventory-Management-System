@@ -366,7 +366,7 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
 
     const accountList = await get('/api/accounting/accounts', tokens.super);
     assert.equal(accountList.status, 200);
-    const generalExpense = accountList.json.find((account: any) => account.code === '6100');
+    const generalExpense = accountList.json.find((account: any) => account.code === '7300');
     assert.ok(generalExpense, 'the seeded chart must carry the general operating expense account');
     accounts.expense = generalExpense.id;
   });
@@ -583,7 +583,7 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
       debit: 1500,
       credit: 0,
       branchId: CUSTOMER_BR,
-      accountCode: '1100',
+      accountCode: '2110',
     });
 
     const replacement = await post('/api/accounting/opening-balances', tokens.super, {
@@ -1174,15 +1174,15 @@ describe('opening balances and year-end close API (real HTTP + throwaway Postgre
       [FY_ID]
     );
     const byCode = new Map(closedLines.rows.map((row: any) => [row.code, row]));
-    assert.equal(Number(byCode.get('4000')!.debit), 5000, 'revenue is debited to zero');
-    assert.equal(Number(byCode.get('6100')!.credit), 2000, 'expense is credited to zero');
-    assert.equal(Number(byCode.get('3000')!.credit), 3000, 'the net result lands in retained earnings');
+    assert.equal(Number(byCode.get('6010')!.debit), 5000, 'revenue is debited to zero');
+    assert.equal(Number(byCode.get('7300')!.credit), 2000, 'expense is credited to zero');
+    assert.equal(Number(byCode.get('3100')!.credit), 3000, 'the net result lands in retained earnings');
 
     const trial = await trialBalance();
     assert.equal(trial.balanced, true);
     assert.equal(trial.totals.debit, trial.totals.credit);
-    const salesRow = trial.accounts.find((account: any) => account.code === '4000');
-    const expenseRow = trial.accounts.find((account: any) => account.code === '6100');
+    const salesRow = trial.accounts.find((account: any) => account.code === '6010');
+    const expenseRow = trial.accounts.find((account: any) => account.code === '7300');
     assert.equal(salesRow.closingBalance, 0);
     assert.equal(expenseRow.closingBalance, 0);
 

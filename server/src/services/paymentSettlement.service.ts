@@ -12,7 +12,7 @@ import { ApiError } from '../errors/ApiError';
 import { bsDateOrThrow } from '../utils/bsDate';
 import { roundMoney } from '../utils/money';
 import type { AccountingClient } from './accounting.service';
-import { isAccountingDate, postJournal } from './accounting.service';
+import { isAccountingDate, postJournalLegs, type JournalLeg } from './accounting.service';
 import { BANK_IMPORT_INSERT_SQL } from '../models/bankReconciliation.repo';
 import {
   ACCOUNT_BY_ID_SQL,
@@ -443,21 +443,28 @@ export async function createPaymentSettlement(
   const settlementId = `ps-${crypto.randomUUID()}`;
   const settlementNumber = `PS-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
   const memo = `Wallet settlement ${settlementNumber} · ${payment.paymentNumber} · ${payment.providerCode}`;
-  const lines: any[] = [
-    { accountId: bank.id, debit: net, credit: 0, memo },
-    { accountId: wallet.accountId, debit: 0, credit: gross, memo },
+  // The provider took its fee out of the gross and banked the net, so the two
+  // custody ledgers fall by their own amounts and the fee becomes an expense.
+  const legs: JournalLeg[] = [
+    { accountId: bank.id, increase: true, amount: net, memo },
+    { accountId: wallet.accountId, increase: false, amount: gross, memo },
   ];
   if (fee > 0) {
-    lines.splice(1, 0, { accountId: feeAccount.id, debit: fee, credit: 0, memo: `${memo} · provider fee` });
+    legs.splice(1, 0, {
+      accountId: feeAccount.id,
+      increase: true,
+      amount: fee,
+      memo: `${memo} · provider fee`,
+    });
   }
-  const journal = await postJournal(client, {
+  const journal = await postJournalLegs(client, {
     journalDateAD: settlementDateAD,
     branchId: payment.branchId,
     memo,
     sourceType: 'PAYMENT_SETTLEMENT',
     sourceId: settlementId,
     actor,
-    lines,
+    legs,
   });
 
   await client.query(PAYMENT_SETTLEMENT_INSERT_SQL, [

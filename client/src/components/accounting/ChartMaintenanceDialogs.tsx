@@ -45,6 +45,7 @@ export const POSTING_ROLE_OPTIONS = [
   'BANK',
   'INVENTORY',
   'SALES',
+  'SALES_RETURNS',
   'COGS',
   'TAX_OUTPUT',
   'TAX_INPUT',

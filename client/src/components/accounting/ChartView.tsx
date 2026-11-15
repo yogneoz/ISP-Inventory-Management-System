@@ -335,6 +335,14 @@ export const ChartView: React.FC<{
             <td className="px-2.5 py-1.5 font-bold" style={{ paddingLeft: 8 + (depth + 1) * 16 }}>
               <span className="inline-flex flex-wrap items-center gap-1.5">
                 {account.name}
+                {account.statutoryReference && (
+                  <span
+                    className="rounded-full bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                    title="Statutory reference"
+                  >
+                    {account.statutoryReference}
+                  </span>
+                )}
                 {hasAdvancedProfile(account) && (
                   <span
                     className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700 dark:bg-amber-950/60 dark:text-amber-300"
@@ -344,6 +352,11 @@ export const ChartView: React.FC<{
                   </span>
                 )}
               </span>
+              {account.description && (
+                <p className="mt-0.5 max-w-xl text-[11px] font-normal leading-snug text-slate-500 dark:text-slate-400">
+                  {account.description}
+                </p>
+              )}
             </td>
             <td className="px-2.5 py-1.5 text-slate-500 dark:text-slate-400">{account.accountType}</td>
             <td className="px-2.5 py-1.5">

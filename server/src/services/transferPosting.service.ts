@@ -24,9 +24,9 @@ import {
   INTER_BRANCH_ACCOUNTS_SQL,
 } from '../models/accounting.repo';
 import {
-  postJournal,
+  postJournalLegs,
   type AccountingClient,
-  type JournalLineInput,
+  type JournalLeg,
 } from './accounting.service';
 import { reverseSourceJournal } from './invoicePosting.service';
 import { SHIPMENT_ISSUE_COST_SQL } from '../models/shipments.repo';
@@ -37,6 +37,8 @@ interface PostingAccount {
   name: string;
   accountType: string;
   postingRole: string | null;
+  /** `D` or `C`: the permanent side the leg engine posts against. */
+  accountNormalBalance: string;
 }
 
 export interface TransferValueLine {
@@ -162,27 +164,32 @@ export async function postTransferDispatchJournal(
 
   const accounts = await loadTransferAccounts(client);
   const memo = `Inter-branch transfer ${input.shipmentId} dispatched to ${input.destinationBranchName || input.destinationBranchId}`;
-  const lines: JournalLineInput[] = [
+  const legs: JournalLeg[] = [
     {
       accountId: accounts.dueFrom.id,
-      debit: value,
-      credit: 0,
+      increase: true,
+      amount: value,
       memo: `${memo} — due from head office`,
       subledgerType: 'INTER_BRANCH',
       partyId: input.destinationBranchId,
       partyName: input.destinationBranchName || input.destinationBranchId,
     },
-    { accountId: accounts.inventory.id, debit: 0, credit: value, memo: `${memo} — inventory released` },
+    {
+      accountId: accounts.inventory.id,
+      increase: false,
+      amount: value,
+      memo: `${memo} — inventory released`,
+    },
   ];
 
-  return postJournal(client, {
+  return postJournalLegs(client, {
     journalDateAD: input.dateAD,
     branchId: input.sourceBranchId,
     memo,
     sourceType: 'TRANSFER_OUT',
     sourceId: input.shipmentId,
     actor: input.actor || null,
-    lines,
+    legs,
   });
 }
 
@@ -200,12 +207,17 @@ export async function postTransferReceiptJournal(
 
   const accounts = await loadTransferAccounts(client);
   const memo = `Inter-branch transfer ${input.shipmentId} received from ${input.sourceBranchName || input.sourceBranchId}`;
-  const lines: JournalLineInput[] = [
-    { accountId: accounts.inventory.id, debit: value, credit: 0, memo: `${memo} — inventory received` },
+  const legs: JournalLeg[] = [
+    {
+      accountId: accounts.inventory.id,
+      increase: true,
+      amount: value,
+      memo: `${memo} — inventory received`,
+    },
     {
       accountId: accounts.dueTo.id,
-      debit: 0,
-      credit: value,
+      increase: true,
+      amount: value,
       memo: `${memo} — due to head office`,
       subledgerType: 'INTER_BRANCH',
       partyId: input.sourceBranchId,
@@ -213,14 +225,14 @@ export async function postTransferReceiptJournal(
     },
   ];
 
-  return postJournal(client, {
+  return postJournalLegs(client, {
     journalDateAD: input.dateAD,
     branchId: input.destinationBranchId,
     memo,
     sourceType: 'TRANSFER_IN',
     sourceId: input.shipmentId,
     actor: input.actor || null,
-    lines,
+    legs,
   });
 }
 

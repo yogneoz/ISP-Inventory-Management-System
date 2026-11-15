@@ -71,7 +71,7 @@ describe('verification dataset', () => {
     assert.equal(payrollCredit, 167_000, 'demo payroll journal must balance');
     // The salary expense leg must carry its cost centre or the branch's
     // department preview reports payroll as untagged actuals.
-    const payrollSalary = modules.hr.journalLines.find((line: any) => line.account_id === 'gla-6400');
+    const payrollSalary = modules.hr.journalLines.find((line: any) => line.account_id === 'gla-7110');
     assert.equal(payrollSalary?.cost_center_id, 'cc-demo-ops', 'the payroll salary line must stay tagged');
     assert.equal(
       modules.hr.journalLines.filter((line: any) => line.debit > 0 && !line.cost_center_id).length,
@@ -173,21 +173,21 @@ describe('verification dataset', () => {
         .filter((line) => line.accountCode === code)
         .reduce((sum, line) => sum + (line.debit || 0) - (line.credit || 0), 0);
 
-    assert.equal(balance('1100'), TARGETS.accountsReceivable);
-    assert.equal(-balance('2100'), TARGETS.accountsPayable);
-    assert.equal(balance('1200'), TARGETS.inventory);
-    assert.equal(balance('1010') + balance('1020'), TARGETS.cashAndBank);
+    assert.equal(balance('2110'), TARGETS.accountsReceivable);
+    assert.equal(-balance('5010'), TARGETS.accountsPayable);
+    assert.equal(balance('2030'), TARGETS.inventory);
+    assert.equal(balance('2310') + balance('2320'), TARGETS.cashAndBank);
     assert.equal(-balance('3010'), TARGETS.equity);
-    assert.equal(balance('1520'), TARGETS.fixedAssets);
-    assert.equal(balance('1400'), TARGETS.prepaid);
+    assert.equal(balance('1000'), TARGETS.fixedAssets);
+    assert.equal(balance('2150'), TARGETS.prepaid);
 
     // Assets = liabilities + equity + current-year result.
     const assets =
-      balance('1100') + balance('1200') + balance('1010') + balance('1020') + balance('1400') +
-      balance('1520') + balance('1620');
-    const liabilities = -balance('2100');
+      balance('2110') + balance('2030') + balance('2310') + balance('2320') + balance('2150') +
+      balance('1000') + balance('2140');
+    const liabilities = -balance('5010');
     const equity = -balance('3010');
-    const result = -(balance('4000') + balance('4020') + balance('5000') + balance('6100') + balance('6400'));
+    const result = -(balance('6010') + balance('6030') + balance('7000') + balance('7300') + balance('7110'));
     assert.equal(assets, liabilities + equity + result, 'the balance sheet must balance');
   });
 

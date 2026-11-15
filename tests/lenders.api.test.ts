@@ -223,8 +223,8 @@ describe('lender master, loan register and statement API (real HTTP + PostgreSQL
       address: 'Kathmandu',
       notes: 'LENDER TEST',
       defaultCashAccountId: cashAccountId,
-      defaultInterestAccountId: 'gla-6700',
-      defaultTdsAccountId: 'gla-2360',
+      defaultInterestAccountId: 'gla-7410',
+      defaultTdsAccountId: 'gla-5230',
       defaultLoanAccountId: loanAccountId,
     });
     assert.equal(created.status, 201, JSON.stringify(created.json));
@@ -233,8 +233,8 @@ describe('lender master, loan register and statement API (real HTTP + PostgreSQL
     assert.equal(created.json.lenderType, 'OWNER');
     assert.equal(created.json.registrationNumber, 'REG-LNT-1');
     assert.equal(created.json.defaultCashAccountId, cashAccountId);
-    assert.equal(created.json.defaultInterestAccountId, 'gla-6700');
-    assert.equal(created.json.defaultTdsAccountId, 'gla-2360');
+    assert.equal(created.json.defaultInterestAccountId, 'gla-7410');
+    assert.equal(created.json.defaultTdsAccountId, 'gla-5230');
     assert.equal(created.json.defaultLoanAccountId, loanAccountId);
     assert.ok(created.json.bookId, 'creating a lender must create its LENDER party book');
     assert.match(created.json.bookCode, /^LEN-/);
@@ -391,7 +391,7 @@ describe('lender master, loan register and statement API (real HTTP + PostgreSQL
     assert.equal(statement.status, 200, JSON.stringify(statement.json));
     assert.equal(statement.json.lender.code, LENDER_CODE);
     assert.ok(statement.json.book?.id, 'the statement must name the lender book');
-    assert.equal(statement.json.control?.accountCode, '2350');
+    assert.equal(statement.json.control?.accountCode, '4010');
     assert.equal(statement.json.openingBalance, 0);
     assert.equal(statement.json.totals.debit, 0);
     assert.equal(statement.json.totals.credit, 500);
@@ -459,8 +459,8 @@ describe('lender master, loan register and statement API (real HTTP + PostgreSQL
     const accrualLines = new Map(
       accrualJournal.rows.map((row) => [row.account_id, { debit: Number(row.debit), credit: Number(row.credit) }])
     );
-    assert.deepEqual(accrualLines.get('gla-6700'), { debit: 1.27, credit: 0 });
-    assert.deepEqual(accrualLines.get('gla-2370'), { debit: 0, credit: 1.27 });
+    assert.deepEqual(accrualLines.get('gla-7410'), { debit: 1.27, credit: 0 });
+    assert.deepEqual(accrualLines.get('gla-5020'), { debit: 0, credit: 1.27 });
   });
 
   test('repays principal, interest and TDS through the posting path and closes on full repayment', async () => {
@@ -493,8 +493,8 @@ describe('lender master, loan register and statement API (real HTTP + PostgreSQL
     assert.equal(repayment.json.transaction.interestAmount, 20);
     assert.equal(repayment.json.transaction.tdsAmount, 3);
     assert.equal(repayment.json.transaction.cashAmount, 217);
-    assert.equal(repayment.json.transaction.interestAccountId, 'gla-6700');
-    assert.equal(repayment.json.transaction.tdsAccountId, 'gla-2360');
+    assert.equal(repayment.json.transaction.interestAccountId, 'gla-7410');
+    assert.equal(repayment.json.transaction.tdsAccountId, 'gla-5230');
     assert.equal(repayment.json.transaction.interestPayableApplied, 1.27);
     assert.match(repayment.json.transaction.txnNumber, /^LP-/);
     assert.equal(repayment.json.loan.fundedPrincipal, 500);
@@ -517,9 +517,9 @@ describe('lender master, loan register and statement API (real HTTP + PostgreSQL
       journalLines.rows.map((row) => [row.account_id, { debit: Number(row.debit), credit: Number(row.credit) }])
     );
     assert.deepEqual(byAccount.get(loanAccountId), { debit: 200, credit: 0 });
-    assert.deepEqual(byAccount.get('gla-2370'), { debit: 1.27, credit: 0 });
-    assert.deepEqual(byAccount.get('gla-6700'), { debit: 18.73, credit: 0 });
-    assert.deepEqual(byAccount.get('gla-2360'), { debit: 0, credit: 3 });
+    assert.deepEqual(byAccount.get('gla-5020'), { debit: 1.27, credit: 0 });
+    assert.deepEqual(byAccount.get('gla-7410'), { debit: 18.73, credit: 0 });
+    assert.deepEqual(byAccount.get('gla-5230'), { debit: 0, credit: 3 });
     assert.deepEqual(byAccount.get(cashAccountId), { debit: 0, credit: 217 });
 
     const finalStatement = await get(
@@ -766,7 +766,7 @@ describe('lender master, loan register and statement API (real HTTP + PostgreSQL
     );
     assert.equal(exemptLines.rowCount, 3, 'a zero-TDS repayment must not create a TDS line');
     assert.equal(
-      exemptLines.rows.some((row) => row.account_id === 'gla-2360'),
+      exemptLines.rows.some((row) => row.account_id === 'gla-5230'),
       false,
       'no TDS payable line may be posted'
     );

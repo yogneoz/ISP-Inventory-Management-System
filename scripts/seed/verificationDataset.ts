@@ -90,9 +90,9 @@ export const COST_CENTERS = [
  * represents genuinely unclassified spend.
  */
 export const COST_CENTER_BY_EXPENSE_ACCOUNT: Record<string, string> = {
-  '5000': 'cc-demo-ops',
-  '6100': 'cc-demo-fin',
-  '6400': 'cc-demo-ops',
+  '7000': 'cc-demo-ops',
+  '7300': 'cc-demo-fin',
+  '7110': 'cc-demo-ops',
 };
 
 /** The two fiscal years the brief asks for; 2083-84 is the current one today. */
@@ -219,25 +219,28 @@ const BILL_TERMS = [
   { id: 'bt-due', code: 'DUE', name: 'Due on receipt', dueDays: 0, discountDays: null, discountPercent: null },
 ];
 
-/** The chart the ledger posts to: the app's default chart plus two accounts the
- *  verification brief needs (share capital and prepaid & deposits). The server's
- *  ensureDefaultChart() is idempotent by code, so it fills any defaults this
- *  list does not name without duplicating these. */
+/** The chart the ledger posts to: the NFRS default chart plus the extra custody
+ *  ledgers the verification brief needs. Every statutory account (prepaid,
+ *  share capital, service revenue …) already comes from the default chart, so
+ *  only the demo's second/third banks and its branch tills are added here. The
+ *  server's ensureDefaultChart() is idempotent by code, so it fills any
+ *  defaults this list does not name without duplicating these.
+ *
+ *  Their codes sit next to their NFRS neighbours (2311… for cash, 2321… for
+ *  bank) inside the current-asset bucket, so a chart sorted by code still reads
+ *  as one coherent statement. */
 export const EXTRA_CHART_ACCOUNTS = [
-  { code: '1400', name: 'Prepaid & Deposits', groupCode: '1000', description: 'Rent deposits and prepaid expenses.', isControl: false, subledgerType: 'NONE', postingRole: null },
-  { code: '3010', name: 'Share Capital', groupCode: '3000', description: 'Capital introduced by the owners.', isControl: false, subledgerType: 'NONE', postingRole: null },
-  { code: '4020', name: 'Service Revenue', groupCode: '4000', description: 'Internet subscription and service-plan revenue.', isControl: false, subledgerType: 'NONE', postingRole: null },
-  // Demo custody: one shared operating bank (1020) plus three more banks, and
+  // Demo custody: one shared operating bank (2320) plus three more banks, and
   // a till owned by each branch. They deliberately have no posting role, so
   // the posting defaults stay unambiguous while the custody screens have a
   // realistic set of accounts.
-  { code: '1021', name: 'Nabil Bank — Operations', groupCode: '1000', description: 'Operations current account at Nabil Bank.', isControl: false, subledgerType: 'NONE', postingRole: null, accountKind: 'BANK', bankName: 'Nabil Bank' },
-  { code: '1022', name: 'NIC Asia — Collections', groupCode: '1000', description: 'Customer collections account at NIC Asia.', isControl: false, subledgerType: 'NONE', postingRole: null, accountKind: 'BANK', bankName: 'NIC Asia' },
-  { code: '1023', name: 'Rastriya Banijya — Payroll', groupCode: '1000', description: 'Payroll disbursement account at Rastriya Banijya Bank.', isControl: false, subledgerType: 'NONE', postingRole: null, accountKind: 'BANK', bankName: 'Rastriya Banijya Bank' },
-  { code: '1011', name: 'Kathmandu Till', groupCode: '1000', description: 'Kathmandu branch cash till.', isControl: false, subledgerType: 'NONE', postingRole: null, accountKind: 'CASH', branchId: 'BR-KTM' },
-  { code: '1012', name: 'Pokhara Till', groupCode: '1000', description: 'Pokhara branch cash till.', isControl: false, subledgerType: 'NONE', postingRole: null, accountKind: 'CASH', branchId: 'BR-PKR' },
-  { code: '1013', name: 'Butwal Till', groupCode: '1000', description: 'Butwal branch cash till.', isControl: false, subledgerType: 'NONE', postingRole: null, accountKind: 'CASH', branchId: 'BR-BTL' },
-  { code: '1014', name: 'Dharan Till', groupCode: '1000', description: 'Dharan branch cash till.', isControl: false, subledgerType: 'NONE', postingRole: null, accountKind: 'CASH', branchId: 'BR-DHN' },
+  { code: '2321', name: 'Nabil Bank — Operations', groupCode: '2000', statutoryReference: 'Internal — demo custody ledger (NAS 7)', description: 'Operations current account at Nabil Bank.', isControl: false, subledgerType: 'NONE', postingRole: null, accountKind: 'BANK', bankName: 'Nabil Bank' },
+  { code: '2322', name: 'NIC Asia — Collections', groupCode: '2000', statutoryReference: 'Internal — demo custody ledger (NAS 7)', description: 'Customer collections account at NIC Asia.', isControl: false, subledgerType: 'NONE', postingRole: null, accountKind: 'BANK', bankName: 'NIC Asia' },
+  { code: '2323', name: 'Rastriya Banijya — Payroll', groupCode: '2000', statutoryReference: 'Internal — demo custody ledger (NAS 7)', description: 'Payroll disbursement account at Rastriya Banijya Bank.', isControl: false, subledgerType: 'NONE', postingRole: null, accountKind: 'BANK', bankName: 'Rastriya Banijya Bank' },
+  { code: '2311', name: 'Kathmandu Till', groupCode: '2000', statutoryReference: 'Internal — demo custody ledger (NAS 7)', description: 'Kathmandu branch cash till.', isControl: false, subledgerType: 'NONE', postingRole: null, accountKind: 'CASH', branchId: 'BR-KTM' },
+  { code: '2312', name: 'Pokhara Till', groupCode: '2000', statutoryReference: 'Internal — demo custody ledger (NAS 7)', description: 'Pokhara branch cash till.', isControl: false, subledgerType: 'NONE', postingRole: null, accountKind: 'CASH', branchId: 'BR-PKR' },
+  { code: '2313', name: 'Butwal Till', groupCode: '2000', statutoryReference: 'Internal — demo custody ledger (NAS 7)', description: 'Butwal branch cash till.', isControl: false, subledgerType: 'NONE', postingRole: null, accountKind: 'CASH', branchId: 'BR-BTL' },
+  { code: '2314', name: 'Dharan Till', groupCode: '2000', statutoryReference: 'Internal — demo custody ledger (NAS 7)', description: 'Dharan branch cash till.', isControl: false, subledgerType: 'NONE', postingRole: null, accountKind: 'CASH', branchId: 'BR-DHN' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -267,10 +270,10 @@ const VENDOR_PAYMENTS = [
   { date: '2026-03-05', amount: 1750 },
 ];
 const EXPENSES = [
-  { date: '2025-08-31', account: '6100', memo: 'Office rent — Bhadra 2082', amount: 1200 },
-  { date: '2026-01-31', account: '6400', memo: 'Staff salary — Magh 2082', amount: 3600 },
-  { date: '2026-09-30', account: '6100', memo: 'Office rent — Bhadra 2083', amount: 1200 },
-  { date: '2026-10-31', account: '6400', memo: 'Staff salary — Kartik 2083', amount: 3600 },
+  { date: '2025-08-31', account: '7300', memo: 'Office rent — Bhadra 2082', amount: 1200 },
+  { date: '2026-01-31', account: '7110', memo: 'Staff salary — Magh 2082', amount: 3600 },
+  { date: '2026-09-30', account: '7300', memo: 'Office rent — Bhadra 2083', amount: 1200 },
+  { date: '2026-10-31', account: '7110', memo: 'Staff salary — Kartik 2083', amount: 3600 },
 ];
 const UNIT_FIXED_ASSETS = [
   { suffix: 'OFFICE', name: 'Office Furniture & Equipment', cost: 4000, category: 'Furniture' },
@@ -947,9 +950,9 @@ export function buildVerificationDataset(): VerificationDataset {
       sourceId: null,
       memo: 'Opening balance — Shrawan 1, 2082',
       lines: [
-        { code: '1010', debit: 5250, memo: 'Opening cash' },
-        { code: '1400', debit: 1250, memo: 'Office rent deposit' },
-        { code: '1520', debit: 6000, memo: 'Office furniture and air conditioner' },
+        { code: '2310', debit: 5250, memo: 'Opening cash' },
+        { code: '2150', debit: 1250, memo: 'Office rent deposit' },
+        { code: '1000', debit: 6000, memo: 'Office furniture and air conditioner' },
         { code: '3010', credit: 12500, memo: 'Capital introduced' },
       ],
     });
@@ -962,15 +965,15 @@ export function buildVerificationDataset(): VerificationDataset {
         sourceId: invoice.id,
         memo: `Purchase bill ${invoice.invoiceNumber} — ${invoice.supplierName}`,
         lines: [
-          { code: '1200', debit: invoice.grandTotal, memo: 'Stock received' },
-          { code: '2100', credit: invoice.grandTotal, memo: 'Vendor payable', partyId: invoice.supplierId, partyName: invoice.supplierName },
+          { code: '2030', debit: invoice.grandTotal, memo: 'Stock received' },
+          { code: '5010', credit: invoice.grandTotal, memo: 'Vendor payable', partyId: invoice.supplierId, partyName: invoice.supplierName },
         ],
       });
     });
 
     salesInvoices.filter((inv) => inv.branchId === branch.id).forEach((invoice) => {
       const isService = invoice.items.every((item: any) => SERVICE_PRODUCTS.some((p) => p.id === item.productId));
-      const revenueCode = isService ? '4020' : '4000';
+      const revenueCode = isService ? '6030' : '6010';
       post({
         branchId: branch.id,
         date: invoice.invoiceDateAD,
@@ -978,7 +981,7 @@ export function buildVerificationDataset(): VerificationDataset {
         sourceId: invoice.id,
         memo: `Sales invoice ${invoice.invoiceNumber} — ${invoice.customerName}`,
         lines: [
-          { code: '1100', debit: invoice.grandTotal, memo: 'Customer receivable', partyId: invoice.customerId, partyName: invoice.customerName },
+          { code: '2110', debit: invoice.grandTotal, memo: 'Customer receivable', partyId: invoice.customerId, partyName: invoice.customerName },
           { code: revenueCode, credit: invoice.grandTotal, memo: isService ? 'Service revenue' : 'Hardware revenue' },
         ],
       });
@@ -991,8 +994,8 @@ export function buildVerificationDataset(): VerificationDataset {
           sourceId: invoice.id,
           memo: `Cost of goods sold — ${invoice.invoiceNumber}`,
           lines: [
-            { code: '5000', debit: cogs, memo: 'Cost of goods sold' },
-            { code: '1200', credit: cogs, memo: 'Stock issued' },
+            { code: '7000', debit: cogs, memo: 'Cost of goods sold' },
+            { code: '2030', credit: cogs, memo: 'Stock issued' },
           ],
         });
       }
@@ -1006,8 +1009,8 @@ export function buildVerificationDataset(): VerificationDataset {
         sourceId: payment.id,
         memo: `Customer receipt ${payment.paymentNumber}`,
         lines: [
-          { code: '1020', debit: payment.amount, memo: 'Bank deposit' },
-          { code: '1100', credit: payment.amount, memo: 'Receivable settled', partyId: payment.customerId, partyName: payment.customerName },
+          { code: '2320', debit: payment.amount, memo: 'Bank deposit' },
+          { code: '2110', credit: payment.amount, memo: 'Receivable settled', partyId: payment.customerId, partyName: payment.customerName },
         ],
       });
     });
@@ -1020,8 +1023,8 @@ export function buildVerificationDataset(): VerificationDataset {
         sourceId: payment.id,
         memo: `Vendor payment ${payment.paymentNumber}`,
         lines: [
-          { code: '2100', debit: payment.amount, memo: 'Payable settled', partyId: payment.supplierId, partyName: payment.supplierName },
-          { code: '1020', credit: payment.amount, memo: 'Bank payment' },
+          { code: '5010', debit: payment.amount, memo: 'Payable settled', partyId: payment.supplierId, partyName: payment.supplierName },
+          { code: '2320', credit: payment.amount, memo: 'Bank payment' },
         ],
       });
     });
@@ -1035,7 +1038,7 @@ export function buildVerificationDataset(): VerificationDataset {
         memo: expense.memo,
         lines: [
           { code: expense.account, debit: expense.amount, memo: expense.memo },
-          { code: '1020', credit: expense.amount, memo: 'Paid from bank' },
+          { code: '2320', credit: expense.amount, memo: 'Paid from bank' },
         ],
       });
     });
@@ -1056,8 +1059,8 @@ export function buildVerificationDataset(): VerificationDataset {
         id: 'demo-settlement-esewa-1',
         settlementNumber: 'PSP-ESEWA-2083-0001',
         customerPaymentId: settledPayment.id,
-        walletAccountId: 'gla-1030',
-        bankAccountId: 'gla-1020',
+        walletAccountId: 'gla-9030',
+        bankAccountId: 'gla-2320',
         settlementDateAD: settledPayment.paymentDateAD,
         settlementDateBS: settledPayment.paymentDateBS,
         grossAmount: settledPayment.amount,
@@ -1082,8 +1085,8 @@ export function buildVerificationDataset(): VerificationDataset {
     sourceId: 'demo-health-difference',
     memo: 'Demo control-account difference — employee advance without a party row',
     lines: [
-      { code: '1620', debit: 100, memo: 'Employee advance (no party detail)' },
-      { code: '6100', credit: 100, memo: 'Previously expensed advance reclassified' },
+      { code: '2140', debit: 100, memo: 'Employee advance (no party detail)' },
+      { code: '7300', credit: 100, memo: 'Previously expensed advance reclassified' },
     ],
   });
 
@@ -1197,13 +1200,13 @@ export function checkDatasetInvariants(dataset: VerificationDataset): string[] {
       .filter((line) => line.accountCode === code)
       .reduce((sum, line) => sum + (line.debit || 0) - (line.credit || 0), 0);
   const actual = {
-    accountsReceivable: balance('1100'),
-    accountsPayable: -balance('2100'),
-    inventory: balance('1200'),
-    cashAndBank: balance('1010') + balance('1020'),
+    accountsReceivable: balance('2110'),
+    accountsPayable: -balance('5010'),
+    inventory: balance('2030'),
+    cashAndBank: balance('2310') + balance('2320'),
     equity: -balance('3010'),
-    fixedAssets: balance('1520'),
-    prepaid: balance('1400'),
+    fixedAssets: balance('1000'),
+    prepaid: balance('2150'),
   };
   const expected: Record<string, number> = {
     accountsReceivable: TARGETS.accountsReceivable,

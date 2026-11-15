@@ -338,8 +338,8 @@ describe('payment documents and the cash/bank book (real HTTP + PostgreSQL)', { 
     assert.equal(journal.branchId, BR);
 
     const lines = await journalLines(journal.id);
-    assert.equal(lines.find((line) => line.code === '1010')?.debit, 339, 'cash is debited');
-    assert.equal(lines.find((line) => line.code === '1100')?.credit, 339, 'AR control is credited');
+    assert.equal(lines.find((line) => line.code === '2310')?.debit, 339, 'cash is debited');
+    assert.equal(lines.find((line) => line.code === '2110')?.credit, 339, 'AR control is credited');
 
     const subledger = await subledgerRows(journal.id);
     assert.equal(subledger.length, 1);
@@ -389,8 +389,8 @@ describe('payment documents and the cash/bank book (real HTTP + PostgreSQL)', { 
     assert.equal(journal.branchId, BR);
 
     const lines = await journalLines(journal.id);
-    assert.equal(lines.find((line) => line.code === '2100')?.debit, 217, 'AP control is debited');
-    assert.equal(lines.find((line) => line.code === '1020')?.credit, 217, 'the bank is credited');
+    assert.equal(lines.find((line) => line.code === '5010')?.debit, 217, 'AP control is debited');
+    assert.equal(lines.find((line) => line.code === '2320')?.credit, 217, 'the bank is credited');
 
     const subledger = await subledgerRows(journal.id);
     assert.equal(subledger.length, 1);
@@ -430,8 +430,8 @@ describe('payment documents and the cash/bank book (real HTTP + PostgreSQL)', { 
     assert.equal(book.json.payments, 217);
     assert.equal(book.json.closing, 222);
 
-    const cash = book.json.accounts.find((account: any) => account.code === '1010');
-    const bank = book.json.accounts.find((account: any) => account.code === '1020');
+    const cash = book.json.accounts.find((account: any) => account.code === '2310');
+    const bank = book.json.accounts.find((account: any) => account.code === '2320');
     assert.equal(cash.opening, 100);
     assert.equal(cash.receipts, 339);
     assert.equal(cash.payments, 0);
@@ -460,15 +460,15 @@ describe('payment documents and the cash/bank book (real HTTP + PostgreSQL)', { 
     assert.equal(trial.json.balanced, true);
     assert.equal(trial.json.controlsReconciled, true);
 
-    const cashRow = trial.json.accounts.find((account: any) => account.code === '1010');
+    const cashRow = trial.json.accounts.find((account: any) => account.code === '2310');
     assert.equal(cashRow.openingDebit, 100);
     assert.equal(cashRow.periodDebit, 339);
     assert.equal(cashRow.closingDebit, 439);
-    const bankRow = trial.json.accounts.find((account: any) => account.code === '1020');
+    const bankRow = trial.json.accounts.find((account: any) => account.code === '2320');
     assert.equal(bankRow.periodCredit, 217);
     assert.equal(bankRow.closingCredit, 217);
-    assert.equal(trial.json.accounts.find((account: any) => account.code === '1100').closingBalance, 0);
-    assert.equal(trial.json.accounts.find((account: any) => account.code === '2100').closingCredit, 913);
+    assert.equal(trial.json.accounts.find((account: any) => account.code === '2110').closingBalance, 0);
+    assert.equal(trial.json.accounts.find((account: any) => account.code === '5010').closingCredit, 913);
 
     const defaulted = await get(`/api/accounting/cash-book?asOf=${today}&branchId=${BR}`);
     assert.equal(defaulted.status, 200, JSON.stringify(defaulted.json));
@@ -497,8 +497,8 @@ describe('payment documents and the cash/bank book (real HTTP + PostgreSQL)', { 
     assert.ok(receiptContra, 'the receipt reversal must post a contra journal');
     assert.equal(receiptContra.reversalOfId, originalReceipt.id);
     const receiptLines = await journalLines(receiptContra.id);
-    assert.equal(receiptLines.find((line) => line.code === '1010')?.credit, 339);
-    assert.equal(receiptLines.find((line) => line.code === '1100')?.debit, 339);
+    assert.equal(receiptLines.find((line) => line.code === '2310')?.credit, 339);
+    assert.equal(receiptLines.find((line) => line.code === '2110')?.debit, 339);
     const receiptSubledger = await subledgerRows(receiptContra.id);
     assert.equal(receiptSubledger[0].subledgerType, 'CUSTOMER');
     assert.equal(receiptSubledger[0].partyId, CUSTOMER);
@@ -510,8 +510,8 @@ describe('payment documents and the cash/bank book (real HTTP + PostgreSQL)', { 
     assert.ok(paymentContra, 'the vendor reversal must post a contra journal');
     assert.equal(paymentContra.reversalOfId, originalPayment.id);
     const paymentLines = await journalLines(paymentContra.id);
-    assert.equal(paymentLines.find((line) => line.code === '2100')?.credit, 217);
-    assert.equal(paymentLines.find((line) => line.code === '1020')?.debit, 217);
+    assert.equal(paymentLines.find((line) => line.code === '5010')?.credit, 217);
+    assert.equal(paymentLines.find((line) => line.code === '2320')?.debit, 217);
     const paymentSubledger = await subledgerRows(paymentContra.id);
     assert.equal(paymentSubledger[0].subledgerType, 'SUPPLIER');
     assert.equal(paymentSubledger[0].credit, 217);
@@ -545,8 +545,8 @@ describe('payment documents and the cash/bank book (real HTTP + PostgreSQL)', { 
     assert.equal(book.json.receipts, 556, 'the receipt and the bank-side contra are both receipts');
     assert.equal(book.json.payments, 556);
     assert.equal(book.json.closing, 100, 'only the opening cash remains');
-    assert.equal(book.json.accounts.find((account: any) => account.code === '1010').closing, 100);
-    assert.equal(book.json.accounts.find((account: any) => account.code === '1020').closing, 0);
+    assert.equal(book.json.accounts.find((account: any) => account.code === '2310').closing, 100);
+    assert.equal(book.json.accounts.find((account: any) => account.code === '2320').closing, 0);
 
     const sheet = await get(`/api/accounting/statements/balance-sheet?asOf=${today}&branchId=${BR}`);
     assert.equal(sheet.status, 200, JSON.stringify(sheet.json));
@@ -721,7 +721,7 @@ describe('payment documents and the cash/bank book (real HTTP + PostgreSQL)', { 
   test('a payment can settle through a non-default cash ledger', async () => {
     const chart = await get('/api/accounting/accounts');
     assert.equal(chart.status, 200, JSON.stringify(chart.json));
-    const defaultCash = chart.json.find((account: any) => account.code === '1010');
+    const defaultCash = chart.json.find((account: any) => account.code === '2310');
     assert.ok(defaultCash, 'the seeded cash ledger is required');
 
     const extra = await post('/api/accounting/accounts', {
@@ -751,8 +751,8 @@ describe('payment documents and the cash/bank book (real HTTP + PostgreSQL)', { 
     assert.ok(journal, 'the selected till must still post a journal');
     const lines = await journalLines(journal.id);
     assert.equal(lines.find((line) => line.code === 'PCB-1021')?.debit, 25, 'the chosen till is debited');
-    assert.equal(lines.find((line) => line.code === '1010')?.debit, undefined, 'the default till is untouched');
-    assert.equal(lines.find((line) => line.code === '1100')?.credit, 25, 'AR control is still credited');
+    assert.equal(lines.find((line) => line.code === '2310')?.debit, undefined, 'the default till is untouched');
+    assert.equal(lines.find((line) => line.code === '2110')?.credit, 25, 'AR control is still credited');
 
     const stored = await pool!.query(
       'SELECT settlement_account_id AS "settlementAccountId" FROM customer_payments WHERE id = $1',
@@ -767,7 +767,7 @@ describe('payment documents and the cash/bank book (real HTTP + PostgreSQL)', { 
     assert.equal(extraBook.opening, 0);
     assert.equal(extraBook.receipts, 25);
     assert.equal(extraBook.closing, 25);
-    assert.equal(book.json.accounts.find((account: any) => account.code === '1010').closing, 130, 'the unapplied advance remains in the till');
+    assert.equal(book.json.accounts.find((account: any) => account.code === '2310').closing, 130, 'the unapplied advance remains in the till');
     assert.equal(book.json.closing, 155, 'the book total includes the extra till');
 
     const wrongKind = await post('/api/customer-payments', {

@@ -26,6 +26,7 @@ import {
   DEFAULT_CHART_ACCOUNTS,
   DEFAULT_CHART_GROUPS,
   DEFAULT_CHART_SUBLEDGERS,
+  defaultAccountSide,
 } from '../config/defaultChart';
 
 /**
@@ -80,6 +81,8 @@ export async function ensureDefaultChart(
         postingRole: account.postingRole,
         accountKind: account.accountKind,
         providerCode: account.providerCode,
+        normalBalance: defaultAccountSide(account),
+        statutoryReference: account.statutoryReference,
         groupCode: account.groupCode,
       })
     );

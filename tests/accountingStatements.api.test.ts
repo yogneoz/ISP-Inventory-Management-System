@@ -359,12 +359,12 @@ describe('financial statements API (real HTTP + PostgreSQL)', { skip: skipNoDb }
     assert.equal(accountOf(res.json.accounts, 'AST-1610').closingDebit, 500);
     assert.equal(accountOf(res.json.accounts, 'AST-2310').closingCredit, 500);
     assert.equal(accountOf(res.json.accounts, 'AST-2000').closingCredit, 200);
-    assert.equal(accountOf(res.json.accounts, '1010').closingCredit, 500, 'cash was paid out');
-    assert.equal(accountOf(res.json.accounts, '1100').closingDebit, 339, 'the invoice AR');
-    assert.equal(accountOf(res.json.accounts, '4000').closingCredit, 300, 'invoice revenue');
-    assert.equal(accountOf(res.json.accounts, '2200').closingCredit, 39, 'invoice output VAT');
-    assert.equal(accountOf(res.json.accounts, '5000').closingDebit, 180, 'invoice COGS');
-    assert.equal(accountOf(res.json.accounts, '1200').closingCredit, 180, 'inventory relieved as a credit');
+    assert.equal(accountOf(res.json.accounts, '2310').closingCredit, 500, 'cash was paid out');
+    assert.equal(accountOf(res.json.accounts, '2110').closingDebit, 339, 'the invoice AR');
+    assert.equal(accountOf(res.json.accounts, '6010').closingCredit, 300, 'invoice revenue');
+    assert.equal(accountOf(res.json.accounts, '5210').closingCredit, 39, 'invoice output VAT');
+    assert.equal(accountOf(res.json.accounts, '7000').closingDebit, 180, 'invoice COGS');
+    assert.equal(accountOf(res.json.accounts, '2030').closingCredit, 180, 'inventory relieved as a credit');
 
     const currentAssets = sectionOf(res.json.sections, 'CURRENT_ASSET');
     assert.ok(currentAssets, 'the trial balance must be presented by statement group');
@@ -381,7 +381,7 @@ describe('financial statements API (real HTTP + PostgreSQL)', { skip: skipNoDb }
     assert.equal(controlOf(res.json.controls, 'AST-1100').glBalance, 1130);
     assert.equal(controlOf(res.json.controls, 'AST-2000').subledgerBalance, -200);
     assert.equal(controlOf(res.json.controls, 'AST-2310').glBalance, -500, 'signed debit-positive');
-    assert.equal(controlOf(res.json.controls, '1100').glBalance, 339, 'the invoice control account');
+    assert.equal(controlOf(res.json.controls, '2110').glBalance, 339, 'the invoice control account');
   });
 
   test('an explicit from date splits opening from turnover', async () => {
@@ -402,7 +402,7 @@ describe('financial statements API (real HTTP + PostgreSQL)', { skip: skipNoDb }
     assert.equal(expense.periodDebit, 200, 'the supplier bill falls inside the window');
     assert.equal(expense.closingBalance, 700);
     assert.equal(accountOf(res.json.accounts, 'AST-1100').openingDebit, 1130);
-    assert.equal(accountOf(res.json.accounts, '1100').openingDebit, 0);
+    assert.equal(accountOf(res.json.accounts, '2110').openingDebit, 0);
   });
 
   test('a trial balance group drill-down splits opening from period and ties to the group subtotal', async () => {
@@ -725,7 +725,7 @@ describe('financial statements API (real HTTP + PostgreSQL)', { skip: skipNoDb }
     const revenue = sectionOf(res.json.sections, 'REVENUE');
     assert.equal(revenue.groups.length, 2, 'the manual journal and the invoice use different groups');
     assert.equal(revenue.groups.find((group: any) => group.groupCode === 'AST-RG').amount, 1130);
-    assert.equal(revenue.groups.find((group: any) => group.groupCode === '4000').amount, 300);
+    assert.equal(revenue.groups.find((group: any) => group.groupCode === '6000').amount, 300);
 
     const expenses = sectionOf(res.json.sections, 'OPERATING_EXPENSE');
     assert.equal(expenses.groups[0].groupCode, 'AST-EX');

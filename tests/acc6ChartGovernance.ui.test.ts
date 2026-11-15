@@ -38,14 +38,14 @@ const chartState: ChartState = {
   accounts: [
     {
       id: 'gla-1100', code: '1100', name: 'Accounts Receivable', groupId: 'glg-1110',
-      groupCode: '1110', groupName: 'Trade Receivables', description: null,
+      groupCode: '1110', groupName: 'Trade Receivables', description: null, statutoryReference: null,
       isControl: true, subledgerType: 'CUSTOMER', postingRole: 'AR_CONTROL',
       isActive: true, isDemo: false, accountType: 'ASSET',
       statementGroup: 'CURRENT_ASSET', normalBalance: 'DEBIT', branchId: null,
     },
     {
       id: 'gla-1010', code: '1010', name: 'Cash on Hand', groupId: 'glg-1000',
-      groupCode: '1000', groupName: 'Current Assets', description: null,
+      groupCode: '1000', groupName: 'Current Assets', description: null, statutoryReference: null,
       isControl: false, subledgerType: 'NONE', postingRole: 'CASH',
       isActive: true, isDemo: false, accountType: 'ASSET',
       statementGroup: 'CURRENT_ASSET', normalBalance: 'DEBIT', branchId: null,

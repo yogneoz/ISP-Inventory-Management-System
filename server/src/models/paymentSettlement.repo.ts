@@ -22,6 +22,7 @@ ORDER BY a.provider_code ASC, a.code ASC`;
 export const WALLET_ACCOUNT_BY_ID_SQL = `SELECT a.id AS "accountId",
   a.code,
   a.name,
+  a.normal_balance AS "accountNormalBalance",
   a.provider_code AS "providerCode",
   a.settlement_account_id AS "settlementAccountId",
   a.branch_id AS "branchId",

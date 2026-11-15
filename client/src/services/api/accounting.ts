@@ -31,7 +31,10 @@ export interface AccountingAccount {
   code: string;
   name: string;
   groupId: string;
+  /** Operator note: what belongs in the account and how it posts. */
   description: string | null;
+  /** The standard's own citation for the account, e.g. "NAS 16" or "NFRS 15". */
+  statutoryReference: string | null;
   /** Legacy GL-master metadata (short name, category, terms, currency). */
   masterProfile?: Record<string, unknown>;
   isControl: boolean;

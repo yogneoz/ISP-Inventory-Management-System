@@ -19,7 +19,7 @@ import { ApiError } from '../errors/ApiError';
 import { roundMoney } from '../utils/money';
 import { resolveBsDateForLedger } from '../utils/bsDate';
 import { normalizeWarrantySerial } from './warranty.service';
-import { postJournal } from './accounting.service';
+import { postJournalLegs, type JournalLeg } from './accounting.service';
 import {
   ACCOUNTS_BY_POSTING_ROLES_SQL,
   JOURNAL_FIND_BY_SOURCE_SQL,
@@ -423,30 +423,31 @@ async function postVendorCredit(
     throw new ApiError(400, 'Set the AP_CONTROL and STOCK_EXPENSE posting defaults before posting a warranty vendor credit.');
   }
   const partyName = claim.vendorName || 'Warranty vendor';
-  const journal = await postJournal(executor as any, {
+  const legs: JournalLeg[] = [
+    {
+      accountId: ap.id,
+      increase: false,
+      amount,
+      memo: `Vendor credit ${claim.claimNo}`,
+      subledgerType: ap.subledgerType || 'SUPPLIER',
+      partyId: claim.vendorId || null,
+      partyName,
+    },
+    {
+      accountId: expense.id,
+      increase: false,
+      amount,
+      memo: `Warranty recovery ${claim.claimNo}`,
+    },
+  ];
+  const journal = await postJournalLegs(executor as any, {
     journalDateAD: dateAD,
     branchId: claim.branchId,
     memo: `Warranty recovery ${claim.claimNo}${note ? ` — ${note}` : ''}`,
     sourceType: 'WARRANTY_RECOVERY',
     sourceId: claim.id,
     actor: null,
-    lines: [
-      {
-        accountId: ap.id,
-        debit: amount,
-        credit: 0,
-        memo: `Vendor credit ${claim.claimNo}`,
-        subledgerType: ap.subledgerType || 'SUPPLIER',
-        partyId: claim.vendorId || null,
-        partyName,
-      },
-      {
-        accountId: expense.id,
-        debit: 0,
-        credit: amount,
-        memo: `Warranty recovery ${claim.claimNo}`,
-      },
-    ],
+    legs,
   });
   return journal.id;
 }

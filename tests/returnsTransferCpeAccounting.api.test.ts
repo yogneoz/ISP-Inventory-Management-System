@@ -290,7 +290,7 @@ describe('returns, transfers and CPE post to the ledger (real HTTP + PostgreSQL)
     const [journal] = await journalFor('PURCHASE_INVOICE', 'ra-pi-1');
     assert.ok(journal, 'the bill must write a journal in its own transaction');
     assert.equal(journal.branchId, BR_A);
-    assert.equal(await accountBalance('1200', BR_A), 2000);
+    assert.equal(await accountBalance('2030', BR_A), 2000);
   });
 
   test('a purchase return debits AP and credits inventory + input VAT; cancelling reverses exactly', async () => {
@@ -312,12 +312,12 @@ describe('returns, transfers and CPE post to the ledger (real HTTP + PostgreSQL)
     assert.equal(totals.credit, 113);
 
     const lines = await journalLines(journal.id);
-    assert.equal(lines.find((l) => l.code === '2100')?.debit, 113, 'AP is debited at the bill total');
-    assert.equal(lines.find((l) => l.code === '1200')?.credit, 100, 'inventory is relieved at the bill value');
-    assert.equal(lines.find((l) => l.code === '1300')?.credit, 13, 'input VAT is reversed');
+    assert.equal(lines.find((l) => l.code === '5010')?.debit, 113, 'AP is debited at the bill total');
+    assert.equal(lines.find((l) => l.code === '2030')?.credit, 100, 'inventory is relieved at the bill value');
+    assert.equal(lines.find((l) => l.code === '2210')?.credit, 13, 'input VAT is reversed');
 
     assert.equal((await stockOf(PROD, BR_A)).qty, 19);
-    assert.equal(await accountBalance('1200', BR_A), 1900);
+    assert.equal(await accountBalance('2030', BR_A), 1900);
 
     const cancel = await post('/api/purchase-returns/ra-pr-1/cancel', { reason: 'RA cancel test' });
     assert.equal(cancel.status, 200, JSON.stringify(cancel.json));
@@ -326,13 +326,13 @@ describe('returns, transfers and CPE post to the ledger (real HTTP + PostgreSQL)
     assert.equal(reversals.length, 1);
     assert.equal(reversals[0].reversalOfId, journal.id);
     const reversalLines = await journalLines(reversals[0].id);
-    assert.equal(reversalLines.find((l) => l.code === '2100')?.credit, 113);
-    assert.equal(reversalLines.find((l) => l.code === '1200')?.debit, 100);
-    assert.equal(reversalLines.find((l) => l.code === '1300')?.debit, 13);
+    assert.equal(reversalLines.find((l) => l.code === '5010')?.credit, 113);
+    assert.equal(reversalLines.find((l) => l.code === '2030')?.debit, 100);
+    assert.equal(reversalLines.find((l) => l.code === '2210')?.debit, 13);
 
     assert.equal((await stockOf(PROD, BR_A)).qty, 20, 'the cancelled return puts the unit back');
-    assert.equal(await accountBalance('1200', BR_A), 2000);
-    assert.equal(await accountBalance('2100', BR_A), -2260, 'AP is credit-normal: back to the bill total');
+    assert.equal(await accountBalance('2030', BR_A), 2000);
+    assert.equal(await accountBalance('5010', BR_A), -2260, 'AP is credit-normal: back to the bill total');
   });
 
   test('a sales return mirrors the sale at the recorded issue cost; cancelling reverses it', async () => {
@@ -350,7 +350,7 @@ describe('returns, transfers and CPE post to the ledger (real HTTP + PostgreSQL)
     });
     assert.equal(invoice.status, 201, JSON.stringify(invoice.json));
     assert.equal((await stockOf(PROD, BR_A)).qty, 18);
-    assert.equal(await accountBalance('1200', BR_A), 1800, 'COGS relieved 2 × 100');
+    assert.equal(await accountBalance('2030', BR_A), 1800, 'COGS relieved 2 × 100');
 
     const res = await post('/api/sales-returns', {
       id: 'ra-sr-1',
@@ -372,14 +372,23 @@ describe('returns, transfers and CPE post to the ledger (real HTTP + PostgreSQL)
     assert.equal(totals.debit, 269.5, 'AR 169.5 + revenue 150 + VAT 19.5 + inventory 100 + COGS 100');
 
     const lines = await journalLines(journal.id);
-    assert.equal(lines.find((l) => l.code === '1100')?.credit, 169.5, 'the customer credit is AR');
-    assert.equal(lines.find((l) => l.code === '4000')?.debit, 150, 'revenue reversed');
-    assert.equal(lines.find((l) => l.code === '2200')?.debit, 19.5, 'output VAT reversed');
-    assert.equal(lines.find((l) => l.code === '1200')?.debit, 100, 'inventory restored at the SALE cost');
-    assert.equal(lines.find((l) => l.code === '5000')?.credit, 100, 'COGS reversed at the same cost');
+    assert.equal(lines.find((l) => l.code === '2110')?.credit, 169.5, 'the customer credit is AR');
+    assert.equal(
+      lines.find((l) => l.code === '6090')?.debit,
+      150,
+      'the return posts to the contra-income Sales Returns ledger'
+    );
+    assert.equal(
+      lines.find((l) => l.code === '6010'),
+      undefined,
+      'gross sales revenue is not netted down by a return'
+    );
+    assert.equal(lines.find((l) => l.code === '5210')?.debit, 19.5, 'output VAT reversed');
+    assert.equal(lines.find((l) => l.code === '2030')?.debit, 100, 'inventory restored at the SALE cost');
+    assert.equal(lines.find((l) => l.code === '7000')?.credit, 100, 'COGS reversed at the same cost');
 
     assert.equal((await stockOf(PROD, BR_A)).qty, 19);
-    assert.equal(await accountBalance('1200', BR_A), 1900);
+    assert.equal(await accountBalance('2030', BR_A), 1900);
 
     const cancel = await post('/api/sales-returns/ra-sr-1/cancel', { reason: 'RA cancel test' });
     assert.equal(cancel.status, 200, JSON.stringify(cancel.json));
@@ -388,12 +397,12 @@ describe('returns, transfers and CPE post to the ledger (real HTTP + PostgreSQL)
     assert.equal(reversals.length, 1);
     assert.equal(reversals[0].reversalOfId, journal.id);
     const reversalLines = await journalLines(reversals[0].id);
-    assert.equal(reversalLines.find((l) => l.code === '1100')?.debit, 169.5);
-    assert.equal(reversalLines.find((l) => l.code === '1200')?.credit, 100);
-    assert.equal(reversalLines.find((l) => l.code === '5000')?.debit, 100);
+    assert.equal(reversalLines.find((l) => l.code === '2110')?.debit, 169.5);
+    assert.equal(reversalLines.find((l) => l.code === '2030')?.credit, 100);
+    assert.equal(reversalLines.find((l) => l.code === '7000')?.debit, 100);
 
     assert.equal((await stockOf(PROD, BR_A)).qty, 18, 'the cancelled return re-deducts the unit');
-    assert.equal(await accountBalance('1200', BR_A), 1800);
+    assert.equal(await accountBalance('2030', BR_A), 1800);
   });
 
   test('a dispatch/receive pair posts both branch legs at the issue cost, and cancelling unwinds them', async () => {
@@ -412,8 +421,8 @@ describe('returns, transfers and CPE post to the ledger (real HTTP + PostgreSQL)
     assert.ok(outJournal, 'the dispatch must post a journal');
     assert.equal(outJournal.branchId, BR_A);
     const outLines = await journalLines(outJournal.id);
-    assert.equal(outLines.find((l) => l.code === '1610')?.debit, 300, 'source carries due from head office');
-    assert.equal(outLines.find((l) => l.code === '1200')?.credit, 300, 'source inventory released');
+    assert.equal(outLines.find((l) => l.code === '9000')?.debit, 300, 'source carries due from head office');
+    assert.equal(outLines.find((l) => l.code === '2030')?.credit, 300, 'source inventory released');
     assert.equal((await stockOf(PROD, BR_A)).qty, 15);
 
     const received = await post('/api/shipments/ra-sh-1/receive', {});
@@ -423,13 +432,13 @@ describe('returns, transfers and CPE post to the ledger (real HTTP + PostgreSQL)
     assert.ok(inJournal, 'the receipt must post a journal');
     assert.equal(inJournal.branchId, BR_B);
     const inLines = await journalLines(inJournal.id);
-    assert.equal(inLines.find((l) => l.code === '1200')?.debit, 300, 'destination inventory received');
-    assert.equal(inLines.find((l) => l.code === '2310')?.credit, 300, 'destination carries due to head office');
+    assert.equal(inLines.find((l) => l.code === '2030')?.debit, 300, 'destination inventory received');
+    assert.equal(inLines.find((l) => l.code === '9010')?.credit, 300, 'destination carries due to head office');
     assert.equal((await stockOf(PROD, BR_B)).qty, 3);
     assert.equal((await stockOf(PROD, BR_B)).avg, 100, 'received at the source issue cost, not a local average');
 
     const branchB = await balanceSheet(BR_B);
-    assert.equal(statementAmount(branchB, '1200'), 300);
+    assert.equal(statementAmount(branchB, '2030'), 300);
     assert.equal(branchB.interBranch.dueToHeadOffice, 300);
     assert.equal(branchB.balanced, true);
     assert.equal(branchB.difference, 0);
@@ -440,7 +449,7 @@ describe('returns, transfers and CPE post to the ledger (real HTTP + PostgreSQL)
     assert.equal(inReversals.length, 1);
     assert.equal(inReversals[0].reversalOfId, inJournal.id);
     assert.equal((await stockOf(PROD, BR_B)).qty, 0);
-    assert.equal(await accountBalance('1200', BR_B), 0);
+    assert.equal(await accountBalance('2030', BR_B), 0);
 
     const cancel = await post('/api/shipments/ra-sh-1/cancel', { reason: 'RA cancel transfer' });
     assert.equal(cancel.status, 200, JSON.stringify(cancel.json));
@@ -448,9 +457,9 @@ describe('returns, transfers and CPE post to the ledger (real HTTP + PostgreSQL)
     assert.equal(outReversals.length, 1);
     assert.equal(outReversals[0].reversalOfId, outJournal.id);
     assert.equal((await stockOf(PROD, BR_A)).qty, 18, 'the cancelled dispatch restores the source units');
-    assert.equal(await accountBalance('1200', BR_A), 1800);
-    assert.equal(await accountBalance('1610', BR_A), 0, 'the custody account unwinds with the transfer');
-    assert.equal(await accountBalance('2310', BR_B), 0);
+    assert.equal(await accountBalance('2030', BR_A), 1800);
+    assert.equal(await accountBalance('9000', BR_A), 0, 'the custody account unwinds with the transfer');
+    assert.equal(await accountBalance('9010', BR_B), 0);
   });
 
   test('CPE assignment moves value into deployed assets; collection moves it back at the same cost', async () => {
@@ -465,7 +474,7 @@ describe('returns, transfers and CPE post to the ledger (real HTTP + PostgreSQL)
       items: [line(CPE_PROD, 2, 50)],
     });
     assert.equal(bill.status, 201, JSON.stringify(bill.json));
-    assert.equal(await accountBalance('1200', BR_A), 1900, 'inventory grew by the second bill');
+    assert.equal(await accountBalance('2030', BR_A), 1900, 'inventory grew by the second bill');
 
     // The fixed-asset route's pre-flight reads the in-memory stock mirror, so
     // keep it truthful about what the routes above just committed to PG.
@@ -492,8 +501,8 @@ describe('returns, transfers and CPE post to the ledger (real HTTP + PostgreSQL)
     const issueJournals = await journalFor('CPE_ASSET', 'ra-asset-1');
     assert.equal(issueJournals.length, 1, 'assignment posts one journal');
     const issueLines = await journalLines(issueJournals[0].id);
-    assert.equal(issueLines.find((l) => l.code === '1510')?.debit, 50, 'deployed CPE asset is debited');
-    assert.equal(issueLines.find((l) => l.code === '1200')?.credit, 50, 'inventory is released');
+    assert.equal(issueLines.find((l) => l.code === '1030')?.debit, 50, 'deployed CPE asset is debited');
+    assert.equal(issueLines.find((l) => l.code === '2030')?.credit, 50, 'inventory is released');
     assert.equal((await stockOf(CPE_PROD, BR_A)).qty, 1);
 
     const released = await patch('/api/assets/ra-asset-1/status', { status: 'ACTIVE' });
@@ -502,11 +511,11 @@ describe('returns, transfers and CPE post to the ledger (real HTTP + PostgreSQL)
     const allJournals = await journalFor('CPE_ASSET', 'ra-asset-1');
     assert.equal(allJournals.length, 2, 'collection posts the release journal');
     const releaseLines = await journalLines(allJournals[1].id);
-    assert.equal(releaseLines.find((l) => l.code === '1200')?.debit, 50, 'inventory returns at the issue cost');
-    assert.equal(releaseLines.find((l) => l.code === '1510')?.credit, 50, 'the deployed asset is released');
+    assert.equal(releaseLines.find((l) => l.code === '2030')?.debit, 50, 'inventory returns at the issue cost');
+    assert.equal(releaseLines.find((l) => l.code === '1030')?.credit, 50, 'the deployed asset is released');
     assert.equal((await stockOf(CPE_PROD, BR_A)).qty, 2);
 
-    assert.equal(await accountBalance('1510', BR_A), 0, 'the CPE pair nets to zero');
+    assert.equal(await accountBalance('1030', BR_A), 0, 'the CPE pair nets to zero');
   });
 
   test('inventory control equals the balance-sheet figure and the stock value per branch', async () => {
@@ -519,16 +528,16 @@ describe('returns, transfers and CPE post to the ledger (real HTTP + PostgreSQL)
     const stockValue = stockA.qty * stockA.avg + stockCpe.qty * stockCpe.avg;
     assert.equal(stockValue, 1900, '18 × 100 + 2 × 50');
 
-    const control = await accountBalance('1200', BR_A);
+    const control = await accountBalance('2030', BR_A);
     assert.equal(control, stockValue, 'inventory control equals the stock rows it represents');
-    assert.equal(statementAmount(branchA, '1200'), control, 'the balance sheet presents that same control balance');
+    assert.equal(statementAmount(branchA, '2030'), control, 'the balance sheet presents that same control balance');
 
     // The company roll-up is checked per branch, not globally: other suites run
     // in parallel and their fixtures can legitimately carry their own custody
     // rows. Within THIS company pair, the cancelled transfer leaves neither leg
     // behind, and every posted journal still keeps the company sheet balanced.
-    assert.equal(await accountBalance('1610', BR_A), 0, 'no due-from is left behind');
-    assert.equal(await accountBalance('2310', BR_B), 0, 'no due-to is left behind');
+    assert.equal(await accountBalance('9000', BR_A), 0, 'no due-from is left behind');
+    assert.equal(await accountBalance('9010', BR_B), 0, 'no due-to is left behind');
     const company = await balanceSheet();
     assert.equal(company.balanced, true);
 

@@ -1628,6 +1628,11 @@ CREATE TABLE IF NOT EXISTS gl_accounts (
     name VARCHAR(150) NOT NULL,
     group_id VARCHAR(50) NOT NULL REFERENCES gl_account_groups(id) ON DELETE RESTRICT,
     description TEXT,
+    -- The standard's own reference for this account ("NAS 16", "NFRS 15",
+    -- "Nepal IRD VAT Act 2052", …), kept verbatim so a trial balance or a note
+    -- to the financial statements can be traced back to the source. Notes for
+    -- the operator live in `description`; this is the statutory citation.
+    statutory_reference VARCHAR(160),
     -- Legacy GL-master fields (short name, category, credit terms, tax type,
     -- currency, guarantee/deposit notes) that do not change posting behaviour.
     -- They live in one jsonb profile so the master form can carry the full
@@ -1646,8 +1651,15 @@ CREATE TABLE IF NOT EXISTS gl_accounts (
         'FIXED_ASSET', 'ACCUMULATED_DEPRECIATION', 'DEPRECIATION_EXPENSE',
         'GAIN_ON_DISPOSAL', 'LOSS_ON_DISPOSAL',
         'SALARY_EXPENSE', 'TDS_PAYABLE', 'SSF_PAYABLE', 'EMPLOYEE_ADVANCE', 'EMPLOYEE_LOAN', 'LOAN_PAYABLE',
-        'PAYMENT_FEE_EXPENSE'
+        'PAYMENT_FEE_EXPENSE', 'SALES_RETURNS'
     )),
+    -- The account's own permanent balance side: D (debit-normal) or C
+    -- (credit-normal). The posting engine turns an `increase` leg into a debit
+    -- or a credit from this column, never from a posting role, account type or
+    -- document context. A group's normal balance is a reporting label and
+    -- cannot answer it: accumulated depreciation and sales returns are contra
+    -- accounts whose side differs from the group they report under.
+    normal_balance CHAR(1) NOT NULL DEFAULT 'D' CHECK (normal_balance IN ('D', 'C')),
     -- CASH/BANK/WALLET classify every custody ledger, including the extra ones
     -- that deliberately have no posting role. OTHER is every non-custody ledger.
     account_kind VARCHAR(10) NOT NULL DEFAULT 'OTHER' CHECK (account_kind IN ('CASH', 'BANK', 'WALLET', 'OTHER')),
@@ -1689,12 +1701,42 @@ ALTER TABLE gl_accounts ADD CONSTRAINT gl_accounts_posting_role_check CHECK (pos
     'FIXED_ASSET', 'ACCUMULATED_DEPRECIATION', 'DEPRECIATION_EXPENSE',
     'GAIN_ON_DISPOSAL', 'LOSS_ON_DISPOSAL',
     'SALARY_EXPENSE', 'TDS_PAYABLE', 'SSF_PAYABLE', 'EMPLOYEE_ADVANCE', 'EMPLOYEE_LOAN', 'LOAN_PAYABLE',
-    'PAYMENT_FEE_EXPENSE'
+    'PAYMENT_FEE_EXPENSE', 'SALES_RETURNS'
 ));
+
+-- Existing installs need the permanent balance side. It is added nullable so
+-- the backfill below can find the rows that predate it, then made mandatory:
+-- a boot after this one has nothing left to backfill and never rewrites an
+-- operator's corrected side.
+ALTER TABLE gl_accounts ADD COLUMN IF NOT EXISTS normal_balance CHAR(1);
+UPDATE gl_accounts a
+SET normal_balance = CASE
+    -- Credit-normal posting purposes. Sales returns are the contra-income
+    -- exception: they sit in revenue but increase with a debit.
+    WHEN a.posting_role IN (
+        'AP_CONTROL', 'SALES', 'TAX_OUTPUT', 'RETAINED_EARNINGS', 'SALARY_PAYABLE',
+        'DUE_TO_HO', 'ACCUMULATED_DEPRECIATION', 'GAIN_ON_DISPOSAL', 'TDS_PAYABLE',
+        'SSF_PAYABLE', 'LOAN_PAYABLE'
+    ) THEN 'C'
+    -- Any other mapped role is debit-normal (assets, costs, contra-income).
+    WHEN a.posting_role IS NOT NULL THEN 'D'
+    -- An unmapped account follows the nature of its group.
+    WHEN g.account_type IN ('ASSET', 'EXPENSE') THEN 'D'
+    ELSE 'C'
+  END
+FROM gl_account_groups g
+WHERE g.id = a.group_id
+  AND a.normal_balance IS NULL;
+ALTER TABLE gl_accounts ALTER COLUMN normal_balance SET DEFAULT 'D';
+ALTER TABLE gl_accounts ALTER COLUMN normal_balance SET NOT NULL;
+ALTER TABLE gl_accounts DROP CONSTRAINT IF EXISTS gl_accounts_normal_balance_check;
+ALTER TABLE gl_accounts ADD CONSTRAINT gl_accounts_normal_balance_check
+    CHECK (normal_balance IN ('D', 'C'));
 
 -- Existing installs need the new ledger classification and bank metadata. The
 -- default cash/bank ledgers are classified from the posting role they already
 -- carry; every other account starts as OTHER and can be corrected in the chart.
+ALTER TABLE gl_accounts ADD COLUMN IF NOT EXISTS statutory_reference VARCHAR(160);
 ALTER TABLE gl_accounts ADD COLUMN IF NOT EXISTS account_kind VARCHAR(10) NOT NULL DEFAULT 'OTHER';
 CREATE INDEX IF NOT EXISTS idx_gl_accounts_kind ON gl_accounts(account_kind);
 ALTER TABLE gl_accounts DROP CONSTRAINT IF EXISTS gl_accounts_account_kind_check;

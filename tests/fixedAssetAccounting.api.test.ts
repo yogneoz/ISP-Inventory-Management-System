@@ -228,8 +228,8 @@ describe('fixed-asset ledger posting (real HTTP + PostgreSQL)', { skip: skipNoDb
     assert.equal(journal.status, 'POSTED');
     assert.equal(journal.branchId, BR);
     const lines = await journalLines(journal.id);
-    assert.equal(lines.find((line) => line.code === '1520')?.debit, 1200, 'fixed asset cost is debited');
-    assert.equal(lines.find((line) => line.code === '1010')?.credit, 1200, 'cash is credited');
+    assert.equal(lines.find((line) => line.code === '1000')?.debit, 1200, 'fixed asset cost is debited');
+    assert.equal(lines.find((line) => line.code === '2310')?.credit, 1200, 'cash is credited');
     assert.equal(lines.reduce((sum, line) => sum + line.debit, 0), 1200);
     assert.equal(lines.reduce((sum, line) => sum + line.credit, 0), 1200);
   });
@@ -263,7 +263,7 @@ describe('fixed-asset ledger posting (real HTTP + PostgreSQL)', { skip: skipNoDb
     const [billJournal] = await journalFor('PURCHASE_INVOICE', 'fad-pi-1');
     assert.ok(billJournal, 'the bill posts inventory + input VAT / AP first');
     const billLines = await journalLines(billJournal.id);
-    assert.equal(billLines.find((line) => line.code === '1200')?.debit, 1200);
+    assert.equal(billLines.find((line) => line.code === '2030')?.debit, 1200);
 
     const created = await post('/api/assets', assetBody('fad-inv', 'FAD-INV', {
       purchaseInvoiceId: 'fad-pi-1',
@@ -274,14 +274,14 @@ describe('fixed-asset ledger posting (real HTTP + PostgreSQL)', { skip: skipNoDb
     const [journal] = await journalFor('FIXED_ASSET_ACQUISITION', 'fad-inv');
     assert.ok(journal, 'capitalising the bill line must write a journal');
     const lines = await journalLines(journal.id);
-    assert.equal(lines.find((line) => line.code === '1520')?.debit, 1200);
+    assert.equal(lines.find((line) => line.code === '1000')?.debit, 1200);
     assert.equal(
-      lines.find((line) => line.code === '1200')?.credit,
+      lines.find((line) => line.code === '2030')?.credit,
       1200,
       'the bill already recognised the payable, so the cost moves out of inventory'
     );
     assert.equal(
-      lines.find((line) => line.code === '2100'),
+      lines.find((line) => line.code === '5010'),
       undefined,
       'crediting AP again would double the liability the bill already booked'
     );
@@ -298,8 +298,8 @@ describe('fixed-asset ledger posting (real HTTP + PostgreSQL)', { skip: skipNoDb
       const [journal] = await journalFor('FIXED_ASSET_DEPRECIATION', `${entry.assetId}:${PERIOD}`);
       assert.ok(journal, `${entry.assetId} must have its own period journal`);
       const lines = await journalLines(journal.id);
-      assert.equal(lines.find((line) => line.code === '6300')?.debit, 12);
-      assert.equal(lines.find((line) => line.code === '1525')?.credit, 12);
+      assert.equal(lines.find((line) => line.code === '7210')?.debit, 12);
+      assert.equal(lines.find((line) => line.code === '1090')?.credit, 12);
     }
 
     const credited = await accountNet('ACCUMULATED_DEPRECIATION');
@@ -342,10 +342,10 @@ describe('fixed-asset ledger posting (real HTTP + PostgreSQL)', { skip: skipNoDb
     const [journal] = await journalFor('FIXED_ASSET_DISPOSAL', 'fad-cash');
     assert.ok(journal, 'disposal must write a journal');
     const lines = await journalLines(journal.id);
-    assert.equal(lines.find((line) => line.code === '1525')?.debit, 12, 'accumulated depreciation is cleared');
-    assert.equal(lines.find((line) => line.code === '1010')?.debit, 1180, 'proceeds are received');
-    assert.equal(lines.find((line) => line.code === '6500')?.debit, 8, 'NBV 1188 − proceeds 1180');
-    assert.equal(lines.find((line) => line.code === '1520')?.credit, 1200, 'cost is cleared');
+    assert.equal(lines.find((line) => line.code === '1090')?.debit, 12, 'accumulated depreciation is cleared');
+    assert.equal(lines.find((line) => line.code === '2310')?.debit, 1180, 'proceeds are received');
+    assert.equal(lines.find((line) => line.code === '7240')?.debit, 8, 'NBV 1188 − proceeds 1180');
+    assert.equal(lines.find((line) => line.code === '1000')?.credit, 1200, 'cost is cleared');
     assert.equal(lines.reduce((sum, line) => sum + line.debit, 0), 1200);
     assert.equal(lines.reduce((sum, line) => sum + line.credit, 0), 1200);
 
@@ -392,10 +392,10 @@ describe('fixed-asset ledger posting (real HTTP + PostgreSQL)', { skip: skipNoDb
     const [gainJournal] = await journalFor('FIXED_ASSET_DISPOSAL', 'fad-gain');
     assert.ok(gainJournal, 'a gain disposal must also post a journal');
     const gainLines = await journalLines(gainJournal.id);
-    assert.equal(gainLines.find((line) => line.code === '1010')?.debit, 600, 'proceeds are received');
-    assert.equal(gainLines.find((line) => line.code === '1520')?.credit, 500, 'cost is cleared');
-    assert.equal(gainLines.find((line) => line.code === '4200')?.credit, 100, 'proceeds 600 − NBV 500');
-    assert.equal(gainLines.find((line) => line.code === '6500'), undefined, 'a gain is not double-booked as a loss');
+    assert.equal(gainLines.find((line) => line.code === '2310')?.debit, 600, 'proceeds are received');
+    assert.equal(gainLines.find((line) => line.code === '1000')?.credit, 500, 'cost is cleared');
+    assert.equal(gainLines.find((line) => line.code === '6130')?.credit, 100, 'proceeds 600 − NBV 500');
+    assert.equal(gainLines.find((line) => line.code === '7240'), undefined, 'a gain is not double-booked as a loss');
     assert.equal(gainLines.reduce((sum, line) => sum + line.debit, 0), 600);
     assert.equal(gainLines.reduce((sum, line) => sum + line.credit, 0), 600);
   });

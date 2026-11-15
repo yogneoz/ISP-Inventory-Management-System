@@ -52,6 +52,7 @@ import {
   JOURNAL_REVERSAL_EXISTS_SQL,
   JOURNAL_SUBLEDGER_SQL,
   NEXT_JOURNAL_SEQUENCE_SQL,
+  NORMAL_BALANCE_BY_POSTING_ROLE,
   PERIOD_BY_ID_SQL,
   PERIOD_BY_KEY_SQL,
   PERIOD_INSERT_IF_MISSING_SQL,
@@ -68,10 +69,12 @@ import {
   accountInsertParams,
   journalInsertParams,
   journalLineInsertParams,
+  normalBalanceForAccountType,
   subledgerInsertParams,
   type AccountKind,
   type AccountType,
   type NormalBalance,
+  type NormalBalanceCode,
   type PostingRole,
   type StatementGroup,
   type SubledgerType,
@@ -678,6 +681,11 @@ export async function createAccount(
       ...custody,
       ...bank,
       masterProfile: readMasterProfile(input.masterProfile) || {},
+      // Permanent side, fixed at creation. A posting role always implies one;
+      // an unmapped account follows the nature of its group.
+      normalBalance: postingRole
+        ? NORMAL_BALANCE_BY_POSTING_ROLE[postingRole]
+        : normalBalanceForAccountType(group.accountType as AccountType),
       isDemo: input.isDemo,
     })
   );
@@ -1170,6 +1178,156 @@ export async function postJournal(
   }
 
   return { id: journalId, journalNo, periodId: period.id, fiscalYearId: period.fiscalYearId };
+}
+
+/**
+ * One leg of an automated posting.
+ *
+ * A leg states WHAT happens to an account, not which column to write:
+ * `increase: true` puts money on the account's normal side, `increase: false`
+ * takes it off. The engine reads `gl_accounts.normal_balance` to turn that into
+ * a debit or a credit, so no document, posting role, account type or context
+ * ever decides a side. Two legs that move the same amount in opposite
+ * directions on the same account are simply both written; a document that ends
+ * up unbalanced is refused.
+ *
+ * The manual journal screen/API is deliberately NOT built on this: a voucher an
+ * accountant types is an explicit Dr/Cr instruction and stays that way.
+ */
+export interface JournalLeg {
+  accountId: string;
+  /** true = the account's normal side increases; false = it decreases. */
+  increase: boolean;
+  amount: number | string;
+  memo?: string | null;
+  costCenterId?: string | null;
+  /** Control-account legs only; an ordinary account must leave these unset. */
+  subledgerType?: string | null;
+  partyId?: string | null;
+  partyName?: string | null;
+}
+
+/**
+ * Cent-exact totals of a built journal. Comparing integer cents (rather than
+ * floats with a tolerance) is what makes a one-cent imbalance a refusal instead
+ * of a rounding accident.
+ */
+export function journalLineTotals(lines: readonly JournalLineInput[]): {
+  debitCents: number;
+  creditCents: number;
+  balanced: boolean;
+} {
+  const debitCents = lines.reduce((sum, line) => sum + Math.round(Number(line.debit) * 100), 0);
+  const creditCents = lines.reduce((sum, line) => sum + Math.round(Number(line.credit) * 100), 0);
+  return { debitCents, creditCents, balanced: debitCents === creditCents };
+}
+
+/** The account facts the engine needs; a superset of `ACCOUNT_COLUMNS`. */
+export interface JournalLegAccount {
+  id?: string;
+  code?: string | null;
+  accountNormalBalance?: string | null;
+}
+
+/**
+ * Pure leg → line translation. No I/O, so the four `normal_balance × increase`
+ * combinations are directly testable and every posting service shares exactly
+ * one direction rule.
+ *
+ * Amounts are handled in cents: a leg is rounded once and compared exactly, so
+ * 0.1 + 0.2 never looks balanced while being a cent apart.
+ */
+export function buildJournalLines(
+  legs: readonly JournalLeg[],
+  accounts: ReadonlyMap<string, JournalLegAccount>
+): JournalLineInput[] {
+  if (!Array.isArray(legs) || legs.length < 2) {
+    throw new ApiError(400, 'A journal needs at least two legs.');
+  }
+  return legs.map((leg, index) => {
+    const legNo = index + 1;
+    const accountId = String(leg?.accountId ?? '').trim();
+    if (!accountId) throw new ApiError(400, `Leg ${legNo} needs an account.`);
+    const account = accounts.get(accountId);
+    if (!account) throw new ApiError(400, `Leg ${legNo}: account not found.`);
+    const side = String(account.accountNormalBalance ?? '').trim().toUpperCase();
+    if (side !== 'D' && side !== 'C') {
+      throw new ApiError(
+        400,
+        `Leg ${legNo}: account ${account.code || accountId} has no normal balance (D or C). Set it in Accounting → Chart & Defaults before posting.`
+      );
+    }
+    const cents = Math.round(Number(leg?.amount) * 100);
+    if (!Number.isFinite(cents) || cents <= 0) {
+      throw new ApiError(
+        400,
+        `Leg ${legNo}: amount must be a positive number, got ${String(leg?.amount)}.`
+      );
+    }
+    if (cents > 9_999_999_999_999) {
+      throw new ApiError(400, `Leg ${legNo}: amount exceeds the ledger limit.`);
+    }
+    const value = cents / 100;
+    const debitNormal = side === 'D';
+    const debit = debitNormal === Boolean(leg.increase) ? value : 0;
+    const credit = debitNormal === Boolean(leg.increase) ? 0 : value;
+    return {
+      accountId,
+      debit,
+      credit,
+      memo: text(leg?.memo, 300) || null,
+      costCenterId: text(leg?.costCenterId, 50) || null,
+      ...(leg?.subledgerType ? { subledgerType: text(leg.subledgerType, 30) } : {}),
+      ...(leg?.partyId !== undefined ? { partyId: leg.partyId } : {}),
+      ...(leg?.partyName !== undefined ? { partyName: leg.partyName } : {}),
+    };
+  });
+}
+
+/**
+ * Post one automated journal expressed as legs.
+ *
+ * The accounts are read once so the engine knows each permanent side, then the
+ * lines go through `postJournal` unchanged: period, branch, control/subledger,
+ * idempotency and immutability rules stay in exactly one place.
+ *
+ * The balance check before `postJournal` is cent-exact and runs first, so an
+ * unbalanced document is refused with a message naming the two totals instead
+ * of a generic "journal is not balanced".
+ */
+export interface PostJournalLegsInput extends Omit<PostJournalInput, 'lines'> {
+  legs?: readonly JournalLeg[];
+}
+
+export async function postJournalLegs(
+  client: AccountingClient,
+  input: PostJournalLegsInput
+): Promise<{ id: string; journalNo: string; periodId: string; fiscalYearId: string }> {
+  const legs = Array.isArray(input.legs) ? input.legs : [];
+  if (legs.length < 2) throw new ApiError(400, 'A journal needs at least two legs.');
+  if (legs.length > MAX_JOURNAL_LINES) {
+    throw new ApiError(400, `A journal can hold at most ${MAX_JOURNAL_LINES} lines.`);
+  }
+  const accountIds = [
+    ...new Set(legs.map((leg) => text(leg?.accountId, 50)).filter((id) => Boolean(id))),
+  ];
+  if (accountIds.length === 0) throw new ApiError(400, 'Every journal leg needs an account.');
+  const rows = (await client.query(ACCOUNTS_BY_IDS_SQL, [accountIds])).rows as JournalLegAccount[];
+  const accountsById = new Map<string, JournalLegAccount>(
+    rows.map((row) => [String(row.id), row])
+  );
+  const lines = buildJournalLines(legs, accountsById);
+
+  const { debitCents, creditCents, balanced } = journalLineTotals(lines);
+  if (!balanced) {
+    throw new ApiError(
+      400,
+      `Journal legs are not balanced: debits ${(debitCents / 100).toFixed(2)} ≠ credits ${(creditCents / 100).toFixed(2)}.`
+    );
+  }
+
+  const { legs: _legs, ...header } = input;
+  return postJournal(client, { ...header, lines });
 }
 
 /**

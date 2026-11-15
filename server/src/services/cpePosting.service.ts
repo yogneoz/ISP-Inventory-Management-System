@@ -28,9 +28,9 @@ import {
   type PostingRole,
 } from '../models/accounting.repo';
 import {
-  postJournal,
+  postJournalLegs,
   type AccountingClient,
-  type JournalLineInput,
+  type JournalLeg,
 } from './accounting.service';
 
 interface PostingAccount {
@@ -40,6 +40,8 @@ interface PostingAccount {
   postingRole: string | null;
   isControl?: boolean;
   subledgerType?: string;
+  /** `D` or `C`: the permanent side the leg engine posts against. */
+  accountNormalBalance: string;
 }
 
 export interface CpeValueMovement {
@@ -87,18 +89,28 @@ export async function postCpeIssueJournal(client: AccountingClient, input: CpeVa
   const value = valueOf(input);
   if (value < 0.005) return null;
   const accounts = await loadCpeAccounts(client);
-  const lines: JournalLineInput[] = [
-    { accountId: accounts.cpeAsset.id, debit: value, credit: 0, memo: `${input.memo} — CPE asset issued` },
-    { accountId: accounts.inventory.id, debit: 0, credit: value, memo: `${input.memo} — inventory released` },
+  const legs: JournalLeg[] = [
+    {
+      accountId: accounts.cpeAsset.id,
+      increase: true,
+      amount: value,
+      memo: `${input.memo} — CPE asset issued`,
+    },
+    {
+      accountId: accounts.inventory.id,
+      increase: false,
+      amount: value,
+      memo: `${input.memo} — inventory released`,
+    },
   ];
-  return postJournal(client, {
+  return postJournalLegs(client, {
     journalDateAD: input.dateAD,
     branchId: input.branchId,
     memo: input.memo,
     sourceType: input.sourceType,
     sourceId: input.sourceId,
     actor: input.actor || null,
-    lines,
+    legs,
   });
 }
 
@@ -107,18 +119,28 @@ export async function postCpeReleaseJournal(client: AccountingClient, input: Cpe
   const value = valueOf(input);
   if (value < 0.005) return null;
   const accounts = await loadCpeAccounts(client);
-  const lines: JournalLineInput[] = [
-    { accountId: accounts.inventory.id, debit: value, credit: 0, memo: `${input.memo} — inventory returned` },
-    { accountId: accounts.cpeAsset.id, debit: 0, credit: value, memo: `${input.memo} — CPE asset released` },
+  const legs: JournalLeg[] = [
+    {
+      accountId: accounts.inventory.id,
+      increase: true,
+      amount: value,
+      memo: `${input.memo} — inventory returned`,
+    },
+    {
+      accountId: accounts.cpeAsset.id,
+      increase: false,
+      amount: value,
+      memo: `${input.memo} — CPE asset released`,
+    },
   ];
-  return postJournal(client, {
+  return postJournalLegs(client, {
     journalDateAD: input.dateAD,
     branchId: input.branchId,
     memo: input.memo,
     sourceType: input.sourceType,
     sourceId: input.sourceId,
     actor: input.actor || null,
-    lines,
+    legs,
   });
 }
 
@@ -177,18 +199,18 @@ function settlementRole(method: unknown, hasSupplier: boolean): PostingRole {
   return hasSupplier ? 'AP_CONTROL' : 'CASH';
 }
 
-function controlLine(
+function controlLeg(
   account: PostingAccount,
-  debit: number,
-  credit: number,
+  increase: boolean,
+  amount: number,
   partyId: string | null,
   partyName: string | null,
   memo: string
-): JournalLineInput {
+): JournalLeg {
   return {
     accountId: account.id,
-    debit,
-    credit,
+    increase,
+    amount,
     memo,
     subledgerType: account.subledgerType || 'SUPPLIER',
     partyId,
@@ -239,23 +261,28 @@ export async function postFixedAssetAcquisitionJournal(
 
   const invoiceRef = input.purchaseInvoiceNumber || input.purchaseInvoiceId || '';
   let memo = `Fixed asset ${input.tagNumber} capitalised`;
-  let lines: JournalLineInput[];
+  let legs: JournalLeg[];
 
   if (input.purchaseInvoiceId && input.invoicePosted) {
     const accounts = await loadAssetAccounts(client, ['FIXED_ASSET', 'INVENTORY']);
     memo += ` — cost reclassified from inventory for purchase invoice ${invoiceRef}`;
-    lines = [
-      { accountId: accounts.FIXED_ASSET.id, debit: cost, credit: 0, memo },
-      { accountId: accounts.INVENTORY.id, debit: 0, credit: cost, memo: `${memo} — inventory released` },
+    legs = [
+      { accountId: accounts.FIXED_ASSET.id, increase: true, amount: cost, memo },
+      {
+        accountId: accounts.INVENTORY.id,
+        increase: false,
+        amount: cost,
+        memo: `${memo} — inventory released`,
+      },
     ];
   } else if (input.purchaseInvoiceId) {
     const accounts = await loadAssetAccounts(client, ['FIXED_ASSET', 'AP_CONTROL']);
     memo += ` — payable recognised for purchase invoice ${invoiceRef}`;
-    lines = [
-      { accountId: accounts.FIXED_ASSET.id, debit: cost, credit: 0, memo },
-      controlLine(
+    legs = [
+      { accountId: accounts.FIXED_ASSET.id, increase: true, amount: cost, memo },
+      controlLeg(
         accounts.AP_CONTROL,
-        0,
+        true,
         cost,
         input.supplierId || null,
         input.supplierName || 'Fixed asset supplier',
@@ -267,29 +294,29 @@ export async function postFixedAssetAcquisitionJournal(
     const role = settlementRole(input.paymentMethod, hasSupplier);
     const accounts = await loadAssetAccounts(client, ['FIXED_ASSET', role]);
     memo += role === 'AP_CONTROL' ? ' — bought on supplier credit' : ' — settled directly';
-    lines = [
-      { accountId: accounts.FIXED_ASSET.id, debit: cost, credit: 0, memo },
+    legs = [
+      { accountId: accounts.FIXED_ASSET.id, increase: true, amount: cost, memo },
       role === 'AP_CONTROL'
-        ? controlLine(
+        ? controlLeg(
             accounts.AP_CONTROL,
-            0,
+            true,
             cost,
             input.supplierId || null,
             input.supplierName || 'Fixed asset supplier',
             memo
           )
-        : { accountId: accounts[role].id, debit: 0, credit: cost, memo },
+        : { accountId: accounts[role].id, increase: false, amount: cost, memo },
     ];
   }
 
-  return postJournal(client, {
+  return postJournalLegs(client, {
     journalDateAD: input.dateAD,
     branchId: input.branchId,
     memo,
     sourceType: 'FIXED_ASSET_ACQUISITION',
     sourceId: input.assetId,
     actor: input.actor || null,
-    lines,
+    legs,
   });
 }
 
@@ -315,28 +342,20 @@ export async function postFixedAssetDepreciationJournal(
     'ACCUMULATED_DEPRECIATION',
   ]);
   const memo = `Depreciation of fixed asset ${input.tagNumber} for ${input.periodKey}`;
-  const lines: JournalLineInput[] = [
-    {
-      accountId: accounts.DEPRECIATION_EXPENSE.id,
-      debit: amount,
-      credit: 0,
-      memo,
-    },
-    {
-      accountId: accounts.ACCUMULATED_DEPRECIATION.id,
-      debit: 0,
-      credit: amount,
-      memo,
-    },
+  // The accumulated-depreciation account is credit-normal, so charging the
+  // period INCREASES it even though that is a credit that reduces book value.
+  const legs: JournalLeg[] = [
+    { accountId: accounts.DEPRECIATION_EXPENSE.id, increase: true, amount, memo },
+    { accountId: accounts.ACCUMULATED_DEPRECIATION.id, increase: true, amount, memo },
   ];
-  return postJournal(client, {
+  return postJournalLegs(client, {
     journalDateAD: input.dateAD,
     branchId: input.branchId,
     memo,
     sourceType: 'FIXED_ASSET_DEPRECIATION',
     sourceId: `${input.assetId}:${input.periodKey}`,
     actor: input.actor || null,
-    lines,
+    legs,
   });
 }
 
@@ -406,12 +425,12 @@ export async function postFixedAssetDisposalJournal(
   const loss = proceeds < netBookValue ? roundMoney(netBookValue - proceeds) : 0;
 
   const memo = `Disposal of fixed asset ${input.tagNumber}`;
-  const lines: JournalLineInput[] = [];
+  const legs: JournalLeg[] = [];
   if (accumulated > 0) {
-    lines.push({
+    legs.push({
       accountId: accounts.ACCUMULATED_DEPRECIATION.id,
-      debit: accumulated,
-      credit: 0,
+      increase: false,
+      amount: accumulated,
       memo: `${memo} — accumulated depreciation cleared`,
     });
   }
@@ -420,54 +439,54 @@ export async function postFixedAssetDisposalJournal(
     if (role === 'AP_CONTROL') {
       throw new ApiError(400, 'Disposal proceeds must be received by cash or bank, not on credit.');
     }
-    lines.push({
+    legs.push({
       accountId: needAccount(accounts, role, 'fixed-asset disposal').id,
-      debit: proceeds,
-      credit: 0,
+      increase: true,
+      amount: proceeds,
       memo: `${memo} — proceeds received`,
     });
   }
   if (loss > 0) {
-    lines.push({
+    legs.push({
       accountId: needAccount(accounts, 'LOSS_ON_DISPOSAL', 'fixed-asset disposal').id,
-      debit: loss,
-      credit: 0,
+      increase: true,
+      amount: loss,
       memo: `${memo} — loss on disposal`,
     });
   }
   if (fixedCost > 0) {
-    lines.push({
+    legs.push({
       accountId: accounts.FIXED_ASSET.id,
-      debit: 0,
-      credit: fixedCost,
+      increase: false,
+      amount: fixedCost,
       memo: `${memo} — cost cleared`,
     });
   }
   if (cpeCost > 0) {
-    lines.push({
+    legs.push({
       accountId: needAccount(accounts, 'CPE_ASSET', 'fixed-asset disposal').id,
-      debit: 0,
-      credit: cpeCost,
+      increase: false,
+      amount: cpeCost,
       memo: `${memo} — deployed CPE cost cleared`,
     });
   }
   if (gain > 0) {
-    lines.push({
+    legs.push({
       accountId: needAccount(accounts, 'GAIN_ON_DISPOSAL', 'fixed-asset disposal').id,
-      debit: 0,
-      credit: gain,
+      increase: true,
+      amount: gain,
       memo: `${memo} — gain on disposal`,
     });
   }
 
-  return postJournal(client, {
+  return postJournalLegs(client, {
     journalDateAD: input.dateAD,
     branchId: input.branchId,
     memo,
     sourceType: 'FIXED_ASSET_DISPOSAL',
     sourceId: input.assetId,
     actor: input.actor || null,
-    lines,
+    legs,
   });
 }
 

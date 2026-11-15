@@ -1025,13 +1025,13 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
 
     const lines = await journalLines(journal.id);
     const byCode = (code: string) => lines.filter((line) => line.code === code);
-    assert.equal(byCode('6400').length, 1, 'salary expense is one gross debit');
-    assert.equal(byCode('6400')[0].debit, 9000);
-    assert.deepEqual(byCode('2320').map((line) => line.credit).sort((a, b) => a - b), [3360, 3650]);
-    assert.deepEqual(byCode('2330').map((line) => line.credit).sort((a, b) => a - b), [200, 500]);
-    assert.deepEqual(byCode('2340').map((line) => line.credit).sort((a, b) => a - b), [440, 550]);
-    assert.deepEqual(byCode('1620').map((line) => line.credit), [200]);
-    assert.deepEqual(byCode('1630').map((line) => line.credit), [100]);
+    assert.equal(byCode('7110').length, 1, 'salary expense is one gross debit');
+    assert.equal(byCode('7110')[0].debit, 9000);
+    assert.deepEqual(byCode('5270').map((line) => line.credit).sort((a, b) => a - b), [3360, 3650]);
+    assert.deepEqual(byCode('5220').map((line) => line.credit).sort((a, b) => a - b), [200, 500]);
+    assert.deepEqual(byCode('5250').map((line) => line.credit).sort((a, b) => a - b), [440, 550]);
+    assert.deepEqual(byCode('2140').map((line) => line.credit), [200]);
+    assert.deepEqual(byCode('9020').map((line) => line.credit), [100]);
     assert.equal(lines.reduce((sum, line) => sum + line.debit, 0), 9000);
     assert.equal(lines.reduce((sum, line) => sum + line.credit, 0), 9000);
 
@@ -1039,7 +1039,7 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
     assert.equal(subledger.length, 8, 'five deductions for emp1, three for emp2');
     assert.ok(subledger.every((row) => row.partyId === emp1.id || row.partyId === emp2.id));
     assert.deepEqual(
-      subledger.filter((row) => row.code === '2330').map((row) => row.credit).sort((a, b) => a - b),
+      subledger.filter((row) => row.code === '5220').map((row) => row.credit).sort((a, b) => a - b),
       [200, 500]
     );
 
@@ -1121,12 +1121,12 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
     const ledger = await get(`/api/employees/${emp1.id}/ledger?branchId=${BR}`);
     assert.equal(ledger.status, 200, JSON.stringify(ledger.json));
     const account = (code: string) => ledger.json.accounts.find((row: any) => row.code === code);
-    assert.equal(account('2320').balance, -3650);
-    assert.equal(account('2330').balance, -500);
-    assert.equal(account('2340').balance, -550);
-    assert.equal(account('1620').balance, -200);
-    assert.equal(account('1630').balance, -100);
-    assert.equal(account('2320').presentedBalance, 3650, 'a liability presents in its natural direction');
+    assert.equal(account('5270').balance, -3650);
+    assert.equal(account('5220').balance, -500);
+    assert.equal(account('5250').balance, -550);
+    assert.equal(account('2140').balance, -200);
+    assert.equal(account('9020').balance, -100);
+    assert.equal(account('5270').presentedBalance, 3650, 'a liability presents in its natural direction');
     assert.equal(ledger.json.entries.length, 5);
     assert.equal(ledger.json.totals.debit, 0);
     assert.equal(ledger.json.totals.credit, 5000);
@@ -1167,9 +1167,9 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
     assert.ok(journal, 'the payment must write its own journal');
     const lines = await journalLines(journal.id);
     const byCode = (code: string) => lines.filter((line) => line.code === code);
-    assert.deepEqual(byCode('2320').map((line) => line.debit).sort((a, b) => a - b), [3360, 3650]);
-    assert.equal(byCode('1010').length, 1);
-    assert.equal(byCode('1010')[0].credit, 7010);
+    assert.deepEqual(byCode('5270').map((line) => line.debit).sort((a, b) => a - b), [3360, 3650]);
+    assert.equal(byCode('2310').length, 1);
+    assert.equal(byCode('2310')[0].credit, 7010);
     assert.equal(lines.reduce((sum, line) => sum + line.debit, 0), 7010);
     assert.equal(lines.reduce((sum, line) => sum + line.credit, 0), 7010);
 
@@ -1186,7 +1186,7 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
     assert.equal(reconciled.json.subledgerBalance, 0);
 
     const ledger = await get(`/api/employees/${emp1.id}/ledger?branchId=${BR}`);
-    assert.equal(ledger.json.accounts.find((row: any) => row.code === '2320').balance, 0);
+    assert.equal(ledger.json.accounts.find((row: any) => row.code === '5270').balance, 0);
     assert.equal(ledger.json.totals.debit, 3650);
     assert.equal(ledger.json.totals.credit, 5000);
 
@@ -1204,12 +1204,12 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
     assert.equal(full.json.totals.closingBalance, -1350);
 
     const account = (rows: any[], code: string) => rows.find((row: any) => row.code === code);
-    const payable = account(full.json.accounts, '2320');
+    const payable = account(full.json.accounts, '5270');
     assert.equal(payable.openingBalance, 0);
     assert.equal(payable.closingBalance, 0);
     assert.equal(payable.presentedClosingBalance, 0);
 
-    const tds = account(full.json.accounts, '2330');
+    const tds = account(full.json.accounts, '5220');
     assert.equal(tds.openingBalance, 0);
     assert.equal(tds.closingBalance, -500);
     assert.equal(tds.presentedClosingBalance, 500);
@@ -1232,8 +1232,8 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
     assert.equal(after.json.totals.credit, 0);
     assert.equal(after.json.totals.openingBalance, -1350);
     assert.equal(after.json.totals.closingBalance, -1350);
-    assert.equal(account(after.json.accounts, '2330').presentedOpeningBalance, 500);
-    assert.equal(account(after.json.accounts, '2330').presentedClosingBalance, 500);
+    assert.equal(account(after.json.accounts, '5220').presentedOpeningBalance, 500);
+    assert.equal(account(after.json.accounts, '5220').presentedClosingBalance, 500);
   });
 
   test('a second payment is refused with no extra journal', async () => {

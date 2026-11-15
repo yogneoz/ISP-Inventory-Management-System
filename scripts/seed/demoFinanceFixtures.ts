@@ -13,9 +13,9 @@ import { bsOn, insertRows, type Row } from './fixtureUtils';
 const SEED = 'seed:verify';
 
 const BUDGET_ACCOUNTS = [
-  { code: '4000', id: 'gla-4000', name: 'Sales Revenue', accountType: 'INCOME' as const, amount: 250_000 },
-  { code: '6100', id: 'gla-6100', name: 'General Operating Expense', accountType: 'EXPENSE' as const, amount: 30_000 },
-  { code: '6400', id: 'gla-6400', name: 'Salaries & Wages', accountType: 'EXPENSE' as const, amount: 50_000 },
+  { code: '6010', id: 'gla-6010', name: 'Sales Revenue', accountType: 'INCOME' as const, amount: 250_000 },
+  { code: '7300', id: 'gla-7300', name: 'General Operating Expense', accountType: 'EXPENSE' as const, amount: 30_000 },
+  { code: '7110', id: 'gla-7110', name: 'Salaries & Wages', accountType: 'EXPENSE' as const, amount: 50_000 },
 ];
 
 /**
