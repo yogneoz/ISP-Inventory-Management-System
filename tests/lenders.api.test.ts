@@ -15,7 +15,7 @@ import { createApp, registerAllRoutes } from '../server/src/app';
 import { issueAuthToken } from '../server/src/middleware/auth';
 import { setPermissionMatrix } from '../server/src/state/runtimeState';
 import { DEFAULT_PERMISSIONS_MATRIX } from '../client/src/utils/permissionMatrixData';
-import { ensureReferenceData } from './fixtures/referenceData';
+import { ensureBsDayRecords, ensureReferenceData } from './fixtures/referenceData';
 import {
   ensureDefaultChart,
   ensureDefaultSubledgers,
@@ -43,6 +43,17 @@ const JOURNAL_DATE = '2026-08-15';
 const PERIOD_KEY = '2026-08';
 const LENDER_CODE = 'LNT-OWNER';
 const UNUSED_CODE = 'LNT-UNUSED';
+
+/** The loan fixture runs its schedule through 2027-07-31; a schema-only CI
+ * database needs every AD day in that term mapped to BS, not just the August
+ * posting month, or schedule generation fails on the first 2027 due date. */
+function loanTermDates(): string[] {
+  const dates: string[] = [];
+  for (let time = Date.UTC(2026, 7, 1); time <= Date.UTC(2027, 6, 31); time += 86_400_000) {
+    dates.push(new Date(time).toISOString().slice(0, 10));
+  }
+  return dates;
+}
 
 const USERS = {
   super: {
@@ -159,6 +170,7 @@ describe('lender master, loan register and statement API (real HTTP + PostgreSQL
 
   before(async () => {
     await ensureReferenceData(pool!, JOURNAL_DATE);
+    await ensureBsDayRecords(pool!, loanTermDates());
     await ensureDefaultChart(pool!);
     await ensureDefaultSubledgers(pool!);
     await cleanup();
