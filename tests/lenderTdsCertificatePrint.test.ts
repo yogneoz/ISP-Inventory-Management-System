@@ -49,7 +49,10 @@ function findBrowser(): string | null {
 
 function requireBrowser(t: TestContext): string | null {
   const browser = findBrowser();
-  if (browser) return browser;
+  if (browser) {
+    console.log(`TDS certificate print browser: ${browser}`);
+    return browser;
+  }
 
   const pinned = process.env.TDS_CERT_BROWSER?.trim();
   if (pinned) {
