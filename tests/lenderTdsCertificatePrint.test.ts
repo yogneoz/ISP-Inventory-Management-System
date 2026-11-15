@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -31,6 +31,9 @@ function browserCandidates(): string[] {
 }
 
 function findBrowser(): string | null {
+  const pinned = process.env.TDS_CERT_BROWSER?.trim();
+  if (pinned) return fs.existsSync(pinned) ? pinned : null;
+
   for (const candidate of browserCandidates()) {
     if (fs.existsSync(candidate)) return candidate;
   }
@@ -41,6 +44,28 @@ function findBrowser(): string | null {
     const first = lookup.stdout.trim().split(/\r?\n/)[0];
     if (first) return first;
   }
+  return null;
+}
+
+function requireBrowser(t: TestContext): string | null {
+  const browser = findBrowser();
+  if (browser) return browser;
+
+  const pinned = process.env.TDS_CERT_BROWSER?.trim();
+  if (pinned) {
+    assert.fail(`TDS_CERT_BROWSER points to "${pinned}", but no browser exists there.`);
+  }
+  if (process.env.CI) {
+    assert.fail(
+      'CI must run the TDS certificate print regression, but no browser was found. ' +
+        'Pin TDS_CERT_BROWSER to the installed Chrome path.'
+    );
+  }
+
+  t.skip(
+    'No Chrome/Chromium/Edge executable found for headless PDF rendering; ' +
+      'set TDS_CERT_BROWSER to pin one and run this test.'
+  );
   return null;
 }
 
@@ -157,11 +182,8 @@ function printStatement() {
 }
 
 test('TDS certificate prints on A4 with intact rows and totals', async (t) => {
-  const browser = findBrowser();
-  if (!browser) {
-    t.skip('No Chrome/Chromium/Edge executable found for headless PDF rendering.');
-    return;
-  }
+  const browser = requireBrowser(t);
+  if (!browser) return;
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tds-certificate-print-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -346,11 +368,8 @@ function stressStatement() {
 }
 
 test('TDS certificate paginates a 48-row table with repeated headers and intact rows', async (t) => {
-  const browser = findBrowser();
-  if (!browser) {
-    t.skip('No Chrome/Chromium/Edge executable found for headless PDF rendering.');
-    return;
-  }
+  const browser = requireBrowser(t);
+  if (!browser) return;
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tds-certificate-stress-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));

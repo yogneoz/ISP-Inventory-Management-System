@@ -91,6 +91,10 @@ jobs:
       - run: npm test
         env:
           LIVE_DRAIN_REQUIRE_REAL_SIGNAL: '1'
+          # Pin the browser used by the TDS certificate print regression. CI
+          # has no skip path for that test: a missing binary or a runner image
+          # that moves Chrome must fail the job, not silently drop the proof.
+          TDS_CERT_BROWSER: /usr/bin/google-chrome
       - name: Enforce repo-layer convention (no raw SQL in controllers)
         run: npm run check:no-inline-sql
       # The window.alert monkey-patch was removed when all ~100 raw call
