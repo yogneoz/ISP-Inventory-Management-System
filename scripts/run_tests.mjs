@@ -45,11 +45,11 @@ const npxCmd = isWindows ? 'npx.cmd' : 'npx';
 const spawnEnv = { ...process.env, NODE_ENV: 'test' };
 
 /**
- * CI runs the suite in four isolated matrix runners. Node's --test-shard
- * partitions TEST FILES (not individual subtests), so the docs-count gate
- * cannot run here: it would compare the docs against one quarter of the suite.
- * The workflow sums the four summary files and runs that gate once after all
- * shards finish. Local/unsharded `npm test` keeps the gate in this process.
+ * CI runs the suite in isolated matrix runners. Node's --test-shard partitions
+ * TEST FILES (not individual subtests), so the docs-count gate cannot run here:
+ * it would compare the docs against one shard's share of the suite. The workflow
+ * sums every summary file and runs that gate once after all shards finish.
+ * Local/unsharded `npm test` keeps the gate in this process.
  */
 const shard = (process.env.TEST_SHARD || '').trim();
 if (shard) {

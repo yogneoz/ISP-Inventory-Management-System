@@ -121,15 +121,15 @@ jobs:
   # --test-shard flag. Each matrix runner is a separate VM with its own
   # PostgreSQL container, so the fixed-name throwaway databases
   # (inventory_concurrency_test, inventory_drain_test, ...) cannot collide.
-  # fail-fast stays off so one red shard still lets the other three report.
+  # fail-fast stays off so one red shard still lets the other shards report.
   test-suite:
-    name: test-suite (${{ matrix.shard }}/4)
+    name: test-suite (${{ matrix.shard }}/6)
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
 
     services:
       postgres:
@@ -190,13 +190,13 @@ jobs:
       - name: Seed this shard's BS reference calendar
         run: npx tsx scripts/seedShardCalendar.ts
       # scripts/run_tests.mjs is the same runner `npm test` uses; the static
-      # job already ran tsc, so each shard does not repeat it four times.
-      # TEST_SHARD=1/4 ... 4/4 makes node:test select one quarter of the test
+      # job already ran tsc, so each shard does not repeat it six times.
+      # TEST_SHARD=1/6 ... 6/6 makes node:test select one sixth of the test
       # files. The shard writes its own totals for the docs-count gate below.
-      - name: Run test shard ${{ matrix.shard }}/4
+      - name: Run test shard ${{ matrix.shard }}/6
         run: node scripts/run_tests.mjs
         env:
-          TEST_SHARD: ${{ matrix.shard }}/4
+          TEST_SHARD: ${{ matrix.shard }}/6
           TEST_SUMMARY_PATH: test-summary-${{ matrix.shard }}.json
       - name: Upload shard totals
         if: always()
@@ -209,8 +209,8 @@ jobs:
 
   # `npm test` normally checks every current-state test-count claim in the docs
   # against the total its single process executed. A shard only sees its own
-  # quarter, so this tiny dependent job sums the four artifacts and runs the
-  # exact same gate once. It adds no test work and does not run in the parallel
+  # share, so this tiny dependent job sums all six artifacts and runs the exact
+  # same gate once. It adds no test work and does not run in the parallel
   # wall-clock path until the shards finish.
   docs-count-gate:
     needs: test-suite
@@ -226,15 +226,15 @@ jobs:
           pattern: test-summary-*
           path: test-summaries
           merge-multiple: true
-      - name: Check docs test-count claims against all four shards
+      - name: Check docs test-count claims against all six shards
         run: |
           TOTAL=$(node -e '
             const fs = require("node:fs");
             const path = require("node:path");
             const dir = "test-summaries";
             const files = fs.readdirSync(dir).filter((name) => name.endsWith(".json"));
-            if (files.length !== 4) {
-              console.error(`docs-count gate: expected 4 shard summaries, found ${files.length}`);
+            if (files.length !== 6) {
+              console.error(`docs-count gate: expected 6 shard summaries, found ${files.length}`);
               process.exit(1);
             }
             let tests = 0;
