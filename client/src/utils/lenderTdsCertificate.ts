@@ -94,7 +94,7 @@ export function buildLenderTdsCertificateHtml(
   h1 { margin: 14px 0 2px; text-align: center; font: 700 16px/1.25 Georgia, serif; letter-spacing: 1px; }
   .cert-no { text-align: center; color: #4b5563; font-size: 10px; margin-bottom: 14px; }
   .meta { display: flex; justify-content: space-between; gap: 24px; margin-bottom: 12px; }
-  .meta div { width: 50%; }
+  .meta div { width: 50%; overflow-wrap: anywhere; }
   .label { color: #6b7280; font-size: 9px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; }
   .value { margin-top: 2px; font-weight: 600; }
   .body-copy { margin: 10px 0 12px; text-align: justify; }

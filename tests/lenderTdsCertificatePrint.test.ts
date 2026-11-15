@@ -295,7 +295,7 @@ function stressStatement() {
       code: 'UICERT-STRESS-2026-LONG-CODE',
       name:
         'UI Certificate <Bank> & Co — National Infrastructure and Rural Electrification Finance Corporation Limited (Stress Test)',
-      panNumber: 'PAN-ABCDEFGH-1234567890-SUPER-LONG-IDENTIFIER',
+      panNumber: 'PANABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789SUPERLONGIDENTIFIER',
     },
     from: '2026-11-01',
     to: '2026-12-31',
@@ -430,9 +430,7 @@ test('TDS certificate paginates a large table and wraps a long lender identity',
   assert.match(page1, /TDS\/UICERT-STRESS-2026-LONG-CODE\/2026-11-01\/2026-12-31/);
   assert.match(page1, /UI Certificate <Bank> & Co/);
   assert.match(page1, /National Infrastructure and Rural/);
-  assert.match(page1, /PAN-ABCDEFGH-/);
-  assert.match(page1, /1234567890-SUPER-LONG-/);
-  assert.match(page1, /IDENTIFIER/);
+  assert.match(page1.replace(/\s+/g, ''), /PAN:PANABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789SUPERLONGIDENTIFIER/);
   assert.equal(new Set(allText.match(/LP-STRESS-2026-\d{3}/g) || []).size, 48);
   assert.equal(
     (allText.match(/LP-STRESS-2026-\d{3}/g) || []).length,
