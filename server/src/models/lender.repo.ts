@@ -185,6 +185,9 @@ export const LOAN_COLUMNS = `ln.id,
   ln.status,
   ln.agreement_reference AS "agreementReference",
   ln.notes,
+  ln.tds_applicable AS "tdsApplicable",
+  ln.tds_exemption_reason AS "tdsExemptionReason",
+  ln.tds_exemption_reference AS "tdsExemptionReference",
   ln.created_by AS "createdBy",
   ln.created_at AS "createdAt",
   ln.updated_at AS "updatedAt",
@@ -261,11 +264,12 @@ export const LOAN_INSERT_SQL = `INSERT INTO loans (
   id, loan_number, lender_id, branch_id, principal, interest_rate,
   start_date_ad, start_date_bs, maturity_date_ad, maturity_date_bs,
   repayment_frequency, installment_amount, security_type, status,
-  agreement_reference, notes, created_by
+  agreement_reference, notes, tds_applicable, tds_exemption_reason,
+  tds_exemption_reference, created_by
 ) VALUES (
   $1, $2, $3, $4, $5, $6,
   $7::date, $8, $9::date, $10,
-  $11, $12, $13, $14, $15, $16, $17
+  $11, $12, $13, $14, $15, $16, $17, $18, $19, $20
 )
 RETURNING id`;
 
@@ -282,6 +286,9 @@ export const LOAN_UPDATE_SQL = `UPDATE loans SET
   status = $11,
   agreement_reference = $12,
   notes = $13,
+  tds_applicable = $14,
+  tds_exemption_reason = $15,
+  tds_exemption_reference = $16,
   updated_at = CURRENT_TIMESTAMP
 WHERE id = $1
 RETURNING id`;
@@ -298,6 +305,8 @@ export const LOAN_TRANSACTION_COLUMNS = `t.id,
   t.interest_amount::numeric AS "interestAmount",
   t.tds_amount::numeric AS "tdsAmount",
   t.interest_payable_applied::numeric AS "interestPayableApplied",
+  t.tds_exemption_reason AS "tdsExemptionReason",
+  t.tds_exemption_reference AS "tdsExemptionReference",
   t.cash_amount::numeric AS "cashAmount",
   t.cash_account_id AS "cashAccountId",
   t.interest_account_id AS "interestAccountId",
@@ -326,10 +335,11 @@ export const LOAN_TRANSACTION_INSERT_SQL = `INSERT INTO loan_transactions (
   id, txn_number, loan_id, lender_id, branch_id, txn_type, txn_date_ad,
   txn_date_bs, principal_amount, interest_amount, tds_amount, cash_amount,
   cash_account_id, interest_account_id, tds_account_id, cheque_no,
-  reference_no, notes, journal_id, created_by, interest_payable_applied
+  reference_no, notes, journal_id, created_by, interest_payable_applied,
+  tds_exemption_reason, tds_exemption_reference
 ) VALUES (
   $1, $2, $3, $4, $5, $6, $7::date, $8, $9, $10, $11, $12,
-  $13, $14, $15, $16, $17, $18, $19, $20, $21
+  $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23
 )
 RETURNING id`;
 
@@ -452,27 +462,49 @@ export const LOAN_ACCRUAL_INSERT_SQL = `INSERT INTO loan_interest_accruals (
 )
 RETURNING id`;
 
-/** Actual TDS withheld on loan-interest repayments in one lender/date window. */
+/**
+ * Every posted repayment in the lender/date window, not only TDS-bearing rows.
+ * Exempt and no-interest repayments must remain visible as audit evidence.
+ */
 export const LENDER_TDS_REPORT_SQL = `SELECT
   t.id,
   t.txn_number AS "txnNumber",
   t.txn_date_ad::text AS "dateAD",
   t.txn_date_bs AS "dateBS",
+  t.principal_amount::numeric AS "principalAmount",
   t.interest_amount::numeric AS "interestAmount",
   t.tds_amount::numeric AS "tdsAmount",
+  t.tds_exemption_reason AS "tdsExemptionReason",
+  t.tds_exemption_reference AS "tdsExemptionReference",
   t.cash_amount::numeric AS "cashAmount",
   ln.loan_number AS "loanNumber",
+  ln.tds_applicable AS "loanTdsApplicable",
+  ln.tds_exemption_reason AS "loanTdsExemptionReason",
+  ln.tds_exemption_reference AS "loanTdsExemptionReference",
   j.journal_no AS "journalNo"
 FROM loan_transactions t
 JOIN gl_journals j ON j.id = t.journal_id AND j.status = 'POSTED'
 JOIN loans ln ON ln.id = t.loan_id
 WHERE t.lender_id = $1
   AND t.txn_type = 'REPAYMENT'
-  AND t.tds_amount > 0
   AND ($2::date IS NULL OR t.txn_date_ad >= $2::date)
   AND ($3::date IS NULL OR t.txn_date_ad <= $3::date)
   AND ($4::varchar IS NULL OR t.branch_id = $4)
 ORDER BY t.txn_date_ad ASC, t.txn_number ASC`;
+
+/** Ledger control totals for the same repayment window as the TDS register. */
+export const LENDER_REPAYMENT_LEDGER_TOTALS_SQL = `SELECT
+  COALESCE(SUM(t.principal_amount), 0)::numeric AS principal,
+  COALESCE(SUM(t.interest_amount), 0)::numeric AS interest,
+  COALESCE(SUM(t.tds_amount), 0)::numeric AS tds,
+  COALESCE(SUM(t.cash_amount), 0)::numeric AS cash
+FROM loan_transactions t
+JOIN gl_journals j ON j.id = t.journal_id AND j.status = 'POSTED'
+WHERE t.lender_id = $1
+  AND t.txn_type = 'REPAYMENT'
+  AND ($2::date IS NULL OR t.txn_date_ad >= $2::date)
+  AND ($3::date IS NULL OR t.txn_date_ad <= $3::date)
+  AND ($4::varchar IS NULL OR t.branch_id = $4)`;
 
 export const LENDER_STATEMENT_OPENING_SQL = `SELECT
   COALESCE(SUM(se.credit - se.debit), 0)::numeric AS opening

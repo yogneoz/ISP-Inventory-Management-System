@@ -10,6 +10,15 @@ import { fetchJson } from './http';
 export type LenderType = 'OWNER' | 'RELATED_PARTY' | 'OTHER';
 export type LoanStatus = 'OPEN' | 'CLOSED' | 'CANCELLED';
 export type LoanRepaymentFrequency = 'LUMP_SUM' | 'MONTHLY' | 'QUARTERLY' | 'HALF_YEARLY' | 'ANNUAL';
+export type TdsExemptionReason =
+  | 'RESIDENT_BANK'
+  | 'RESIDENT_FI'
+  | 'INTER_COOP'
+  | 'NO_INTEREST'
+  | 'TREATY'
+  | 'EXEMPT_INCOME'
+  | 'OTHER';
+export type TdsStatus = 'WITHHELD' | 'EXEMPT' | 'UNEXPLAINED' | 'NO_INTEREST';
 
 export interface LenderOption {
   id: string;
@@ -78,6 +87,9 @@ export interface LoanRecord {
   status: LoanStatus;
   agreementReference: string | null;
   notes: string | null;
+  tdsApplicable: boolean;
+  tdsExemptionReason: TdsExemptionReason | null;
+  tdsExemptionReference: string | null;
   createdBy?: string | null;
   createdAt?: string;
   updatedAt?: string;
@@ -113,6 +125,9 @@ export interface LoanInput {
   status: LoanStatus;
   agreementReference?: string | null;
   notes?: string | null;
+  tdsApplicable?: boolean;
+  tdsExemptionReason?: TdsExemptionReason | null;
+  tdsExemptionReference?: string | null;
 }
 
 export interface LenderStatementEntry {
@@ -143,6 +158,8 @@ export interface LoanTransaction {
   interestAmount: number;
   tdsAmount: number;
   interestPayableApplied: number;
+  tdsExemptionReason: TdsExemptionReason | null;
+  tdsExemptionReference: string | null;
   cashAmount: number;
   cashAccountId: string;
   interestAccountId: string | null;
@@ -221,9 +238,13 @@ export interface LoanTdsEntry {
   txnNumber: string;
   dateAD: string;
   dateBS: string;
+  principalAmount: number;
   interestAmount: number;
   tdsAmount: number;
   cashAmount: number;
+  tdsStatus: TdsStatus;
+  exemptionReason: TdsExemptionReason | null;
+  exemptionReference: string | null;
   loanNumber: string;
   journalNo: string;
 }
@@ -236,6 +257,8 @@ export interface LoanRepaymentInput {
   cashAccountId?: string;
   interestAccountId?: string;
   tdsAccountId?: string;
+  tdsExemptionReason?: TdsExemptionReason | null;
+  tdsExemptionReference?: string | null;
   chequeNo?: string | null;
   chequeDateAD?: string | null;
   referenceNo?: string | null;
@@ -254,7 +277,30 @@ export interface LenderStatement {
   totals: { debit: number; credit: number; closingBalance: number };
   loans: LoanRecord[];
   tdsEntries: LoanTdsEntry[];
-  tdsTotals: { interest: number; tds: number; cash: number };
+  tdsTotals: {
+    principal: number;
+    interest: number;
+    tds: number;
+    cash: number;
+    withheldInterest: number;
+    withheldTax: number;
+    exemptInterest: number;
+    unexplainedInterest: number;
+    noInterestPrincipal: number;
+    withheldCount: number;
+    exemptCount: number;
+    unexplainedCount: number;
+    noInterestCount: number;
+    ledgerPrincipal: number;
+    ledgerInterest: number;
+    ledgerTds: number;
+    ledgerCash: number;
+    principalDifference: number;
+    interestDifference: number;
+    tdsDifference: number;
+    cashDifference: number;
+    reconciled: boolean;
+  };
   tieOut: {
     glBalance: number;
     subledgerBalance: number;

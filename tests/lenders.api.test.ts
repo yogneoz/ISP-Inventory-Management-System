@@ -472,15 +472,15 @@ describe('lender master, loan register and statement API (real HTTP + PostgreSQL
       dateAD: '2026-08-20',
       principal: 200,
       interestAmount: 20,
-      tdsAmount: 2,
+      tdsAmount: 3,
       referenceNo: 'LNT-REPAY-1',
     });
     assert.equal(repayment.status, 201, JSON.stringify(repayment.json));
     assert.equal(repayment.json.transaction.txnType, 'REPAYMENT');
     assert.equal(repayment.json.transaction.principalAmount, 200);
     assert.equal(repayment.json.transaction.interestAmount, 20);
-    assert.equal(repayment.json.transaction.tdsAmount, 2);
-    assert.equal(repayment.json.transaction.cashAmount, 218);
+    assert.equal(repayment.json.transaction.tdsAmount, 3);
+    assert.equal(repayment.json.transaction.cashAmount, 217);
     assert.equal(repayment.json.transaction.interestAccountId, 'gla-6700');
     assert.equal(repayment.json.transaction.tdsAccountId, 'gla-2360');
     assert.equal(repayment.json.transaction.interestPayableApplied, 1.27);
@@ -489,7 +489,7 @@ describe('lender master, loan register and statement API (real HTTP + PostgreSQL
     assert.equal(repayment.json.loan.repaidPrincipal, 200);
     assert.equal(repayment.json.loan.outstandingPrincipal, 300);
     assert.equal(repayment.json.loan.interestPaid, 20);
-    assert.equal(repayment.json.loan.tdsWithheld, 2);
+    assert.equal(repayment.json.loan.tdsWithheld, 3);
     assert.equal(repayment.json.loan.interestAccrued, 1.27);
     assert.equal(repayment.json.loan.status, 'OPEN');
 
@@ -507,8 +507,8 @@ describe('lender master, loan register and statement API (real HTTP + PostgreSQL
     assert.deepEqual(byAccount.get(loanAccountId), { debit: 200, credit: 0 });
     assert.deepEqual(byAccount.get('gla-2370'), { debit: 1.27, credit: 0 });
     assert.deepEqual(byAccount.get('gla-6700'), { debit: 18.73, credit: 0 });
-    assert.deepEqual(byAccount.get('gla-2360'), { debit: 0, credit: 2 });
-    assert.deepEqual(byAccount.get(cashAccountId), { debit: 0, credit: 218 });
+    assert.deepEqual(byAccount.get('gla-2360'), { debit: 0, credit: 3 });
+    assert.deepEqual(byAccount.get(cashAccountId), { debit: 0, credit: 217 });
 
     const finalStatement = await get(
       `/api/accounting/lenders/${lenderId}/statement?from=2026-08-01&to=2026-08-31`,
@@ -521,10 +521,19 @@ describe('lender master, loan register and statement API (real HTTP + PostgreSQL
     assert.equal(finalStatement.json.entries.length, 2);
     assert.equal(finalStatement.json.entries[0].dateBS !== null, true);
     assert.equal(finalStatement.json.tdsEntries.length, 1);
-    assert.equal(finalStatement.json.tdsEntries[0].loanNumber, loanNumber);
-    assert.equal(finalStatement.json.tdsEntries[0].interestAmount, 20);
-    assert.equal(finalStatement.json.tdsEntries[0].tdsAmount, 2);
-    assert.deepEqual(finalStatement.json.tdsTotals, { interest: 20, tds: 2, cash: 218 });
+    const withheldRow = finalStatement.json.tdsEntries.find(
+      (row: any) => row.tdsStatus === 'WITHHELD'
+    );
+    assert.ok(withheldRow, 'the register must show the TDS-bearing repayment');
+    assert.equal(withheldRow.loanNumber, loanNumber);
+    assert.equal(withheldRow.interestAmount, 20);
+    assert.equal(withheldRow.tdsAmount, 3);
+    assert.equal(withheldRow.cashAmount, 217);
+    assert.equal(finalStatement.json.tdsTotals.withheldInterest, 20);
+    assert.equal(finalStatement.json.tdsTotals.withheldTax, 3);
+    assert.equal(finalStatement.json.tdsTotals.exemptInterest, 0);
+    assert.equal(finalStatement.json.tdsTotals.reconciled, true);
+    assert.equal(finalStatement.json.tdsTotals.ledgerTds, 3);
 
     const openingBeforeReceipt = await get(
       `/api/accounting/lenders/${lenderId}/statement?from=2026-08-16&to=2026-08-31`,
@@ -631,5 +640,281 @@ describe('lender master, loan register and statement API (real HTTP + PostgreSQL
       tokens.noView
     );
     assert.equal(noViewStatement.status, 403, JSON.stringify(noViewStatement.json));
+  });
+
+  test('records auditable zero-TDS exemptions and reconciles the TDS register', async () => {
+    const bank = await post('/api/accounting/lenders', tokens.super, {
+      code: 'LNT-BANK',
+      name: 'LENDER TEST Resident Bank',
+      lenderType: 'OTHER',
+    });
+    assert.equal(bank.status, 201, JSON.stringify(bank.json));
+    const bankLenderId = bank.json.id as string;
+
+    const missingReason = await post('/api/accounting/loans', tokens.super, {
+      lenderId: bankLenderId,
+      branchId: BR,
+      principal: 500,
+      interestRate: 12,
+      startDateAD: '2026-08-01',
+      repaymentFrequency: 'LUMP_SUM',
+      securityType: 'UNSECURED',
+      status: 'OPEN',
+      tdsApplicable: false,
+    });
+    assert.equal(missingReason.status, 400, JSON.stringify(missingReason.json));
+    assert.match(missingReason.json.message, /exemption reason/i);
+
+    const invalidReason = await post('/api/accounting/loans', tokens.super, {
+      lenderId: bankLenderId,
+      branchId: BR,
+      principal: 500,
+      interestRate: 12,
+      startDateAD: '2026-08-01',
+      repaymentFrequency: 'LUMP_SUM',
+      securityType: 'UNSECURED',
+      status: 'OPEN',
+      tdsApplicable: false,
+      tdsExemptionReason: 'BOGUS',
+      tdsExemptionReference: 'x',
+    });
+    assert.equal(invalidReason.status, 400, JSON.stringify(invalidReason.json));
+    assert.match(invalidReason.json.message, /RESIDENT_BANK/);
+
+    const missingReference = await post('/api/accounting/loans', tokens.super, {
+      lenderId: bankLenderId,
+      branchId: BR,
+      principal: 500,
+      interestRate: 12,
+      startDateAD: '2026-08-01',
+      repaymentFrequency: 'LUMP_SUM',
+      securityType: 'UNSECURED',
+      status: 'OPEN',
+      tdsApplicable: false,
+      tdsExemptionReason: 'RESIDENT_BANK',
+    });
+    assert.equal(missingReference.status, 400, JSON.stringify(missingReference.json));
+    assert.match(missingReference.json.message, /certificate|notification/i);
+
+    const exemptLoan = await post('/api/accounting/loans', tokens.super, {
+      lenderId: bankLenderId,
+      branchId: BR,
+      principal: 500,
+      interestRate: 12,
+      startDateAD: '2026-08-01',
+      repaymentFrequency: 'LUMP_SUM',
+      securityType: 'UNSECURED',
+      status: 'OPEN',
+      tdsApplicable: false,
+      tdsExemptionReason: 'RESIDENT_BANK',
+      tdsExemptionReference: 'NRB bank licence 123 · Income Tax Act s.88(1) bank carve-out',
+    });
+    assert.equal(exemptLoan.status, 201, JSON.stringify(exemptLoan.json));
+    assert.equal(exemptLoan.json.tdsApplicable, false);
+    assert.equal(exemptLoan.json.tdsExemptionReason, 'RESIDENT_BANK');
+    assert.match(exemptLoan.json.tdsExemptionReference, /NRB bank licence/);
+
+    const exemptLoanId = exemptLoan.json.id as string;
+    const appliedOnApplicable = await patch(`/api/accounting/loans/${exemptLoanId}`, tokens.super, {
+      tdsApplicable: true,
+    });
+    assert.equal(appliedOnApplicable.status, 400, JSON.stringify(appliedOnApplicable.json));
+    assert.match(appliedOnApplicable.json.message, /cannot carry an exemption reason/i);
+
+    const receiveExempt = await post(`/api/accounting/loans/${exemptLoanId}/receipts`, tokens.super, {
+      dateAD: JOURNAL_DATE,
+      principal: 500,
+      cashAccountId,
+    });
+    assert.equal(receiveExempt.status, 201, JSON.stringify(receiveExempt.json));
+
+    const exemptRepayment = await post(
+      `/api/accounting/loans/${exemptLoanId}/repayments`,
+      tokens.super,
+      {
+        dateAD: '2026-08-20',
+        principal: 100,
+        interestAmount: 40,
+        tdsAmount: 0,
+        cashAccountId,
+      }
+    );
+    assert.equal(exemptRepayment.status, 201, JSON.stringify(exemptRepayment.json));
+    assert.equal(exemptRepayment.json.transaction.tdsAmount, 0);
+    assert.equal(exemptRepayment.json.transaction.cashAmount, 140);
+    assert.equal(exemptRepayment.json.transaction.tdsExemptionReason, 'RESIDENT_BANK');
+    assert.match(exemptRepayment.json.transaction.tdsExemptionReference, /NRB bank licence/);
+
+    const exemptLines = await pool!.query(
+      `SELECT account_id, debit, credit
+         FROM gl_journal_lines
+        WHERE journal_id = $1
+        ORDER BY debit DESC, account_id`,
+      [exemptRepayment.json.transaction.journalId]
+    );
+    assert.equal(exemptLines.rowCount, 3, 'a zero-TDS repayment must not create a TDS line');
+    assert.equal(
+      exemptLines.rows.some((row) => row.account_id === 'gla-2360'),
+      false,
+      'no TDS payable line may be posted'
+    );
+
+    const overrideLoan = await post('/api/accounting/loans', tokens.super, {
+      lenderId: bankLenderId,
+      branchId: BR,
+      principal: 100,
+      interestRate: 12,
+      startDateAD: '2026-08-01',
+      repaymentFrequency: 'LUMP_SUM',
+      securityType: 'UNSECURED',
+      status: 'OPEN',
+    });
+    assert.equal(overrideLoan.status, 201, JSON.stringify(overrideLoan.json));
+    assert.equal(overrideLoan.json.tdsApplicable, true);
+
+    const reasonOnApplicable = await patch(
+      `/api/accounting/loans/${overrideLoan.json.id}`,
+      tokens.super,
+      { tdsExemptionReason: 'RESIDENT_BANK', tdsExemptionReference: 'certificate' }
+    );
+    assert.equal(reasonOnApplicable.status, 400, JSON.stringify(reasonOnApplicable.json));
+    assert.match(reasonOnApplicable.json.message, /cannot carry an exemption reason/i);
+
+    const receiveOverride = await post(
+      `/api/accounting/loans/${overrideLoan.json.id}/receipts`,
+      tokens.super,
+      { dateAD: JOURNAL_DATE, principal: 100, cashAccountId }
+    );
+    assert.equal(receiveOverride.status, 201, JSON.stringify(receiveOverride.json));
+
+    const unexplained = await post(
+      `/api/accounting/loans/${overrideLoan.json.id}/repayments`,
+      tokens.super,
+      { dateAD: '2026-08-20', principal: 100, interestAmount: 10, tdsAmount: 0, cashAccountId }
+    );
+    assert.equal(unexplained.status, 400, JSON.stringify(unexplained.json));
+    assert.match(unexplained.json.message, /requires an exemption reason/i);
+
+    const noInterestReason = await post(
+      `/api/accounting/loans/${overrideLoan.json.id}/repayments`,
+      tokens.super,
+      {
+        dateAD: '2026-08-20',
+        principal: 100,
+        interestAmount: 10,
+        tdsAmount: 0,
+        cashAccountId,
+        tdsExemptionReason: 'NO_INTEREST',
+      }
+    );
+    assert.equal(noInterestReason.status, 400, JSON.stringify(noInterestReason.json));
+    assert.match(noInterestReason.json.message, /NO_INTEREST applies only/i);
+
+    const overridden = await post(
+      `/api/accounting/loans/${overrideLoan.json.id}/repayments`,
+      tokens.super,
+      {
+        dateAD: '2026-08-20',
+        principal: 100,
+        interestAmount: 10,
+        tdsAmount: 0,
+        cashAccountId,
+        tdsExemptionReason: 'RESIDENT_BANK',
+        tdsExemptionReference: 'Bank interest certificate 2026/27',
+      }
+    );
+    assert.equal(overridden.status, 201, JSON.stringify(overridden.json));
+    assert.equal(overridden.json.transaction.tdsAmount, 0);
+    assert.equal(overridden.json.transaction.cashAmount, 110);
+    assert.equal(overridden.json.transaction.tdsExemptionReason, 'RESIDENT_BANK');
+    const unchangedLoan = await get(
+      `/api/accounting/loans/${overrideLoan.json.id}`,
+      tokens.super
+    );
+    assert.equal(unchangedLoan.status, 200, JSON.stringify(unchangedLoan.json));
+    assert.equal(unchangedLoan.json.loan.tdsApplicable, true);
+    assert.equal(unchangedLoan.json.loan.tdsExemptionReason, null);
+
+    const bankRegister = await get(
+      `/api/accounting/lenders/${bankLenderId}/statement?from=2026-08-01&to=2026-08-31`,
+      tokens.super
+    );
+    assert.equal(bankRegister.status, 200, JSON.stringify(bankRegister.json));
+    assert.equal(bankRegister.json.tdsEntries.length, 2);
+    assert.ok(
+      bankRegister.json.tdsEntries.every((row: any) => row.tdsStatus === 'EXEMPT'),
+      'both zero-TDS repayments must appear as exempt'
+    );
+    assert.ok(
+      bankRegister.json.tdsEntries.every((row: any) => row.exemptionReason === 'RESIDENT_BANK')
+    );
+    assert.match(bankRegister.json.tdsEntries[0].exemptionReference, /NRB bank licence|certificate/i);
+    assert.equal(bankRegister.json.tdsTotals.withheldTax, 0);
+    assert.equal(bankRegister.json.tdsTotals.exemptInterest, 50);
+    assert.equal(bankRegister.json.tdsTotals.exemptCount, 2);
+    assert.equal(bankRegister.json.tdsTotals.interest, 50);
+    assert.equal(bankRegister.json.tdsTotals.principal, 200);
+    assert.equal(bankRegister.json.tdsTotals.cash, 250);
+    assert.equal(bankRegister.json.tdsTotals.reconciled, true);
+    assert.equal(bankRegister.json.tdsTotals.ledgerInterest, 50);
+    assert.equal(bankRegister.json.tdsTotals.ledgerTds, 0);
+
+    const freeLender = await post('/api/accounting/lenders', tokens.super, {
+      code: 'LNT-FREE',
+      name: 'LENDER TEST Interest Free',
+      lenderType: 'OTHER',
+    });
+    assert.equal(freeLender.status, 201, JSON.stringify(freeLender.json));
+
+    const freeLoan = await post('/api/accounting/loans', tokens.super, {
+      lenderId: freeLender.json.id,
+      branchId: BR,
+      principal: 60,
+      interestRate: 0,
+      startDateAD: '2026-08-01',
+      repaymentFrequency: 'LUMP_SUM',
+      securityType: 'UNSECURED',
+      status: 'OPEN',
+    });
+    assert.equal(freeLoan.status, 201, JSON.stringify(freeLoan.json));
+    const receiveFree = await post(
+      `/api/accounting/loans/${freeLoan.json.id}/receipts`,
+      tokens.super,
+      { dateAD: JOURNAL_DATE, principal: 60, cashAccountId }
+    );
+    assert.equal(receiveFree.status, 201, JSON.stringify(receiveFree.json));
+
+    const freeRepayment = await post(
+      `/api/accounting/loans/${freeLoan.json.id}/repayments`,
+      tokens.super,
+      { dateAD: '2026-08-20', principal: 60, interestAmount: 0, tdsAmount: 0, cashAccountId }
+    );
+    assert.equal(freeRepayment.status, 201, JSON.stringify(freeRepayment.json));
+    assert.equal(freeRepayment.json.transaction.tdsAmount, 0);
+    assert.equal(freeRepayment.json.transaction.cashAmount, 60);
+    assert.equal(freeRepayment.json.transaction.tdsExemptionReason, null);
+
+    const freeRegister = await get(
+      `/api/accounting/lenders/${freeLender.json.id}/statement?from=2026-08-01&to=2026-08-31`,
+      tokens.super
+    );
+    assert.equal(freeRegister.status, 200, JSON.stringify(freeRegister.json));
+    assert.equal(freeRegister.json.tdsEntries.length, 1);
+    assert.equal(freeRegister.json.tdsEntries[0].tdsStatus, 'NO_INTEREST');
+    assert.equal(freeRegister.json.tdsEntries[0].exemptionReason, null);
+    assert.equal(freeRegister.json.tdsTotals.noInterestCount, 1);
+    assert.equal(freeRegister.json.tdsTotals.noInterestPrincipal, 60);
+    assert.equal(freeRegister.json.tdsTotals.reconciled, true);
+
+    const ownerRegister = await get(
+      `/api/accounting/lenders/${lenderId}/statement?from=2026-08-01&to=2026-08-31`,
+      tokens.super
+    );
+    assert.equal(ownerRegister.status, 200, JSON.stringify(ownerRegister.json));
+    assert.equal(ownerRegister.json.tdsTotals.withheldCount, 1);
+    assert.equal(ownerRegister.json.tdsTotals.noInterestCount, 1);
+    assert.equal(ownerRegister.json.tdsTotals.unexplainedCount, 0);
+    assert.equal(ownerRegister.json.tdsTotals.withheldTax, 3);
+    assert.equal(ownerRegister.json.tdsTotals.reconciled, true);
   });
 });

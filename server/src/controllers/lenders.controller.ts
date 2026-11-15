@@ -19,6 +19,10 @@ import { bsDateOrThrow } from '../utils/bsDate';
 import { booleanFlag } from '../utils/booleanFlag';
 import { issueNextDocNumber } from '../utils/docNumber';
 import { roundMoney } from '../utils/money';
+import {
+  parseTdsExemptionReason,
+  tdsExemptionRequiresReference,
+} from '../utils/tdsExemption';
 import { ACCOUNTING_MASTER_BRANCH_EXISTS_SQL } from '../models/accountingMasters.repo';
 import {
   LENDER_BOOK_ACCOUNT_UPDATE_SQL,
@@ -41,6 +45,7 @@ import {
   LENDER_OPEN_LOAN_COUNT_SQL,
   LENDER_PARTY_OPTIONS_SQL,
   LENDER_PARTY_BALANCE_SQL,
+  LENDER_REPAYMENT_LEDGER_TOTALS_SQL,
   LENDER_STATEMENT_ENTRIES_SQL,
   LENDER_STATEMENT_OPENING_SQL,
   LENDER_TDS_ACCOUNT_SQL,
@@ -118,6 +123,9 @@ interface LoanRow {
   status: string;
   agreementReference: string | null;
   notes: string | null;
+  tdsApplicable: boolean;
+  tdsExemptionReason: string | null;
+  tdsExemptionReference: string | null;
   fundedPrincipal?: number;
   repaidPrincipal?: number;
   interestPaid?: number;
@@ -582,6 +590,47 @@ function parseLoan(body: Record<string, any>, existing?: LoanRow) {
   if (!LOAN_STATUSES.has(status)) {
     throw new ApiError(400, 'Loan status must be OPEN, CLOSED or CANCELLED.');
   }
+
+  const tdsApplicable = booleanFlag(
+    pick(body, 'tdsApplicable', existing?.tdsApplicable ?? true),
+    existing?.tdsApplicable ?? true
+  );
+  const reasonRaw = text(
+    pick(body, 'tdsExemptionReason', existing?.tdsExemptionReason),
+    30
+  ).toUpperCase();
+  const tdsExemptionReason = reasonRaw ? parseTdsExemptionReason(reasonRaw) : null;
+  if (reasonRaw && !tdsExemptionReason) {
+    throw new ApiError(
+      400,
+      'TDS exemption reason must be RESIDENT_BANK, RESIDENT_FI, INTER_COOP, NO_INTEREST, TREATY, EXEMPT_INCOME or OTHER.'
+    );
+  }
+  let tdsExemptionReference =
+    text(pick(body, 'tdsExemptionReference', existing?.tdsExemptionReference), 500) || null;
+  if (tdsApplicable) {
+    if (tdsExemptionReason || tdsExemptionReference) {
+      throw new ApiError(
+        400,
+        'A TDS-applicable loan cannot carry an exemption reason or reference; mark TDS not applicable first.'
+      );
+    }
+    tdsExemptionReference = null;
+  } else {
+    if (!tdsExemptionReason) {
+      throw new ApiError(
+        400,
+        'Choose a TDS exemption reason when the loan is not TDS-applicable.'
+      );
+    }
+    if (tdsExemptionRequiresReference(tdsExemptionReason) && !tdsExemptionReference) {
+      throw new ApiError(
+        400,
+        'Record the certificate, agreement clause or notification relied on for this TDS exemption.'
+      );
+    }
+  }
+
   return {
     principal,
     interestRate: Math.round(interestRate * 10000) / 10000,
@@ -593,6 +642,9 @@ function parseLoan(body: Record<string, any>, existing?: LoanRow) {
     status,
     agreementReference: text(pick(body, 'agreementReference', existing?.agreementReference), 100) || null,
     notes: text(pick(body, 'notes', existing?.notes), 1000) || null,
+    tdsApplicable,
+    tdsExemptionReason,
+    tdsExemptionReference,
   };
 }
 
@@ -890,6 +942,9 @@ export async function post_loan(req: any, res: Response): Promise<any> {
       loan.status,
       loan.agreementReference,
       loan.notes,
+      loan.tdsApplicable,
+      loan.tdsExemptionReason,
+      loan.tdsExemptionReference,
       actorOf(req),
     ]);
     const savedLoan = (await client.query(LOAN_BY_ID_SQL, [id])).rows[0] as LoanRow;
@@ -965,6 +1020,9 @@ export async function patch_loan(req: any, res: Response): Promise<any> {
       loan.status,
       loan.agreementReference,
       loan.notes,
+      loan.tdsApplicable,
+      loan.tdsExemptionReason,
+      loan.tdsExemptionReference,
     ]);
     if (Number(repaymentCount.rows[0]?.count) === 0) {
       const savedLoan = (await client.query(LOAN_BY_ID_SQL, [id])).rows[0] as LoanRow;
@@ -1200,6 +1258,8 @@ export async function post_loanReceipt(req: any, res: Response): Promise<any> {
       journal.id,
       actorOf(req),
       0,
+      null,
+      null,
     ]);
     await logAuditEvent(
       req,
@@ -1261,6 +1321,55 @@ export async function post_loanRepayment(req: any, res: Response): Promise<any> 
     if (tds < 0) throw new ApiError(400, 'TDS must be zero or a positive amount.');
     if (tds > interest + 0.004) {
       throw new ApiError(400, 'TDS cannot exceed the interest on this repayment.');
+    }
+
+    const reasonRaw = text(body.tdsExemptionReason, 30).toUpperCase();
+    let exemptionReason = reasonRaw ? parseTdsExemptionReason(reasonRaw) : null;
+    if (reasonRaw && !exemptionReason) {
+      throw new ApiError(
+        400,
+        'TDS exemption reason must be RESIDENT_BANK, RESIDENT_FI, INTER_COOP, NO_INTEREST, TREATY, EXEMPT_INCOME or OTHER.'
+      );
+    }
+    let exemptionReference = text(body.tdsExemptionReference, 500) || null;
+    if (exemptionReference && !exemptionReason && tds <= 0.004) {
+      throw new ApiError(400, 'Choose a TDS exemption reason for the recorded reference.');
+    }
+    if (!loan.tdsApplicable) {
+      const loanReason = parseTdsExemptionReason(loan.tdsExemptionReason);
+      if (exemptionReason && loanReason && exemptionReason !== loanReason) {
+        throw new ApiError(
+          400,
+          'The repayment exemption reason must match the exemption recorded on the loan.'
+        );
+      }
+      exemptionReason = exemptionReason || loanReason;
+      exemptionReference = exemptionReference || loan.tdsExemptionReference;
+    }
+    if (tds > 0.004) {
+      if (exemptionReason) {
+        throw new ApiError(
+          409,
+          'TDS was withheld on this repayment; an exemption reason cannot also be recorded.'
+        );
+      }
+      exemptionReference = null;
+    } else if (interest > 0.004) {
+      if (!exemptionReason) {
+        throw new ApiError(
+          400,
+          'A zero-TDS repayment with interest requires an exemption reason on the loan or the repayment.'
+        );
+      }
+      if (exemptionReason === 'NO_INTEREST') {
+        throw new ApiError(400, 'NO_INTEREST applies only when the repayment pays no interest.');
+      }
+      if (tdsExemptionRequiresReference(exemptionReason) && !exemptionReference) {
+        throw new ApiError(
+          400,
+          'Record the certificate, agreement clause or notification relied on for this TDS exemption.'
+        );
+      }
     }
     const cashAmount = roundMoney(principal + interest - tds);
     if (cashAmount <= 0) {
@@ -1363,6 +1472,8 @@ export async function post_loanRepayment(req: any, res: Response): Promise<any> 
       journal.id,
       actorOf(req),
       interestPayableApplied,
+      exemptionReason,
+      exemptionReference,
     ]);
     await allocateRepayment(client, loanId, principal, interest, tds);
     const updatedSums = (await client.query(LOAN_TRANSACTION_SUM_SQL, [loanId])).rows[0] || {};
@@ -1374,7 +1485,9 @@ export async function post_loanRepayment(req: any, res: Response): Promise<any> 
       req,
       'LOAN_REPAYMENT',
       'ACCOUNTING',
-      `Repaid ${principal.toFixed(2)} principal + ${interest.toFixed(2)} interest (TDS ${tds.toFixed(2)}) for loan ${loan.loanNumber}`,
+      `Repaid ${principal.toFixed(2)} principal + ${interest.toFixed(2)} interest (TDS ${tds.toFixed(2)}${
+        exemptionReason ? `; exempt ${exemptionReason}` : ''
+      }) for loan ${loan.loanNumber}`,
       undefined,
       client
     );
@@ -1544,6 +1657,7 @@ export async function get_lenderStatement(req: any, res: Response): Promise<any>
     unassignedResult,
     loansResult,
     tdsResult,
+    ledgerResult,
   ] = control
     ? await Promise.all([
         pgPool.query(LENDER_STATEMENT_OPENING_SQL, [control.id, id, book?.id || null, branchId, from]),
@@ -1554,6 +1668,7 @@ export async function get_lenderStatement(req: any, res: Response): Promise<any>
         pgPool.query(LENDER_UNASSIGNED_BALANCE_SQL, [control.id, branchId, to]),
         pgPool.query(LOAN_LIST_SQL, [id, null, branchId]),
         pgPool.query(LENDER_TDS_REPORT_SQL, [id, from, to, branchId]),
+        pgPool.query(LENDER_REPAYMENT_LEDGER_TOTALS_SQL, [id, from, to, branchId]),
       ])
     : [
         { rows: [{ opening: 0 }] },
@@ -1564,6 +1679,7 @@ export async function get_lenderStatement(req: any, res: Response): Promise<any>
         { rows: [{ balance: 0 }] },
         { rows: [] },
         { rows: [] },
+        { rows: [{ principal: 0, interest: 0, tds: 0, cash: 0 }] },
       ];
 
   const openingBalance = money(openingResult.rows[0]?.opening);
@@ -1589,16 +1705,75 @@ export async function get_lenderStatement(req: any, res: Response): Promise<any>
   const difference = money(glBalance - subledgerBalance);
   const booksDifference = money(glBalance - lenderBooksBalance);
   const loans = (loansResult.rows as any[]).map(loanResponse);
-  const tdsEntries = (tdsResult.rows as any[]).map((row) => ({
-    ...row,
-    interestAmount: money(row.interestAmount),
-    tdsAmount: money(row.tdsAmount),
-    cashAmount: money(row.cashAmount),
-  }));
+  const tdsEntries = (tdsResult.rows as any[]).map((row) => {
+    const interestAmount = money(row.interestAmount);
+    const tdsAmount = money(row.tdsAmount);
+    const exemptionReason = row.tdsExemptionReason || row.loanTdsExemptionReason || null;
+    const exemptionReference =
+      row.tdsExemptionReference || row.loanTdsExemptionReference || null;
+    const tdsStatus =
+      tdsAmount > 0.004
+        ? 'WITHHELD'
+        : interestAmount > 0.004
+          ? exemptionReason
+            ? 'EXEMPT'
+            : 'UNEXPLAINED'
+          : 'NO_INTEREST';
+    return {
+      ...row,
+      principalAmount: money(row.principalAmount),
+      interestAmount,
+      tdsAmount,
+      cashAmount: money(row.cashAmount),
+      tdsStatus,
+      exemptionReason,
+      exemptionReference,
+    };
+  });
+  const total = (key: 'principalAmount' | 'interestAmount' | 'tdsAmount' | 'cashAmount') =>
+    money(tdsEntries.reduce((sum, row) => sum + row[key], 0));
+  const withheldEntries = tdsEntries.filter((row) => row.tdsStatus === 'WITHHELD');
+  const exemptEntries = tdsEntries.filter((row) => row.tdsStatus === 'EXEMPT');
+  const unexplainedEntries = tdsEntries.filter((row) => row.tdsStatus === 'UNEXPLAINED');
+  const noInterestEntries = tdsEntries.filter((row) => row.tdsStatus === 'NO_INTEREST');
+  const ledger = ledgerResult.rows[0] || {};
+  const ledgerPrincipal = money(ledger.principal);
+  const ledgerInterest = money(ledger.interest);
+  const ledgerTds = money(ledger.tds);
+  const ledgerCash = money(ledger.cash);
   const tdsTotals = {
-    interest: money(tdsEntries.reduce((sum, row) => sum + row.interestAmount, 0)),
-    tds: money(tdsEntries.reduce((sum, row) => sum + row.tdsAmount, 0)),
-    cash: money(tdsEntries.reduce((sum, row) => sum + row.cashAmount, 0)),
+    principal: total('principalAmount'),
+    interest: total('interestAmount'),
+    tds: total('tdsAmount'),
+    cash: total('cashAmount'),
+    withheldInterest: money(
+      withheldEntries.reduce((sum, row) => sum + row.interestAmount, 0)
+    ),
+    withheldTax: money(withheldEntries.reduce((sum, row) => sum + row.tdsAmount, 0)),
+    exemptInterest: money(exemptEntries.reduce((sum, row) => sum + row.interestAmount, 0)),
+    unexplainedInterest: money(
+      unexplainedEntries.reduce((sum, row) => sum + row.interestAmount, 0)
+    ),
+    noInterestPrincipal: money(
+      noInterestEntries.reduce((sum, row) => sum + row.principalAmount, 0)
+    ),
+    withheldCount: withheldEntries.length,
+    exemptCount: exemptEntries.length,
+    unexplainedCount: unexplainedEntries.length,
+    noInterestCount: noInterestEntries.length,
+    ledgerPrincipal,
+    ledgerInterest,
+    ledgerTds,
+    ledgerCash,
+    principalDifference: money(total('principalAmount') - ledgerPrincipal),
+    interestDifference: money(total('interestAmount') - ledgerInterest),
+    tdsDifference: money(total('tdsAmount') - ledgerTds),
+    cashDifference: money(total('cashAmount') - ledgerCash),
+    reconciled:
+      Math.abs(total('principalAmount') - ledgerPrincipal) < 0.005 &&
+      Math.abs(total('interestAmount') - ledgerInterest) < 0.005 &&
+      Math.abs(total('tdsAmount') - ledgerTds) < 0.005 &&
+      Math.abs(total('cashAmount') - ledgerCash) < 0.005,
   };
 
   res.setHeader('Cache-Control', 'private, no-store');

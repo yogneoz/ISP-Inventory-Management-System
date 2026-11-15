@@ -56,6 +56,7 @@ import type {
   LoanStatus,
   LoanTdsEntry,
   LoanTransaction,
+  TdsExemptionReason,
 } from '../../services/api/lenders';
 import { getAccountingAccounts, type AccountingAccount } from '../../services/api/accounting';
 import { money } from '../../components/accounting/statementFormat';
@@ -96,6 +97,9 @@ interface LoanForm {
   status: LoanStatus;
   agreementReference: string;
   notes: string;
+  tdsApplicable: boolean;
+  tdsExemptionReason: '' | TdsExemptionReason;
+  tdsExemptionReference: string;
 }
 
 interface LoanTxnForm {
@@ -106,6 +110,8 @@ interface LoanTxnForm {
   cashAccountId: string;
   interestAccountId: string;
   tdsAccountId: string;
+  tdsExemptionReason: '' | TdsExemptionReason;
+  tdsExemptionReference: string;
   chequeNo: string;
   referenceNo: string;
   notes: string;
@@ -153,6 +159,8 @@ const emptyLoanTxn = (loan?: LoanRecord | null): LoanTxnForm => ({
   cashAccountId: '',
   interestAccountId: '',
   tdsAccountId: '',
+  tdsExemptionReason: '',
+  tdsExemptionReference: '',
   chequeNo: '',
   referenceNo: '',
   notes: '',
@@ -170,12 +178,35 @@ const emptyLoan = (branchId = ''): LoanForm => ({
   status: 'OPEN',
   agreementReference: '',
   notes: '',
+  tdsApplicable: true,
+  tdsExemptionReason: '',
+  tdsExemptionReference: '',
 });
 
 const LENDER_TYPE_LABEL: Record<LenderType, string> = {
   OWNER: 'Owner',
   RELATED_PARTY: 'Related party',
   OTHER: 'Other',
+};
+
+const TDS_REASON_LABEL: Record<TdsExemptionReason, string> = {
+  RESIDENT_BANK: 'Resident bank lender',
+  RESIDENT_FI: 'Resident financial institution',
+  INTER_COOP: 'Inter-co-operative lending',
+  NO_INTEREST: 'No interest charged',
+  TREATY: 'Treaty / non-resident relief',
+  EXEMPT_INCOME: 'Exempt income',
+  OTHER: 'Other documented exemption',
+};
+
+const TDS_REFERENCE_REQUIRED: Record<TdsExemptionReason, boolean> = {
+  RESIDENT_BANK: true,
+  RESIDENT_FI: true,
+  INTER_COOP: true,
+  NO_INTEREST: false,
+  TREATY: true,
+  EXEMPT_INCOME: true,
+  OTHER: true,
 };
 
 const FREQUENCY_LABEL: Record<LoanRepaymentFrequency, string> = {
@@ -462,6 +493,9 @@ export const LendersManagement: React.FC<LendersManagementProps> = ({
       status: loan.status,
       agreementReference: loan.agreementReference || '',
       notes: loan.notes || '',
+      tdsApplicable: loan.tdsApplicable !== false,
+      tdsExemptionReason: (loan.tdsExemptionReason || '') as '' | TdsExemptionReason,
+      tdsExemptionReference: loan.tdsExemptionReference || '',
     });
     setLoanModal(true);
   };
@@ -475,6 +509,19 @@ export const LendersManagement: React.FC<LendersManagementProps> = ({
     }
     if (!(Number(loanForm.principal) > 0)) {
       alertDialog('Loan principal must be a positive amount.');
+      return;
+    }
+    if (!loanForm.tdsApplicable && !loanForm.tdsExemptionReason) {
+      alertDialog('Choose a TDS exemption reason for this loan.');
+      return;
+    }
+    if (
+      !loanForm.tdsApplicable &&
+      loanForm.tdsExemptionReason &&
+      TDS_REFERENCE_REQUIRED[loanForm.tdsExemptionReason] &&
+      !loanForm.tdsExemptionReference.trim()
+    ) {
+      alertDialog('Record the certificate, agreement clause or notification relied on.');
       return;
     }
     setSavingLoan(true);
@@ -493,6 +540,13 @@ export const LendersManagement: React.FC<LendersManagementProps> = ({
         status: loanForm.status,
         agreementReference: loanForm.agreementReference.trim() || null,
         notes: loanForm.notes.trim() || null,
+        tdsApplicable: loanForm.tdsApplicable,
+        tdsExemptionReason: loanForm.tdsApplicable
+          ? null
+          : loanForm.tdsExemptionReason || null,
+        tdsExemptionReference: loanForm.tdsApplicable
+          ? null
+          : loanForm.tdsExemptionReference.trim() || null,
       };
       if (editingLoan) await updateLoan(editingLoan.id, payload);
       else await createLoan(payload);
@@ -535,6 +589,10 @@ export const LendersManagement: React.FC<LendersManagementProps> = ({
         selected.defaultTdsAccountId ||
         liabilityAccounts.find((account) => account.code === '2360')?.id ||
         '',
+      tdsExemptionReason: (loan.tdsApplicable === false
+        ? loan.tdsExemptionReason || ''
+        : '') as '' | TdsExemptionReason,
+      tdsExemptionReference: loan.tdsApplicable === false ? loan.tdsExemptionReference || '' : '',
     });
     setTxnModal(true);
   };
@@ -562,14 +620,34 @@ export const LendersManagement: React.FC<LendersManagementProps> = ({
           notes: txnForm.notes.trim() || null,
         });
       } else {
+        const interest = Number(txnForm.interestAmount || 0);
+        const tds = Number(txnForm.tdsAmount || 0);
+        const reason =
+          txnForm.tdsExemptionReason ||
+          (txnLoan.tdsApplicable === false ? txnLoan.tdsExemptionReason || '' : '');
+        const reference =
+          txnForm.tdsExemptionReference ||
+          (txnLoan.tdsApplicable === false ? txnLoan.tdsExemptionReference || '' : '');
+        if (interest > 0 && tds <= 0) {
+          if (!reason) {
+            alertDialog('A zero-TDS repayment with interest needs an exemption reason.');
+            return;
+          }
+          if (TDS_REFERENCE_REQUIRED[reason] && !reference.trim()) {
+            alertDialog('Record the certificate, agreement clause or notification relied on.');
+            return;
+          }
+        }
         const payload: LoanRepaymentInput = {
           dateAD: txnForm.dateAD,
           principal: Number(txnForm.principal),
-          interestAmount: Number(txnForm.interestAmount || 0),
-          tdsAmount: Number(txnForm.tdsAmount || 0),
+          interestAmount: interest,
+          tdsAmount: tds,
           cashAccountId: txnForm.cashAccountId,
           interestAccountId: txnForm.interestAccountId || undefined,
           tdsAccountId: txnForm.tdsAccountId || undefined,
+          tdsExemptionReason: reason || null,
+          tdsExemptionReference: reference.trim() || null,
           chequeNo: txnForm.chequeNo.trim() || null,
           referenceNo: txnForm.referenceNo.trim() || null,
           notes: txnForm.notes.trim() || null,
@@ -657,9 +735,13 @@ export const LendersManagement: React.FC<LendersManagementProps> = ({
       { key: 'loanNumber', label: 'Loan' },
       { key: 'txnNumber', label: 'Repayment' },
       { key: 'journalNo', label: 'Journal No' },
+      { key: 'tdsStatus', label: 'TDS Status' },
+      { key: 'principalAmount', label: 'Principal (NPR)' },
       { key: 'interestAmount', label: 'Interest (NPR)' },
       { key: 'tdsAmount', label: 'TDS Withheld (NPR)' },
       { key: 'cashAmount', label: 'Net Cash (NPR)' },
+      { key: 'exemptionReason', label: 'Exemption Reason' },
+      { key: 'exemptionReference', label: 'Evidence / Reference' },
     ];
     exportToCSV({
       filename: `Lender_TDS_${statement.lender.code}`,
@@ -992,6 +1074,11 @@ export const LendersManagement: React.FC<LendersManagementProps> = ({
                             </td>
                             <td className="px-2 py-1.5 text-right font-mono">
                               {Number(loan.interestRate).toFixed(2)}%
+                              <div className="text-[10px] font-sans font-semibold text-slate-500">
+                                {loan.tdsApplicable
+                                  ? 'TDS 15%'
+                                  : `TDS exempt · ${loan.tdsExemptionReason || 'reason missing'}`}
+                              </div>
                             </td>
                             <td className="px-2 py-1.5 text-slate-600 dark:text-slate-400">
                               {loan.startDateAD}
@@ -1219,13 +1306,13 @@ export const LendersManagement: React.FC<LendersManagementProps> = ({
                       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-2.5 py-2 dark:border-slate-800">
                         <div>
                           <h4 className="text-[11px] font-bold uppercase tracking-wide text-slate-600 dark:text-slate-300">
-                            TDS withheld on lender interest
+                            TDS register — lender interest
                           </h4>
                           <p className="text-[10px] text-slate-500">
-                            Read from posted repayments in this period · interest{' '}
-                            {money(statement.tdsTotals.interest)} · TDS{' '}
-                            {money(statement.tdsTotals.tds)} · net cash{' '}
-                            {money(statement.tdsTotals.cash)}
+                            Withheld interest {money(statement.tdsTotals.withheldInterest)} · tax{' '}
+                            {money(statement.tdsTotals.withheldTax)} · exempt interest{' '}
+                            {money(statement.tdsTotals.exemptInterest)} · unexplained{' '}
+                            {money(statement.tdsTotals.unexplainedInterest)}
                           </p>
                         </div>
                         <button
@@ -1237,24 +1324,43 @@ export const LendersManagement: React.FC<LendersManagementProps> = ({
                           <Download className="h-3 w-3" /> TDS CSV
                         </button>
                       </div>
-                      <div className="overflow-x-auto">
-                        <table className="w-full border-collapse text-left text-[11px]">
+                      <div
+                        className={`mx-2.5 mt-2 rounded-lg border px-2.5 py-1.5 text-[10px] font-semibold ${
+                          statement.tdsTotals.reconciled
+                            ? 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300'
+                            : 'border-rose-300 bg-rose-50 text-rose-800 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-300'
+                        }`}
+                      >
+                        {statement.tdsTotals.reconciled
+                          ? 'Register reconciles to the posted repayment ledger'
+                          : `Register differs from the repayment ledger — principal ${money(
+                              statement.tdsTotals.principalDifference
+                            )}, interest ${money(
+                              statement.tdsTotals.interestDifference
+                            )}, TDS ${money(statement.tdsTotals.tdsDifference)}, cash ${money(
+                              statement.tdsTotals.cashDifference
+                            )}`}
+                      </div>
+                      <div className="mt-2 overflow-x-auto">
+                        <table className="w-full min-w-[900px] border-collapse text-left text-[11px]">
                           <thead className="bg-slate-100 text-[10px] font-bold uppercase tracking-wide text-slate-600 dark:bg-[#12161f] dark:text-slate-400">
                             <tr>
                               <th className="px-2 py-1.5">Date</th>
                               <th className="px-2 py-1.5">Loan</th>
                               <th className="px-2 py-1.5">Repayment</th>
-                              <th className="px-2 py-1.5">Journal</th>
+                              <th className="px-2 py-1.5">Status</th>
+                              <th className="px-2 py-1.5 text-right">Principal</th>
                               <th className="px-2 py-1.5 text-right">Interest</th>
                               <th className="px-2 py-1.5 text-right">TDS</th>
                               <th className="px-2 py-1.5 text-right">Net cash</th>
+                              <th className="px-2 py-1.5">Reason / reference</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                             {statement.tdsEntries.length === 0 ? (
                               <tr>
-                                <td colSpan={7} className="p-4 text-center text-slate-500">
-                                  No TDS was withheld from lender interest in this period.
+                                <td colSpan={9} className="p-4 text-center text-slate-500">
+                                  No repayments were posted for this lender in the period.
                                 </td>
                               </tr>
                             ) : (
@@ -1262,15 +1368,73 @@ export const LendersManagement: React.FC<LendersManagementProps> = ({
                                 <tr key={row.id}>
                                   <td className="px-2 py-1.5">{row.dateAD}</td>
                                   <td className="px-2 py-1.5 font-mono text-[10px]">{row.loanNumber}</td>
-                                  <td className="px-2 py-1.5 font-mono text-[10px]">{row.txnNumber}</td>
-                                  <td className="px-2 py-1.5 font-mono text-[10px]">{row.journalNo}</td>
+                                  <td className="px-2 py-1.5 font-mono text-[10px]">
+                                    {row.txnNumber}
+                                    <div className="text-slate-500">{row.journalNo}</div>
+                                  </td>
+                                  <td className="px-2 py-1.5">
+                                    <span
+                                      className={`inline-flex rounded-full border px-1.5 py-0.5 text-[10px] font-bold ${
+                                        row.tdsStatus === 'WITHHELD'
+                                          ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300'
+                                          : row.tdsStatus === 'EXEMPT'
+                                            ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
+                                            : row.tdsStatus === 'UNEXPLAINED'
+                                              ? 'border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300'
+                                              : 'border-slate-300 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                                      }`}
+                                    >
+                                      {row.tdsStatus}
+                                    </span>
+                                  </td>
+                                  <td className="px-2 py-1.5 text-right font-mono">{money(row.principalAmount)}</td>
                                   <td className="px-2 py-1.5 text-right font-mono">{money(row.interestAmount)}</td>
                                   <td className="px-2 py-1.5 text-right font-mono font-bold">{money(row.tdsAmount)}</td>
                                   <td className="px-2 py-1.5 text-right font-mono">{money(row.cashAmount)}</td>
+                                  <td className="px-2 py-1.5 text-slate-600 dark:text-slate-400">
+                                    {row.exemptionReason ? (
+                                      <>
+                                        <div className="font-semibold">{row.exemptionReason}</div>
+                                        <div className="text-[10px] text-slate-500">
+                                          {row.exemptionReference || 'No reference'}
+                                        </div>
+                                      </>
+                                    ) : row.tdsStatus === 'WITHHELD' ? (
+                                      'Tax withheld'
+                                    ) : (
+                                      '—'
+                                    )}
+                                  </td>
                                 </tr>
                               ))
                             )}
                           </tbody>
+                          {statement.tdsEntries.length > 0 ? (
+                            <tfoot className="border-t border-slate-300 bg-slate-50 font-bold dark:border-slate-700 dark:bg-slate-800/60">
+                              <tr>
+                                <td colSpan={4} className="px-2 py-1.5 text-right uppercase text-[10px]">
+                                  Totals · {statement.tdsTotals.withheldCount} withheld ·{' '}
+                                  {statement.tdsTotals.exemptCount} exempt
+                                </td>
+                                <td className="px-2 py-1.5 text-right font-mono">
+                                  {money(statement.tdsTotals.principal)}
+                                </td>
+                                <td className="px-2 py-1.5 text-right font-mono">
+                                  {money(statement.tdsTotals.interest)}
+                                </td>
+                                <td className="px-2 py-1.5 text-right font-mono">
+                                  {money(statement.tdsTotals.tds)}
+                                </td>
+                                <td className="px-2 py-1.5 text-right font-mono">
+                                  {money(statement.tdsTotals.cash)}
+                                </td>
+                                <td className="px-2 py-1.5 text-[10px]">
+                                  Ledger {money(statement.tdsTotals.ledgerInterest)} interest ·{' '}
+                                  {money(statement.tdsTotals.ledgerTds)} TDS
+                                </td>
+                              </tr>
+                            </tfoot>
+                          ) : null}
                         </table>
                       </div>
                     </div>
@@ -1635,6 +1799,63 @@ export const LendersManagement: React.FC<LendersManagementProps> = ({
                       </select>
                     </div>
                   </div>
+                  {Number(txnForm.tdsAmount || 0) <= 0 ? (
+                    <div className="rounded-lg border border-slate-200 p-2.5 dark:border-slate-800">
+                      <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                        Zero-TDS evidence
+                      </p>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div>
+                          <label className={labelClass}>Exemption reason</label>
+                          <select
+                            value={txnForm.tdsExemptionReason}
+                            onChange={(event) =>
+                              setTxnForm({
+                                ...txnForm,
+                                tdsExemptionReason: event.target.value as
+                                  | ''
+                                  | TdsExemptionReason,
+                              })
+                            }
+                            className={inputClass}
+                          >
+                            <option value="">TDS withheld / no exemption</option>
+                            {Object.entries(TDS_REASON_LABEL).map(([value, label]) => (
+                              <option key={value} value={value}>
+                                {label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className={labelClass}>
+                            Evidence / reference
+                            {txnForm.tdsExemptionReason &&
+                            TDS_REFERENCE_REQUIRED[txnForm.tdsExemptionReason]
+                              ? ' *'
+                              : ''}
+                          </label>
+                          <input
+                            value={txnForm.tdsExemptionReference}
+                            onChange={(event) =>
+                              setTxnForm({
+                                ...txnForm,
+                                tdsExemptionReference: event.target.value,
+                              })
+                            }
+                            placeholder="Certificate, agreement clause or notification"
+                            className={inputClass}
+                          />
+                        </div>
+                      </div>
+                      {Number(txnForm.interestAmount || 0) > 0 ? (
+                        <p className="mt-2 text-[10px] text-slate-500">
+                          Positive interest with zero TDS is refused unless a reason is recorded
+                          here or on the loan.
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
                   <p className="rounded-lg bg-slate-50 px-3 py-2 text-[11px] text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
                     Net cash paid:{' '}
                     <span className="font-mono font-bold">
@@ -2143,6 +2364,73 @@ export const LendersManagement: React.FC<LendersManagementProps> = ({
                     className={inputClass}
                   />
                 </div>
+              </div>
+              <div className="rounded-lg border border-slate-200 p-2.5 dark:border-slate-800">
+                <label className="flex cursor-pointer items-center gap-2 text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={loanForm.tdsApplicable}
+                    onChange={(event) =>
+                      setLoanForm({
+                        ...loanForm,
+                        tdsApplicable: event.target.checked,
+                        tdsExemptionReason: event.target.checked
+                          ? ''
+                          : loanForm.tdsExemptionReason,
+                        tdsExemptionReference: event.target.checked
+                          ? ''
+                          : loanForm.tdsExemptionReference,
+                      })
+                    }
+                    className="h-4 w-4 rounded border-slate-300 text-indigo-600"
+                  />
+                  TDS applicable on lender interest (15% default)
+                </label>
+                {!loanForm.tdsApplicable ? (
+                  <div className="mt-2 space-y-2">
+                    <div>
+                      <label className={labelClass}>Exemption reason *</label>
+                      <select
+                        value={loanForm.tdsExemptionReason}
+                        onChange={(event) =>
+                          setLoanForm({
+                            ...loanForm,
+                            tdsExemptionReason: event.target.value as '' | TdsExemptionReason,
+                          })
+                        }
+                        className={inputClass}
+                      >
+                        <option value="">Choose reason</option>
+                        {Object.entries(TDS_REASON_LABEL).map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className={labelClass}>
+                        Evidence / reference
+                        {loanForm.tdsExemptionReason &&
+                        TDS_REFERENCE_REQUIRED[loanForm.tdsExemptionReason]
+                          ? ' *'
+                          : ''}
+                      </label>
+                      <input
+                        value={loanForm.tdsExemptionReference}
+                        onChange={(event) =>
+                          setLoanForm({ ...loanForm, tdsExemptionReference: event.target.value })
+                        }
+                        placeholder="Certificate, agreement clause or notification"
+                        className={inputClass}
+                      />
+                    </div>
+                    <p className="text-[10px] text-slate-500">
+                      Every zero-TDS repayment with interest will require this reason. NO_INTEREST
+                      still posts without a reference when no interest is paid.
+                    </p>
+                  </div>
+                ) : null}
               </div>
               <div>
                 <label className={labelClass}>Notes</label>

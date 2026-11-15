@@ -4933,9 +4933,23 @@ CREATE TABLE IF NOT EXISTS loans (
         CHECK (status IN ('OPEN', 'CLOSED', 'CANCELLED')),
     agreement_reference VARCHAR(100),
     notes TEXT,
+    tds_applicable BOOLEAN NOT NULL DEFAULT TRUE,
+    tds_exemption_reason VARCHAR(30),
+    tds_exemption_reference TEXT,
     created_by VARCHAR(150),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT loans_tds_exemption_reason_check CHECK (
+        tds_exemption_reason IS NULL
+        OR tds_exemption_reason IN (
+            'RESIDENT_BANK', 'RESIDENT_FI', 'INTER_COOP', 'NO_INTEREST',
+            'TREATY', 'EXEMPT_INCOME', 'OTHER'
+        )
+    ),
+    CONSTRAINT loans_tds_applicable_reason_check CHECK (
+        (tds_applicable AND tds_exemption_reason IS NULL AND tds_exemption_reference IS NULL)
+        OR (NOT tds_applicable AND tds_exemption_reason IS NOT NULL)
+    ),
     CONSTRAINT loans_maturity_after_start CHECK (
         maturity_date_ad IS NULL OR maturity_date_ad >= start_date_ad
     ),
@@ -4964,6 +4978,8 @@ CREATE TABLE IF NOT EXISTS loan_transactions (
     interest_amount NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (interest_amount >= 0),
     tds_amount NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (tds_amount >= 0),
     interest_payable_applied NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    tds_exemption_reason VARCHAR(30),
+    tds_exemption_reference TEXT,
     cash_amount NUMERIC(14, 2) NOT NULL CHECK (cash_amount > 0),
     cash_account_id VARCHAR(50) NOT NULL REFERENCES gl_accounts(id) ON DELETE RESTRICT,
     interest_account_id VARCHAR(50) REFERENCES gl_accounts(id) ON DELETE RESTRICT,
@@ -4976,6 +4992,16 @@ CREATE TABLE IF NOT EXISTS loan_transactions (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT loan_transactions_interest_payable_applied_check CHECK (
         interest_payable_applied >= 0 AND interest_payable_applied <= interest_amount + 0.005
+    ),
+    CONSTRAINT loan_transactions_tds_exemption_reason_check CHECK (
+        tds_exemption_reason IS NULL
+        OR tds_exemption_reason IN (
+            'RESIDENT_BANK', 'RESIDENT_FI', 'INTER_COOP', 'NO_INTEREST',
+            'TREATY', 'EXEMPT_INCOME', 'OTHER'
+        )
+    ),
+    CONSTRAINT loan_transactions_tds_withheld_reason_check CHECK (
+        tds_amount = 0 OR tds_exemption_reason IS NULL
     ),
     CONSTRAINT loan_txn_receipt_shape CHECK (
         (txn_type = 'RECEIPT' AND interest_amount = 0 AND tds_amount = 0 AND cash_amount = principal_amount)
