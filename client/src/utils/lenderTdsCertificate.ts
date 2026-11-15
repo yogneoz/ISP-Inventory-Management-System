@@ -19,6 +19,20 @@ function dateRangeLabel(from: string | null, to: string | null): string {
   return 'All posted repayments';
 }
 
+/** Drop repeated comma-separated address parts (city already inside address). */
+function compactAddress(value: string): string {
+  const seen = new Set<string>();
+  return value
+    .split(',')
+    .map((part) => part.trim())
+    .filter((part) => {
+      if (!part || seen.has(part.toLowerCase())) return false;
+      seen.add(part.toLowerCase());
+      return true;
+    })
+    .join(', ');
+}
+
 /**
  * A standalone withholding certificate for the posted TDS-bearing repayments
  * in a lender statement. Built as escaped HTML so the browser's print dialog
@@ -31,7 +45,7 @@ export function buildLenderTdsCertificateHtml(
   const withheld = statement.tdsEntries.filter((row) => row.tdsStatus === 'WITHHELD');
   const companyName =
     companyProfile?.legalName || companyProfile?.name || 'Inventory Management System';
-  const companyAddress = getCompanyAddress(companyProfile);
+  const companyAddress = compactAddress(getCompanyAddress(companyProfile));
   const companyContact = [
     companyProfile?.phone ? `Tel: ${companyProfile.phone}` : '',
     companyProfile?.email || '',
@@ -94,11 +108,16 @@ export function buildLenderTdsCertificateHtml(
   .summary div { border: 1px solid #e5e7eb; padding: 7px 8px; }
   .summary .value { font-size: 12px; }
   .note { margin-top: 10px; color: #4b5563; font-size: 9.5px; }
-  .sign { display: flex; justify-content: space-between; gap: 24px; margin-top: 40px; }
+  .sign { display: flex; justify-content: space-between; gap: 24px; margin-top: 20px; }
   .sign div { width: 45%; border-top: 1px solid #9ca3af; padding-top: 5px; color: #4b5563; font-size: 9px; }
   .no-print { margin: 18px 0 0; text-align: center; }
   .no-print button { padding: 8px 14px; border: 1px solid #4f46e5; border-radius: 6px; background: #4f46e5; color: white; font-weight: 700; cursor: pointer; }
-  @media print { .no-print { display: none; } }
+  @media print {
+    .no-print { display: none; }
+    thead { display: table-header-group; }
+    tr, .summary, .note, .sign { break-inside: avoid; }
+    .company, .cert-no, .meta { break-after: avoid; }
+  }
 </style>
 </head>
 <body>
