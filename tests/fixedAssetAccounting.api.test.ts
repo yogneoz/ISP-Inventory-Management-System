@@ -237,7 +237,7 @@ describe('fixed-asset ledger posting (real HTTP + PostgreSQL)', { skip: skipNoDb
   test('an asset capitalised from a purchase bill reclassifies the cost out of inventory', async () => {
     const invoice = await post('/api/purchase-invoices', {
       id: 'fad-pi-1',
-      invoiceNumber: 'FAD-PI-1',
+      invoiceNumber: 'PI-2083-FAD-PI-1',
       branchId: BR,
       invoiceDateAD: ACQ,
       supplierName: 'FAD Supplier',

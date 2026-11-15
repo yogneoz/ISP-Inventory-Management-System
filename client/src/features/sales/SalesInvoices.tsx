@@ -957,6 +957,18 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
     setPayError('');
   };
 
+  // One source of truth for the cap: the dialog, the validation and the
+  // server all use the invoice's open balance. The server locks the row, so
+  // this figure is only the operator's preview, never the authority.
+  const payRemaining = payInvoice
+    ? Math.max(
+        0,
+        Math.round(
+          ((Number(payInvoice.grandTotal) || 0) - (Number(payInvoice.amountPaid) || 0)) * 100
+        ) / 100
+      )
+    : 0;
+
   // Void: confirm first, then let the server reverse everything in one
   // transaction. A refusal (payments/returns still on the invoice, a
   // concurrent void) is shown verbatim so the user knows what to undo first.
@@ -979,6 +991,11 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
     if (!payInvoice) return;
     const amt = Number(payAmount);
     if (!Number.isFinite(amt) || amt <= 0) { setPayError('Enter a payment amount greater than 0.'); return; }
+    if (payRemaining <= 0) { setPayError('This invoice is already fully paid.'); return; }
+    if (amt > payRemaining + 0.005) {
+      setPayError(`The receipt cannot exceed the ${formatMoney(payRemaining)} still open on this invoice. Record the excess as a separate unapplied advance.`);
+      return;
+    }
     const fee = Number(payFeeAmount) || 0;
     if (payMethod === 'ONLINE') {
       if (!payProviderTxnId.trim()) { setPayError('Enter the provider transaction id.'); return; }
@@ -1696,10 +1713,12 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
               <div><div className={labelClass}>Customer</div><div className="font-medium">{payInvoice.customerName}</div></div>
               <div><div className={labelClass}>Grand Total</div><div>{formatMoney(payInvoice.grandTotal)}</div></div>
               <div><div className={labelClass}>Already Paid</div><div>{formatMoney(payInvoice.amountPaid)}</div></div>
+              <div><div className={labelClass}>Remaining</div><div className="font-medium">{formatMoney(payRemaining)}</div></div>
             </div>
             <div>
               <label className={labelClass}>Amount *</label>
-              <input type="number" min="0" step="0.01" className={inputClass} value={payAmount} onChange={(e) => setPayAmount(e.target.value)} />
+              <input type="number" min="0" max={payRemaining} step="0.01" className={inputClass} value={payAmount} onChange={(e) => setPayAmount(e.target.value)} />
+              <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">Maximum {formatMoney(payRemaining)}. A larger amount must be recorded as an unapplied advance.</div>
             </div>
             <div>
               <label className={labelClass}>Method</label>

@@ -843,63 +843,49 @@ const { docTypeId, autoIncrement } = req.body;
 
   // C2 pattern: claim the sequence atomically from the DB counter
   // (UPDATE ... next_number = next_number + 1 RETURNING) so two concurrent
-  // preview/increment requests can never observe the same number. The claim
-  // only happens when autoIncrement !== false — a read-only preview keeps the
-  // old mirror-first read path and never touches the counter.
+  // preview/increment requests can never observe the same number. A read-only
+  // preview (autoIncrement === false) reads the counter without claiming it.
+  // Any DB failure or missing configuration is a refusal — never a random or
+  // legacy fallback number.
+  let config: any;
   if (autoIncrement !== false) {
+    let claimed: any;
     try {
-      const claimed = await pgPool.query(DOC_NUMBER_CONFIG_CLAIM_SQL, [docTypeId]);
-      const row = claimed.rows[0];
-      if (row) {
-        const seqNum = Number(row.next_number_before);
-        const paddedNum = String(seqNum).padStart(Number(row.min_digits) || 4, '0');
-        // Sync the in-memory mirror to the authoritative post-claim counter.
-        const idx = docNumberConfigs.findIndex((c) => c.id === docTypeId);
-        if (idx !== -1) docNumberConfigs[idx].nextNumber = Number(row.next_number_after);
-        return res.json({ documentNumber: `${row.prefix || ''}${paddedNum}${row.suffix || ''}`, seqNum });
-      }
-      // No row updated: doc type not configured in the DB — fall through to
-      // the mirror lookup / random fallback below.
+      claimed = await pgPool.query(DOC_NUMBER_CONFIG_CLAIM_SQL, [docTypeId]);
     } catch (e: any) {
-      console.warn('PostgreSQL atomic claim document_number_config failed:', docTypeId, e?.message || e);
-      // Fall through — the mirror path below still serves a number.
+      console.error('PostgreSQL atomic claim document_number_config failed:', docTypeId, e?.message || e);
+      throw new ApiError(503, `Document number sequence ${docTypeId} is unavailable; no number was issued.`);
     }
+    const row = claimed.rows[0];
+    if (!row) {
+      throw new ApiError(404, `Document number sequence ${docTypeId} is not configured; no number was issued.`);
+    }
+    const seqNum = Number(row.next_number_before);
+    if (!Number.isInteger(seqNum) || seqNum <= 0) {
+      throw new ApiError(503, `Document number sequence ${docTypeId} returned no legal number; no number was issued.`);
+    }
+    const paddedNum = String(seqNum).padStart(Number(row.min_digits) || 4, '0');
+    const idx = docNumberConfigs.findIndex((c) => c.id === docTypeId);
+    if (idx !== -1) docNumberConfigs[idx].nextNumber = Number(row.next_number_after);
+    return res.json({ documentNumber: `${row.prefix || ''}${paddedNum}${row.suffix || ''}`, seqNum });
   }
-
-  let config = docNumberConfigs.find((c) => c.id === docTypeId);
 
   try {
     const dbRes = await pgPool.query(DOC_NUMBER_CONFIG_BY_ID_SQL, [docTypeId]);
-    if (dbRes.rows.length > 0) {
-      config = dbRes.rows[0];
-    }
+    config = dbRes.rows[0] || docNumberConfigs.find((c) => c.id === docTypeId);
   } catch (e: any) {
-    console.warn('PostgreSQL read document_number_config notice:', e?.message || e);
+    throw new ApiError(503, `Document number sequence ${docTypeId} is unavailable; no number was issued.`);
   }
-
   if (!config) {
-    const fallbackSeq = Math.floor(1000 + Math.random() * 9000);
-    res.json({ documentNumber: `${docTypeId || 'DOC'}-2081-${fallbackSeq}`, seqNum: fallbackSeq });
-    return;
+    throw new ApiError(404, `Document number sequence ${docTypeId} is not configured; no number was issued.`);
   }
 
-  const seqNum = config.nextNumber;
+  const seqNum = Number(config.nextNumber);
+  if (!Number.isInteger(seqNum) || seqNum <= 0) {
+    throw new ApiError(503, `Document number sequence ${docTypeId} returned no legal number; no number was issued.`);
+  }
   const paddedNum = String(seqNum).padStart(config.minDigits || 4, '0');
-  const formattedDocNum = `${config.prefix || ''}${paddedNum}${config.suffix || ''}`;
-
-  if (autoIncrement !== false) {
-    // Only reached when the atomic claim above failed or found no config row.
-    const nextSeq = seqNum + 1;
-  try {
-    await pgPool.query(DOC_NUMBER_CONFIG_INCREMENT_SQL, [nextSeq, docTypeId]);
-  } catch (e: any) {
-    console.error('PostgreSQL increment document_number_config failed:', docTypeId, e?.message || e);
-  }
-    const idx = docNumberConfigs.findIndex((c) => c.id === docTypeId);
-    if (idx !== -1) docNumberConfigs[idx].nextNumber = nextSeq;
-  }
-
-  res.json({ documentNumber: formattedDocNum, seqNum });
+  res.json({ documentNumber: `${config.prefix || ''}${paddedNum}${config.suffix || ''}`, seqNum });
 
 }
 
@@ -909,10 +895,18 @@ const { docTypeId, newStartNumber } = req.body;
   const idx = docNumberConfigs.findIndex((c) => c.id === docTypeId);
   const startNum = newStartNumber !== undefined ? Number(newStartNumber) : (idx !== -1 ? docNumberConfigs[idx].startingNumber : 1);
 
+  if (!Number.isInteger(startNum) || startNum <= 0) {
+    throw new ApiError(400, 'The reset counter must be a positive whole number.');
+  }
+  let updated: any;
   try {
-    await pgPool.query(DOC_NUMBER_CONFIG_INCREMENT_SQL, [startNum, docTypeId]);
+    updated = await pgPool.query(DOC_NUMBER_CONFIG_INCREMENT_SQL, [startNum, docTypeId]);
   } catch (e: any) {
     console.error('PostgreSQL reset counter document_number_config failed:', docTypeId, e?.message || e);
+    throw new ApiError(503, `Document number sequence ${docTypeId} could not be reset; nothing changed.`);
+  }
+  if (!updated.rowCount) {
+    throw new ApiError(404, `Document number sequence ${docTypeId} is not configured; nothing changed.`);
   }
 
   if (idx !== -1) {

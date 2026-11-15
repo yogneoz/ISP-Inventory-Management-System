@@ -44,6 +44,7 @@ import {
   EMPLOYEE_LINKED_TO_USER_SQL,
   EMPLOYEE_LEDGER_ACCOUNT_BALANCES_SQL,
   EMPLOYEE_LEDGER_ENTRIES_SQL,
+  EMPLOYEE_LEDGER_UNLINKED_COUNT_SQL,
   EMPLOYEE_LOCK_BY_ID_SQL,
   EMPLOYEE_SET_BRANCH_SQL,
   EMPLOYEE_SET_USER_SQL,
@@ -1144,9 +1145,10 @@ export async function get_employeeLedger(req: any, res: Response): Promise<any> 
   const to = optionalDate(req.query?.to, 'to');
   if (from && to && from > to) throw new ApiError(400, 'from must not be after to.');
 
-  const [entries, accountRows] = await Promise.all([
+  const [entries, accountRows, unlinkedRows] = await Promise.all([
     pgPool.query(EMPLOYEE_LEDGER_ENTRIES_SQL, [id, branchId, from, to]),
     pgPool.query(EMPLOYEE_LEDGER_ACCOUNT_BALANCES_SQL, [id, branchId, from, to]),
+    pgPool.query(EMPLOYEE_LEDGER_UNLINKED_COUNT_SQL, [id, branchId, from, to]),
   ]);
   const lines = entries.rows.map((row: any) => ({
     ...row,
@@ -1154,18 +1156,26 @@ export async function get_employeeLedger(req: any, res: Response): Promise<any> 
     credit: Number(row.credit),
   }));
   const accounts = accountRows.rows.map((row: any) => {
+    const openingBalance = roundMoney(Number(row.openingBalance));
     const balance = roundMoney(Number(row.balance));
+    const closingBalance = roundMoney(Number(row.closingBalance));
+    // Assets and expenses are debit-natural; every other account presents its
+    // credit-natural balance as a positive figure.
+    const debitNatural = row.accountType === 'ASSET' || row.accountType === 'EXPENSE';
     return {
       ...row,
+      openingDebit: Number(row.openingDebit),
+      openingCredit: Number(row.openingCredit),
+      openingBalance,
+      presentedOpeningBalance: debitNatural ? openingBalance : roundMoney(-openingBalance),
       debit: Number(row.debit),
       credit: Number(row.credit),
       balance,
       // The employee ledger can present a liability in its natural direction
       // without re-deriving the account type client-side.
-      presentedBalance:
-        row.accountType === 'ASSET' || row.accountType === 'EXPENSE'
-          ? balance
-          : roundMoney(-balance),
+      presentedBalance: debitNatural ? balance : roundMoney(-balance),
+      closingBalance,
+      presentedClosingBalance: debitNatural ? closingBalance : roundMoney(-closingBalance),
     };
   });
   return res.json({
@@ -1173,11 +1183,25 @@ export async function get_employeeLedger(req: any, res: Response): Promise<any> 
     branchId,
     from,
     to,
+    currency: 'NPR',
     accounts,
     entries: lines,
+    unlinkedCount: Number(unlinkedRows.rows[0]?.count) || 0,
     totals: {
       debit: roundMoney(lines.reduce((sum: number, line: any) => sum + line.debit, 0)),
       credit: roundMoney(lines.reduce((sum: number, line: any) => sum + line.credit, 0)),
+      openingDebit: roundMoney(
+        accounts.reduce((sum: number, account: any) => sum + account.openingDebit, 0)
+      ),
+      openingCredit: roundMoney(
+        accounts.reduce((sum: number, account: any) => sum + account.openingCredit, 0)
+      ),
+      openingBalance: roundMoney(
+        accounts.reduce((sum: number, account: any) => sum + account.openingBalance, 0)
+      ),
+      closingBalance: roundMoney(
+        accounts.reduce((sum: number, account: any) => sum + account.closingBalance, 0)
+      ),
     },
   });
 }

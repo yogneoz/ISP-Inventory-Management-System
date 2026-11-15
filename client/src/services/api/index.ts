@@ -246,6 +246,9 @@ export type {
   AccountingAccountInput,
   AccountingAccountPatch,
   AccountingEmployee,
+  EmployeeLedgerAccount,
+  EmployeeLedgerEntry,
+  EmployeeLedgerResponse,
   AccountingGroup,
   AccountingGroupInput,
   AccountingGroupPatch,
@@ -306,6 +309,11 @@ export type {
   TrialBalanceGroupLinesResponse,
   TrialBalanceGroupSummary,
   TrialBalanceResponse,
+} from './accounting';
+export type {
+  PartyBalancesResponse,
+  PartyControlAccount,
+  PartyLedgerBalanceRow,
 } from './accounting';
 
 export const api = {
@@ -465,8 +473,12 @@ export const api = {
   updateAccountingSubledger: accounting.updateAccountingSubledger,
   deleteAccountingSubledger: accounting.deleteAccountingSubledger,
   generateAccountingSubledgers: accounting.generateAccountingSubledgers,
+  getPartyBalances: accounting.getPartyBalances,
   getAccountingSubledgerEntries: accounting.getAccountingSubledgerEntries,
+  getChartHealth: accounting.getChartHealth,
+
   getAccountingEmployees: accounting.getAccountingEmployees,
+  getEmployeeLedger: accounting.getEmployeeLedger,
   getAccountingBudget: accounting.getAccountingBudget,
   saveAccountingBudget: accounting.saveAccountingBudget,
   setAccountingBudgetLock: accounting.setAccountingBudgetLock,
@@ -596,7 +608,6 @@ export const api = {
   reverseAccountingJournal: accounting.reverseAccountingJournal,
   getAccountingJournal: accounting.getAccountingJournal,
   getAccountingJournals: accounting.getAccountingJournals,
-  getChartHealth: accounting.getChartHealth,
   seedChartDefaults: accounting.seedChartDefaults,
   getSettlementAccounts: accounting.getSettlementAccounts,
   getPostingDefaults: accounting.getPostingDefaults,

@@ -196,7 +196,7 @@ describe('purchase warranty capture (real HTTP + PostgreSQL)', { skip: skipNoDb 
   function invoiceBody(id: string, items: any[], extra: Record<string, any> = {}) {
     return {
       id,
-      invoiceNumber: `W4-${id.replace('w4-inv-', '').toUpperCase()}`,
+      invoiceNumber: `PI-2083-W4-${id.replace('w4-inv-', '').toUpperCase()}`,
       invoiceDateAD: today,
       branchId: BRANCH,
       supplierName: 'W4 Supplier',

@@ -61,6 +61,28 @@ const toolbarPrimary =
 const toolbarGhost =
   'inline-flex items-center gap-1 rounded-lg border border-slate-300 px-2.5 py-1.5 text-[11px] font-bold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800';
 
+/** True when the account carries a meaningful value on the Advanced tab. */
+function hasAdvancedProfile(account: AccountingAccount): boolean {
+  const profile = account.masterProfile;
+  if (!profile) return false;
+  const textKeys = ['shortName', 'area', 'agent', 'class', 'bankGuarantee', 'cashDeposit'];
+  return (
+    textKeys.some((key) => typeof profile[key] === 'string' && String(profile[key]).trim() !== '') ||
+    (typeof profile.category === 'string' && profile.category !== '' && profile.category !== 'Other') ||
+    (typeof profile.customerType === 'string' && profile.customerType !== 'NONE') ||
+    (typeof profile.taxType === 'string' && profile.taxType !== 'NONE') ||
+    (typeof profile.institutionType === 'string' && profile.institutionType !== 'PARTNERSHIP') ||
+    (typeof profile.currency === 'string' && profile.currency !== '' && profile.currency !== 'NPR') ||
+    profile.billWiseAdjustment === true ||
+    profile.cashBook === true ||
+    profile.overLimitAllowed === true ||
+    profile.overDaysAllowed === true ||
+    Number(profile.creditLimit || 0) > 0 ||
+    Number(profile.creditDays || 0) > 0 ||
+    Number(profile.interestRate || 0) > 0
+  );
+}
+
 export const ChartView: React.FC<{
   state: ChartState;
   branchId: string;
@@ -123,6 +145,7 @@ export const ChartView: React.FC<{
           name: values.name,
           groupId: values.groupId,
           description: values.description,
+          masterProfile: values.masterProfile,
           postingRole: values.postingRole || null,
           accountKind: values.accountKind,
           branchId: values.branchId || null,
@@ -141,6 +164,7 @@ export const ChartView: React.FC<{
           name: values.name,
           groupId: values.groupId,
           description: values.description,
+          masterProfile: values.masterProfile,
           subledgerType: values.subledgerType,
           postingRole: values.postingRole || null,
           accountKind: values.accountKind,
@@ -309,7 +333,17 @@ export const ChartView: React.FC<{
           <tr key={account.id} className="text-slate-800 dark:text-slate-300">
             <td className="px-2.5 py-1.5 font-mono text-[11px] text-indigo-600 dark:text-indigo-400">{account.code}</td>
             <td className="px-2.5 py-1.5 font-bold" style={{ paddingLeft: 8 + (depth + 1) * 16 }}>
-              {account.name}
+              <span className="inline-flex flex-wrap items-center gap-1.5">
+                {account.name}
+                {hasAdvancedProfile(account) && (
+                  <span
+                    className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700 dark:bg-amber-950/60 dark:text-amber-300"
+                    title="This ledger has custom values on the Advanced tab"
+                  >
+                    Advanced profile
+                  </span>
+                )}
+              </span>
             </td>
             <td className="px-2.5 py-1.5 text-slate-500 dark:text-slate-400">{account.accountType}</td>
             <td className="px-2.5 py-1.5">

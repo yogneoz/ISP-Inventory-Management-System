@@ -88,6 +88,15 @@ export const DEFAULT_CHART_GROUPS: readonly DefaultChartGroup[] = [
     sortOrder: 35,
   },
   {
+    code: '2120',
+    name: 'Loans & Borrowings',
+    parentCode: '2000',
+    accountType: 'LIABILITY',
+    statementGroup: 'CURRENT_LIABILITY',
+    normalBalance: 'CREDIT',
+    sortOrder: 37,
+  },
+  {
     code: '2500',
     name: 'Non-current Liabilities',
     accountType: 'LIABILITY',
@@ -308,6 +317,16 @@ export const DEFAULT_CHART_ACCOUNTS: readonly DefaultChartAccount[] = [
     postingRole: 'AP_CONTROL',
   },
   {
+    code: '2350',
+    name: 'Loan Payable — Unsecured',
+    groupCode: '2120',
+    description:
+      'Owner and third-party unsecured loans, tracked per lender in the LENDER subledger. Never a trade payable.',
+    isControl: true,
+    subledgerType: 'LENDER',
+    postingRole: 'LOAN_PAYABLE',
+  },
+  {
     code: '2200',
     name: 'VAT Output Payable',
     groupCode: '2000',
@@ -354,6 +373,26 @@ export const DEFAULT_CHART_ACCOUNTS: readonly DefaultChartAccount[] = [
     isControl: true,
     subledgerType: 'EMPLOYEE',
     postingRole: 'SSF_PAYABLE',
+  },
+  {
+    code: '2360',
+    name: 'TDS Payable — Lender Interest',
+    groupCode: '2000',
+    description:
+      'Tax withheld from interest paid to a lender; a non-control liability, not the employee TDS book.',
+    isControl: false,
+    subledgerType: 'NONE',
+    postingRole: null,
+  },
+  {
+    code: '2370',
+    name: 'Interest Payable — Lender',
+    groupCode: '2000',
+    description:
+      'Interest accrued on lender borrowings and not yet paid; cleared by loan repayments.',
+    isControl: false,
+    subledgerType: 'NONE',
+    postingRole: null,
   },
   {
     code: '3000',
@@ -435,6 +474,16 @@ export const DEFAULT_CHART_ACCOUNTS: readonly DefaultChartAccount[] = [
     isControl: false,
     subledgerType: 'NONE',
     postingRole: 'PAYMENT_FEE_EXPENSE',
+  },
+  {
+    code: '6700',
+    name: 'Interest Expense — Borrowings',
+    groupCode: '6000',
+    description:
+      'Interest charged on lender borrowings, including owner and related-party loans.',
+    isControl: false,
+    subledgerType: 'NONE',
+    postingRole: null,
   },
   {
     code: '6200',

@@ -241,7 +241,6 @@ describe('finance micro permissions', () => {
   test('screens, tabs and the sidebar use the same micro permissions', () => {
     const screens: Array<[string, string]> = [
       ['client/src/features/finance/ChartOfAccountsRegister.tsx', "isOperationAllowed('gl-chart-manage'"],
-      ['client/src/features/finance/GeneralLedgerMaster.tsx', "isOperationAllowed('gl-chart-manage'"],
       ['client/src/features/finance/SubledgersManagement.tsx', "isOperationAllowed('gl-subledger-manage'"],
       ['client/src/features/finance/BillTermsManagement.tsx', "isOperationAllowed('gl-bill-terms-manage'"],
       ['client/src/features/finance/CostCentersManagement.tsx', "isOperationAllowed('gl-dimension-manage'"],

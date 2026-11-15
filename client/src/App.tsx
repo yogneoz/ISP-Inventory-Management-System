@@ -182,8 +182,8 @@ const AgingRegister = React.lazy(() =>
 const ChartOfAccountsRegister = React.lazy(() =>
   import('./features/finance/ChartOfAccountsRegister').then((m) => ({ default: m.ChartOfAccountsRegister }))
 );
-const GeneralLedgerMaster = React.lazy(() =>
-  import('./features/finance/GeneralLedgerMaster').then((m) => ({ default: m.GeneralLedgerMaster }))
+const PostingRulesRegister = React.lazy(() =>
+  import('./features/finance/PostingRulesRegister').then((m) => ({ default: m.PostingRulesRegister }))
 );
 const JournalEntry = React.lazy(() =>
   import('./features/finance/VoucherEntries').then((m) => ({ default: m.JournalEntry }))
@@ -201,6 +201,9 @@ const PayrollPostingsRegister = React.lazy(() =>
 );
 const SubledgersManagement = React.lazy(() =>
   import('./features/finance/SubledgersManagement').then((m) => ({ default: m.SubledgersManagement }))
+);
+const LendersManagement = React.lazy(() =>
+  import('./features/finance/LendersManagement').then((m) => ({ default: m.LendersManagement }))
 );
 const BillTermsManagement = React.lazy(() =>
   import('./features/finance/BillTermsManagement').then((m) => ({ default: m.BillTermsManagement }))
@@ -267,6 +270,9 @@ const VendorLedger = React.lazy(() =>
 );
 const CustomerLedger = React.lazy(() =>
   import('./features/finance/CustomerLedger').then((m) => ({ default: m.CustomerLedger }))
+);
+const EmployeeLedger = React.lazy(() =>
+  import('./features/finance/EmployeeLedger').then((m) => ({ default: m.EmployeeLedger }))
 );
 const FiscalYearClosingWizard = React.lazy(() =>
   import('./features/finance/FiscalYearClosingWizard').then((m) => ({ default: m.FiscalYearClosingWizard }))
@@ -360,18 +366,6 @@ function readSavedTab(): string | null {
   }
 }
 
-/** Suspense fallback matching the boot-loading spinner (used by all lazy tabs). */
-function TabLoadingFallback() {
-  return (
-    <div
-      id="tab-loading-fallback"
-      className="flex flex-col items-center justify-center h-64 space-y-3"
-    >
-      <Loader2 className="h-8 w-8 text-indigo-500 animate-spin" />
-      <p className="text-xs font-semibold text-slate-400">Loading module…</p>
-    </div>
-  );
-}
 import {
   beginSliceLoad,
   dismissSliceErrors,
@@ -468,6 +462,16 @@ export default function App() {
   // incrementing token makes a second click for the same person re-focus it.
   const [userAccessFocus, setUserAccessFocus] = useState<UserAccessFocusRequest | null>(null);
   const userAccessFocusSeq = useRef(0);
+  // A customer/supplier directory row can open the matching party ledger with
+  // that party already selected. The token makes a second click for the same
+  // party focus it again instead of being ignored by React state equality.
+  const [ledgerPartyFocus, setLedgerPartyFocus] = useState<{
+    tab: 'customer-ledger' | 'vendor-ledger' | 'employee-ledger';
+    partyId: string;
+    partyLabel?: string;
+    token: number;
+  } | null>(null);
+  const ledgerPartyFocusSeq = useRef(0);
   // Server-backed user preferences. `prefsHydratedRef` gates every write so a
   // default rendered during start-up can never overwrite the real saved
   // preference, and `persistedPrefsRef` de-duplicates writes against the last
@@ -585,10 +589,25 @@ export default function App() {
   canAccessTabRef.current = canAccessTab;
   useEffect(() => {
     const handleNavigateTab = (e: Event) => {
-      const tab = (e as CustomEvent<{ tab?: string }>).detail?.tab;
+      const detail = (e as CustomEvent<{ tab?: string; partyId?: string; partyLabel?: string }>).detail;
+      const tab = detail?.tab;
       if (!tab) return;
       const nextTab = canonicalTab(tab as NavTab);
       if (!canAccessTabRef.current(nextTab)) return;
+      if (
+        detail?.partyId &&
+        (nextTab === 'customer-ledger' ||
+          nextTab === 'vendor-ledger' ||
+          nextTab === 'employee-ledger')
+      ) {
+        ledgerPartyFocusSeq.current += 1;
+        setLedgerPartyFocus({
+          tab: nextTab,
+          partyId: detail.partyId,
+          partyLabel: detail.partyLabel,
+          token: ledgerPartyFocusSeq.current,
+        });
+      }
       urlHistoryModeRef.current = 'push';
       setRecordRoute(null);
       setActiveTab(nextTab);
@@ -2301,7 +2320,6 @@ export default function App() {
   // keep-mounted wiring and the permission metadata rides on each entry.
   const screenRoutes: AppRoute[] = [
     screenRoute('company-overview', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <CompanyOverview
           currentUser={currentUser}
           branches={branches}
@@ -2321,7 +2339,6 @@ export default function App() {
           }
           onNavigateTab={setActiveTab}
         />
-      </React.Suspense>
     )),
     screenRoute('dashboard', (
       <Dashboard
@@ -2348,7 +2365,6 @@ export default function App() {
       />
     )),
     screenRoute('approvals', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <ApprovalWorkflowCenter
           approvalRequests={approvalRequests}
           branches={branches}
@@ -2363,7 +2379,6 @@ export default function App() {
             setActiveTab('physical-stock-audit');
           }}
         />
-      </React.Suspense>
     )),
     screenRoute('all-stock', (
       <ProductManagement
@@ -2390,7 +2405,6 @@ export default function App() {
       />
     )),
     screenRoute('opening-stock', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <OpeningStockManager
           currentUser={currentUser}
           fiscalYears={fiscalYears}
@@ -2400,33 +2414,25 @@ export default function App() {
           selectedFiscalYearId={selectedFiscalYearId}
           onSelectFiscalYear={setSelectedFiscalYearId}
         />
-      </React.Suspense>
     )),
     screenRoute('category-management', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <CategoryManagement
           currentUser={currentUser}
           products={products}
         />
-      </React.Suspense>
     )),
     screenRoute('product-group-management', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <ProductGroupManagement
           currentUser={currentUser}
           products={products}
         />
-      </React.Suspense>
     )),
     screenRoute('uom-management', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <UomManagement
           currentUser={currentUser}
         />
-      </React.Suspense>
     )),
     screenRoute('import-stock', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <ImportStock
           branches={branches}
           products={products}
@@ -2434,10 +2440,8 @@ export default function App() {
           onUpdateProduct={handleUpdateProduct}
           onRefreshData={refreshAllData}
         />
-      </React.Suspense>
     )),
     screenRoute('export-stock', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <ExportStock
           currentUser={currentUser}
           products={products}
@@ -2446,10 +2450,8 @@ export default function App() {
           selectedBranchId={selectedBranchId}
           dateMode={dateMode}
         />
-      </React.Suspense>
     )),
     screenRoute('branch-stock', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <BranchStockTracking
           currentUser={currentUser}
           products={products}
@@ -2458,10 +2460,8 @@ export default function App() {
           selectedBranchId={selectedBranchId}
           onUpdateStockLevel={handleUpdateStockLevel}
         />
-      </React.Suspense>
     )),
     screenRoute('reorder-stock', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <ReorderStockTracking
           currentUser={currentUser}
           products={products}
@@ -2474,10 +2474,8 @@ export default function App() {
           onGroupLowStockPO={handleGroupLowStockPO}
           onNavigateTab={setActiveTab}
         />
-      </React.Suspense>
     )),
     screenRoute('damaged-stock', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <DamagedStockTracking
           currentUser={currentUser}
           products={products}
@@ -2491,10 +2489,8 @@ export default function App() {
           onReverseStockOperation={handleReverseStockOperation}
           onNavigateTab={setActiveTab}
         />
-      </React.Suspense>
     )),
     screenRoute('stock-valuation', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <StockValuation
           products={products}
           branches={branches}
@@ -2502,10 +2498,8 @@ export default function App() {
           selectedBranchId={selectedBranchId}
           dateMode={dateMode}
         />
-      </React.Suspense>
     )),
     screenRoute('stock-ledger', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <StockMovementLedger
           products={products}
           branches={branches}
@@ -2520,10 +2514,8 @@ export default function App() {
           sseRefreshKey={registerRefresh.transactionLog}
           dateMode={dateMode}
         />
-      </React.Suspense>
     )),
     screenRoute('physical-stock-audit', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <PhysicalStockAudit
           currentUser={currentUser}
           products={products}
@@ -2549,10 +2541,8 @@ export default function App() {
             handleAppSettingChange('companyWideBlindCount', next ? 'true' : 'false')
           }
         />
-      </React.Suspense>
     )),
     screenRoute('fixed-assets', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <FixedAssetRegister
           currentUser={currentUser}
           refreshToken={registerRefresh.fixedAssets}
@@ -2565,15 +2555,11 @@ export default function App() {
           recordRoute={activeTab === 'fixed-assets' ? recordRoute : null}
           onRecordRouteChange={handleRecordRouteChange}
         />
-      </React.Suspense>
     )),
     screenRoute('dev-statcard', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <StatCardShowcase />
-      </React.Suspense>
     ), { enabled: Boolean(import.meta.env?.DEV) }),
     screenRoute('customers', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <CustomerMasterDirectory
           branches={branches}
           currentUser={currentUser}
@@ -2587,15 +2573,11 @@ export default function App() {
           recordRoute={activeTab === 'customers' ? recordRoute : null}
           onRecordRouteChange={handleRecordRouteChange}
         />
-      </React.Suspense>
     )),
     screenRoute('sales-agents-areas', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <SalesAgentsAreasManagement branches={branches} currentUser={currentUser} />
-      </React.Suspense>
     )),
     screenRoute('customer-devices', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <CustomersManagement
           currentUser={currentUser}
           branches={branches}
@@ -2617,10 +2599,8 @@ export default function App() {
           onNavigateToMaster={() => setActiveTab('customers')}
           sseRefreshKey={registerRefresh.customerDevices}
         />
-      </React.Suspense>
     )),
     screenRoute('complete-serial-inventory', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <SerialLogRegister
           branches={branches}
           selectedBranchId={selectedBranchId}
@@ -2629,18 +2609,14 @@ export default function App() {
           onRefreshData={refreshAllData}
           refreshKey={registerRefresh.serialLog}
         />
-      </React.Suspense>
     )),
     screenRoute('locations', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <LocationsManagement
           branches={branches}
           currentUser={currentUser}
         />
-      </React.Suspense>
     )),
     screenRoute('import-customers', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <ImportCustomers
           branches={branches}
           onImportCustomersSuccess={async (newCustomers) => {
@@ -2648,7 +2624,6 @@ export default function App() {
             await refreshAllData();
           }}
         />
-      </React.Suspense>
     )),
     screenRoute('create-po', (
       <PurchaseOrders
@@ -2697,7 +2672,6 @@ export default function App() {
       />
     )),
     screenRoute('create-purchase', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <PurchaseInvoices
           companyProfile={companyProfile}
           currentUser={currentUser}
@@ -2720,10 +2694,8 @@ export default function App() {
           sseRefreshKey={registerRefresh.purchaseInvoices}
           onNavigateTab={handleSelectTab}
         />
-      </React.Suspense>
     )),
     screenRoute('purchase-list', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <PurchaseInvoices
           companyProfile={companyProfile}
           currentUser={currentUser}
@@ -2748,10 +2720,8 @@ export default function App() {
           onRecordRouteChange={handleRecordRouteChange}
           onNavigateTab={handleSelectTab}
         />
-      </React.Suspense>
     )),
     screenRoute('create-sale', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <SalesInvoices
           companyProfile={companyProfile}
           currentUser={currentUser}
@@ -2771,10 +2741,8 @@ export default function App() {
           onCancelInvoice={handleCancelSalesInvoice}
           onNavigateTab={handleSelectTab}
         />
-      </React.Suspense>
     )),
     screenRoute('sales-list', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <SalesInvoices
           companyProfile={companyProfile}
           currentUser={currentUser}
@@ -2796,10 +2764,8 @@ export default function App() {
           onRecordRouteChange={handleRecordRouteChange}
           onNavigateTab={handleSelectTab}
         />
-      </React.Suspense>
     )),
     screenRoute('purchase-returns', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <ReturnsRegister
           kind="PURCHASE"
           companyProfile={companyProfile}
@@ -2817,10 +2783,8 @@ export default function App() {
           recordRoute={activeTab === 'purchase-returns' ? recordRoute : null}
           onRecordRouteChange={handleRecordRouteChange}
         />
-      </React.Suspense>
     )),
     screenRoute('create-purchase-return', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <ReturnsRegister
           kind="PURCHASE"
           companyProfile={companyProfile}
@@ -2837,10 +2801,8 @@ export default function App() {
           onCancelReturn={handleCancelPurchaseReturn}
           onApproveReturn={handleApprovePurchaseReturn}
         />
-      </React.Suspense>
     )),
     screenRoute('sales-returns', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <ReturnsRegister
           kind="SALES"
           companyProfile={companyProfile}
@@ -2858,10 +2820,8 @@ export default function App() {
           recordRoute={activeTab === 'sales-returns' ? recordRoute : null}
           onRecordRouteChange={handleRecordRouteChange}
         />
-      </React.Suspense>
     )),
     screenRoute('create-sales-return', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <ReturnsRegister
           kind="SALES"
           companyProfile={companyProfile}
@@ -2878,10 +2838,8 @@ export default function App() {
           onCancelReturn={handleCancelSalesReturn}
           onApproveReturn={handleApproveSalesReturn}
         />
-      </React.Suspense>
     )),
     screenRoute('create-shipment', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <Shipments
           currentUser={currentUser}
           activeTab="create-shipment"
@@ -2901,7 +2859,6 @@ export default function App() {
           onCancelApproval={handleCancelApprovalRequest}
           shipmentsRefresh={registerRefresh.shipments}
         />
-      </React.Suspense>
     )),
     screenRoute('create-transfer', (
       <StockOperations
@@ -2982,7 +2939,6 @@ export default function App() {
       />
     )),
     screenRoute('shipment-list', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <Shipments
           currentUser={currentUser}
           activeTab={activeTab}
@@ -3005,7 +2961,6 @@ export default function App() {
           onRecordRouteChange={handleRecordRouteChange}
           onFindShipment={handleFindShipment}
         />
-      </React.Suspense>
     )),
     screenRoute('pullout', (
       <StockOperations
@@ -3139,7 +3094,6 @@ export default function App() {
       />
     )),
     screenRoute('asset-deployments', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <AssetDeployments
           refreshToken={registerRefresh.fixedAssets}
           branches={branches}
@@ -3148,7 +3102,6 @@ export default function App() {
           dateMode={dateMode}
           onUnassignAsset={handleUpdateAssetStatus}
         />
-      </React.Suspense>
     )),
     screenRoute('consumable-issue', (
       <StockOperations
@@ -3245,24 +3198,20 @@ export default function App() {
       />
     )),
     screenRoute('supplier-warranty', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <SupplierWarrantyRegister
           selectedBranchId={selectedBranchId}
           dateMode={dateMode}
           currentUser={currentUser}
           refreshKey={registerRefresh.customerDevices}
         />
-      </React.Suspense>
     )),
     screenRoute('seller-warranty', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <SellerWarrantyRegister
           selectedBranchId={selectedBranchId}
           dateMode={dateMode}
           currentUser={currentUser}
           refreshKey={registerRefresh.customerDevices}
         />
-      </React.Suspense>
     )),
     screenRoute('branches', (
       <BranchesManagement
@@ -3287,8 +3236,9 @@ export default function App() {
         currentUser={currentUser}
         suppliers={suppliers}
         onCreateSupplier={async (s) => {
-          await api.createSupplier(s);
+          const created = await api.createSupplier(s);
           refreshAllData();
+          return created;
         }}
         onUpdateSupplier={async (id, s) => {
           await api.updateSupplier(id, s);
@@ -3330,7 +3280,6 @@ export default function App() {
       <LoginLocks currentUser={currentUser} users={users} />
     )),
     screenRoute('permissions', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <PermissionManagementLazy
           currentUser={currentUser}
           permissionsMatrix={permissionsMatrix}
@@ -3339,10 +3288,8 @@ export default function App() {
             else setActiveTab('user-permissions');
           }}
         />
-      </React.Suspense>
     )),
     screenRoute('user-permissions',
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <UserPermissionsLazy
           currentUser={currentUser}
           users={users}
@@ -3351,7 +3298,6 @@ export default function App() {
           focusRequest={userAccessFocus}
           onOpenRoleDefaults={() => setActiveTab('permissions')}
         />
-      </React.Suspense>
     ),
     screenRoute('company-setup', (
       <CompanySetupManagement
@@ -3371,7 +3317,6 @@ export default function App() {
       />
     )),
     screenRoute('clear-demo-data', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <ClearDemoDataView
           currentUser={currentUser}
           productCount={products.length}
@@ -3400,204 +3345,141 @@ export default function App() {
           onSignedOut={handleLogout}
           onNavigateDashboard={() => setActiveTab('dashboard')}
         />
-      </React.Suspense>
     )),
     screenRoute('accounting', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <TrialBalanceRegister branches={branches} dateMode={dateMode} currentUser={currentUser} fiscalYearStartAD={selectedFiscalYear?.startDateAD} />
-      </React.Suspense>
     )),
     screenRoute('accounting-bs-summary', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <BsLedgerSummaryRegister
           branches={branches}
           dateMode={dateMode}
           currentUser={currentUser}
         />
-      </React.Suspense>
     )),
     screenRoute('accounting-profit-loss', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <ProfitAndLossRegister branches={branches} dateMode={dateMode} currentUser={currentUser} fiscalYearStartAD={selectedFiscalYear?.startDateAD} />
-      </React.Suspense>
     )),
     screenRoute('accounting-branch-consolidated', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <BranchConsolidatedRegister branches={branches} dateMode={dateMode} currentUser={currentUser} fiscalYearStartAD={selectedFiscalYear?.startDateAD} />
-      </React.Suspense>
     )),
     screenRoute('accounting-balance-sheet', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <BalanceSheetRegister branches={branches} dateMode={dateMode} currentUser={currentUser} fiscalYearStartAD={selectedFiscalYear?.startDateAD} />
-      </React.Suspense>
     )),
     screenRoute('accounting-cash-flow', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <CashFlowRegister branches={branches} dateMode={dateMode} currentUser={currentUser} />
-      </React.Suspense>
     )),
     screenRoute('accounting-cash-book', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <CashBookRegister branches={branches} dateMode={dateMode} currentUser={currentUser} />
-      </React.Suspense>
     )),
     screenRoute('recurring-close', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <RecurringCloseRegister branches={branches} currentUser={currentUser} />
-      </React.Suspense>
     )),
     screenRoute('accounting-aging', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <AgingRegister branches={branches} dateMode={dateMode} currentUser={currentUser} />
-      </React.Suspense>
     )),
     screenRoute('journal-entry', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <JournalEntry branches={branches} currentUser={currentUser} suppliers={suppliers} />
-      </React.Suspense>
     )),
     screenRoute('cash-bank-entry', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <CashBankEntry branches={branches} currentUser={currentUser} suppliers={suppliers} />
-      </React.Suspense>
     )),
     screenRoute('posted-vouchers', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <PostedVouchers
           branches={branches}
           currentUser={currentUser}
           sseRefreshKey={registerRefresh.transactionLog}
         />
-      </React.Suspense>
     )),
     screenRoute('finance-payroll-postings', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <PayrollPostingsRegister branches={branches} currentUser={currentUser} />
-      </React.Suspense>
     )),
     screenRoute('accounting-chart', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <ChartOfAccountsRegister branches={branches} dateMode={dateMode} currentUser={currentUser} />
-      </React.Suspense>
     )),
-    screenRoute('general-ledger', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
-        <GeneralLedgerMaster currentUser={currentUser} branches={branches} />
-      </React.Suspense>
+    screenRoute('posting-rules', (
+        <PostingRulesRegister
+          branches={branches}
+          dateMode={dateMode}
+          currentUser={currentUser}
+        />
     )),
     screenRoute('subledgers', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <SubledgersManagement branches={branches} currentUser={currentUser} />
-      </React.Suspense>
+    )),
+    screenRoute('lenders', (
+        <LendersManagement branches={branches} currentUser={currentUser} />
     )),
     screenRoute('bill-terms', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <BillTermsManagement currentUser={currentUser} />
-      </React.Suspense>
     )),
     screenRoute('cost-centers', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <CostCentersManagement branches={branches} currentUser={currentUser} />
-      </React.Suspense>
     )),
     screenRoute('employees', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <EmployeeDirectory
           branches={branches}
           currentUser={currentUser}
           selectedBranchId={selectedBranchId}
         />
-      </React.Suspense>
     )),
     screenRoute('hr-self-service', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <EmployeeSelfService currentUser={currentUser} />
-      </React.Suspense>
     )),
     screenRoute('hr-self-payslips', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <EmployeePayslips currentUser={currentUser} />
-      </React.Suspense>
     )),
     screenRoute('hr-self-leave', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <EmployeeLeave currentUser={currentUser} />
-      </React.Suspense>
     )),
     screenRoute('hr-self-attendance', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <EmployeeAttendance currentUser={currentUser} />
-      </React.Suspense>
     )),
     screenRoute('hr-self-documents', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <EmployeeDocuments currentUser={currentUser} />
-      </React.Suspense>
     )),
     screenRoute('hr-attendance', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <AttendanceLeave
           branches={branches}
           currentUser={currentUser}
           selectedBranchId={selectedBranchId}
         />
-      </React.Suspense>
     )),
     screenRoute('hr-payroll', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <Payroll currentUser={currentUser} fiscalYears={fiscalYears} branches={branches} />
-      </React.Suspense>
     )),
     screenRoute('hr-reports', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <HrReports currentUser={currentUser} />
-      </React.Suspense>
     )),
     screenRoute('hr-recruitment', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <Recruitment
           currentUser={currentUser}
           branches={branches}
           selectedBranchId={selectedBranchId}
         />
-      </React.Suspense>
     )),
     screenRoute('hr-performance', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <Performance
           currentUser={currentUser}
           branches={branches}
           selectedBranchId={selectedBranchId}
         />
-      </React.Suspense>
     )),
     screenRoute('hr-lifecycle', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <Lifecycle user={currentUser} branchId={selectedBranchId} />
-      </React.Suspense>
     )),
     screenRoute('hr-org-masters', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <OrgMasters currentUser={currentUser} />
-      </React.Suspense>
     )),
     screenRoute('org-chart', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <OrgChart currentUser={currentUser} />
-      </React.Suspense>
     )),
     screenRoute('narration-templates', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <NarrationTemplatesManagement currentUser={currentUser} />
-      </React.Suspense>
     )),
     screenRoute('cash-position', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <DailyCashClose branches={branches} dateMode={dateMode} currentUser={currentUser} />
-      </React.Suspense>
     )),
     screenRoute('financial-statements', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <FinanceDashboard
           branches={branches}
           dateMode={dateMode}
@@ -3607,30 +3489,34 @@ export default function App() {
           refreshToken={Object.values(registerRefresh).reduce((sum, value) => sum + value, 0)}
           onNavigateTab={handleSelectTab}
         />
-      </React.Suspense>
     )),
     screenRoute('vendor-ledger', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <VendorLedger
           suppliers={suppliers}
           branches={branches}
           dateMode={dateMode}
           sseRefreshKey={registerRefresh.purchaseInvoices}
+          focusRequest={ledgerPartyFocus?.tab === 'vendor-ledger' ? ledgerPartyFocus : null}
         />
-      </React.Suspense>
     )),
     screenRoute('customer-ledger', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <CustomerLedger
           branches={branches}
           dateMode={dateMode}
           sseRefreshKey={registerRefresh.salesInvoices}
           returnsRefreshKey={registerRefresh.returnsRegister}
+          focusRequest={ledgerPartyFocus?.tab === 'customer-ledger' ? ledgerPartyFocus : null}
         />
-      </React.Suspense>
+    )),
+    screenRoute('employee-ledger', (
+        <EmployeeLedger
+          branches={branches}
+          dateMode={dateMode}
+          fiscalYearStartAD={selectedFiscalYear?.startDateAD}
+          focusRequest={ledgerPartyFocus?.tab === 'employee-ledger' ? ledgerPartyFocus : null}
+        />
     )),
     screenRoute('vendor-opening-balances', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <VendorOpeningBalances
           currentUser={currentUser}
           fiscalYears={fiscalYears}
@@ -3641,19 +3527,15 @@ export default function App() {
           selectedFiscalYearId={selectedFiscalYearId}
           onSelectFiscalYear={setSelectedFiscalYearId}
         />
-      </React.Suspense>
     )),
     screenRoute('vat-register', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <VatRegister
           invoices={purchaseInvoices}
           dateMode={dateMode}
           companyProfile={companyProfile}
         />
-      </React.Suspense>
     )),
     screenRoute('depreciation-register', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <DepreciationRegister
           refreshToken={registerRefresh.fixedAssets}
           branches={branches}
@@ -3662,10 +3544,8 @@ export default function App() {
           dateMode={dateMode}
           companyProfile={companyProfile}
         />
-      </React.Suspense>
     )),
     screenRoute('audit', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <AuditTrailReports
           auditLogs={auditLogs}
           financialSummary={financialSummary}
@@ -3679,19 +3559,15 @@ export default function App() {
           dateMode={dateMode}
           companyProfile={companyProfile}
         />
-      </React.Suspense>
     )),
     screenRoute('data-recalculation', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <DataRecalculationMaintenance
           currentUser={currentUser}
           fiscalYears={fiscalYears}
           onRefreshData={refreshAllData}
         />
-      </React.Suspense>
     )),
     screenRoute('fiscal-year-closing', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <FiscalYearClosingWizard
           fiscalYears={fiscalYears}
           onSetCurrentFiscalYear={handleSetCurrentFiscalYear}
@@ -3716,36 +3592,27 @@ export default function App() {
           onSelectFiscalYear={setSelectedFiscalYearId}
           onNavigateTab={setActiveTab}
         />
-      </React.Suspense>
     )),
     screenRoute('bs-calendar', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <BsCalendarUtility
           currentUser={currentUser}
         />
-      </React.Suspense>
     )),
     screenRoute('fiscal-year-management', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <DocumentNumbering />
-      </React.Suspense>
     )),
     screenRoute('nepali-fiscal', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <NepaliFiscalManagement
           fiscalYears={fiscalYears}
           onSetCurrentFiscalYear={handleSetCurrentFiscalYear}
           dateMode={dateMode}
         />
-      </React.Suspense>
     )),
     screenRoute('help-documentation', (
-      <React.Suspense fallback={<TabLoadingFallback />}>
         <HelpDocumentationLazy
           currentUser={currentUser}
           onNavigateTab={handleHelpNavigateTab}
         />
-      </React.Suspense>
     )),
   ];
 

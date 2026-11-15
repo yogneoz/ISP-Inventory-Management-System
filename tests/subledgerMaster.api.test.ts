@@ -1,7 +1,7 @@
 /**
  * Subledger master + chart setup health.
  *
- * Pins the contract the Subledgers and General Ledger Master screens rely on:
+ * Pins the contract the Subledgers and Chart of Accounts screens rely on:
  *   - a book is bound to exactly one control account, and its type comes from
  *     that account;
  *   - a control account owns at most one general book and any number of party

@@ -171,7 +171,7 @@ describe('inventory-to-finance coverage (real HTTP + PostgreSQL)', { skip: skipN
   test('purchase and sale keep the branch valuation equal to the INVENTORY control', async () => {
     const purchase = await post('/api/purchase-invoices', {
       id: 'iv-pi-1',
-      invoiceNumber: 'IV-PI-1',
+      invoiceNumber: 'PI-2083-IV-PI-1',
       branchId: BR,
       invoiceDateAD: TODAY,
       supplierName: 'IV Supplier',
@@ -194,7 +194,7 @@ describe('inventory-to-finance coverage (real HTTP + PostgreSQL)', { skip: skipN
 
     const sale = await post('/api/sales-invoices', {
       id: 'iv-si-1',
-      invoiceNumber: 'IV-SI-1',
+      invoiceNumber: 'INV-2083-IV-SI-1',
       customerId: CUSTOMER,
       customerName: 'IV Customer',
       branchId: BR,

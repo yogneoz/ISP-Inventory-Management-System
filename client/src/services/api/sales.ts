@@ -11,11 +11,13 @@ import type { SalesInvoice, SalesReturn, CustomerPayment } from '../../types';
 // legacy full-array shape is returned.
 export async function getSalesInvoices(params?: {
   branchId?: string; status?: string; query?: string;
+  customerId?: string;
   dateFromAD?: string; dateToAD?: string;
   page?: number; pageSize?: number; all?: boolean;
 }): Promise<SalesInvoice[] | { data: SalesInvoice[]; page: number; pageSize: number; totalItems: number }> {
   const search = new URLSearchParams();
   if (params?.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
+  if (params?.customerId) search.append('customerId', params.customerId);
   if (params?.status && params.status !== 'ALL') search.append('status', params.status);
   if (params?.query) search.append('query', params.query);
   if (params?.dateFromAD) search.append('dateFromAD', params.dateFromAD);

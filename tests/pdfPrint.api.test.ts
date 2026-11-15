@@ -198,7 +198,7 @@ describe('PDF reporting (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => {
 
     const sale = await post('/api/sales-invoices', {
       id: 'pdf-si-1',
-      invoiceNumber: 'PDF-SI-1',
+      invoiceNumber: 'INV-2083-PDF-SI-1',
       customerId: CUSTOMER,
       customerName: 'नमस्ते ग्राहक',
       branchId: BR,
@@ -212,7 +212,7 @@ describe('PDF reporting (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => {
 
     const bill = await post('/api/purchase-invoices', {
       id: 'pdf-pi-1',
-      invoiceNumber: 'PDF-PI-1',
+      invoiceNumber: 'PI-2083-PDF-PI-1',
       branchId: BR,
       invoiceDateAD: TODAY,
       supplierName: 'PDF Supplier',
@@ -224,7 +224,7 @@ describe('PDF reporting (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => {
 
     const otherSale = await post('/api/sales-invoices', {
       id: 'pdf-si-other',
-      invoiceNumber: 'PDF-SI-OTHER',
+      invoiceNumber: 'INV-2083-PDF-SI-OTHER',
       branchId: OTHER,
       invoiceDateAD: TODAY,
       customerName: 'Other Branch Customer',
@@ -269,11 +269,11 @@ describe('PDF reporting (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => {
   test('the sales invoice and purchase bill print through their own routes', async () => {
     const sale = await get('/api/sales-invoices/pdf-si-1/print');
     assertPdf(sale, 'sales invoice print');
-    assert.match(sale.disposition, /sales-invoice-PDF-SI-1\.pdf/, 'the filename names the document');
+    assert.match(sale.disposition, /sales-invoice-INV-2083-PDF-SI-1\.pdf/, 'the filename names the document');
 
     const bill = await get('/api/purchase-invoices/pdf-pi-1/print');
     assertPdf(bill, 'purchase bill print');
-    assert.match(bill.disposition, /purchase-bill-PDF-PI-1\.pdf/, 'the filename names the document');
+    assert.match(bill.disposition, /purchase-bill-PI-2083-PDF-PI-1\.pdf/, 'the filename names the document');
   });
 
   test('Devanagari text uses an embedded Noto Sans Devanagari subset', async () => {

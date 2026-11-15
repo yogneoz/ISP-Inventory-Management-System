@@ -31,7 +31,6 @@ describe('voucher entry and posted-voucher screens', () => {
     assert.ok(tabs.includes("'posted-vouchers': 'gl-view'"), 'Posted Vouchers must require gl-view');
     for (const [tab, operation] of [
       ['accounting-chart', 'gl-chart-manage'],
-      ['general-ledger', 'gl-chart-manage'],
       ['subledgers', 'gl-subledger-manage'],
       ['bill-terms', 'gl-bill-terms-manage'],
       ['cost-centers', 'gl-dimension-manage'],

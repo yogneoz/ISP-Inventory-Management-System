@@ -96,8 +96,13 @@ const ASSETS = path.join(DIST, 'assets');
 // itself stays dynamic (the lazy-screen leak guard is clean); this is required
 // shell wiring plus the eager API barrel, so the entry gate moves 21.5 -> 22 kB
 // and the startup total 320 -> 322 kB.
+// 2026-11-14 (employee ledger): measured entry 22,566 B and startup total
+// 321.8 kB after the Finance route, sidebar item, tab gate, preloader entry and
+// HR deep-link focus joined the shell. The screen chunk stays dynamic; the
+// required shell wiring left the 22 kB gate 38 B short, so the entry gate moves
+// 22 -> 22.125 kB. The startup total keeps its 322 kB gate.
 const BUDGETS = {
-  entryGz: 22 * 1024, // entry chunk alone
+  entryGz: 22.125 * 1024, // entry chunk alone
   startupTotalGz: 322 * 1024, // entry + all statically-imported chunks
 };
 

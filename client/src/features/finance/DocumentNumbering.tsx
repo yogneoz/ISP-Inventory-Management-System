@@ -24,9 +24,9 @@ type DocCategory = 'ALL' | 'PROCUREMENT_SALES' | 'INVENTORY_OPS' | 'FIXED_ASSETS
 
 const getDocCategory = (id: string): DocCategory => {
   if (['PO', 'PI', 'GRN', 'DN', 'INV', 'QUO', 'CN'].includes(id)) return 'PROCUREMENT_SALES';
-  if (['ST', 'SA', 'DC', 'CPI', 'EXC', 'WC'].includes(id)) return 'INVENTORY_OPS';
+  if (['ST', 'SA', 'DC', 'DMG', 'PLT', 'SALE', 'CON', 'DSP', 'CPI', 'EXC', 'WC'].includes(id)) return 'INVENTORY_OPS';
   if (['FAA', 'FAR'].includes(id)) return 'FIXED_ASSETS';
-  if (['JV', 'PV', 'RV', 'CP', 'CR', 'BP', 'BR'].includes(id)) return 'FINANCE_TAX';
+  if (['JV', 'CP', 'CR', 'BP', 'BR'].includes(id)) return 'FINANCE_TAX';
   return 'ALL';
 };
 

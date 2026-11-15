@@ -102,6 +102,7 @@ describe('invoice ledger posting (real HTTP + PostgreSQL)', { skip: skipNoDb }, 
     await pool!.query("DELETE FROM inventory_stock WHERE product_id LIKE 'ia-%'");
     await pool!.query("DELETE FROM transaction_logs WHERE product_id LIKE 'ia-%'");
     await pool!.query("DELETE FROM audit_logs WHERE details LIKE '%IA-SI-%' OR details LIKE '%IA-PI-%'");
+    await pool!.query('DELETE FROM document_number_retirements WHERE branch_id = $1', [BR]);
     await pool!.query("DELETE FROM products WHERE id LIKE 'ia-%'");
     await pool!.query('DELETE FROM branches WHERE id = $1', [BR]);
   }
@@ -234,10 +235,120 @@ describe('invoice ledger posting (real HTTP + PostgreSQL)', { skip: skipNoDb }, 
     }
   });
 
+  test('operator/import overrides are validated, unique, and cannot reuse a retired number', async () => {
+    // A purchase invoice is the import-created document path: its explicit
+    // number must pass the same prefix/period checks as a journal and cannot
+    // duplicate an existing bill.
+    const purchase = await post('/api/purchase-invoices', {
+      id: 'ia-pi-ovr',
+      invoiceNumber: 'PI-2083-IA-OVR',
+      branchId: BR,
+      invoiceDateAD: today,
+      supplierName: 'IA Override Supplier',
+      paymentMethod: 'CREDIT',
+      paymentStatus: 'UNPAID',
+      items: [invoiceLine({ quantity: 1, unitPrice: 100 })],
+    });
+    assert.equal(purchase.status, 201, JSON.stringify(purchase.json));
+    assert.equal(purchase.json.invoiceNumber, 'PI-2083-IA-OVR');
+
+    const duplicate = await post('/api/purchase-invoices', {
+      id: 'ia-pi-ovr-duplicate',
+      invoiceNumber: 'PI-2083-IA-OVR',
+      branchId: BR,
+      invoiceDateAD: today,
+      supplierName: 'IA Override Supplier',
+      paymentMethod: 'CREDIT',
+      paymentStatus: 'UNPAID',
+      items: [invoiceLine({ quantity: 1, unitPrice: 100 })],
+    });
+    assert.equal(duplicate.status, 409, JSON.stringify(duplicate.json));
+    const duplicateRows = await pool!.query("SELECT count(*)::int AS n FROM purchase_invoices WHERE invoice_number = 'PI-2083-IA-OVR'");
+    assert.equal(Number(duplicateRows.rows[0].n), 1, 'a duplicate override must not create a second bill');
+
+    const wrongPrefix = await post('/api/sales-invoices', {
+      id: 'ia-si-wrong-prefix',
+      invoiceNumber: 'PI-2083-IA-WRONG-PREFIX',
+      branchId: BR,
+      invoiceDateAD: today,
+      customerId: 'ia-customer',
+      customerName: 'IA Customer',
+      paymentMethod: 'CREDIT',
+      paymentStatus: 'UNPAID',
+      items: [invoiceLine({ quantity: 1, unitPrice: 100 })],
+    });
+    assert.equal(wrongPrefix.status, 400, JSON.stringify(wrongPrefix.json));
+    assert.match(String(wrongPrefix.json?.message), /INV- prefix/);
+
+    const wrongPeriod = await post('/api/sales-invoices', {
+      id: 'ia-si-wrong-period',
+      invoiceNumber: 'INV-2082-IA-WRONG-PERIOD',
+      branchId: BR,
+      invoiceDateAD: today,
+      customerId: 'ia-customer',
+      customerName: 'IA Customer',
+      paymentMethod: 'CREDIT',
+      paymentStatus: 'UNPAID',
+      items: [invoiceLine({ quantity: 1, unitPrice: 100 })],
+    });
+    assert.equal(wrongPeriod.status, 400, JSON.stringify(wrongPeriod.json));
+    assert.match(String(wrongPeriod.json?.message), /period 2082/);
+
+    // A cancelled document retires its number: even after the row still
+    // exists (CANCELLED), a new document may not claim the same number.
+    const sale = await post('/api/sales-invoices', {
+      id: 'ia-si-ovr',
+      invoiceNumber: 'INV-2083-IA-OVR',
+      branchId: BR,
+      invoiceDateAD: today,
+      customerId: 'ia-customer',
+      customerName: 'IA Customer',
+      paymentMethod: 'CREDIT',
+      paymentStatus: 'UNPAID',
+      amountPaid: 0,
+      items: [invoiceLine({ quantity: 1, unitPrice: 100 })],
+    });
+    assert.equal(sale.status, 201, JSON.stringify(sale.json));
+    const cancelled = await post('/api/sales-invoices/ia-si-ovr/cancel', { reason: 'retirement test' });
+    assert.equal(cancelled.status, 200, JSON.stringify(cancelled.json));
+
+    const retired = await post('/api/sales-invoices', {
+      id: 'ia-si-retired-reuse',
+      invoiceNumber: 'INV-2083-IA-OVR',
+      branchId: BR,
+      invoiceDateAD: today,
+      customerId: 'ia-customer',
+      customerName: 'IA Customer',
+      paymentMethod: 'CREDIT',
+      paymentStatus: 'UNPAID',
+      items: [invoiceLine({ quantity: 1, unitPrice: 100 })],
+    });
+    assert.equal(retired.status, 409, JSON.stringify(retired.json));
+    assert.match(String(retired.json?.message), /retired/i);
+
+    // Remove the override purchase bill so the weighted-average fixtures below
+    // start from the empty stock they expect. Its number is retired too.
+    const deleted = await del('/api/purchase-invoices/ia-pi-ovr');
+    assert.equal(deleted.status, 200, JSON.stringify(deleted.json));
+
+    const deletedNumberReuse = await post('/api/purchase-invoices', {
+      id: 'ia-pi-retired-reuse',
+      invoiceNumber: 'PI-2083-IA-OVR',
+      branchId: BR,
+      invoiceDateAD: today,
+      supplierName: 'IA Override Supplier',
+      paymentMethod: 'CREDIT',
+      paymentStatus: 'UNPAID',
+      items: [invoiceLine({ quantity: 1, unitPrice: 100 })],
+    });
+    assert.equal(deletedNumberReuse.status, 409, JSON.stringify(deletedNumberReuse.json));
+    assert.match(String(deletedNumberReuse.json?.message), /retired/i);
+  });
+
   test('a purchase bill posts inventory + input VAT / AP and sets weighted-average cost', async () => {
     const res = await post('/api/purchase-invoices', {
       id: 'ia-pi-1',
-      invoiceNumber: 'IA-PI-1',
+      invoiceNumber: 'PI-2083-IA-PI-1',
       branchId: BR,
       invoiceDateAD: today,
       supplierName: 'IA Supplier',
@@ -290,7 +401,7 @@ describe('invoice ledger posting (real HTTP + PostgreSQL)', { skip: skipNoDb }, 
   test('a sales invoice posts AR / revenue / output VAT and COGS at weighted-average cost', async () => {
     const res = await post('/api/sales-invoices', {
       id: 'ia-si-1',
-      invoiceNumber: 'IA-SI-1',
+      invoiceNumber: 'INV-2083-IA-SI-1',
       customerId: 'ia-customer',
       customerName: 'IA Customer',
       branchId: BR,
@@ -421,7 +532,7 @@ describe('invoice ledger posting (real HTTP + PostgreSQL)', { skip: skipNoDb }, 
       postSalesInvoiceLedger(emptyChart as any, {
         invoice: {
           id: 'ia-no-chart',
-          invoiceNumber: 'IA-NO-CHART',
+          invoiceNumber: 'PI-2083-IA-NO-CHART',
           branchId: BR,
           invoiceDateAD: today,
           grandTotal: 100,
@@ -436,7 +547,7 @@ describe('invoice ledger posting (real HTTP + PostgreSQL)', { skip: skipNoDb }, 
   test('a posting failure after the document writes rolls the invoice, stock, journal and audit back together', async () => {
     const res = await post('/api/sales-invoices', {
       id: 'ia-si-fail',
-      invoiceNumber: 'IA-SI-FAIL',
+      invoiceNumber: 'INV-2083-IA-SI-FAIL',
       customerId: 'ia-customer',
       customerName: 'IA Customer',
       branchId: BR,

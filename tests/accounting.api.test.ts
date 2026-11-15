@@ -71,6 +71,7 @@ const tokens = Object.fromEntries(
 interface AccountFixture {
   groupAsset: string;
   cash: string;
+  bank: string;
   receivable: string;
   payable: string;
   sales: string;
@@ -190,6 +191,7 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
     const seeded = await get('/api/accounting/posting-defaults', tokens.super);
     assert.equal(seeded.status, 200, JSON.stringify(seeded.json));
     accounts.cash = seeded.json.defaults.CASH.accountId;
+    accounts.bank = seeded.json.defaults.BANK.accountId;
     accounts.receivable = seeded.json.defaults.AR_CONTROL.accountId;
     accounts.payable = seeded.json.defaults.AP_CONTROL.accountId;
     accounts.sales = seeded.json.defaults.SALES.accountId;
@@ -672,7 +674,7 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
     });
     assert.equal(res.status, 201, JSON.stringify(res.json));
     assert.equal(res.json.branchId, BR);
-    assert.match(res.json.journalNo, /^MJ-2083-84-\d{5}$/);
+    assert.match(res.json.journalNo, /^JV-[A-Za-z0-9_-]+-\d{8}\d{4}$/);
     assert.equal(res.json.status, 'POSTED');
     assert.equal(res.json.journalDateBS, journalDateBS);
     assert.equal(res.json.subledgerEntries[0].entryDateBS, journalDateBS);
@@ -717,12 +719,45 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
     assert.equal(period.rows[0].end_date_bs, '2083-05-15 BS');
   });
 
+  test('a lender control posts to its own LENDER subledger, not AP', async () => {
+    const chart = await get('/api/accounting/accounts?includeInactive=1', tokens.super);
+    const loan = (chart.json as any[]).find((account) => account.code === '2350');
+    assert.ok(loan, 'the seeded Loan Payable control account is required');
+    assert.equal(loan.postingRole, 'LOAN_PAYABLE');
+    assert.equal(loan.subledgerType, 'LENDER');
+
+    const posted = await post('/api/accounting/journals', tokens.accountant, {
+      journalDateAD: JOURNAL_DATE,
+      branchId: BR,
+      memo: 'ACC TEST lender funding',
+      sourceId: 'ACC-TEST-LENDER',
+      lines: [
+        line(accounts.cash, 1000, 0),
+        line(loan.id, 0, 1000, {
+          subledgerType: 'LENDER',
+          partyId: 'ACC-TEST-LENDER-1',
+          partyName: 'ACC Test Lender',
+        }),
+      ],
+    });
+    assert.equal(posted.status, 201, JSON.stringify(posted.json));
+    assert.equal(posted.json.subledgerEntries[0].subledgerType, 'LENDER');
+    assert.equal(posted.json.subledgerEntries[0].partyId, 'ACC-TEST-LENDER-1');
+    assert.equal(posted.json.subledgerEntries[0].credit, 1000);
+
+    const ap = await get('/api/accounting/accounts?includeInactive=1', tokens.super);
+    const payable = (ap.json as any[]).find((account) => account.code === '2100');
+    assert.ok(payable);
+    assert.notEqual(loan.id, payable.id, 'loan payable is a separate control from trade AP');
+  });
+
   test('voucher metadata, foreign currency and cash-bank numbering round-trip', async () => {
     const posted = await post('/api/accounting/journals', tokens.accountant, {
       journalDateAD: JOURNAL_DATE,
       branchId: BR,
       sourceType: 'CASH_RECEIPT',
       voucherType: 'CASH_BANK',
+      documentType: 'CR',
       referenceNo: 'ACC-TEST-REF-1',
       referenceDateAD: '2026-08-10',
       chequeNo: 'ACC-TEST-CHQ-1',
@@ -734,7 +769,7 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
       lines: [line(accounts.cash, 1305, 0), line(accounts.sales, 0, 1305)],
     });
     assert.equal(posted.status, 201, JSON.stringify(posted.json));
-    assert.match(posted.json.journalNo, /^RV-2083-84-\d{5}$/);
+    assert.match(posted.json.journalNo, /^CR-[A-Z0-9]+-\d{8}\d{4}$/);
     assert.equal(posted.json.sourceType, 'CASH_RECEIPT');
     assert.equal(posted.json.voucherType, 'CASH_BANK');
     assert.equal(posted.json.referenceNo, 'ACC-TEST-REF-1');
@@ -764,6 +799,54 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
     });
     assert.equal(zeroRate.status, 400);
     assert.match(zeroRate.json.message, /exchange rate/i);
+  });
+
+  test('cash and bank entry refuses an unallocated AR control line', async () => {
+    const posted = await post('/api/accounting/journals', tokens.accountant, {
+      journalDateAD: JOURNAL_DATE,
+      branchId: BR,
+      sourceType: 'CASH_RECEIPT',
+      documentType: 'CR',
+      memo: 'ACC TEST naked AR control',
+      lines: [
+        line(accounts.cash, 100, 0),
+        line(accounts.receivable, 0, 100, {
+          subledgerType: 'CUSTOMER',
+          partyId: 'ACC-TEST-CUSTOMER',
+          partyName: 'ACC Test Customer',
+        }),
+      ],
+    });
+    assert.equal(posted.status, 400, JSON.stringify(posted.json));
+    assert.match(String(posted.json.message), /Record Customer Payment or Vendor Payment/);
+  });
+
+  test('a contra moves between two custody ledgers under one CT number', async () => {
+    const posted = await post('/api/accounting/journals', tokens.accountant, {
+      journalDateAD: JOURNAL_DATE,
+      branchId: BR,
+      sourceType: 'CASH_BANK',
+      voucherType: 'CONTRA',
+      memo: 'ACC TEST contra',
+      sourceId: 'ACC-TEST-CONTRA',
+      lines: [line(accounts.cash, 1250, 0), line(accounts.bank, 0, 1250)],
+    });
+    assert.equal(posted.status, 201, JSON.stringify(posted.json));
+    assert.match(posted.json.journalNo, /^CT-[A-Z0-9]+-\d{8}\d{4}$/);
+    assert.equal(posted.json.sourceType, 'CASH_BANK');
+    assert.equal(posted.json.voucherType, 'CONTRA');
+    assert.equal(posted.json.totalDebit, 1250);
+
+    const outside = await post('/api/accounting/journals', tokens.accountant, {
+      journalDateAD: JOURNAL_DATE,
+      branchId: BR,
+      sourceType: 'CASH_BANK',
+      voucherType: 'CONTRA',
+      sourceId: 'ACC-TEST-CONTRA-BAD',
+      lines: [line(accounts.cash, 50, 0), line(accounts.expense, 0, 50)],
+    });
+    assert.equal(outside.status, 400, JSON.stringify(outside.json));
+    assert.match(String(outside.json.message), /cash, bank or wallet ledger/i);
   });
 
   test('a posted manual voucher reverses through a contra and refuses a second reversal', async () => {

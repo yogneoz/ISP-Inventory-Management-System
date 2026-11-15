@@ -8,6 +8,7 @@
 import type { Request, Response } from 'express';
 import { getPgConnected, pgPool, purchaseOrders, issueNextDocNumber, setPurchaseOrders, withReplaced, withPrepended, inventoryStock, logAuditEvent, purchaseInvoices, withTransaction, branches, products, companyProfile, setPurchaseInvoices, suppliers, setInventoryStock, withAppended, customerDeviceRecords, setCustomerDeviceRecords, vendorPayments, getUserFromReq, broadcastChange, VENDOR_PAYMENT_SELECT, providerSupplierIdFromName, findBsDayRecordForAdDate, setVendorPayments, purchaseReturns, setPurchaseReturns, transactionLogs, setTransactionLogs, serialLogs, setSerialLogs, productGroups } from '../app';
 import { VendorPayment, VendorPaymentMethod, TransactionLog } from '../../../client/src/types';
+import { resolveDocumentNumber, retireDocumentNumber } from '../utils/docNumber';
 import { billLineNetAmounts, computeBillTotals, defaultVatRateFor, resolveLedgerUnitCost } from '../utils/money';
 import { demoPurchaseInvoiceTxn, demoPurchaseReturnTxn, demoPurchaseReturnCancelTxn, findOrCreateDemoStock } from '../models/txnLogRows';
 import { bsDateOr400 } from '../utils/bsDate';
@@ -506,7 +507,12 @@ try {
     if (quantityRefusal) return res.status(400).json({ message: quantityRefusal });
     const targetBranchId = req.body.branchId || branches[0]?.id || 'WH001';
     const invDate = req.body.invoiceDateAD || req.body.invoiceDateAd || new Date().toISOString().split('T')[0];
-    const invoiceNumber = req.body.invoiceNumber || (await issueNextDocNumber(targetBranchId, 'PI', invDate));
+    const invoiceNumber = await resolveDocumentNumber({
+      provided: req.body.invoiceNumber,
+      docType: 'PI',
+      branchId: targetBranchId,
+      dateAd: invDate,
+    });
     // BS dates are mandatory: derive from bs_day_records for the invoice's
     // own AD date; 400 when unseeded (client-supplied BS never overrides).
     const invoiceDateBS = await bsDateOr400(res, invDate);
@@ -912,6 +918,13 @@ try {
           }
           await client.query(SERIAL_LOG_DELETE_BY_INVOICE_SERIALS_SQL, [serials]);
         }
+        await retireDocumentNumber(client, {
+          docType: 'PI',
+          number: invoice.invoiceNumber,
+          branchId: invoice.branchId,
+          documentId: String(invoice.id),
+          reason: 'Purchase invoice deleted',
+        });
         await client.query(PI_DELETE_SQL, [id]);
         // The bill's ledger entry is reversed in the same transaction, so a
         // deleted bill never leaves inventory/VAT/AP balances behind.
@@ -1263,7 +1276,9 @@ try {
     // payment method: CP = Cash Payment, BP = Bank Payment
     // (transfer/cheque/card/online). Format: CP-BRC01-202609150001
     const payDocType = paymentMethod === 'CASH' ? 'CP' : 'BP';
-    const paymentNumber = body.paymentNumber || (await issueNextDocNumber(branchId, payDocType, paymentDateAD));
+    // The register is the only authority for a new payment number. Importers
+    // must use an explicit migration path, not a body override.
+    const paymentNumber = await issueNextDocNumber(branchId, payDocType, paymentDateAD);
     const id = `vp-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
 
     const newPayment: VendorPayment = {
@@ -1654,7 +1669,12 @@ export async function post_purchaseReturns(req: any, res: Response): Promise<any
     // own AD date; 400 when unseeded.
     const prReturnDateBS = await bsDateOr400(res, retDate);
     if (!prReturnDateBS) return;
-    const returnNumber = req.body.returnNumber || (await issueNextDocNumber(targetBranchId, 'DN', retDate));
+    const returnNumber = await resolveDocumentNumber({
+      provided: req.body.returnNumber,
+      docType: 'DN',
+      branchId: targetBranchId,
+      dateAd: retDate,
+    });
 
     // PostgreSQL first: a stale mirror invoice must never gate a return or
     // supply its item lines (bootstrap-trim step 5 applies to returns too).
@@ -1817,6 +1837,13 @@ export async function post_purchaseReturnCancel(req: any, res: Response): Promis
           ? await client.query(PR_CANCEL_DRAFT_SQL, [ret.id])
           : await client.query(PR_CANCEL_SQL, [ret.id]);
         if (cancelled.rowCount !== 1) throw new Error('Return was already cancelled by another user.');
+        await retireDocumentNumber(client, {
+          docType: 'DN',
+          number: ret.returnNumber,
+          branchId: ret.branchId,
+          documentId: String(ret.id),
+          reason: reason || 'Purchase return cancelled',
+        });
         if (ret.status === 'POSTED') {
           let cancelLineIdx = 0;
           const cancelNetLines = billLineNetAmounts(ret.items || []);

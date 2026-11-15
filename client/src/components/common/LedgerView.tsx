@@ -118,6 +118,8 @@ export interface LedgerViewProps {
   onFilterChange: (patch: Partial<LedgerFilters>) => void;
   /** Runs the screen's own fetch with the screen's current filters. */
   onLoad: () => void;
+  /** Optional screen-specific action beside Refresh (e.g. Receive Payment). */
+  headerActions?: React.ReactNode;
   loading: boolean;
   error: string;
   data: SubLedgerData | null;
@@ -205,6 +207,7 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
   filters,
   onFilterChange,
   onLoad,
+  headerActions,
   loading,
   error,
   data,
@@ -249,6 +252,7 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{subtitle}</p>
         </div>
         <div className="flex items-center gap-2">
+          {headerActions}
           <button
             onClick={onLoad}
             disabled={loadDisabled}

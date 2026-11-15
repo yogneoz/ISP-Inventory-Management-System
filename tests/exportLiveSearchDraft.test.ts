@@ -116,6 +116,10 @@ const EXEMPT = new Map<string, string>([
     'inventory/PhysicalStockAudit.tsx',
     'exports the complete physical count sheet and company matrix; its search narrows only the on-screen table, never those exports',
   ],
+  [
+    'finance/LendersManagement.tsx',
+    'exports the selected lender statement over its date range; the master search narrows only the on-screen lender list and never the ledger rows in that statement',
+  ],
 ]);
 
 const readFeature = (rel: string) => fs.readFileSync(path.join(FEATURES, rel), 'utf8');

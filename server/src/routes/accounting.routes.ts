@@ -88,6 +88,7 @@ import {
 import {
   delete_subledger,
   get_chartHealth,
+  get_partyBalances,
   get_subledgerEntries,
   get_subledgers,
   patch_subledger,
@@ -133,6 +134,22 @@ import {
   post_walletSettlement,
 } from '../controllers/walletSettlement.controller';
 import { get_inventoryReconciliation } from '../controllers/inventoryReconciliation.controller';
+import {
+  delete_lender,
+  get_lenderOptions,
+  get_lenderStatement,
+  get_lenders,
+  get_loan,
+  get_loans,
+  get_loanTransactions,
+  patch_lender,
+  patch_loan,
+  post_lender,
+  post_loan,
+  post_loanInterestAccrual,
+  post_loanReceipt,
+  post_loanRepayment,
+} from '../controllers/lenders.controller';
 
 export function registerAccountingRoutes(app: Express) {
   // Chart of accounts + posting defaults.
@@ -185,6 +202,9 @@ export function registerAccountingRoutes(app: Express) {
   app.get('/api/accounting/subledgers', requirePermission('gl-view'), async (req, res, next) => {
     get_subledgers(req as any, res as any).catch(next);
   });
+  app.get('/api/accounting/party-balances', requirePermission('gl-view'), async (req, res, next) => {
+    get_partyBalances(req as any, res as any).catch(next);
+  });
   app.get('/api/accounting/subledgers/:id/entries', requirePermission('gl-view'), async (req, res, next) => {
     get_subledgerEntries(req as any, res as any).catch(next);
   });
@@ -205,6 +225,71 @@ export function registerAccountingRoutes(app: Express) {
   });
   app.post('/api/accounting/chart-defaults', requirePermission('gl-chart-manage'), async (req, res, next) => {
     post_chartDefaults(req as any, res as any).catch(next);
+  });
+  // Lender master, loan register and the lender statement. Reads stay on the
+  // shared ledger read grant; writes reuse the subledger management grant
+  // because a lender is a LENDER subledger party, not a new finance module.
+  app.get(
+    '/api/accounting/lenders/options',
+    requirePermissionAny('gl-view', 'gl-post'),
+    async (req, res, next) => {
+      get_lenderOptions(req as any, res as any).catch(next);
+    }
+  );
+  app.get('/api/accounting/lenders', requirePermission('gl-view'), async (req, res, next) => {
+    get_lenders(req as any, res as any).catch(next);
+  });
+  app.get('/api/accounting/lenders/:id/statement', requirePermission('gl-view'), async (req, res, next) => {
+    get_lenderStatement(req as any, res as any).catch(next);
+  });
+  app.post('/api/accounting/lenders', requirePermission('gl-subledger-manage'), async (req, res, next) => {
+    post_lender(req as any, res as any).catch(next);
+  });
+  app.patch('/api/accounting/lenders/:id', requirePermission('gl-subledger-manage'), async (req, res, next) => {
+    patch_lender(req as any, res as any).catch(next);
+  });
+  app.delete('/api/accounting/lenders/:id', requirePermission('gl-subledger-manage'), async (req, res, next) => {
+    delete_lender(req as any, res as any).catch(next);
+  });
+  app.get('/api/accounting/loans', requirePermission('gl-view'), async (req, res, next) => {
+    get_loans(req as any, res as any).catch(next);
+  });
+  app.get(
+    '/api/accounting/loans/:id/transactions',
+    requirePermission('gl-view'),
+    async (req, res, next) => {
+      get_loanTransactions(req as any, res as any).catch(next);
+    }
+  );
+  app.get('/api/accounting/loans/:id', requirePermission('gl-view'), async (req, res, next) => {
+    get_loan(req as any, res as any).catch(next);
+  });
+  app.post('/api/accounting/loans', requirePermission('gl-subledger-manage'), async (req, res, next) => {
+    post_loan(req as any, res as any).catch(next);
+  });
+  app.post(
+    '/api/accounting/loans/:id/receipts',
+    requirePermission('gl-post'),
+    async (req, res, next) => {
+      post_loanReceipt(req as any, res as any).catch(next);
+    }
+  );
+  app.post(
+    '/api/accounting/loans/:id/repayments',
+    requirePermission('gl-post'),
+    async (req, res, next) => {
+      post_loanRepayment(req as any, res as any).catch(next);
+    }
+  );
+  app.post(
+    '/api/accounting/loans/:id/interest-accruals',
+    requirePermission('gl-post'),
+    async (req, res, next) => {
+      post_loanInterestAccrual(req as any, res as any).catch(next);
+    }
+  );
+  app.patch('/api/accounting/loans/:id', requirePermission('gl-subledger-manage'), async (req, res, next) => {
+    patch_loan(req as any, res as any).catch(next);
   });
   app.get('/api/accounting/posting-defaults', requirePermission('gl-view'), async (req, res, next) => {
     get_postingDefaults(req as any, res as any).catch(next);

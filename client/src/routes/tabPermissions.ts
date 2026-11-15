@@ -95,13 +95,18 @@ export const TAB_PERMISSIONS: Record<string, string | string[]> = {
   // that its buttons actually require.
   'accounting-chart': 'gl-chart-manage',
   'general-ledger': 'gl-chart-manage',
+  'posting-rules': 'gl-view',
   'subledgers': 'gl-subledger-manage',
+  // The statement is a ledger read; management buttons inside the screen stay
+  // gated on gl-subledger-manage.
+  'lenders': 'gl-view',
   'bill-terms': 'gl-bill-terms-manage',
   'cost-centers': 'gl-dimension-manage',
   'narration-templates': 'gl-dimension-manage',
   'cash-position': 'gl-view',
   'financial-statements': 'fin-statements',
   'vendor-ledger': 'inv-pay',
+  'employee-ledger': 'gl-view',
   'vendor-opening-balances': 'opening-stock-view',
   'vat-register': 'vat-register',
   users: 'admin-users',

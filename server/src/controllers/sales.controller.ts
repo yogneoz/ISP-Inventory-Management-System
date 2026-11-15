@@ -12,8 +12,9 @@ import {
   getUserFromReq, customerMasterRecords,
   customerPayments, companyProfile,
 } from '../app';
+import { resolveDocumentNumber, retireDocumentNumber } from '../utils/docNumber';
 import { salesInvoices, salesReturns, setSalesInvoices, setSalesReturns } from '../state/runtimeState';
-import { computeBillTotals, defaultVatRateFor, resolveLedgerUnitCost } from '../utils/money';
+import { computeBillTotals, defaultVatRateFor, resolveLedgerUnitCost, roundMoney } from '../utils/money';
 import { TransactionLog } from '../../../client/src/types';
 import { demoSalesInvoiceTxn, demoSalesReturnTxn, demoSalesReturnCancelTxn, findOrCreateDemoStock } from '../models/txnLogRows';
 import { bsDateOr400 } from '../utils/bsDate';
@@ -30,7 +31,8 @@ import {
   SR_POST_DRAFT_SQL, SR_CANCEL_DRAFT_SQL,
   CP_INSERT_SQL, cpInsertParams, CP_LOCK_STATUS_SQL, CP_REVERSE_SQL, CP_FIND_BY_ID_SQL,
   CP_REFUND_SQL, CP_CHARGEBACK_SQL, CP_SETTLED_GROSS_SQL, CP_PROVIDER_TXN_EXISTS_SQL,
-  SI_RECORD_PAYMENT_SQL, SI_UNDO_PAYMENT_SQL,
+  CPA_INSERT_SQL, cpaInsertParams, CPA_LIST_POSTED_BY_PAYMENT_SQL, CPA_REVERSE_BY_PAYMENT_SQL,
+  SI_RECORD_PAYMENT_SQL, SI_UNDO_PAYMENT_SQL, SI_LOCK_FOR_PAYMENT_SQL,
   SI_CLAIM_SERIAL_SQL, siClaimSerialParams,
   SI_FIND_ONE_SQL, SI_LOCK_FOR_CANCEL_SQL, SI_CANCEL_SQL,
   SI_BLOCKING_PAYMENTS_SQL, SI_BLOCKING_RETURNS_SQL,
@@ -82,6 +84,29 @@ import {
 function actorOf(req: any): string | null {
   const user = getUserFromReq(req);
   return user.email || user.name || null;
+}
+
+/**
+ * Restores every invoice a receipt settled and marks the allocation rows
+ * reversed. The legacy `invoice_id` fallback keeps pre-allocation receipts
+ * correct until migration 0017 has run. Call inside the payment transaction.
+ */
+async function reversePaymentAllocations(
+  client: any,
+  payment: any,
+  reason: string,
+  actor: string
+): Promise<void> {
+  const reversed = await client.query(CPA_REVERSE_BY_PAYMENT_SQL, [payment.id, actor, reason]);
+  if (reversed.rows.length > 0) {
+    for (const row of reversed.rows) {
+      await client.query(SI_UNDO_PAYMENT_SQL, [Number(row.amount), row.invoiceId]);
+    }
+    return;
+  }
+  if (payment.invoiceId) {
+    await client.query(SI_UNDO_PAYMENT_SQL, [Number(payment.amount), payment.invoiceId]);
+  }
 }
 
 /**
@@ -203,7 +228,7 @@ function srValidateAgainstInvoice(invoiceItems: any[], returnItems: any[], alrea
 
 /** Forwarded from sales.routes.ts (get_salesInvoices). */
 export async function get_salesInvoices(req: any, res: Response): Promise<any> {
-  const { branchId, status, query, dateFromAD, dateToAD, page, pageSize, all } = req.query;
+  const { branchId, customerId, status, query, dateFromAD, dateToAD, page, pageSize, all } = req.query;
   // Paged mode: ?page=N (optional pageSize) returns an envelope with the page
   // slice and the filtered total (the purchase-orders pattern). Filters
   // without a page param keep the legacy full-array response; a bare
@@ -212,7 +237,7 @@ export async function get_salesInvoices(req: any, res: Response): Promise<any> {
   const wantsFiltering = wantsPaged || status || query || dateFromAD || dateToAD;
   if (getPgConnected() && wantsFiltering) {
     try {
-      const opts = { branchId, status, query, dateFromAD, dateToAD };
+      const opts = { branchId, customerId, status, query, dateFromAD, dateToAD };
       if (wantsPaged) {
         const n = Math.max(1, Number(page) || 1);
         const size = Math.max(1, Math.min(500, Number(pageSize) || 50));
@@ -323,7 +348,12 @@ export async function post_salesInvoices(req: any, res: Response): Promise<any> 
     const totals = computeBillTotals(items, undefined, defaultVatRateFor(companyProfile));
     const targetBranchId = req.body.branchId || branches[0]?.id || 'WH001';
     const invDate = req.body.invoiceDateAD || req.body.invoiceDateAd || new Date().toISOString().split('T')[0];
-    const invoiceNumber = req.body.invoiceNumber || (await issueNextDocNumber(targetBranchId, 'INV', invDate));
+    const invoiceNumber = await resolveDocumentNumber({
+      provided: req.body.invoiceNumber,
+      docType: 'INV',
+      branchId: targetBranchId,
+      dateAd: invDate,
+    });
     // BS dates are mandatory: derive from bs_day_records for the invoice's
     // own AD date; 400 when unseeded.
     const invoiceDateBS = await bsDateOr400(res, invDate);
@@ -577,6 +607,13 @@ export async function post_salesInvoiceCancel(req: any, res: Response): Promise<
       if (cancelled.rowCount !== 1) {
         throw new Error('Sales invoice was already cancelled by another user.');
       }
+      await retireDocumentNumber(client, {
+        docType: 'INV',
+        number: inv.invoiceNumber,
+        branchId: inv.branchId,
+        documentId: String(inv.id),
+        reason: reason || 'Sales invoice cancelled',
+      });
 
       const items = invoiceItems(inv.items);
       for (let itemIdx = 0; itemIdx < items.length; itemIdx++) {
@@ -723,7 +760,12 @@ export async function post_salesReturns(req: any, res: Response): Promise<any> {
     // own AD date; 400 when unseeded.
     const srReturnDateBS = await bsDateOr400(res, retDate);
     if (!srReturnDateBS) return;
-    const returnNumber = req.body.returnNumber || (await issueNextDocNumber(targetBranchId, 'CN', retDate));
+    const returnNumber = await resolveDocumentNumber({
+      provided: req.body.returnNumber,
+      docType: 'CN',
+      branchId: targetBranchId,
+      dateAd: retDate,
+    });
 
     let invoiceRow: any = salesInvoices.find((i) => i.id === originalRef || i.invoiceNumber === originalRef);
     if (!invoiceRow && getPgConnected()) {
@@ -886,6 +928,13 @@ export async function post_salesReturnCancel(req: any, res: Response): Promise<a
           ? await client.query(SR_CANCEL_DRAFT_SQL, [ret.id])
           : await client.query(SR_CANCEL_SQL, [ret.id]);
         if (cancelled.rowCount !== 1) throw new Error('Return was already cancelled by another user.');
+        await retireDocumentNumber(client, {
+          docType: 'CN',
+          number: ret.returnNumber,
+          branchId: ret.branchId,
+          documentId: String(ret.id),
+          reason: reason || 'Sales return cancelled',
+        });
         if (ret.status === 'POSTED') {
           // The return's own issue costs drive the re-deduction, so cancelling
           // the credit note removes exactly the value it added.
@@ -1137,14 +1186,58 @@ export async function post_customerPayments(req: any, res: Response): Promise<an
       return res.status(400).json({ message: 'Payment amount must be greater than 0.' });
     }
 
-    // Resolve the invoice first so customer + branch can be inherited from it.
-    let linkedInvoice: any = body.invoiceId
-      ? salesInvoices.find((inv) => inv.id === body.invoiceId || inv.invoiceNumber === body.invoiceId)
-      : undefined;
-    if (!linkedInvoice && body.invoiceId && getPgConnected()) {
-      const invRes = await pgPool.query(SI_FIND_SQL, [body.invoiceId]);
-      linkedInvoice = invRes.rows[0];
+    // A receipt is either explicitly allocated across invoices or an unapplied
+    // advance. The old `invoiceId` + `amount` shape remains the one-invoice
+    // compatibility path; the new shape is `allocations: [{ invoiceId, amount }]`.
+    const rawAllocations = Array.isArray(body.allocations) ? body.allocations : null;
+    if (rawAllocations && body.invoiceId) {
+      return res.status(400).json({ message: 'Use either invoiceId or allocations on a receipt, not both.' });
     }
+    const allocationRequests: Array<{ invoiceId: string; amount: number }> = [];
+    if (rawAllocations) {
+      for (const row of rawAllocations) {
+        const invoiceId = String(row?.invoiceId || '').trim();
+        const lineAmount = roundMoney(Number(row?.amount));
+        if (!invoiceId || !Number.isFinite(lineAmount) || lineAmount <= 0) {
+          return res.status(400).json({ message: 'Every receipt allocation needs an invoice and a positive amount.' });
+        }
+        allocationRequests.push({ invoiceId, amount: lineAmount });
+      }
+      if (allocationRequests.length === 0) {
+        return res.status(400).json({ message: 'A receipt allocation list cannot be empty.' });
+      }
+    } else if (body.invoiceId) {
+      allocationRequests.push({ invoiceId: String(body.invoiceId), amount: roundMoney(amount) });
+    }
+    const allocatedTotal = roundMoney(
+      allocationRequests.reduce((sum, row) => sum + row.amount, 0)
+    );
+    if (allocatedTotal > amount + 0.005) {
+      return res.status(400).json({
+        message: `Allocations total ${allocatedTotal.toFixed(2)} but the receipt is only ${amount.toFixed(2)}.`,
+      });
+    }
+
+    // Resolve every named invoice once. The lock inside the transaction decides
+    // the live balance; this pass establishes identity, customer and branch.
+    const allocationInvoices: Array<{ request: { invoiceId: string; amount: number }; invoice: any }> = [];
+    for (const request of allocationRequests) {
+      let invoice: any = salesInvoices.find(
+        (inv) => inv.id === request.invoiceId || inv.invoiceNumber === request.invoiceId
+      );
+      if (!invoice && getPgConnected()) {
+        invoice = (await pgPool.query(SI_FIND_ONE_SQL, [request.invoiceId])).rows[0];
+      }
+      if (!invoice) {
+        return res.status(404).json({ message: `The invoice ${request.invoiceId} selected for this receipt was not found.` });
+      }
+      if (allocationInvoices.some((row) => row.invoice.id === invoice.id)) {
+        return res.status(400).json({ message: `Invoice ${invoice.invoiceNumber} appears twice in the allocation list.` });
+      }
+      allocationInvoices.push({ request, invoice });
+    }
+    const linkedInvoice = allocationInvoices[0]?.invoice;
+    const singleInvoice = allocationInvoices.length === 1 ? linkedInvoice : null;
 
     let customerId: string | null = body.customerId || linkedInvoice?.customerId || null;
     let customerName = body.customerName || linkedInvoice?.customerName || '';
@@ -1176,7 +1269,24 @@ export async function post_customerPayments(req: any, res: Response): Promise<an
       return res.status(400).json({ message: 'Customer is required to record a customer payment.' });
     }
 
-    const branchId = body.branchId || linkedInvoice?.branchId || getUserFromReq(req)?.branchId || branches[0]?.id || 'WH001';
+    // A receipt against invoices belongs to one branch. Mixing branches in a
+    // single cash document is refused: the cash book is a branch custody view.
+    const invoiceCustomers = new Set(
+      allocationInvoices.map((row) => row.invoice.customerId).filter(Boolean).map(String)
+    );
+    if (invoiceCustomers.size > 1) {
+      return res.status(400).json({ message: 'One receipt cannot allocate across different customers.' });
+    }
+    const invoiceBranches = new Set(
+      allocationInvoices.map((row) => row.invoice.branchId).filter(Boolean).map(String)
+    );
+    if (invoiceBranches.size > 1) {
+      return res.status(400).json({ message: 'One receipt cannot allocate across different branches.' });
+    }
+    if (linkedInvoice?.customerId && customerId && String(linkedInvoice.customerId) !== String(customerId)) {
+      return res.status(400).json({ message: 'The receipt customer does not match the allocated invoice customer.' });
+    }
+    const branchId = linkedInvoice?.branchId || body.branchId || getUserFromReq(req)?.branchId || branches[0]?.id || 'WH001';
     const paymentDateAD = String(body.paymentDateAD || new Date().toISOString().split('T')[0]).split('T')[0];
     // BS dates are mandatory: derive from bs_day_records for the payment's
     // OWN AD date; 400 when unseeded (no fallback, no empty string).
@@ -1219,7 +1329,9 @@ export async function post_customerPayments(req: any, res: Response): Promise<an
     // CR = cash receipt, BR = bank/wallet receipt — mirrors the vendor side's
     // CP/BP split. ONLINE still gets a BR number because it is not till cash.
     const payDocType = paymentMethod === 'CASH' ? 'CR' : 'BR';
-    const paymentNumber = body.paymentNumber || (await issueNextDocNumber(branchId, payDocType, paymentDateAD));
+    // The register is the only authority for a new receipt number. Importers
+    // must use an explicit migration path, not a body override.
+    const paymentNumber = await issueNextDocNumber(branchId, payDocType, paymentDateAD);
     let chequeDateBS: string | null = null;
     if (body.chequeDateAD) {
       chequeDateBS = await bsDateOr400(res, body.chequeDateAD);
@@ -1232,8 +1344,13 @@ export async function post_customerPayments(req: any, res: Response): Promise<an
       customerId,
       customerName,
       branchId,
-      invoiceId: linkedInvoice?.id || body.invoiceId || null,
-      invoiceNumber: linkedInvoice?.invoiceNumber || body.invoiceNumber || null,
+      invoiceId: singleInvoice?.id || null,
+      invoiceNumber: singleInvoice?.invoiceNumber || body.invoiceNumber || null,
+      allocations: allocationInvoices.map((row) => ({
+        invoiceId: row.invoice.id,
+        invoiceNumber: row.invoice.invoiceNumber,
+        amount: row.request.amount,
+      })),
       paymentDateAD,
       paymentDateBS,
       amount,
@@ -1261,9 +1378,59 @@ export async function post_customerPayments(req: any, res: Response): Promise<an
       // atomically. A missing posting default or a closed period rolls the
       // whole receipt back — no cash movement without its ledger entry.
       await withTransaction(async (client) => {
+        // Lock every invoice in a deterministic order. The balance check and
+        // the update are one race-safe unit; a concurrent receipt cannot spend
+        // the same open balance twice.
+        const lockedById = new Map<string, any>();
+        const invoiceIds = [...new Set(allocationInvoices.map((row) => String(row.invoice.id)))].sort();
+        for (const invoiceId of invoiceIds) {
+          const locked = (await client.query(SI_LOCK_FOR_PAYMENT_SQL, [invoiceId])).rows[0];
+          if (!locked) {
+            throw new ApiError(404, 'An invoice selected for this receipt was not found.');
+          }
+          lockedById.set(invoiceId, locked);
+        }
+        for (const row of allocationInvoices) {
+          const locked = lockedById.get(String(row.invoice.id));
+          if (!locked) throw new ApiError(404, 'An invoice selected for this receipt was not found.');
+          if (String(locked.status || '').toUpperCase() !== 'POSTED') {
+            throw new ApiError(409, `Invoice ${locked.invoiceNumber} is ${String(locked.status || 'not posted').toLowerCase()} and cannot receive a payment.`);
+          }
+          if (locked.customerId && customerId && String(locked.customerId) !== String(customerId)) {
+            throw new ApiError(400, `Invoice ${locked.invoiceNumber} belongs to a different customer.`);
+          }
+          if (locked.branchId && String(locked.branchId) !== String(branchId)) {
+            throw new ApiError(400, `Invoice ${locked.invoiceNumber} belongs to a different branch.`);
+          }
+          const remaining = roundMoney(
+            Number(locked.grandTotal || 0) - Number(locked.amountPaid || 0)
+          );
+          if (remaining <= 0) {
+            throw new ApiError(409, `Invoice ${locked.invoiceNumber} is already fully paid.`);
+          }
+          if (row.request.amount > remaining + 0.005) {
+            throw new ApiError(
+              400,
+              `Allocation ${row.request.amount.toFixed(2)} exceeds the ${remaining.toFixed(2)} still open on invoice ${locked.invoiceNumber}.`
+            );
+          }
+        }
         await client.query(CP_INSERT_SQL, cpInsertParams(newPayment));
-        if (newPayment.invoiceId) {
-          await client.query(SI_RECORD_PAYMENT_SQL, [amount, newPayment.invoiceId]);
+        for (let index = 0; index < allocationInvoices.length; index += 1) {
+          const row = allocationInvoices[index];
+          await client.query(CPA_INSERT_SQL, cpaInsertParams({
+            id: `cpa-${newPayment.id}-${index}`,
+            paymentId: newPayment.id,
+            invoiceId: row.invoice.id,
+            amount: row.request.amount,
+          }));
+          const applied = await client.query(SI_RECORD_PAYMENT_SQL, [row.request.amount, row.invoice.id]);
+          if (applied.rowCount !== 1) {
+            throw new ApiError(
+              409,
+              `Invoice ${row.invoice.invoiceNumber} changed while the receipt was being applied; no balance was over-allocated.`
+            );
+          }
         }
         await postCustomerReceiptLedger(client, { receipt: newPayment, actor: actorOf(req) });
         await logAuditEvent(
@@ -1276,6 +1443,13 @@ export async function post_customerPayments(req: any, res: Response): Promise<an
         );
       });
     } else {
+      for (const row of allocationInvoices) {
+        const invoice = salesInvoices.find((entry) => entry.id === row.invoice.id);
+        if (!invoice) continue;
+        invoice.amountPaid = Number(invoice.amountPaid || 0) + row.request.amount;
+        invoice.paymentStatus =
+          invoice.amountPaid >= Number(invoice.grandTotal || 0) ? 'PAID' : 'PARTIAL';
+      }
       logAuditEvent(req, 'RECORD_CUSTOMER_PAYMENT', 'SALES', `Recorded customer payment #${paymentNumber} of NPR ${amount.toLocaleString()} from ${customerName} via ${paymentMethod}`, branchId);
     }
 
@@ -1334,9 +1508,7 @@ export async function post_customerPaymentReverse(req: any, res: Response): Prom
           throw conflict;
         }
         await client.query(CP_REVERSE_SQL, [reason, getUserFromReq(req)?.email || 'system', id]);
-        if (payment.invoiceId) {
-          await client.query(SI_UNDO_PAYMENT_SQL, [Number(payment.amount), payment.invoiceId]);
-        }
+        await reversePaymentAllocations(client, payment, reason, getUserFromReq(req)?.email || 'system');
         // The contra journal joins the same transaction: a reversed receipt
         // cannot leave its original cash/AR entry standing alone.
         await reverseCustomerReceiptJournal(client, {
@@ -1397,9 +1569,7 @@ export async function post_customerPaymentRefund(req: any, res: Response): Promi
         throw conflict;
       }
       await client.query(CP_REFUND_SQL, [reason, getUserFromReq(req)?.email || 'system', id]);
-      if (payment.invoiceId) {
-        await client.query(SI_UNDO_PAYMENT_SQL, [Number(payment.amount), payment.invoiceId]);
-      }
+      await reversePaymentAllocations(client, payment, reason, getUserFromReq(req)?.email || 'system');
       await postWalletRefundLedger(client, { receipt: payment, reason, actor: actorOf(req) });
       await logAuditEvent(
         req,
@@ -1444,9 +1614,7 @@ export async function post_customerPaymentChargeback(req: any, res: Response): P
         throw conflict;
       }
       await client.query(CP_CHARGEBACK_SQL, [reason, getUserFromReq(req)?.email || 'system', id]);
-      if (payment.invoiceId) {
-        await client.query(SI_UNDO_PAYMENT_SQL, [Number(payment.amount), payment.invoiceId]);
-      }
+      await reversePaymentAllocations(client, payment, reason, getUserFromReq(req)?.email || 'system');
       await postWalletChargebackLedger(client, { receipt: payment, reason, actor: actorOf(req) });
       await logAuditEvent(
         req,

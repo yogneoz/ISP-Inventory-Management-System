@@ -7,7 +7,6 @@
  * endpoints so it cannot quietly disagree with the ledger.
  */
 import { fetchJson } from './http';
-import { normalizeChartHealth } from '../../utils/chartHealth';
 import type { BillTerm, CostCenter, NarrationTemplate, NarrationTransactionType } from '../../types';
 
 export type AccountType = 'ASSET' | 'LIABILITY' | 'EQUITY' | 'INCOME' | 'EXPENSE';
@@ -2522,8 +2521,47 @@ export async function generateAccountingSubledgers(mainAccountId: string): Promi
   });
 }
 
+export interface PartyLedgerBalanceRow {
+  partyId: string;
+  /** Debit-positive posted subledger movement. */
+  debit: number;
+  credit: number;
+  balance: number;
+}
+
+export interface PartyControlAccount {
+  id: string;
+  code: string;
+  name: string;
+  postingRole: string;
+  subledgerType: string;
+  groupCode: string | null;
+  groupName: string | null;
+  parentGroupCode: string | null;
+  parentGroupName: string | null;
+}
+
+export interface PartyBalancesResponse {
+  type: 'CUSTOMER' | 'SUPPLIER';
+  controlAccount: PartyControlAccount | null;
+  balances: PartyLedgerBalanceRow[];
+  message?: string;
+}
+
+/** Posted Dr/Cr balances for one directory page, plus the control it posts to. */
+export async function getPartyBalances(params: {
+  type: 'CUSTOMER' | 'SUPPLIER';
+  partyIds: string[];
+  branchId?: string;
+}): Promise<PartyBalancesResponse> {
+  const query = new URLSearchParams({ type: params.type });
+  if (params.partyIds.length) query.set('partyIds', params.partyIds.join(','));
+  if (params.branchId && params.branchId !== 'ALL') query.set('branchId', params.branchId);
+  return fetchJson(`/api/accounting/party-balances?${query.toString()}`);
+}
+
 export async function getChartHealth(): Promise<ChartHealth> {
-  return normalizeChartHealth(await fetchJson<unknown>('/api/accounting/chart-health'));
+  return fetchJson<ChartHealth>('/api/accounting/chart-health');
 }
 
 export async function seedChartDefaults(): Promise<{
@@ -2613,6 +2651,81 @@ export async function getAccountingEmployees(
   return fetchJson(`/api/employees/search?${params.toString()}`);
 }
 
+/** One posted employee-subledger line across every employee control account. */
+export interface EmployeeLedgerEntry {
+  id: string;
+  journalId: string;
+  journalNo: string;
+  journalDateAD: string;
+  entryDateAD: string;
+  entryDateBS: string | null;
+  sourceType: string;
+  voucherType: string | null;
+  referenceNo: string | null;
+  reversalOfId: string | null;
+  memo: string;
+  accountId: string;
+  accountCode: string;
+  accountName: string;
+  accountType: string;
+  branchId: string;
+  debit: number;
+  credit: number;
+}
+
+/** One employee control account, split into opening, period and closing. */
+export interface EmployeeLedgerAccount {
+  accountId: string;
+  code: string;
+  name: string;
+  accountType: string;
+  postingRole: string | null;
+  openingDebit: number;
+  openingCredit: number;
+  openingBalance: number;
+  presentedOpeningBalance: number;
+  debit: number;
+  credit: number;
+  balance: number;
+  presentedBalance: number;
+  closingBalance: number;
+  presentedClosingBalance: number;
+}
+
+export interface EmployeeLedgerResponse {
+  employee: AccountingEmployee;
+  branchId: string;
+  from: string | null;
+  to: string | null;
+  currency: string;
+  accounts: EmployeeLedgerAccount[];
+  entries: EmployeeLedgerEntry[];
+  unlinkedCount: number;
+  totals: {
+    debit: number;
+    credit: number;
+    openingDebit: number;
+    openingCredit: number;
+    openingBalance: number;
+    closingBalance: number;
+  };
+}
+
+/** GET /api/employees/:id/ledger — the posted employee subledger, `gl-view` only. */
+export async function getEmployeeLedger(
+  employeeId: string,
+  options: { from?: string; to?: string; branchId?: string } = {}
+): Promise<EmployeeLedgerResponse> {
+  const params = new URLSearchParams();
+  if (options.from) params.set('from', options.from);
+  if (options.to) params.set('to', options.to);
+  if (options.branchId) params.set('branchId', options.branchId);
+  const query = params.toString();
+  return fetchJson(
+    `/api/employees/${encodeURIComponent(employeeId)}/ledger${query ? `?${query}` : ''}`
+  );
+}
+
 /** A line as posted through the manual journal endpoint. Amounts are NPR. */
 export interface AccountingJournalLineInput {
   accountId: string;
@@ -2630,6 +2743,8 @@ export interface AccountingJournalInput {
   memo?: string | null;
   sourceType?: string;
   voucherType?: string;
+  /** Register class for a manual cash/bank voucher (CR/BR/CP/BP/CT/JV). */
+  documentType?: string | null;
   voucherClass?: string | null;
   referenceNo?: string | null;
   referenceDateAD?: string | null;

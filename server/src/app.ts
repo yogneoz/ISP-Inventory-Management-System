@@ -107,7 +107,7 @@ export { withTransaction, withConnection } from './db/transactions';
 import { transactionRetryMetrics } from './db/transactionMetrics';
 export { sseClients, broadcastChange } from './realtime/sse';
 export { logAuditEvent } from './services/audit.service';
-export { generateStandardTransactionId, normalizeDocTypeCode, padSequence, issueNextDocNumber } from './utils/docNumber';
+export { normalizeDocTypeCode, padSequence, issueNextDocNumber, resolveDocumentNumber, retireDocumentNumber } from './utils/docNumber';
 export { generateNextDocNumberForServer } from './services/serverDocNumber';
 export { toCalendarDate, pickCurrentFiscalYear, selectBootstrapFiscalYear } from './utils/fiscalYear';
 export { computeTradingFromOps } from './utils/trading';

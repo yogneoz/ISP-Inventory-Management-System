@@ -27,6 +27,8 @@ interface VendorLedgerProps {
   suppliers: Supplier[];
   branches: Branch[];
   dateMode: 'BS' | 'AD';
+  /** A directory row asked this register to open on one supplier. */
+  focusRequest?: { partyId: string; partyLabel?: string; token: number } | null;
   /**
    * Procurement register counter (App's `registerRefresh.purchaseInvoices`),
    * bumped by a procurement SSE burst and by every full refresh. With a
@@ -41,6 +43,7 @@ export const VendorLedger: React.FC<VendorLedgerProps> = ({
   suppliers,
   branches,
   dateMode,
+  focusRequest,
   sseRefreshKey,
 }) => {
   const [selectedSupplierId, setSelectedSupplierId] = useState<string>('');
@@ -89,6 +92,10 @@ export const VendorLedger: React.FC<VendorLedgerProps> = ({
   // event burst elsewhere cannot issue a ledger request nobody can see.
   const activationKey = useActivationKey('vendor-ledger');
   const isVisible = useTabActive('vendor-ledger');
+
+  useEffect(() => {
+    if (focusRequest?.partyId) setSelectedSupplierId(focusRequest.partyId);
+  }, [focusRequest?.token]);
 
   useEffect(() => {
     if (!isVisible) return;

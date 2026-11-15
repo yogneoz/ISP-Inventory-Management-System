@@ -29,6 +29,7 @@ export type SubledgerType =
   | 'CUSTOMER'
   | 'SUPPLIER'
   | 'EMPLOYEE'
+  | 'LENDER'
   | 'INVENTORY'
   | 'FIXED_ASSET'
   | 'BANK'
@@ -62,7 +63,8 @@ export type PostingRole =
   | 'TDS_PAYABLE'
   | 'SSF_PAYABLE'
   | 'EMPLOYEE_ADVANCE'
-  | 'EMPLOYEE_LOAN';
+  | 'EMPLOYEE_LOAN'
+  | 'LOAN_PAYABLE';
 
 export type AccountKind = 'CASH' | 'BANK' | 'WALLET' | 'OTHER';
 
@@ -85,6 +87,7 @@ export const SUBLEDGER_TYPES: readonly SubledgerType[] = [
   'CUSTOMER',
   'SUPPLIER',
   'EMPLOYEE',
+  'LENDER',
   'INVENTORY',
   'FIXED_ASSET',
   'BANK',
@@ -120,6 +123,7 @@ export const POSTING_ROLES: readonly PostingRole[] = [
   'SSF_PAYABLE',
   'EMPLOYEE_ADVANCE',
   'EMPLOYEE_LOAN',
+  'LOAN_PAYABLE',
 ];
 
 export const ACCOUNT_GROUP_COLUMNS = `g.id,
@@ -889,6 +893,48 @@ export const AGING_CONTROL_ACCOUNT_SQL = `SELECT ${ACCOUNT_COLUMNS}
 FROM gl_accounts a JOIN gl_account_groups g ON g.id = a.group_id
 WHERE a.posting_role = $1
 LIMIT 1`;
+
+/**
+ * The active AR/AP control and the chart group it lives in. Party books are
+ * always created under this account, never as a new GL account per party.
+ */
+export const PARTY_CONTROL_ACCOUNT_BY_ROLE_SQL = `SELECT a.id,
+  a.code,
+  a.name,
+  a.posting_role AS "postingRole",
+  a.subledger_type AS "subledgerType",
+  g.code AS "groupCode",
+  g.name AS "groupName",
+  p.code AS "parentGroupCode",
+  p.name AS "parentGroupName"
+FROM gl_accounts a
+JOIN gl_account_groups g ON g.id = a.group_id
+LEFT JOIN gl_account_groups p ON p.id = g.parent_id
+WHERE a.posting_role = $1 AND a.is_control = TRUE AND a.is_active = TRUE
+ORDER BY a.code ASC
+LIMIT 1`;
+
+/** Idempotent party-book insert: the unique index on (account, party) wins a race. */
+export const SUBLEDGER_PARTY_BOOK_ENSURE_SQL = `INSERT INTO gl_subledgers (
+  id, code, name, subledger_type, main_account_id, party_id, description, is_active, is_demo
+) VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, FALSE)
+ON CONFLICT DO NOTHING`;
+
+/**
+ * Debit-positive balances for the party ids on one page. AP is presented as a
+ * credit balance by the client; the ledger itself stays debit-positive.
+ */
+export const PARTY_BALANCES_BY_IDS_SQL = `SELECT s.party_id AS "partyId",
+  COALESCE(SUM(s.debit), 0)::numeric AS debit,
+  COALESCE(SUM(s.credit), 0)::numeric AS credit,
+  COALESCE(SUM(s.debit - s.credit), 0)::numeric AS balance
+FROM gl_subledger_entries s
+JOIN gl_journals j ON j.id = s.journal_id
+WHERE s.account_id = $1
+  AND j.status = 'POSTED'
+  AND s.party_id = ANY($2::varchar[])
+  AND ($3::varchar[] IS NULL OR s.branch_id = ANY($3::varchar[]))
+GROUP BY s.party_id`;
 
 /**
  * GL side of the aging tie-out through `$2` (one branch, or every branch when

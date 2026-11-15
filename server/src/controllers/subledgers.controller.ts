@@ -49,16 +49,26 @@ import {
   SUBLEDGER_MASTER_INSERT_SQL,
   SUBLEDGER_SUPPLIER_CANDIDATES_SQL,
   SUBLEDGER_UPDATE_SQL,
+  PARTY_BALANCES_BY_IDS_SQL,
+  PARTY_CONTROL_ACCOUNT_BY_ROLE_SQL,
   SUPPLIER_PARTY_BY_ID_SQL,
   type SubledgerType,
 } from '../models/accounting.repo';
+import {
+  SUBLEDGER_LENDER_CANDIDATES_SQL,
+  LENDER_PARTY_BY_ID_SQL,
+} from '../models/lender.repo';
 
 const CODE_RE = /^[A-Z0-9][A-Z0-9_-]{0,29}$/;
 /** Only these subledger types have a party master and can own party books. */
-const PARTY_TYPES = new Set<SubledgerType>(['CUSTOMER', 'SUPPLIER', 'EMPLOYEE']);
+const PARTY_TYPES = new Set<SubledgerType>(['CUSTOMER', 'SUPPLIER', 'EMPLOYEE', 'LENDER']);
 
 function text(value: unknown, max: number): string {
   return String(value ?? '').trim().slice(0, max);
+}
+
+function money(value: unknown): number {
+  return Math.round((Number(value) || 0) * 100) / 100;
 }
 
 function subledgerCode(value: unknown): string {
@@ -79,7 +89,8 @@ function optionalPartyId(value: unknown): string | null {
 
 /** A book code derived from the party's own master code, unique within 30 chars. */
 function partyBookCode(type: SubledgerType, source: string, attempt = 1): string {
-  const prefix = type === 'CUSTOMER' ? 'CUS' : type === 'SUPPLIER' ? 'SUP' : 'EMP';
+  const prefix =
+    type === 'CUSTOMER' ? 'CUS' : type === 'SUPPLIER' ? 'SUP' : type === 'LENDER' ? 'LEN' : 'EMP';
   const stem = String(source || 'PARTY')
     .toUpperCase()
     .replace(/[^A-Z0-9]+/g, '-')
@@ -98,7 +109,9 @@ async function readPartyMaster(type: SubledgerType, id: string): Promise<{ id: s
         ? SUPPLIER_PARTY_BY_ID_SQL
         : type === 'EMPLOYEE'
           ? EMPLOYEE_PARTY_BY_ID_SQL
-          : null;
+          : type === 'LENDER'
+            ? LENDER_PARTY_BY_ID_SQL
+            : null;
   if (!sql) return null;
   return ((await pgPool.query(sql, [id])).rows[0] as { id: string; name: string }) || null;
 }
@@ -109,6 +122,9 @@ async function partyCandidates(
 ): Promise<Array<{ id: string; name: string; code: string }>> {
   if (type === 'SUPPLIER') {
     return (await pgPool.query(SUBLEDGER_SUPPLIER_CANDIDATES_SQL)).rows;
+  }
+  if (type === 'LENDER') {
+    return (await pgPool.query(SUBLEDGER_LENDER_CANDIDATES_SQL)).rows;
   }
   const sql = type === 'CUSTOMER' ? SUBLEDGER_CUSTOMER_CANDIDATES_SQL : SUBLEDGER_EMPLOYEE_CANDIDATES_SQL;
   return (await pgPool.query(sql, [branchId])).rows;
@@ -177,6 +193,99 @@ export async function get_subledgers(req: any, res: Response): Promise<any> {
   const includeInactive = String(req.query?.includeInactive ?? '1') !== '0';
   const rows = (await pgPool.query(SUBLEDGER_LIST_SQL, [scope.branchId || null])).rows as any[];
   return res.json(includeInactive ? rows : rows.filter((row) => row.isActive));
+}
+
+/**
+ * GET /api/accounting/party-balances?type=CUSTOMER|SUPPLIER&partyIds=a,b
+ *
+ * A page-sized, debit-positive balance map for the customer/supplier
+ * directories. It reads the same posted subledger rows as the party statement,
+ * so a row's Dr/Cr badge and the ledger it opens cannot disagree. Returning the
+ * control account with the balances also lets the add form show where the new
+ * party will post without inventing a per-party GL account.
+ */
+export async function get_partyBalances(req: any, res: Response): Promise<any> {
+  const type = text(req.query?.type, 20).toUpperCase();
+  if (type !== 'CUSTOMER' && type !== 'SUPPLIER') {
+    throw new ApiError(400, "Choose type=CUSTOMER or type=SUPPLIER for party balances.");
+  }
+  const ids = String(req.query?.partyIds || '')
+    .split(',')
+    .map((id) => id.trim().slice(0, 100))
+    .filter(Boolean);
+  if (ids.length > 500) {
+    throw new ApiError(400, 'Request at most 500 party balances at a time.');
+  }
+
+  const scope = resolveBranchScope(req, res);
+  if (!scope) return;
+  if (scope.empty) return res.json({ type, controlAccount: null, balances: [] });
+
+  const role = type === 'CUSTOMER' ? 'AR_CONTROL' : 'AP_CONTROL';
+  const control = (await pgPool.query(PARTY_CONTROL_ACCOUNT_BY_ROLE_SQL, [role])).rows[0] as any;
+  if (!control) {
+    return res.json({
+      type,
+      controlAccount: null,
+      balances: [],
+      message: `No active ${role} control account is configured in Finance → Chart of Accounts.`,
+    });
+  }
+
+  // A branch account sees every branch it is allowed to read (the directory
+  // shows all of them); a named branch narrows to that one. A global account
+  // with ALL gets every branch, matching the party statement's default.
+  const requestedBranch =
+    typeof req.query?.branchId === 'string' && req.query.branchId.trim() && req.query.branchId !== 'ALL'
+      ? req.query.branchId.trim()
+      : '';
+  const branchIds = requestedBranch
+    ? scope.branchId
+      ? [scope.branchId]
+      : null
+    : scope.allowed && scope.allowed.size
+      ? [...scope.allowed]
+      : scope.branchId
+        ? [scope.branchId]
+        : null;
+
+  const uniqueIds = [...new Set(ids)];
+  const rows = uniqueIds.length
+    ? (
+        await pgPool.query(PARTY_BALANCES_BY_IDS_SQL, [
+          control.id,
+          uniqueIds,
+          branchIds,
+        ])
+      ).rows
+    : [];
+  const byParty = new Map<string, any>(rows.map((row: any) => [String(row.partyId), row]));
+
+  return res.json({
+    type,
+    controlAccount: {
+      id: control.id,
+      code: control.code,
+      name: control.name,
+      postingRole: control.postingRole,
+      subledgerType: control.subledgerType,
+      groupCode: control.groupCode,
+      groupName: control.groupName,
+      parentGroupCode: control.parentGroupCode,
+      parentGroupName: control.parentGroupName,
+    },
+    // A party with no posted movement still has a real zero balance; returning
+    // the explicit row lets the directory show "0.00" instead of "—".
+    balances: uniqueIds.map((partyId) => {
+      const row = byParty.get(partyId);
+      return {
+        partyId,
+        debit: money(row?.debit),
+        credit: money(row?.credit),
+        balance: money(row?.balance),
+      };
+    }),
+  });
 }
 
 /** POST /api/accounting/subledgers — bind a new book to a control account. */
@@ -419,7 +528,7 @@ export async function post_generateSubledgers(req: any, res: Response): Promise<
   if (!PARTY_TYPES.has(account.subledgerType)) {
     throw new ApiError(
       400,
-      `Ledger ${account.code} carries ${account.subledgerType} detail. Only customer, supplier and employee control accounts can generate party books.`
+      `Ledger ${account.code} carries ${account.subledgerType} detail. Only customer, supplier, employee and lender control accounts can generate party books.`
     );
   }
 

@@ -138,8 +138,8 @@ const EXPECTED: Record<string, { sections: string[]; items: string[] }> = {
       'accounting',
       'accounting-bs-summary',
       'accounting-profit-loss', 'accounting-branch-consolidated', 'accounting-balance-sheet', 'accounting-cash-flow',
-      'accounting-cash-book', 'recurring-close', 'accounting-aging',
-      'cash-position', 'vendor-ledger', 'customer-ledger', 'vendor-opening-balances',
+      'accounting-cash-book', 'recurring-close', 'accounting-aging', 'lenders',
+      'cash-position', 'vendor-ledger', 'customer-ledger', 'employee-ledger', 'vendor-opening-balances',
       'vat-register', 'fixed-assets', 'depreciation-register',
     ],
   },
@@ -154,7 +154,7 @@ const EXPECTED: Record<string, { sections: string[]; items: string[] }> = {
   'inventory-setup': {
     sections: ['Accounting', 'Products', 'Parties', 'HR Org Master', 'NOC'],
     items: [
-      'accounting-chart', 'general-ledger', 'subledgers', 'bill-terms', 'cost-centers', 'narration-templates', 'fiscal-year-management',
+      'accounting-chart', 'posting-rules', 'subledgers', 'bill-terms', 'cost-centers', 'narration-templates', 'fiscal-year-management',
       'product-master', 'category-management', 'product-group-management', 'uom-management',
       'customers', 'sales-agents-areas', 'import-customers', 'suppliers',
       'hr-org-masters', 'branches', 'locations',

@@ -19,10 +19,11 @@ is the plan, not a second source of truth.
 - [parked.md](parked.md) — decisions we are not acting on, with the trigger to
   reopen each one.
 - [done/](done/README.md) — completed rounds, kept for reference. Never delete.
-- **Round 10 is active** — accounting as the financial spine of inventory
-  operations. Plan and slice list:
-  [2026-11-12-accounting-core/README.md](2026-11-12-accounting-core/README.md).
-  Planning/approval only; no code changed yet. Round 9 (the two-sided warranty
+- **Round 11 is active** — cash receipts, voucher classes and non-trade
+  funding. Plan and slice list:
+  [2026-11-14-cash-receipts-and-funding/README.md](2026-11-14-cash-receipts-and-funding/README.md).
+  Round 10 (the accounting core) closed on 2026-11-12 —
+  [plan](2026-11-12-accounting-core/README.md). Round 9 (the two-sided warranty
   registers) closed on 2026-10-29 —
   [close note](done/2026-10-29-round-9.md), per-slice notes in
   [done/2026-10-29-round-9/](done/2026-10-29-round-9/README.md). Round 8 (the
@@ -68,15 +69,19 @@ checklist here.
 
 ## Active work
 
-**Round 10 — Accounting as the financial spine of inventory operations (opened 2026-11-12).**
-The plan is [2026-11-12-accounting-core/README.md](2026-11-12-accounting-core/README.md).
-It closes the audit gaps that make the ledger and the operational registers tell
-different stories: customer/vendor ledgers must read the posted party subledger,
-daily cash close must stop counting banks as cash, eSewa/Khalti/Nepal Pay need a
-wallet clearing model and settlement reconciliation, and every inventory value
-movement must have a declared journal and reversal. One company GL remains the
-rule; branch stays an analytical dimension, not a separate set of books. No code
-has changed yet; ACC-1 (ledger truth) is the proposed first slice.
+**Round 11 — Cash receipts, voucher classes and non-trade funding (opened 2026-11-14).**
+The plan is
+[2026-11-14-cash-receipts-and-funding/README.md](2026-11-14-cash-receipts-and-funding/README.md).
+It keeps customer/vendor receipts as allocated documents, makes Cash & Bank
+Entry use explicit register-issued classes, and designs owner/third-party
+unsecured loans as a Loan Payable control with a lender subledger instead of
+AP or supplier records. REC-1 (partial receipt guard + concurrency), REC-2
+(allocations and Receive Payment), CASH-1 (explicit cash/bank classes and AR/AP
+refusal), NUM-1 (validated invoice/import overrides, fail-closed numbering and
+retired-number registry) and the LENDER control foundation are complete.
+LEND-1's lender master, loan register and lender statement are also complete;
+the remaining scope is the dedicated loan receipt/repayment documents
+(including interest TDS) and the round close gates.
 
 **Completed outside a round — rail storage healing, purchase-return scan, profile-switch stock cache (2026-10-31).**
 The persisted open-group set is now intersected with the groups the current menu

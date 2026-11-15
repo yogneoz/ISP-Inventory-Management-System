@@ -125,6 +125,10 @@ export const BRANCH_SCOPED_RESOURCES: readonly BranchScopedResource[] = [
   // endpoint resolves the branch from the session, and the reopen path is
   // guarded by this by-id lookup as well.
   { prefix: '/accounting/cash-close', table: 'daily_cash_closes', columns: ['branch_id'] },
+  // Loan agreements belong to the branch that received the money. The list
+  // filters by the caller scope and POST validates its branch, while this by-id
+  // entry closes a direct PATCH from another branch.
+  { prefix: '/accounting/loans', table: 'loans', columns: ['branch_id'] },
   // Bank statement lines and reconciliation sessions are branch custody. The
   // Bank reconciliation is deliberately absent: a bank statement and its
   // period session belong to the bank account, not a branch. The controller
@@ -216,6 +220,26 @@ export const BRANCH_SCOPE_EXEMPTIONS: readonly BranchScopeExemption[] = [
     table: 'gl_budget_allocation_profiles',
     reason:
       'Allocation profiles are one row per fiscal year + branch and are addressed only through /api/accounting/budgets/allocation, which resolves the branch from the session (or an authorized branch body) and applies the same scope in SQL. No by-id route exists.',
+  },
+  {
+    table: 'document_number_retirements',
+    reason:
+      'Internal numbering audit rows are written and read only by the document-number service while it issues or voids a number; there is no route, no record id accepted from a client, and every caller already operates inside the branch-scoped document transaction.',
+  },
+  {
+    table: 'loan_transactions',
+    reason:
+      'Receipts and repayments are child rows of a loan agreement: every route addresses the loan id under /accounting/loans, which the registry guards by looking up the loan branch, and the controller also calls assertBranchAllowed on the locked loan before reading or writing a transaction. No /loan-transactions/:id route exists.',
+  },
+  {
+    table: 'loan_installments',
+    reason:
+      'Installments are child rows regenerated from the loan terms: they are read and allocated only through /accounting/loans/:id routes after loanForWrite locks and branch-checks the parent loan. No client-supplied installment id or standalone route exists.',
+  },
+  {
+    table: 'loan_interest_accruals',
+    reason:
+      'Accruals are child documents of a loan: every read and write addresses the parent loan id under /accounting/loans/:id, which is branch-checked before posting, and each accrual also stores the parent branch. No /loan-interest-accruals/:id route exists.',
   },
 ];
 

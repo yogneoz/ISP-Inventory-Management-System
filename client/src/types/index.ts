@@ -1296,6 +1296,8 @@ export interface CustomerPayment {
   paymentDateAD: string;
   paymentDateBS?: string;
   amount: number;
+  /** How this receipt was applied across invoices; empty means unapplied. */
+  allocations?: Array<{ invoiceId: string; invoiceNumber?: string; amount: number }>;
   paymentMethod: 'CASH' | 'CREDIT' | 'BANK_TRANSFER' | 'CHEQUE' | 'ONLINE' | 'CARD' | 'OTHER';
   bankName?: string | null;
   bankBranch?: string | null;

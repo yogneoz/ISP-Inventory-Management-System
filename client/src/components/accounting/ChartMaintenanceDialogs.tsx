@@ -18,9 +18,10 @@ import {
  *
  * The chart is report structure, so the forms expose exactly what may change:
  * a group's label and order (never its code/type/statement mapping), and an
- * account's name/description/group/posting role. The server enforces the rest —
- * a posted account can move only within the same accounting nature, and an
- * account with posted lines cannot be deleted at all.
+ * account's name/description/group/posting role. The Advanced tab carries the
+ * legacy GL-master profile fields on the same account record. The server
+ * enforces the rest — a posted account can move only within the same accounting
+ * nature, and an account with posted lines cannot be deleted at all.
  */
 
 export const SUBLEDGER_TYPE_OPTIONS = [
@@ -28,6 +29,7 @@ export const SUBLEDGER_TYPE_OPTIONS = [
   'CUSTOMER',
   'SUPPLIER',
   'EMPLOYEE',
+  'LENDER',
   'INVENTORY',
   'FIXED_ASSET',
   'BANK',
@@ -64,6 +66,7 @@ export const POSTING_ROLE_OPTIONS = [
   'SSF_PAYABLE',
   'EMPLOYEE_ADVANCE',
   'EMPLOYEE_LOAN',
+  'LOAN_PAYABLE',
 ] as const;
 
 export const ACCOUNT_TYPE_OPTIONS: AccountType[] = ['ASSET', 'LIABILITY', 'EQUITY', 'INCOME', 'EXPENSE'];
@@ -88,9 +91,116 @@ export const STATEMENT_GROUPS_BY_TYPE: Record<AccountType, string[]> = {
   EXPENSE: ['COST_OF_SALES', 'OPERATING_EXPENSE', 'OTHER_EXPENSE'],
 };
 
+/** Legacy GL-master ledger categories, kept on `gl_accounts.master_profile`. */
+export const LEDGER_CATEGORY_OPTIONS = ['Both', 'Customer', 'Vendor', 'Other', 'Contact'] as const;
+
+export interface AdvancedProfileForm {
+  shortName: string;
+  category: string;
+  customerType: string;
+  billWiseAdjustment: boolean;
+  cashBook: boolean;
+  area: string;
+  agent: string;
+  accountClass: string;
+  creditLimit: string;
+  overLimitAllowed: boolean;
+  creditDays: string;
+  overDaysAllowed: boolean;
+  taxType: string;
+  institutionType: string;
+  bankGuarantee: string;
+  cashDeposit: string;
+  currency: string;
+  interestRate: string;
+}
+
+const EMPTY_ADVANCED: AdvancedProfileForm = {
+  shortName: '',
+  category: 'Other',
+  customerType: 'NONE',
+  billWiseAdjustment: false,
+  cashBook: false,
+  area: '',
+  agent: '',
+  accountClass: '',
+  creditLimit: '',
+  overLimitAllowed: false,
+  creditDays: '',
+  overDaysAllowed: false,
+  taxType: 'NONE',
+  institutionType: 'PARTNERSHIP',
+  bankGuarantee: '',
+  cashDeposit: '',
+  currency: 'NPR',
+  interestRate: '',
+};
+
+const profileText = (profile: Record<string, unknown> | undefined, key: string): string => {
+  const value = profile?.[key];
+  return typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+};
+
+const profileBool = (profile: Record<string, unknown> | undefined, key: string): boolean =>
+  profile?.[key] === true;
+
+function initialAdvancedProfile(account?: AccountingAccount): AdvancedProfileForm {
+  const profile = account?.masterProfile;
+  const category = profileText(profile, 'category');
+  return {
+    shortName: profileText(profile, 'shortName'),
+    category: LEDGER_CATEGORY_OPTIONS.includes(category as (typeof LEDGER_CATEGORY_OPTIONS)[number])
+      ? category
+      : 'Other',
+    customerType: profileText(profile, 'customerType') || 'NONE',
+    billWiseAdjustment: profileBool(profile, 'billWiseAdjustment'),
+    cashBook: profileBool(profile, 'cashBook'),
+    area: profileText(profile, 'area'),
+    agent: profileText(profile, 'agent'),
+    accountClass: profileText(profile, 'class'),
+    creditLimit: profileText(profile, 'creditLimit'),
+    overLimitAllowed: profileBool(profile, 'overLimitAllowed'),
+    creditDays: profileText(profile, 'creditDays'),
+    overDaysAllowed: profileBool(profile, 'overDaysAllowed'),
+    taxType: profileText(profile, 'taxType') || 'NONE',
+    institutionType: profileText(profile, 'institutionType') || 'PARTNERSHIP',
+    bankGuarantee: profileText(profile, 'bankGuarantee'),
+    cashDeposit: profileText(profile, 'cashDeposit'),
+    currency: profileText(profile, 'currency') || 'NPR',
+    interestRate: profileText(profile, 'interestRate'),
+  };
+}
+
+function buildMasterProfile(
+  account: AccountingAccount | undefined,
+  advanced: AdvancedProfileForm
+): Record<string, unknown> {
+  return {
+    ...(account?.masterProfile ?? {}),
+    shortName: advanced.shortName.trim(),
+    category: advanced.category,
+    customerType: advanced.customerType,
+    billWiseAdjustment: advanced.billWiseAdjustment,
+    cashBook: advanced.cashBook,
+    area: advanced.area.trim(),
+    agent: advanced.agent.trim(),
+    class: advanced.accountClass.trim(),
+    creditLimit: advanced.creditLimit ? Number(advanced.creditLimit) : 0,
+    overLimitAllowed: advanced.overLimitAllowed,
+    creditDays: advanced.creditDays ? Number(advanced.creditDays) : 0,
+    overDaysAllowed: advanced.overDaysAllowed,
+    taxType: advanced.taxType,
+    institutionType: advanced.institutionType,
+    bankGuarantee: advanced.bankGuarantee.trim(),
+    cashDeposit: advanced.cashDeposit.trim(),
+    currency: advanced.currency,
+    interestRate: advanced.interestRate ? Number(advanced.interestRate) : 0,
+  };
+}
+
 const overlay = 'fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4';
 const panel =
-  'w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900';
+  'max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900';
 const errorClass =
   'rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-800 dark:border-rose-500/40 dark:bg-rose-950/30 dark:text-rose-300';
 
@@ -132,6 +242,7 @@ export interface AccountFormValues {
   accountNumber: string;
   accountHolder: string;
   swiftCode: string;
+  masterProfile: Record<string, unknown>;
 }
 
 export const AccountFormDialog: React.FC<{
@@ -145,7 +256,7 @@ export const AccountFormDialog: React.FC<{
   onClose: () => void;
   onSubmit: (values: AccountFormValues) => void;
 }> = ({ mode, account, groups, accounts, branches, busy, error, onClose, onSubmit }) => {
-  const [tab, setTab] = useState<'PROFILE' | 'BANK'>('PROFILE');
+  const [tab, setTab] = useState<'PROFILE' | 'BANK' | 'ADVANCED'>('PROFILE');
   const [code, setCode] = useState(account?.code || '');
   const [name, setName] = useState(account?.name || '');
   const [groupId, setGroupId] = useState(account?.groupId || groups[0]?.id || '');
@@ -169,6 +280,7 @@ export const AccountFormDialog: React.FC<{
   const [accountNumber, setAccountNumber] = useState(account?.accountNumber || '');
   const [accountHolder, setAccountHolder] = useState(account?.accountHolder || '');
   const [swiftCode, setSwiftCode] = useState(account?.swiftCode || '');
+  const [advanced, setAdvanced] = useState<AdvancedProfileForm>(() => initialAdvancedProfile(account));
   const title = mode === 'create' ? 'New ledger account' : `Edit ${account?.code || 'account'}`;
   const tabClass = (active: boolean) =>
     `rounded-t-lg px-3 py-1.5 text-[11px] font-bold transition ${
@@ -227,6 +339,7 @@ export const AccountFormDialog: React.FC<{
               accountNumber,
               accountHolder,
               swiftCode,
+              masterProfile: buildMasterProfile(account, advanced),
             });
           }}
         >
@@ -245,6 +358,9 @@ export const AccountFormDialog: React.FC<{
             </button>
             <button type="button" id="chart-tab-bank" className={tabClass(tab === 'BANK')} onClick={() => setTab('BANK')}>
               Custody details{accountKind === 'BANK' || accountKind === 'WALLET' ? ' •' : ''}
+            </button>
+            <button type="button" id="chart-tab-advanced" className={tabClass(tab === 'ADVANCED')} onClick={() => setTab('ADVANCED')}>
+              Advanced
             </button>
           </div>
 
@@ -415,7 +531,7 @@ export const AccountFormDialog: React.FC<{
                 </div>
               </div>
             </div>
-          ) : (
+          ) : tab === 'BANK' ? (
             <div className="space-y-3">
               {accountKind === 'WALLET' ? (
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -510,6 +626,214 @@ export const AccountFormDialog: React.FC<{
                   </div>
                 </div>
               )}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                Legacy account-level defaults. These stay on the ledger account; the customer,
+                supplier and employee masters remain authoritative for actual parties.
+              </p>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className={labelClass} htmlFor="chart-account-short-name">
+                    Short name
+                  </label>
+                  <input
+                    id="chart-account-short-name"
+                    className={inputClass}
+                    value={advanced.shortName}
+                    onChange={(event) => setAdvanced({ ...advanced, shortName: event.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass} htmlFor="chart-account-category">
+                    Category
+                  </label>
+                  <select
+                    id="chart-account-category"
+                    className={inputClass}
+                    value={advanced.category}
+                    onChange={(event) => setAdvanced({ ...advanced, category: event.target.value })}
+                  >
+                    {LEDGER_CATEGORY_OPTIONS.map((option) => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className={labelClass} htmlFor="chart-account-customer-type">
+                    Customer type
+                  </label>
+                  <select
+                    id="chart-account-customer-type"
+                    className={inputClass}
+                    value={advanced.customerType}
+                    onChange={(event) => setAdvanced({ ...advanced, customerType: event.target.value })}
+                  >
+                    {['NONE', 'RETAIL', 'WHOLESALE', 'CORPORATE', 'GOVERNMENT'].map((type) => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className={labelClass} htmlFor="chart-account-tax-type">
+                    Tax type
+                  </label>
+                  <select
+                    id="chart-account-tax-type"
+                    className={inputClass}
+                    value={advanced.taxType}
+                    onChange={(event) => setAdvanced({ ...advanced, taxType: event.target.value })}
+                  >
+                    {['NONE', 'VAT', 'TDS', 'EXEMPT'].map((type) => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className={labelClass} htmlFor="chart-account-institution">
+                    Institution type
+                  </label>
+                  <select
+                    id="chart-account-institution"
+                    className={inputClass}
+                    value={advanced.institutionType}
+                    onChange={(event) => setAdvanced({ ...advanced, institutionType: event.target.value })}
+                  >
+                    {['PARTNERSHIP', 'COMPANY', 'INDIVIDUAL', 'GOVERNMENT', 'NGO'].map((type) => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className={labelClass} htmlFor="chart-account-currency">
+                    Currency
+                  </label>
+                  <select
+                    id="chart-account-currency"
+                    className={inputClass}
+                    value={advanced.currency}
+                    onChange={(event) => setAdvanced({ ...advanced, currency: event.target.value })}
+                  >
+                    {['NPR', 'USD', 'EUR', 'INR'].map((currency) => (
+                      <option key={currency} value={currency}>{currency}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className={labelClass} htmlFor="chart-account-area">
+                    Area
+                  </label>
+                  <input
+                    id="chart-account-area"
+                    className={inputClass}
+                    value={advanced.area}
+                    onChange={(event) => setAdvanced({ ...advanced, area: event.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass} htmlFor="chart-account-agent">
+                    Agent
+                  </label>
+                  <input
+                    id="chart-account-agent"
+                    className={inputClass}
+                    value={advanced.agent}
+                    onChange={(event) => setAdvanced({ ...advanced, agent: event.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass} htmlFor="chart-account-class">
+                    Class
+                  </label>
+                  <input
+                    id="chart-account-class"
+                    className={inputClass}
+                    value={advanced.accountClass}
+                    onChange={(event) => setAdvanced({ ...advanced, accountClass: event.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass} htmlFor="chart-account-bank-guarantee">
+                    Bank guarantee
+                  </label>
+                  <input
+                    id="chart-account-bank-guarantee"
+                    className={inputClass}
+                    value={advanced.bankGuarantee}
+                    onChange={(event) => setAdvanced({ ...advanced, bankGuarantee: event.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass} htmlFor="chart-account-cash-deposit">
+                    Cash deposit
+                  </label>
+                  <input
+                    id="chart-account-cash-deposit"
+                    className={inputClass}
+                    value={advanced.cashDeposit}
+                    onChange={(event) => setAdvanced({ ...advanced, cashDeposit: event.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass} htmlFor="chart-account-interest-rate">
+                    Rate of interest
+                  </label>
+                  <input
+                    id="chart-account-interest-rate"
+                    type="number"
+                    step="0.001"
+                    className={inputClass}
+                    value={advanced.interestRate}
+                    onChange={(event) => setAdvanced({ ...advanced, interestRate: event.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass} htmlFor="chart-account-credit-limit">
+                    Credit limit
+                  </label>
+                  <input
+                    id="chart-account-credit-limit"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    className={inputClass}
+                    value={advanced.creditLimit}
+                    onChange={(event) => setAdvanced({ ...advanced, creditLimit: event.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass} htmlFor="chart-account-credit-days">
+                    Credit days
+                  </label>
+                  <input
+                    id="chart-account-credit-days"
+                    type="number"
+                    min="0"
+                    className={inputClass}
+                    value={advanced.creditDays}
+                    onChange={(event) => setAdvanced({ ...advanced, creditDays: event.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {([
+                  ['billWiseAdjustment', 'Bill-wise adjustment'],
+                  ['cashBook', 'Cash book'],
+                  ['overLimitAllowed', 'Over-limit allowed'],
+                  ['overDaysAllowed', 'Over-days allowed'],
+                ] as Array<[keyof AdvancedProfileForm, string]>).map(([key, label]) => (
+                  <label key={key} className="flex items-center gap-2 text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                    <input
+                      type="checkbox"
+                      id={`chart-account-${key}`}
+                      checked={Boolean(advanced[key])}
+                      onChange={(event) => setAdvanced({ ...advanced, [key]: event.target.checked })}
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
             </div>
           )}
 

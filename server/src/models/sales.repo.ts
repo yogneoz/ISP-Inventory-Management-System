@@ -28,6 +28,8 @@ export function buildSalesInvoiceListSql(branchId?: unknown): { sql: string; par
 
 export interface SalesInvoiceQueryOptions {
   branchId?: unknown;
+  /** Exact customer master id, used by the customer-ledger Receive action. */
+  customerId?: unknown;
   /** Maps to payment_status (UNPAID / PARTIAL / PAID / …). */
   status?: unknown;
   /** Free-text search across invoice # and customer name. */
@@ -45,6 +47,10 @@ export function buildSalesInvoiceWhere(opts: SalesInvoiceQueryOptions): { whereS
   if (opts.branchId && opts.branchId !== 'ALL') {
     params.push(opts.branchId as string);
     whereSql += ` AND branch_id = $${params.length}`;
+  }
+  if (typeof opts.customerId === 'string' && opts.customerId.trim()) {
+    params.push(opts.customerId.trim());
+    whereSql += ` AND customer_id = $${params.length}`;
   }
   if (opts.status && opts.status !== 'ALL') {
     params.push(opts.status as string);
@@ -773,20 +779,70 @@ export const CP_CHARGEBACK_SQL = `UPDATE customer_payments SET
    updated_at = CURRENT_TIMESTAMP
  WHERE id = $3 AND status = 'POSTED'`;
 
+// ---------------------------------------------------------------------------
+// Customer receipt allocations (one receipt → one or more invoices)
+// ---------------------------------------------------------------------------
+
+export const CPA_INSERT_SQL = `INSERT INTO customer_payment_allocations (
+   id, payment_id, invoice_id, amount, status
+ ) VALUES ($1, $2, $3, $4, 'POSTED')`;
+
+export function cpaInsertParams(a: Record<string, any>): unknown[] {
+  return [a.id, a.paymentId, a.invoiceId, Number(a.amount)];
+}
+
+/** Posted allocations are what a reversal must undo, in invoice order. */
+export const CPA_LIST_POSTED_BY_PAYMENT_SQL = `SELECT
+   invoice_id AS "invoiceId",
+   amount::numeric AS amount
+ FROM customer_payment_allocations
+ WHERE payment_id = $1 AND status = 'POSTED'
+ ORDER BY invoice_id ASC`;
+
+/** Mark every posted allocation of one receipt reversed; returns the amounts. */
+export const CPA_REVERSE_BY_PAYMENT_SQL = `UPDATE customer_payment_allocations SET
+   status = 'REVERSED',
+   reversed_at = CURRENT_TIMESTAMP,
+   reversed_by = $2,
+   reversal_reason = $3
+ WHERE payment_id = $1 AND status = 'POSTED'
+ RETURNING invoice_id AS "invoiceId", amount::numeric AS amount`;
+
 /** Settled gross on one receipt; used before allowing refund/reversal. */
 export const CP_SETTLED_GROSS_SQL = `SELECT COALESCE(SUM(gross_amount), 0)::numeric AS "settledGross"
 FROM payment_settlements
 WHERE customer_payment_id = $1 AND status = 'POSTED'`;
 
 /**
- * Applies a payment to its sales invoice (additive amount_paid + status case),
- * mirroring PI_RECORD_PAYMENT_SQL. Guarded on the invoice still existing.
+ * Applies a payment to its sales invoice (additive amount_paid + status case).
+ * The WHERE clause is the last line of defence against double/over-allocation:
+ * even if the caller's row lock were lost, an update that would push the
+ * invoice past its grand total affects zero rows and must be refused.
  */
 export const SI_RECORD_PAYMENT_SQL = `UPDATE sales_invoices SET
    amount_paid = amount_paid + $1,
    payment_status = CASE WHEN (amount_paid + $1) >= grand_total THEN 'PAID' ELSE 'PARTIAL' END,
    updated_at = CURRENT_TIMESTAMP
- WHERE id = $2`;
+ WHERE id = $2
+   AND status = 'POSTED'
+   AND amount_paid + $1 <= grand_total + 0.005`;
+
+/**
+ * Lock the invoice before applying a receipt. The lock is what makes the
+ * remaining-balance check safe against two concurrent payment requests; the
+ * caller reads grand_total/amount_paid from this row, not from a stale mirror.
+ */
+export const SI_LOCK_FOR_PAYMENT_SQL = `SELECT
+   id,
+   invoice_number AS "invoiceNumber",
+   branch_id AS "branchId",
+   customer_id AS "customerId",
+   status,
+   grand_total::numeric AS "grandTotal",
+   amount_paid::numeric AS "amountPaid"
+ FROM sales_invoices
+ WHERE id = $1 OR invoice_number = $1
+ FOR UPDATE`;
 
 /** Restores an invoice balance after reversing one payment (mirrors PI_UNDO_PAYMENT_SQL). */
 export const SI_UNDO_PAYMENT_SQL = `UPDATE sales_invoices SET

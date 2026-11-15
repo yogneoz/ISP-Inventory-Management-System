@@ -272,7 +272,7 @@ describe('returns, transfers and CPE post to the ledger (real HTTP + PostgreSQL)
   test('a purchase bill seeds stock and inventory, so the return below has a real balance to mirror', async () => {
     const res = await post('/api/purchase-invoices', {
       id: 'ra-pi-1',
-      invoiceNumber: 'RA-PI-1',
+      invoiceNumber: 'PI-2083-RA-PI-1',
       branchId: BR_A,
       invoiceDateAD: today,
       supplierName: 'RA Supplier',
@@ -338,7 +338,7 @@ describe('returns, transfers and CPE post to the ledger (real HTTP + PostgreSQL)
   test('a sales return mirrors the sale at the recorded issue cost; cancelling reverses it', async () => {
     const invoice = await post('/api/sales-invoices', {
       id: 'ra-si-1',
-      invoiceNumber: 'RA-SI-1',
+      invoiceNumber: 'INV-2083-RA-SI-1',
       customerId: CUSTOMER,
       customerName: 'RA Customer',
       branchId: BR_A,
@@ -456,7 +456,7 @@ describe('returns, transfers and CPE post to the ledger (real HTTP + PostgreSQL)
   test('CPE assignment moves value into deployed assets; collection moves it back at the same cost', async () => {
     const bill = await post('/api/purchase-invoices', {
       id: 'ra-pi-2',
-      invoiceNumber: 'RA-PI-2',
+      invoiceNumber: 'PI-2083-RA-PI-2',
       branchId: BR_A,
       invoiceDateAD: today,
       supplierName: 'RA Supplier',

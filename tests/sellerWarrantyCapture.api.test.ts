@@ -98,6 +98,7 @@ describe('seller warranty capture (real HTTP + PostgreSQL)', { skip: skipNoDb },
     // Invoice posting now creates journals keyed to this test branch; the
     // branch FK is RESTRICT, so the ledger rows must leave first.
     await pool!.query('DELETE FROM gl_journals WHERE branch_id = $1', [BRANCH]);
+    await pool!.query('DELETE FROM document_number_retirements WHERE branch_id = $1', [BRANCH]);
     await pool!.query("DELETE FROM stock_operations WHERE id LIKE 'w5-op-%'");
     await pool!.query("DELETE FROM serial_log WHERE device_serial LIKE 'W5-%'");
     await pool!.query('DELETE FROM transaction_logs WHERE product_id IN ($1, $2)', [PRODUCT, ZERO]);
@@ -418,7 +419,7 @@ describe('seller warranty capture (real HTTP + PostgreSQL)', { skip: skipNoDb },
     await stockUnit('W5-SINV-1', 'W5-SINV-1-PON');
     const inv = await call('POST', '/api/sales-invoices', {
       id: 'w5-si-1',
-      invoiceNumber: 'W5-INV-1',
+      invoiceNumber: 'INV-2083-W5-INV-1',
       customerName: 'W5 Customer',
       branchId: BRANCH,
       invoiceDateAD: today,

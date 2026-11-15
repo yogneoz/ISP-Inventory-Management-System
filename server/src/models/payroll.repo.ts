@@ -435,46 +435,90 @@ export const EMPLOYEE_PROFILE_PHOTO_SQL =
  */
 export const EMPLOYEE_LEDGER_ENTRIES_SQL = `SELECT
   s.id,
+  j.id AS "journalId",
   j.journal_no AS "journalNo",
   j.journal_date_ad::text AS "journalDateAD",
+  s.entry_date_ad::text AS "entryDateAD",
+  COALESCE(s.entry_date_bs, j.journal_date_bs) AS "entryDateBS",
   j.source_type AS "sourceType",
-  j.memo,
+  j.voucher_type AS "voucherType",
+  j.reference_no AS "referenceNo",
+  j.reversal_of_id AS "reversalOfId",
+  COALESCE(l.memo, j.memo, '') AS memo,
   a.id AS "accountId",
   a.code AS "accountCode",
   a.name AS "accountName",
   g.account_type AS "accountType",
+  s.branch_id AS "branchId",
   s.debit::numeric AS debit,
   s.credit::numeric AS credit
 FROM gl_subledger_entries s
 JOIN gl_journals j ON j.id = s.journal_id
+LEFT JOIN gl_journal_lines l ON l.id = s.journal_line_id
 JOIN gl_accounts a ON a.id = s.account_id
 JOIN gl_account_groups g ON g.id = a.group_id
 WHERE s.subledger_type = 'EMPLOYEE'
   AND s.party_id = $1
+  AND j.status = 'POSTED'
   AND ($2::varchar IS NULL OR s.branch_id = $2)
   AND ($3::date IS NULL OR s.entry_date_ad >= $3)
   AND ($4::date IS NULL OR s.entry_date_ad <= $4)
 ORDER BY s.entry_date_ad ASC, j.journal_no ASC, a.code ASC, s.id ASC`;
 
+/**
+ * Per-account employee balances split into opening (before `from`), the
+ * selected period, and closing. `balance` stays the period net so existing
+ * callers keep their meaning; `closingBalance` is the inclusive balance from
+ * the beginning of the ledger through `to`.
+ */
 export const EMPLOYEE_LEDGER_ACCOUNT_BALANCES_SQL = `SELECT
   a.id AS "accountId",
   a.code,
   a.name,
   g.account_type AS "accountType",
   a.posting_role AS "postingRole",
-  COALESCE(SUM(s.debit), 0)::numeric AS debit,
-  COALESCE(SUM(s.credit), 0)::numeric AS credit,
-  COALESCE(SUM(s.debit - s.credit), 0)::numeric AS balance
+  COALESCE(SUM(CASE
+    WHEN $3::date IS NOT NULL AND s.entry_date_ad < $3::date THEN s.debit ELSE 0
+  END), 0)::numeric AS "openingDebit",
+  COALESCE(SUM(CASE
+    WHEN $3::date IS NOT NULL AND s.entry_date_ad < $3::date THEN s.credit ELSE 0
+  END), 0)::numeric AS "openingCredit",
+  COALESCE(SUM(CASE
+    WHEN $3::date IS NOT NULL AND s.entry_date_ad < $3::date THEN s.debit - s.credit ELSE 0
+  END), 0)::numeric AS "openingBalance",
+  COALESCE(SUM(CASE
+    WHEN $3::date IS NULL OR s.entry_date_ad >= $3::date THEN s.debit ELSE 0
+  END), 0)::numeric AS debit,
+  COALESCE(SUM(CASE
+    WHEN $3::date IS NULL OR s.entry_date_ad >= $3::date THEN s.credit ELSE 0
+  END), 0)::numeric AS credit,
+  COALESCE(SUM(CASE
+    WHEN $3::date IS NULL OR s.entry_date_ad >= $3::date THEN s.debit - s.credit ELSE 0
+  END), 0)::numeric AS balance,
+  COALESCE(SUM(s.debit - s.credit), 0)::numeric AS "closingBalance"
 FROM gl_subledger_entries s
+JOIN gl_journals j ON j.id = s.journal_id
 JOIN gl_accounts a ON a.id = s.account_id
 JOIN gl_account_groups g ON g.id = a.group_id
 WHERE s.subledger_type = 'EMPLOYEE'
   AND s.party_id = $1
+  AND j.status = 'POSTED'
   AND ($2::varchar IS NULL OR s.branch_id = $2)
-  AND ($3::date IS NULL OR s.entry_date_ad >= $3)
   AND ($4::date IS NULL OR s.entry_date_ad <= $4)
 GROUP BY a.id, a.code, a.name, g.account_type, a.posting_role
 ORDER BY a.code ASC`;
+
+/** Employee subledger rows in scope that still carry no book id. */
+export const EMPLOYEE_LEDGER_UNLINKED_COUNT_SQL = `SELECT COUNT(*)::int AS count
+FROM gl_subledger_entries s
+JOIN gl_journals j ON j.id = s.journal_id
+WHERE s.subledger_type = 'EMPLOYEE'
+  AND s.party_id = $1
+  AND s.subledger_id IS NULL
+  AND j.status = 'POSTED'
+  AND ($2::varchar IS NULL OR s.branch_id = $2)
+  AND ($3::date IS NULL OR s.entry_date_ad >= $3)
+  AND ($4::date IS NULL OR s.entry_date_ad <= $4)`;
 
 export const PAYROLL_RUN_COLUMNS = `id,
   run_no AS "runNo",

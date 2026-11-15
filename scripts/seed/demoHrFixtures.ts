@@ -124,6 +124,8 @@ export interface DemoHrFixtures {
   payrollAdjustments: Row[];
   journals: Row[];
   journalLines: Row[];
+  payrollSubledgers: Row[];
+  payrollSubledgerEntries: Row[];
   payrollRuns: Row[];
   payrollLines: Row[];
   requisitions: Row[];
@@ -479,10 +481,29 @@ export function buildDemoHrFixtures(dataset: VerificationDataset): DemoHrFixture
   // counts payroll as untagged actuals. The credit legs are liabilities and
   // stay untagged.
   const journalLines: Row[] = [
-    { id: 'demo-payroll-journal-line-1', journal_id: 'demo-payroll-journal-2083-11', line_no: 1, account_id: 'gla-6400', branch_id: 'BR-KTM', cost_center_id: 'cc-demo-ops', debit: 167_000, credit: 0, memo: 'Salaries and wages' },
-    { id: 'demo-payroll-journal-line-2', journal_id: 'demo-payroll-journal-2083-11', line_no: 2, account_id: 'gla-2330', branch_id: 'BR-KTM', cost_center_id: null, debit: 0, credit: 8_000, memo: 'TDS payable' },
-    { id: 'demo-payroll-journal-line-3', journal_id: 'demo-payroll-journal-2083-11', line_no: 3, account_id: 'gla-2340', branch_id: 'BR-KTM', cost_center_id: null, debit: 0, credit: 6_600, memo: 'SSF payable' },
-    { id: 'demo-payroll-journal-line-4', journal_id: 'demo-payroll-journal-2083-11', line_no: 4, account_id: 'gla-2320', branch_id: 'BR-KTM', cost_center_id: null, debit: 0, credit: 152_400, memo: 'Net salaries payable' },
+    { id: 'demo-payroll-journal-line-1', journal_id: 'demo-payroll-journal-2083-11', journal_date_ad: '2026-11-29', journal_date_bs: bsOn('2026-11-29'), line_no: 1, account_id: 'gla-6400', branch_id: 'BR-KTM', cost_center_id: 'cc-demo-ops', debit: 167_000, credit: 0, memo: 'Salaries and wages' },
+    { id: 'demo-payroll-journal-line-2', journal_id: 'demo-payroll-journal-2083-11', journal_date_ad: '2026-11-29', journal_date_bs: bsOn('2026-11-29'), line_no: 2, account_id: 'gla-2330', branch_id: 'BR-KTM', cost_center_id: null, debit: 0, credit: 8_000, memo: 'TDS payable' },
+    { id: 'demo-payroll-journal-line-3', journal_id: 'demo-payroll-journal-2083-11', journal_date_ad: '2026-11-29', journal_date_bs: bsOn('2026-11-29'), line_no: 3, account_id: 'gla-2340', branch_id: 'BR-KTM', cost_center_id: null, debit: 0, credit: 6_600, memo: 'SSF payable' },
+    { id: 'demo-payroll-journal-line-4', journal_id: 'demo-payroll-journal-2083-11', journal_date_ad: '2026-11-29', journal_date_bs: bsOn('2026-11-29'), line_no: 4, account_id: 'gla-2320', branch_id: 'BR-KTM', cost_center_id: null, debit: 0, credit: 152_400, memo: 'Net salaries payable' },
+  ];
+
+  // The payroll journal is inserted directly (the demo run is already POSTED),
+  // so its control lines need the same employee subledger rows the posting
+  // service would have written. Without these the GL ties to the trial balance
+  // but Salary Payable, TDS and SSF show a false control difference.
+  const payrollSubledgers: Row[] = [
+    { id: 'gls-demo-2320-emp-001', code: 'SL-2320-EMP-001', name: 'Aarav Sharma — Salary Payable', subledger_type: 'EMPLOYEE', main_account_id: 'gla-2320', party_id: 'demo-emp-001', description: 'Demo payroll book for Aarav Sharma.', is_active: true, is_demo: true },
+    { id: 'gls-demo-2320-emp-002', code: 'SL-2320-EMP-002', name: 'Nisha Karki — Salary Payable', subledger_type: 'EMPLOYEE', main_account_id: 'gla-2320', party_id: 'demo-emp-002', description: 'Demo payroll book for Nisha Karki.', is_active: true, is_demo: true },
+    { id: 'gls-demo-2330-emp-001', code: 'SL-2330-EMP-001', name: 'Aarav Sharma — TDS Payable', subledger_type: 'EMPLOYEE', main_account_id: 'gla-2330', party_id: 'demo-emp-001', description: 'Demo TDS book for Aarav Sharma.', is_active: true, is_demo: true },
+    { id: 'gls-demo-2330-emp-002', code: 'SL-2330-EMP-002', name: 'Nisha Karki — TDS Payable', subledger_type: 'EMPLOYEE', main_account_id: 'gla-2330', party_id: 'demo-emp-002', description: 'Demo TDS book for Nisha Karki.', is_active: true, is_demo: true },
+    { id: 'gls-demo-2340-emp-001', code: 'SL-2340-EMP-001', name: 'Aarav Sharma — SSF Payable', subledger_type: 'EMPLOYEE', main_account_id: 'gla-2340', party_id: 'demo-emp-001', description: 'Demo SSF book for Aarav Sharma.', is_active: true, is_demo: true },
+  ];
+  const payrollSubledgerEntries: Row[] = [
+    { id: 'gls-demo-payroll-001', journal_id: 'demo-payroll-journal-2083-11', journal_line_id: 'demo-payroll-journal-line-4', account_id: 'gla-2320', subledger_id: 'gls-demo-2320-emp-001', subledger_type: 'EMPLOYEE', party_id: 'demo-emp-001', party_name: 'Aarav Sharma', branch_id: 'BR-KTM', entry_date_ad: '2026-11-29', entry_date_bs: bsOn('2026-11-29'), debit: 0, credit: 92_400 },
+    { id: 'gls-demo-payroll-002', journal_id: 'demo-payroll-journal-2083-11', journal_line_id: 'demo-payroll-journal-line-4', account_id: 'gla-2320', subledger_id: 'gls-demo-2320-emp-002', subledger_type: 'EMPLOYEE', party_id: 'demo-emp-002', party_name: 'Nisha Karki', branch_id: 'BR-KTM', entry_date_ad: '2026-11-29', entry_date_bs: bsOn('2026-11-29'), debit: 0, credit: 60_000 },
+    { id: 'gls-demo-payroll-003', journal_id: 'demo-payroll-journal-2083-11', journal_line_id: 'demo-payroll-journal-line-2', account_id: 'gla-2330', subledger_id: 'gls-demo-2330-emp-001', subledger_type: 'EMPLOYEE', party_id: 'demo-emp-001', party_name: 'Aarav Sharma', branch_id: 'BR-KTM', entry_date_ad: '2026-11-29', entry_date_bs: bsOn('2026-11-29'), debit: 0, credit: 6_000 },
+    { id: 'gls-demo-payroll-004', journal_id: 'demo-payroll-journal-2083-11', journal_line_id: 'demo-payroll-journal-line-2', account_id: 'gla-2330', subledger_id: 'gls-demo-2330-emp-002', subledger_type: 'EMPLOYEE', party_id: 'demo-emp-002', party_name: 'Nisha Karki', branch_id: 'BR-KTM', entry_date_ad: '2026-11-29', entry_date_bs: bsOn('2026-11-29'), debit: 0, credit: 2_000 },
+    { id: 'gls-demo-payroll-005', journal_id: 'demo-payroll-journal-2083-11', journal_line_id: 'demo-payroll-journal-line-3', account_id: 'gla-2340', subledger_id: 'gls-demo-2340-emp-001', subledger_type: 'EMPLOYEE', party_id: 'demo-emp-001', party_name: 'Aarav Sharma', branch_id: 'BR-KTM', entry_date_ad: '2026-11-29', entry_date_bs: bsOn('2026-11-29'), debit: 0, credit: 6_600 },
   ];
 
   const payrollRuns: Row[] = [{
@@ -598,7 +619,7 @@ export function buildDemoHrFixtures(dataset: VerificationDataset): DemoHrFixture
     leaveBalances, leaveRequests, attendance, documents, statutoryConfigs, tdsSlabs,
     payrollAdjustments, journals, journalLines, payrollRuns, payrollLines, requisitions,
     candidates, interviews, offers, reviewCycles, goals, feedback, lifecycleChecklists,
-    lifecycleItems,
+    lifecycleItems, payrollSubledgers, payrollSubledgerEntries,
   };
 }
 
@@ -654,7 +675,9 @@ export async function applyDemoHrFixtures(client: any, dataset: VerificationData
   await put('demoTdsSlabs', 'hr_tds_slabs', ['id', 'config_id', 'slab_order', 'lower_bound', 'upper_bound', 'rate_percent'], fixtures.tdsSlabs);
   await put('demoPayrollAdjustments', 'hr_payroll_adjustments', ['id', 'employee_id', 'period_key', 'incentive_amount', 'arrears_amount', 'advance_amount', 'loan_amount', 'notes', 'is_demo', 'created_by'], fixtures.payrollAdjustments);
   await put('demoPayrollJournals', 'gl_journals', ['id', 'journal_no', 'journal_date_ad', 'journal_date_bs', 'fiscal_year_id', 'period_id', 'branch_id', 'source_type', 'source_id', 'memo', 'status', 'posted_at', 'posted_by', 'voucher_type', 'currency', 'exchange_rate', 'is_demo'], fixtures.journals);
-  await put('demoPayrollJournalLines', 'gl_journal_lines', ['id', 'journal_id', 'line_no', 'account_id', 'branch_id', 'cost_center_id', 'debit', 'credit', 'memo'], fixtures.journalLines);
+  await put('demoPayrollJournalLines', 'gl_journal_lines', ['id', 'journal_id', 'journal_date_ad', 'journal_date_bs', 'line_no', 'account_id', 'branch_id', 'cost_center_id', 'debit', 'credit', 'memo'], fixtures.journalLines);
+  await put('demoPayrollSubledgers', 'gl_subledgers', ['id', 'code', 'name', 'subledger_type', 'main_account_id', 'party_id', 'description', 'is_active', 'is_demo'], fixtures.payrollSubledgers);
+  await put('demoPayrollSubledgerEntries', 'gl_subledger_entries', ['id', 'journal_id', 'journal_line_id', 'account_id', 'subledger_id', 'subledger_type', 'party_id', 'party_name', 'branch_id', 'entry_date_ad', 'entry_date_bs', 'debit', 'credit'], fixtures.payrollSubledgerEntries);
   await put('demoPayrollRuns', 'payroll_runs', ['id', 'run_no', 'branch_id', 'period_key', 'run_date_ad', 'run_date_bs', 'gross_total', 'tds_total', 'ssf_total', 'advance_total', 'loan_total', 'net_total', 'status', 'journal_id', 'posted_by', 'is_demo', 'prepared_by', 'prepared_at', 'approved_by', 'approved_at', 'statutory_config_id', 'incentive_total', 'arrears_total'], fixtures.payrollRuns);
   await put('demoPayrollLines', 'payroll_run_lines', ['id', 'run_id', 'employee_id', 'employee_code', 'employee_name', 'period_key', 'gross_amount', 'tds_amount', 'ssf_amount', 'advance_deduction', 'loan_deduction', 'net_amount', 'salary_id', 'basic_amount', 'payable_days', 'lop_days', 'lop_deduction', 'overtime_hours', 'overtime_amount', 'employer_ssf_amount', 'incentive_amount', 'arrears_amount', 'bank_name', 'bank_account'], fixtures.payrollLines);
   await put('demoRequisitions', 'hr_recruitment_requisitions', ['id', 'requisition_no', 'branch_id', 'title', 'department', 'designation', 'employment_type', 'openings', 'status', 'opened_on_ad', 'opened_on_bs', 'closes_on_ad', 'closes_on_bs', 'description', 'is_demo', 'created_by'], fixtures.requisitions);

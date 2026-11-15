@@ -18,6 +18,7 @@
 import crypto from 'crypto';
 import { ApiError } from '../errors/ApiError';
 import { bsDateOrThrow } from '../utils/bsDate';
+import { issueNextDocNumber } from '../utils/docNumber';
 import { roundMoney } from '../utils/money';
 import {
   ACCOUNT_KINDS,
@@ -843,6 +844,8 @@ export interface PostJournalInput {
   sourceId?: unknown;
   voucherType?: unknown;
   voucherClass?: unknown;
+  /** Register class for a manual cash/bank voucher (CR/BR/CP/BP/CT/JV). */
+  documentType?: unknown;
   referenceNo?: unknown;
   referenceDateAD?: unknown;
   chequeNo?: unknown;
@@ -986,12 +989,54 @@ export async function postJournal(
 
   const period = await ensureOpenPeriod(client, journalDateAD);
   await client.query(ENSURE_JOURNAL_PARTITION_SQL, [journalDateAD]);
-  const sequence = Number((await client.query(NEXT_JOURNAL_SEQUENCE_SQL)).rows[0]?.seq);
-  if (!Number.isFinite(sequence) || sequence <= 0) {
-    throw new ApiError(500, 'Could not allocate a journal number.');
-  }
   const sourceType = text(input.sourceType, 30).toUpperCase() || 'MANUAL';
   const sourceId = text(input.sourceId, 100) || null;
+  // A manual cash/bank voucher is not an AR/AP settlement document. Allowing
+  // it to post a control line creates a receipt with no invoice/bill behind it,
+  // so the party ledger and the control account disagree by construction.
+  if (['CASH_RECEIPT', 'CASH_PAYMENT', 'CASH_BANK'].includes(sourceType)) {
+    const controlLine = lines.find((line) =>
+      ['AR_CONTROL', 'AP_CONTROL'].includes(String(line.account.postingRole || ''))
+    );
+    if (controlLine) {
+      throw new ApiError(
+        400,
+        `Cash & Bank Entry cannot post ${controlLine.account.code} ${controlLine.account.name} directly. Use Record Customer Payment or Vendor Payment so the invoice/bill is allocated.`
+      );
+    }
+  }
+  if (sourceType === 'CASH_BANK') {
+    const outsideCustody = lines.find(
+      (line) => !['CASH', 'BANK', 'WALLET'].includes(String(line.account.accountKind || 'OTHER'))
+    );
+    if (outsideCustody) {
+      throw new ApiError(
+        400,
+        `Contra / Transfer line ${outsideCustody.lineNo} must use a cash, bank or wallet ledger; ${outsideCustody.account.code} is ${outsideCustody.account.accountKind}.`
+      );
+    }
+    if (new Set(lines.map((line) => line.account.id)).size < 2) {
+      throw new ApiError(400, 'A Contra / Transfer must move money between two different custody ledgers.');
+    }
+  }
+  const explicitDocumentType = text(input.documentType, 8).toUpperCase();
+  // Manual sources have a class even when an older caller omits it. Source
+  // documents (invoices, stock, payroll) keep their own numbering until their
+  // own slice moves them onto the register.
+  const documentType =
+    explicitDocumentType ||
+    (sourceType === 'MANUAL'
+      ? 'JV'
+      : sourceType === 'CASH_RECEIPT'
+        ? 'CR'
+        : sourceType === 'CASH_PAYMENT'
+          ? 'CP'
+          : sourceType === 'CASH_BANK'
+            ? 'CT'
+            : '');
+  if (documentType && !['JV', 'CR', 'BR', 'CP', 'BP', 'CT'].includes(documentType)) {
+    throw new ApiError(400, `Unsupported manual document class ${documentType}.`);
+  }
   // An inventory document is one financial event. Refuse a replay before
   // allocating a journal number, so a double-click or retried request cannot
   // post the same stock movement twice. Other source families keep their
@@ -1005,15 +1050,22 @@ export async function postJournal(
       );
     }
   }
-  const numberPrefix =
-    sourceType === 'CASH_RECEIPT'
-      ? 'RV'
-      : sourceType === 'CASH_PAYMENT'
-        ? 'PV'
-        : sourceType === 'CASH_BANK'
-          ? 'CB'
-          : 'MJ';
-  const journalNo = `${numberPrefix}-${period.fiscalYearCode}-${String(sequence).padStart(5, '0')}`;
+  // A caller that names a register class (the Cash & Bank screen) gets the
+  // same branch/date/counter number as every operational document. The old
+  // fiscal-year sequence remains only for API callers that do not name one,
+  // and for source documents that already carry their own number.
+  let journalNo: string;
+  if (documentType) {
+    journalNo = await issueNextDocNumber(branchId, documentType, journalDateAD, client);
+  } else {
+    const sequence = Number((await client.query(NEXT_JOURNAL_SEQUENCE_SQL)).rows[0]?.seq);
+    if (!Number.isFinite(sequence) || sequence <= 0) {
+      throw new ApiError(500, 'Could not allocate a journal number.');
+    }
+    // Only source documents that carry their own number (invoice, stock,
+    // payroll) reach this branch; every manual source now has a register class.
+    journalNo = `MJ-${period.fiscalYearCode}-${String(sequence).padStart(5, '0')}`;
+  }
   const journalId = `glj-${crypto.randomUUID()}`;
   const currency = text(input.currency, 10).toUpperCase() || 'NPR';
   if (!/^[A-Z]{3}$/.test(currency)) {

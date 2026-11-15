@@ -59,6 +59,7 @@ describe('C1 end-to-end: tampered client aggregates are recomputed server-side',
         type: 'DAMAGE',
         branchId: 'WH001',
         dateAD: '2026-09-24',
+        referenceNumber: 'DC-WH001-202609240002',
         items: [
           { productId: 'prod-1', productName: 'Router', quantity: 2, unitCost: 100, totalValue: 999999 },
           { productId: 'prod-2', productName: 'ONU', quantity: 3, unitCost: 40, totalValue: 1 },
@@ -80,6 +81,7 @@ describe('C1 end-to-end: tampered client aggregates are recomputed server-side',
         type: 'STOCK_OUT',
         branchId: 'WH001',
         dateAD: '2026-09-24',
+        referenceNumber: 'DC-WH001-202609240001',
         items: [
           { productId: 'prod-1', quantity: 1, unitCost: 100, totalValue: 5000000 },
           { productId: 'prod-2', quantity: 1, unitCost: 40 },
@@ -99,6 +101,7 @@ describe('C1 end-to-end: tampered client aggregates are recomputed server-side',
         supplierName: 'Example Supplier 1',
         branchId: 'WH001',
         orderDateAD: '2026-09-24',
+        poNumber: 'PO-WH001-202609240001',
         // tampered header aggregates
         subtotalAmount: 1,
         taxAmount: 1,
@@ -122,7 +125,7 @@ describe('C1 end-to-end: tampered client aggregates are recomputed server-side',
   test('purchase invoice: tampered grandTotal/taxableAmount/vatAmount are ignored; totalDiscount is honored but clamped', async () => {
     const req: any = {
       body: {
-        invoiceNumber: 'PI-TAMPER-1',
+        invoiceNumber: 'PI-WH001-202609240001',
         supplierName: 'Example Supplier 1',
         branchId: 'WH001',
         invoiceDateAD: '2026-09-24',
@@ -155,7 +158,7 @@ describe('C1 end-to-end: tampered client aggregates are recomputed server-side',
   test('purchase invoice: over-gross and negative discounts are clamped, tampered aggregates still ignored', async () => {
     const req: any = {
       body: {
-        invoiceNumber: 'PI-TAMPER-2',
+        invoiceNumber: 'PI-WH001-202609240002',
         supplierName: 'Example Supplier 1',
         branchId: 'WH001',
         invoiceDateAD: '2026-09-24',
@@ -183,7 +186,7 @@ describe('C1 end-to-end: tampered client aggregates are recomputed server-side',
   test('purchase invoice: discount larger than gross is clamped to gross → zero totals', async () => {
     const req: any = {
       body: {
-        invoiceNumber: 'PI-TAMPER-3',
+        invoiceNumber: 'PI-WH001-202609240003',
         supplierName: 'Example Supplier 1',
         branchId: 'WH001',
         invoiceDateAD: '2026-09-24',

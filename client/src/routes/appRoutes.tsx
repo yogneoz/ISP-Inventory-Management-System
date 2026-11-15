@@ -18,9 +18,23 @@
  *    without teaching AppRoutes about Vite.
  */
 import React from 'react';
+import { Loader2 } from 'lucide-react';
 import { KeepMounted, KeepMountedRoot } from '../components/common/KeepMounted';
 import type { NavTab } from '../components/layout/Sidebar';
 import { SUPER_ADMIN_ONLY_TABS, TAB_PERMISSIONS } from './tabPermissions';
+
+/** Suspense fallback matching the boot-loading spinner (used by every lazy tab). */
+function TabLoadingFallback() {
+  return (
+    <div
+      id="tab-loading-fallback"
+      className="flex flex-col items-center justify-center h-64 space-y-3"
+    >
+      <Loader2 className="h-8 w-8 text-indigo-500 animate-spin" />
+      <p className="text-xs font-semibold text-slate-400">Loading module…</p>
+    </div>
+  );
+}
 
 export interface AppRoute {
   key: NavTab;
@@ -69,7 +83,7 @@ export const AppRoutes: React.FC<{ activeTab: NavTab; routes: readonly AppRoute[
             key={route.key}
             visible={visible[route.key] === true && route.enabled}
           >
-            {route.element}
+            <React.Suspense fallback={<TabLoadingFallback />}>{route.element}</React.Suspense>
           </KeepMounted>
         ))}
       </>

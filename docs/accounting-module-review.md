@@ -70,7 +70,7 @@ is the intended full-ERP shape against what actually shipped:
 | AR/AP | subledgers, balances, aging | yes, control accounts + party subledger + aging |
 | Cash | cash book, close, cash flow | cash book + daily close + direct cash-flow statement |
 | Fixed assets | register, depreciation, disposal | all posted through chart roles; register screens exist |
-| Payroll | employee master, runs, TDS/SSF | posted through the same subledger; API only, no screens |
+| Payroll | employee master, runs, TDS/SSF | posted through the same subledger; HR payroll screens plus the read-only Finance Employee Ledger |
 | Statements | TB, BS, P&L, cash flow, PDF | TB/BS/P&L, direct cash flow and PDF; cash-flow print is a follow-up |
 | Budgets / bank rec / multi-currency | part of the large draft | absent |
 | Tests | route-level proof | 1,887 tests green, including posting/statement/aging/close routes |

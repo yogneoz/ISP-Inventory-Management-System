@@ -1,10 +1,14 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { CustomerRecord, CustomerDeviceRecord, Branch, User, BillTerm, Area, SalesAgent } from '../../types';
 import type { RecordRoute } from '../../routes/appPaths';
 import { formatNPR } from '../../utils/nprFormat';
 import { exportToCSV } from '../../utils/exportUtils';
 import { api } from '../../services/api';
+import type { PartyControlAccount, PartyLedgerBalanceRow } from '../../services/api/accounting';
+import { requestTabNavigation } from '../../services/api/http';
+import { isOperationAllowed } from '../../utils/permissions';
+import { formatPartyBalance } from '../../utils/nprFormat';
 import {
   Users,
   Plus,
@@ -30,6 +34,8 @@ import {
   AlertTriangle,
   RefreshCw,
   Loader2,
+  BookOpen,
+  Wallet,
 } from 'lucide-react';
 import { TablePagination } from '../../components/common/TablePagination';
 import { useDialog } from '../../components/common/DialogProvider';
@@ -87,6 +93,11 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
     currentUser?.role === 'SUPER_ADMIN' ||
     currentUser?.role === 'INVENTORY_MANAGER' ||
     currentUser?.role === 'ACCOUNTANT';
+
+  // The balance badge and its ledger link are accounting reads. Operational
+  // roles that can add a customer still see the master row, but not its GL
+  // position unless they hold gl-view.
+  const canViewLedger = isOperationAllowed('gl-view', currentUser?.role);
 
   const [searchQuery, setSearchQuery] = useState('');
   // FilterCard owns the keystroke draft; an export clicked before the debounce
@@ -218,6 +229,8 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
         setEditingCustomer(null);
         resetForm();
         await refreshCustomersFromDb();
+        const ledgerWarning = (created as any).ledgerWarning;
+        if (ledgerWarning) alertDialog(ledgerWarning);
       }
     } catch (err: any) {
       alertDialog(`Save Failed: ${err.message || 'Error creating customer record'}`);
@@ -304,6 +317,8 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
   const [customersLoading, setCustomersLoading] = useState(true);
   const [customersRefreshKey, setCustomersRefreshKey] = useState(0);
   const customersFetchSeq = useRef(0);
+  const [partyBalances, setPartyBalances] = useState<Record<string, PartyLedgerBalanceRow>>({});
+  const [receivableControl, setReceivableControl] = useState<PartyControlAccount | null>(null);
 
   const loadCustomersPage = useCallback(async () => {
     const seq = ++customersFetchSeq.current;
@@ -357,6 +372,42 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
       ? recordCustomerRow
       : null;
   const directoryCustomers = pinnedRecordCustomer ? [pinnedRecordCustomer, ...customersRows] : customersRows;
+
+  const customerBalanceIds = useMemo(
+    () => {
+      const rows = pinnedRecordCustomer ? [pinnedRecordCustomer, ...customersRows] : customersRows;
+      return [...new Set(rows.map((customer) => customer.customerId || customer.id).filter(Boolean))].sort();
+    },
+    [customersRows, pinnedRecordCustomer]
+  );
+
+  useEffect(() => {
+    if (!canViewLedger) {
+      setPartyBalances({});
+      setReceivableControl(null);
+      return;
+    }
+    let cancelled = false;
+    api.getPartyBalances({
+      type: 'CUSTOMER',
+      partyIds: customerBalanceIds,
+      branchId: selectedBranchFilter !== 'ALL' ? selectedBranchFilter : undefined,
+    })
+      .then((result) => {
+        if (cancelled) return;
+        setReceivableControl(result.controlAccount);
+        setPartyBalances(
+          Object.fromEntries((result.balances || []).map((row) => [row.partyId, row]))
+        );
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setPartyBalances({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canViewLedger, selectedBranchFilter, customerBalanceIds, customersRefreshKey, sseRefreshKey]);
 
   // VOL-4b: the Assigned Hardware column comes from the customer row's
   // server-computed count (one indexed subquery per page row), and the expanded
@@ -725,6 +776,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                 <th className="px-2.5 py-1.5">Contact Details & Address</th>
                 <th className="px-2.5 py-1.5 text-center">Assigned Hardware</th>
                 <th className="px-2.5 py-1.5 text-right">Credit Limit (NPR)</th>
+                <th className="px-2.5 py-1.5 text-right">Ledger Balance</th>
                 <th className="px-2.5 py-1.5 text-center">Status</th>
                 <th className="px-2.5 py-1.5 text-right">Actions</th>
               </tr>
@@ -732,14 +784,14 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {customersLoading && customersRows.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="p-8 text-center text-slate-500 dark:text-slate-400">
+                  <td colSpan={10} className="p-8 text-center text-slate-500 dark:text-slate-400">
                     <Loader2 className="h-6 w-6 mx-auto mb-2 animate-spin text-indigo-500" />
                     <p className="text-xs font-semibold">Loading customer records…</p>
                   </td>
                 </tr>
               ) : directoryCustomers.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="p-8 text-center text-slate-500 dark:text-slate-400">
+                  <td colSpan={10} className="p-8 text-center text-slate-500 dark:text-slate-400">
                     <Users className="h-10 w-10 mx-auto mb-3 text-slate-300 dark:text-slate-600" />
                     <p className="font-semibold text-base">
                       {customersLoadError ? 'Customer records could not be loaded' : 'No Customer Records Found'}
@@ -758,6 +810,8 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                   const branchObj = branches.find((b) => b.id === customer.branchId);
                   const assignedDevices = getAssignedDeviceCount(customer);
                   const isExpanded = expandedCustomerId === customer.id;
+                  const balanceRow = partyBalances[customer.customerId || customer.id];
+                  const ledgerBalance = balanceRow ? formatPartyBalance(balanceRow.balance) : null;
 
                   return (
                     <React.Fragment key={customer.id}>
@@ -823,6 +877,24 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                           {formatNPR(customer.creditLimit)}
                         </td>
 
+                        <td className="p-2.5 text-right whitespace-nowrap">
+                          {ledgerBalance ? (
+                            <span
+                              className={`font-mono text-xs font-bold ${
+                                ledgerBalance.side === 'CR'
+                                  ? 'text-emerald-600 dark:text-emerald-400'
+                                  : ledgerBalance.side === 'ZERO'
+                                    ? 'text-slate-400'
+                                    : 'text-slate-800 dark:text-slate-100'
+                              }`}
+                            >
+                              {ledgerBalance.text}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-slate-400">—</span>
+                          )}
+                        </td>
+
                         <td className="p-2.5 text-center whitespace-nowrap">
                           {customer.status === 'ACTIVE' ? (
                             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
@@ -838,8 +910,24 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                         </td>
 
                         <td className="p-2.5 text-right whitespace-nowrap">
-                          {canManageMaster ? (
-                            <div className="flex items-center justify-end gap-1.5">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {canViewLedger && (
+                              <button
+                                onClick={() =>
+                                  requestTabNavigation('customer-ledger', {
+                                    partyId: customer.customerId || customer.id,
+                                    partyLabel: `${customer.customerName} (${customer.customerId})`,
+                                  })
+                                }
+                                title="View customer ledger & receivables"
+                                aria-label={`View ledger for ${customer.customerName}`}
+                                className="p-1.5 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 transition-colors cursor-pointer"
+                              >
+                                <BookOpen className="h-4 w-4" />
+                              </button>
+                            )}
+                            {canManageMaster ? (
+                              <>
                               <button
                                 onClick={() => handleOpenEditModal(customer)}
                                 title="Edit Customer Master Record"
@@ -854,16 +942,17 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                               >
                                 <Trash2 className="h-4 w-4" />
                               </button>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-slate-400 italic">View Only</span>
-                          )}
+                              </>
+                            ) : !canViewLedger ? (
+                              <span className="text-xs text-slate-400 italic">View Only</span>
+                            ) : null}
+                          </div>
                         </td>
                       </tr>
 
                       {isExpanded && (
                         <tr>
-                          <td colSpan={9} className={`p-2.5 border-y bg-indigo-50/40 border-indigo-100 dark:bg-slate-950/90 dark:border-indigo-900/40`}>
+                          <td colSpan={10} className={`p-2.5 border-y bg-indigo-50/40 border-indigo-100 dark:bg-slate-950/90 dark:border-indigo-900/40`}>
                             <div className="rounded-xl border border-indigo-200 dark:border-indigo-900/50 p-4 bg-white dark:bg-slate-900 shadow-sm">
                               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 mb-3 border-b border-slate-100 dark:border-slate-800">
                                 <div className="flex items-center gap-2">
@@ -1053,6 +1142,34 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                 <X className="h-5 w-5" />
               </button>
             </div>
+
+            {canViewLedger && (
+              <div className="mt-4 rounded-xl border border-indigo-200 bg-indigo-50/60 px-3 py-2.5 text-[11px] dark:border-indigo-900/60 dark:bg-indigo-950/30">
+                <div className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-300">
+                  <Wallet className="h-3.5 w-3.5" />
+                  Accounting assignment
+                </div>
+                {receivableControl ? (
+                  <>
+                    <p className="mt-1 font-semibold text-slate-800 dark:text-slate-100">
+                      {receivableControl.code} — {receivableControl.name}
+                      <span className="ml-1 font-normal text-slate-500 dark:text-slate-400">(AR control)</span>
+                    </p>
+                    <p className="text-slate-500 dark:text-slate-400">
+                      {[receivableControl.parentGroupName, receivableControl.groupName].filter(Boolean).join(' › ') ||
+                        'Chart group not set'}
+                    </p>
+                    <p className="mt-0.5 text-slate-500 dark:text-slate-400">
+                      Saving creates this customer's own subledger book under the shared control. No separate GL account is created.
+                    </p>
+                  </>
+                ) : (
+                  <p className="mt-1 text-amber-700 dark:text-amber-300">
+                    No active AR control account is configured. Set it in Finance → Chart of Accounts before posting.
+                  </p>
+                )}
+              </div>
+            )}
 
             <form onSubmit={handleSaveCustomer} className="mt-4 space-y-4">
               <div className="grid grid-cols-2 gap-3">

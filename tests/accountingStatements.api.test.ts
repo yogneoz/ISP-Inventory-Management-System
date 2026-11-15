@@ -300,7 +300,7 @@ describe('financial statements API (real HTTP + PostgreSQL)', { skip: skipNoDb }
     //    at the stock row's weighted average (90 × 2 = 180).
     const invoice = await post('/api/sales-invoices', tokens.super, {
       id: 'ast-si-1',
-      invoiceNumber: 'AST-SI-1',
+      invoiceNumber: 'INV-2083-AST-SI-1',
       customerId: CUSTOMER,
       customerName: 'AST Customer',
       branchId: BR,

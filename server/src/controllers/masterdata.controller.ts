@@ -158,6 +158,7 @@ import {
   CUSTOMER_FIND_BY_ID_OR_CODE_SQL, CUSTOMER_COUNT_SQL,
 } from '../models/masterdata.repo';
 import { customerKpiCacheKey, getCustomerKpis, invalidateCustomerKpis } from '../services/customerKpiCache';
+import { ensurePartySubledgerBook, type PartyLedgerBookAssignment } from '../services/partyLedgerBook.service';
 /** Forwarded from masterdata.routes.ts (get_uom). */
 export async function get_uom(req: any, res: Response): Promise<any> {
 if (getPgConnected()) {
@@ -339,12 +340,32 @@ try {
     } as any;
     setSuppliers(withAppended(suppliers, newSupplier));
 
+    let ledgerBook: PartyLedgerBookAssignment | null = null;
+    let ledgerWarning: string | null = null;
     if (getPgConnected()) {
       const sup = newSupplier as any;
       await pgPool.query(SUPPLIER_UPSERT_SQL, supplierUpsertParams(sup));
+      try {
+        const assigned = await ensurePartySubledgerBook(pgPool, {
+          type: 'SUPPLIER',
+          partyId: newSupplier.id,
+          partyName: newSupplier.name,
+          partyCode: newSupplier.supplierCode,
+        });
+        ledgerBook = assigned.book;
+        ledgerWarning = assigned.warning;
+      } catch (err) {
+        console.error('Supplier ledger book assignment failed:', err);
+        ledgerWarning = `Supplier saved, but its ledger book could not be created. Check Finance → Chart of Accounts.`;
+      }
     }
-    logAuditEvent(req, 'CREATE_SUPPLIER', 'MASTER_DATA', `Created new supplier ${newSupplier.name}`);
-    res.status(201).json(newSupplier);
+    logAuditEvent(
+      req,
+      'CREATE_SUPPLIER',
+      'MASTER_DATA',
+      `Created new supplier ${newSupplier.name}${ledgerBook ? ` with ledger book ${ledgerBook.code} under ${ledgerBook.controlAccountCode}` : ''}`
+    );
+    res.status(201).json({ ...newSupplier, ledgerBook, ledgerWarning });
   } catch (err: any) {
     console.error('Error creating supplier:', err);
     res.status(500).json({ message: `Database error: ${err.message}` });
@@ -1062,8 +1083,23 @@ try {
       assignedDevicesCount: 0,
     };
 
+    let ledgerBook: PartyLedgerBookAssignment | null = null;
+    let ledgerWarning: string | null = null;
     if (getPgConnected()) {
       await pgPool.query(CUSTOMER_UPSERT_SQL, customerUpsertParams(newRecord));
+      try {
+        const assigned = await ensurePartySubledgerBook(pgPool, {
+          type: 'CUSTOMER',
+          partyId: newRecord.customerId,
+          partyName: newRecord.customerName,
+          partyCode: newRecord.customerId,
+        });
+        ledgerBook = assigned.book;
+        ledgerWarning = assigned.warning;
+      } catch (err) {
+        console.error('Customer ledger book assignment failed:', err);
+        ledgerWarning = `Customer saved, but its ledger book could not be created. Check Finance → Chart of Accounts.`;
+      }
     } else {
       const idx = customerMasterRecords.findIndex((c) => c.id === newRecord.id || c.customerId === newRecord.customerId);
       if (idx >= 0) {
@@ -1073,8 +1109,14 @@ try {
       }
     }
     invalidateCustomerKpis();
-    logAuditEvent(req, 'CREATE_CUSTOMER', 'MASTER_DATA', `Created / Registered Customer Profile ${newRecord.customerName} (${newRecord.customerId})`, newRecord.branchId);
-    res.status(201).json(newRecord);
+    logAuditEvent(
+      req,
+      'CREATE_CUSTOMER',
+      'MASTER_DATA',
+      `Created / Registered Customer Profile ${newRecord.customerName} (${newRecord.customerId})${ledgerBook ? ` with ledger book ${ledgerBook.code} under ${ledgerBook.controlAccountCode}` : ''}`,
+      newRecord.branchId
+    );
+    res.status(201).json({ ...newRecord, ledgerBook, ledgerWarning });
   } catch (err: any) {
     console.error('Error creating customer:', err);
     res.status(500).json({ message: `Database error: ${err.message}` });

@@ -19,14 +19,22 @@ import {
   LedgerFilters,
 } from '../../components/common/LedgerView';
 import { Branch } from '../../types';
+import type { SalesInvoice } from '../../types';
 import { api } from '../../services/api';
 import { CustomerPicker } from '../../components/common/CustomerPicker';
+import { ModalPanel } from '../../components/common/ModalPanel';
+import { formCardClass } from '../../components/common/FormCard';
+import { inputClass, labelClass, btnPrimary, btnGhost } from '../../components/common/styleConstants';
+import { formatMoney } from '../../utils/nprFormat';
+import { localTodayAD } from '../../utils/localDate';
 import { createLatestOnly } from '../../utils/latestOnly';
-import { ArrowDownRight, ArrowUpRight, BookOpen, SlidersHorizontal, Undo2, Users, Wallet } from 'lucide-react';
+import { ArrowDownRight, ArrowUpRight, Banknote, BookOpen, Loader2, SlidersHorizontal, Undo2, Users, Wallet } from 'lucide-react';
 
 interface CustomerLedgerProps {
   branches: Branch[];
   dateMode: 'BS' | 'AD';
+  /** A directory row asked this register to open on one customer. */
+  focusRequest?: { partyId: string; partyLabel?: string; token: number } | null;
   /**
    * Sales register counter (App's `registerRefresh.salesInvoices`), bumped by
    * a sales SSE burst and by every full refresh. With a customer selected, an
@@ -46,6 +54,7 @@ interface CustomerLedgerProps {
 export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
   branches,
   dateMode,
+  focusRequest,
   sseRefreshKey,
   returnsRefreshKey,
 }) => {
@@ -55,6 +64,16 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [ledgerData, setLedgerData] = useState<SubLedgerData | null>(null);
+  const [receiveOpen, setReceiveOpen] = useState(false);
+  const [openInvoices, setOpenInvoices] = useState<SalesInvoice[]>([]);
+  const [receiveLoading, setReceiveLoading] = useState(false);
+  const [receiveSubmitting, setReceiveSubmitting] = useState(false);
+  const [receiveError, setReceiveError] = useState('');
+  const [receiveNotice, setReceiveNotice] = useState('');
+  const [receiveAmount, setReceiveAmount] = useState('');
+  const [receiveDate, setReceiveDate] = useState(localTodayAD());
+  const [receiveMethod, setReceiveMethod] = useState<'CASH' | 'BANK_TRANSFER' | 'CHEQUE' | 'CARD'>('CASH');
+  const [receiveAllocations, setReceiveAllocations] = useState<Record<string, string>>({});
 
   // Sequence guard (DF-08): switching customer while a request is in flight
   // must not let the slower previous response paint over the newer one.
@@ -91,12 +110,103 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     }
   };
 
+  const money = (value: number) => Math.round((Number(value) || 0) * 100) / 100;
+  const remainingOf = (invoice: SalesInvoice) =>
+    Math.max(0, money(Number(invoice.grandTotal || 0) - Number(invoice.amountPaid || 0)));
+  const receiveTotal = money(Number(receiveAmount) || 0);
+  const receiveAllocated = money(
+    openInvoices.reduce((sum, invoice) => sum + (Number(receiveAllocations[invoice.id]) || 0), 0)
+  );
+  const receiveUnapplied = Math.max(0, money(receiveTotal - receiveAllocated));
+
+  const openReceive = async () => {
+    if (!selectedCustomerId) return;
+    setReceiveOpen(true);
+    setReceiveLoading(true);
+    setReceiveError('');
+    setReceiveNotice('');
+    setReceiveAmount('');
+    setReceiveDate(localTodayAD());
+    setReceiveMethod('CASH');
+    try {
+      const result = await api.getSalesInvoices({
+        customerId: selectedCustomerId,
+        branchId: filters.branchId === 'ALL' ? undefined : filters.branchId,
+        all: true,
+      });
+      const rows = Array.isArray(result) ? result : result.data;
+      const open = rows.filter(
+        (invoice) => invoice.status !== 'CANCELLED' && remainingOf(invoice) > 0.005
+      );
+      setOpenInvoices(open);
+      setReceiveAllocations(Object.fromEntries(open.map((invoice) => [invoice.id, ''])));
+    } catch (err: any) {
+      setOpenInvoices([]);
+      setReceiveError(err?.message || 'Failed to load open invoices.');
+    } finally {
+      setReceiveLoading(false);
+    }
+  };
+
+  const submitReceive = async () => {
+    if (!selectedCustomerId) return;
+    if (!Number.isFinite(receiveTotal) || receiveTotal <= 0) {
+      setReceiveError('Enter the total amount received.');
+      return;
+    }
+    const allocations = openInvoices
+      .map((invoice) => ({
+        invoiceId: invoice.id,
+        amount: money(Number(receiveAllocations[invoice.id]) || 0),
+      }))
+      .filter((row) => row.amount > 0);
+    for (const row of allocations) {
+      const invoice = openInvoices.find((entry) => entry.id === row.invoiceId);
+      if (invoice && row.amount > remainingOf(invoice) + 0.005) {
+        setReceiveError(`The allocation for ${invoice.invoiceNumber} exceeds its remaining balance.`);
+        return;
+      }
+    }
+    if (receiveAllocated > receiveTotal + 0.005) {
+      setReceiveError('Allocated amounts cannot exceed the total received. Leave the excess unapplied.');
+      return;
+    }
+    setReceiveSubmitting(true);
+    setReceiveError('');
+    try {
+      await api.createCustomerPayment({
+        customerId: selectedCustomerId,
+        customerName: ledgerData?.partyName || selectedCustomerLabel,
+        branchId: openInvoices[0]?.branchId || (filters.branchId === 'ALL' ? undefined : filters.branchId),
+        paymentDateAD: receiveDate,
+        amount: receiveTotal,
+        paymentMethod: receiveMethod,
+        allocations,
+      });
+      setReceiveOpen(false);
+      setReceiveNotice(
+        `Receipt recorded: ${formatMoney(receiveTotal)} received${receiveUnapplied > 0 ? `, ${formatMoney(receiveUnapplied)} left unapplied` : ''}.`
+      );
+      await fetchLedger();
+    } catch (err: any) {
+      setReceiveError(err?.message || 'Failed to record the receipt.');
+    } finally {
+      setReceiveSubmitting(false);
+    }
+  };
+
   // Refetch the selected customer's ledger on every tab re-activation, and in
   // place when sales or a credit note changes it while the tab is open (DF-14).
   // A hidden keep-mounted tab skips the read: the next activation re-runs it,
   // so an event burst elsewhere cannot issue a ledger request nobody can see.
   const activationKey = useActivationKey('customer-ledger');
   const isVisible = useTabActive('customer-ledger');
+
+  useEffect(() => {
+    if (!focusRequest?.partyId) return;
+    setSelectedCustomerId(focusRequest.partyId);
+    setSelectedCustomerLabel(focusRequest.partyLabel || focusRequest.partyId);
+  }, [focusRequest?.token]);
 
   useEffect(() => {
     if (!isVisible) return;
@@ -106,7 +216,13 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
   }, [selectedCustomerId, activationKey, sseRefreshKey, returnsRefreshKey, isVisible]);
 
   return (
-    <LedgerView
+    <div className="space-y-3">
+      {receiveNotice && (
+        <div className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
+          {receiveNotice}
+        </div>
+      )}
+      <LedgerView
       title="Customer Ledger & Receivables"
       subtitle="Sub-ledger of customer sales invoices (debits), recorded payments and credit notes from sales returns (credits) with running balance."
       partyLabel="Customer"
@@ -135,6 +251,18 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
       filters={filters}
       onFilterChange={(patch) => setFilters((prev) => ({ ...prev, ...patch }))}
       onLoad={fetchLedger}
+      headerActions={
+        selectedCustomerId ? (
+          <button
+            type="button"
+            onClick={openReceive}
+            className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 px-4 py-2 text-sm font-medium text-emerald-800 transition hover:bg-emerald-50 dark:border-emerald-700 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
+          >
+            <Banknote className="h-4 w-4" />
+            Receive Payment
+          </button>
+        ) : null
+      }
       loading={loading}
       error={error}
       data={ledgerData}
@@ -198,7 +326,112 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
         },
         dateMode
       )}
-    />
+      />
+      {receiveOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !receiveSubmitting && setReceiveOpen(false)}>
+          <ModalPanel
+            label="Receive Customer Payment"
+            onClose={() => {
+              if (!receiveSubmitting) setReceiveOpen(false);
+            }}
+            className={`${formCardClass} w-full max-w-2xl space-y-4`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div>
+              <div className="text-lg font-semibold">Receive Customer Payment</div>
+              <div className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                {ledgerData?.partyName || selectedCustomerLabel || 'Customer'} · allocate across open invoices or leave the excess as an advance.
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div>
+                <label className={labelClass}>Received on</label>
+                <input type="date" className={inputClass} value={receiveDate} onChange={(event) => setReceiveDate(event.target.value)} />
+              </div>
+              <div>
+                <label className={labelClass}>Total received *</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className={inputClass}
+                  value={receiveAmount}
+                  onChange={(event) => setReceiveAmount(event.target.value)}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Method</label>
+                <select className={inputClass} value={receiveMethod} onChange={(event) => setReceiveMethod(event.target.value as typeof receiveMethod)}>
+                  <option value="CASH">Cash</option>
+                  <option value="BANK_TRANSFER">Bank transfer</option>
+                  <option value="CHEQUE">Cheque</option>
+                  <option value="CARD">Card</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="max-h-72 overflow-auto rounded-lg border border-slate-200 dark:border-slate-700">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-slate-50 text-left text-xs uppercase text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                  <tr>
+                    <th className="px-3 py-2">Invoice</th>
+                    <th className="px-3 py-2 text-right">Open</th>
+                    <th className="px-3 py-2 text-right">Apply</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {receiveLoading && (
+                    <tr><td colSpan={3} className="px-3 py-6 text-center text-slate-500"><Loader2 className="mx-auto h-4 w-4 animate-spin" /></td></tr>
+                  )}
+                  {!receiveLoading && openInvoices.length === 0 && (
+                    <tr><td colSpan={3} className="px-3 py-6 text-center text-slate-500">No open invoices. The full amount will be recorded as an unapplied advance.</td></tr>
+                  )}
+                  {!receiveLoading && openInvoices.map((invoice) => (
+                    <tr key={invoice.id} className="border-t border-slate-100 dark:border-slate-800">
+                      <td className="px-3 py-2">
+                        <div className="font-medium">{invoice.invoiceNumber}</div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400">{invoice.invoiceDateAD}</div>
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono">{formatMoney(remainingOf(invoice))}</td>
+                      <td className="px-3 py-2 text-right">
+                        <input
+                          type="number"
+                          min="0"
+                          max={remainingOf(invoice)}
+                          step="0.01"
+                          className={`${inputClass} w-32 text-right`}
+                          value={receiveAllocations[invoice.id] || ''}
+                          onChange={(event) =>
+                            setReceiveAllocations((current) => ({ ...current, [invoice.id]: event.target.value }))
+                          }
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 rounded-lg bg-slate-50 p-3 text-sm dark:bg-slate-800/60">
+              <div><div className={labelClass}>Allocated</div><div className="font-mono font-semibold">{formatMoney(receiveAllocated)}</div></div>
+              <div><div className={labelClass}>Unapplied advance</div><div className="font-mono font-semibold">{formatMoney(receiveUnapplied)}</div></div>
+            </div>
+
+            {receiveError && (
+              <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">{receiveError}</div>
+            )}
+            <div className="flex justify-end gap-2">
+              <button className={btnGhost} onClick={() => setReceiveOpen(false)} disabled={receiveSubmitting}>Cancel</button>
+              <button className={btnPrimary} onClick={submitReceive} disabled={receiveSubmitting || receiveLoading}>
+                {receiveSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Banknote className="h-4 w-4" />}
+                Record Receipt
+              </button>
+            </div>
+          </ModalPanel>
+        </div>
+      )}
+    </div>
   );
 };
 

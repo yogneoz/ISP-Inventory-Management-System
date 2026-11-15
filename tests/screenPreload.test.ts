@@ -22,15 +22,21 @@ import {
 const read = (relativePath: string): string =>
   fs.readFileSync(path.resolve(process.cwd(), relativePath), 'utf8');
 
-/** Tab ids whose route is wrapped in React.Suspense (i.e. backed by lazy()). */
+/** Tab ids whose route renders a component declared with React.lazy(). */
 function lazyTabsFromApp(): string[] {
   const app = read('client/src/App.tsx');
+  const lazyComponents = new Set(
+    [...app.matchAll(/const\s+(\w+)\s*=\s*React\.lazy\(/g)].map((match) => match[1])
+  );
   const starts = [...app.matchAll(/screenRoute\('([^']+)'/g)];
   const tabs: string[] = [];
   starts.forEach((match, index) => {
     const start = match.index ?? 0;
     const end = index + 1 < starts.length ? starts[index + 1].index ?? app.length : app.length;
-    if (app.slice(start, end).includes('React.Suspense')) tabs.push(match[1]);
+    const element = app.slice(start, end);
+    if ([...lazyComponents].some((name) => new RegExp(`<${name}\\b`).test(element))) {
+      tabs.push(match[1]);
+    }
   });
   return tabs;
 }
@@ -115,7 +121,7 @@ describe('saved-tab screen preload', () => {
       'the splash must be a sibling of #root'
     );
     assert.match(html, /<div id="root"><\/div>/);
-    assert.match(app, /id="tab-loading-fallback"/);
+    assert.match(read('client/src/routes/appRoutes.tsx'), /id="tab-loading-fallback"/);
     assert.match(app, /id="app-sync-spinner"/);
   });
 });

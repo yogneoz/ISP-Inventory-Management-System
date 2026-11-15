@@ -30,6 +30,8 @@ import { SearchPicker } from '../../components/common/SearchPicker';
 import { SearchSelect, type SearchSelectOption } from '../../components/common/SearchSelect';
 import { btnGhost, btnPrimary, inputClass, labelClass } from '../../components/common/styleConstants';
 import { getActiveBranchId, api } from '../../services/api';
+import { getLenderOptions } from '../../services/api/lenders';
+import type { LenderOption } from '../../services/api/lenders';
 import type {
   AccountingAccount,
   AccountingEmployee,
@@ -77,9 +79,9 @@ const JOURNAL_VOUCHER_TYPES = [
 ] as const;
 
 const CASH_VOUCHER_TYPES = [
-  { value: 'CASH_BANK', label: 'Cash / Bank Voucher' },
   { value: 'CASH_RECEIPT', label: 'Cash / Bank Receipt' },
   { value: 'CASH_PAYMENT', label: 'Cash / Bank Payment' },
+  { value: 'CONTRA', label: 'Contra / Transfer' },
 ] as const;
 
 const CURRENCY_CHOICES: SearchSelectOption[] = CURRENCY_OPTIONS.map((code) => ({
@@ -151,7 +153,7 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
     return scopedBranches[0]?.id || '';
   };
 
-  const defaultVoucherType = isCash ? 'CASH_BANK' : 'MULTI_DEBIT_CREDIT';
+  const defaultVoucherType = isCash ? 'CASH_RECEIPT' : 'MULTI_DEBIT_CREDIT';
   const [branchId, setBranchId] = useState(initialBranch);
   const [journalDate, setJournalDate] = useState(localTodayAD);
   const [voucherType, setVoucherType] = useState(defaultVoucherType);
@@ -168,6 +170,7 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
   const [knownAccounts, setKnownAccounts] = useState<Record<string, AccountingAccount>>({});
   const [settlementAccounts, setSettlementAccounts] = useState<SettlementAccount[]>([]);
   const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
+  const [lenders, setLenders] = useState<LenderOption[]>([]);
   const [currentBalance, setCurrentBalance] = useState<number | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -230,6 +233,16 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
     [branches]
   );
 
+  const lenderChoices = useMemo<PartyChoice[]>(
+    () =>
+      lenders.map((lender) => ({
+        value: lender.id,
+        label: `${lender.name} (${lender.code})`,
+        name: lender.name,
+      })),
+    [lenders]
+  );
+
   useEffect(() => {
     if (!scopedBranches.some((branch) => branch.id === branchId)) {
       setBranchId(scopedBranches[0]?.id || '');
@@ -248,12 +261,14 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
       // from the search endpoint as the operator picks them, and employees are
       // searched per branch. Only the small cash/bank settlement list is loaded
       // eagerly so the default till is ready on the cash screen.
-      const [centers, settlement] = await Promise.all([
+      const [centers, settlement, lenderRows] = await Promise.all([
         api.getCostCenters(false),
         isCash ? api.getSettlementAccounts() : Promise.resolve([]),
+        getLenderOptions(),
       ]);
       setCostCenters(centers);
       setSettlementAccounts(settlement);
+      setLenders(Array.isArray(lenderRows) ? lenderRows : []);
     } catch (err: any) {
       setError(err?.message || 'The voucher screen could not load its ledgers.');
     } finally {
@@ -496,6 +511,7 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
 
     let journalLines;
     let sourceType: string;
+    let documentType: string | undefined = isCash ? undefined : 'JV';
 
     if (isCash) {
       const cashAccount = settlementAccounts.find((account) => account.id === cashAccountId);
@@ -513,6 +529,21 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
       );
       if (receiptNpr <= 0 && paymentNpr <= 0) {
         setError('The converted receipt and payment totals are both zero.');
+        return;
+      }
+      if (voucherType === 'CASH_RECEIPT' && paymentNpr > 0) {
+        setError('A Cash / Bank Receipt cannot contain payment lines. Use Cash / Bank Payment or Contra / Transfer.');
+        return;
+      }
+      if (voucherType === 'CASH_PAYMENT' && receiptNpr > 0) {
+        setError('A Cash / Bank Payment cannot contain receipt lines. Use Cash / Bank Receipt or Contra / Transfer.');
+        return;
+      }
+      if (
+        voucherType === 'CONTRA' &&
+        prepared.some((row) => !['CASH', 'BANK', 'WALLET'].includes(String(row.account.accountKind || 'OTHER')))
+      ) {
+        setError('A Contra / Transfer must move money between cash, bank or wallet ledgers only.');
         return;
       }
       if (prepared.some((row) => row.account.id === cashAccountId)) {
@@ -552,12 +583,20 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
           ...partyFor(row.line, row.account),
         })),
       ];
-      sourceType =
-        receiptNpr > 0 && paymentNpr > 0
-          ? 'CASH_BANK'
-          : receiptNpr > 0
-            ? 'CASH_RECEIPT'
-            : 'CASH_PAYMENT';
+      sourceType = voucherType === 'CONTRA' ? 'CASH_BANK' : voucherType;
+      // The selected custody ledger decides CR vs BR (and CP vs BP); the
+      // voucher kind alone cannot tell a till from a bank account.
+      const isPhysicalCash = cashAccount.accountKind === 'CASH';
+      documentType =
+        voucherType === 'CASH_RECEIPT'
+          ? isPhysicalCash
+            ? 'CR'
+            : 'BR'
+          : voucherType === 'CASH_PAYMENT'
+            ? isPhysicalCash
+              ? 'CP'
+              : 'BP'
+            : 'CT';
     } else {
       journalLines = prepared.map((row) => ({
         accountId: row.account.id,
@@ -585,6 +624,7 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
         journalDateAD: journalDate,
         sourceType,
         voucherType,
+        documentType,
         voucherClass: isCash ? null : voucherClass.trim() || null,
         referenceNo: isCash ? referenceNo.trim() || null : null,
         referenceDateAD: isCash ? referenceDate || null : null,
@@ -959,6 +999,17 @@ export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMod
                           portal
                           panelMinWidth={360}
                           emptyLabel="No supplier matches this search."
+                        />
+                      ) : account.subledgerType === 'LENDER' ? (
+                        <SearchSelect
+                          value={line.partyId}
+                          options={lenderChoices}
+                          onChange={(next) => chooseParty(line, next, lenderChoices)}
+                          placeholder="Search lenders…"
+                          inputClassName="h-8 text-[10px]"
+                          ariaLabel={`Line ${index + 1} lender`}
+                          portal
+                          emptyLabel="No active lender matches this search."
                         />
                       ) : account.subledgerType === 'INTER_BRANCH' ? (
                         <SearchSelect

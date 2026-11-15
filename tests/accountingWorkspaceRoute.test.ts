@@ -148,6 +148,7 @@ const accounts: AccountingAccount[] = [
     accountType: 'ASSET',
     statementGroup: 'CURRENT_ASSET',
     normalBalance: 'DEBIT',
+    masterProfile: { shortName: 'AR', category: 'Customer' },
   },
   {
     id: 'a-cash',
@@ -2460,6 +2461,11 @@ test('chart maintenance creates, edits, retires and deletes through the mounted 
 
     inAct(() => buttonByText(tree.container, 'Ledgers').click());
     assert.ok(await settleUntil(() => text(tree.container).includes('Chart of accounts')));
+    assert.match(
+      text(tree.container),
+      /Advanced profile/,
+      'a ledger with custom Advanced-tab values must be marked in the register'
+    );
     inAct(() => buttonByText(tree.container, 'New account').click());
     assert.ok(await settleUntil(() => Boolean(tree.container.querySelector('#chart-account-code'))));
     assert.ok(
@@ -2473,12 +2479,19 @@ test('chart maintenance creates, edits, retires and deletes through the mounted 
     setSelectValue(tree.container.querySelector('#chart-account-group') as HTMLSelectElement, 'g-rev');
     setSelectValue(tree.container.querySelector('#chart-account-role') as HTMLSelectElement, 'INTER_BRANCH_CLEARING');
     const accountDialog = tree.container.querySelector('[role="dialog"]') as HTMLElement;
+    inAct(() => buttonByText(accountDialog, 'Advanced').click());
+    setInputValue(tree.container.querySelector('#chart-account-short-name') as HTMLInputElement, 'Van');
+    setSelectValue(tree.container.querySelector('#chart-account-category') as HTMLSelectElement, 'Vendor');
+    setInputValue(tree.container.querySelector('#chart-account-credit-days') as HTMLInputElement, '15');
     inAct(() => buttonByText(accountDialog, 'Create account').click());
     assert.ok(await settleUntil(() => createdAccounts.length === 1), 'creating an account must call the endpoint');
     assert.equal(createdAccounts[0].code, '1500');
     assert.equal(createdAccounts[0].name, 'Delivery Van');
     assert.equal(createdAccounts[0].groupId, 'g-rev');
     assert.equal(createdAccounts[0].postingRole, 'INTER_BRANCH_CLEARING');
+    assert.equal(createdAccounts[0].masterProfile.shortName, 'Van');
+    assert.equal(createdAccounts[0].masterProfile.category, 'Vendor');
+    assert.equal(createdAccounts[0].masterProfile.creditDays, 15);
 
     clickAria(tree.container, 'Edit account 1100');
     assert.ok(await settleUntil(() => Boolean(tree.container.querySelector('#chart-account-name'))));

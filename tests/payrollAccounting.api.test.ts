@@ -1195,6 +1195,47 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
     assert.equal(detail.json.paidJournalId, journal.id);
   });
 
+  test('the employee ledger splits opening, period and closing balances per control account', async () => {
+    const full = await get(`/api/employees/${emp1.id}/ledger?branchId=${BR}`);
+    assert.equal(full.status, 200, JSON.stringify(full.json));
+    assert.equal(full.json.currency, 'NPR');
+    assert.equal(full.json.unlinkedCount, 0);
+    assert.equal(full.json.totals.openingBalance, 0);
+    assert.equal(full.json.totals.closingBalance, -1350);
+
+    const account = (rows: any[], code: string) => rows.find((row: any) => row.code === code);
+    const payable = account(full.json.accounts, '2320');
+    assert.equal(payable.openingBalance, 0);
+    assert.equal(payable.closingBalance, 0);
+    assert.equal(payable.presentedClosingBalance, 0);
+
+    const tds = account(full.json.accounts, '2330');
+    assert.equal(tds.openingBalance, 0);
+    assert.equal(tds.closingBalance, -500);
+    assert.equal(tds.presentedClosingBalance, 500);
+
+    const firstEntry = full.json.entries[0];
+    assert.ok(firstEntry.journalId, 'the ledger line must name its journal');
+    assert.equal(firstEntry.entryDateAD, RUN_DATE);
+    assert.equal(firstEntry.entryDateBS, runDateBS);
+    assert.equal(firstEntry.branchId, BR);
+    assert.ok(firstEntry.voucherType, 'the ledger line must expose its voucher type');
+
+    // A later window has no movements; everything before it is opening, and
+    // closing is carried forward rather than dropped.
+    const after = await get(
+      `/api/employees/${emp1.id}/ledger?branchId=${BR}&from=2026-10-01&to=2026-10-31`
+    );
+    assert.equal(after.status, 200, JSON.stringify(after.json));
+    assert.equal(after.json.entries.length, 0);
+    assert.equal(after.json.totals.debit, 0);
+    assert.equal(after.json.totals.credit, 0);
+    assert.equal(after.json.totals.openingBalance, -1350);
+    assert.equal(after.json.totals.closingBalance, -1350);
+    assert.equal(account(after.json.accounts, '2330').presentedOpeningBalance, 500);
+    assert.equal(account(after.json.accounts, '2330').presentedClosingBalance, 500);
+  });
+
   test('a second payment is refused with no extra journal', async () => {
     const before = await jobCount(
       'gl_journals',

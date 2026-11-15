@@ -13,6 +13,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowRightLeft,
+  BookOpen,
   Briefcase,
   Building2,
   CalendarDays,
@@ -33,6 +34,7 @@ import { FilterCard } from '../../components/common/FilterCard';
 import { LoadStateNotice } from '../../components/common/LoadStateNotice';
 import { PageHeader } from '../../components/common/PageHeader';
 import { api } from '../../services/api';
+import { requestTabNavigation } from '../../services/api/http';
 import type {
   EmployeeRecord,
   EmployeeUserOption,
@@ -74,6 +76,8 @@ export const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({
   const canView =
     isOperationAllowed('hr-employee-view', currentUser?.role) ||
     isOperationAllowed('gl-payroll-manage', currentUser?.role);
+  // The ledger is a Finance read; the HR directory only deep-links to it.
+  const canViewLedger = isOperationAllowed('gl-view', currentUser?.role);
   // Managers decide transfer requests. The server also refuses self-approval
   // and re-checks the role, so this only controls the visible action.
   const canApproveTransfers =
@@ -432,6 +436,21 @@ export const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({
                         >
                           <Edit2 className="h-3.5 w-3.5" />
                         </button>
+                        {canViewLedger ? (
+                          <button
+                            onClick={() =>
+                              requestTabNavigation('employee-ledger', {
+                                partyId: employee.id,
+                                partyLabel: `${employee.name} (${employee.employeeCode})`,
+                              })
+                            }
+                            title={`View ledger for ${employee.name}`}
+                            aria-label={`View ledger for ${employee.name}`}
+                            className="cursor-pointer rounded-lg p-1 text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
+                          >
+                            <BookOpen className="h-3.5 w-3.5" />
+                          </button>
+                        ) : null}
                         {canManage ? (
                           <button
                             onClick={() => setTransferFor(employee)}

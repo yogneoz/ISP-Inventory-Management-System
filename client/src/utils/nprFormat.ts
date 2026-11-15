@@ -182,3 +182,19 @@ export const formatNPR = formatMoney;
 export const formatNPRPrecise = formatMoneyPrecise;
 /** @deprecated Use `formatMoneyInteger` — honours the active currency config. */
 export const formatNPRInteger = formatMoneyInteger;
+/** Present a debit-positive ledger balance the way an accountant reads it. */
+export type PartyBalanceSide = 'DR' | 'CR' | 'ZERO';
+export interface PartyBalanceDisplay {
+  side: PartyBalanceSide;
+  amount: string;
+  text: string;
+}
+export function formatPartyBalance(balance: number | string | null | undefined): PartyBalanceDisplay {
+  const value = Number(balance);
+  const rounded = Number.isFinite(value) ? Math.round(value * 100) / 100 : 0;
+  const amount = formatNumber(Math.abs(rounded), 2);
+  if (Math.abs(rounded) < 0.005) return { side: 'ZERO', amount, text: amount };
+  return rounded > 0
+    ? { side: 'DR', amount, text: `${amount} Dr` }
+    : { side: 'CR', amount, text: `${amount} Cr` };
+}

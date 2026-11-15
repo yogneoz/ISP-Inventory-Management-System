@@ -105,9 +105,16 @@ export const BS_SEEDING_TAB_BY_ROLE: Record<string, string | undefined> = {
   HEAD_OFFICE_ADMIN: 'nepali-fiscal',
 };
 
-export function requestTabNavigation(tab: string): void {
+export function requestTabNavigation(
+  tab: string,
+  focus?: { partyId?: string; partyLabel?: string }
+): void {
   if (typeof window === 'undefined') return;
-  window.dispatchEvent(new CustomEvent(NAVIGATE_TAB_EVENT, { detail: { tab } }));
+  window.dispatchEvent(
+    new CustomEvent(NAVIGATE_TAB_EVENT, {
+      detail: { tab, partyId: focus?.partyId, partyLabel: focus?.partyLabel },
+    })
+  );
 }
 
 export interface ApiToastAction {

@@ -963,6 +963,29 @@ CREATE INDEX IF NOT EXISTS idx_customer_payments_status ON customer_payments(sta
 CREATE INDEX IF NOT EXISTS idx_customer_payments_fiscal_year ON customer_payments(fiscal_year_id);
 CREATE INDEX IF NOT EXISTS idx_customer_payments_demo ON customer_payments(id) WHERE is_demo = TRUE;
 
+-- REC-2: a receipt header can settle several invoices. The header keeps the
+-- cash document; this table is the allocation authority. Reversal marks the
+-- allocation reversed instead of deleting it.
+CREATE TABLE IF NOT EXISTS customer_payment_allocations (
+    id VARCHAR(60) PRIMARY KEY,
+    payment_id VARCHAR(50) NOT NULL REFERENCES customer_payments(id) ON DELETE CASCADE,
+    invoice_id VARCHAR(50) NOT NULL REFERENCES sales_invoices(id) ON DELETE RESTRICT,
+    amount NUMERIC(14, 2) NOT NULL CHECK (amount > 0),
+    status VARCHAR(20) NOT NULL DEFAULT 'POSTED' CHECK (status IN ('POSTED', 'REVERSED')),
+    reversed_at TIMESTAMP WITH TIME ZONE,
+    reversed_by VARCHAR(150),
+    reversal_reason TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (payment_id, invoice_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_customer_payment_allocations_payment
+    ON customer_payment_allocations(payment_id);
+CREATE INDEX IF NOT EXISTS idx_customer_payment_allocations_invoice
+    ON customer_payment_allocations(invoice_id);
+CREATE INDEX IF NOT EXISTS idx_customer_payment_allocations_status
+    ON customer_payment_allocations(status);
+
 -- Existing installs need the ACC-3 provider columns and the two refund states.
 ALTER TABLE customer_payments ADD COLUMN IF NOT EXISTS provider_code VARCHAR(30);
 ALTER TABLE customer_payments ADD COLUMN IF NOT EXISTS provider_transaction_id VARCHAR(200);
@@ -1406,6 +1429,23 @@ CREATE TABLE IF NOT EXISTS document_sequence_daily (
 CREATE INDEX IF NOT EXISTS idx_document_sequence_daily_branch ON document_sequence_daily(branch_id);
 CREATE INDEX IF NOT EXISTS idx_document_sequence_daily_date ON document_sequence_daily(date_ad);
 
+-- 24c. Retired Document Numbers
+-- ==============================================================================
+-- A cancelled or deleted document retires its number permanently. The target
+-- table's UNIQUE constraint catches a duplicate that still exists; this registry
+-- also catches reuse after the row is gone (deleted bill) or after a cancel.
+CREATE TABLE IF NOT EXISTS document_number_retirements (
+    doc_type VARCHAR(20) NOT NULL,
+    number VARCHAR(100) NOT NULL,
+    branch_id VARCHAR(50),
+    document_id VARCHAR(100),
+    reason VARCHAR(300),
+    retired_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (doc_type, number)
+);
+
+CREATE INDEX IF NOT EXISTS idx_document_number_retirements_branch ON document_number_retirements(branch_id);
+
 -- ============================================================================
 -- 30. Permission Matrix (server-side authority for role-based operation gating)
 -- One row per (operation_id, role). Mirrors the server's permission matrix:
@@ -1595,7 +1635,7 @@ CREATE TABLE IF NOT EXISTS gl_accounts (
     master_profile JSONB NOT NULL DEFAULT '{}'::jsonb,
     is_control BOOLEAN NOT NULL DEFAULT FALSE,
     subledger_type VARCHAR(30) NOT NULL DEFAULT 'NONE' CHECK (subledger_type IN (
-        'NONE', 'CUSTOMER', 'SUPPLIER', 'EMPLOYEE', 'INVENTORY', 'FIXED_ASSET', 'BANK', 'CASH', 'TAX', 'INTER_BRANCH'
+        'NONE', 'CUSTOMER', 'SUPPLIER', 'EMPLOYEE', 'LENDER', 'INVENTORY', 'FIXED_ASSET', 'BANK', 'CASH', 'TAX', 'INTER_BRANCH'
     )),
     -- One account per posting purpose (AR control, cash, etc.). NULL means the
     -- account is not a default. The partial unique index below enforces one.
@@ -1605,7 +1645,7 @@ CREATE TABLE IF NOT EXISTS gl_accounts (
         'STOCK_EXPENSE', 'CPE_ASSET', 'DUE_FROM_HO', 'DUE_TO_HO',
         'FIXED_ASSET', 'ACCUMULATED_DEPRECIATION', 'DEPRECIATION_EXPENSE',
         'GAIN_ON_DISPOSAL', 'LOSS_ON_DISPOSAL',
-        'SALARY_EXPENSE', 'TDS_PAYABLE', 'SSF_PAYABLE', 'EMPLOYEE_ADVANCE', 'EMPLOYEE_LOAN',
+        'SALARY_EXPENSE', 'TDS_PAYABLE', 'SSF_PAYABLE', 'EMPLOYEE_ADVANCE', 'EMPLOYEE_LOAN', 'LOAN_PAYABLE',
         'PAYMENT_FEE_EXPENSE'
     )),
     -- CASH/BANK/WALLET classify every custody ledger, including the extra ones
@@ -1648,7 +1688,7 @@ ALTER TABLE gl_accounts ADD CONSTRAINT gl_accounts_posting_role_check CHECK (pos
     'STOCK_EXPENSE', 'CPE_ASSET', 'DUE_FROM_HO', 'DUE_TO_HO',
     'FIXED_ASSET', 'ACCUMULATED_DEPRECIATION', 'DEPRECIATION_EXPENSE',
     'GAIN_ON_DISPOSAL', 'LOSS_ON_DISPOSAL',
-    'SALARY_EXPENSE', 'TDS_PAYABLE', 'SSF_PAYABLE', 'EMPLOYEE_ADVANCE', 'EMPLOYEE_LOAN',
+    'SALARY_EXPENSE', 'TDS_PAYABLE', 'SSF_PAYABLE', 'EMPLOYEE_ADVANCE', 'EMPLOYEE_LOAN', 'LOAN_PAYABLE',
     'PAYMENT_FEE_EXPENSE'
 ));
 
@@ -1691,7 +1731,7 @@ CREATE TABLE IF NOT EXISTS gl_subledgers (
     code VARCHAR(30) UNIQUE NOT NULL,
     name VARCHAR(150) NOT NULL,
     subledger_type VARCHAR(30) NOT NULL CHECK (subledger_type IN (
-        'CUSTOMER', 'SUPPLIER', 'EMPLOYEE', 'INVENTORY', 'FIXED_ASSET', 'BANK', 'CASH', 'TAX', 'INTER_BRANCH'
+        'CUSTOMER', 'SUPPLIER', 'EMPLOYEE', 'LENDER', 'INVENTORY', 'FIXED_ASSET', 'BANK', 'CASH', 'TAX', 'INTER_BRANCH'
     )),
     main_account_id VARCHAR(50) NOT NULL REFERENCES gl_accounts(id) ON DELETE RESTRICT,
     -- NULL is the account-wide book; otherwise the id of the party in the
@@ -2115,7 +2155,7 @@ CREATE TABLE IF NOT EXISTS gl_subledger_entries (
     -- ALTER below adopts rows written before the master existed.
     subledger_id VARCHAR(50) REFERENCES gl_subledgers(id) ON DELETE RESTRICT,
     subledger_type VARCHAR(30) NOT NULL CHECK (subledger_type IN (
-        'CUSTOMER', 'SUPPLIER', 'EMPLOYEE', 'INVENTORY', 'FIXED_ASSET', 'BANK', 'CASH', 'TAX', 'INTER_BRANCH'
+        'CUSTOMER', 'SUPPLIER', 'EMPLOYEE', 'LENDER', 'INVENTORY', 'FIXED_ASSET', 'BANK', 'CASH', 'TAX', 'INTER_BRANCH'
     )),
     party_id VARCHAR(100),
     party_name VARCHAR(200),
@@ -4843,3 +4883,171 @@ CREATE OR REPLACE TRIGGER trg_gl_journals_registry_sync
 CREATE OR REPLACE TRIGGER trg_gl_journal_lines_registry_sync
   AFTER INSERT OR DELETE ON gl_journal_lines
   FOR EACH ROW EXECUTE FUNCTION sync_gl_journal_line_registry();
+
+-- ==========================================
+-- LEND-1 — lender master and loan register
+-- ==========================================
+-- A lender is deliberately separate from the supplier master: an owner loan is
+-- not a trade payable and must never enter AP ageing. The lender's Loan Payable
+-- book is the LENDER subledger under the LOAN_PAYABLE control account; the loan
+-- rows here hold the agreement terms, not a second ledger.
+CREATE TABLE IF NOT EXISTS lenders (
+    id VARCHAR(50) PRIMARY KEY,
+    code VARCHAR(30) UNIQUE NOT NULL,
+    name VARCHAR(150) NOT NULL,
+    lender_type VARCHAR(20) NOT NULL DEFAULT 'OTHER'
+        CHECK (lender_type IN ('OWNER', 'RELATED_PARTY', 'OTHER')),
+    pan_number VARCHAR(50),
+    registration_number VARCHAR(50),
+    phone VARCHAR(50),
+    address TEXT,
+    notes TEXT,
+    default_cash_account_id VARCHAR(50) REFERENCES gl_accounts(id) ON DELETE SET NULL,
+    default_interest_account_id VARCHAR(50) REFERENCES gl_accounts(id) ON DELETE SET NULL,
+    default_tds_account_id VARCHAR(50) REFERENCES gl_accounts(id) ON DELETE SET NULL,
+    default_loan_account_id VARCHAR(50) REFERENCES gl_accounts(id) ON DELETE SET NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_lenders_active ON lenders(is_active, code);
+
+CREATE TABLE IF NOT EXISTS loans (
+    id VARCHAR(50) PRIMARY KEY,
+    loan_number VARCHAR(100) UNIQUE NOT NULL,
+    lender_id VARCHAR(50) NOT NULL REFERENCES lenders(id) ON DELETE RESTRICT,
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    principal NUMERIC(14, 2) NOT NULL CHECK (principal > 0),
+    interest_rate NUMERIC(8, 4) NOT NULL DEFAULT 0 CHECK (interest_rate >= 0),
+    start_date_ad DATE NOT NULL,
+    start_date_bs VARCHAR(20) NOT NULL,
+    maturity_date_ad DATE,
+    maturity_date_bs VARCHAR(20),
+    repayment_frequency VARCHAR(20) NOT NULL DEFAULT 'LUMP_SUM'
+        CHECK (repayment_frequency IN ('LUMP_SUM', 'MONTHLY', 'QUARTERLY', 'HALF_YEARLY', 'ANNUAL')),
+    installment_amount NUMERIC(14, 2) CHECK (installment_amount IS NULL OR installment_amount >= 0),
+    security_type VARCHAR(20) NOT NULL DEFAULT 'UNSECURED'
+        CHECK (security_type IN ('UNSECURED', 'SECURED')),
+    status VARCHAR(20) NOT NULL DEFAULT 'OPEN'
+        CHECK (status IN ('OPEN', 'CLOSED', 'CANCELLED')),
+    agreement_reference VARCHAR(100),
+    notes TEXT,
+    created_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT loans_maturity_after_start CHECK (
+        maturity_date_ad IS NULL OR maturity_date_ad >= start_date_ad
+    ),
+    CONSTRAINT loans_maturity_bs_pair CHECK (
+        (maturity_date_ad IS NULL AND maturity_date_bs IS NULL)
+        OR (maturity_date_ad IS NOT NULL AND maturity_date_bs IS NOT NULL)
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_loans_lender ON loans(lender_id, status, start_date_ad);
+CREATE INDEX IF NOT EXISTS idx_loans_branch ON loans(branch_id, start_date_ad);
+
+-- A loan agreement is not money: receipts and repayments are posted documents
+-- linked to their journal. The LENDER book under Loan Payable remains the
+-- source of truth for the lender's balance.
+CREATE TABLE IF NOT EXISTS loan_transactions (
+    id VARCHAR(50) PRIMARY KEY,
+    txn_number VARCHAR(100) UNIQUE NOT NULL,
+    loan_id VARCHAR(50) NOT NULL REFERENCES loans(id) ON DELETE RESTRICT,
+    lender_id VARCHAR(50) NOT NULL REFERENCES lenders(id) ON DELETE RESTRICT,
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    txn_type VARCHAR(20) NOT NULL CHECK (txn_type IN ('RECEIPT', 'REPAYMENT')),
+    txn_date_ad DATE NOT NULL,
+    txn_date_bs VARCHAR(20) NOT NULL,
+    principal_amount NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (principal_amount >= 0),
+    interest_amount NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (interest_amount >= 0),
+    tds_amount NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (tds_amount >= 0),
+    interest_payable_applied NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    cash_amount NUMERIC(14, 2) NOT NULL CHECK (cash_amount > 0),
+    cash_account_id VARCHAR(50) NOT NULL REFERENCES gl_accounts(id) ON DELETE RESTRICT,
+    interest_account_id VARCHAR(50) REFERENCES gl_accounts(id) ON DELETE RESTRICT,
+    tds_account_id VARCHAR(50) REFERENCES gl_accounts(id) ON DELETE RESTRICT,
+    cheque_no VARCHAR(100),
+    reference_no VARCHAR(100),
+    notes TEXT,
+    journal_id VARCHAR(50) NOT NULL REFERENCES gl_journals_registry(id) ON DELETE RESTRICT,
+    created_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT loan_transactions_interest_payable_applied_check CHECK (
+        interest_payable_applied >= 0 AND interest_payable_applied <= interest_amount + 0.005
+    ),
+    CONSTRAINT loan_txn_receipt_shape CHECK (
+        (txn_type = 'RECEIPT' AND interest_amount = 0 AND tds_amount = 0 AND cash_amount = principal_amount)
+        OR (txn_type = 'REPAYMENT' AND cash_amount = principal_amount + interest_amount - tds_amount)
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_loan_transactions_loan
+    ON loan_transactions(loan_id, txn_date_ad, id);
+CREATE INDEX IF NOT EXISTS idx_loan_transactions_lender
+    ON loan_transactions(lender_id, txn_type, txn_date_ad);
+CREATE INDEX IF NOT EXISTS idx_loan_transactions_branch
+    ON loan_transactions(branch_id, txn_date_ad);
+
+-- Explicit due dates and payment allocation. A repayment fills the earliest
+-- open installment, so the register and statement agree on what is overdue.
+CREATE TABLE IF NOT EXISTS loan_installments (
+    id VARCHAR(50) PRIMARY KEY,
+    loan_id VARCHAR(50) NOT NULL REFERENCES loans(id) ON DELETE RESTRICT,
+    sequence_number INTEGER NOT NULL CHECK (sequence_number > 0),
+    due_date_ad DATE NOT NULL,
+    due_date_bs VARCHAR(20) NOT NULL,
+    principal_due NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (principal_due >= 0),
+    interest_due NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (interest_due >= 0),
+    principal_paid NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (principal_paid >= 0),
+    interest_paid NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (interest_paid >= 0),
+    tds_paid NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (tds_paid >= 0),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT loan_installments_due UNIQUE (loan_id, sequence_number),
+    CONSTRAINT loan_installments_principal_paid CHECK (principal_paid <= principal_due + 0.005),
+    CONSTRAINT loan_installments_interest_paid CHECK (interest_paid <= interest_due + 0.005),
+    CONSTRAINT loan_installments_tds_paid CHECK (tds_paid <= interest_due + 0.005)
+);
+
+CREATE INDEX IF NOT EXISTS idx_loan_installments_loan_due
+    ON loan_installments(loan_id, due_date_ad, sequence_number);
+
+CREATE TABLE IF NOT EXISTS loan_interest_accruals (
+    id VARCHAR(50) PRIMARY KEY,
+    accrual_number VARCHAR(100) UNIQUE NOT NULL,
+    loan_id VARCHAR(50) NOT NULL REFERENCES loans(id) ON DELETE RESTRICT,
+    lender_id VARCHAR(50) NOT NULL REFERENCES lenders(id) ON DELETE RESTRICT,
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    from_date_ad DATE NOT NULL,
+    from_date_bs VARCHAR(20) NOT NULL,
+    to_date_ad DATE NOT NULL,
+    to_date_bs VARCHAR(20) NOT NULL,
+    principal_base NUMERIC(14, 2) NOT NULL CHECK (principal_base >= 0),
+    annual_rate NUMERIC(8, 4) NOT NULL CHECK (annual_rate >= 0),
+    days INTEGER NOT NULL CHECK (days > 0),
+    interest_amount NUMERIC(14, 2) NOT NULL CHECK (interest_amount > 0),
+    journal_id VARCHAR(50) NOT NULL REFERENCES gl_journals_registry(id) ON DELETE RESTRICT,
+    created_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT loan_interest_accruals_period CHECK (to_date_ad >= from_date_ad)
+);
+
+CREATE INDEX IF NOT EXISTS idx_loan_interest_accruals_loan
+    ON loan_interest_accruals(loan_id, to_date_ad, id);
+CREATE INDEX IF NOT EXISTS idx_loan_interest_accruals_lender
+    ON loan_interest_accruals(lender_id, to_date_ad, id);
+
+-- Existing installations receive one safe due row; the next term edit without
+-- repayments regenerates the full schedule.
+INSERT INTO loan_installments (
+    id, loan_id, sequence_number, due_date_ad, due_date_bs,
+    principal_due, interest_due, principal_paid, interest_paid, tds_paid
+)
+SELECT
+    'lin-' || md5(l.id), l.id, 1,
+    COALESCE(l.maturity_date_ad, l.start_date_ad),
+    COALESCE(l.maturity_date_bs, l.start_date_bs),
+    l.principal, 0, 0, 0, 0
+FROM loans l
+WHERE NOT EXISTS (SELECT 1 FROM loan_installments li WHERE li.loan_id = l.id);

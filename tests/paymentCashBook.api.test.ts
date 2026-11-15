@@ -123,6 +123,7 @@ describe('payment documents and the cash/bank book (real HTTP + PostgreSQL)', { 
     await pool!.query('DELETE FROM sales_invoices WHERE branch_id = $1', [BR]);
     await pool!.query('DELETE FROM purchase_invoices WHERE branch_id = $1', [BR]);
     await pool!.query('DELETE FROM inventory_stock WHERE branch_id = $1', [BR]);
+    await pool!.query('DELETE FROM document_number_retirements WHERE branch_id = $1', [BR]);
     await pool!.query("DELETE FROM transaction_logs WHERE product_id LIKE 'pcb-%'");
     await pool!.query("DELETE FROM products WHERE id LIKE 'pcb-%'");
     await pool!.query("DELETE FROM customer_records WHERE id LIKE 'pcb-%'");
@@ -247,7 +248,7 @@ describe('payment documents and the cash/bank book (real HTTP + PostgreSQL)', { 
     // A supplier bill funds AP and inventory: 10 × 100 + 13% VAT = 1130.
     const purchase = await post('/api/purchase-invoices', {
       id: 'pcb-pi-1',
-      invoiceNumber: 'PCB-PI-1',
+      invoiceNumber: 'PI-2083-PCB-PI-1',
       branchId: BR,
       invoiceDateAD: today,
       supplierName: 'PCB Supplier',
@@ -261,7 +262,7 @@ describe('payment documents and the cash/bank book (real HTTP + PostgreSQL)', { 
     // A customer sale funds AR and stock relief: 2 × 150 + 13% VAT = 339.
     const sale = await post('/api/sales-invoices', {
       id: 'pcb-si-1',
-      invoiceNumber: 'PCB-SI-1',
+      invoiceNumber: 'INV-2083-PCB-SI-1',
       customerId: CUSTOMER,
       customerName: 'PCB Customer',
       branchId: BR,
@@ -284,6 +285,34 @@ describe('payment documents and the cash/bank book (real HTTP + PostgreSQL)', { 
     }
   });
 
+  test('a customer receipt cannot exceed the invoice open balance', async () => {
+    const receipt = await post('/api/customer-payments', {
+      invoiceId: 'pcb-si-1',
+      customerId: CUSTOMER,
+      customerName: 'PCB Customer',
+      branchId: BR,
+      paymentDateAD: today,
+      amount: 340,
+      paymentMethod: 'CASH',
+      notes: 'PCB overpayment attempt',
+    });
+    assert.equal(receipt.status, 400, JSON.stringify(receipt.json));
+    assert.match(String(receipt.json.message), /exceeds the 339\.00 still open/);
+
+    const invoice = await pool!.query(
+      'SELECT amount_paid::numeric AS "amountPaid", payment_status AS "paymentStatus" FROM sales_invoices WHERE id = $1',
+      ['pcb-si-1']
+    );
+    assert.equal(Number(invoice.rows[0].amountPaid), 0, 'the refused receipt must not change the invoice');
+    assert.equal(invoice.rows[0].paymentStatus, 'UNPAID');
+
+    const payments = await pool!.query(
+      'SELECT count(*)::int AS n FROM customer_payments WHERE invoice_id = $1',
+      ['pcb-si-1']
+    );
+    assert.equal(Number(payments.rows[0].n), 0, 'the refused receipt must not leave a payment row');
+  });
+
   test('a cash customer receipt posts till/AR and settles the invoice', async () => {
     const receipt = await post('/api/customer-payments', {
       invoiceId: 'pcb-si-1',
@@ -293,10 +322,13 @@ describe('payment documents and the cash/bank book (real HTTP + PostgreSQL)', { 
       paymentDateAD: today,
       amount: 339,
       paymentMethod: 'CASH',
+      paymentNumber: 'CR-CLIENT-OVERRIDE',
       notes: 'PCB receipt',
     });
     assert.equal(receipt.status, 201, JSON.stringify(receipt.json));
     assert.equal(receipt.json.status, 'POSTED');
+    assert.match(String(receipt.json.paymentNumber), /^CR-[A-Za-z0-9_-]+-\d{8}\d{4}$/);
+    assert.notEqual(receipt.json.paymentNumber, 'CR-CLIENT-OVERRIDE');
     receiptId = String(receipt.json.id);
     assert.ok(receiptId);
 
@@ -834,5 +866,209 @@ describe('payment documents and the cash/bank book (real HTTP + PostgreSQL)', { 
       400,
       'a reversed range is refused'
     );
+  });
+
+  test('one receipt allocates across invoices, leaves excess unapplied, and reverses every allocation', async () => {
+    const first = await post('/api/sales-invoices', {
+      id: 'pcb-si-alloc-a',
+      invoiceNumber: 'INV-2083-PCB-SI-ALLOC-A',
+      customerId: CUSTOMER,
+      customerName: 'PCB Customer',
+      branchId: BR,
+      invoiceDateAD: today,
+      paymentMethod: 'CREDIT',
+      paymentStatus: 'UNPAID',
+      amountPaid: 0,
+      items: [invoiceLine({ quantity: 1, unitPrice: 100 })],
+    });
+    const second = await post('/api/sales-invoices', {
+      id: 'pcb-si-alloc-b',
+      invoiceNumber: 'INV-2083-PCB-SI-ALLOC-B',
+      customerId: CUSTOMER,
+      customerName: 'PCB Customer',
+      branchId: BR,
+      invoiceDateAD: today,
+      paymentMethod: 'CREDIT',
+      paymentStatus: 'UNPAID',
+      amountPaid: 0,
+      items: [invoiceLine({ quantity: 2, unitPrice: 100 })],
+    });
+    assert.equal(first.status, 201, JSON.stringify(first.json));
+    assert.equal(second.status, 201, JSON.stringify(second.json));
+
+    const receipt = await post('/api/customer-payments', {
+      customerId: CUSTOMER,
+      customerName: 'PCB Customer',
+      branchId: BR,
+      paymentDateAD: today,
+      amount: 200,
+      paymentMethod: 'CASH',
+      notes: 'PCB multi-invoice allocation',
+      allocations: [
+        { invoiceId: 'pcb-si-alloc-a', amount: 100 },
+        { invoiceId: 'pcb-si-alloc-b', amount: 100 },
+      ],
+    });
+    assert.equal(receipt.status, 201, JSON.stringify(receipt.json));
+    assert.equal(receipt.json.allocations.length, 2);
+    assert.equal(receipt.json.invoiceId, null, 'a multi-invoice receipt has no single invoice header');
+
+    const allocated = await pool!.query(
+      `SELECT id, amount_paid::numeric AS "amountPaid", payment_status AS "paymentStatus"
+         FROM sales_invoices
+        WHERE id IN ('pcb-si-alloc-a', 'pcb-si-alloc-b')
+        ORDER BY id`
+    );
+    assert.deepEqual(
+      allocated.rows.map((row) => [row.id, Number(row.amountPaid), row.paymentStatus]),
+      [
+        ['pcb-si-alloc-a', 100, 'PARTIAL'],
+        ['pcb-si-alloc-b', 100, 'PARTIAL'],
+      ]
+    );
+
+    const refused = await post('/api/customer-payments', {
+      customerId: CUSTOMER,
+      customerName: 'PCB Customer',
+      branchId: BR,
+      paymentDateAD: today,
+      amount: 100,
+      paymentMethod: 'CASH',
+      notes: 'PCB over-allocated receipt',
+      allocations: [
+        { invoiceId: 'pcb-si-alloc-a', amount: 100 },
+        { invoiceId: 'pcb-si-alloc-b', amount: 1 },
+      ],
+    });
+    assert.equal(refused.status, 400, JSON.stringify(refused.json));
+    const refusedRows = await pool!.query(
+      "SELECT count(*)::int AS n FROM customer_payments WHERE notes = 'PCB over-allocated receipt'"
+    );
+    assert.equal(Number(refusedRows.rows[0].n), 0, 'an over-allocated receipt must not leave a header');
+
+    const advance = await post('/api/customer-payments', {
+      customerId: CUSTOMER,
+      customerName: 'PCB Customer',
+      branchId: BR,
+      paymentDateAD: today,
+      amount: 50,
+      paymentMethod: 'CASH',
+      notes: 'PCB unapplied advance',
+    });
+    assert.equal(advance.status, 201, JSON.stringify(advance.json));
+    assert.deepEqual(advance.json.allocations, []);
+    const afterAdvance = await pool!.query(
+      `SELECT amount_paid::numeric AS "amountPaid" FROM sales_invoices WHERE id = 'pcb-si-alloc-a'`
+    );
+    assert.equal(Number(afterAdvance.rows[0].amountPaid), 100, 'an unapplied advance must not touch an invoice');
+
+    const reversed = await post(
+      `/api/customer-payments/${receipt.json.id}/reverse`,
+      { reason: 'PCB allocation reversal' },
+      tokens.super
+    );
+    assert.equal(reversed.status, 200, JSON.stringify(reversed.json));
+    const restored = await pool!.query(
+      `SELECT id, amount_paid::numeric AS "amountPaid", payment_status AS "paymentStatus"
+         FROM sales_invoices
+        WHERE id IN ('pcb-si-alloc-a', 'pcb-si-alloc-b')
+        ORDER BY id`
+    );
+    assert.deepEqual(
+      restored.rows.map((row) => [row.id, Number(row.amountPaid), row.paymentStatus]),
+      [
+        ['pcb-si-alloc-a', 0, 'UNPAID'],
+        ['pcb-si-alloc-b', 0, 'UNPAID'],
+      ]
+    );
+  });
+
+  test('two concurrent receipts and two concurrent reversals cannot double- or over-allocate one invoice', async () => {
+    const invoice = await post('/api/sales-invoices', {
+      id: 'pcb-si-race',
+      invoiceNumber: 'INV-2083-PCB-SI-RACE',
+      customerId: CUSTOMER,
+      customerName: 'PCB Customer',
+      branchId: BR,
+      invoiceDateAD: today,
+      paymentMethod: 'CREDIT',
+      paymentStatus: 'UNPAID',
+      amountPaid: 0,
+      items: [invoiceLine({ quantity: 1, unitPrice: 100 })],
+    });
+    assert.equal(invoice.status, 201, JSON.stringify(invoice.json));
+    assert.equal(invoice.json.grandTotal, 113);
+
+    // Both requests target the same 113 open balance. The FOR UPDATE lock +
+    // in-transaction balance check must let exactly one through; a stale
+    // pre-read implementation would post both and set amount_paid to 226.
+    const [first, second] = await Promise.all([
+      post('/api/customer-payments', {
+        invoiceId: 'pcb-si-race',
+        customerId: CUSTOMER,
+        customerName: 'PCB Customer',
+        branchId: BR,
+        paymentDateAD: today,
+        amount: 113,
+        paymentMethod: 'CASH',
+        notes: 'PCB race receipt A',
+      }),
+      post('/api/customer-payments', {
+        invoiceId: 'pcb-si-race',
+        customerId: CUSTOMER,
+        customerName: 'PCB Customer',
+        branchId: BR,
+        paymentDateAD: today,
+        amount: 113,
+        paymentMethod: 'CASH',
+        notes: 'PCB race receipt B',
+      }),
+    ]);
+    const receiptStatuses = [first.status, second.status].sort();
+    assert.equal(
+      receiptStatuses.filter((status) => status === 201).length,
+      1,
+      `exactly one receipt must win: ${JSON.stringify([first.json, second.json])}`
+    );
+    assert.ok(
+      receiptStatuses.every((status) => status === 201 || status === 400 || status === 409),
+      `the losing receipt must be a clean refusal, not a second posting: ${receiptStatuses.join(',')}`
+    );
+
+    const afterReceipts = await pool!.query(
+      `SELECT id, amount_paid::numeric AS "amountPaid", payment_status AS "paymentStatus"
+         FROM sales_invoices WHERE id = 'pcb-si-race'`
+    );
+    assert.equal(Number(afterReceipts.rows[0].amountPaid), 113, 'the invoice is paid once, not twice');
+    assert.equal(afterReceipts.rows[0].paymentStatus, 'PAID');
+    const receiptRows = await pool!.query(
+      "SELECT id, status FROM customer_payments WHERE invoice_id = 'pcb-si-race'"
+    );
+    assert.equal(receiptRows.rows.length, 1, 'the losing request must not leave a payment header');
+    assert.equal(receiptRows.rows[0].status, 'POSTED');
+    const winningReceiptId = String(receiptRows.rows[0].id);
+    assert.equal((await journalFor('CUSTOMER_PAYMENT', winningReceiptId)).length, 1);
+
+    // Two simultaneous reversals of the same posted receipt: the status guard
+    // must flip POSTED once. The invoice is restored once, not twice.
+    const [reverseA, reverseB] = await Promise.all([
+      post(`/api/customer-payments/${winningReceiptId}/reverse`, { reason: 'PCB race reversal A' }),
+      post(`/api/customer-payments/${winningReceiptId}/reverse`, { reason: 'PCB race reversal B' }),
+    ]);
+    const reverseStatuses = [reverseA.status, reverseB.status].sort();
+    assert.equal(reverseStatuses.filter((status) => status === 200).length, 1, JSON.stringify([reverseA.json, reverseB.json]));
+    assert.ok(
+      reverseStatuses.every((status) => status === 200 || status === 400 || status === 409),
+      `unexpected reversal statuses: ${reverseStatuses.join(',')}`
+    );
+
+    const restored = await pool!.query(
+      `SELECT amount_paid::numeric AS "amountPaid", payment_status AS "paymentStatus"
+         FROM sales_invoices WHERE id = 'pcb-si-race'`
+    );
+    assert.equal(Number(restored.rows[0].amountPaid), 0, 'the reversal restores the open balance exactly once');
+    assert.equal(restored.rows[0].paymentStatus, 'UNPAID');
+    const reversals = await journalFor('CUSTOMER_PAYMENT_REVERSAL', winningReceiptId);
+    assert.equal(reversals.length, 1, 'exactly one contra journal may be posted');
   });
 });

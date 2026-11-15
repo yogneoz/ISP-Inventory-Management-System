@@ -59,6 +59,7 @@ import {
   Wallet,
   Undo2,
   Lock,
+  Workflow,
 } from 'lucide-react';
 import { User, CompanyProfile, Branch, FiscalYear } from '../../types';
 import { getCompanyLocation } from '../../utils/companyProfile';
@@ -151,7 +152,9 @@ export type NavTab =
   | 'finance-payroll-postings'
   | 'accounting-chart'
   | 'general-ledger'
+  | 'posting-rules'
   | 'subledgers'
+  | 'lenders'
   | 'bill-terms'
   | 'cost-centers'
   | 'narration-templates'
@@ -159,6 +162,7 @@ export type NavTab =
   | 'financial-statements'
   | 'vendor-ledger'
   | 'customer-ledger'
+  | 'employee-ledger'
   | 'vendor-opening-balances'
   | 'vat-register'
   | 'depreciation-register'
@@ -262,7 +266,9 @@ export const NAV_TABS: NavTab[] = [
   'finance-payroll-postings',
   'accounting-chart',
   'general-ledger',
+  'posting-rules',
   'subledgers',
+  'lenders',
   'bill-terms',
   'cost-centers',
   'narration-templates',
@@ -270,6 +276,7 @@ export const NAV_TABS: NavTab[] = [
   'financial-statements',
   'vendor-ledger',
   'customer-ledger',
+  'employee-ledger',
   'vendor-opening-balances',
   'vat-register',
   'depreciation-register',
@@ -772,7 +779,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       { id: 'accounting-cash-flow' as NavTab, label: 'Cash Flow', icon: TrendingUp, section: 'Statements & ledgers' },
       { id: 'accounting-cash-book' as NavTab, label: 'Cash & Bank Book', icon: Wallet, section: 'Statements & ledgers' },
       { id: 'recurring-close' as NavTab, label: 'Recurring & Close', icon: CalendarClock, section: 'Statements & ledgers' },
-      { id: 'accounting-aging' as NavTab, label: 'AR / AP Aging', icon: Clock, section: 'Statements & ledgers' }
+      { id: 'accounting-aging' as NavTab, label: 'AR / AP Aging', icon: Clock, section: 'Statements & ledgers' },
+      { id: 'lenders' as NavTab, label: 'Lenders & Loans', icon: Landmark, section: 'Statements & ledgers' }
     );
   }
   if (isOperationAllowed('gl-view', currentUser?.role)) {
@@ -796,6 +804,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'customer-ledger' as NavTab,
       label: 'Customer Ledger & Receivables',
       icon: Wallet,
+      section: 'Statements & ledgers',
+    });
+  }
+  if (isOperationAllowed('gl-view', currentUser?.role)) {
+    financeChildren.push({
+      id: 'employee-ledger' as NavTab,
+      label: 'Employee Ledger',
+      icon: BookOpen,
       section: 'Statements & ledgers',
     });
   }
@@ -933,7 +949,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
     ...(isOperationAllowed('gl-chart-manage', currentUser?.role)
       ? [
           { id: 'accounting-chart' as NavTab, label: 'Chart of Accounts', icon: ListTree, section: 'Accounting' },
-          { id: 'general-ledger' as NavTab, label: 'General Ledger Master', icon: ListTree, section: 'Accounting' },
+        ]
+      : []),
+    ...(isOperationAllowed('gl-view', currentUser?.role)
+      ? [
+          {
+            id: 'posting-rules' as NavTab,
+            label: 'Posting Rules & Controls',
+            icon: Workflow,
+            section: 'Accounting',
+          },
         ]
       : []),
     ...(isOperationAllowed('gl-subledger-manage', currentUser?.role)

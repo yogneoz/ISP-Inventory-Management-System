@@ -103,8 +103,12 @@ export const APP_PATHS: Record<NavTab, string> = {
   'posted-vouchers': '/finance/accounting/posted-vouchers',
   'finance-payroll-postings': '/finance/payroll-postings',
   'accounting-chart': '/finance/accounting/chart',
-  'general-ledger': '/finance/accounting/general-ledger',
+  // Retired screen: the path is kept only so saved tabs and old links keep
+  // resolving, but both now open the single Chart editor below.
+  'general-ledger': '/finance/accounting/chart',
+  'posting-rules': '/finance/accounting/posting-rules',
   subledgers: '/finance/accounting/subledgers',
+  lenders: '/finance/accounting/lenders',
   'bill-terms': '/finance/accounting/bill-terms',
   'cost-centers': '/finance/accounting/cost-centers',
   'narration-templates': '/finance/accounting/narrations',
@@ -112,6 +116,7 @@ export const APP_PATHS: Record<NavTab, string> = {
   'financial-statements': '/finance/overview',
   'customer-ledger': '/finance/ledger/customers',
   'vendor-ledger': '/finance/ledger/vendors',
+  'employee-ledger': '/finance/ledger/employees',
   'vendor-opening-balances': '/finance/opening-balances',
   'vat-register': '/finance/vat',
   'depreciation-register': '/finance/depreciation',
@@ -158,6 +163,12 @@ export const APP_PATHS: Record<NavTab, string> = {
  */
 export const TAB_ALIASES: Partial<Record<NavTab, NavTab>> = {
   'workflow-approval': 'approvals',
+  'general-ledger': 'accounting-chart',
+};
+
+/** Retired paths that still exist in bookmarks and notification links. */
+const PATH_ALIASES: Record<string, NavTab> = {
+  '/finance/accounting/general-ledger': 'accounting-chart',
 };
 
 /** The live screen a tab id names. */
@@ -289,7 +300,8 @@ const PATH_TO_TAB = new Map<string, NavTab>(
 
 /** The live tab a pathname names, or null when it is not a workspace route. */
 export function tabFromPath(pathname: string): NavTab | null {
-  const exact = PATH_TO_TAB.get(normalizePathname(pathname));
+  const normalized = normalizePathname(pathname);
+  const exact = PATH_TO_TAB.get(normalized) ?? PATH_ALIASES[normalized];
   if (exact) return exact;
   return recordFromPath(pathname)?.tab ?? null;
 }

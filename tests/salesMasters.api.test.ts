@@ -175,7 +175,7 @@ describe('sales areas, agents and invoice snapshots (real HTTP + PostgreSQL)', {
 
     const invoice = await post('/api/sales-invoices', tokens.super, {
       id: 'sm-si-1',
-      invoiceNumber: 'SM-SI-1',
+      invoiceNumber: 'INV-2083-SM-SI-1',
       customerId: 'sm-customer',
       customerName: 'SM Customer',
       branchId: BR,

@@ -1,17 +1,20 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Supplier, User, BillTerm } from '../../types';
-import { Factory, Plus, Search, Mail, Phone, MapPin, CheckCircle2, Edit, Trash2 } from 'lucide-react';
+import { Factory, Plus, Search, Mail, Phone, MapPin, CheckCircle2, Edit, Trash2, BookOpen, Wallet } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { PageHeader } from '../../components/common/PageHeader';
 import { isOperationAllowed } from '../../utils/permissions';
 import { useDialog } from '../../components/common/DialogProvider';
 import { ModalPanel } from '../../components/common/ModalPanel';
 import { api } from '../../services/api';
+import type { PartyControlAccount, PartyLedgerBalanceRow } from '../../services/api/accounting';
+import { requestTabNavigation } from '../../services/api/http';
+import { formatPartyBalance } from '../../utils/nprFormat';
 
 interface SuppliersManagementProps {
   suppliers: Supplier[];
   currentUser?: User | null;
-  onCreateSupplier?: (supplier: Omit<Supplier, 'id' | 'rating'>) => Promise<void>;
+  onCreateSupplier?: (supplier: Omit<Supplier, 'id' | 'rating'>) => Promise<any>;
   onUpdateSupplier?: (id: string, supplier: Partial<Supplier>) => Promise<void>;
   onDeleteSupplier?: (id: string) => Promise<void>;
 }
@@ -23,8 +26,10 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
   onUpdateSupplier,
   onDeleteSupplier,
 }) => {
-  const { confirm: confirmDialog } = useDialog();
+  const { confirm: confirmDialog, alert: alertDialog } = useDialog();
   const canManageSuppliers = isOperationAllowed('suppliers-manage', currentUser?.role);
+  const canViewLedger =
+    isOperationAllowed('gl-view', currentUser?.role) && isOperationAllowed('inv-pay', currentUser?.role);
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
@@ -37,6 +42,35 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
   const [panVatNumber, setPanVatNumber] = useState('');
   const [billTermsId, setBillTermsId] = useState('');
   const [billTerms, setBillTerms] = useState<BillTerm[]>([]);
+  const [partyBalances, setPartyBalances] = useState<Record<string, PartyLedgerBalanceRow>>({});
+  const [payableControl, setPayableControl] = useState<PartyControlAccount | null>(null);
+
+  const supplierIds = useMemo(
+    () => [...new Set(suppliers.map((supplier) => supplier.id).filter(Boolean))].sort(),
+    [suppliers]
+  );
+
+  useEffect(() => {
+    if (!canViewLedger) {
+      setPartyBalances({});
+      setPayableControl(null);
+      return;
+    }
+    let cancelled = false;
+    api.getPartyBalances({ type: 'SUPPLIER', partyIds: supplierIds })
+      .then((result) => {
+        if (cancelled) return;
+        setPayableControl(result.controlAccount);
+        setPartyBalances(Object.fromEntries((result.balances || []).map((row) => [row.partyId, row])));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setPartyBalances({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canViewLedger, supplierIds]);
 
   useEffect(() => {
     let live = true;
@@ -105,7 +139,7 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
       }
     } else {
       if (onCreateSupplier) {
-        await onCreateSupplier({
+        const created = await onCreateSupplier({
           name,
           contactPerson: contactPerson || 'General Sales',
           phone: phone || '+977-01-0000000',
@@ -114,6 +148,7 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
           panVatNumber: panVatNumber || '300000000',
           billTermsId: billTermsId || null,
         });
+        if (created?.ledgerWarning) alertDialog(created.ledgerWarning);
       }
     }
 
@@ -165,7 +200,10 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
 
       {/* Grid of Suppliers */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {suppliersPagination.pagedItems.map((s) => (
+        {suppliersPagination.pagedItems.map((s) => {
+          const balanceRow = partyBalances[s.id];
+          const ledgerBalance = balanceRow ? formatPartyBalance(balanceRow.balance) : null;
+          return (
           <div key={s.id} className={`p-4 rounded-2xl border transition-all ${cardBg}`}>
             <div className="flex items-start justify-between">
               <div>
@@ -220,6 +258,38 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
               </div>
             </div>
 
+            <div className="mt-3 flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/40">
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Ledger balance
+                </div>
+                <div
+                  className={`font-mono text-xs font-bold ${
+                    !ledgerBalance
+                      ? 'text-slate-400'
+                      : ledgerBalance.side === 'CR'
+                        ? 'text-rose-600 dark:text-rose-400'
+                        : ledgerBalance.side === 'ZERO'
+                          ? 'text-slate-400'
+                          : 'text-slate-800 dark:text-slate-100'
+                  }`}
+                >
+                  {ledgerBalance ? ledgerBalance.text : '—'}
+                </div>
+              </div>
+              {canViewLedger && (
+                <button
+                  type="button"
+                  onClick={() => requestTabNavigation('vendor-ledger', { partyId: s.id, partyLabel: s.name })}
+                  title="View vendor ledger & payments"
+                  aria-label={`View ledger for ${s.name}`}
+                  className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2 py-1 text-[10px] font-bold text-indigo-700 hover:bg-indigo-50 dark:border-indigo-800 dark:bg-slate-900 dark:text-indigo-300 dark:hover:bg-indigo-950/60"
+                >
+                  <BookOpen className="h-3 w-3" /> View ledger
+                </button>
+              )}
+            </div>
+
             <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px]">
               <span className={`text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1`}>
                 <CheckCircle2 className="h-3.5 w-3.5" /> Verified Vendor
@@ -227,7 +297,8 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
               <span className="text-slate-400 font-mono">ID: {s.id}</span>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
       <TablePagination
         page={suppliersPagination.page}
@@ -252,6 +323,32 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
             <h3 className="text-base font-bold mb-4">
               {editingSupplier ? '✏️ Edit Supplier Details' : '🏭 Register New Supplier'}
             </h3>
+            {canViewLedger && (
+              <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50/60 px-3 py-2.5 text-[11px] dark:border-indigo-900/60 dark:bg-indigo-950/30">
+                <div className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-300">
+                  <Wallet className="h-3.5 w-3.5" /> Accounting assignment
+                </div>
+                {payableControl ? (
+                  <>
+                    <p className="mt-1 font-semibold text-slate-800 dark:text-slate-100">
+                      {payableControl.code} — {payableControl.name}
+                      <span className="ml-1 font-normal text-slate-500 dark:text-slate-400">(AP control)</span>
+                    </p>
+                    <p className="text-slate-500 dark:text-slate-400">
+                      {[payableControl.parentGroupName, payableControl.groupName].filter(Boolean).join(' › ') ||
+                        'Chart group not set'}
+                    </p>
+                    <p className="mt-0.5 text-slate-500 dark:text-slate-400">
+                      Saving creates this supplier's own subledger book under the shared control. No separate GL account is created.
+                    </p>
+                  </>
+                ) : (
+                  <p className="mt-1 text-amber-700 dark:text-amber-300">
+                    No active AP control account is configured. Set it in Finance → Chart of Accounts before posting.
+                  </p>
+                )}
+              </div>
+            )}
             {/* 12-col alignment pattern (matches PO / Purchase Bill forms):
                 Row 1 = Company Name + PAN, Row 2 = Contact + Phone + Email,
                 Row 3 = Address. All controls share h-9 so baselines line up. */}
