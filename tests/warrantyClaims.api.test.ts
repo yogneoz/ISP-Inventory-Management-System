@@ -50,6 +50,15 @@ describe('warranty claims / RMA lifecycle (real HTTP + throwaway PostgreSQL)', {
   let tokens = {} as Record<keyof typeof USERS, string>;
   let claimAId = '';
   let claimBId = '';
+  /**
+   * The day the API measures SLA and RMA age against. It is the database's
+   * `CURRENT_DATE` (the claim repository subtracts it from the claim dates), and
+   * the server's local date is not always the machine's UTC date: in Nepal's
+   * evening the UTC day is still yesterday, so expecting the two to agree made
+   * this suite fail for a few hours every night. Read it once, from the same
+   * database the app is pointed at.
+   */
+  let dbTodayAD = TODAY;
   let replacementClaimId = '';
   let repairClaimId = '';
   let creditClaimId = '';
@@ -112,6 +121,7 @@ describe('warranty claims / RMA lifecycle (real HTTP + throwaway PostgreSQL)', {
     const { DEFAULT_PERMISSIONS_MATRIX } = await import('../client/src/utils/permissionMatrixData');
 
     await ensureReferenceData(throwaway.pool, TODAY);
+    dbTodayAD = (await throwaway.pool.query('SELECT CURRENT_DATE::text AS "d"')).rows[0].d;
     for (const branchId of [BR_A, BR_B]) {
       await throwaway.pool.query(
         `INSERT INTO branches (id, code, name, location, active, allow_procurement, allow_warehouse_transfer, is_demo)
@@ -240,7 +250,7 @@ describe('warranty claims / RMA lifecycle (real HTTP + throwaway PostgreSQL)', {
     assert.equal(detail.status, 200, JSON.stringify(detail.json));
     assert.equal(detail.json.status, 'REPORTED');
     assert.equal(detail.json.open, true);
-    assert.equal(detail.json.slaDays, warrantyClaimSlaDays(TODAY));
+    assert.equal(detail.json.slaDays, warrantyClaimSlaDays(TODAY, null, dbTodayAD));
     assert.equal(detail.json.events.length, 1);
     assert.equal(detail.json.events[0].status, 'REPORTED');
 
@@ -359,11 +369,11 @@ describe('warranty claims / RMA lifecycle (real HTTP + throwaway PostgreSQL)', {
 
     const rmaRow = full.json.data.find((row: any) => row.id === claimAId);
     assert.equal(rmaRow?.creditState, 'PENDING');
-    assert.equal(rmaRow?.rmaAgeDays, warrantyRmaAgeDays(TODAY));
-    assert.equal(rmaRow?.agingBucket, warrantyRmaAgingBucket(warrantyRmaAgeDays(TODAY)));
+    assert.equal(rmaRow?.rmaAgeDays, warrantyRmaAgeDays(TODAY, dbTodayAD));
+    assert.equal(rmaRow?.agingBucket, warrantyRmaAgingBucket(warrantyRmaAgeDays(TODAY, dbTodayAD)));
 
     const agedBucket = full.json.aging.find(
-      (bucket: any) => bucket.bucket === warrantyRmaAgingBucket(warrantyRmaAgeDays(TODAY))
+      (bucket: any) => bucket.bucket === warrantyRmaAgingBucket(warrantyRmaAgeDays(TODAY, dbTodayAD))
     );
     assert.equal(agedBucket?.claims, 1);
     assert.equal(full.json.vendors[0]?.vendorName, 'Acme Recovery Vendor');
