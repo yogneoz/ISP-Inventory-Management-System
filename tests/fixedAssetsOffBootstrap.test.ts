@@ -287,7 +287,7 @@ describe('fixed assets are off the login payload', () => {
   test('the local slice endpoint keeps answering for older bundles', () => {
     const controller = read('server/src/controllers/bootstrap.controller.ts');
     assert.match(controller, /assets: assetRegister/);
-    assert.match(controller, /'assets'\]\.includes\(key\)/);
+    assert.match(controller, /'assets'[\s\S]{0,240}\.includes\(key\)/);
   });
 
   test('App holds no assets array and no screen takes an assets prop', () => {

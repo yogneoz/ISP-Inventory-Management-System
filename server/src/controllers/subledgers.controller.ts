@@ -34,7 +34,7 @@ import {
   POSTING_ROLES,
   CUSTOMER_PARTY_BY_ID_SQL,
   EMPLOYEE_PARTY_BY_ID_SQL,
-  SUBLEDGER_BOOK_ENTRIES_SQL,
+  buildSubledgerBookEntriesQuery,
   SUBLEDGER_BOOK_PARTY_BALANCES_SQL,
   SUBLEDGER_BOOK_UNLINKED_COUNT_SQL,
   SUBLEDGER_BOOK_USAGE_COUNT_SQL,
@@ -54,6 +54,7 @@ import {
   SUPPLIER_PARTY_BY_ID_SQL,
   type SubledgerType,
 } from '../models/accounting.repo';
+import { decodeKeysetCursor, encodeKeysetCursor, keysetEnvelope, keysetLimit, requireLargeTableScope } from '../utils/keysetCursor';
 import {
   SUBLEDGER_LENDER_CANDIDATES_SQL,
   LENDER_PARTY_BY_ID_SQL,
@@ -472,21 +473,37 @@ export async function get_subledgerEntries(req: any, res: Response): Promise<any
     throw new ApiError(400, 'The from date must not be after the to date.');
   }
   const branchId = scope.branchId || null;
+  const { cursor, limit } = req.query || {};
+  const wantsCursor = cursor !== undefined || limit !== undefined;
+  if (wantsCursor && !requireLargeTableScope(res, {
+    branchId: scope.branchId, dateFrom: from, dateTo: to, report: true,
+  })) return;
+  const parsedCursor = cursor === undefined ? undefined : decodeKeysetCursor(cursor, 'gl_subledger_entries', 2);
+  if (cursor !== undefined && !parsedCursor) {
+    return res.status(400).json({ code: 'INVALID_CURSOR', message: 'The subledger cursor is invalid. Reload the list and retry.' });
+  }
   const params = [id, from, to, branchId];
+  const size = wantsCursor ? keysetLimit(limit, 100, 500) : undefined;
+  const entriesQuery = buildSubledgerBookEntriesQuery(
+    parsedCursor ? [String(parsedCursor[0]), String(parsedCursor[1])] : undefined,
+    size
+  );
   const [entries, parties, unlinked] = await Promise.all([
-    pgPool.query(SUBLEDGER_BOOK_ENTRIES_SQL, params),
+    pgPool.query(entriesQuery.sql, [...params, ...entriesQuery.params]),
     pgPool.query(SUBLEDGER_BOOK_PARTY_BALANCES_SQL, params),
     pgPool.query(SUBLEDGER_BOOK_UNLINKED_COUNT_SQL, [book.mainAccountId, branchId]),
   ]);
-  const rows = entries.rows.map((entry: any) => ({
+  const fetched = entries.rows.map((entry: any) => ({
     ...entry,
     debit: Number(entry.debit),
     credit: Number(entry.credit),
   }));
+  const hasMore = Boolean(size && fetched.length > size);
+  const rows = size ? (hasMore ? fetched.slice(0, size) : fetched) : fetched;
   const partyRows = parties.rows.map((party: any) => ({ ...party, balance: Number(party.balance) }));
   const debit = rows.reduce((sum: number, row: any) => sum + row.debit, 0);
   const credit = rows.reduce((sum: number, row: any) => sum + row.credit, 0);
-  return res.json({
+  const response: Record<string, unknown> = {
     book: {
       id: book.id,
       code: book.code,
@@ -504,7 +521,17 @@ export async function get_subledgerEntries(req: any, res: Response): Promise<any
     parties: partyRows,
     totals: { debit, credit, balance: debit - credit },
     unlinkedCount: Number(unlinked.rows[0]?.count) || 0,
-  });
+  };
+  if (size) {
+    const last = rows[rows.length - 1];
+    const nextCursor = hasMore && last
+      ? encodeKeysetCursor('gl_subledger_entries', [String(last.entryDateAD).slice(0, 10), String(last.id)])
+      : null;
+    return res.json({
+      ...keysetEnvelope(rows, nextCursor, hasMore, response),
+    });
+  }
+  return res.json(response);
 }
 
 /**

@@ -62,20 +62,20 @@ const baseApproval: ApprovalRequest = {
 describe('buildAuditTrailQuery', () => {
   test('unfiltered + limited SQL and param ordering', () => {
     const { sql, params } = buildAuditTrailQuery('ALL', 50);
-    assert.match(sql, / FROM audit_logs ORDER BY timestamp_ad DESC LIMIT \$1$/);
+    assert.match(sql, / FROM audit_logs ORDER BY timestamp_ad DESC, id DESC LIMIT \$1$/);
     assert.ok(!sql.includes(' WHERE '));
     assert.deepEqual(params, [50]);
   });
 
   test('branch filter uses $1 and pushes limit to $2', () => {
     const { sql, params } = buildAuditTrailQuery('BR02', '25');
-    assert.match(sql, / WHERE branch_id = \$1 ORDER BY timestamp_ad DESC LIMIT \$2$/);
+    assert.match(sql, / WHERE branch_id = \$1 ORDER BY timestamp_ad DESC, id DESC LIMIT \$2$/);
     assert.deepEqual(params, ['BR02', 25]);
   });
 
   test('no params without branch or limit', () => {
     const { sql, params } = buildAuditTrailQuery();
-    assert.match(sql, / FROM audit_logs ORDER BY timestamp_ad DESC$/);
+    assert.match(sql, / FROM audit_logs ORDER BY timestamp_ad DESC, id DESC$/);
     assert.deepEqual(params, []);
   });
 
@@ -107,7 +107,7 @@ describe('buildAuditTrailQuery', () => {
 
   test('an empty branch scope yields no rows instead of an unfiltered read', () => {
     const { sql } = buildAuditTrailQuery([], 10);
-    assert.match(sql, / WHERE FALSE ORDER BY timestamp_ad DESC LIMIT \$1$/);
+    assert.match(sql, / WHERE FALSE ORDER BY timestamp_ad DESC, id DESC LIMIT \$1$/);
   });
 });
 

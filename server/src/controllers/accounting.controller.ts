@@ -29,8 +29,10 @@ import {
   buildAccountSearchQuery,
   buildJournalCountQuery,
   buildJournalPageQuery,
+  buildJournalKeysetQuery,
   type JournalListOptions,
 } from '../models/accounting.repo';
+import { decodeKeysetCursor, encodeKeysetCursor, cursorTimestamp, keysetEnvelope, keysetLimit, requireLargeTableScope } from '../utils/keysetCursor';
 import {
   createAccount,
   createAccountGroup,
@@ -413,9 +415,25 @@ export async function post_reopenPeriod(req: any, res: Response): Promise<any> {
 export async function get_journals(req: any, res: Response): Promise<any> {
   const scope = resolveBranchScope(req, res);
   if (!scope) return;
-  const page = Math.max(1, Math.trunc(Number(req.query?.page)) || 1);
+  const { cursor, limit } = req.query || {};
+  const wantsCursor = cursor !== undefined || limit !== undefined;
+  if (wantsCursor && !requireLargeTableScope(res, {
+    branchId: scope.branchId, dateFrom: req.query?.from, dateTo: req.query?.to, report: true,
+  })) return;
+  const parsedCursor = cursor === undefined ? undefined : decodeKeysetCursor(cursor, 'gl_journals', 3);
+  if (cursor !== undefined && !parsedCursor) {
+    return res.status(400).json({ code: 'INVALID_CURSOR', message: 'The journal cursor is invalid. Reload the list and retry.' });
+  }
   const pageSize = Math.max(1, Math.min(200, Math.trunc(Number(req.query?.pageSize)) || 25));
-  if (scope.empty) return res.json({ data: [], page, pageSize, totalItems: 0 });
+  const page = Math.min(
+    Math.max(1, Math.floor(10000 / pageSize)),
+    Math.max(1, Math.trunc(Number(req.query?.page)) || 1)
+  );
+  if (scope.empty) {
+    return wantsCursor
+      ? res.json(keysetEnvelope([], null, false))
+      : res.json({ data: [], page, pageSize, totalItems: 0 });
+  }
   const opts: JournalListOptions = {
     branchId: scope.branchId,
     periodId: typeof req.query?.periodId === 'string' ? req.query.periodId : undefined,
@@ -426,6 +444,34 @@ export async function get_journals(req: any, res: Response): Promise<any> {
     page,
     pageSize,
   };
+  if (wantsCursor) {
+    const size = keysetLimit(limit, 25, 200);
+    const q = buildJournalKeysetQuery(
+      opts,
+      parsedCursor
+        ? [String(parsedCursor[0]), String(parsedCursor[1]), String(parsedCursor[2])]
+        : undefined,
+      size
+    );
+    const r = await pgPool.query(q.sql, q.params as any[]);
+    const hasMore = r.rows.length > size;
+    const rows = hasMore ? r.rows.slice(0, size) : r.rows;
+    const items = rows.map((row: any) => ({
+      ...row,
+      exchangeRate: Number(row.exchangeRate),
+      totalDebit: Number(row.totalDebit),
+      totalCredit: Number(row.totalCredit),
+    }));
+    const last = items[items.length - 1];
+    const nextCursor = hasMore && last
+      ? encodeKeysetCursor('gl_journals', [
+          cursorTimestamp(last.journalDateAD).slice(0, 10),
+          String(last.journalNo ?? ''),
+          String(last.id),
+        ])
+      : null;
+    return res.json(keysetEnvelope(items, nextCursor, hasMore));
+  }
   const pageQuery = buildJournalPageQuery(opts);
   const countQuery = buildJournalCountQuery(opts);
   const [rows, count] = await Promise.all([

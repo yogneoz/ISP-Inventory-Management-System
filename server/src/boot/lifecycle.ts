@@ -53,6 +53,8 @@ const CLOSE_SETTLE_TIMEOUT_MS = 1_000;
 export interface LifecycleDeps {
   /** Releases PostgreSQL connections. Injected to keep this module DB-free. */
   closePool(): Promise<void>;
+  /** Stops the Redis subscriber and closes shared-state clients before the pool. */
+  closeShared?(): Promise<void>;
   /** Test seams; production uses the defaults (sync fd writes, process.exit). */
   drainTimeoutMs?: number;
   exitOnFatal?: boolean;
@@ -233,6 +235,18 @@ export function createLifecycle(deps: LifecycleDeps): Lifecycle {
     sseClients.clear();
   }
 
+  async function closeSharedBounded(): Promise<void> {
+    if (!deps.closeShared) return;
+    try {
+      await Promise.race([
+        deps.closeShared().then(() => true),
+        delay(POOL_CLOSE_TIMEOUT_MS).then(() => false),
+      ]);
+    } catch (err) {
+      log(`shared-state close failed during shutdown — continuing: ${describe(err)}`);
+    }
+  }
+
   async function closePoolBounded(): Promise<void> {
     try {
       const didClose = await Promise.race([
@@ -300,6 +314,7 @@ export function createLifecycle(deps: LifecycleDeps): Lifecycle {
     target.closeAllConnections();
     await Promise.race([closed, delay(CLOSE_SETTLE_TIMEOUT_MS)]);
 
+    await closeSharedBounded();
     await closePoolBounded();
     log('Shutdown complete — exiting 0');
     return exit(0);

@@ -43,7 +43,14 @@ export function escapeLikeTerm(term: string): string {
  * every serial event (claims, exchanges, refusals, corrections) records it — so
  * one unit's whole history comes back newest first in a single read.
  */
-export function buildAuditTrailQuery(branchId?: unknown, limit?: unknown, serial?: unknown): { sql: string; params: unknown[] } {
+export function buildAuditTrailQuery(
+  branchId?: unknown,
+  limit?: unknown,
+  serial?: unknown,
+  cursor?: [string, string],
+  from?: unknown,
+  to?: unknown
+): { sql: string; params: unknown[] } {
   let sql = AUDIT_SELECT_PREFIX;
   const params: unknown[] = [];
   const conds: string[] = [];
@@ -65,10 +72,22 @@ export function buildAuditTrailQuery(branchId?: unknown, limit?: unknown, serial
     params.push(`%${escapeLikeTerm(term)}%`);
     conds.push(`details ILIKE $${params.length} ESCAPE '\\'`);
   }
+  if (typeof from === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(from)) {
+    params.push(from);
+    conds.push(`timestamp_ad >= $${params.length}::date`);
+  }
+  if (typeof to === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(to)) {
+    params.push(to);
+    conds.push(`timestamp_ad < ($${params.length}::date + INTERVAL '1 day')`);
+  }
+  if (cursor) {
+    params.push(cursor[0], cursor[1]);
+    conds.push(`(timestamp_ad, id) < ($${params.length - 1}::timestamptz, $${params.length})`);
+  }
   if (conds.length > 0) {
     sql += ' WHERE ' + conds.join(' AND ');
   }
-  sql += ' ORDER BY timestamp_ad DESC';
+  sql += ' ORDER BY timestamp_ad DESC, id DESC';
   if (limit) {
     params.push(Number(limit));
     sql += ` LIMIT $${params.length}`;

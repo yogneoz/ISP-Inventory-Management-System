@@ -3,12 +3,14 @@ module.exports = {
     {
       name: 'enterprise-erp',
       script: 'dist/server.cjs',
-      // ONE worker, in fork mode, by design: operational caches, SSE fan-out
-      // and the rate-limit buckets are process-local. Do not raise this until
-      // they are shared — README.md, "Single process only (do not raise
-      // `instances`)", lists what must move first.
-      instances: 1,
-      exec_mode: 'fork',
+      // Horizontal workers. SCALE-1 moved auth/SSE limits, session revocation,
+      // process-wide locks and SSE fan-out to Redis. REDIS_URL (or
+      // REDIS_TLS_URL) is required in production; the boot guard refuses a
+      // clustered process without it. Local reference caches are per-worker and
+      // are refreshed from PostgreSQL; SCALE-4 replaces them with a shared cache.
+      // See README.md, "Horizontal workers and shared state".
+      instances: 'max',
+      exec_mode: 'cluster',
       env: {
         NODE_ENV: 'production',
         PORT: 3000,

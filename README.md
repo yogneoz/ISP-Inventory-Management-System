@@ -44,7 +44,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 - **PDF Reporting**: one server-side pdfmake service renders sales invoices, purchase bills, the trial balance, profit and loss, the balance sheet and payroll payslips through permission-gated, branch-scoped print routes; the printed statements recurse through the same group → sub-group tree and print each level's subtotal. Fonts are vendored through `@fontsource/noto-sans` and `@fontsource/noto-sans-devanagari` (no ad-hoc downloads), registered at boot, and required: a missing file fails with its name instead of silently substituting a Latin-only font. Mixed-script text is split into Noto Sans and Noto Sans Devanagari runs, so a Devanagari customer or employee name is embedded as a real font subset with a Unicode map rather than dropped glyphs.
 - **Canonical URL Routing**: every workspace screen has a stable path (`/sales/invoices`, `/settings/users`, `/inventory/assets/assign`, …). Refresh, bookmark and share a screen directly, and use Browser Back/Forward; the path is only a request and the same RBAC guard still decides whether the screen may render. Older `?tab=<id>` links redirect in place, preserving the Users access filters.
 - **Real-Time Multi-User Sync with Targeted Refresh**: Server-Sent Events (SSE) broadcast every mutation tagged with the client-state domain it invalidates. Clients re-fetch **only that domain's slice** (`GET /api/bootstrap/local?key=...`) instead of re-downloading the whole bootstrap; unknown events fall back to a full atomic bootstrap resync.
-- **Automated PostgreSQL Setup**: Built-in automated shell and Node.js setup scripts (`npm run setup:pg`) that can install, configure PostgreSQL, migrate all **57 relational database tables**, and optionally seed a linked demo dataset.
+- **Automated PostgreSQL Setup**: Built-in automated shell and Node.js setup scripts (`npm run setup:pg`) that can install, configure PostgreSQL, migrate all **119 relational database tables**, and optionally seed a linked demo dataset.
 - **Hardened HTTP Surface**:
   - **helmet security headers** on every response (CSP, nosniff, frame protection, cross-origin policies) — configured LAN-safe (no HSTS/`upgrade-insecure-requests` on plain HTTP; re-enable behind a TLS proxy).
   - **Authenticated SSE**: `/api/sync/stream` and `/api/sync/version` require the app's HMAC token via `Authorization: Bearer` header or `?token=` query parameter (EventSource cannot send headers; the client attaches the stored token automatically). Rejections happen before any stream handshake.
@@ -58,7 +58,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 
 ```
 .
-├── src/                              # React 19 + TypeScript Frontend
+├── client/src/                       # React 19 + TypeScript Frontend (Vite root: client/)
 │   ├── components/
 │   │   ├── layout/
 │   │   │   ├── Header.tsx            # Header with profile switching, notifications, date mode
@@ -98,7 +98,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 │       │                             #   pipeline incl. helmet, registerAllRoutes); re-exports
 │       │                             #   every historical symbol so imports stay stable
 │       ├── state/runtimeState.ts     # Shared runtime state as ESM live bindings + CACHE_LOADS
-│       ├── boot/dbBoot.ts            # Schema DDL sync (57 tables), seeding, permission matrix
+│       ├── boot/dbBoot.ts            # Schema DDL sync (119 tables), seeding, permission matrix
 │       ├── realtime/sse.ts           # sseClients + broadcastChange (SSE fan-out)
 │       ├── db/transactions.ts        # withTransaction / withConnection helpers
 │       ├── syncDomains.ts            # SSE event → client-domain mapping (targeted refresh)
@@ -113,14 +113,14 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 │       ├── middleware/               # Auth, PG gate, fiscal lock, RBAC, branch scope,
 │       │                             #   SSE auth (sseAuth.ts), SSE connection cap
 │       │                             #   (sseRateLimit.ts), login rate limiting
-│       │                             #   (authRateLimit.ts), cache-refresh hook
+│       │                             #   (authRateLimit.ts), fiscal-year write gate
 │       ├── errors/                   # ApiError + central error handler
 │       ├── config/                   # BS calendar + seed data
 │       └── utils/                    # Shared server helpers (incl. sliding-window
 │                                     #   rateLimiter.ts, docNumber.ts, fiscalYear.ts)
 │
 ├── scripts/                          # Database Automation Scripts
-│   ├── schema.sql                    # Full PostgreSQL schema — 57 tables, idempotent, safe to re-run
+│   ├── schema.sql                    # Full PostgreSQL schema — 119 tables, idempotent, safe to re-run
 │   ├── setup_db.js                   # Node setup: wipe (BS calendar kept) + schema, then the dataset seeder
 │   ├── setup_postgres.sh             # Shell: auto-install & configure PostgreSQL (Linux/macOS/Windows)
 │   ├── seed/verificationDataset.ts   # The one dataset: 2 FYs, 4 branches, 80 customers, ledger targets
@@ -128,8 +128,6 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 │   ├── check_no_inline_sql.ts        # CI guard: fails if controllers contain raw SQL
 │   └── seed_verification_data.ts     # Full reset & verification seed (preserves the BS calendar)
 │
-├── server/                           # Backend (Node.js + Express) — index.ts bootstrap,
-│                                     #   src/{app,routes,controllers,services,middleware,models,config,errors,utils}
 ├── client/                           # Frontend (Vite root) — index.html + src/
 ├── server.ts                         # Root shim re-exporting server/src/app (legacy entry)
 ├── ecosystem.config.js               # PM2 Process Manager Configuration for Production
@@ -199,15 +197,26 @@ SSE_MAX_CONNECTIONS_PER_IP=6             # concurrent SSE streams per address
 
 ### Step 3: Database Setup & Migration (PostgreSQL)
 
-Run the built-in automatic database setup engine:
+Run the built-in automatic database setup engine. `setup:pg` is destructive:
+it refuses unless `--force` is supplied and a verified backup exists that is
+younger than `BACKUP_VERIFY_MAX_AGE_HOURS` (default 24). For a first install or
+another disposable database, explicitly bypass the backup proof:
 
 ```bash
-npm run setup:pg
+npm run setup:pg -- --force --skip-backup-check
+```
+
+For an existing database, take and verify a backup first:
+
+```bash
+bash scripts/backup.sh
+npm run check:restore-drill
+npm run setup:pg -- --force
 ```
 
 **What this script does:**
 1. Connects to PostgreSQL (falls back to the shell installer `setup_postgres.sh` on Linux/macOS if unreachable).
-2. Applies `scripts/schema.sql` — all **57 tables**, constraints, foreign keys, and indexes (fully idempotent, atomic).
+2. Applies `scripts/schema.sql` — all **119 tables**, constraints, foreign keys, and indexes (fully idempotent, atomic).
 3. Seeds fiscal years, the Bikram Sambat calendar (2078–2085 BS), UOMs, document-numbering configs, company profile, branches, and example user accounts.
 4. Seeds the linked demo dataset (products, stock, serial log, fixed assets, purchase orders/invoices, vendor payments) with `is_demo = TRUE`.
 5. Backfills `fiscal_year_id` on transactional rows from their AD dates.
@@ -288,7 +297,7 @@ Run these after an import correction or database migration, preferably during a 
 
 ### Resetting a Database for Demo Testing
 
-To recreate the demo database from scratch, drop/recreate `inventory_db`, then run `npm run setup:pg`.
+To recreate the demo database from scratch, drop/recreate `inventory_db`, then run `npm run setup:pg -- --force --skip-backup-check` (the database is deliberately disposable).
 
 ### Default Clean Mode
 The application seeds **example master branches only** (Branch 1 `WH001`, Branch 2 `BRH01`) plus fiscal years at minimum, so you can immediately begin importing your real products or entering stock.
@@ -346,7 +355,7 @@ sudo apt update && sudo apt upgrade -y
 
 # Install Node.js 24 LTS & Build Tools
 curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
-sudo apt install -y nodejs build-essential git nginx postgresql postgresql-contrib
+sudo apt install -y nodejs build-essential git nginx postgresql postgresql-contrib redis-server
 
 # Install PM2 Process Manager globally
 sudo npm install -g pm2
@@ -413,30 +422,30 @@ sudo env PATH=$PATH:/usr/bin /usr/lib/node_modules/pm2/bin/pm2 startup systemd -
 
 ---
 
-### Single process only (do not raise `instances`)
+### Horizontal workers and shared state
 
-`ecosystem.config.js` runs **one** worker (`instances: 1`, `exec_mode: 'fork'`), and that is a
-correctness requirement, not a small-server default. The process keeps state that is not shared:
+`ecosystem.config.js` runs **`instances: 'max'` with `exec_mode: 'cluster'`**. A clustered
+production boot now requires `REDIS_URL` (or `REDIS_TLS_URL`); the server refuses to start a
+worker without it instead of silently multiplying limits and revocations.
 
-| Process-local state | Where | What a second worker would break |
+Install/configure Redis before starting the cluster (`sudo systemctl enable --now redis-server`), bind it to a private interface, and set `REDIS_URL` (or `REDIS_TLS_URL`) in the service environment. A clustered production boot refuses to start without it.
+
+What moved to Redis in SCALE-1:
+
+| State | Where | Worker-safe behaviour |
 |---|---|---|
-| Operational read caches (products, stock, documents, permission matrix) | `server/src/state/runtimeState.ts` | Each worker hydrates at boot and refreshes **only after its own committed write**. A write handled by the other worker leaves this one serving stale rows — a saved invoice stays invisible, a permission change does not take effect. |
-| SSE fan-out (`sseClients`, `dataVersion`) | `server/src/realtime/sse.ts` | A change handled by worker A is broadcast only to clients connected to A. Screens on B keep their old view until a manual reload, with no error to explain it. |
-| Login/SSE rate-limit buckets and the per-address SSE stream cap | `server/src/middleware/authRateLimit.ts`, `server/src/middleware/sseRateLimit.ts` | Every worker counts separately, so `N` workers silently multiply `AUTH_RATE_LIMIT_MAX` and `SSE_MAX_CONNECTIONS_PER_IP` by `N`. |
+| Login/forgot-password limits and the SSE stream cap | `server/src/middleware/authRateLimit.ts`, `server/src/middleware/sseRateLimit.ts` | One sliding-window bucket per key across all workers. Rate limits fail **closed** (`503 SHARED_STATE_UNAVAILABLE`) if Redis is unavailable; the admin release clears the same Redis keys. |
+| Session revocation (`session:ver:<userId>`) | `server/src/state/sessionVersion.ts` | Login/role/password/status/deactivation writes publish the fingerprint; every worker checks it. A miss reads the `users` row once and repopulates. A revoked account is invalid on every worker immediately. |
+| Process-wide jobs | `server/src/state/sharedLock.ts` | Boot schema/seed is leader-elected with `SET NX PX`; other workers wait and skip the duplicate. Locks carry a fencing token; document numbers and ledger writes keep their PostgreSQL row locks. |
+| SSE fan-out | `server/src/realtime/sse.ts` | `broadcastChange` writes local clients and publishes to `isp:sse:changes`; each worker's subscriber writes to its own clients. The per-client `dataVersion` and reconnect resync contract are unchanged. |
 
-Already shared and safe to duplicate: the PostgreSQL data, document numbering and audit writes
-(single DB transactions), and the **one** `AUTH_TOKEN_SECRET` — every worker must read the same value,
-which is exactly what Step 2 above makes mandatory in production.
+Still per-worker and safe to rebuild from PostgreSQL: the reference/read caches in
+`server/src/state/runtimeState.ts` (products, stock, permission matrix) hydrate at boot;
+**SCALE-4** moves them to a shared cache with write invalidation. They are not security state.
 
-Before running `instances: 2` (or more than one container), move the three concerns to shared
-infrastructure:
-
-1. **Operational caches** to a shared store invalidated on write (Redis or similar), or read per request.
-2. **SSE fan-out** to publish/subscribe — the write loop inside `broadcastChange` is the only place that has to change.
-3. **Rate-limit and connection buckets** to the same shared store, so a limit stays per-user instead of per-worker.
-
-Also keep long-lived streams alive in the proxy: `proxy_read_timeout` above the 25 s SSE keep-alive and
-no response buffering, otherwise clients on the second worker reconnect in a loop.
+Every worker must read the same **`AUTH_TOKEN_SECRET`** — Step 2 above makes that mandatory in
+production. Keep long-lived streams alive in the proxy: `proxy_read_timeout` above the 25 s SSE
+keep-alive and no response buffering, otherwise clients reconnect in a loop.
 
 Background and the recorded decision: [`docs/architecture-backlog.md`](docs/architecture-backlog.md#d3-document-the-single-instance-constraint).
 
@@ -517,24 +526,26 @@ docker run -d \
 | **Repo-Layer Guard (no SQL in controllers)** | `npm run check:no-inline-sql` |
 | **Production Build** | `npm run build` |
 | **Start Production Server** | `npm start` |
-| **Automated DB Setup (Node)** | `npm run setup:pg` |
+| **Automated DB Setup (Node)** | `npm run setup:pg -- --force` *(after a verified backup; add `--skip-backup-check` only for a disposable database)* |
 | **Automated DB Setup (Shell)** | `npm run setup:postgres` |
 | **Database Integrity Check** | `npm run integrity:check` |
 | **BS Calendar / BS-Date Audit** *(add `-- --apply` to correct)* | `npm run audit:bs-dates` |
 | **API Smoke Test** *(server must be running)* | `npm run smoke` |
 | **Production Boot Timing** *(after `npm run build`; needs Chrome + demo DB)* | `npm run check:boot-timing` |
+| **Bootstrap Payload Measurement** *(server must be running)* | `npm run measure:bootstrap` |
 | **Write-Latency Benchmark** *(server must be running)* | `npm run bench:write` |
 | **Full Reset & Verification Seed** | `npm run seed:verify` |
 | **PM2 Process Status** | `pm2 status` |
 | **View Server Logs** | `pm2 logs enterprise-erp` |
 | **Restart Application** | `pm2 restart enterprise-erp` |
-| **PostgreSQL Backup** | `pg_dump -U inventory_user -h localhost inventory_db > backup_$(date +%Y%m%d).sql` |
+| **PostgreSQL Backup** *(verified dump + manifest; `BACKUP_DIR` defaults to `./backups`)* | `npm run backup` |
+| **Disaster Recovery / Restore Runbook** | [docs/disaster-recovery-runbook.md](docs/disaster-recovery-runbook.md) |
 
 ### ⏱️ Production Boot Timing Check
 
 `npm run check:boot-timing` serves the built app from `dist/` on a free port and reloads the saved **Create Sales Invoice** tab twice in headless Chrome — once with an empty bootstrap cache, once warm. It samples every animation frame and fails if the lazy `Loading module…` fallback or the shell sync spinner is ever actually visible after the splash lifts, or if the app root is ever blank. It also asserts that the warm reload never mounts the shell spinner (the cached bootstrap paints immediately). It prints first paint, FCP, the splash window and any exposed-loading frames for both reloads.
 
-It needs a production build (`npm run build`, or pass `-- --build`), a reachable PostgreSQL and the demo account (`superadmin@example.com` / `Demo@123` by default; override with `BOOT_TRACE_EMAIL` / `BOOT_TRACE_PASSWORD`). Pass `-- --base-url http://host:port` to measure an already-running production server instead of starting one. Chrome/Edge/Chromium is auto-detected; set `BOOT_TRACE_BROWSER` if needed. It is not part of `npm test`, which must stay runnable without a browser, but CI runs it as a hard gate after the production build: `npm run setup:pg` seeds the demo account first, the CI budget is 12 s instead of the 6 s local default, and a missing browser fails the job rather than skipping the check. A launch that dies before writing `DevToolsActivePort` — a known GitHub-runner flake — is retried up to three times with a fresh profile before the gate fails.
+It needs a production build (`npm run build`, or pass `-- --build`), a reachable PostgreSQL and the demo account (`superadmin@example.com` / `Demo@123` by default; override with `BOOT_TRACE_EMAIL` / `BOOT_TRACE_PASSWORD`). Pass `-- --base-url http://host:port` to measure an already-running production server instead of starting one. Chrome/Edge/Chromium is auto-detected; set `BOOT_TRACE_BROWSER` if needed. It is not part of `npm test`, which must stay runnable without a browser, but CI runs it as a hard gate after the production build: `npm run setup:pg -- --force --skip-backup-check` seeds the demo account first, the CI budget is 12 s instead of the 6 s local default, and a missing browser fails the job rather than skipping the check. A launch that dies before writing `DevToolsActivePort` — a known GitHub-runner flake — is retried up to three times with a fresh profile before the gate fails.
 
 ---
 
@@ -550,8 +561,9 @@ and pagination, so the client loads exactly one page of rows at a time.
 | Consumables Issue Register | `GET /api/stock-operations?type=CONSUMABLE_ISSUE` | **Trimmed from bootstrap** — register self-fetches its page; the remaining wholesale consumers (StockOperations' panels, movement ledger) are fed by the deferred `GET /api/bootstrap/local?key=stockOperations` hydration that runs right after bootstrap |
 | Purchase Orders Register | `GET /api/purchase-orders` | **Trimmed from bootstrap** — register self-fetches its page; the KPI surfaces (shell badges, dashboard, notifications), the FY closing wizard and the vendor-bill PO picker read scoped open-PO pages from this endpoint. The movement ledger still takes the deferred `GET /api/bootstrap/local?key=purchaseOrders` slice; global search reads its own bounded `GET /api/global-search` page |
 | Purchase Invoices Register | `GET /api/purchase-invoices` | **Trimmed from bootstrap** — register self-fetches its page; the KPI unpaid-bill count is a one-row page's aggregate and the FY closing wizard reads its year's rows from this endpoint. Registers' links, financial statements and VAT/audit reports still take the deferred `GET /api/bootstrap/local?key=purchaseInvoices` slice |
-| Purchase Returns Register | `GET /api/purchase-returns` | Paged endpoint available; the table still ships in bootstrap for other consumers |
-| Sales Returns Register | `GET /api/sales-returns` | Paged endpoint available; the table still ships in bootstrap for other consumers |
+| Purchase Returns Register | `GET /api/purchase-returns` | **Trimmed from bootstrap** (OPS-3) — the register self-fetches its page; the deferred `GET /api/bootstrap/local?key=purchaseReturns` slice keeps the returnable-quantity calculation fed after a cold load |
+| Sales Returns Register | `GET /api/sales-returns` | **Trimmed from bootstrap** (OPS-3) — the register self-fetches its page; the deferred `GET /api/bootstrap/local?key=salesReturns` slice keeps the returnable-quantity calculation fed after a cold load |
+| Activities Log / System Audit Trail | `GET /api/bootstrap/local?key=auditLogs` | **Trimmed from bootstrap** (OPS-3) — the screen hydrates from the live 200-row slice after bootstrap, so the security trail no longer rides every login; unauthorized roles still receive an empty gated slice |
 | Sales Invoices Register | `GET /api/sales-invoices` | **Trimmed from bootstrap** — the register self-fetches its page, and the Returns create form searches the same endpoint by invoice number or customer (full row incl. `items`); the Sales register no longer has a full-array fallback |
 | Shipment & Transfer Register | `GET /api/shipments/page` (+ `GET /api/shipments/overview`) | **Trimmed from bootstrap** — the register pages; the shell badges, header count, dashboard KPI, notification center and receive lanes read exact per-status counts and the in-flight rows from `/overview`; the FY closing wizard keeps the bounded bare-array `GET /api/shipments` read |
 | Customer Master Directory | `GET /api/customers` | **Trimmed from bootstrap** (VOL-4a) — always a `{ data, page, pageSize, totalItems, activeItems, totalCreditLimit }` envelope; `branchId`, `query`, `status`, `page`, `pageSize` filter server-side, `all=1` returns the full filtered set for CSV export. The `query` contains-search is backed by `idx_customer_records_search_trgm` (120k rows: 406 ms → 32 ms), and every picker in the app reads at most 20 matching rows from here instead of holding the national directory. Branch scope is enforced by the route guard **and** re-applied in SQL from the session; the picker sends the shell's active branch |
@@ -559,6 +571,41 @@ and pagination, so the client loads exactly one page of rows at a time.
 | Customer Device Register | `GET /api/customer-devices/page` (+ `/overview`) | **Trimmed from bootstrap** (VOL-4b) — the register pages and filters server-side (`pageSize` capped at 200, stable `created_at DESC, id DESC`); `/overview` returns exact per-status counts for the KPI cards. `all=1` returns the filtered export set, capped at 20,000 rows with a `truncated` flag. The search uses `idx_customer_devices_global_trgm` and a `(branch_id, created_at DESC, id DESC)` page index; branch scope is re-applied in SQL from the session. The legacy bare-array `GET /api/customer-devices` is **retired** (CDR-1, 2026-10-27): EXCH-1 moved the last reader, the Device Exchange picker, to `/page` with the search and the RENTAL/ACTIVE filter applied in SQL, READ-1 deleted the client wrapper, and the server route and its 2,000-row query are gone — no request can ask for a device array. `/api/bootstrap/local?key=customerDevices` is **retired** as well (CDR-2, 2026-10-27): the slice answered the whole `customer_device_records` table to a cached pre-VOL-4b bundle no current screen can call (5.29 MiB raw / 431.5 KiB gzip at the 12k model), so its mapping now feeds the operational cache alone and the key answers 410 Gone — no request can read a device table wholesale |
 | Suppliers Warranty | `GET /api/warranties/vendor` | **Self-fetching** (WTY-6) — the inbound coverage register pages and filters in SQL by `status`, `query`, category, start-date range and the session branch. Each row carries the stored exact expiry plus the server-computed state and days remaining; the KPI cards are exact counts over the whole filtered set. Not a bootstrap slice |
 | Sellers Warranty | `GET /api/warranties/seller` | **Self-fetching** (WTY-6) — the outbound coverage register over the same filtered read. Its rows are what the customer was promised at issue/sale/exchange, with the same stored-expiry state rule; the retired 12-month recomputation is gone |
+
+### Keyset pagination (SCALE-2)
+
+The high-volume registers — customers, sales invoices, stock operations, serial
+log, journals, subledger entries and audit logs — accept
+`?cursor=<opaque>&limit=<n>` and answer
+`{ items, nextCursor, hasMore }` (the older `data`/`page`/`pageSize` fields
+remain as aliases). The cursor is the last row's composite sort key
+(`created_at DESC, id DESC`, `journal_date_ad DESC, journal_no DESC, id DESC`,
+`(customer_name, customer_id)`, `(entry_date_ad, id)`), base64url-encoded and
+HMAC-signed in `server/src/utils/keysetCursor.ts`; it is bound to its table and
+rejects a tampered or cross-table value with `400 INVALID_CURSOR`. A first
+page sends `limit` without a cursor. `page`/`pageSize` still work as a bounded
+compatibility alias, clamped so its OFFSET never exceeds 10,000; `all=1`
+exports are hard-capped at 10,000 rows. A cursor/report read without a branch
+or bounded date range answers `400 SCOPE_REQUIRED` (a global `ALL` read still
+needs a date floor).
+
+The customer directory, sales invoices, consumables/stock operations, serial
+log, posted vouchers, subledger book ledger and audit register now send `limit`
+for the first page and append through `nextCursor` with **Load more**. A
+filter/branch/date change resets to the first cursor page and the footer ends
+at `hasMore=false`; a scope refusal is shown inline instead of an empty list.
+The shared client reader is `client/src/hooks/useKeysetPager.ts` with
+`client/src/components/common/KeysetLoadMore.tsx`. Non-consumable Stock
+Operations panels, the purchase/sales-return registers and `CustomerLedger`
+still use their prior bounded reads; the serial-focused audit lookup keeps its
+targeted capped read.
+
+`GET /api/bootstrap` now carries only the identity/permission shell, switchable
+branches, fiscal-year context, company profile, settings/preferences and
+`dataVersion`/ETag. The master and ledger arrays hydrate from
+`GET /api/bootstrap/local?key=…` after first paint. The measured shell is
+**2,489 B gzip** on the demo database and **10,421 B gzip** with 500 branches;
+the budget test is `tests/scale2BootstrapBudget.test.ts`.
 
 > **Guarded:** these are the only server-paged lists in the app. Adding a
 > `pageSize:` request key to any other feature screen fails
@@ -580,7 +627,14 @@ so a page does not sort a branch's whole history.
 
 The PostgreSQL pool defaults to **40** connections (`PG_POOL_MAX`) instead of
 20, which keeps ordinary reads moving behind long report queries on a
-single-instance deployment. JSON responses above 1 KiB are gzip-compressed.
+single-instance deployment. `PG_STATEMENT_TIMEOUT_MS` (default 30,000; `0`
+disables) is applied as a session startup parameter on both the primary and
+reporting pools, so a runaway statement becomes the typed 503 instead of
+holding a connection. The breaker knobs — `DB_BREAKER_FAILURE_THRESHOLD` (3),
+`DB_BREAKER_WINDOW_MS` (30,000), `DB_BREAKER_COOLDOWN_MS` (5,000),
+`DB_BREAKER_MAX_COOLDOWN_MS` (30,000) and `DB_RETRY_AFTER_SECONDS` (2) — are
+validated at boot; an invalid value stops startup instead of silently using a
+default. JSON responses above 1 KiB are gzip-compressed.
 For more than one application instance, put PgBouncer in front of PostgreSQL
 and keep the sum of instance pool sizes below the database's connection
 budget; for reporting-heavy loads, move the financial reports to a read
@@ -766,7 +820,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 2411-test suite against a PostgreSQL 16 service container (zero DB skips;
+  full 2517-test suite against a PostgreSQL 16 service container (zero DB skips;
   the two unconditional skips are Windows-only real-signal checks, which CI runs,
   and the live-drain check runs under `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1` so its
   preconditions cannot silently skip it) →

@@ -301,7 +301,10 @@ describe('GET /api/bootstrap: an unusable fiscal-year master is reported honestl
       assert.equal(status, 200, `expected the normal payload, got ${status}: ${body.slice(0, 300)}`);
       assert.equal(json?.financialSummary?.currentFiscalYear, seeded.code);
       assert.equal(json?.fiscalYears?.length, INITIAL_MASTER_FISCAL_YEARS.length);
-      assert.ok(Array.isArray(json?.stock), 'the operational slices must be present');
+      // SCALE-2: stock/products/etc. are deferred slices now; the fiscal-year
+      // shell and its context must still be present.
+      assert.equal(json?.stock, undefined, 'stock left first paint for the deferred slice');
+      assert.ok(Array.isArray(json?.branches), 'the branch shell must be present');
       // VOL-3: shipments left the bootstrap payload; the register pages and
       // the overview aggregate serve every consumer instead.
       assert.ok(!('shipments' in (json || {})), 'the payload must not carry the transfer history');
@@ -325,7 +328,8 @@ describe('GET /api/bootstrap: an unusable fiscal-year master is reported honestl
         current.code,
         'an explicit past-year view must still report which year is current'
       );
-      assert.ok(Array.isArray(json?.stock), 'the past-year view serves its opening-stock ledger from fiscal_year_opening_stock');
+      assert.equal(json?.stock, undefined, 'the past-year stock slice is deferred too');
+      assert.ok(Array.isArray(json?.fiscalYears), 'the past-year context must still report every year');
     });
 
     test('an explicit id that no longer exists is a 400 even while the master is usable', { skip: !process.env.DATABASE_URL }, async (t) => {

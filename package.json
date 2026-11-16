@@ -12,6 +12,10 @@
     "integrity:check": "node scripts/integrity_check.mjs",
     "smoke": "node scripts/smoke_test.mjs",
     "bench:write": "node scripts/bench_write_latency.mjs",
+    "perf:bootstrap": "node scripts/load_probe_bootstrap.mjs",
+    "measure:bootstrap": "node scripts/measure_bootstrap_payload.mjs",
+    "backup": "bash scripts/backup.sh",
+    "check:restore-drill": "node scripts/check_restore_drill.mjs",
     "bench:phase0a": "tsx scripts/phase0a_baseline.ts",
     "bench:phase0b": "tsx scripts/phase0b_baseline.ts",
     "setup:pg": "node scripts/setup_db.js",
@@ -43,6 +47,7 @@
     "qs": "^6.16.0",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
+    "redis": "^5.12.2",
     "uuid": "^14.0.2",
     "vite": "^6.2.3"
   },

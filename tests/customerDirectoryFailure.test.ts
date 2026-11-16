@@ -95,17 +95,22 @@ describe('pgPool — connection flag under pool saturation', () => {
   test('a pool acquire timeout leaves the database marked as connected', { skip: skipNoDb }, async () => {
     setIsPgConnected(true);
     const held = await realPoolInstance.connect();
-    let message = '';
+    let failure: any = null;
     try {
       await pgPool.query('SELECT 1');
       assert.fail('the held connection should have starved the pool');
     } catch (err: any) {
-      message = String(err?.message || '');
+      failure = err;
     } finally {
       held.release();
     }
 
-    assert.match(message, /timeout exceeded when trying to connect/i);
+    // OPS-1: the raw pg-pool timeout is an internal detail. The caller gets a
+    // retryable typed error and the driver text stays in the server log.
+    assert.equal(failure?.status, 503);
+    assert.equal(failure?.code, 'DB_BUSY');
+    assert.match(String(failure?.message || ''), /busy/i);
+    assert.doesNotMatch(String(failure?.message || ''), /timeout exceeded/i);
     assert.equal(
       getIsPgConnected(),
       true,

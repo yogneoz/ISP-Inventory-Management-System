@@ -37,7 +37,8 @@ import {
   BookOpen,
   Wallet,
 } from 'lucide-react';
-import { TablePagination } from '../../components/common/TablePagination';
+import { KeysetLoadMore } from '../../components/common/KeysetLoadMore';
+import { useKeysetPager } from '../../hooks/useKeysetPager';
 import { useDialog } from '../../components/common/DialogProvider';
 import { FilterCard } from '../../components/common/FilterCard';
 import { ModalPanel } from '../../components/common/ModalPanel';
@@ -103,7 +104,11 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
   // FilterCard owns the keystroke draft; an export clicked before the debounce
   // applies must use the text the operator can see, not the previous search.
   const searchDraftRef = useRef<string | null>(null);
-  const [selectedBranchFilter, setSelectedBranchFilter] = useState('ALL');
+  const defaultBranchFilter =
+    (currentUser?.branchId && currentUser.branchId !== 'ALL' ? currentUser.branchId : '') ||
+    branches[0]?.id ||
+    'ALL';
+  const [selectedBranchFilter, setSelectedBranchFilter] = useState(defaultBranchFilter);
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
   const [billTerms, setBillTerms] = useState<BillTerm[]>([]);
   const [areas, setAreas] = useState<Area[]>([]);
@@ -303,64 +308,47 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
     }
   };
 
-  // Server-side read: page/pageSize/status are forwarded to the paged
-  // GET /api/customers endpoint. React holds ONLY the current page slice; the
-  // response also carries the filtered totals so the KPI cards describe the
-  // whole result set, not just the visible page.
-  const [customersPage, setCustomersPage] = useState(1);
-  const [customersPageSize, setCustomersPageSize] = useState(15);
-  const [customersRows, setCustomersRows] = useState<CustomerRecord[]>([]);
+  // Cursor read: every request after the first sends the signed nextCursor,
+  // so inserts committed while an operator pages cannot shift the window.
   const [customersTotalItems, setCustomersTotalItems] = useState(0);
   const [customersActiveItems, setCustomersActiveItems] = useState(0);
   const [customersTotalCredit, setCustomersTotalCredit] = useState(0);
-  const [customersLoadError, setCustomersLoadError] = useState('');
-  const [customersLoading, setCustomersLoading] = useState(true);
   const [customersRefreshKey, setCustomersRefreshKey] = useState(0);
-  const customersFetchSeq = useRef(0);
   const [partyBalances, setPartyBalances] = useState<Record<string, PartyLedgerBalanceRow>>({});
   const [receivableControl, setReceivableControl] = useState<PartyControlAccount | null>(null);
 
-  const loadCustomersPage = useCallback(async () => {
-    const seq = ++customersFetchSeq.current;
-    setCustomersLoading(true);
-    setCustomersLoadError('');
-    try {
-      const envelope = await api.getCustomers({
-        branchId: selectedBranchFilter !== 'ALL' ? selectedBranchFilter : undefined,
-        query: searchQuery.trim() || undefined,
-        status: statusFilter !== 'ALL' ? statusFilter : undefined,
-        page: customersPage,
-        pageSize: customersPageSize,
-      });
-      if (seq !== customersFetchSeq.current) return; // a newer request owns the page
-      setCustomersRows(envelope.data);
-      setCustomersTotalItems(envelope.totalItems);
-      setCustomersActiveItems(envelope.activeItems);
-      setCustomersTotalCredit(envelope.totalCreditLimit);
-    } catch (err: any) {
-      if (seq !== customersFetchSeq.current) return;
-      // Keep the last good page on screen; the banner says it may be stale.
-      setCustomersLoadError(err?.message || 'Could not load the customer directory.');
-    } finally {
-      if (seq === customersFetchSeq.current) setCustomersLoading(false);
-    }
-  }, [selectedBranchFilter, searchQuery, statusFilter, customersPage, customersPageSize]);
+  const fetchCustomersPage = useCallback(async (cursor: string | null) => {
+    const envelope = await api.getCustomers({
+      branchId: selectedBranchFilter !== 'ALL' ? selectedBranchFilter : undefined,
+      query: searchQuery.trim() || undefined,
+      status: statusFilter !== 'ALL' ? statusFilter : undefined,
+      cursor,
+      limit: 15,
+    });
+    return {
+      items: envelope.items || envelope.data || [],
+      nextCursor: envelope.nextCursor ?? null,
+      hasMore: Boolean(envelope.hasMore),
+      meta: {
+        totalItems: envelope.totalItems,
+        activeItems: envelope.activeItems,
+        totalCreditLimit: envelope.totalCreditLimit,
+      },
+    };
+  }, [selectedBranchFilter, searchQuery, statusFilter]);
 
-  useEffect(() => {
-    loadCustomersPage();
-  }, [loadCustomersPage, customersRefreshKey, sseRefreshKey]);
-
-  // A delete can remove the last row of the last page; never keep asking the
-  // server for a page that no longer exists.
-  useEffect(() => {
-    const lastPage = Math.max(1, Math.ceil(customersTotalItems / customersPageSize));
-    if (customersPage > lastPage) setCustomersPage(lastPage);
-  }, [customersTotalItems, customersPageSize, customersPage]);
-
-  const customersPageCount = Math.max(1, Math.ceil(customersTotalItems / customersPageSize));
-  const customersSafePage = Math.min(customersPage, customersPageCount);
-  const customersRangeStart = customersTotalItems === 0 ? 0 : (customersSafePage - 1) * customersPageSize + 1;
-  const customersRangeEnd = Math.min(customersSafePage * customersPageSize, customersTotalItems);
+  const customersPager = useKeysetPager({
+    fetchPage: fetchCustomersPage,
+    resetKey: [selectedBranchFilter, searchQuery, statusFilter, customersRefreshKey, sseRefreshKey].join('\u0000'),
+    onPage: (page) => {
+      setCustomersTotalItems(page.meta?.totalItems ?? 0);
+      setCustomersActiveItems(page.meta?.activeItems ?? 0);
+      setCustomersTotalCredit(page.meta?.totalCreditLimit ?? 0);
+    },
+  });
+  const customersRows = customersPager.rows;
+  const customersLoadError = customersPager.error;
+  const customersLoading = customersPager.loading;
   const recordCustomerRow = recordCustomer;
   const pinnedRecordCustomer =
     recordCustomerRow &&
@@ -690,15 +678,13 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
         searchValue={searchQuery}
         onSearchApply={(query) => {
           setSearchQuery(query);
-          setCustomersPage(1);
         }}
         onSearchDraftChange={(draft) => { searchDraftRef.current = draft; }}
         hasActiveFilters={Boolean(searchQuery) || selectedBranchFilter !== 'ALL' || statusFilter !== 'ALL'}
         onClearAll={() => {
           setSearchQuery('');
-          setSelectedBranchFilter('ALL');
+          setSelectedBranchFilter(defaultBranchFilter);
           setStatusFilter('ALL');
-          setCustomersPage(1);
         }}
         filterChildren={
           <>
@@ -708,7 +694,6 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                 value={selectedBranchFilter}
                 onChange={(e) => {
                   setSelectedBranchFilter(e.target.value);
-                  setCustomersPage(1);
                 }}
                 className="px-3 py-2 text-xs rounded-xl border outline-none font-medium bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-white cursor-pointer"
               >
@@ -726,7 +711,6 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                 value={statusFilter}
                 onChange={(e) => {
                   setStatusFilter(e.target.value as any);
-                  setCustomersPage(1);
                 }}
                 className="px-3 py-2 text-xs rounded-xl border outline-none font-medium bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-white cursor-pointer"
               >
@@ -753,7 +737,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
           </div>
           <button
             type="button"
-            onClick={() => { void loadCustomersPage(); }}
+            onClick={customersPager.reload}
             disabled={customersLoading}
             className="flex items-center gap-1.5 rounded-lg border border-rose-300 px-2.5 py-1 text-[11px] font-bold hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-500/40 dark:hover:bg-rose-900/40"
           >
@@ -1089,18 +1073,12 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
             </tbody>
           </table>
         </div>
-        <TablePagination
-          page={customersSafePage}
-          pageCount={customersPageCount}
-          totalItems={customersTotalItems}
-          rangeStart={customersRangeStart}
-          rangeEnd={customersRangeEnd}
-          pageSize={customersPageSize}
-          onPageChange={setCustomersPage}
-          onPageSizeChange={(size) => {
-            setCustomersPageSize(size);
-            setCustomersPage(1);
-          }}
+        <KeysetLoadMore
+          loaded={customersRows.length}
+          hasMore={customersPager.hasMore}
+          loadingMore={customersPager.loadingMore}
+          onLoadMore={customersPager.loadMore}
+          scopeError={customersPager.scopeError ? customersPager.error : ''}
           className="mt-1"
         />
       </div>

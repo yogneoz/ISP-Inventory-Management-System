@@ -1106,7 +1106,29 @@ export default function App() {
   // the movement ledger, StockOperations' panels and global search — keep
   // their data with identical freshness while first paint gets a lighter
   // payload. The self-fetching registers don't need these slices at all.
-  const DEFERRED_BOOTSTRAP_SLICES = ['stockOperations', 'purchaseOrders', 'purchaseInvoices'];
+  const DEFERRED_BOOTSTRAP_SLICES = [
+    // SCALE-2: the master/stock arrays left the login payload. They hydrate
+    // from the same targeted-slice endpoint the SSE refresh uses, after first
+    // paint, so bootstrap stays bounded as the installation grows.
+    'products',
+    'stock',
+    'suppliers',
+    'categories',
+    'productGroups',
+    'uom',
+    'locations',
+    'approvalRequests',
+    'damageRecords',
+    'stockOperations',
+    'purchaseOrders',
+    'purchaseInvoices',
+    // OPS-3: returns and the audit trail left the full payload. The returns
+    // sheets still self-fetch their pages; this slice keeps the returnable-qty
+    // calculation and the Activities Log fed without a login-sized array.
+    'purchaseReturns',
+    'salesReturns',
+    'auditLogs',
+  ];
   /**
    * One loader for both hydration paths (C1): the deferred ledgers below and the
    * SSE targeted refresh both report through here, so a failure behaves
@@ -3404,7 +3426,12 @@ export default function App() {
         />
     )),
     screenRoute('subledgers', (
-        <SubledgersManagement branches={branches} currentUser={currentUser} />
+        <SubledgersManagement
+          branches={branches}
+          currentUser={currentUser}
+          fiscalYearStartAD={selectedFiscalYear?.startDateAD}
+          fiscalYearEndAD={selectedFiscalYear?.endDateAD}
+        />
     )),
     screenRoute('lenders', (
         <LendersManagement

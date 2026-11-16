@@ -64,6 +64,12 @@ const cacheSamples: CacheRefreshSample[] = [];
 let cachePasses = 0;
 let cacheSlowPasses = 0;
 
+let dbBreakerOpens = 0;
+let dbBreakerHalfOpenProbes = 0;
+let dbBreakerCloses = 0;
+let dbAcquireTimeouts = 0;
+let dbStatementTimeouts = 0;
+
 function boundedPush<T>(items: T[], value: T, limit: number): void {
   items.push(value);
   if (items.length > limit) items.splice(0, items.length - limit);
@@ -141,6 +147,17 @@ export function recordDbQuery(durationMs: number, sql: string, failed: boolean):
   }
 }
 
+export function recordDbBreakerEvent(event: 'opened' | 'half_open' | 'closed'): void {
+  if (event === 'opened') dbBreakerOpens += 1;
+  else if (event === 'half_open') dbBreakerHalfOpenProbes += 1;
+  else dbBreakerCloses += 1;
+}
+
+export function recordDbTimeout(kind: 'acquire' | 'statement'): void {
+  if (kind === 'acquire') dbAcquireTimeouts += 1;
+  else dbStatementTimeouts += 1;
+}
+
 export function recordPoolAcquire(durationMs: number, failed = false): void {
   poolAcquireCount += 1;
   if (failed) poolAcquireErrors += 1;
@@ -188,6 +205,11 @@ export function resetPerformanceMetrics(): void {
   cacheSamples.length = 0;
   cachePasses = 0;
   cacheSlowPasses = 0;
+  dbBreakerOpens = 0;
+  dbBreakerHalfOpenProbes = 0;
+  dbBreakerCloses = 0;
+  dbAcquireTimeouts = 0;
+  dbStatementTimeouts = 0;
 }
 
 export function performanceSnapshot() {
@@ -236,6 +258,13 @@ export function performanceSnapshot() {
       slowQueryThresholdMs: slowQueryThresholdMs(),
       slowQueryCount,
       recentSlowQueries: [...slowQueries],
+      availability: {
+        breakerOpens: dbBreakerOpens,
+        halfOpenProbes: dbBreakerHalfOpenProbes,
+        breakerCloses: dbBreakerCloses,
+        acquireTimeouts: dbAcquireTimeouts,
+        statementTimeouts: dbStatementTimeouts,
+      },
     },
     cacheRefresh: {
       passes: cachePasses,

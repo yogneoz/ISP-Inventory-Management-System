@@ -301,6 +301,8 @@ export const CUSTOMER_DEVICE_COUNT_SQL =
 
 export const CUSTOMER_PAGE_SIZE_DEFAULT = 15;
 export const CUSTOMER_PAGE_SIZE_MAX = 100;
+/** SCALE-2 hard bound for the CSV/PDF `all=1` path. */
+export const CUSTOMER_EXPORT_MAX = 10000;
 
 /** Options shared by the list, aggregate and count queries. */
 export interface CustomerListQueryOptions {
@@ -326,6 +328,8 @@ export interface CustomerListQueryOptions {
    * remain for older clients and the existing footer contract.
    */
   cursor?: { name: string; id: string };
+  /** First keyset page: no OFFSET, fetch limit+1 and emit a cursor. */
+  keyset?: boolean;
 }
 
 /** Only the two statuses the directory offers are filters; never trust the query string. */
@@ -389,7 +393,11 @@ export function normalizeCustomerPaging(page?: unknown, pageSize?: unknown): { p
     ? Math.min(CUSTOMER_PAGE_SIZE_MAX, requestedSize)
     : CUSTOMER_PAGE_SIZE_DEFAULT;
   const requestedPage = Math.floor(Number(page));
-  return { page: Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1, pageSize: size };
+  const maxPage = Math.max(1, Math.floor(10000 / size));
+  return {
+    page: Math.min(maxPage, Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1),
+    pageSize: size,
+  };
 }
 
 /**
@@ -405,7 +413,7 @@ export function buildCustomerListQuery(opts: CustomerListQueryOptions = {}): {
 } {
   const { whereSql, params } = buildCustomerListWhere(opts);
   const paging = normalizeCustomerPaging(opts.page, opts.pageSize);
-  const useCursor = Boolean(opts.cursor) && !opts.all;
+  const useCursor = Boolean(opts.cursor || opts.keyset) && !opts.all;
   let cursorSql = '';
   if (useCursor && opts.cursor) {
     params.push(opts.cursor.name, opts.cursor.id);
@@ -421,6 +429,10 @@ export function buildCustomerListQuery(opts: CustomerListQueryOptions = {}): {
     const limit = useCursor ? paging.pageSize + 1 : paging.pageSize;
     sql += ` LIMIT ${limit}`;
     if (!useCursor) sql += ` OFFSET ${(paging.page - 1) * paging.pageSize}`;
+  } else {
+    // A CSV/PDF export is capped: a national directory is streamed in bounded
+    // windows rather than materializing an unbounded result set.
+    sql += ` LIMIT ${CUSTOMER_EXPORT_MAX}`;
   }
   return {
     sql,

@@ -10,6 +10,9 @@ import { getPgConnected, pgPool, uomList, setUomList, withReplaced, withAppended
 import { defaultVatRateFor } from '../utils/money';
 import { warrantyTermError } from '../../../shared/warrantyTerm';
 import { findAreaById, findSalesAgentById } from './salesMasters.controller';
+import { decodeKeysetCursor, encodeKeysetCursor } from '../utils/keysetCursor';
+import { requireLargeTableScope } from '../utils/keysetCursor';
+import { keysetLimit } from '../utils/keysetCursor';
 
 /**
  * Customers carry the sales dimensions as defaults. Resolve them here so an
@@ -883,27 +886,18 @@ try {
 }
 
 function encodeCustomerCursor(row: any): string {
-  return Buffer.from(
-    JSON.stringify([String(row?.customerName ?? ''), String(row?.customerId ?? '')]),
-    'utf8'
-  ).toString('base64url');
+  return encodeKeysetCursor('customers', [String(row?.customerName ?? ''), String(row?.customerId ?? '')]);
 }
 
 function decodeCustomerCursor(raw: unknown): { name: string; id: string } | null {
-  if (typeof raw !== 'string' || !raw.trim()) return null;
-  try {
-    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
-    if (!Array.isArray(parsed) || parsed.length !== 2) return null;
-    if (typeof parsed[0] !== 'string' || typeof parsed[1] !== 'string') return null;
-    return { name: parsed[0], id: parsed[1] };
-  } catch {
-    return null;
-  }
+  const values = decodeKeysetCursor(raw, 'customers', 2);
+  return values ? { name: String(values[0]), id: String(values[1]) } : null;
 }
 
 export async function get_customers(req: any, res: Response): Promise<any> {
-const { branchId, query, status, page, pageSize, all, cursor } = req.query;
+const { branchId, query, status, page, pageSize, all, cursor, limit } = req.query;
   const parsedCursor = cursor === undefined ? undefined : decodeCustomerCursor(cursor);
+  if ((cursor !== undefined || limit !== undefined) && !requireLargeTableScope(res, { branchId, report: true })) return;
   if (cursor !== undefined && !parsedCursor) {
     return res.status(400).json({ message: 'The customer page cursor is invalid. Reload the directory and retry.' });
   }
@@ -934,7 +928,11 @@ const { branchId, query, status, page, pageSize, all, cursor } = req.query;
     scopedBranchId = undefined;
   }
 
-  const options = { branchId: scopedBranchId, branchScope, query, status, page, pageSize, all: exportAll, cursor: parsedCursor || undefined };
+  const keysetPageSize = limit === undefined ? pageSize : keysetLimit(limit, 15, 100);
+  const options = {
+    branchId: scopedBranchId, branchScope, query, status, page, pageSize: keysetPageSize,
+    all: exportAll, cursor: parsedCursor || undefined, keyset: limit !== undefined,
+  };
 
   if (getPgConnected()) {
     try {
@@ -961,6 +959,7 @@ const { branchId, query, status, page, pageSize, all, cursor } = req.query;
       const last = data[data.length - 1];
       res.json({
         data,
+        items: data,
         page: list.page,
         pageSize: exportAll ? data.length : list.pageSize,
         totalItems: totals.totalItems,
@@ -1046,6 +1045,7 @@ const { branchId, query, status, page, pageSize, all, cursor } = req.query;
 
   res.json({
     data,
+    items: data,
     page: parsedCursor ? 1 : paging.page,
     pageSize: exportAll ? data.length : paging.pageSize,
     totalItems: sorted.length,

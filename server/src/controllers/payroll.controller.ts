@@ -16,6 +16,7 @@
  */
 import crypto from 'crypto';
 import type { Response } from 'express';
+import { rememberSessionVersion } from '../state/sessionVersion';
 import {
   getPgConnected,
   permissionMatrix,
@@ -535,7 +536,9 @@ async function syncEmployeeLoginStatus(
   if (!row) return;
   const idx = users.findIndex((user) => user.id === employee.userId);
   if (idx !== -1) {
-    setUsers(withReplaced(users, idx, { ...users[idx], status: row.status } as any));
+    const updated = { ...users[idx], status: row.status } as any;
+    setUsers(withReplaced(users, idx, updated));
+    await rememberSessionVersion(updated);
   }
   await logAuditEvent(
     req,

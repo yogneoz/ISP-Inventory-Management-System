@@ -4,7 +4,7 @@ Status: **phases 1–2 implemented 2026-11-01** — table, resolver,
 `/api/permissions/me`, the administrator-only override endpoints (21 tests), and
 the `Settings → User Permissions` screen with the client effective-set
 integration (14 tests). The reusable permission sets (§10, "Phase 2 — reusable
-sets") are still open.
+sets") are implemented too (`PermissionSetsPanel.tsx`, `tests/permissionSets.test.ts`).
 Date: 2026-10-31
 Related: [authorization-audit-2026-10-28.md](authorization-audit-2026-10-28.md),
 `client/src/utils/permissionMatrixData.ts`, `server/src/middleware/index.ts`,

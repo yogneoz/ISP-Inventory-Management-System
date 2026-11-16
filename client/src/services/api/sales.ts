@@ -14,7 +14,9 @@ export async function getSalesInvoices(params?: {
   customerId?: string;
   dateFromAD?: string; dateToAD?: string;
   page?: number; pageSize?: number; all?: boolean;
-}): Promise<SalesInvoice[] | { data: SalesInvoice[]; page: number; pageSize: number; totalItems: number }> {
+  /** SCALE-2 keyset read: opaque cursor + bounded limit. */
+  cursor?: string | null; limit?: number;
+}): Promise<SalesInvoice[] | { data: SalesInvoice[]; items?: SalesInvoice[]; page: number; pageSize: number; totalItems?: number; nextCursor?: string | null; hasMore?: boolean }> {
   const search = new URLSearchParams();
   if (params?.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
   if (params?.customerId) search.append('customerId', params.customerId);
@@ -22,6 +24,8 @@ export async function getSalesInvoices(params?: {
   if (params?.query) search.append('query', params.query);
   if (params?.dateFromAD) search.append('dateFromAD', params.dateFromAD);
   if (params?.dateToAD) search.append('dateToAD', params.dateToAD);
+  if (params?.cursor) search.append('cursor', params.cursor);
+  if (params?.limit !== undefined) search.append('limit', String(params.limit));
   if (params?.all) search.append('all', '1');
   if (params?.page !== undefined) {
     search.append('page', String(params.page));

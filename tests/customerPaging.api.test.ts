@@ -29,6 +29,7 @@ import pg from 'pg';
 import dotenv from 'dotenv';
 import { createApp, registerAllRoutes } from '../server/src/app';
 import { issueAuthToken } from '../server/src/middleware/auth';
+import { invalidateCustomerKpis } from '../server/src/services/customerKpiCache';
 
 dotenv.config();
 
@@ -178,8 +179,10 @@ describe('GET /api/customers — paged customer directory contract (DF-01)', () 
   });
 
   test('a page past the end is an empty slice with the true total', { skip: skipNoDb }, async () => {
-    const first = await get('/api/customers?query=DF01&page=1&pageSize=2');
-    const far = await get('/api/customers?query=DF01&page=99&pageSize=2');
+    // SCALE-2: a keyset/global read must name a branch (or carry a date/FY
+    // scope). The national directory is never read without one.
+    const first = await get(`/api/customers?query=DF01&branchId=${BRANCH_A}&page=1&pageSize=2`);
+    const far = await get(`/api/customers?query=DF01&branchId=${BRANCH_A}&page=99&pageSize=2`);
     assert.equal(far.status, 200);
     assert.ok(isEnvelope(far.json));
     assert.deepEqual(far.json.data, []);
@@ -221,13 +224,25 @@ describe('GET /api/customers — paged customer directory contract (DF-01)', () 
     assert.equal(first.json.hasMore, true);
     assert.ok(first.json.nextCursor, 'page 1 must expose the next keyset anchor');
 
+    // A row committed while the operator is between pages, sorted before the
+    // page-1 anchor. The signed cursor must keep page 2 on Charlie/Delta.
+    await pool!.query(
+      `INSERT INTO customer_records
+         (id, customer_id, customer_name, username, contact_number, branch_id, address, email, status, credit_limit, assigned_devices_count)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0)`,
+      ['df01-cnew', 'DF01-NEW', 'DF01 Aardvark', 'df01-new', '9800000000', BRANCH_A, 'Kathmandu', 'df01-new@example.com', 'ACTIVE', 50]
+    );
+    // The app's real write path invalidates the KPI totals; a direct SQL fixture
+    // has to do the same or the cached branch total would intentionally stay old.
+    invalidateCustomerKpis();
+
     const second = await get(
-      '/api/customers?query=DF01&pageSize=2&cursor=' + encodeURIComponent(first.json.nextCursor)
+      `/api/customers?query=DF01&branchId=${BRANCH_A}&pageSize=2&cursor=` + encodeURIComponent(first.json.nextCursor)
     );
     assert.equal(second.status, 200, JSON.stringify(second.json));
     assert.equal(second.json.page, 1, 'a cursor request is not an OFFSET page');
     assert.deepEqual(second.json.data.map((c: any) => c.customerName), ['DF01 Charlie', 'DF01 Delta']);
-    assert.equal(second.json.totalItems, 6);
+    assert.equal(second.json.totalItems, 6, 'the branch-scoped directory sees the concurrent insert');
     assert.ok(second.json.nextCursor);
 
     const firstIds = new Set(first.json.data.map((c: any) => c.id));
@@ -235,7 +250,7 @@ describe('GET /api/customers — paged customer directory contract (DF-01)', () 
   });
 
   test('an invalid cursor is a 400, not an unfiltered page', { skip: skipNoDb }, async () => {
-    const { status, json } = await get('/api/customers?query=DF01&cursor=not-a-cursor');
+    const { status, json } = await get(`/api/customers?query=DF01&branchId=${BRANCH_A}&cursor=not-a-cursor`);
     assert.equal(status, 400);
     assert.match(json.message, /cursor is invalid/i);
   });
@@ -244,9 +259,9 @@ describe('GET /api/customers — paged customer directory contract (DF-01)', () 
     const { status, json } = await get('/api/customers?query=DF01&all=1');
     assert.equal(status, 200, JSON.stringify(json));
     assert.ok(isEnvelope(json));
-    assert.equal(json.data.length, 6);
-    assert.equal(json.totalItems, 6);
-    assert.equal(json.pageSize, 6, 'the export envelope reports the row count');
+    assert.equal(json.data.length, 7, 'the cursor test leaves one concurrent fixture behind until cleanup');
+    assert.equal(json.totalItems, 7);
+    assert.equal(json.pageSize, 7, 'the export envelope reports the row count');
   });
 
   test('page and pageSize are clamped and echoed', { skip: skipNoDb }, async () => {

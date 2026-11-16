@@ -51,7 +51,7 @@ describe('requirePostgres fail-closed gate (PostgreSQL unreachable)', () => {
     server?.close();
   });
 
-  function call(method: string, path: string, body?: string): Promise<{ status: number; body: string }> {
+  function call(method: string, path: string, body?: string): Promise<{ status: number; body: string; headers: http.IncomingHttpHeaders }> {
     return new Promise((resolve, reject) => {
       const r = http.request(
         {
@@ -64,7 +64,7 @@ describe('requirePostgres fail-closed gate (PostgreSQL unreachable)', () => {
         (res) => {
           let data = '';
           res.on('data', (c) => (data += c));
-          res.on('end', () => resolve({ status: res.statusCode || 0, body: data }));
+          res.on('end', () => resolve({ status: res.statusCode || 0, body: data, headers: res.headers }));
         }
       );
       r.on('error', reject);
@@ -84,13 +84,19 @@ describe('requirePostgres fail-closed gate (PostgreSQL unreachable)', () => {
       })
     );
     assert.equal(res.status, 503, `expected 503, got ${res.status}: ${res.body.slice(0, 200)}`);
-    assert.match(res.body, /PostgreSQL is unavailable/);
+    const payload = JSON.parse(res.body);
+    assert.equal(payload.code, 'DB_UNAVAILABLE');
+    assert.match(payload.message, /temporarily unavailable/i);
+    assert.ok(Number(res.headers['retry-after']) >= 1, 'Retry-After must be present');
   });
 
   test('an authenticated READ 503s too — no endpoint serves or mutates mirrors without the database', async () => {
     const res = await call('GET', '/api/stock');
     assert.equal(res.status, 503, `expected 503, got ${res.status}: ${res.body.slice(0, 200)}`);
-    assert.match(res.body, /PostgreSQL is unavailable/);
+    const payload = JSON.parse(res.body);
+    assert.equal(payload.code, 'DB_UNAVAILABLE');
+    assert.match(payload.message, /temporarily unavailable/i);
+    assert.ok(Number(res.headers['retry-after']) >= 1, 'Retry-After must be present');
   });
 
   test('/api/health stays up so monitoring can see the outage', async () => {

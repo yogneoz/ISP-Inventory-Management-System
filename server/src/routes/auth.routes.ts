@@ -50,9 +50,9 @@ app.post('/api/auth/login',
 // Manual release for the sign-in limiter (authorised people only). The buckets
 // live in this process's memory, so this endpoint is the only way to lift a
 // block before its one-minute window elapses.
-app.get('/api/auth/rate-limit', requirePermission('admin-users'), (req, res) => get_authRateLimitBlocks(req, res));
+app.get('/api/auth/rate-limit', requirePermission('admin-users'), async (req, res, next) => { get_authRateLimitBlocks(req, res).catch(next); });
 
-app.post('/api/auth/rate-limit/release', requirePermission('admin-users'), (req, res) => post_releaseAuthRateLimit(req, res));
+app.post('/api/auth/rate-limit/release', requirePermission('admin-users'), async (req, res, next) => { post_releaseAuthRateLimit(req, res).catch(next); });
 
 app.get('/api/auth/me', async (req, res, next) => { get_me(req as any, res as any).catch(next); });
 

@@ -908,6 +908,28 @@ export function buildJournalPageQuery(opts: JournalListOptions): { sql: string; 
   };
 }
 
+/**
+ * SCALE-2 keyset page for the journal register. `journal_no` is nullable, so
+ * the composite expression is COALESCEd on both the ORDER BY and the cursor
+ * comparison; `id` then breaks every remaining tie.
+ */
+export function buildJournalKeysetQuery(
+  opts: JournalListOptions,
+  cursor: [string, string, string] | undefined,
+  limit: number
+): { sql: string; params: unknown[]; limit: number } {
+  const { whereSql, params } = buildJournalWhere(opts);
+  let sql = `${JOURNAL_HEADER_SQL}${whereSql}`;
+  if (cursor) {
+    params.push(cursor[0], cursor[1], cursor[2]);
+    sql += ` AND (j.journal_date_ad, COALESCE(j.journal_no, ''), j.id) < ` +
+      `($${params.length - 2}::date, $${params.length - 1}, $${params.length})`;
+  }
+  sql += ` ORDER BY j.journal_date_ad DESC, COALESCE(j.journal_no, '') DESC, j.id DESC` +
+    ` LIMIT ${limit + 1}`;
+  return { sql, params, limit };
+}
+
 export function buildJournalCountQuery(opts: JournalListOptions): { sql: string; params: unknown[] } {
   const { whereSql, params } = buildJournalWhere(opts);
   return {
@@ -2100,6 +2122,26 @@ WHERE s.attributed_book_id = $1
   AND ($4::varchar IS NULL OR s.branch_id = $4)
 GROUP BY s.party_id
 ORDER BY balance DESC NULLS LAST`;
+
+/**
+ * SCALE-2 keyset variant of the book ledger: `(entry_date_ad, id)` descending.
+ * The cursor is appended as $5/$6 after the four scope parameters.
+ */
+export function buildSubledgerBookEntriesQuery(
+  cursor: [string, string] | undefined,
+  limit?: number
+): { sql: string; params: unknown[] } {
+  const marker = 'ORDER BY s.entry_date_ad DESC, s.id DESC';
+  let sql = SUBLEDGER_BOOK_ENTRIES_SQL;
+  if (cursor) {
+    sql = sql.replace(
+      marker,
+      `AND (s.entry_date_ad, s.id) < ($5::date, $6)\n${marker}`
+    );
+  }
+  if (limit) sql += `\nLIMIT ${limit + 1}`;
+  return { sql, params: cursor ? [cursor[0], cursor[1]] : [] };
+}
 
 /** Rows on the book's control account that still carry no book id, in scope. */
 export const SUBLEDGER_BOOK_UNLINKED_COUNT_SQL = `SELECT COUNT(*)::int AS count

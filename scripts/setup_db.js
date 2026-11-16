@@ -21,6 +21,8 @@
 import fs from 'fs';
 import path from 'path';
 import { execFileSync, execSync } from 'child_process';
+import { createHash } from 'crypto';
+import { fileURLToPath } from 'url';
 import pg from 'pg';
 import dotenv from 'dotenv';
 
@@ -36,7 +38,238 @@ const DB_CONFIG = {
   password: process.env.POSTGRES_PASSWORD || 'securepassword',
 };
 
-const KEEP_DATA = process.argv.includes('--keep-data');
+const IS_MAIN =
+  Boolean(process.argv[1]) && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+
+const DEFAULT_BACKUP_VERIFY_MAX_AGE_HOURS = 24;
+const DESTRUCTIVE_GUARD_COMMANDS = [
+  'bash scripts/backup.sh',
+  'npm run check:restore-drill',
+  'npm run setup:pg -- --force',
+];
+
+function sha256File(file) {
+  return createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+}
+
+function parseMarker(text) {
+  const marker = {};
+  for (const line of text.split(/\r?\n/)) {
+    const match = /^([A-Za-z_]+)=(.*)$/.exec(line.trim());
+    if (match) marker[match[1]] = match[2];
+  }
+  return marker;
+}
+
+function baseOfName(name) {
+  if (name.endsWith('.dump.gpg')) return name.slice(0, -'.dump.gpg'.length);
+  if (name.endsWith('.dump')) return name.slice(0, -'.dump'.length);
+  if (name.endsWith('.verified')) return name.slice(0, -'.verified'.length);
+  return null;
+}
+
+function listBackupCandidates(dir) {
+  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return [];
+  const bases = new Set();
+  for (const name of fs.readdirSync(dir)) {
+    const base = baseOfName(name);
+    if (base) bases.add(base);
+  }
+  return [...bases].map((base) => {
+    const dump = path.join(dir, `${base}.dump`);
+    const encrypted = path.join(dir, `${base}.dump.gpg`);
+    const dataPath = fs.existsSync(dump) ? dump : fs.existsSync(encrypted) ? encrypted : null;
+    const markerPath = path.join(dir, `${base}.verified`);
+    const marker = fs.existsSync(markerPath)
+      ? parseMarker(fs.readFileSync(markerPath, 'utf8'))
+      : null;
+    const verifiedAt = marker?.verified_at ? Date.parse(marker.verified_at) : NaN;
+    let mtime = 0;
+    try {
+      const stampPath = dataPath || markerPath;
+      mtime = stampPath ? fs.statSync(stampPath).mtimeMs : 0;
+    } catch {
+      mtime = 0;
+    }
+    return { base, dataPath, markerPath, marker, verifiedAt: Number.isFinite(verifiedAt) ? verifiedAt : null, mtime };
+  });
+}
+
+function formatAge(hours) {
+  return `${Math.max(0, hours).toFixed(1)} h`;
+}
+
+function newestDescription(candidates, nowMs) {
+  if (candidates.length === 0) return 'none';
+  const newest = [...candidates].sort((a, b) => {
+    const aAt = a.verifiedAt ?? a.mtime;
+    const bAt = b.verifiedAt ?? b.mtime;
+    return bAt - aAt;
+  })[0];
+  const at = newest.verifiedAt ?? newest.mtime;
+  const label = path.basename(newest.dataPath || newest.markerPath);
+  return `${label} (${formatAge((nowMs - at) / 3_600_000)} old${newest.marker ? '' : ', no .verified marker'})`;
+}
+
+function refused(reason, dir, candidates, nowMs, detail) {
+  const commands = DESTRUCTIVE_GUARD_COMMANDS.map((command, index) => `  ${index + 1}. ${command}`).join('\n');
+  return {
+    allowed: false,
+    reason,
+    exitCode: 1,
+    message: [
+      'BAK-4 destructive guard: refusing to wipe the database.',
+      `  BACKUP_DIR: ${dir}`,
+      `  newest dump: ${newestDescription(candidates, nowMs)}`,
+      `  ${detail}`,
+      'Run these commands in order:',
+      commands,
+    ].join('\n'),
+  };
+}
+
+/**
+ * Pure destructive-action decision used by setup:pg and tests. It performs no
+ * connection and no filesystem writes. The freshness proof deliberately uses
+ * the `.verified` marker timestamp and re-hashes the referenced archive, so a
+ * copied marker cannot make an incomplete backup look fresh.
+ */
+export function evaluateDestructiveGuard({
+  argv = process.argv.slice(2),
+  backupDir = process.env.BACKUP_DIR || path.join(process.cwd(), 'backups'),
+  now = new Date(),
+  env = process.env,
+} = {}) {
+  const dir = path.resolve(backupDir);
+  const nowMs = now instanceof Date ? now.getTime() : Number(now);
+  const candidates = listBackupCandidates(dir);
+  const keepData = argv.includes('--keep-data');
+  const force = argv.includes('--force');
+  const skipBackupCheck = argv.includes('--skip-backup-check');
+
+  if (keepData) {
+    return {
+      allowed: true,
+      reason: 'keep-data',
+      keepData: true,
+      message: '--keep-data passed: the destructive table wipe will be skipped.',
+    };
+  }
+
+  if (!force) {
+    return refused(
+      'force-required',
+      dir,
+      candidates,
+      nowMs,
+      'No --force flag was provided. This command truncates every operational table.'
+    );
+  }
+
+  if (skipBackupCheck) {
+    return {
+      allowed: true,
+      reason: 'skip-backup-check',
+      keepData: false,
+      message: '',
+      warning:
+        'BAK-4 warning: --skip-backup-check bypasses the fresh-backup proof. ' +
+        'Residual risk: the wipe can permanently destroy data that has no restorable backup. ' +
+        'Use it only for CI or a deliberately disposable database.',
+    };
+  }
+
+  const rawMax = env.BACKUP_VERIFY_MAX_AGE_HOURS;
+  const maxAgeHours = rawMax === undefined || rawMax === '' ? DEFAULT_BACKUP_VERIFY_MAX_AGE_HOURS : Number(rawMax);
+  if (!Number.isFinite(maxAgeHours) || maxAgeHours <= 0) {
+    return refused(
+      'invalid-max-age',
+      dir,
+      candidates,
+      nowMs,
+      `Invalid BACKUP_VERIFY_MAX_AGE_HOURS=${rawMax}; expected a positive number of hours.`
+    );
+  }
+
+  const verified = candidates
+    .filter((candidate) => candidate.marker)
+    .sort((a, b) => (b.verifiedAt ?? 0) - (a.verifiedAt ?? 0))[0];
+  if (!verified) {
+    return refused(
+      'no-verified-backup',
+      dir,
+      candidates,
+      nowMs,
+      `No verified backup younger than ${maxAgeHours} h (BACKUP_VERIFY_MAX_AGE_HOURS) was found.`
+    );
+  }
+  if (verified.verifiedAt === null) {
+    return refused(
+      'invalid-marker',
+      dir,
+      candidates,
+      nowMs,
+      `The .verified marker for ${verified.base} has no valid verified_at timestamp.`
+    );
+  }
+  if (!verified.dataPath) {
+    return refused(
+      'missing-dump',
+      dir,
+      candidates,
+      nowMs,
+      `The .verified marker references ${verified.base}, but no matching .dump or .dump.gpg exists.`
+    );
+  }
+
+  let recordedSha = verified.marker.sha256 || '';
+  if (!recordedSha) {
+    try {
+      recordedSha = fs.readFileSync(path.join(dir, `${verified.base}.sha256`), 'utf8').trim().split(/\s+/)[0] || '';
+    } catch {
+      recordedSha = '';
+    }
+  }
+  if (!recordedSha) {
+    return refused(
+      'missing-checksum',
+      dir,
+      candidates,
+      nowMs,
+      `The newest verified backup (${verified.base}) has no recorded SHA-256.`
+    );
+  }
+  const actualSha = sha256File(verified.dataPath);
+  if (actualSha !== recordedSha) {
+    return refused(
+      'checksum-mismatch',
+      dir,
+      candidates,
+      nowMs,
+      `The newest verified backup (${verified.base}) no longer matches its recorded SHA-256.`
+    );
+  }
+
+  const ageHours = (nowMs - verified.verifiedAt) / 3_600_000;
+  if (ageHours > maxAgeHours) {
+    return refused(
+      'stale-backup',
+      dir,
+      candidates,
+      nowMs,
+      `The newest verified backup is ${formatAge(ageHours)} old; the limit is ${maxAgeHours} h.`
+    );
+  }
+
+  return {
+    allowed: true,
+    reason: 'fresh-backup',
+    keepData: false,
+    message: '',
+    backup: verified.dataPath,
+    ageHours,
+  };
+}
 
 async function tryConnect(retries = 3, delayMs = 1500) {
   const pool = new Pool({ ...DB_CONFIG, connectionTimeoutMillis: 4000 });
@@ -139,12 +372,7 @@ function runDatasetSeeder() {
   });
 }
 
-console.log('------------------------------------------------------------------');
-console.log('🛠️  Automated PostgreSQL Setup Engine');
-console.log(`🎯 Target: ${DB_CONFIG.user}@${DB_CONFIG.host}:${DB_CONFIG.port}/${DB_CONFIG.database}`);
-console.log('------------------------------------------------------------------');
-
-async function runSetup() {
+async function runSetup(keepData) {
   let pool;
   try {
     pool = await tryConnect();
@@ -165,7 +393,7 @@ async function runSetup() {
 
   const client = await pool.connect();
   try {
-    if (KEEP_DATA) {
+    if (keepData) {
       console.log('🗑  --keep-data passed: skipping the wipe.');
     } else {
       await wipeOperationalData(client);
@@ -176,12 +404,35 @@ async function runSetup() {
     await pool.end();
   }
 
-  if (!KEEP_DATA) runMigrationRecorder();
+  if (!keepData) runMigrationRecorder();
   runDatasetSeeder();
   console.log('🎉 PostgreSQL setup verified and operational!');
 }
 
-runSetup().catch((err) => {
-  console.error('❌ Setup failed:', err);
-  process.exit(1);
-});
+async function main() {
+  const guard = evaluateDestructiveGuard();
+  if (!guard.allowed) {
+    console.error(guard.message);
+    process.exit(1);
+    return;
+  }
+  if (guard.message) console.log(guard.message);
+  if (guard.warning) console.warn(guard.warning);
+  if (guard.backup) {
+    console.log(`✅ BAK-4 fresh verified backup: ${guard.backup} (${guard.ageHours.toFixed(1)} h old).`);
+  }
+
+  console.log('------------------------------------------------------------------');
+  console.log('🛠️  Automated PostgreSQL Setup Engine');
+  console.log(`🎯 Target: ${DB_CONFIG.user}@${DB_CONFIG.host}:${DB_CONFIG.port}/${DB_CONFIG.database}`);
+  console.log('------------------------------------------------------------------');
+
+  await runSetup(guard.keepData);
+}
+
+if (IS_MAIN) {
+  main().catch((err) => {
+    console.error('❌ Setup failed:', err);
+    process.exit(1);
+  });
+}

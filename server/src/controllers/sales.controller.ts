@@ -13,6 +13,7 @@ import {
   customerPayments, companyProfile,
 } from '../app';
 import { resolveDocumentNumber, retireDocumentNumber } from '../utils/docNumber';
+import { decodeKeysetCursor, encodeKeysetCursor, cursorTimestamp, keysetEnvelope, keysetLimit, requireLargeTableScope } from '../utils/keysetCursor';
 import { salesInvoices, salesReturns, setSalesInvoices, setSalesReturns } from '../state/runtimeState';
 import { computeBillTotals, defaultVatRateFor, resolveLedgerUnitCost, roundMoney } from '../utils/money';
 import { TransactionLog } from '../../../client/src/types';
@@ -20,6 +21,7 @@ import { demoSalesInvoiceTxn, demoSalesReturnTxn, demoSalesReturnCancelTxn, find
 import { bsDateOr400 } from '../utils/bsDate';
 import {
   buildSalesInvoiceListSql, buildSalesInvoiceCountQuery, buildSalesInvoicePagedQuery,
+  buildSalesInvoiceKeysetQuery,
   SI_INSERT_SQL, siInsertParams, SI_FIND_SQL, SI_EXISTS_SQL,
   SI_DEDUCT_STOCK_SQL, SI_RESTORE_STOCK_SQL, SI_TXN_LOG_SQL, siTxnLogParams,
   buildSalesReturnListSql, buildSalesReturnCountQuery, buildSalesReturnPagedQuery,
@@ -228,19 +230,45 @@ function srValidateAgainstInvoice(invoiceItems: any[], returnItems: any[], alrea
 
 /** Forwarded from sales.routes.ts (get_salesInvoices). */
 export async function get_salesInvoices(req: any, res: Response): Promise<any> {
-  const { branchId, customerId, status, query, dateFromAD, dateToAD, page, pageSize, all } = req.query;
+  const { branchId, customerId, status, query, dateFromAD, dateToAD, page, pageSize, all, cursor, limit } = req.query;
+  // SCALE-2: cursor reads are the register's stable path. The first request
+  // omits `cursor` but sends `limit`; later requests send the opaque cursor.
+  const wantsCursor = cursor !== undefined || limit !== undefined;
+  if (wantsCursor && !requireLargeTableScope(res, {
+    branchId, dateFrom: dateFromAD, dateTo: dateToAD, report: true,
+  })) return;
+  const parsedCursor = cursor === undefined ? undefined : decodeKeysetCursor(cursor, 'sales_invoices', 2);
+  if (cursor !== undefined && !parsedCursor) {
+    return res.status(400).json({ code: 'INVALID_CURSOR', message: 'The sales-invoice cursor is invalid. Reload the list and retry.' });
+  }
   // Paged mode: ?page=N (optional pageSize) returns an envelope with the page
   // slice and the filtered total (the purchase-orders pattern). Filters
   // without a page param keep the legacy full-array response; a bare
   // ?branchId= request is unchanged.
   const wantsPaged = page !== undefined || pageSize !== undefined || all === '1';
-  const wantsFiltering = wantsPaged || status || query || dateFromAD || dateToAD;
+  const wantsFiltering = wantsPaged || wantsCursor || status || query || dateFromAD || dateToAD;
   if (getPgConnected() && wantsFiltering) {
     try {
       const opts = { branchId, customerId, status, query, dateFromAD, dateToAD };
+      if (wantsCursor && all !== '1') {
+        const size = keysetLimit(limit, 50, 500);
+        const q = buildSalesInvoiceKeysetQuery(
+          opts,
+          parsedCursor ? [String(parsedCursor[0]), String(parsedCursor[1])] : undefined,
+          size
+        );
+        const r = await pgPool.query(q.sql, q.params as any[]);
+        const hasMore = r.rows.length > size;
+        const items = hasMore ? r.rows.slice(0, size) : r.rows;
+        const last = items[items.length - 1];
+        const nextCursor = hasMore && last
+          ? encodeKeysetCursor('sales_invoices', [cursorTimestamp(last.createdAt), String(last.id)])
+          : null;
+        return res.json(keysetEnvelope(items, nextCursor, hasMore));
+      }
       if (wantsPaged) {
-        const n = Math.max(1, Number(page) || 1);
         const size = Math.max(1, Math.min(500, Number(pageSize) || 50));
+        const n = Math.max(1, Math.min(Math.max(1, Math.floor(10000 / size)), Number(page) || 1));
         const countQ = buildSalesInvoiceCountQuery(opts);
         const countR = await pgPool.query(countQ.sql, countQ.params as any[]);
         const totalItems = Number(countR.rows[0]?.count || 0);

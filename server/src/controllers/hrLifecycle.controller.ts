@@ -10,6 +10,7 @@
  */
 import crypto from 'crypto';
 import type { Response } from 'express';
+import { rememberSessionVersion } from '../state/sessionVersion';
 import {
   getPgConnected,
   permissionMatrix,
@@ -791,13 +792,14 @@ export async function post_hrLifecycleItemComplete(req: any, res: Response): Pro
     return (await client.query(HR_LIFECYCLE_ITEM_BY_ID_SQL, [itemId])).rows[0];
   });
   if (accountChange) {
-    setUsers(
-      users.map((user: any) =>
-        String(user.id) === String(accountChange!.id)
-          ? { ...user, status: accountChange!.status }
-          : user
-      )
+    const changed = users.map((user: any) =>
+      String(user.id) === String(accountChange!.id)
+        ? { ...user, status: accountChange!.status }
+        : user
     );
+    setUsers(changed);
+    const updated = changed.find((user: any) => String(user.id) === String(accountChange!.id));
+    if (updated) await rememberSessionVersion(updated);
   }
   return res.json(saved);
 }

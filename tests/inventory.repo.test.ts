@@ -273,7 +273,7 @@ describe('stock operations', () => {
     assert.match(sql, / ORDER BY created_at DESC LIMIT 25 OFFSET 25$/);
     assert.deepEqual(params, ['WH001', 'CONSUMABLE_ISSUE', 'LOGGED', '%splitter%', '2026-09-01', '2026-09-30']);
     const plain = buildStockOperationPagedQuery({});
-    assert.ok(!plain.sql.includes('LIMIT'));
+    assert.match(plain.sql, /LIMIT 10000$/);
     const clamped = buildStockOperationPagedQuery({}, { page: 0, pageSize: 9999 });
     assert.match(clamped.sql, /LIMIT 500 OFFSET 0$/);
   });
@@ -541,19 +541,19 @@ describe('serial log register', () => {
       query: 'onu',
     });
     assert.match(sql, /WHERE 1=1 AND branch_id IN \(\$1, \$2\) AND status = \$3 AND \(LOWER\(device_serial\) LIKE \$4/);
-    assert.match(sql, / ORDER BY created_at DESC$/);
+    assert.match(sql, / ORDER BY created_at DESC LIMIT 10000$/);
     assert.deepEqual(params, ['WH001', 'BR01', 'DAMAGED', '%onu%']);
   });
 
   test('global admin branch filter lands at $1 with no scope list', () => {
     const { sql, params } = buildSerialLogQuery({ globalBranchId: 'WH001' });
-    assert.match(sql, /WHERE 1=1 AND branch_id = \$1 ORDER BY created_at DESC$/);
+    assert.match(sql, /WHERE 1=1 AND branch_id = \$1 ORDER BY created_at DESC LIMIT 10000$/);
     assert.deepEqual(params, ['WH001']);
   });
 
   test('ALL filters and non-string queries are ignored', () => {
     const { sql, params } = buildSerialLogQuery({ globalBranchId: 'ALL', status: 'ALL', query: 42 as unknown as string });
-    assert.match(sql, /WHERE 1=1 ORDER BY created_at DESC$/);
+    assert.match(sql, /WHERE 1=1 ORDER BY created_at DESC LIMIT 10000$/);
     assert.deepEqual(params, []);
   });
 
@@ -573,7 +573,7 @@ describe('serial log register', () => {
     const big = buildSerialLogQuery({}, { page: 0, pageSize: 9999 });
     assert.match(big.sql, /LIMIT 500 OFFSET 0$/);
     const plain = buildSerialLogQuery({});
-    assert.ok(!plain.sql.includes('LIMIT'));
+    assert.match(plain.sql, /LIMIT 10000$/);
   });
 
   test('count and status-count queries reuse the same filter fragment', () => {

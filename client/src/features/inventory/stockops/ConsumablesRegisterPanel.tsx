@@ -1,11 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useFilterPageReset } from '../../../utils/useFilterPageReset';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { useStockOperationsCtx } from './StockOperationsContext';
 import {
   ConsumableIssueItem,
   StockOperation,
 } from '../../../types';
-import { TablePagination, useServerPageClamp } from '../../../components/common/TablePagination';
+import { KeysetLoadMore } from '../../../components/common/KeysetLoadMore';
+import { useKeysetPager } from '../../../hooks/useKeysetPager';
 import { DateField } from '../../../components/DateField';
 import { FilterCard } from '../../../components/common/FilterCard';
 import { RegisterLoadError } from '../../../components/common/RegisterLoadError';
@@ -29,26 +29,20 @@ import {
  * everything it does not own comes from the StockOperations context.
  */
 export const ConsumablesRegisterPanel: React.FC = () => {
-  const { activeTab, branches, consumableOperations, currentUser, dateMode, onReverseConsumableIssue, promptDialog, showToast, sseRefreshKey } = useStockOperationsCtx();
+  const { activeTab, branches, consumableOperations, currentUser, dateMode, onReverseConsumableIssue, promptDialog, selectedBranchId, showToast, sseRefreshKey } = useStockOperationsCtx();
 
   const [consumableRegisterQuery, setConsumableRegisterQuery] = useState('');
   // FilterCard owns the keystroke draft; an export clicked before the debounce
   // applies must use the text the operator can see, not the previous search.
   const searchDraftRef = useRef<string | null>(null);
-  const [consumableRegisterBranch, setConsumableRegisterBranch] = useState('ALL');
+  const [consumableRegisterBranch, setConsumableRegisterBranch] = useState(() =>
+    selectedBranchId && selectedBranchId !== 'ALL' ? selectedBranchId : branches[0]?.id || 'ALL'
+  );
   const [consumableRegisterStatus, setConsumableRegisterStatus] = useState('ALL');
   const [consumableRegisterDateFrom, setConsumableRegisterDateFrom] = useState('');
   const [consumableRegisterDateTo, setConsumableRegisterDateTo] = useState('');
   const [consumableRegisterExpandedId, setConsumableRegisterExpandedId] = useState<string | null>(null);
-  // Server-side paged fetch state: the register asks /api/stock-operations
-  // for one page of filtered CONSUMABLE_ISSUE rows instead of receiving the
-  // whole ledger through props.
-  const [consumableRegisterRows, setConsumableRegisterRows] = useState<StockOperation[]>([]);
   const [consumableRegisterTotal, setConsumableRegisterTotal] = useState(0);
-  const [consumableRegisterPage, setConsumableRegisterPage] = useState(1);
-  const [consumableRegisterPageSize, setConsumableRegisterPageSize] = useState(20);
-  const [consumableRegisterLoading, setConsumableRegisterLoading] = useState(false);
-  const [consumableRegisterError, setConsumableRegisterError] = useState('');
 
   // Reverse a logged consumable issue (guarded by 'consumable-issue-reverse').
   // Returns the issued units to branch stock and marks the record CANCELLED.
@@ -80,7 +74,7 @@ export const ConsumablesRegisterPanel: React.FC = () => {
         await api.reverseConsumableIssue(op.id, reason.trim(), currentUser);
       }
       showToast(`Consumable issue ${op.referenceNumber} reversed. Units returned to available stock.`);
-      loadConsumableRegisterPage();
+      consumablePager.reload();
     } catch (err: any) {
       showToast(`Reversal failed: ${err.message || 'Unknown error'}`);
     }
@@ -123,64 +117,53 @@ export const ConsumablesRegisterPanel: React.FC = () => {
     [filterConsumableRegisterOps, consumableOperations]
   );
 
-  // Server-side paged fetch: one page of filtered CONSUMABLE_ISSUE rows.
-  const consumableRegisterFetchSeq = useRef(0);
-  const loadConsumableRegisterPage = useCallback(async () => {
-    const seq = ++consumableRegisterFetchSeq.current;
-    setConsumableRegisterLoading(true);
-    setConsumableRegisterError('');
-    try {
-      const envelope = await api.getStockOperations({
-        type: 'CONSUMABLE_ISSUE',
-        branchId: consumableRegisterBranch !== 'ALL' ? consumableRegisterBranch : undefined,
-        status: consumableRegisterStatus,
-        query: consumableRegisterQuery.trim() || undefined,
-        dateFromAD: consumableRegisterDateFrom || undefined,
-        dateToAD: consumableRegisterDateTo || undefined,
-        page: consumableRegisterPage,
-        pageSize: consumableRegisterPageSize,
-      }) as { data: StockOperation[]; totalItems: number };
-      if (seq !== consumableRegisterFetchSeq.current) return; // superseded
-      setConsumableRegisterRows(envelope.data || []);
-      setConsumableRegisterTotal(envelope.totalItems || 0);
-    } catch (err: any) {
-      if (seq !== consumableRegisterFetchSeq.current) return;
-      setConsumableRegisterError(err?.message || 'Failed to load the register');
-    } finally {
-      if (seq === consumableRegisterFetchSeq.current) setConsumableRegisterLoading(false);
-    }
-  }, [consumableRegisterBranch, consumableRegisterStatus, consumableRegisterQuery, consumableRegisterDateFrom, consumableRegisterDateTo, consumableRegisterPage, consumableRegisterPageSize]);
+  // Cursor-paged read: each Load more advances the signed nextCursor, so a
+  // concurrently logged issue cannot shift the rows already on screen.
+  const fetchConsumablePage = useCallback(async (cursor: string | null) => {
+    const envelope = await api.getStockOperations({
+      type: 'CONSUMABLE_ISSUE',
+      branchId: consumableRegisterBranch !== 'ALL' ? consumableRegisterBranch : undefined,
+      status: consumableRegisterStatus,
+      query: consumableRegisterQuery.trim() || undefined,
+      dateFromAD: consumableRegisterDateFrom || undefined,
+      dateToAD: consumableRegisterDateTo || undefined,
+      cursor,
+      limit: 20,
+    }) as { data?: StockOperation[]; items?: StockOperation[]; nextCursor?: string | null; hasMore?: boolean; statusCounts?: Record<string, number> };
+    return {
+      items: envelope.items || envelope.data || [],
+      nextCursor: envelope.nextCursor ?? null,
+      hasMore: Boolean(envelope.hasMore),
+      meta: { statusCounts: envelope.statusCounts || {} },
+    };
+  }, [consumableRegisterBranch, consumableRegisterStatus, consumableRegisterQuery, consumableRegisterDateFrom, consumableRegisterDateTo]);
 
-  useEffect(() => {
-    loadConsumableRegisterPage();
-  }, [loadConsumableRegisterPage, sseRefreshKey]);
-
-  // A filter change snaps the page back to 1 in the same render, so one
-  // change costs one request for page 1 instead of two (DF-12).
-  useFilterPageReset(
-    [
+  const consumablePager = useKeysetPager({
+    fetchPage: fetchConsumablePage,
+    resetKey: [
       consumableRegisterBranch,
       consumableRegisterStatus,
       consumableRegisterQuery,
       consumableRegisterDateFrom,
       consumableRegisterDateTo,
+      sseRefreshKey ?? 0,
     ].join('\u0000'),
-    consumableRegisterPage,
-    setConsumableRegisterPage
-  );
+    onPage: (page) => {
+      const counts = page.meta?.statusCounts || {};
+      setConsumableRegisterTotal(Object.values(counts).reduce((sum, count) => sum + Number(count || 0), 0));
+    },
+  });
+  const consumableRegisterLoading = consumablePager.loading;
+  const consumableRegisterError = consumablePager.error;
 
-  // Rows to render: the server page, or the client-side fallback after a
-  // fetch failure so the ledger still displays.
-  const consumableRegisterOps = consumableRegisterError ? consumableRegisterFallbackOps : consumableRegisterRows;
-  const consumableRegisterCount = consumableRegisterError ? consumableRegisterFallbackOps.length : consumableRegisterTotal;
-  // A reversal/delete can shrink the filtered set under the current page; snap
-  // back to the new last page instead of asking for one that is gone (DF-09).
-  const consumableRegisterSafePage = useServerPageClamp(
-    consumableRegisterPage,
-    consumableRegisterPageSize,
-    consumableRegisterCount,
-    setConsumableRegisterPage
-  );
+  // A failed fallback keeps the previous props alive, but a SCOPE_REQUIRED
+  // refusal must stay visible rather than being masked by that stale copy.
+  const consumableRegisterOps = consumableRegisterError && !consumablePager.scopeError
+    ? consumableRegisterFallbackOps
+    : consumablePager.rows;
+  const consumableRegisterCount = consumableRegisterError && !consumablePager.scopeError
+    ? consumableRegisterFallbackOps.length
+    : consumableRegisterTotal;
 
   return (
     <>
@@ -344,7 +327,7 @@ export const ConsumablesRegisterPanel: React.FC = () => {
                 message={consumableRegisterError}
                 hasCachedRows={consumableRegisterOps.length > 0}
                 loading={consumableRegisterLoading}
-                onRetry={() => { void loadConsumableRegisterPage(); }}
+                onRetry={consumablePager.reload}
               />
             </div>
           )}
@@ -486,18 +469,12 @@ export const ConsumablesRegisterPanel: React.FC = () => {
             </div>
           )}
 
-          <TablePagination
-            page={consumableRegisterSafePage}
-            pageCount={Math.max(1, Math.ceil(consumableRegisterCount / consumableRegisterPageSize))}
-            totalItems={consumableRegisterCount}
-            rangeStart={consumableRegisterCount === 0 ? 0 : (consumableRegisterSafePage - 1) * consumableRegisterPageSize + 1}
-            rangeEnd={Math.min(consumableRegisterSafePage * consumableRegisterPageSize, consumableRegisterCount)}
-            pageSize={consumableRegisterPageSize}
-            onPageChange={(p) => setConsumableRegisterPage(Math.max(1, p))}
-            onPageSizeChange={(s) => {
-              setConsumableRegisterPageSize(s);
-              setConsumableRegisterPage(1);
-            }}
+          <KeysetLoadMore
+            loaded={consumableRegisterOps.length}
+            hasMore={consumablePager.hasMore}
+            loadingMore={consumablePager.loadingMore}
+            onLoadMore={consumablePager.loadMore}
+            scopeError={consumablePager.scopeError ? consumablePager.error : ''}
           />
         </div>
       )}

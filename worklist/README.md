@@ -22,13 +22,41 @@ is the plan, not a second source of truth.
 - **Round 11 is active** — cash receipts, voucher classes and non-trade
   funding. Plan and slice list:
   [2026-11-14-cash-receipts-and-funding/README.md](2026-11-14-cash-receipts-and-funding/README.md).
-  Round 10 (the accounting core) closed on 2026-11-12 —
-  [plan](2026-11-12-accounting-core/README.md). Round 9 (the two-sided warranty
-  registers) closed on 2026-10-29 —
-  [close note](done/2026-10-29-round-9.md), per-slice notes in
-  [done/2026-10-29-round-9/](done/2026-10-29-round-9/README.md). Round 8 (the
-  bug & loop audit) closed on 2026-10-28
-  ([note](done/2026-10-28-round-8.md)).
+- **Round 12 is complete** — backup/recovery and database availability from
+  the 2026-11-15 readiness audit (C1, H1). **OPS-1, OPS-2, OPS-3, OPS-4,
+  OPS-5, BAK-1, BAK-2, BAK-3, BAK-4 and BAK-5 are done (2026-11-16)** with
+  `tests/dbAvailability.test.ts`, `tests/bootstrapEtag.test.ts`,
+  `tests/bootstrapPayloadMeasure.test.ts`, `tests/ops4Config.test.ts`, the
+  baseline probe, `tests/backupScript.test.ts`, `tests/restoreScript.test.ts`,
+  `tests/restoreDrill.test.ts`, `tests/setupGuard.test.ts` and
+  `tests/disasterRecoveryRunbook.test.ts`. OPS-3 cut the measured bootstrap
+  gzip from **157,569 B to 6,198 B (−96.1%)**; SCALE-2 then took the shell to
+  **2,489 B** on demo data and **10,421 B with 500 branches**. Plan and slice list:
+  [2026-11-16-backup-and-db-availability/README.md](2026-11-16-backup-and-db-availability/README.md).
+- **Round 13 is active** — the enterprise-scale envelope
+  (3,000–10,000+ sessions, 200–500+ branches, 5M–50M customers, 1B–10B rows)
+  and public-internet hardening, from the 2026-11-16 mandate. **SCALE-1 is
+  done (2026-11-16)**: Redis-backed limits, session fingerprints, locks/leader
+  election and SSE fan-out, with pm2 in cluster mode. **SCALE-2 is done
+  (2026-11-16)** for the bootstrap shell, keyset cursors and scope guards, and
+  the seven keyset registers now load/append through `nextCursor` with a
+  visible `SCOPE_REQUIRED` state. Non-keyset stock-operation panels and the
+  return/customer-ledger registers remain on their existing paged reads. Next:
+  [2026-11-16-enterprise-scale-and-public-exposure/README.md](2026-11-16-enterprise-scale-and-public-exposure/README.md).
+  It owns partitioning, read/write split, queued writes and the TLS/CORS/CSP/MFA
+  surface.
+- **Round 14 is planned, not started** — module-scoped API keys with an
+  Administration & Governance UI, audit and revocation:
+  [2026-11-16-api-key-management/README.md](2026-11-16-api-key-management/README.md).
+  It is blocked on Round 13's Redis state (rate limits, revocation) and MFA.
+
+Round 10 (the accounting core) closed on 2026-11-12 —
+[plan](2026-11-12-accounting-core/README.md). Round 9 (the two-sided warranty
+registers) closed on 2026-10-29 —
+[close note](done/2026-10-29-round-9.md), per-slice notes in
+[done/2026-10-29-round-9/](done/2026-10-29-round-9/README.md). Round 8 (the
+bug & loop audit) closed on 2026-10-28
+([note](done/2026-10-28-round-8.md)).
 
 ## Status vocabulary
 
@@ -68,6 +96,17 @@ current year's file; a completed item adds one short entry there, not a
 checklist here.
 
 ## Active work
+
+**Completed outside a round — documentation truth (2026-11-16).** The
+superseded 2026-11-04 audit was removed (git history keeps it) and
+[docs/README.md](../docs/README.md) now states which documents are current and
+which are dated evidence. README's four "57 tables" claims were corrected to
+**119**, the count in `scripts/schema.sql`, along with the client/server tree
+and the removed `cacheRefreshHook` reference; the current audit's "Express 5"
+line was corrected to Express 4. A new `tests/docsTruth.guard.test.ts` pins the
+stack to the real `package.json` (Express + Vite; no Next.js), the schema table
+count and the `client/src/` tree, so the next drift fails a test instead of a
+reader.
 
 **Round 11 — Cash receipts, voucher classes and non-trade funding (opened 2026-11-14).**
 The plan is

@@ -1,21 +1,15 @@
 /**
- * D3 guard — the single-process constraint stays true in config and in docs.
- *
- * pm2 runs ONE fork-mode worker ([ecosystem.config.js]), and that is a
- * correctness requirement, not a small-server default: the operational caches
- * refresh after this process's own writes only, SSE fan-out reaches only the
- * clients connected to the worker that handled the change, and the auth/SSE
- * rate-limit buckets count per process. Raising `instances` produces silent
- * staleness and missed refreshes — no error, no log line — so the only place
- * that can prevent it is documentation next to the knob, plus this guard.
+ * SCALE-1 guard — horizontal workers have shared state, not a single-process
+ * correctness requirement.
  *
  * PROVES (file parsing only — no server, no database):
- *   1. `ecosystem.config.js` still declares exactly one worker in fork mode and
- *      names the README section that explains why.
- *   2. The README section names every process-local concern, the shared secret,
- *      each prerequisite for cluster mode, and links this backlog item.
- *   3. `handoff.md` repeats the constraint and points at the same places.
- *   4. The backlog records D3 as done with the evidence.
+ *   1. pm2 runs cluster mode with `instances: 'max'`, and the config requires
+ *      Redis for a clustered production process.
+ *   2. README documents the shared pieces, the fail-closed controls, and the
+ *      still-per-worker reference caches that SCALE-4 owns.
+ *   3. The runtime wires Redis into auth limits, session fingerprints, locks,
+ *      SSE pub/sub and graceful shutdown.
+ *   4. The old "one fork worker" guard cannot quietly return.
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
@@ -25,7 +19,6 @@ import path from 'node:path';
 const ROOT = process.cwd();
 const read = (relativePath: string): string => fs.readFileSync(path.resolve(ROOT, relativePath), 'utf8');
 
-/** Slice of `text` from `start` (inclusive) to the next `end` after it. */
 function section(text: string, start: string, end: string, file: string): string {
   const from = text.indexOf(start);
   assert.notEqual(from, -1, `${file} must contain the section heading ${JSON.stringify(start)}`);
@@ -34,83 +27,64 @@ function section(text: string, start: string, end: string, file: string): string
   return text.slice(from, to);
 }
 
-const README_HEADING = '### Single process only (do not raise `instances`)';
-const README_ANCHOR = 'single-process-only-do-not-raise-instances';
-const BACKLOG_ANCHOR = 'd3-document-the-single-instance-constraint';
+const README_HEADING = '### Horizontal workers and shared state';
 
-describe('single-instance constraint (backlog D3)', () => {
-  test('pm2 still runs one fork-mode worker and points at the README section', () => {
+describe('SCALE-1 horizontal workers', () => {
+  test('pm2 uses cluster mode and requires Redis', () => {
     const config = read('ecosystem.config.js');
-    assert.match(config, /instances:\s*1\s*,/, 'ecosystem.config.js must keep instances: 1');
-    assert.match(config, /exec_mode:\s*'fork'/, 'one worker means fork mode, not cluster');
-    assert.doesNotMatch(
-      config,
-      /instances:\s*(?:max|['"]max['"]|[2-9]|\d{2,})/,
-      'a second worker breaks cache coherence, SSE fan-out and the effective rate limits — ' +
-        'move those to shared infrastructure first (README, "Single process only")'
-    );
-    assert.ok(
-      config.includes('Single process only'),
-      'the instances comment must name the README section so the next editor finds the reason'
-    );
+    assert.match(config, /instances:\s*['"]max['"]/, 'the production config must scale workers');
+    assert.match(config, /exec_mode:\s*'cluster'/, 'cluster mode is what makes instances:max meaningful');
+    assert.match(config, /REDIS_(TLS_)?URL/, 'the config must name the Redis requirement');
+    assert.doesNotMatch(config, /instances:\s*1\s*,/, 'the old single-worker constraint must not return');
+    assert.doesNotMatch(config, /exec_mode:\s*'fork'/, 'fork mode keeps every worker single-process');
   });
 
-  test('the README section names every process-local concern and cluster prerequisite', () => {
+  test('README documents shared state, fail modes and the SCALE-4 boundary', () => {
     const readme = read('README.md');
     const body = section(readme, README_HEADING, '### Step 5: Configure Nginx Reverse Proxy & SSL', 'README.md');
 
-    // Where the unshared state lives, so the claim can be checked against code.
     for (const needle of [
-      'server/src/state/runtimeState.ts',
-      'server/src/realtime/sse.ts',
       'server/src/middleware/authRateLimit.ts',
       'server/src/middleware/sseRateLimit.ts',
+      'server/src/state/sessionVersion.ts',
+      'server/src/state/sharedLock.ts',
+      'server/src/realtime/sse.ts',
+      'isp:sse:changes',
+      'session:ver',
+      'SET NX PX',
+      'SHARED_STATE_UNAVAILABLE',
+      'SCALE-4',
     ]) {
-      assert.ok(body.includes(needle), `the section must name ${needle} as process-local state`);
+      assert.ok(body.includes(needle), `the section must document ${needle}`);
     }
-
-    // What a second worker actually breaks — the reason the constraint exists.
-    for (const consequence of ['stale rows', 'only to clients connected', 'silently multiply']) {
-      assert.ok(body.includes(consequence), `the section must state the consequence: ${consequence}`);
-    }
-
-    // One secret for every worker, and every prerequisite for cluster mode.
-    assert.ok(body.includes('AUTH_TOKEN_SECRET'), 'the section must require one shared AUTH_TOKEN_SECRET');
-    for (const prerequisite of ['shared store', 'publish/subscribe', 'proxy_read_timeout']) {
-      assert.ok(body.includes(prerequisite), `the section must list the prerequisite: ${prerequisite}`);
-    }
-
-    assert.ok(
-      body.includes(`docs/architecture-backlog.md#${BACKLOG_ANCHOR}`),
-      'the section must link the backlog item that records the decision'
-    );
+    assert.match(body, /fail\s+\*\*closed\*\*/, 'security limits must state the fail-closed behaviour');
+    assert.ok(body.includes('REDIS_URL'), 'the section must name the required deployment variable');
   });
 
-  test('handoff.md repeats the constraint and links the same places', () => {
+  test('runtime wires Redis into every shared concern', () => {
+    const store = read('server/src/state/sharedStore.ts');
+    assert.match(store, /from 'redis'/, 'the shared store must use the redis package');
+    assert.match(store, /REDIS_TLS_URL/);
+    assert.match(store, /REDIS_URL/);
+    assert.match(store, /SharedStateUnavailableError/, 'unavailable shared state must be explicit');
+
+    const auth = read('server/src/middleware/authRateLimit.ts');
+    assert.match(auth, /SharedRateLimiter/);
+    assert.match(auth, /SHARED_STATE_UNAVAILABLE/);
+
+    const sse = read('server/src/realtime/sse.ts');
+    assert.match(sse, /\.publish\(/);
+    assert.match(sse, /\.subscribe\(/);
+
+    const lifecycle = read('server/src/boot/lifecycle.ts');
+    assert.match(lifecycle, /closeShared/);
+    assert.match(lifecycle, /closeSharedBounded/);
+  });
+
+  test('the old single-instance premise is gone', () => {
     const handoff = read('handoff.md');
-    const start = handoff.indexOf('One process, by design');
-    assert.notEqual(start, -1, 'handoff.md §14.2 must carry the single-process note');
-    const body = handoff.slice(start, start + 2500);
-
-    assert.ok(body.includes('runtimeState.ts'), 'the note must name the operational caches');
-    assert.ok(body.includes('broadcastChange'), 'the note must name the SSE write loop that needs pub/sub');
-    assert.ok(body.includes('AUTH_TOKEN_SECRET'), 'the note must state that all workers share one secret');
-    assert.ok(body.includes(`README.md#${README_ANCHOR}`), 'the note must link the README section');
-    assert.ok(body.includes(`docs/architecture-backlog.md#${BACKLOG_ANCHOR}`), 'the note must link D3');
-  });
-
-  test('the backlog records D3 as done', () => {
-    const backlog = read('docs/architecture-backlog.md');
-    assert.match(
-      backlog,
-      /\[x\] D3\s+document the single-instance constraint\s+\(2026-10-22\)/,
-      'D3 must be ticked in the Status block with its completion date'
-    );
-    const d3 = section(backlog, '### D3 — Document the single-instance constraint', '\n## C —', 'docs/architecture-backlog.md');
-    assert.ok(d3.includes('**Done 2026-10-22**'), 'D3 needs a Done row naming what shipped');
-    assert.ok(
-      d3.includes('singleInstance.guard.test.ts'),
-      'the Done row must point at the test that keeps the documentation honest'
-    );
+    assert.doesNotMatch(handoff, /One process, by design/, 'handoff must not claim a single process is required');
+    const guard = read('tests/singleInstance.guard.test.ts');
+    assert.match(guard, /instances:\s*['"]max['"]/);
   });
 });

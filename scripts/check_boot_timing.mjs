@@ -300,7 +300,7 @@ async function login(baseUrl) {
   }
   if (!res.ok) {
     throw new Error(
-      `login failed with HTTP ${res.status}. Seed the demo data (npm run setup:pg) or set ` +
+      `login failed with HTTP ${res.status}. Seed the demo data (npm run setup:pg -- --force --skip-backup-check) or set ` +
         `BOOT_TRACE_EMAIL / BOOT_TRACE_PASSWORD to a valid account.`
     );
   }

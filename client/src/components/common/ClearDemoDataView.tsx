@@ -168,7 +168,7 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
               Your real products, stock balances, assets, device serials,
               orders, branches, users, and transaction logs are never touched. The Nepali BS calendar reference data
               (<span className="font-mono text-xs">bs_calendar_years</span> / <span className="font-mono text-xs">bs_day_records</span>) is always preserved and
-              its fiscal-year links are re-pointed automatically. Run <span className="font-mono text-xs">npm run setup:pg</span> any time to re-seed the demo dataset.
+              its fiscal-year links are re-pointed automatically. Run <span className="font-mono text-xs">npm run setup:pg -- --force --skip-backup-check</span> any time to re-seed the demo dataset.
             </p>
           </div>
           <div className="p-4 bg-white/10 rounded-2xl backdrop-blur-md border border-white/20 text-center shrink-0">
@@ -331,7 +331,7 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
                 demo branches and demo user accounts</strong> seeded by <span className="font-mono text-xs">npm run setup:pg</span> — they are
                 intentionally removed so you can add your real branches and users. Any <strong>real records you have entered</strong> are never
                 touched, and the <strong>Nepali BS calendar reference data</strong> (bs_calendar_years, bs_day_records) is always preserved.
-                To restore the demo dataset, run <span className="font-mono text-xs">npm run setup:pg</span> at any time.
+                To restore the demo dataset, run <span className="font-mono text-xs">npm run setup:pg -- --force --skip-backup-check</span> at any time.
               </p>
             </div>
           </div>

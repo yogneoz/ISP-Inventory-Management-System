@@ -238,7 +238,8 @@ export async function getStockOperations(params?: {
   branchId?: string; type?: string; status?: string; query?: string;
   dateFromAD?: string; dateToAD?: string;
   page?: number; pageSize?: number; all?: boolean;
-}): Promise<StockOperation[] | { data: StockOperation[]; page: number; pageSize: number; totalItems: number; statusCounts: Record<string, number> }> {
+  cursor?: string | null; limit?: number;
+}): Promise<StockOperation[] | { data: StockOperation[]; items?: StockOperation[]; page: number; pageSize: number; totalItems?: number; statusCounts: Record<string, number>; nextCursor?: string | null; hasMore?: boolean }> {
   const search = new URLSearchParams();
   if (params?.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
   if (params?.type) search.append('type', params.type);
@@ -246,6 +247,8 @@ export async function getStockOperations(params?: {
   if (params?.query) search.append('query', params.query);
   if (params?.dateFromAD) search.append('dateFromAD', params.dateFromAD);
   if (params?.dateToAD) search.append('dateToAD', params.dateToAD);
+  if (params?.cursor) search.append('cursor', params.cursor);
+  if (params?.limit !== undefined) search.append('limit', String(params.limit));
   if (params?.all) search.append('all', '1');
   if (params?.page !== undefined) {
     search.append('page', String(params.page));
@@ -369,6 +372,32 @@ export async function getAuditTrail(params: { serial?: string; branchId?: string
   if (params.limit) search.append('limit', String(params.limit));
   const queryString = search.toString() ? `?${search.toString()}` : '';
   return fetchJson(`/api/audit-trail${queryString}`);
+}
+
+/** SCALE-2 keyset page for the Activities Log register. */
+export interface AuditTrailPage {
+  items: AuditLog[];
+  data?: AuditLog[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+export async function getAuditTrailPage(params: {
+  branchId?: string;
+  from: string;
+  to: string;
+  serial?: string;
+  cursor?: string | null;
+  limit?: number;
+}): Promise<AuditTrailPage> {
+  const search = new URLSearchParams();
+  if (params.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
+  if (params.serial) search.append('serial', params.serial);
+  search.append('from', params.from);
+  search.append('to', params.to);
+  if (params.cursor) search.append('cursor', params.cursor);
+  search.append('limit', String(params.limit ?? 50));
+  return fetchJson(`/api/audit-trail?${search.toString()}`);
 }
 
 /**
@@ -590,13 +619,16 @@ export async function getSerialLogs(params?: {
   branchId?: string; status?: string; query?: string;
   dateFromAD?: string; dateToAD?: string;
   page?: number; pageSize?: number; all?: boolean;
-}): Promise<SerialLog[] | { data: SerialLog[]; page: number; pageSize: number; totalItems: number; statusCounts: Record<string, number> }> {
+  cursor?: string | null; limit?: number;
+}): Promise<SerialLog[] | { data: SerialLog[]; items?: SerialLog[]; page: number; pageSize: number; totalItems?: number; statusCounts: Record<string, number>; nextCursor?: string | null; hasMore?: boolean }> {
   const search = new URLSearchParams();
   if (params?.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
   if (params?.status) search.append('status', params.status);
   if (params?.query) search.append('query', params.query);
   if (params?.dateFromAD) search.append('dateFromAD', params.dateFromAD);
   if (params?.dateToAD) search.append('dateToAD', params.dateToAD);
+  if (params?.cursor) search.append('cursor', params.cursor);
+  if (params?.limit !== undefined) search.append('limit', String(params.limit));
   if (params?.all) search.append('all', '1');
   if (params?.page !== undefined) {
     search.append('page', String(params.page));
@@ -620,6 +652,10 @@ export async function getSerialLogs(params?: {
 /** The one shape `GET /api/customers` returns (never a bare array). */
 export interface CustomerListEnvelope {
   data: CustomerRecord[];
+  /** SCALE-2 keyset alias; `data` is kept for existing callers. */
+  items?: CustomerRecord[];
+  nextCursor?: string | null;
+  hasMore?: boolean;
   page: number;
   pageSize: number;
   totalItems: number;
@@ -635,6 +671,9 @@ export async function getCustomers(params?: {
   status?: 'ACTIVE' | 'INACTIVE';
   page?: number;
   pageSize?: number;
+  /** Keyset read: opaque anchor and a bounded page size. */
+  cursor?: string | null;
+  limit?: number;
   /** CSV export: one envelope containing every filtered row. */
   all?: boolean;
 }): Promise<CustomerListEnvelope> {
@@ -642,6 +681,8 @@ export async function getCustomers(params?: {
   if (params?.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
   if (params?.query) search.append('query', params.query);
   if (params?.status) search.append('status', params.status);
+  if (params?.cursor) search.append('cursor', params.cursor);
+  if (params?.limit !== undefined) search.append('limit', String(params.limit));
   if (params?.page !== undefined) {
     search.append('page', String(params.page));
     if (params.pageSize) search.append('pageSize', String(params.pageSize));

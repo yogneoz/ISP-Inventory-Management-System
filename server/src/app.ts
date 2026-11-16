@@ -55,6 +55,7 @@ import {
 } from './middleware';
 import { fetchFiscalYears, fetchOperationalData, fetchOpeningStock, parseSerialHistory } from './models/bootstrap.repo';
 import { errorHandler } from './errors/errorHandler';
+import { bumpStateVersionOnWrite } from './middleware/stateVersion';
 import { ApiError } from './errors/ApiError';
 import { VENDOR_PAYMENT_SELECT } from './models/procurement.repo';
 
@@ -306,6 +307,8 @@ export function createApp(): express.Express {
     return requireAuth(req, res, next);
   });
   app.use('/api', requirePostgres);
+  // OPS-2: the one post-write bump point for the bootstrap payload version.
+  app.use('/api', bumpStateVersionOnWrite);
   app.use('/api', enforceFiscalYearWriteAccess);
   app.use('/api', enforceOperationalPermissions);
   app.use('/api', enforceBranchAccess);

@@ -27,10 +27,12 @@ import {
 } from 'lucide-react';
 import { PageHeader } from '../../components/common/PageHeader';
 import { StatCard } from '../../components/common/StatCard';
+import { KeysetLoadMore } from '../../components/common/KeysetLoadMore';
 import { ModalPanel } from '../../components/common/ModalPanel';
 import { useDialog } from '../../components/common/DialogProvider';
 import { useActivationKey } from '../../components/common/KeepMounted';
 import { api } from '../../services/api';
+import { useKeysetPager } from '../../hooks/useKeysetPager';
 import { normalizeChartHealth } from '../../utils/chartHealth';
 import { buildSubledgerGroups } from './subledgerGroups';
 import { getScopedBranches, hasGlobalBranchScope, isOperationAllowed } from '../../utils/permissions';
@@ -46,6 +48,9 @@ import { money } from '../../components/accounting/statementFormat';
 interface SubledgersManagementProps {
   branches?: Branch[];
   currentUser?: User | null;
+  /** Bounded default window for the book ledger read. */
+  fiscalYearStartAD?: string;
+  fiscalYearEndAD?: string;
 }
 
 interface SubledgerForm {
@@ -91,6 +96,8 @@ const rowAction =
 export const SubledgersManagement: React.FC<SubledgersManagementProps> = ({
   branches = [],
   currentUser,
+  fiscalYearStartAD = '',
+  fiscalYearEndAD = '',
 }) => {
   const { confirm: confirmDialog, alert: alertDialog } = useDialog();
   const canManage = isOperationAllowed('gl-subledger-manage', currentUser?.role);
@@ -123,8 +130,7 @@ export const SubledgersManagement: React.FC<SubledgersManagementProps> = ({
   const [ledger, setLedger] = useState<AccountingSubledgerLedger | null>(null);
   const [ledgerFrom, setLedgerFrom] = useState('');
   const [ledgerTo, setLedgerTo] = useState('');
-  const [ledgerLoading, setLedgerLoading] = useState(false);
-  const [ledgerError, setLedgerError] = useState('');
+  const [ledgerRefreshKey, setLedgerRefreshKey] = useState(0);
   // Collapse state is deliberately independent of the loaded rows: Refresh
   // replaces the payload but must not reopen groups the operator closed.
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
@@ -324,31 +330,47 @@ export const SubledgersManagement: React.FC<SubledgersManagementProps> = ({
     }
   };
 
-  const loadLedger = async (book: AccountingSubledger, from: string, to: string) => {
-    setLedgerLoading(true);
-    setLedgerError('');
-    try {
-      setLedger(
-        await api.getAccountingSubledgerEntries(book.id, {
-          from: from || undefined,
-          to: to || undefined,
-          branchId: branchId === 'ALL' ? undefined : branchId,
-        })
-      );
-    } catch (err: any) {
-      setLedgerError(err?.message || 'The subledger entries could not be read.');
-    } finally {
-      setLedgerLoading(false);
-    }
+  const fetchLedgerPage = async (cursor: string | null) => {
+    if (!ledgerBook) return { items: [], nextCursor: null, hasMore: false };
+    const response = await api.getAccountingSubledgerEntries(ledgerBook.id, {
+      from: ledgerFrom || undefined,
+      to: ledgerTo || undefined,
+      branchId: branchId === 'ALL' ? undefined : branchId,
+      cursor,
+      limit: 100,
+    });
+    return {
+      items: response.items || response.entries || [],
+      nextCursor: response.nextCursor ?? null,
+      hasMore: Boolean(response.hasMore),
+      meta: response,
+    };
   };
+
+  const ledgerPager = useKeysetPager({
+    fetchPage: fetchLedgerPage,
+    resetKey: [ledgerBook?.id || '', ledgerFrom, ledgerTo, branchId, ledgerRefreshKey].join('\u0000'),
+    enabled: Boolean(ledgerBook),
+    onPage: (page) => {
+      const base = page.meta;
+      if (base) setLedger({ ...base, entries: [] });
+    },
+  });
+  const ledgerEntries = ledgerPager.rows;
+  const ledgerLoading = ledgerPager.loading || ledgerPager.loadingMore;
+  const ledgerError = ledgerPager.error;
+  const ledgerTotals = useMemo(() => {
+    const debit = ledgerEntries.reduce((sum, entry) => sum + Number(entry.debit || 0), 0);
+    const credit = ledgerEntries.reduce((sum, entry) => sum + Number(entry.credit || 0), 0);
+    return { debit, credit, balance: debit - credit };
+  }, [ledgerEntries]);
 
   const openLedger = (book: AccountingSubledger) => {
     setLedgerBook(book);
     setLedger(null);
-    setLedgerError('');
-    setLedgerFrom('');
-    setLedgerTo('');
-    void loadLedger(book, '', '');
+    setLedgerFrom(fiscalYearStartAD || '');
+    setLedgerTo(fiscalYearEndAD || '');
+    setLedgerRefreshKey((key) => key + 1);
   };
 
   const renderBookRow = (book: AccountingSubledger) => {
@@ -847,7 +869,7 @@ export const SubledgersManagement: React.FC<SubledgersManagementProps> = ({
                 <button
                   type="button"
                   className={rowAction}
-                  onClick={() => void loadLedger(ledgerBook, ledgerFrom, ledgerTo)}
+                  onClick={() => setLedgerRefreshKey((key) => key + 1)}
                   disabled={ledgerLoading}
                 >
                   {ledgerLoading ? 'Reading…' : 'Apply'}
@@ -862,15 +884,15 @@ export const SubledgersManagement: React.FC<SubledgersManagementProps> = ({
                 <div className="grid grid-cols-3 gap-2 text-center">
                   <div className="rounded-lg bg-slate-50 px-2 py-1.5 dark:bg-slate-800/60">
                     <p className="text-[10px] font-bold uppercase text-slate-500">Debit</p>
-                    <p className="font-mono text-sm font-bold">{money(ledger.totals.debit)}</p>
+                    <p className="font-mono text-sm font-bold">{money(ledgerTotals.debit)}</p>
                   </div>
                   <div className="rounded-lg bg-slate-50 px-2 py-1.5 dark:bg-slate-800/60">
                     <p className="text-[10px] font-bold uppercase text-slate-500">Credit</p>
-                    <p className="font-mono text-sm font-bold">{money(ledger.totals.credit)}</p>
+                    <p className="font-mono text-sm font-bold">{money(ledgerTotals.credit)}</p>
                   </div>
                   <div className="rounded-lg bg-slate-50 px-2 py-1.5 dark:bg-slate-800/60">
                     <p className="text-[10px] font-bold uppercase text-slate-500">Balance</p>
-                    <p className="font-mono text-sm font-bold">{money(ledger.totals.balance)}</p>
+                    <p className="font-mono text-sm font-bold">{money(ledgerTotals.balance)}</p>
                   </div>
                 </div>
 
@@ -918,10 +940,10 @@ export const SubledgersManagement: React.FC<SubledgersManagementProps> = ({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {ledger.entries.length === 0 ? (
+                      {ledgerEntries.length === 0 ? (
                         <tr><td colSpan={6} className="px-2 py-4 text-center text-slate-400">No posted movements in this window.</td></tr>
                       ) : (
-                        ledger.entries.map((entry) => (
+                        ledgerEntries.map((entry) => (
                           <tr key={entry.id} className="text-slate-700 dark:text-slate-300">
                             <td className="px-2 py-1 font-mono">{entry.entryDateAD}</td>
                             <td className="px-2 py-1 font-mono">{entry.journalNo}</td>
@@ -935,6 +957,13 @@ export const SubledgersManagement: React.FC<SubledgersManagementProps> = ({
                     </tbody>
                   </table>
                 </div>
+                <KeysetLoadMore
+                  loaded={ledgerEntries.length}
+                  hasMore={ledgerPager.hasMore}
+                  loadingMore={ledgerPager.loadingMore}
+                  onLoadMore={ledgerPager.loadMore}
+                  scopeError={ledgerPager.scopeError ? ledgerPager.error : ''}
+                />
               </div>
             )}
           </ModalPanel>

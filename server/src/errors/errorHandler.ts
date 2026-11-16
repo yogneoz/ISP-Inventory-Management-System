@@ -9,7 +9,10 @@ import { ApiError } from './ApiError';
 export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction): void {
   if (res.headersSent) return;
   if (err instanceof ApiError) {
-    res.status(err.status).json({ message: err.message });
+    if (err.retryAfterSec != null) {
+      res.setHeader('Retry-After', String(err.retryAfterSec));
+    }
+    res.status(err.status).json(err.code ? { message: err.message, code: err.code } : { message: err.message });
     return;
   }
   // Body-parser errors (oversized JSON etc.) carry a status — pass it through

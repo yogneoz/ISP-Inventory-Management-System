@@ -11,8 +11,7 @@
 import pg from 'pg';
 import { readFileSync, existsSync, statSync } from 'fs';
 import path from 'path';
-import { pgPool, realPoolInstance, setIsPgConnected } from '../../db';
-import { setPgConnected as setPgConnectedFlag } from '../state/runtimeState';
+import { pgPool, realPoolInstance, setDatabaseConnected } from '../../db';
 import { hydrateBsCalendarFromDb } from '../config/bsCalendar';
 import { auditBsCalendar } from '../services/bsCalendarIntegrity.service';
 import {
@@ -124,16 +123,14 @@ function resolveMigrationsDir(): string | null {
 
 export async function syncDatabaseAndIndexes() {
   if (!realPoolInstance) {
-    setPgConnectedFlag(false);
-    setIsPgConnected(false);
+    setDatabaseConnected(false);
     throw new Error('PostgreSQL connection is not configured. Set DATABASE_URL or POSTGRES_HOST.');
   }
 
   try {
     const client = await pgPool.connect();
     if (!client) {
-      setPgConnectedFlag(false);
-      setIsPgConnected(false);
+      setDatabaseConnected(false);
       throw new Error('PostgreSQL connection could not be established.');
     }
     console.log('PostgreSQL Pool connected successfully. Verifying schema migrations (scripts/schema.sql baseline)...');
@@ -151,8 +148,7 @@ export async function syncDatabaseAndIndexes() {
         (migrations.applied.length ? `; applied ${migrations.applied.join(', ')}` : '')
     );
 
-    setPgConnectedFlag(true);
-    setIsPgConnected(true);
+    setDatabaseConnected(true);
     await seedInitialPostgresData(client);
     // A fresh install must be able to post its first invoice without a manual
     // chart setup: seed the minimum posting defaults idempotently. Existing
@@ -198,9 +194,12 @@ export async function syncDatabaseAndIndexes() {
     client.release();
     console.log('✅ Database schema verified; seeds, caches and permission matrix loaded.');
   } catch (err: any) {
-    setPgConnectedFlag(false);
-    setIsPgConnected(false);
-    throw new Error(`PostgreSQL startup failed: ${err?.message || err}`);
+    setDatabaseConnected(false);
+    // The typed 503 errors deliberately hide driver text from HTTP callers,
+    // but a failed boot is an operator-facing log: keep the underlying cause
+    // (ECONNREFUSED, socket reset, …) or the log stops naming the real fault.
+    const detail = err?.cause?.message || err?.message || err;
+    throw new Error(`PostgreSQL startup failed: ${detail}`);
   }
 }
 

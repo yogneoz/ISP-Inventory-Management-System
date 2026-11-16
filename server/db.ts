@@ -1,7 +1,19 @@
 import pg from 'pg';
 import dotenv from 'dotenv';
-import { intFromEnv } from './src/utils/envGuard';
-import { recordDbQuery, recordPoolAcquire } from './src/observability/metrics';
+import { intFromEnv, strictIntFromEnv } from './src/utils/envGuard';
+import {
+  recordDbBreakerEvent,
+  recordDbQuery,
+  recordDbTimeout,
+  recordPoolAcquire,
+} from './src/observability/metrics';
+import {
+  dbBreaker,
+  type DbBreakerSnapshot,
+  type DbFailureKind,
+} from './src/observability/dbBreaker';
+import { DbBusyError, DbUnavailableError } from './src/errors/dbErrors';
+import { setPgConnected } from './src/state/runtimeState';
 
 dotenv.config();
 
@@ -15,14 +27,40 @@ const { Pool: RealPgPool } = pg;
 // strings everywhere (client DateField, BS conversion, SQL ::text casts), so
 // the DATE value must pass through untouched.
 pg.types.setTypeParser(1082, (value: string) => value);
+
+/**
+ * The single database-availability setter (OPS-1).
+ *
+ * `server/db.ts` and `src/state/runtimeState.ts` each expose a flag because
+ * ESM live bindings are consumed in both places. They must never diverge:
+ * every write goes through this function, and the breaker's transition
+ * listener is the only thing that flips it in response to a request outcome.
+ * Boot may set it for its initial state; nothing else may.
+ */
 export let isPgConnected = false;
-export function setIsPgConnected(status: boolean) {
+
+export function setDatabaseConnected(status: boolean): void {
   isPgConnected = status;
+  setPgConnected(status);
 }
 
-export function getIsPgConnected() {
+/** Backwards-compatible alias for the many existing importers. */
+export function setIsPgConnected(status: boolean): void {
+  setDatabaseConnected(status);
+}
+
+export function getIsPgConnected(): boolean {
   return isPgConnected;
 }
+
+// Breaker transitions are the only request-path writer of the flag: opening
+// marks the database unavailable, closing marks it usable again. Metrics are
+// recorded here so every open/half-open/close is counted exactly once.
+dbBreaker.onChange((event) => {
+  recordDbBreakerEvent(event);
+  if (event === 'opened') setDatabaseConnected(false);
+  if (event === 'closed') setDatabaseConnected(true);
+});
 
 export let realPoolInstance: any = null;
 
@@ -34,7 +72,27 @@ export let realPoolInstance: any = null;
  * timeout). Kept as a function so tests can assert the wiring without
  * building a second pool.
  */
-export function buildPoolConfig(): { connectionTimeoutMillis: number; max: number; idleTimeoutMillis: number } {
+export function buildPoolConfig(): {
+  connectionTimeoutMillis: number;
+  max: number;
+  idleTimeoutMillis: number;
+  statementTimeoutMs: number;
+  /** Passed to pg as a startup parameter, so it applies before the first query. */
+  statement_timeout?: number;
+} {
+  // OPS-4: a typo in a timeout is a configuration error and must stop the
+  // boot with a message naming the variable, not silently become 30s. 0 is
+  // the documented "disabled" value; anything 1–999 is ambiguous and rejected.
+  const statementTimeoutMs = strictIntFromEnv('PG_STATEMENT_TIMEOUT_MS', 30_000, {
+    min: 0,
+    max: 600_000,
+  });
+  if (statementTimeoutMs !== 0 && statementTimeoutMs < 1_000) {
+    throw new Error(
+      `Invalid PG_STATEMENT_TIMEOUT_MS=${JSON.stringify(process.env.PG_STATEMENT_TIMEOUT_MS)}: ` +
+        'must be 0 (disabled) or between 1000 and 600000 milliseconds.'
+    );
+  }
   return {
     connectionTimeoutMillis: intFromEnv('PG_CONNECT_TIMEOUT_MS', 2000, { min: 100, max: 120_000 }),
     // 500 concurrent users is the modelled ceiling. 20 connections made
@@ -43,26 +101,30 @@ export function buildPoolConfig(): { connectionTimeoutMillis: number; max: numbe
     // without exhausting PostgreSQL's default 100-connection budget.
     max: intFromEnv('PG_POOL_MAX', 40, { min: 1, max: 500 }),
     idleTimeoutMillis: 30000,
+    statementTimeoutMs,
+    // pg sends this in the startup packet: the session has the timeout before
+    // the first caller query, including the boot/probe connection. 0 is the
+    // documented disable value and is omitted so PostgreSQL keeps its default.
+    statement_timeout: statementTimeoutMs > 0 ? statementTimeoutMs : undefined,
   };
 }
 
-try {
-  if (process.env.DATABASE_URL || process.env.POSTGRES_HOST) {
-    realPoolInstance = new RealPgPool({
-      connectionString: process.env.DATABASE_URL || undefined,
-      host: process.env.POSTGRES_HOST || 'localhost',
-      port: parseInt(process.env.POSTGRES_PORT || '5432', 10),
-      database: process.env.POSTGRES_DB || 'inventory_db',
-      user: process.env.POSTGRES_USER || 'inventory_user',
-      password: process.env.POSTGRES_PASSWORD || 'securepassword',
-      ...buildPoolConfig(),
-    });
-  }
-} catch (_e) {}
+if (process.env.DATABASE_URL || process.env.POSTGRES_HOST) {
+  const { statementTimeoutMs, ...poolConfig } = buildPoolConfig();
+  realPoolInstance = new RealPgPool({
+    connectionString: process.env.DATABASE_URL || undefined,
+    host: process.env.POSTGRES_HOST || 'localhost',
+    port: parseInt(process.env.POSTGRES_PORT || '5432', 10),
+    database: process.env.POSTGRES_DB || 'inventory_db',
+    user: process.env.POSTGRES_USER || 'inventory_user',
+    password: process.env.POSTGRES_PASSWORD || 'securepassword',
+    ...poolConfig,
+  });
+}
 
 /**
  * Optional reporting read path: a replica, or PgBouncer in front of one.
- * Reporting queries tolerate a little replication lag and must not queued
+ * Reporting queries tolerate a little replication lag and must not queue
  * behind write traffic on the 40-connection primary pool. When unset, every
  * reporting read falls back to the primary, so a single-database install is
  * unchanged.
@@ -71,14 +133,13 @@ export const REPORT_DATABASE_URL =
   process.env.REPORT_DATABASE_URL || process.env.READ_REPLICA_DATABASE_URL || '';
 
 export let reportPoolInstance: any = null;
-try {
-  if (REPORT_DATABASE_URL) {
-    reportPoolInstance = new RealPgPool({
-      connectionString: REPORT_DATABASE_URL,
-      ...buildPoolConfig(),
-    });
-  }
-} catch (_e) {}
+if (REPORT_DATABASE_URL) {
+  const { statementTimeoutMs, ...poolConfig } = buildPoolConfig();
+  reportPoolInstance = new RealPgPool({
+    connectionString: REPORT_DATABASE_URL,
+    ...poolConfig,
+  });
+}
 
 /** True when reporting reads are routed away from the primary. */
 export function isReportingReplicaConfigured(): boolean {
@@ -86,14 +147,134 @@ export function isReportingReplicaConfigured(): boolean {
 }
 
 /**
+ * Classify a database failure (OPS-1).
+ *
+ * `clientAcquired` decides whether a timeout proves a broken socket (a client
+ * existed, so the connection was in use) or merely a saturated/unreachable
+ * pool during acquire (no client was handed out). Only `server_unreachable`
+ * and `socket_dropped` are allowed to count toward opening the breaker.
+ */
+export function classifyDbFailure(err: any, clientAcquired = true): DbFailureKind {
+  const sqlState: string = typeof err?.code === 'string' ? err.code : '';
+  const message: string = String(err?.message || '');
+
+  if (/timeout exceeded when trying to connect/i.test(message)) return 'pool_acquire_timeout';
+  if (sqlState === '57014') return 'statement_timeout';
+  if (
+    sqlState.startsWith('08') ||
+    sqlState === '57P01' ||
+    sqlState === '57P02' ||
+    sqlState === '57P03'
+  ) {
+    return 'server_unreachable';
+  }
+
+  if (/ECONNREFUSED|ENOTFOUND|EAI_AGAIN/i.test(message)) return 'server_unreachable';
+
+  if (!clientAcquired) {
+    // No client was handed out: ETIMEDOUT is a connect timeout, not a reset.
+    return /ETIMEDOUT/i.test(message) ? 'connect_timeout' : 'connect_timeout';
+  }
+
+  if (/ECONNRESET|ETIMEDOUT|Connection terminated|connection to server|server closed the connection/i.test(message)) {
+    return 'socket_dropped';
+  }
+  if (sqlState) return 'query_error';
+
+  // Unknown, no SQLSTATE, but a client was in hand: stay conservative and
+  // count it — but only as one of N inside the breaker's window.
+  return 'socket_dropped';
+}
+
+/**
+ * Backwards-compatible predicate for existing importers/tests. A failure is
+ * connection-level only when it is one of the two countable breaker kinds.
+ * (The breaker itself uses the categories; this wrapper is deliberately thin.)
+ */
+export function isConnectionLevelFailure(err: any): boolean {
+  const kind = classifyDbFailure(err);
+  return kind === 'server_unreachable' || kind === 'socket_dropped';
+}
+
+/** Record a classified failure and sync the flag if it opens the breaker. */
+export function noteDbFailure(kind: DbFailureKind): DbBreakerSnapshot {
+  if (kind === 'pool_acquire_timeout') recordDbTimeout('acquire');
+  else if (kind === 'statement_timeout') recordDbTimeout('statement');
+  dbBreaker.recordFailure(kind);
+  return dbBreaker.snapshot();
+}
+
+/** Record an answered database operation; closes a half-open breaker. */
+export function noteDbSuccess(): void {
+  dbBreaker.recordSuccess();
+}
+
+function databaseErrorFor(kind: DbFailureKind, original: any): any {
+  // The HTTP body must stay generic, but the boot log and incident logs still
+  // need the driver's own message (ECONNREFUSED, socket reset, …). Attach the
+  // original as `cause`; the central handler never serializes it.
+  const withCause = (error: Error): Error => {
+    (error as any).cause = original;
+    return error;
+  };
+  if (kind === 'pool_acquire_timeout' || kind === 'statement_timeout') {
+    return withCause(new DbBusyError());
+  }
+  if (
+    kind === 'connect_timeout' ||
+    kind === 'server_unreachable' ||
+    kind === 'socket_dropped'
+  ) {
+    return withCause(new DbUnavailableError());
+  }
+  // A SQL/query error keeps its SQLSTATE so the central handler can map
+  // unique/foreign-key violations to 409 and everything else to 500.
+  return original;
+}
+
+let probePromise: Promise<boolean> | null = null;
+
+/**
+ * Rechecks a previously unavailable pool. Single-flight: every queued caller
+ * shares one probe, and only its result may close the breaker. While the
+ * breaker is open and the cooldown has not elapsed this returns false without
+ * touching PostgreSQL, so a burst of requests cannot become a burst of probes.
+ */
+export function ensurePostgresConnection(): Promise<boolean> {
+  if (!realPoolInstance) return Promise.resolve(false);
+  if (probePromise) return probePromise;
+
+  const attempt = dbBreaker.beginAttempt();
+  if (!attempt.allowed) return Promise.resolve(false);
+
+  probePromise = (async () => {
+    try {
+      await realPoolInstance.query('SELECT 1');
+      noteDbSuccess();
+      setDatabaseConnected(true);
+      return true;
+    } catch (err: any) {
+      const kind = classifyDbFailure(err, false);
+      console.error('PostgreSQL availability probe failed:', err?.message || err);
+      noteDbFailure(kind);
+      return false;
+    } finally {
+      probePromise = null;
+    }
+  })();
+
+  return probePromise;
+}
+
+/**
  * Reporting pool. The primary is the default; a configured replica is used
  * only by read-only reporting endpoints, never by the write/ledger path.
+ * A replica has its own failure domain, so its errors are mapped to typed 503s
+ * but do not open the primary breaker.
  */
 export const reportingPool: { query: (text: string, params?: any[]) => Promise<any> } = {
   async query(text: string, params?: any[]) {
-    if (!isPgConnected) {
-      throw new Error('PostgreSQL is not connected. Database operations are unavailable.');
-    }
+    if (!isPgConnected) throw new DbUnavailableError();
     if (!reportPoolInstance) return pgPool.query(text, params);
     const startedAt = performance.now();
     let client: any = null;
@@ -106,14 +287,15 @@ export const reportingPool: { query: (text: string, params?: any[]) => Promise<a
         recordPoolAcquire(performance.now() - acquireStartedAt);
       } catch (err) {
         recordPoolAcquire(performance.now() - acquireStartedAt, true);
-        throw err;
+        throw databaseErrorFor(classifyDbFailure(err, false), err);
       }
       queryStarted = true;
       return await client.query(text, params);
-    } catch (err) {
+    } catch (err: any) {
       failed = true;
-      console.error('PostgreSQL reporting query failed:', (err as any)?.message || err);
-      throw err;
+      console.error('PostgreSQL reporting query failed:', err?.message || err);
+      if (err instanceof DbBusyError || err instanceof DbUnavailableError) throw err;
+      throw databaseErrorFor(classifyDbFailure(err, true), err);
     } finally {
       if (client && typeof client.release === 'function') {
         try { client.release(); } catch (_e) {}
@@ -123,86 +305,65 @@ export const reportingPool: { query: (text: string, params?: any[]) => Promise<a
   },
 };
 
-/**
- * Rechecks a previously unavailable pool. This lets the API recover after
- * PostgreSQL is started or briefly restarted without requiring an app restart.
- */
-export async function ensurePostgresConnection(): Promise<boolean> {
-  if (!realPoolInstance) return false;
-
-  try {
-    await realPoolInstance.query('SELECT 1');
-    isPgConnected = true;
-    return true;
-  } catch (_e) {
-    isPgConnected = false;
-    return false;
-  }
-}
-
-/**
- * Whether a failed query means the connection itself is unusable, so the pool
- * should count as offline until a re-probe succeeds.
- *
- * Only connection-level failures qualify. SQL-level errors (FK violations,
- * constraint failures, ...) must not take the whole database layer offline for
- * subsequent queries.
- *
- * 57xxx (operator intervention) is deliberately NOT a disconnect: 57014 is
- * `query_canceled`, which PostgreSQL also raises for statement_timeout and for
- * a client cancel. Treating one cancelled statement as an outage made every
- * later request answer 503 until the next re-probe. Only class 08 (connection
- * exception) and shutdown/crash classes 53/58 qualify, and the message
- * fallback does not match a bare "timeout" (a statement timeout is not a
- * broken socket).
- *
- * pg-pool's own acquire timeout ("timeout exceeded when trying to connect")
- * also stays online: it has no SQLSTATE but no socket was ever handed out — the
- * pool is merely saturated. Counting it as a disconnect flipped every later
- * request to 503 during a 500-user burst, turning a short queue into a
- * whole-API outage. Only the request that timed out fails.
- */
-export function isConnectionLevelFailure(err: any): boolean {
-  const sqlState: string = typeof err?.code === 'string' ? err.code : '';
-  const isPoolAcquireTimeout = /timeout exceeded when trying to connect/i.test(err?.message || '');
-  return (
-    (!isPoolAcquireTimeout && !sqlState) ||
-    sqlState.startsWith('08') ||
-    sqlState.startsWith('53') ||
-    sqlState.startsWith('58') ||
-    /ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|Connection terminated|connection to server/i.test(
-      err?.message || ''
-    )
-  );
-}
-
 export const pgPool = {
   async query(text: string, params?: any[]) {
-    if (!isPgConnected || !realPoolInstance) {
-      throw new Error('PostgreSQL is not connected. Database operations are unavailable.');
-    }
+    if (!realPoolInstance) throw new DbUnavailableError();
+
+    // A request must not become the half-open probe while the flag is down:
+    // requirePostgres owns the probe (single-flight). Once it succeeds the
+    // flag is back and normal queries resume.
+    if (!isPgConnected) throw new DbUnavailableError(dbBreaker.retryAfterSeconds());
+
+    // The breaker decides whether this request may touch PostgreSQL at all.
+    // While open (and before the cooldown) this fails fast without acquiring;
+    // after the cooldown exactly one request becomes the half-open probe.
+    const attempt = dbBreaker.beginAttempt();
+    if (!attempt.allowed) throw new DbUnavailableError(attempt.retryAfterSec);
+
     const startedAt = performance.now();
     let client: any = null;
     let queryStarted = false;
     let failed = false;
     let releaseError: any = null;
+
+    const acquireStartedAt = performance.now();
     try {
-      const acquireStartedAt = performance.now();
-      try {
-        client = await realPoolInstance.connect();
-        recordPoolAcquire(performance.now() - acquireStartedAt);
-      } catch (err) {
-        recordPoolAcquire(performance.now() - acquireStartedAt, true);
-        throw err;
-      }
-      queryStarted = true;
+      client = await realPoolInstance.connect();
+      recordPoolAcquire(performance.now() - acquireStartedAt);
+    } catch (err: any) {
+      failed = true;
+      recordPoolAcquire(performance.now() - acquireStartedAt, true);
+      const kind = classifyDbFailure(err, false);
+      noteDbFailure(kind);
+      console.error('PostgreSQL acquire failed:', err?.message || err);
+      throw databaseErrorFor(kind, err);
+    }
+
+    queryStarted = true;
+    try {
       return await client.query(text, params);
     } catch (err: any) {
       failed = true;
-      if (isConnectionLevelFailure(err)) {
-        isPgConnected = false;
-        releaseError = err;
+      const kind = classifyDbFailure(err, true);
+
+      if (kind === 'statement_timeout') {
+        // PostgreSQL answered (with a cancellation): the server is alive.
+        recordDbTimeout('statement');
+        noteDbSuccess();
+        console.error('PostgreSQL statement timed out:', err?.message || err);
+        throw databaseErrorFor('statement_timeout', err);
       }
+
+      if (kind === 'server_unreachable' || kind === 'socket_dropped') {
+        releaseError = err;
+        noteDbFailure(kind);
+        console.error('PostgreSQL connection failed:', err?.message || err);
+        throw databaseErrorFor(kind, err);
+      }
+
+      // A SQL error (constraint, syntax, ...) proves the connection works;
+      // it must never accumulate toward an outage.
+      noteDbSuccess();
       console.error('PostgreSQL query failed:', err?.message || err);
       throw err;
     } finally {
@@ -214,18 +375,25 @@ export const pgPool = {
       if (queryStarted) recordDbQuery(performance.now() - startedAt, text, failed);
     }
   },
+
   async connect() {
     if (!realPoolInstance) {
       throw new Error('PostgreSQL connection is not configured.');
     }
+    const attempt = dbBreaker.beginAttempt();
+    if (!attempt.allowed) throw new DbUnavailableError(attempt.retryAfterSec);
+
     const startedAt = performance.now();
     try {
       const client = await realPoolInstance.connect();
       recordPoolAcquire(performance.now() - startedAt);
+      noteDbSuccess();
       return client;
-    } catch (err) {
+    } catch (err: any) {
       recordPoolAcquire(performance.now() - startedAt, true);
-      throw err;
+      const kind = classifyDbFailure(err, false);
+      noteDbFailure(kind);
+      throw databaseErrorFor(kind, err);
     }
-  }
+  },
 };

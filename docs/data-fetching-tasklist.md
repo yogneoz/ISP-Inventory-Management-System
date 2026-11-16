@@ -1,6 +1,6 @@
 # Data-fetching fixes — working task list
 
-_Updated 2026-10-24 · source of findings: [data-fetching-audit.md](data-fetching-audit.md)_
+_Closed 2026-10-24 · source of findings: [data-fetching-audit.md](data-fetching-audit.md). Kept as the record of completed payload work; this is not an open task list._
 
 This is the working checklist for the 2026-10-24 data-fetching audit. The audit
 holds the "why" and the evidence; this file holds the tasks, the order, and the

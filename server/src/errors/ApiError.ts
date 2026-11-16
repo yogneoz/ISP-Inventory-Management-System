@@ -6,10 +6,20 @@
  */
 export class ApiError extends Error {
   readonly status: number;
+  /** Stable machine-readable code for retryable availability errors. */
+  readonly code?: string;
+  /** Seconds the caller should wait before retrying; emitted as Retry-After. */
+  readonly retryAfterSec?: number;
 
-  constructor(status: number, message: string) {
+  constructor(
+    status: number,
+    message: string,
+    options: { code?: string; retryAfterSec?: number } = {}
+  ) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.code = options.code;
+    this.retryAfterSec = options.retryAfterSec;
   }
 }

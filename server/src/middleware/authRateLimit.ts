@@ -39,6 +39,8 @@ import type { Request, Response, NextFunction } from 'express';
 import { RateLimiter, buildRateLimitKey, buildAccountRateLimitKey } from '../utils/rateLimiter';
 import type { RateLimitVerdict } from '../utils/rateLimiter';
 import { intFromEnv } from '../utils/envGuard';
+import { isRedisSharedState, getSharedStore } from '../state/sharedStore';
+import { SharedRateLimiter } from '../state/sharedRateLimiter';
 
 // Strict env parsing (backlog #4): garbage values warn and fall back instead
 // of becoming NaN or 0 (a zero window/max would hard-lock or fully disable
@@ -67,6 +69,20 @@ const DISABLED = process.env.AUTH_RATE_LIMIT_DISABLED === '1' || process.env.AUT
 
 const ipLimiter = new RateLimiter({ max: MAX_IP_ATTEMPTS, windowMs: WINDOW_MS });
 const accountLimiter = new RateLimiter({ max: MAX_ATTEMPTS, windowMs: WINDOW_MS });
+
+let sharedStoreRef: any = null;
+let sharedIpLimiter: SharedRateLimiter | null = null;
+let sharedAccountLimiter: SharedRateLimiter | null = null;
+function sharedLimiters(): { ip: SharedRateLimiter; account: SharedRateLimiter } | null {
+  if (!isRedisSharedState()) return null;
+  const store = getSharedStore();
+  if (sharedStoreRef !== store) {
+    sharedStoreRef = store;
+    sharedIpLimiter = new SharedRateLimiter(store, { max: MAX_IP_ATTEMPTS, windowMs: WINDOW_MS });
+    sharedAccountLimiter = new SharedRateLimiter(store, { max: MAX_ATTEMPTS, windowMs: WINDOW_MS });
+  }
+  return { ip: sharedIpLimiter!, account: sharedAccountLimiter! };
+}
 
 /** Every scope the auth limiter guards. Release/report cover all of them. */
 export const AUTH_RATE_LIMIT_SCOPES = ['auth-login', 'auth-forgot'] as const;
@@ -100,22 +116,32 @@ function parseBucketKey(key: string): { scope: string; kind: 'account' | 'ip'; t
     : { scope, kind: 'ip', target: rest };
 }
 
-/** Who the limiter is currently blocking, across both buckets and scopes. */
-export function listAuthRateLimitBlocks(): AuthRateLimitBlock[] {
+function blocksFromEntries(entries: Array<{ key: string; count: number; limit: number; retryAfterMs: number }>): AuthRateLimitBlock[] {
   const blocks: AuthRateLimitBlock[] = [];
-  for (const limiter of [accountLimiter, ipLimiter]) {
-    for (const entry of limiter.snapshot()) {
-      const parsed = parseBucketKey(entry.key);
-      if (!parsed) continue;
-      blocks.push({
-        ...parsed,
-        attempts: entry.count,
-        limit: entry.limit,
-        retryAfterSec: Math.max(1, Math.ceil(entry.retryAfterMs / 1000)),
-      });
-    }
+  for (const entry of entries) {
+    const parsed = parseBucketKey(entry.key);
+    if (!parsed) continue;
+    blocks.push({
+      ...parsed,
+      attempts: entry.count,
+      limit: entry.limit,
+      retryAfterSec: Math.max(1, Math.ceil(entry.retryAfterMs / 1000)),
+    });
   }
   return blocks.sort((a, b) => b.retryAfterSec - a.retryAfterSec);
+}
+
+/** Who the local limiter is blocking (single-worker mode). */
+export function listAuthRateLimitBlocks(): AuthRateLimitBlock[] {
+  return blocksFromEntries([...accountLimiter.snapshot(), ...ipLimiter.snapshot()]);
+}
+
+/** Who the shared limiter is blocking (Redis mode). */
+export async function listAuthRateLimitBlocksShared(): Promise<AuthRateLimitBlock[]> {
+  const shared = sharedLimiters();
+  if (!shared) return listAuthRateLimitBlocks();
+  const [account, ip] = await Promise.all([shared.account.snapshot(), shared.ip.snapshot()]);
+  return blocksFromEntries([...account, ...ip]);
 }
 
 export interface ReleaseAuthRateLimitInput {
@@ -149,6 +175,28 @@ export function releaseAuthRateLimit(input: ReleaseAuthRateLimitInput): { releas
   return { released: accountKeys.length + ipKeys.length };
 }
 
+export async function releaseAuthRateLimitShared(input: ReleaseAuthRateLimitInput): Promise<{ released: number }> {
+  const email = typeof input.email === 'string' ? input.email.trim().toLowerCase() : '';
+  const ip = typeof input.ip === 'string' ? input.ip.trim() : '';
+  const all = input.all === true;
+  if (!all && !email && !ip) throw new Error('releaseAuthRateLimit needs an email, an ip, or all=true');
+  const matches = (key: string): boolean => {
+    if (all) return true;
+    const parsed = parseBucketKey(key);
+    if (!parsed) return false;
+    if (email && parsed.kind === 'account' && parsed.target === email) return true;
+    if (ip && parsed.kind === 'ip' && parsed.target === ip) return true;
+    return false;
+  };
+  const shared = sharedLimiters();
+  if (!shared) return releaseAuthRateLimit(input);
+  const [accountKeys, ipKeys] = await Promise.all([
+    shared.account.clearMatching(matches),
+    shared.ip.clearMatching(matches),
+  ]);
+  return { released: accountKeys.length + ipKeys.length };
+}
+
 export interface AuthRateLimitOptions {
   /** Bucket scope, e.g. 'auth-login' or 'auth-forgot'. */
   scope: string;
@@ -159,10 +207,78 @@ export interface AuthRateLimitOptions {
   accountFrom?: (req: Request) => string | undefined;
 }
 
+async function sharedAuthRateLimit(
+  shared: { ip: SharedRateLimiter; account: SharedRateLimiter },
+  options: AuthRateLimitOptions,
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const account = options.accountFrom ? options.accountFrom(req) : undefined;
+    const ipKey = buildRateLimitKey(options.scope, req);
+    const ipVerdict = await shared.ip.attempt(ipKey);
+
+    let accountKey: string | null = null;
+    let accountVerdict: RateLimitVerdict | null = null;
+    if (account) {
+      accountKey = buildAccountRateLimitKey(options.scope, account);
+      accountVerdict = await shared.account.attempt(accountKey);
+    }
+
+    const blocking = !ipVerdict.allowed ? ipVerdict : accountVerdict && !accountVerdict.allowed ? accountVerdict : null;
+    if (blocking) {
+      if (accountKey && accountVerdict!.allowed) await shared.account.revoke(accountKey);
+      const retryAfterSec = Math.max(1, Math.ceil(blocking.retryAfterMs / 1000));
+      res.set('Retry-After', String(retryAfterSec));
+      res.set('X-Auth-Attempts-Remaining', '0');
+      res.status(429).json({
+        message: `Too many attempts. Please try again in ${retryAfterSec} second${retryAfterSec === 1 ? '' : 's'}.`,
+        retryAfterSec,
+        attemptsRemaining: 0,
+      });
+      return;
+    }
+
+    const ipRemaining = Math.max(0, ipVerdict.limit - ipVerdict.count);
+    const accountRemaining = accountVerdict
+      ? Math.max(0, accountVerdict.limit - accountVerdict.count)
+      : Number.POSITIVE_INFINITY;
+    const originalJson = res.json.bind(res);
+    res.json = (payload: any) => {
+      const failed = res.statusCode >= 400;
+      if (accountKey && !failed) {
+        void shared.account.revoke(accountKey).catch((err: any) =>
+          console.error('Shared rate-limit revoke failed:', err?.message || err)
+        );
+      }
+      const remaining = failed ? Math.max(0, Math.min(ipRemaining, accountRemaining)) : ipRemaining;
+      res.set('X-Auth-Attempts-Remaining', String(remaining));
+      if (failed && payload && typeof payload === 'object') {
+        return originalJson({ ...payload, attemptsRemaining: remaining });
+      }
+      return originalJson(payload);
+    };
+    next();
+  } catch (err: any) {
+    // Security controls fail closed when their shared store is unavailable.
+    console.error('shared auth rate limiter unavailable (failing closed):', err?.message || err);
+    res.status(503).json({
+      message: 'Sign-in protection is temporarily unavailable. Retry shortly.',
+      code: 'SHARED_STATE_UNAVAILABLE',
+    });
+  }
+}
+
 export function createAuthRateLimit(options: AuthRateLimitOptions) {
   return function authRateLimit(req: Request, res: Response, next: NextFunction): void {
     if (DISABLED) {
       next();
+      return;
+    }
+    const shared = sharedLimiters();
+    if (shared) {
+      void sharedAuthRateLimit(shared, options, req, res, next);
       return;
     }
     try {

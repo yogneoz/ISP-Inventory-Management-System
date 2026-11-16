@@ -1,7 +1,7 @@
 /**
- * Bootstrap trim — stockOperations / purchaseOrders / purchaseInvoices no
- * longer ship in the GET /api/bootstrap payload (bootstrap trim continuation,
- * consumer-driven step).
+ * Bootstrap trim — stockOperations / purchaseOrders / purchaseInvoices,
+ * the two return registers and the audit trail no longer ship in the
+ * GET /api/bootstrap payload (bootstrap trim continuation, consumer-driven step).
  *
  * PROVES:
  *  1. SOURCE (no DB needed): the bootstrap controller no longer serializes
@@ -45,7 +45,14 @@ try {
 }
 const skipNoDb = !dbReachable && 'needs a reachable PostgreSQL (requirePostgres gate)';
 
-const TRIMMED_KEYS = ['stockOperations', 'purchaseOrders', 'purchaseInvoices'] as const;
+const TRIMMED_KEYS = [
+  'stockOperations',
+  'purchaseOrders',
+  'purchaseInvoices',
+  'purchaseReturns',
+  'salesReturns',
+  'auditLogs',
+] as const;
 const UNSHIPPED_PAYMENTS = 'vendorPayments';
 
 const SUPER_USER = {
@@ -54,7 +61,7 @@ const SUPER_USER = {
   allowedBranchIds: ['WH001'], canSwitchUser: false,
 } as any;
 
-describe('bootstrap trim: three ledgers out of the payload, deferred slices keep consumers fed', () => {
+describe('bootstrap trim: ledgers, returns and audit out of the payload, deferred slices keep consumers fed', () => {
   test('source: bootstrap controller no longer serializes the three ledger keys', () => {
     const controller = fs.readFileSync(
       path.join(ROOT, 'server/src/controllers/bootstrap.controller.ts'),
@@ -71,6 +78,9 @@ describe('bootstrap trim: three ledgers out of the payload, deferred slices keep
       /purchaseOrders:\s*pgPurchaseOrders/,
       /purchaseInvoices:\s*pgInvoices/,
       /stockOperations:\s*pgOps/,
+      /purchaseReturns:\s*data\.purchaseReturns/,
+      /salesReturns:\s*data\.salesReturns/,
+      /auditLogs:\s*canReadAuditLogs/,
     ]) {
       assert.ok(
         !pattern.test(payload),
@@ -84,7 +94,7 @@ describe('bootstrap trim: three ledgers out of the payload, deferred slices keep
       'financialSummary must be served by the aggregate SQL producer'
     );
     assert.ok(
-      !/fetchTable\(pool, BOOTSTRAP_TABLES\.(purchaseOrders|purchaseInvoices|stockOperations|vendorPayments|shipments)/.test(
+      !/fetchTable\(pool, BOOTSTRAP_TABLES\.(purchaseOrders|purchaseInvoices|stockOperations|vendorPayments|shipments|purchaseReturns|salesReturns|auditLogs)/.test(
         fs.readFileSync(path.join(ROOT, 'server/src/models/bootstrap.repo.ts'), 'utf8')
       ),
       'the bootstrap fan-out must not read an unshipped ledger again'
@@ -93,16 +103,21 @@ describe('bootstrap trim: three ledgers out of the payload, deferred slices keep
 
   test('source: App.tsx hydrates the deferred slices through the full-bootstrap path', () => {
     const app = fs.readFileSync(path.join(ROOT, 'client/src/App.tsx'), 'utf8');
-    const sliceLine = app
-      .split(/\r?\n/)
-      .find((line) => line.includes('DEFERRED_BOOTSTRAP_SLICES = ['));
-    assert.ok(sliceLine, 'App.tsx must declare DEFERRED_BOOTSTRAP_SLICES');
+    const sliceStart = app.indexOf('DEFERRED_BOOTSTRAP_SLICES = [');
+    const sliceEnd = sliceStart === -1 ? -1 : app.indexOf('];', sliceStart);
+    assert.ok(sliceStart >= 0 && sliceEnd > sliceStart, 'App.tsx must declare DEFERRED_BOOTSTRAP_SLICES');
+    const sliceBlock = app.slice(sliceStart, sliceEnd);
     for (const key of TRIMMED_KEYS) {
       assert.ok(
-        sliceLine.includes(`'${key}'`),
+        sliceBlock.includes(`'${key}'`),
         `DEFERRED_BOOTSTRAP_SLICES is missing '${key}' — its consumers would go stale`
       );
     }
+    assert.doesNotMatch(
+      app,
+      /set(PurchaseReturns|SalesReturns|AuditLogs)\(data\.\w+\s*\|\|\s*\[\]\)/,
+      'full-bootstrap apply must not reset a deferred key to [] when the payload omits it'
+    );
     assert.ok(
       /hydrateDeferredSlices\(requestBranchId/.test(app),
       'refreshAllData must call hydrateDeferredSlices after applying the (now ledger-less) bootstrap payload'
@@ -151,7 +166,7 @@ describe('bootstrap trim: three ledgers out of the payload, deferred slices keep
       return { status: res.status, json };
     }
 
-    test('GET /api/bootstrap omits the three ledgers and vendorPayments but keeps financialSummary', { skip: skipNoDb }, async () => {
+    test('GET /api/bootstrap omits the moved ledgers, returns and audit trail but keeps first paint', { skip: skipNoDb }, async () => {
       const { status, json } = await get('/api/bootstrap');
       assert.equal(status, 200);
       assert.ok(json && typeof json === 'object', 'bootstrap must return a JSON object');
@@ -160,7 +175,17 @@ describe('bootstrap trim: three ledgers out of the payload, deferred slices keep
       }
       assert.ok(!(UNSHIPPED_PAYMENTS in json), 'the client never read vendorPayments; it must not ship');
       assert.ok('financialSummary' in json, 'financialSummary must stay in the payload (computed server-side)');
-      assert.ok(Array.isArray(json.stock), 'the rest of the payload must be intact');
+      // SCALE-2: products/stock/suppliers/... left first paint too. They are
+      // hydrated by deferred slices, so a large installation's master tables
+      // can never scale the login payload back over budget.
+      for (const key of [
+        'stock', 'products', 'suppliers', 'categories', 'productGroups',
+        'uom', 'locations', 'approvalRequests', 'damageRecords',
+      ]) {
+        assert.ok(!(key in json), `bootstrap still ships master array '${key}'`);
+      }
+      assert.ok(Array.isArray(json.branches), 'the identity/branch shell must stay');
+      assert.ok(Array.isArray(json.fiscalYears), 'the fiscal-year context must stay');
       // VOL-3: the transfer register pages its own reads and the shell/KPI
       // surfaces read the scoped overview, so the fiscal year's dispatch
       // history no longer enters the login payload.

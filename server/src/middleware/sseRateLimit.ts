@@ -27,6 +27,8 @@
 import type { Request, Response, NextFunction } from 'express';
 import { RateLimiter, buildRateLimitKey } from '../utils/rateLimiter';
 import { intFromEnv } from '../utils/envGuard';
+import { isRedisSharedState, getSharedStore, newRateMember } from '../state/sharedStore';
+import { SharedRateLimiter } from '../state/sharedRateLimiter';
 
 // Strict env parsing (backlog #4): garbage values warn and fall back instead
 // of becoming NaN or 0 (which would either disable the cap or block everyone).
@@ -39,10 +41,44 @@ const DISABLED = process.env.SSE_RATE_LIMIT_DISABLED === '1' || process.env.SSE_
 const WINDOW_MS = 3_600_000;
 
 const streamLimiter = new RateLimiter({ max: MAX_STREAMS_PER_IP, windowMs: WINDOW_MS });
+let sharedStoreRef: any = null;
+let sharedStreamLimiter: SharedRateLimiter | null = null;
+function sharedLimiter(): SharedRateLimiter | null {
+  if (!isRedisSharedState()) return null;
+  const store = getSharedStore();
+  if (sharedStoreRef !== store) {
+    sharedStoreRef = store;
+    sharedStreamLimiter = new SharedRateLimiter(store, { max: MAX_STREAMS_PER_IP, windowMs: WINDOW_MS });
+  }
+  return sharedStreamLimiter;
+}
 
 export function sseConnectionLimit(req: Request, res: Response, next: NextFunction): void {
   if (DISABLED) {
     next();
+    return;
+  }
+  const shared = sharedLimiter();
+  if (shared) {
+    void (async () => {
+      try {
+        const member = newRateMember();
+        const verdict = await shared.attempt(buildRateLimitKey('sse-stream', req), member);
+        if (!verdict.allowed) {
+          const retryAfterSec = Math.max(1, Math.ceil(verdict.retryAfterMs / 1000));
+          res.set('Retry-After', String(Math.min(retryAfterSec, 60)));
+          res.status(429).json({ message: 'Too many sync streams open from this address. Close some tabs or wait before reconnecting.' });
+          return;
+        }
+        const release = () => { void shared.revoke(buildRateLimitKey('sse-stream', req), member).catch(() => {}); };
+        res.on('close', release);
+        res.on('finish', release);
+        next();
+      } catch (err: any) {
+        console.error('shared SSE connection limiter unavailable (failing closed):', err?.message || err);
+        res.status(503).json({ message: 'Sync stream protection is temporarily unavailable. Retry shortly.', code: 'SHARED_STATE_UNAVAILABLE' });
+      }
+    })();
     return;
   }
   try {

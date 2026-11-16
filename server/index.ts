@@ -7,6 +7,9 @@ import { realPoolInstance } from './db';
 import { createLifecycle } from './src/boot/lifecycle';
 import { validateAuthSecret } from './src/boot/authSecret';
 import { resolveSetupToken } from './src/boot/setupToken';
+import { initializeSharedState, assertSharedStateForWorkers, closeSharedState } from './src/state/sharedStore';
+import { withStartupLeadership } from './src/state/sharedLock';
+import { startSseSubscriber, stopSseSubscriber } from './src/realtime/sse';
 
 /**
  * Every terminal exit of this process goes through ONE lifecycle:
@@ -26,6 +29,12 @@ import { resolveSetupToken } from './src/boot/setupToken';
 const lifecycle = createLifecycle({
   closePool: async () => {
     await realPoolInstance?.end();
+  },
+  // SSE clients are ended first inside lifecycle.shutdown; the subscriber then
+  // stops before the PostgreSQL pool closes (SCALE-1 shutdown order).
+  closeShared: async () => {
+    await stopSseSubscriber();
+    await closeSharedState();
   },
 });
 
@@ -86,6 +95,11 @@ if (setupTokenCheck.source === 'generated') {
 }
 
 async function startServer() {
+  // Shared state is a boot precondition in a clustered production process: a
+  // missing Redis would silently give every worker its own security limits.
+  assertSharedStateForWorkers(process.env);
+  await initializeSharedState(process.env);
+
   const app = createApp();
 
   // Register every domain router (plus the terminal error handler) BEFORE the
@@ -93,7 +107,17 @@ async function startServer() {
   // synchronously at startup, which is the same effective order.
   registerAllRoutes(app);
 
-  await syncDatabaseAndIndexes();
+  // Only the elected worker runs schema migration/seed; every other worker
+  // waits for the lock and then serves against the same database.
+  const startup = await withStartupLeadership('boot:schema-and-seed', () => syncDatabaseAndIndexes());
+  if (!startup.leader) console.log('Boot schema/seed already completed by another worker; skipping the duplicate job.');
+  try {
+    await startSseSubscriber();
+  } catch (err: any) {
+    // SSE fan-out is a read-side convenience, not a security control: keep
+    // serving local clients and alert if the subscriber cannot attach.
+    console.error('SSE subscriber failed to start (local fan-out only):', err?.message || err);
+  }
 
   const server: Server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`Inventory Management System server running on http://localhost:${PORT}`);

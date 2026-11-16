@@ -1,27 +1,126 @@
 /**
- * SSE broadcast engine extracted from app.ts (backlog item #6 — app.ts
- * extraction). Holds the live client set and the change broadcaster.
+ * SSE broadcast engine (SCALE-1: cross-worker fan-out).
  *
- * Connection handles are the ONLY state here — by design, and the single
- * permitted piece of in-memory realtime state. Multi-instance fan-out
- * (Redis pub/sub) plugs in by replacing the write loop inside
- * broadcastChange; the import surface below stays identical.
+ * Each worker keeps only its own response handles. `broadcastChange` writes to
+ * those handles immediately, then publishes the same event to Redis; every
+ * worker's subscriber writes it to its own clients. A client connected to
+ * worker B therefore sees a write handled by worker A. If Redis is absent the
+ * process still serves local clients (single-worker development/tests).
+ *
+ * The per-client `dataVersion` contract is unchanged: the event carries the
+ * version, the handshake carries the local current version, and a reconnect
+ * resyncs from the client's last version.
  */
 import type express from 'express';
+import { randomUUID } from 'node:crypto';
 import { resolveDomain } from '../syncDomains';
+import { getSharedStore, isRedisSharedState, type SharedStore } from '../state/sharedStore';
 
-export const sseClients = new Set<express.Response>();
+export const SSE_CHANNEL = 'isp:sse:changes';
+const INSTANCE_ID = randomUUID();
+
+export interface SseEvent {
+  type: string;
+  entity?: string;
+  branchId?: string;
+  domain?: string;
+  dataVersion?: number;
+  timestamp?: string;
+}
+
+export interface SseHub {
+  readonly clients: Set<express.Response>;
+  deliver(payload: string): void;
+}
+
+export function createSseHub(): SseHub {
+  const clients = new Set<express.Response>();
+  return {
+    clients,
+    deliver(payload: string) {
+      for (const client of clients) {
+        try {
+          client.write(`data: ${payload}\n\n`);
+        } catch {
+          clients.delete(client);
+        }
+      }
+    },
+  };
+}
+
+const defaultHub = createSseHub();
+export const sseClients = defaultHub.clients;
 let dataVersion = Date.now();
 
-export function broadcastChange(event: { type: string; entity?: string; branchId?: string }) {
-  dataVersion = Date.now();
-  const domain = resolveDomain(event.type, event.entity);
-  const payload = JSON.stringify({ ...event, domain, dataVersion, timestamp: new Date().toISOString() });
-  for (const client of sseClients) {
+export interface SseBus {
+  broadcastChange(event: { type: string; entity?: string; branchId?: string }): void;
+  startSubscriber(): Promise<void>;
+}
+
+/**
+ * Builds an independent bus around a hub. The production module uses one
+ * default hub; tests use two buses with the same memory store to prove that a
+ * write on one reaches a client on the other.
+ */
+export function createSseBus(hub: SseHub, store: SharedStore = getSharedStore(), origin: string = INSTANCE_ID): SseBus {
+  async function publishRemote(payload: string): Promise<void> {
     try {
-      client.write(`data: ${payload}\n\n`);
-    } catch (_err) {
-      sseClients.delete(client);
+      await store.publish(SSE_CHANNEL, JSON.stringify({ origin, payload: JSON.parse(payload) }));
+    } catch (err: any) {
+      console.error('SSE fan-out publish failed (local clients still served):', err?.message || err);
     }
   }
+
+  return {
+    broadcastChange(event) {
+      dataVersion = Date.now();
+      const domain = resolveDomain(event.type, event.entity);
+      const payload = JSON.stringify({
+        ...event,
+        domain,
+        dataVersion,
+        timestamp: new Date().toISOString(),
+      });
+      hub.deliver(payload);
+      if (store.kind === 'redis') void publishRemote(payload);
+    },
+    async startSubscriber() {
+      if (store.kind !== 'redis') return;
+      await store.subscribe(SSE_CHANNEL, (raw) => {
+        try {
+          const message = JSON.parse(raw);
+          if (!message || message.origin === origin) return;
+          dataVersion = Number(message.payload?.dataVersion) || Date.now();
+          hub.deliver(JSON.stringify(message.payload));
+        } catch (err: any) {
+          console.error('Ignoring malformed SSE fan-out message:', err?.message || err);
+        }
+      });
+    },
+  };
+}
+
+const defaultBus = createSseBus(defaultHub);
+
+export function broadcastChange(event: { type: string; entity?: string; branchId?: string }): void {
+  defaultBus.broadcastChange(event);
+}
+
+export function getDataVersion(): number {
+  return dataVersion;
+}
+
+/** Boot-time subscriber; a Redis outage is logged and only local fan-out remains. */
+export async function startSseSubscriber(): Promise<void> {
+  if (!isRedisSharedState()) return;
+  await defaultBus.startSubscriber();
+  console.log('✅ SSE subscriber connected: writes fan out across workers.');
+}
+
+/** Shutdown hook: the shared store closes the subscriber before the pool closes. */
+export async function stopSseSubscriber(): Promise<void> {
+  // SharedStore.close() owns the Redis subscriber connection. This function is
+  // kept explicit so lifecycle ordering is visible and future fan-out backends
+  // have one shutdown point.
 }

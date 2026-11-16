@@ -32,6 +32,7 @@ import {
 } from '../models/auth.repo';
 import type { AuditLog, User } from '../../../client/src/types';
 import { todayBs } from '../utils/bsDate';
+import { rememberSessionVersion } from '../state/sessionVersion';
 
 /**
  * POST /api/auth/login
@@ -65,6 +66,7 @@ export async function login(req: Request, res: Response): Promise<void> {
       // profile statements keep working unchanged.
       const avatar = (await pgPool.query(USER_LINKED_AVATAR_SQL, [dbUser.id])).rows[0];
       setActiveUser(dbUser);
+      await rememberSessionVersion(dbUser);
       const { password: _, ...userWithoutPass } = dbUser;
       res.json({
         user: { ...userWithoutPass, avatarUrl: avatar?.avatarUrl ?? null },
@@ -83,6 +85,7 @@ export async function login(req: Request, res: Response): Promise<void> {
     }
     if (passwordCheck.upgradedHash) localUser.password = passwordCheck.upgradedHash;
     setActiveUser(localUser);
+    await rememberSessionVersion(localUser);
     const { password: _, ...userWithoutPass } = localUser;
     res.json({ user: userWithoutPass, token: issueAuthToken(localUser) });
   } catch (err: any) {
@@ -199,6 +202,7 @@ export async function post_setupSuperadmin(req: any, res: Response): Promise<any
       setUsers(withPrepended(users, savedUser));
       setActiveUser(savedUser);
       logAuditEvent(req, 'CREATE_SUPER_ADMIN', 'AUTH', `Super Admin account initialized: ${savedUser.name} (${savedUser.email})`);
+      await rememberSessionVersion(savedUser);
 
       const { password: _, ...userWithoutPass } = savedUser;
       return res.status(201).json({ user: userWithoutPass, token: issueAuthToken(savedUser) });
@@ -241,6 +245,7 @@ export async function post_setupSuperadmin(req: any, res: Response): Promise<any
   consumeSetupToken();
   setUsers(withPrepended(users, localUser));
   setActiveUser(localUser);
+  await rememberSessionVersion(localUser);
   const { password: _, ...localUserWithoutPass } = localUser;
   return res.status(201).json({ user: localUserWithoutPass, token: issueAuthToken(localUser) });
 }
@@ -374,6 +379,7 @@ export async function post_switchProfile(req: any, res: Response): Promise<any> 
 
   // A switched profile carries its own linked employee photo.
   const avatar = (await pgPool.query(USER_LINKED_AVATAR_SQL, [user.id])).rows[0];
+  await rememberSessionVersion(user);
   const { password: _, ...userWithoutPass } = user;
   res.json({
     user: { ...userWithoutPass, avatarUrl: avatar?.avatarUrl ?? null },
@@ -543,6 +549,7 @@ export async function put_profile(req: any, res: Response): Promise<any> {
   // The session fingerprint covers email, role, branch and password, so this
   // edit retires every other live token. Hand the caller a fresh one so they
   // are not signed out by their own change.
+  await rememberSessionVersion(savedUser);
   const { password: _password, ver: _ver, ...userWithoutPass } = savedUser as any;
   return res.json({ ...userWithoutPass, token: issueAuthToken(savedUser) });
 }

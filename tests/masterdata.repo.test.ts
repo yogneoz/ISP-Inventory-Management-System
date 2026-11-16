@@ -211,9 +211,9 @@ describe('buildCustomerListQuery', () => {
     assert.equal(garbage.pageSize, 15);
   });
 
-  test('all=1 omits LIMIT/OFFSET for the CSV export', () => {
+  test('all=1 keeps the CSV export bounded by the hard cap', () => {
     const { sql, page, pageSize } = buildCustomerListQuery({ all: true, page: '4' });
-    assert.ok(!sql.includes('LIMIT'));
+    assert.match(sql, /LIMIT 10000$/);
     assert.ok(!sql.includes('OFFSET'));
     assert.equal(page, 4);
     assert.equal(pageSize, 0, 'the caller replaces 0 with the exported row count');

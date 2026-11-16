@@ -27,6 +27,7 @@ import {
   writeSellerCoveragePlan,
 } from '../services/warranty.service';
 import { resolveWarrantyCoverage } from '../../../shared/warrantyTerm';
+import { decodeKeysetCursor, encodeKeysetCursor, cursorTimestamp, keysetEnvelope, keysetLimit, requireLargeTableScope } from '../utils/keysetCursor';
 import { SerialGateError, planSerialGateEntries, resolveSerialGateInDb, resolveSerialGateInMemory, serialGateKey } from '../services/serialGate.service';
 import {
   issueOperationSerialsInDb,
@@ -88,6 +89,7 @@ import {
   buildStockOperationCountQuery,
   buildStockOperationStatusCountQuery,
   buildStockOperationPagedQuery,
+  buildStockOperationKeysetQuery,
   STOCK_OPERATION_INSERT_SQL,
   stockOperationInsertParams,
   STOCK_DAMAGE_APPLY_SQL,
@@ -131,6 +133,7 @@ import {
   customerCountUpsertParams,
   buildSerialLookupSql,
   buildSerialLogQuery,
+  buildSerialLogKeysetQuery,
   buildSerialLogCountQuery,
   buildSerialLogStatusCountQuery,
   SERIAL_LOG_FIND_IN_STOCK_BY_SERIAL_SQL,
@@ -1342,22 +1345,50 @@ try {
 
 /** Forwarded from inventory.routes.ts (get_stockOperations). */
 export async function get_stockOperations(req: any, res: Response): Promise<any> {
-const { branchId, type, status, query, dateFromAD, dateToAD, page, pageSize, all } = req.query;
+const { branchId, type, status, query, dateFromAD, dateToAD, page, pageSize, all, cursor, limit } = req.query;
+  const wantsCursor = cursor !== undefined || limit !== undefined;
+  if (wantsCursor && !requireLargeTableScope(res, {
+    branchId, dateFrom: dateFromAD, dateTo: dateToAD, report: true,
+  })) return;
+  const parsedCursor = cursor === undefined ? undefined : decodeKeysetCursor(cursor, 'stock_operations', 2);
+  if (cursor !== undefined && !parsedCursor) {
+    return res.status(400).json({ code: 'INVALID_CURSOR', message: 'The stock-operations cursor is invalid. Reload the list and retry.' });
+  }
   // Paged mode: ?page=N (with optional pageSize) returns an envelope with the
   // page slice, the filtered total, and per-status counts. ?all=1 returns
   // every filtered row (CSV export). No page param keeps the legacy
   // full-array shape for existing callers (bootstrap consumers, damage
   // tracking).
-  const wantsPaged = page !== undefined || pageSize !== undefined || all === '1';
+  const wantsPaged = page !== undefined || pageSize !== undefined || all === '1' || wantsCursor;
   // Mirror step 3: when PG is up the list is ALWAYS read live — even the
   // unfiltered legacy shape (previously it served the mirror while the paged
   // path read PG). The mirror below is demo mode / PG-down fallback only.
   if (getPgConnected()) {
     try {
       const opts = { branchId, type, status, query, dateFromAD, dateToAD };
+      if (wantsCursor && all !== '1') {
+        const size = keysetLimit(limit, 50, 500);
+        const q = buildStockOperationKeysetQuery(
+          opts,
+          parsedCursor ? [String(parsedCursor[0]), String(parsedCursor[1])] : undefined,
+          size
+        );
+        const r = await pgPool.query(q.sql, q.params);
+        const hasMore = r.rows.length > size;
+        const items = hasMore ? r.rows.slice(0, size) : r.rows;
+        const statusQ = buildStockOperationStatusCountQuery(opts);
+        const statusR = await pgPool.query(statusQ.sql, statusQ.params);
+        const statusCounts: Record<string, number> = {};
+        for (const row of statusR.rows) statusCounts[String(row.status)] = Number(row.count);
+        const last = items[items.length - 1];
+        const nextCursor = hasMore && last
+          ? encodeKeysetCursor('stock_operations', [cursorTimestamp(last.createdAt), String(last.id)])
+          : null;
+        return res.json(keysetEnvelope(items, nextCursor, hasMore, { statusCounts }));
+      }
       if (wantsPaged) {
-        const n = Math.max(1, Number(page) || 1);
         const size = Math.max(1, Math.min(500, Number(pageSize) || 50));
+        const n = Math.max(1, Math.min(Math.max(1, Math.floor(10000 / size)), Number(page) || 1));
         const countR = await pgPool.query(buildStockOperationCountQuery(opts).sql, buildStockOperationCountQuery(opts).params);
         const totalItems = Number(countR.rows[0]?.count || 0);
         const statusQ = buildStockOperationStatusCountQuery(opts);
@@ -4081,7 +4112,15 @@ try {
 /** Forwarded from inventory.routes.ts (get_serialLog). */
 export async function get_serialLog(req: any, res: Response): Promise<any> {
 try {
-    const { branchId, status, query, dateFromAD, dateToAD, page, pageSize, all } = req.query;
+    const { branchId, status, query, dateFromAD, dateToAD, page, pageSize, all, cursor, limit } = req.query;
+    const wantsCursor = cursor !== undefined || limit !== undefined;
+    if (wantsCursor && !requireLargeTableScope(res, {
+      branchId, dateFrom: dateFromAD, dateTo: dateToAD, report: true,
+    })) return;
+    const parsedCursor = cursor === undefined ? undefined : decodeKeysetCursor(cursor, 'serial_log', 2);
+    if (cursor !== undefined && !parsedCursor) {
+      return res.status(400).json({ code: 'INVALID_CURSOR', message: 'The serial-log cursor is invalid. Reload the list and retry.' });
+    }
     const user = (req as any).user;
     // Branch scoping: non-global users may only read their own branches.
     let branchScope: string[] | undefined;
@@ -4106,10 +4145,30 @@ try {
     // the page slice, the filtered total, and per-status counts for the KPI
     // cards. ?all=1 returns every filtered row (CSV export). No page param
     // keeps the legacy full-array shape for existing callers.
-    const wantsPaged = page !== undefined || pageSize !== undefined || all === '1';
+    const wantsPaged = page !== undefined || pageSize !== undefined || all === '1' || wantsCursor;
     if (wantsPaged) {
-      const n = Math.max(1, Number(page) || 1);
+      if (wantsCursor && all !== '1') {
+        const size = keysetLimit(limit, 50, 500);
+        const q = buildSerialLogKeysetQuery(
+          opts,
+          parsedCursor ? [String(parsedCursor[0]), String(parsedCursor[1])] : undefined,
+          size
+        );
+        const r = await pgPool.query(q.sql, q.params);
+        const hasMore = r.rows.length > size;
+        const items = hasMore ? r.rows.slice(0, size) : r.rows;
+        const statusQ = buildSerialLogStatusCountQuery(opts);
+        const statusR = await pgPool.query(statusQ.sql, statusQ.params);
+        const statusCounts: Record<string, number> = {};
+        for (const row of statusR.rows) statusCounts[String(row.status)] = Number(row.count);
+        const last = items[items.length - 1];
+        const nextCursor = hasMore && last
+          ? encodeKeysetCursor('serial_log', [cursorTimestamp(last.createdAt), String(last.id)])
+          : null;
+        return res.json(keysetEnvelope(items, nextCursor, hasMore, { statusCounts }));
+      }
       const size = Math.max(1, Math.min(500, Number(pageSize) || 50));
+      const n = Math.max(1, Math.min(Math.max(1, Math.floor(10000 / size)), Number(page) || 1));
       const countR = await pgPool.query(buildSerialLogCountQuery(opts).sql, buildSerialLogCountQuery(opts).params);
       const totalItems = Number(countR.rows[0]?.count || 0);
       const statusQ = buildSerialLogStatusCountQuery(opts);

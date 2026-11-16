@@ -2618,12 +2618,14 @@ export interface AccountingSubledgerLedger {
 
 export async function getAccountingSubledgerEntries(
   id: string,
-  options: { from?: string; to?: string; branchId?: string } = {}
-): Promise<AccountingSubledgerLedger> {
+  options: { from?: string; to?: string; branchId?: string; cursor?: string | null; limit?: number } = {}
+): Promise<AccountingSubledgerLedger & { items?: AccountingSubledgerLedgerEntry[]; nextCursor?: string | null; hasMore?: boolean }> {
   const params = new URLSearchParams();
   if (options.from) params.set('from', options.from);
   if (options.to) params.set('to', options.to);
   if (options.branchId) params.set('branchId', options.branchId);
+  if (options.cursor) params.set('cursor', options.cursor);
+  if (options.limit !== undefined) params.set('limit', String(options.limit));
   const query = params.toString();
   return fetchJson(
     `/api/accounting/subledgers/${encodeURIComponent(id)}/entries${query ? `?${query}` : ''}`
@@ -2839,13 +2841,19 @@ export interface AccountingJournalListQuery {
   query?: string;
   page?: number;
   pageSize?: number;
+  /** SCALE-2 keyset read: opaque cursor + bounded limit. */
+  cursor?: string | null;
+  limit?: number;
 }
 
 export interface AccountingJournalListResponse {
   data: AccountingJournal[];
+  items?: AccountingJournal[];
   page: number;
   pageSize: number;
-  totalItems: number;
+  totalItems?: number;
+  nextCursor?: string | null;
+  hasMore?: boolean;
 }
 
 export async function postAccountingJournal(
@@ -2908,6 +2916,8 @@ export async function getAccountingJournals(
   if (query.to) params.set('to', query.to);
   if (query.status) params.set('status', query.status);
   if (query.query) params.set('query', query.query);
+  if (query.cursor) params.set('cursor', query.cursor);
+  if (query.limit !== undefined) params.set('limit', String(query.limit));
   if (query.page) params.set('page', String(query.page));
   if (query.pageSize) params.set('pageSize', String(query.pageSize));
   const suffix = params.toString();

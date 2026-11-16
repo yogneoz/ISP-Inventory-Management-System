@@ -75,7 +75,7 @@ function loadSources(): Array<{ file: string; source: string }> {
   const files = [
     ...collectFiles(path.join(ROOT, 'server'), ['.ts']),
     ...collectFiles(path.join(ROOT, 'client', 'src'), ['.ts', '.tsx']),
-    ...collectFiles(path.join(ROOT, 'scripts'), ['.ts', '.mjs', '.js']),
+    ...collectFiles(path.join(ROOT, 'scripts'), ['.ts', '.mjs', '.js', '.sh']),
     path.join(ROOT, 'vite.config.ts'),
     path.join(ROOT, 'server.ts'),
   ].filter((f) => fs.existsSync(f));
@@ -101,6 +101,23 @@ const KNOWN_DEAD_VARS = [
 const MUST_STAY_DOCUMENTED = [
   'PG_POOL_MAX',
   'PG_CONNECT_TIMEOUT_MS',
+  'PG_STATEMENT_TIMEOUT_MS',
+  'DB_BREAKER_FAILURE_THRESHOLD',
+  'DB_BREAKER_WINDOW_MS',
+  'DB_BREAKER_COOLDOWN_MS',
+  'DB_BREAKER_MAX_COOLDOWN_MS',
+  'DB_RETRY_AFTER_SECONDS',
+  'BACKUP_DIR',
+  'BACKUP_RETENTION_DAYS',
+  'BACKUP_MONTHLY_KEEP',
+  'BACKUP_GPG_RECIPIENT',
+  'BACKUP_PASSPHRASE_FILE',
+  'BACKUP_ENCRYPTION_KEY',
+  'BACKUP_PG_DUMP',
+  'BACKUP_PG_RESTORE',
+  'PG_RESTORE',
+  'DRILL_ADMIN_URL',
+  'BACKUP_VERIFY_MAX_AGE_HOURS',
   'TRUST_PROXY',
   'RETURNS_APPROVAL_THRESHOLD_NPR',
 ];

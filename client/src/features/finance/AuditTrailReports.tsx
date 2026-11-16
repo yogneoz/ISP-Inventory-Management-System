@@ -22,8 +22,10 @@ import {
   ArrowDownUp,
   AlertTriangle,
 } from 'lucide-react';
-import { useClientPagination, useServerPageClamp, TablePagination } from '../../components/common/TablePagination';
+import { useServerPageClamp, TablePagination } from '../../components/common/TablePagination';
+import { KeysetLoadMore } from '../../components/common/KeysetLoadMore';
 import { api } from '../../services/api';
+import { useKeysetPager } from '../../hooks/useKeysetPager';
 
 interface AuditTrailReportsProps {
   auditLogs: AuditLog[];
@@ -68,6 +70,34 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
   const [serialError, setSerialError] = useState('');
   const [oldestFirst, setOldestFirst] = useState(false);
   const serialSeq = useRef(0);
+
+  const fetchAuditPage = async (cursor: string | null) => {
+    if (!fiscalYearStartAD || !fiscalYearEndAD) {
+      const err: any = new Error(
+        'The audit register needs a branch or a bounded fiscal-year date range before it can page.'
+      );
+      err.body = { code: 'SCOPE_REQUIRED' };
+      throw err;
+    }
+    const page = await api.getAuditTrailPage({
+      branchId: selectedBranchId,
+      from: fiscalYearStartAD,
+      to: fiscalYearEndAD,
+      cursor,
+      limit: 50,
+    });
+    return {
+      items: page.items || page.data || [],
+      nextCursor: page.nextCursor ?? null,
+      hasMore: Boolean(page.hasMore),
+    };
+  };
+
+  const auditPager = useKeysetPager({
+    fetchPage: fetchAuditPage,
+    resetKey: [selectedBranchId, fiscalYearStartAD, fiscalYearEndAD, sseRefreshKey].join('\u0000'),
+    enabled: subTab === 'AUDIT_TRAIL' && !serialFilter,
+  });
 
   // Stock Audit Events are server-paged, in the same fiscal-year/branch scope
   // the bootstrap slice used to carry. The old client pagination received the
@@ -200,12 +230,13 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
   }, [serialFilter]);
 
   // A failed serial read falls back to the live bootstrap slice so the screen
-  // still shows something useful (with the error note above it).
+  // still shows something useful (with the error note above it). Without a
+  // serial focus, the register itself is the cursor-paged audit read.
   const auditSource = useMemo(() => {
-    const base = serialFilter && !serialError ? serialRows : (auditLogs || []);
+    if (!serialFilter) return auditPager.rows;
+    const base = !serialError ? serialRows : (auditLogs || []);
     return oldestFirst ? [...base].reverse() : base;
-  }, [serialFilter, serialError, serialRows, auditLogs, oldestFirst]);
-  const auditPagination = useClientPagination(auditSource, 15, [serialFilter, oldestFirst]);
+  }, [serialFilter, serialError, serialRows, auditLogs, oldestFirst, auditPager.rows]);
   const refusedCount = useMemo(
     () => auditSource.filter((row) => String(row.action || '').includes('REFUSED')).length,
     [auditSource]
@@ -400,15 +431,17 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
                   </button>
                 )}
               </div>
-              <button
-                type="button"
-                onClick={() => setOldestFirst((v) => !v)}
-                title={oldestFirst ? 'Showing oldest first — switch to newest first' : 'Showing newest first — switch to oldest first'}
-                className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-              >
-                <ArrowDownUp className="h-3.5 w-3.5 text-indigo-500" />
-                <span>{oldestFirst ? 'Oldest first' : 'Newest first'}</span>
-              </button>
+              {serialFilter && (
+                <button
+                  type="button"
+                  onClick={() => setOldestFirst((v) => !v)}
+                  title={oldestFirst ? 'Showing oldest first — switch to newest first' : 'Showing newest first — switch to oldest first'}
+                  className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  <ArrowDownUp className="h-3.5 w-3.5 text-indigo-500" />
+                  <span>{oldestFirst ? 'Oldest first' : 'Newest first'}</span>
+                </button>
+              )}
               <button
                 onClick={() =>
                   exportToCSV('Inventory_System_Audit_Log', auditSource, [
@@ -455,6 +488,18 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
               )}
             </div>
           )}
+          {!serialFilter && auditPager.error && !auditPager.scopeError && (
+            <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-rose-600 dark:text-rose-400" role="alert">
+              <span>{auditPager.error}</span>
+              <button
+                type="button"
+                onClick={auditPager.reload}
+                className="rounded-lg border border-rose-300 px-2 py-0.5 font-bold text-rose-700 hover:bg-rose-50 dark:border-rose-500/40 dark:text-rose-300 dark:hover:bg-rose-950/40"
+              >
+                Retry
+              </button>
+            </div>
+          )}
           <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
             <table className="w-full text-left text-xs border-collapse">
               <thead
@@ -469,7 +514,7 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
                 </tr>
               </thead>
               <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
-                {auditPagination.pagedItems.map((log) => {
+                {auditSource.map((log) => {
                   // A refused claim is the event a supervisor is hunting for:
                   // tint the row and mark the action instead of burying it among
                   // the successful ones.
@@ -502,10 +547,12 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
                     </tr>
                   );
                 })}
-                {auditPagination.pagedItems.length === 0 && (
+                {auditSource.length === 0 && !auditPager.loading && (
                   <tr>
                     <td colSpan={5} className="p-4 text-center text-[11px] text-slate-500 dark:text-slate-400">
-                      {serialFilter && !serialLoading && !serialError
+                      {!serialFilter && auditPager.scopeError
+                        ? auditPager.error
+                        : serialFilter && !serialLoading && !serialError
                         ? `No audited events mention ${serialFilter}.`
                         : 'No audit events to show.'}
                     </td>
@@ -514,17 +561,20 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
               </tbody>
             </table>
           </div>
-          <TablePagination
-            page={auditPagination.page}
-            pageCount={auditPagination.pageCount}
-            totalItems={auditPagination.totalItems}
-            rangeStart={auditPagination.rangeStart}
-            rangeEnd={auditPagination.rangeEnd}
-            pageSize={auditPagination.pageSize}
-            onPageChange={auditPagination.setPage}
-            onPageSizeChange={auditPagination.setPageSize}
-            className="mt-2"
-          />
+          {!serialFilter ? (
+            <KeysetLoadMore
+              loaded={auditSource.length}
+              hasMore={auditPager.hasMore}
+              loadingMore={auditPager.loadingMore}
+              onLoadMore={auditPager.loadMore}
+              scopeError={auditPager.scopeError ? auditPager.error : ''}
+              className="mt-2"
+            />
+          ) : (
+            <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+              Showing {auditSource.length} serial event{auditSource.length === 1 ? '' : 's'}.
+            </div>
+          )}
         </div>
       )}
     </div>

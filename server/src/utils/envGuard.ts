@@ -9,16 +9,18 @@
  *   - `express.json({ limit: 0 })` or a NaN limit either rejects every
  *     request or behaves unpredictably
  *
- * This module gives every numeric/size env var ONE hardened parsing path:
+ * This module gives every numeric/size env var one hardened parsing path:
  *   - intFromEnv(name, fallback, {min, max}) — strict integer, whole string
  *     must parse (no trailing garbage), clamped into [min,max], logs a
  *     warning and uses the fallback when invalid
  *   - sizeFromEnv(name, fallback, {minBytes}) — body-parser size strings
  *     ('25mb', '1024kb', plain byte numbers); invalid forms fall back with
  *     a warning
- * Invalid values NEVER crash the server and NEVER silently produce 0/NaN —
- * they warn and fall back, so a typo in .env is visible in the logs but
- * cannot take the API down.
+ *   - strictIntFromEnv(...) — the same parsing, but throws for the OPS-4
+ *     boot-critical database knobs instead of falling back.
+ * The fallback path never silently produces 0/NaN: a typo is visible in the
+ * logs but cannot take the API down. The strict path deliberately can stop
+ * boot, because a wrong timeout or breaker threshold is not safe to guess.
  */
 
 function warnInvalid(name: string, raw: string | undefined, fallback: string): void {
@@ -55,6 +57,44 @@ export function intFromEnv(
       `⚠️  Env var ${name}=${JSON.stringify(raw)} is out of range [${min}, ${max}] — using fallback ${fallback}.`
     );
     return fallback;
+  }
+  return parsed;
+}
+
+/**
+ * Strict variant for configuration that must not silently fall back.
+ *
+ * The OPS-4 database knobs use this: a typo in a statement timeout or a
+ * breaker threshold is a configuration error, and the server should refuse to
+ * start with a message naming the variable and the accepted range. (The older
+ * pool knobs keep `intFromEnv`'s warn-and-fallback contract, which existing
+ * operators and tests rely on.)
+ */
+export function strictIntFromEnv(
+  name: string,
+  fallback: number,
+  opts: { min?: number; max?: number } = {}
+): number {
+  const { min = -Infinity, max = Infinity } = opts;
+  const raw = process.env[name];
+  if (raw == null || String(raw).trim() === '') return fallback;
+  const trimmed = String(raw).trim();
+  const range = Number.isFinite(min) || Number.isFinite(max)
+    ? ` between ${Number.isFinite(min) ? min : '-inf'} and ${Number.isFinite(max) ? max : 'inf'}`
+    : '';
+  if (!/^[+-]?\d+$/.test(trimmed)) {
+    throw new Error(
+      `Invalid ${name}=${JSON.stringify(raw)}: expected an integer${range}.`
+    );
+  }
+  const parsed = Number.parseInt(trimmed, 10);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`Invalid ${name}=${JSON.stringify(raw)}: expected an integer${range}.`);
+  }
+  if (parsed < min || parsed > max) {
+    throw new Error(
+      `Invalid ${name}=${JSON.stringify(raw)}: expected an integer${range}.`
+    );
   }
   return parsed;
 }

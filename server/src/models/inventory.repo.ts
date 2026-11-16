@@ -710,8 +710,26 @@ export function buildStockOperationPagedQuery(opts: StockOperationQueryOptions, 
     const pageSize = Math.max(1, Math.min(500, Math.floor(paging.pageSize)));
     const page = Math.max(1, Math.floor(paging.page));
     sql += ` LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
+  } else {
+    sql += ' LIMIT 10000';
   }
   return { sql, params };
+}
+
+/** SCALE-2 keyset page: `(created_at, id)` descending, one extra row for hasMore. */
+export function buildStockOperationKeysetQuery(
+  opts: StockOperationQueryOptions,
+  cursor: [string, string] | undefined,
+  limit: number
+): { sql: string; params: unknown[]; limit: number } {
+  const { whereSql, params } = buildStockOperationWhere(opts);
+  let sql = `SELECT ${STOCK_OP_SELECT_COLUMNS} FROM stock_operations` + whereSql;
+  if (cursor) {
+    params.push(cursor[0], cursor[1]);
+    sql += ` AND (created_at, id) < ($${params.length - 1}::timestamptz, $${params.length})`;
+  }
+  sql += ` ORDER BY created_at DESC, id DESC LIMIT ${limit + 1}`;
+  return { sql, params, limit };
 }
 
 export const STOCK_OPERATION_INSERT_SQL = `INSERT INTO stock_operations (
@@ -1486,8 +1504,26 @@ export function buildSerialLogQuery(opts: SerialLogQueryOptions, paging?: { page
     const pageSize = Math.max(1, Math.min(500, Math.floor(paging.pageSize)));
     const page = Math.max(1, Math.floor(paging.page));
     sql += ` LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
+  } else {
+    sql += ' LIMIT 10000';
   }
   return { sql, params };
+}
+
+/** SCALE-2 keyset page for the serial register: `(created_at, id)` descending. */
+export function buildSerialLogKeysetQuery(
+  opts: SerialLogQueryOptions,
+  cursor: [string, string] | undefined,
+  limit: number
+): { sql: string; params: unknown[]; limit: number } {
+  const { whereSql, params } = buildSerialLogWhere(opts);
+  let sql = SERIAL_LOG_SELECT_PREFIX + whereSql;
+  if (cursor) {
+    params.push(cursor[0], cursor[1]);
+    sql += ` AND (created_at, id) < ($${params.length - 1}::timestamptz, $${params.length})`;
+  }
+  sql += ` ORDER BY created_at DESC, id DESC LIMIT ${limit + 1}`;
+  return { sql, params, limit };
 }
 
 /** Counts serial_log rows with the same filter fragment (pagination totals). */

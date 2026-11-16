@@ -133,7 +133,11 @@ describe('DF-12 wiring', () => {
     ];
     for (const file of registers) {
       const source = read(file);
-      assert.ok(source.includes('useFilterPageReset('), `${file} must use the shared page reset`);
+      if (source.includes('useKeysetPager(')) {
+        assert.match(source, /resetKey:\s*\[/, `${file} must reset the cursor when filters change`);
+      } else {
+        assert.ok(source.includes('useFilterPageReset('), `${file} must use the shared page reset`);
+      }
       assert.ok(
         !source.includes('// Filter changes snap the server page back to 1.'),
         `${file} must not keep the two-effect reset that fetched twice per filter change`

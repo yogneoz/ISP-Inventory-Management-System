@@ -91,8 +91,13 @@ If a patch includes database changes (e.g., adding a new table or column):
 
 1. **Backup Database First (Mandatory)**:
    ```bash
-   PGPASSWORD="YourPassword" pg_dump -U inventory_user -h localhost inventory_db > /var/backups/pre_update_$(date +%Y%m%d_%H%M%S).sql
+   bash scripts/backup.sh
+   npm run check:restore-drill
    ```
+   Use a verified `.verified` dump from `BACKUP_DIR`, not an ad-hoc `pg_dump`
+   redirected to a file. The backup and restore procedures, including the
+   production authorization and post-restore checks, are in the
+   [Disaster Recovery Runbook](docs/disaster-recovery-runbook.md).
 
 2. **Apply Incremental SQL Migration File**:
    ```bash
@@ -121,9 +126,14 @@ pm2 reload ecosystem.config.js
 
 ### Fast Database Rollback:
 ```bash
-# Restore previous database snapshot if schema was altered
-PGPASSWORD="YourPassword" psql -h localhost -U inventory_user -d inventory_db < /var/backups/pre_update_backup.sql
+# Restore the verified dump through the guarded restore path. Never restore
+# over a failed cluster; preserve and rename PGDATA first when applicable.
+RESTORE_CONFIRM_TARGET=inventory_db \
+  bash scripts/restore.sh <backup.dump> --target inventory_db --yes --force --safety-dump
 ```
+See the [Disaster Recovery Runbook](docs/disaster-recovery-runbook.md) for the
+full logical restore, scratch restore, PITR and post-restore verification
+procedure.
 
 ---
 

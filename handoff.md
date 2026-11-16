@@ -230,7 +230,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 2411 tests; CI runs
+                                        #   drift/concurrency guards — 2517 tests; CI runs
                                         #   tsc + npm test + the source guards + the
                                         #   production build + the boot-timing gate +
                                         #   npm audit on every push/PR
@@ -1206,7 +1206,11 @@ DISABLE_HMR=true             # Disable HMR for AI agent editing
 variable it names is read by the code, and `tests/envDocs.guard.test.ts`
 fails the suite if a knob is documented without a reader (or a removed one
 comes back). Optional guarded knobs not shown above: `PG_POOL_MAX`
-(default 40), `PG_CONNECT_TIMEOUT_MS` (default 2000), `TRUST_PROXY` (set
+(default 40), `PG_CONNECT_TIMEOUT_MS` (default 2000),
+`PG_STATEMENT_TIMEOUT_MS` (default 30000; 0 = disabled),
+`DB_BREAKER_FAILURE_THRESHOLD` (3), `DB_BREAKER_WINDOW_MS` (30000),
+`DB_BREAKER_COOLDOWN_MS` (5000), `DB_BREAKER_MAX_COOLDOWN_MS` (30000),
+`DB_RETRY_AFTER_SECONDS` (2; the invalid values stop boot), `TRUST_PROXY` (set
 `true` only behind a reverse proxy — it makes `req.ip` honour
 `X-Forwarded-For`, which the login rate limiter and the per-IP SSE cap key
 on) and `RETURNS_APPROVAL_THRESHOLD_NPR` (default 200000 — returns at or
@@ -1258,7 +1262,7 @@ npm run dev               # Development: tsx watch server/index.ts (Vite dev ser
 npm run build             # Production: vite build + esbuild bundle server/index.ts → dist/server.cjs
 npm run start             # Production: node dist/server.cjs
 npm run lint              # TypeScript check (tsc --noEmit)
-npm run setup:pg          # Database setup & migration (Node)
+npm run setup:pg -- --force --skip-backup-check  # Database setup & migration (disposable DB; backup-verified for existing data)
 npm run setup:postgres    # Database setup (shell installer)
 npm run integrity:check   # Database integrity verification
 npm run seed:verify               # Full reset & reseed (verification dataset)
@@ -1290,8 +1294,9 @@ module.exports = {
   apps: [{
     name: 'inventory-erp',
     script: 'dist/server.cjs',
-    instances: 1,  // Single instance (PostgreSQL connection pool)
-    env: { NODE_ENV: 'production', PORT: 3000 },
+    instances: 'max',  // clustered workers; REDIS_URL is required
+    exec_mode: 'cluster',
+    env: { NODE_ENV: 'production', PORT: 3000, REDIS_URL: 'redis://127.0.0.1:6379/0' },
     kill_timeout: 15000  // must exceed SHUTDOWN_TIMEOUT_MS so the drain can finish
   }]
 };
@@ -1305,28 +1310,38 @@ through the same path, with the reason written synchronously to fd 2 (pm2/docker
 async, so an unflushed write can be lost). In development a runtime fatality is logged and the
 process keeps serving, because `tsx watch` does not restart a crashed child.
 
-#### One process, by design (backlog D3)
+#### Horizontal workers and shared state (SCALE-1)
 
-`instances: 1` with `exec_mode: 'fork'` is a correctness requirement, not a small-server
-default. Three pieces of state live inside the process and are not shared: the operational
-caches (`server/src/state/runtimeState.ts`) hydrate at boot and refresh after **this process's**
-committed writes only; SSE fan-out (`server/src/realtime/sse.ts`) reaches only the clients
-connected to the worker that handled the change; and the login/SSE rate-limit buckets plus the
-per-address stream cap (`authRateLimit.ts`, `sseRateLimit.ts`) count per process, so N workers
-silently multiply the configured limit by N. PostgreSQL data, document numbering and audit
-writes are shared and safe to duplicate, and every worker must read the same
-`AUTH_TOKEN_SECRET` — the production boot check above makes that mandatory. Before
-`instances: 2`, move the caches to a shared store, the write loop in `broadcastChange` to
-pub/sub, and the limiters to the same store, and keep `proxy_read_timeout` above the 25 s SSE
-keep-alive. Deployer-facing text: [README — Single process only (do not raise
-`instances`)](README.md#single-process-only-do-not-raise-instances); rationale:
-[docs/architecture-backlog.md — D3](docs/architecture-backlog.md#d3-document-the-single-instance-constraint).
+`ecosystem.config.js` now runs `instances: 'max'` with `exec_mode: 'cluster'`. A clustered
+production process **requires** `REDIS_URL` or `REDIS_TLS_URL`; `assertSharedStateForWorkers`
+refuses to boot without it, so a deployment cannot silently get N independent security
+controls. `server/src/state/sharedStore.ts` owns the Redis command/subscriber clients and
+exposes the same contract to the in-memory single-worker fallback.
+
+The login/forgot-password limits and the SSE stream cap use one Redis sorted-set bucket per
+key, so a budget consumed on worker A is enforced on B; Redis outage fails closed with `503
+SHARED_STATE_UNAVAILABLE`, and the admin release clears the same keys. Session fingerprints
+(`session:ver:<userId>`) are written by login, profile, user-admin, HR and payroll status
+changes; every worker checks Redis before accepting a token, and a miss reads the `users` row
+once and repopulates. Boot schema/seed is leader-elected by `SET NX PX` with a fencing token;
+document numbers and ledger writes keep their PostgreSQL row locks. `broadcastChange` still
+writes this worker's SSE clients immediately, then publishes to `isp:sse:changes`; every
+worker's subscriber writes to its own clients, preserving the per-client `dataVersion` and
+reconnect resync contract. Shutdown ends SSE clients, closes the Redis subscriber, then the
+PostgreSQL pool. The reference caches in `server/src/state/runtimeState.ts` remain per-worker
+and are rebuilt from PostgreSQL; SCALE-4 owns the shared cache and write invalidation.
+
+Every worker must read the same `AUTH_TOKEN_SECRET` — the production boot check above makes
+that mandatory. Keep `proxy_read_timeout` above the 25 s SSE keep-alive. Deployer-facing text:
+[README — Horizontal workers and shared state](README.md#horizontal-workers-and-shared-state).
 
 ### 14.3 Database Setup Options
 
 ```bash
 # Option 1: Node setup engine (schema + master + demo data)
-npm run setup:pg
+# Requires --force and a verified backup younger than 24 h; a fresh/disposable
+# database explicitly bypasses the backup proof.
+npm run setup:pg -- --force --skip-backup-check
 
 # Option 2: Shell script (can auto-install PostgreSQL; Linux/macOS/Windows Git Bash)
 npm run setup:postgres
@@ -1335,16 +1350,59 @@ npm run setup:postgres
 psql -U <user> -d inventory_db -f scripts/schema.sql
 ```
 
+### 14.4 Verified backups and the destructive setup guard
+
+`npm run backup` writes a verified dump, manifest, SHA-256 and `.verified`
+marker. `npm run check:restore-drill` proves the newest verified dump restores
+into a disposable database. `npm run setup:pg` is destructive and now refuses
+without `--force` plus a verified backup younger than
+`BACKUP_VERIFY_MAX_AGE_HOURS` (default 24 h); `--keep-data` is exempt, and
+`--force --skip-backup-check` is the explicit disposable/CI override. The guard
+runs before any database connection or shell installer. BAK-1 through BAK-5 are
+complete. `docs/disaster-recovery-runbook.md` is the operator procedure for
+backup inventory, roles/two-person restore approval, cron/systemd schedules,
+pgBackRest or WAL-G configuration, logical/scratch/PITR restore, post-restore
+`restore_checks.sql` + `integrity:check` + `smoke` verification, monitoring
+thresholds and the rehearsal log. It records the honest dump-only 24 h RPO
+versus the WAL-gated ≤15 min target, the 2 h RTO, the measured 22.5 s drill, and
+the capabilities **not provisioned** here (off-host storage, schedules, keys,
+WAL archive, alert delivery). `tests/disasterRecoveryRunbook.test.ts` pins it,
+and `README.md` / `UPDATEPROCESS.md` point to it. Round 12 closed with
+**OPS-3**: `scripts/measure_bootstrap_payload.mjs` measured the real payload at
+157,569 gzip bytes, then the audit trail and the two paged return registers moved
+to deferred `GET /api/bootstrap/local?key=…` hydration; the measured payload is
+now 6,198 gzip bytes (−96.1%). `tests/bootstrapPayloadMeasure.test.ts` and the
+bootstrap/register guards pin the arithmetic, the moved keys and the cold-load
+hydration rule. SCALE-1 then moved the security/session/lock/SSE state to Redis
+and switched pm2 to cluster mode. **SCALE-2 (2026-11-16)** trimmed the login
+payload to the identity/permission shell plus branches, fiscal years, company
+profile, settings/preferences and `dataVersion`/ETag; products, stock, suppliers,
+categories, product groups, UoM, locations, approvals and damage records are
+deferred after first paint. The measured payload is **2,489 B gzip** on the demo
+database and **10,421 B gzip** with 500 branches (temporary fixture rows removed).
+The shared signed cursor in `server/src/utils/keysetCursor.ts` powers
+`{ items, nextCursor, hasMore }` pages on customers, sales invoices, stock
+operations, serial log, journals, subledger entries and audit logs, with
+`400 SCOPE_REQUIRED` for an unscoped cursor read. The seven keyset registers
+(customers, sales invoices, consumables/stock operations, serial log, posted
+vouchers, subledger book ledger, audit) now load the first page with `limit`
+and append through `nextCursor`; filters reset the cursor, Load more ends at
+`hasMore=false`, and a scope refusal is a visible state. Non-keyset stock
+operation panels, the return registers and `CustomerLedger` keep their prior
+paged reads. The absent `api_key_audit_logs`/journal-line endpoints are stated
+open items in the SCALE-2 note; `EXPLAIN`/5M timing and partitioning remain
+SCALE-3.
+
 ---
 
 ## 15. Known Patterns & Design Decisions
 
 ### 15.1 The Bootstrap Pattern
 
-The entire application state is loaded in **one HTTP call** (`GET /api/bootstrap`). This endpoint:
+The first-paint state is loaded in **one HTTP call** (`GET /api/bootstrap`). This endpoint:
 - Accepts `branchId` and `fiscalYearId` query parameters
-- Runs 20+ parallel PostgreSQL queries via `Promise.all()`
-- Returns all entity arrays + computed financial summary
+- Runs the master-data/query fan-out via `Promise.all()` and computes the financial summary in SQL
+- Returns only the identity/permission shell, branches, fiscal-year context, company profile, settings/preferences and the computed summary (SCALE-2). Every master/ledger array — including the audit trail, returns, stock, products, suppliers and locations — is served by its paged endpoint or deferred `GET /api/bootstrap/local?key=…`
 - Supports branch and fiscal year scoping at the SQL level (not post-filter in JS)
 
 ### 15.2 Write-Then-Refresh Pattern
@@ -1477,7 +1535,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 2411 tests against a real PostgreSQL 16 service container
+2. `npm test` — 2517 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM
@@ -1511,7 +1569,7 @@ fails with the old 503 body on the pre-fix code.
    bundling-only breakage (bad imports, chunk misconfig) that typecheck misses.
 6. `npm run check:bundle-budget` — entry-chunk and eager-graph gzip budgets,
    so a screen accidentally re-added to the eager imports fails CI.
-7. Boot timing — `npm run setup:pg` seeds the demo account into the app
+7. Boot timing — `npm run setup:pg -- --force --skip-backup-check` seeds the demo account into the app
    database (the suite above only uses throwaway databases), then
    `npm run check:boot-timing -- --budget-ms 12000` serves the production
    `dist/` bundle on a free port, reloads the saved **Create Sales Invoice** tab
@@ -1631,7 +1689,8 @@ npm install
 cp .env.example .env
 
 # 3. Setup database (installs schema + master data + demo dataset)
-npm run setup:pg
+#    Disposable local database: explicitly bypass the fresh-backup proof.
+npm run setup:pg -- --force --skip-backup-check
 
 # 4. Start development
 npm run dev

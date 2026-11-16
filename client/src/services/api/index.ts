@@ -674,6 +674,7 @@ export const api = {
 
   // Audit Trail (serial-scoped history)
   getAuditTrail: inventory.getAuditTrail,
+  getAuditTrailPage: inventory.getAuditTrailPage,
   getTransactionLogs: inventory.getTransactionLogs,
 
   // Warranty registers (WTY-6): supplier-side and seller-side coverage

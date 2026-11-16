@@ -26,8 +26,10 @@
 import type { Request, Response, NextFunction } from 'express';
 import { users } from '../app';
 import { sessionStillValid, verifyAuthToken } from './auth';
+import { isRedisSharedState } from '../state/sharedStore';
+import { sessionStillValidShared } from '../state/sessionVersion';
 
-export function requireSseAuth(req: Request, res: Response, next: NextFunction) {
+export async function requireSseAuth(req: Request, res: Response, next: NextFunction) {
   const header = typeof req.headers.authorization === 'string' ? req.headers.authorization : '';
   const headerToken = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
   const queryToken = typeof (req.query as any)?.token === 'string' ? String((req.query as any).token).trim() : '';
@@ -45,6 +47,22 @@ export function requireSseAuth(req: Request, res: Response, next: NextFunction) 
       message: 'Your session is no longer valid — your account, role or password changed. Sign in again.',
       sessionRevoked: true,
     });
+  }
+  if (!isRedisSharedState()) {
+    (req as any).user = user;
+    next();
+    return;
+  }
+  try {
+    if (!(await sessionStillValidShared(user, users))) {
+      return res.status(401).json({
+        message: 'Your session is no longer valid — your account, role or password changed. Sign in again.',
+        sessionRevoked: true,
+      });
+    }
+  } catch (err: any) {
+    console.error('Shared SSE session check failed (failing closed):', err?.message || err);
+    return res.status(503).json({ message: 'Session verification is temporarily unavailable. Retry shortly.', code: 'SHARED_STATE_UNAVAILABLE' });
   }
   (req as any).user = user;
   next();

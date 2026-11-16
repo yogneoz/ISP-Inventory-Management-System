@@ -162,8 +162,7 @@ check('read: /api/bootstrap returns every expected payload section', async () =>
     // the bootstrap payload.
     'branches', 'products', 'stock', 'fiscalYears', 'financialSummary',
     'suppliers', 'users', 'approvalRequests', 'categories', 'uom', 'locations',
-    'companyProfile', 'damageRecords', 'productGroups', 'purchaseReturns',
-    'salesReturns', 'auditLogs', 'serverTime',
+    'companyProfile', 'damageRecords', 'productGroups', 'serverTime',
     // serialLogs was dropped from bootstrap (paged /api/serial-log instead);
     // server-side settings & the caller's preferences replaced the old
     // browser-localStorage copies and ship with every bootstrap now.
@@ -177,6 +176,13 @@ check('read: /api/bootstrap returns every expected payload section', async () =>
   ok(r.data.appSettings && typeof r.data.appSettings === 'object', 'appSettings slice missing');
   ok(r.data.userPreferences && typeof r.data.userPreferences === 'object', 'userPreferences slice missing');
   ok(r.data.financialSummary && Number.isFinite(Number(r.data.financialSummary.totalInventoryAssetValue)), 'financialSummary.totalInventoryAssetValue missing');
+  // OPS-3: these four left the full payload; each must still be available
+  // through the same live slice endpoint the deferred hydration calls.
+  for (const key of ['purchaseReturns', 'salesReturns', 'auditLogs']) {
+    const slice = await authedGet(`/api/bootstrap/local?key=${key}`);
+    ok(slice.status === 200, `/api/bootstrap/local?key=${key} expected 200, got ${slice.status}`);
+    ok(Array.isArray(slice.data?.[key]), `/api/bootstrap/local?key=${key} did not return an array`);
+  }
 });
 
 check('read: /api/health and /api/db/status are healthy', async () => {
@@ -212,7 +218,7 @@ check('read: master-data endpoints return arrays', async () => {
 });
 
 check('read: registers return arrays (POs, invoices, shipments, ops, payments)', async () => {
-  for (const path of ['/api/purchase-orders', '/api/purchase-invoices', '/api/shipments', '/api/stock-operations', '/api/vendor-payments', '/api/approval-requests']) {
+  for (const path of ['/api/purchase-orders', '/api/purchase-invoices', '/api/purchase-returns', '/api/sales-returns', '/api/shipments', '/api/stock-operations', '/api/vendor-payments', '/api/approval-requests']) {
     const r = await authedGet(path);
     ok(r.status === 200, `${path} expected 200, got ${r.status}`);
     ok(Array.isArray(r.data), `${path} expected an array, got ${typeof r.data}`);

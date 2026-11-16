@@ -84,6 +84,14 @@ export let userPermissionSetGrants: UserPermissionSetGrantMap = new Map();
 
 let isPgConnected = false;
 let dataVersion = Date.now();
+/**
+ * Version of the bootstrap payload's *content*, independent of dataVersion
+ * (which SSE/sync keeps for its own invalidation contract). Every successful
+ * non-GET bumps it once, so an ETag derived from it cannot claim "not
+ * modified" after a write. In-memory per worker; SCALE-1 moves it to Redis
+ * before horizontal workers, exactly like dataVersion/ver.
+ */
+let stateVersion = Date.now();
 
 // Setters — the ONLY way other modules may change these bindings.
 export function setCompanyProfile(value: CompanyProfile): void { companyProfile = value; }
@@ -130,6 +138,8 @@ export function getPgConnected(): boolean { return isPgConnected; }
 export function getActiveUser(): User | null { return activeUser; }
 export function getDataVersion(): number { return dataVersion; }
 export function setDataVersion(v: number): void { dataVersion = v; }
+export function getStateVersion(): number { return stateVersion; }
+export function bumpStateVersion(): void { stateVersion += 1; }
 
 // ---------------------------------------------------------------------------
 // Reference-only hydration.

@@ -1,0 +1,76 @@
+{
+  "generatedAt": "2026-11-16T01:26:05.137Z",
+  "baseUrl": "http://127.0.0.1:3100",
+  "config": {
+    "concurrency": 10,
+    "requests": 20,
+    "timeoutMs": 10000,
+    "branchId": null,
+    "fiscalYearId": null
+  },
+  "first": {
+    "label": "wave 1 (full)",
+    "etag": "W/\"1794792351555-669503b7205a6611a1a74ac2b93d7fa8fbeeb972\"",
+    "requests": 20,
+    "byStatus": {
+      "200": 20
+    },
+    "errors": 0,
+    "errorSamples": [],
+    "ms": {
+      "p50": 823.66,
+      "p95": 1747.26,
+      "p99": 1818.8
+    },
+    "bytes": {
+      "p50": 161528,
+      "p95": 161528,
+      "max": 161528
+    },
+    "notModified": {
+      "count": 0,
+      "ratio": 0,
+      "ms": {
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      }
+    }
+  },
+  "second": {
+    "label": "wave 2 (If-None-Match)",
+    "etag": "W/\"1794792351555-669503b7205a6611a1a74ac2b93d7fa8fbeeb972\"",
+    "requests": 20,
+    "byStatus": {
+      "304": 20
+    },
+    "errors": 0,
+    "errorSamples": [],
+    "ms": {
+      "p50": 15.92,
+      "p95": 21.07,
+      "p99": 22.97
+    },
+    "bytes": {
+      "p50": 0,
+      "p95": 0,
+      "max": 0
+    },
+    "notModified": {
+      "count": 20,
+      "ratio": 1,
+      "ms": {
+        "p50": 15.92,
+        "p95": 21.07,
+        "p99": 22.97
+      }
+    }
+  },
+  "failures": [],
+  "passed": true,
+  "serverLog": {
+    "path": "D:\\inventory-dev\\ISP-Inventory-Management-System\\.tmp-server.log",
+    "found": true,
+    "notConnectedLines": 0
+  }
+}

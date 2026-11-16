@@ -9,8 +9,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
-  ChevronLeft,
-  ChevronRight,
   ClipboardList,
   Eye,
   Loader2,
@@ -29,6 +27,8 @@ import {
 } from '../../components/accounting/VoucherDetailDialog';
 import { btnGhost, btnPrimary, inputClass, labelClass } from '../../components/common/styleConstants';
 import { api } from '../../services/api';
+import { KeysetLoadMore } from '../../components/common/KeysetLoadMore';
+import { useKeysetPager } from '../../hooks/useKeysetPager';
 import type { AccountingJournal } from '../../services/api/accounting';
 import type { Branch, User } from '../../types';
 import { localTodayAD } from '../../utils/localDate';
@@ -48,8 +48,6 @@ export interface PostedVouchersProps {
 
 /** Voucher families the manual entry screens own and may reverse here. */
 const REVERSIBLE_SOURCES = new Set(['MANUAL', 'CASH_RECEIPT', 'CASH_PAYMENT', 'CASH_BANK']);
-const LIST_PAGE_SIZE = 25;
-
 const panel =
   'rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/40';
 const errorBox =
@@ -79,7 +77,7 @@ export const PostedVouchers: React.FC<PostedVouchersProps> = ({
   }, [canSeeAll, scopedBranches]);
 
   const initialBranch = () => {
-    if (canSeeAll) return 'ALL';
+    if (canSeeAll) return scopedBranches[0]?.id || 'ALL';
     if (currentUser?.branchId && currentUser.branchId !== 'ALL') return currentUser.branchId;
     return scopedBranches[0]?.id || '';
   };
@@ -89,11 +87,6 @@ export const PostedVouchers: React.FC<PostedVouchersProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
-  const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [rows, setRows] = useState<AccountingJournal[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
   const [detailId, setDetailId] = useState<string | null>(null);
   const [reversalTarget, setReversalTarget] = useState<AccountingJournal | null>(null);
   const [reversalDate, setReversalDate] = useState(localTodayAD());
@@ -107,48 +100,36 @@ export const PostedVouchers: React.FC<PostedVouchersProps> = ({
     setBranchId(branchOptions[0]?.value || '');
   }, [branchId, branchOptions]);
 
-  const load = useCallback(async () => {
-    if (!branchId) {
-      setRows([]);
-      setTotal(0);
-      setPage(1);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setError('');
-    try {
-      const result = await api.getAccountingJournals({
-        branchId: branchId === 'ALL' ? undefined : branchId,
-        from: fromDate || undefined,
-        to: toDate || undefined,
-        query: searchTerm || undefined,
-        page,
-        pageSize: LIST_PAGE_SIZE,
-      });
-      setRows(result.data);
-      setTotal(result.totalItems);
-      const lastPage = Math.max(1, Math.ceil(result.totalItems / LIST_PAGE_SIZE));
-      if (page > lastPage) setPage(lastPage);
-    } catch (err: any) {
-      setError(err?.message || 'The posted-voucher register could not be loaded.');
-    } finally {
-      setLoading(false);
-    }
-  }, [branchId, fromDate, page, searchTerm, toDate]);
+  const fetchJournalsPage = useCallback(async (cursor: string | null) => {
+    const result = await api.getAccountingJournals({
+      branchId: branchId === 'ALL' ? undefined : branchId,
+      from: fromDate || undefined,
+      to: toDate || undefined,
+      query: searchTerm || undefined,
+      cursor,
+      limit: 25,
+    });
+    return {
+      items: result.items || result.data || [],
+      nextCursor: result.nextCursor ?? null,
+      hasMore: Boolean(result.hasMore),
+    };
+  }, [branchId, fromDate, searchTerm, toDate]);
 
-  useEffect(() => {
-    if (!allowed) return;
-    void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allowed, load, sseRefreshKey]);
+  const journalPager = useKeysetPager({
+    fetchPage: fetchJournalsPage,
+    resetKey: [branchId, fromDate, toDate, searchTerm, sseRefreshKey].join('\u0000'),
+    enabled: allowed && Boolean(branchId),
+  });
+  const rows = journalPager.rows;
+  const loading = journalPager.loading;
+  const error = journalPager.error;
 
   const submitSearch = (event: React.FormEvent) => {
     event.preventDefault();
     const term = searchInput.trim();
-    setPage(1);
     setSearchTerm(term);
-    if (term === searchTerm && page === 1) void load();
+    if (term === searchTerm) journalPager.reload();
   };
 
   const clearFilters = () => {
@@ -156,7 +137,6 @@ export const PostedVouchers: React.FC<PostedVouchersProps> = ({
     setSearchTerm('');
     setFromDate('');
     setToDate('');
-    setPage(1);
   };
 
   const openReversal = (journal: AccountingJournal) => {
@@ -190,7 +170,7 @@ export const PostedVouchers: React.FC<PostedVouchersProps> = ({
       });
       setNotice(`${reversalTarget.journalNo} reversed by ${reversal.journalNo}.`);
       setReversalTarget(null);
-      await load();
+      journalPager.reload();
     } catch (err: any) {
       setReversalError(err?.message || 'The voucher could not be reversed.');
     } finally {
@@ -214,7 +194,6 @@ export const PostedVouchers: React.FC<PostedVouchersProps> = ({
     );
   }
 
-  const lastPage = Math.max(1, Math.ceil(total / LIST_PAGE_SIZE));
   const filterActive = Boolean(searchTerm || searchInput || fromDate || toDate);
 
   return (
@@ -224,7 +203,7 @@ export const PostedVouchers: React.FC<PostedVouchersProps> = ({
         description="Review posted journals and cash/bank vouchers, open their lines, and reverse an eligible manual voucher with a contra entry."
         icon={<ClipboardList className="h-5 w-5 text-indigo-500" />}
         actions={
-          <button type="button" onClick={() => void load()} disabled={loading} className={btnGhost}>
+          <button type="button" onClick={journalPager.reload} disabled={loading} className={btnGhost}>
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
           </button>
         }
@@ -256,7 +235,6 @@ export const PostedVouchers: React.FC<PostedVouchersProps> = ({
                 onChange={(next) => {
                   if (!next) return;
                   setBranchId(next);
-                  setPage(1);
                 }}
                 allowClear={false}
                 placeholder="Search branches…"
@@ -274,7 +252,6 @@ export const PostedVouchers: React.FC<PostedVouchersProps> = ({
                 max={toDate || undefined}
                 onChange={(event) => {
                   setFromDate(event.target.value);
-                  setPage(1);
                 }}
               />
             </div>
@@ -288,7 +265,6 @@ export const PostedVouchers: React.FC<PostedVouchersProps> = ({
                 min={fromDate || undefined}
                 onChange={(event) => {
                   setToDate(event.target.value);
-                  setPage(1);
                 }}
               />
             </div>
@@ -308,7 +284,7 @@ export const PostedVouchers: React.FC<PostedVouchersProps> = ({
           </div>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-[11px] font-medium text-slate-400">
-              {total} voucher{total === 1 ? '' : 's'}
+              {rows.length} voucher{rows.length === 1 ? '' : 's'} loaded
             </span>
             <div className="flex gap-2">
               {filterActive && (
@@ -425,29 +401,14 @@ export const PostedVouchers: React.FC<PostedVouchersProps> = ({
           </div>
         )}
 
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
-          <span>
-            Page {page} of {lastPage}
-          </span>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              className={btnGhost}
-              disabled={page <= 1 || loading}
-              onClick={() => setPage((current) => Math.max(1, current - 1))}
-            >
-              <ChevronLeft className="h-4 w-4" /> Previous
-            </button>
-            <button
-              type="button"
-              className={btnGhost}
-              disabled={page >= lastPage || loading}
-              onClick={() => setPage((current) => current + 1)}
-            >
-              Next <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
+        <KeysetLoadMore
+          loaded={rows.length}
+          hasMore={journalPager.hasMore}
+          loadingMore={journalPager.loadingMore}
+          onLoadMore={journalPager.loadMore}
+          scopeError={journalPager.scopeError ? journalPager.error : ''}
+          className="mt-3"
+        />
       </section>
 
       {detailId && <VoucherDetailDialog journalId={detailId} onClose={() => setDetailId(null)} />}

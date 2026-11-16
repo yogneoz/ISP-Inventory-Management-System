@@ -80,6 +80,14 @@ function withLedgerPurgeBypass(connectionString) {
       'options',
       `${existing ? `${existing} ` : ''}-c inventory.allow_ledger_purge=on`
     );
+    // URLSearchParams serializes spaces as '+'. node-postgres decodes that,
+    // but libpq/psql/pg_dump pass it through literally ("+inventory...") and
+    // reject the startup option. Emit %20 so every client reads the same URL.
+    const query = url.searchParams.toString().replace(
+      /(^|&)options=([^&]*)/,
+      (_match, prefix, value) => `${prefix}options=${value.replace(/\+/g, '%20')}`
+    );
+    url.search = query;
     return url.toString();
   } catch {
     // A non-URL connection string is passed through unchanged; the trigger's

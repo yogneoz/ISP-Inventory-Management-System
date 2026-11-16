@@ -291,8 +291,8 @@ configure_database() {
         warn "No superuser connection available."
         warn "Set PG_SUPERUSER_PASSWORD to the ${PG_SUPERUSER} superuser's password"
         warn "and re-run (on Linux/macOS a local 'postgres' OS account also works)."
-        warn "  PowerShell: \$env:PG_SUPERUSER_PASSWORD='...'; npm run setup:pg"
-        warn "  Linux/macOS: PG_SUPERUSER_PASSWORD='...' npm run setup:pg"
+        warn "  PowerShell: \$env:PG_SUPERUSER_PASSWORD='...'; npm run setup:pg -- --force --skip-backup-check"
+        warn "  Linux/macOS: PG_SUPERUSER_PASSWORD='...' npm run setup:pg -- --force --skip-backup-check"
         return 1
     fi
 
@@ -401,7 +401,7 @@ test_connection() {
 run_node_seeder() {
     if ! command -v node >/dev/null 2>&1; then
         warn "Node.js not found on PATH - skipping automated seeding."
-        warn "Run 'npm install && npm run setup:pg' once Node is available."
+        warn "Run 'npm install && npm run setup:pg -- --force --skip-backup-check' once Node is available."
         return 0
     fi
     if [ ! -f "${NODE_SETUP_SCRIPT}" ]; then
@@ -409,10 +409,10 @@ run_node_seeder() {
         return 0
     fi
     log "Running Node seeder (scripts/setup_db.js): schema re-check + verification dataset..."
-    if (cd "${SCRIPT_DIR}/.." && POSTGRES_HOST="${PSQL_HOST:-localhost}" POSTGRES_PORT="${DB_PORT}" POSTGRES_DB="${DB_NAME}" POSTGRES_USER="${DB_USER}" POSTGRES_PASSWORD="${DB_PASS}" node "${NODE_SETUP_SCRIPT}"); then
+    if (cd "${SCRIPT_DIR}/.." && POSTGRES_HOST="${PSQL_HOST:-localhost}" POSTGRES_PORT="${DB_PORT}" POSTGRES_DB="${DB_NAME}" POSTGRES_USER="${DB_USER}" POSTGRES_PASSWORD="${DB_PASS}" node "${NODE_SETUP_SCRIPT}" --force --skip-backup-check); then
         log "Node seeder completed."
     else
-        warn "Node seeder reported a problem; re-run 'npm run setup:pg' for details."
+        warn "Node seeder reported a problem; re-run 'npm run setup:pg -- --force --skip-backup-check' for details."
     fi
 }
 

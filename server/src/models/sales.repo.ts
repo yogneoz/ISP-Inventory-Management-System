@@ -87,8 +87,31 @@ export function buildSalesInvoicePagedQuery(opts: SalesInvoiceQueryOptions, pagi
     const pageSize = Math.max(1, Math.min(500, Math.floor(paging.pageSize)));
     const page = Math.max(1, Math.floor(paging.page));
     sql += ` LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
+  } else {
+    // SCALE-2: CSV/PDF `all=1` and the legacy filtered array are bounded.
+    sql += ' LIMIT 10000';
   }
   return { sql, params };
+}
+
+/**
+ * SCALE-2 keyset page: stable `(created_at, id)` descending. The cursor is the
+ * last row's pair, so a concurrent insert cannot move later rows onto or off
+ * this page. One extra row is read to decide `hasMore` without COUNT(*).
+ */
+export function buildSalesInvoiceKeysetQuery(
+  opts: SalesInvoiceQueryOptions,
+  cursor: [string, string] | undefined,
+  limit: number
+): { sql: string; params: unknown[]; limit: number } {
+  const { whereSql, params } = buildSalesInvoiceWhere(opts);
+  let sql = `SELECT ${SI_SELECT_COLUMNS} FROM sales_invoices` + whereSql;
+  if (cursor) {
+    params.push(cursor[0], cursor[1]);
+    sql += ` AND (created_at, id) < ($${params.length - 1}::timestamptz, $${params.length})`;
+  }
+  sql += ` ORDER BY created_at DESC, id DESC LIMIT ${limit + 1}`;
+  return { sql, params, limit };
 }
 
 export const SI_INSERT_SQL = `INSERT INTO sales_invoices (

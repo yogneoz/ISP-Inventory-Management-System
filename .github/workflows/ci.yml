@@ -108,7 +108,9 @@ jobs:
           POSTGRES_DB: inventory_db
           POSTGRES_USER: inventory_user
           POSTGRES_PASSWORD: securepassword
-        run: npm run setup:pg
+        # CI runs against a disposable database, so it explicitly bypasses
+        # the BAK-4 fresh-backup proof; --force is still mandatory.
+        run: npm run setup:pg -- --force --skip-backup-check
       # 12 s is a generous CI-only wall-clock bound; locally the default is
       # 6 s. The gate itself is frame visibility, not speed: a splash that never
       # lifts ends the trace as "timeout" and fails either way.

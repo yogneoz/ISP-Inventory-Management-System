@@ -6,6 +6,8 @@
  * original route handlers.
  */
 import type { Request, Response } from 'express';
+import { createHash } from 'node:crypto';
+import { getStateVersion } from '../state/runtimeState';
 import {
   APP_SETTING_KEYS,
   APP_SETTINGS_SELECT_SQL,
@@ -14,10 +16,14 @@ import {
   rowsToRecord,
 } from '../models/settings.repo';
 import { PERMISSION_MATRIX_SELECT_SQL, rowsToPermissionMatrix } from '../models/permissions.repo';
-import { fetchBootstrapSlice } from '../models/bootstrap.repo';
+import { fetchBootstrapFirstPaint, fetchBootstrapSlice } from '../models/bootstrap.repo';
 import { BOOTSTRAP_TABLES } from '../models/columnMappings';
 import { fetchFinancialSummaryFromDb } from '../services/financialSummary.service';
-import { getPgConnected, fetchFiscalYears, pgPool, pickCurrentFiscalYear, selectBootstrapFiscalYear, toCalendarDate, fetchOperationalData, fetchOpeningStock, products, approvalRequests, branches, fiscalYears, suppliers, users, categories, companyProfile, getDataVersion, setPgConnected, setIsPgConnected, assetRegister, auditTrail, locationRecords, getUserFromReq, permissionMatrix, userPermissionOverrides, userPermissionSetGrants } from '../app';
+import { getPgConnected, fetchFiscalYears, pgPool, pickCurrentFiscalYear, selectBootstrapFiscalYear, toCalendarDate, fetchOperationalData, fetchOpeningStock, products, approvalRequests, branches, fiscalYears, suppliers, users, categories, companyProfile, getDataVersion, assetRegister, auditTrail, locationRecords, getUserFromReq, permissionMatrix, userPermissionOverrides, userPermissionSetGrants } from '../app';
+import { classifyDbFailure, noteDbFailure } from '../../db';
+import { dbBreaker } from '../observability/dbBreaker';
+import { ApiError } from '../errors/ApiError';
+import { DbBusyError, DbUnavailableError } from '../errors/dbErrors';
 import { effectivePermission } from '../services/permissionOverrides.service';
 
 /**
@@ -28,6 +34,33 @@ import { effectivePermission } from '../services/permissionOverrides.service';
  * make the client's targeted refresh treat the slice as failed and fall back
  * to a full bootstrap on every audit event.
  */
+/**
+ * OPS-2: weak validator over the payload version and the request's personal
+ * scope. It is computed BEFORE the first query so a 304 costs no database
+ * work. The fiscal-year component is the *requested* selector, not the
+ * resolved year: resolving the default year would itself require a query.
+ * Every successful write bumps stateVersion, and user.ver covers role, branch
+ * scope, switch permission, status and password, so the only way to change
+ * the payload without changing this value is an out-of-band SQL edit; a
+ * restart or any later write revalidates.
+ */
+function bootstrapEtag(user: any, branchId?: string, fiscalYearId?: string): string {
+  const scope = `${user?.id || ''}|${user?.ver ?? ''}|${branchId || ''}|${fiscalYearId || ''}`;
+  return `W/"${getStateVersion()}-${createHash('sha1').update(scope).digest('hex')}"`;
+}
+
+/** RFC 9110 If-None-Match uses weak comparison; '*' matches anything. */
+function ifNoneMatchMatches(header: string | string[] | undefined, etag: string): boolean {
+  if (!header) return false;
+  const values = Array.isArray(header) ? header : [header];
+  return values.some((value) =>
+    value
+      .split(',')
+      .map((candidate) => candidate.trim())
+      .some((candidate) => candidate === '*' || candidate === etag)
+  );
+}
+
 function canReadAuditLogs(user: any): boolean {
   if (!user?.email) return false;
   // Resolver, not the raw role row: a per-user grant of `admin-audit` must
@@ -70,6 +103,19 @@ export async function get_bootstrap(req: any, res: Response): Promise<any> {
 const { branchId, fiscalYearId } = req.query;
   const bId = typeof branchId === 'string' && branchId !== 'ALL' && branchId.trim() !== '' ? branchId : undefined;
   const fId = typeof fiscalYearId === 'string' && fiscalYearId.trim() !== '' ? fiscalYearId : undefined;
+  const bootstrapUser = getUserFromReq(req);
+
+  // Compute the validator before any query and answer a matching conditional
+  // request immediately. Compression must never see a 304 body, and the ETag
+  // must exist before res.json() runs.
+  const etag = bootstrapEtag(bootstrapUser, bId, fId);
+  res.setHeader('ETag', etag);
+  res.setHeader('Vary', 'Authorization, Accept-Encoding');
+  res.setHeader('Cache-Control', 'private, no-cache');
+  if (ifNoneMatchMatches(req.headers?.['if-none-match'], etag)) {
+    res.status(304).end();
+    return;
+  }
 
   if (getPgConnected()) {
     try {
@@ -118,22 +164,15 @@ const { branchId, fiscalYearId } = req.query;
       const fyStartAD = toCalendarDate(selectedFiscalYear.startDateAD);
       const fyEndAD = toCalendarDate(selectedFiscalYear.endDateAD);
 
-      const data = await fetchOperationalData(pgPool, {
+      // SCALE-2: first paint reads only the shell rows. Products, stock,
+      // suppliers and the rest of the master tables are deferred slices or
+      // paged registers, so their size no longer scales the login payload.
+      const data = await fetchBootstrapFirstPaint(pgPool, {
         branchId: bId,
         fiscalYearId: selectedFiscalYear.id,
         fiscalYearStartAD: fyStartAD,
         fiscalYearEndAD: fyEndAD,
       });
-
-      let pgStock = data.stock;
-      if (!selectedFiscalYear.isCurrent) {
-        pgStock = await fetchOpeningStock(pgPool, selectedFiscalYear.id, bId);
-      }
-      // Fiscal-year and branch scoping is applied in the repository queries
-      // (see buildScopedWhere), so no JavaScript date filtering is needed here.
-      const pgProducts = data.products;
-      const pgAuditLogs = data.auditLogs;
-      const pgApprovalRequests = data.approvalRequests;
 
       // BOOT-1: the full bootstrap now uses the same aggregate producer as
       // GET /api/bootstrap/local?key=financialSummary. It used to load the
@@ -157,7 +196,6 @@ const { branchId, fiscalYearId } = req.query;
       // the browser-localStorage copies (company-wide blind stock-audit toggle,
       // theme, date mode, last active tab), so clearing browser storage can
       // never change how the application behaves.
-      const bootstrapUser = getUserFromReq(req);
       const [appSettingsRes, userPrefsRes] = await Promise.all([
         pgPool.query(APP_SETTINGS_SELECT_SQL),
         bootstrapUser.id
@@ -165,30 +203,17 @@ const { branchId, fiscalYearId } = req.query;
           : Promise.resolve({ rows: [] as Array<{ key: string; value: string }> }),
       ]);
 
-      res.setHeader('Cache-Control', 'private, no-cache');
       return res.json({
         branches: data.branches,
-        products: pgProducts,
-        stock: pgStock,
-        purchaseReturns: data.purchaseReturns,
-        salesReturns: data.salesReturns,
         fiscalYears: pgFiscalYears,
-        auditLogs: canReadAuditLogs(bootstrapUser) ? pgAuditLogs : [],
         financialSummary,
-        suppliers: data.suppliers,
         // The team list is other people's identities: names, e-mails, roles and
         // branches. Only accounts that can act on another login need it — the
         // profile switcher (can_switch_user) and user administration. Everyone
         // else gets an empty list; the employee picker they use reads
         // GET /api/employees/user-options instead, which is manage-gated.
         users: canReadUserList(bootstrapUser) ? data.users : [],
-        approvalRequests: pgApprovalRequests,
-        categories: data.categories,
-        productGroups: data.productGroups,
-        uom: data.uom,
-        locations: data.locations,
         companyProfile: data.companyProfile[0] || companyProfile,
-        damageRecords: data.damageRecords,
         // Tables trimmed from the bootstrap payload (each is served by its
         // own paged/filterable list endpoint instead, so large ledgers are
         // never loaded wholesale into the first-paint payload):
@@ -213,6 +238,16 @@ const { branchId, fiscalYearId } = req.query;
         //                          deployment pickers, /lookup resolves one row; the
         //                          table grows with the installed base and never ages
         //                          out by fiscal year, so it never enters first paint)
+        //   - purchaseReturns  → GET /api/purchase-returns and
+        //                          /api/bootstrap/local?key=purchaseReturns (OPS-3:
+        //                          the register pages; the deferred slice keeps the
+        //                          returnable-quantity calculation complete)
+        //   - salesReturns     → GET /api/sales-returns and
+        //                          /api/bootstrap/local?key=salesReturns (OPS-3)
+        //   - auditLogs        → GET /api/bootstrap/local?key=auditLogs (OPS-3:
+        //                          the Activities Log hydrates after bootstrap;
+        //                          the 200-row cap stays in the mapping, so the
+        //                          login payload no longer carries the trail)
         // Their remaining wholesale consumers (dashboard/notification KPIs,
         // the FY closing wizard, the PI PO dropdown, the movement ledger,
         // StockOperations' panels, global search) are served by the client's
@@ -244,16 +279,27 @@ const { branchId, fiscalYearId } = req.query;
         userPreferences: rowsToRecord(userPrefsRes.rows, USER_PREFERENCE_KEYS),
       });
     } catch (pgErr: any) {
-      setPgConnected(false);
-      setIsPgConnected(false);
+      // Classify, never blanket-flip the flag: a query error is not an outage,
+      // and only an availability category earns a retryable 503. The typed
+      // errors carry Retry-After and a stable code; the central handler emits
+      // them, so the driver text never reaches the caller.
+      const kind = classifyDbFailure(pgErr, true);
+      noteDbFailure(kind);
       console.error('PostgreSQL bootstrap query failed:', pgErr?.message || pgErr);
-      return res.status(503).json({
-        message: 'PostgreSQL became unavailable while loading application data. Restart the database and try again.',
+      if (pgErr instanceof ApiError && pgErr.status === 503) throw pgErr;
+      if (kind === 'pool_acquire_timeout' || kind === 'statement_timeout') throw new DbBusyError();
+      if (kind === 'connect_timeout' || kind === 'server_unreachable' || kind === 'socket_dropped') {
+        throw new DbUnavailableError();
+      }
+      return res.status(500).json({
+        message: 'The application data could not be loaded. The server log has the details.',
       });
     }
   }
+  res.setHeader('Retry-After', String(Math.max(1, dbBreaker.retryAfterSeconds())));
   return res.status(503).json({
-    message: 'PostgreSQL is unavailable. Start the database and try again.',
+    message: 'The database is temporarily unavailable. Retry shortly.',
+    code: 'DB_UNAVAILABLE',
   });
 
 
@@ -409,10 +455,13 @@ export async function get_bootstrapLocal(req: any, res: Response): Promise<any> 
       // to the operational-data query, then the operational cache — the
       // pre-#7 behavior — so an unknown key can never 500 a refresh.
       console.warn(`bootstrap/local live read failed for ${key}:`, sliceErr?.message || sliceErr);
-      // BOOT-1/ASSET-1 removed these from the operational fan-out, so there
-      // is no fallback data for them. Answer honestly instead of a payload
-      // with only dataVersion, which the client would treat as an empty ledger.
-      if (['purchaseOrders', 'purchaseInvoices', 'stockOperations', 'vendorPayments', 'customers', 'assets'].includes(key)) {
+      // BOOT-1/ASSET-1/OPS-3 removed these from the operational fan-out, so
+      // there is no fallback data for them. Answer honestly instead of a
+      // payload with only dataVersion, which the client would treat as empty.
+      if ([
+        'purchaseOrders', 'purchaseInvoices', 'stockOperations', 'vendorPayments',
+        'customers', 'assets', 'purchaseReturns', 'salesReturns', 'auditLogs',
+      ].includes(key)) {
         return res.status(503).json({
           message: `Could not read ${key} from PostgreSQL. Retry shortly; the rows on screen are unchanged.`,
         });

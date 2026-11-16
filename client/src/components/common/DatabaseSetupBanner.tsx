@@ -58,7 +58,7 @@ export const DatabaseSetupBanner: React.FC<DatabaseSetupBannerProps> = ({
   if (!statusKnown || postgresConfig.isConnected) return null;
 
   const connectionTarget = `${postgresConfig.user}@${postgresConfig.host}:${postgresConfig.port}/${postgresConfig.database}`;
-  const bashCommand = `npm run setup:pg`;
+  const bashCommand = `npm run setup:pg -- --force --skip-backup-check`;
   const dockerCommand = `docker run --name inventory_postgres -e POSTGRES_DB=${postgresConfig.database} -e POSTGRES_USER=${postgresConfig.user} -e POSTGRES_PASSWORD=YOUR_PASSWORD -p ${postgresConfig.port}:5432 -d postgres:16-alpine`;
   const envExample = `DATABASE_URL="postgres://${postgresConfig.user}:YOUR_PASSWORD@${postgresConfig.host}:${postgresConfig.port}/${postgresConfig.database}"
 POSTGRES_HOST="${postgresConfig.host}"

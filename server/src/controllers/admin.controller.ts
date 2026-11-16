@@ -7,6 +7,7 @@
  */
 import type { Request, Response } from 'express';
 import { pgPool, hydrateOperationalData, setDataVersion, getDataVersion, sseClients, users, getPgConnected, setCompanyProfile, companyProfile, logAuditEvent, branches, setBranches, withReplaced, withAppended, validateRole, hashPassword, setUsers, assetRegister, transactionLogs, inventoryStock, inMemoryBsCalendarYears, withTransaction, withConnection, buildBsDayRecordsForYear, setInMemoryBsCalendarYears, generateInMemoryBsDayRecords, inMemoryBsDayRecords, setDocNumberConfigs, docNumberConfigs, fiscalYears, setFiscalYears, withSorted, verifySuperAdminCredentials, getUserFromReq, findBsDayRecordForAdDate, NEPALI_MONTHS_EN_SERVER, NEPALI_MONTHS_NP_SERVER, DAYS_OF_WEEK_EN_SERVER, DAYS_OF_WEEK_NP_SERVER, DEFAULT_BS_YEARS_SERVER, hydrateBsCalendarFromDb, setInMemoryBsDayRecords, broadcastChange } from '../app';
+import { rememberSessionVersion, revokeSessionVersion } from '../state/sessionVersion';
 import { auditBsCalendar, applyBsCalendarFixes } from '../services/bsCalendarIntegrity.service';
 import { backfillSerialLog } from '../services/serialBackfill.service';
 import {
@@ -330,6 +331,7 @@ try {
     if (getPgConnected()) {
       await pgPool.query(USER_UPSERT_SQL, userUpsertParams(newUser as User));
     }
+    await rememberSessionVersion(newUser as User);
     logAuditEvent(req, 'CREATE_USER', 'AUTH', `Created new user account ${newUser.name} (${newUser.email}) - Role: ${newUser.role}`);
     const { password: _, ...userWithoutPass } = newUser;
     res.status(201).json(userWithoutPass);
@@ -376,6 +378,7 @@ try {
     if (getPgConnected()) {
       await pgPool.query(USER_UPDATE_SQL, userUpdateParams(updatedUser as User, req.body.password ? updatedUser.password : null));
     }
+    await rememberSessionVersion(updatedUser as User);
     logAuditEvent(req, 'UPDATE_USER', 'AUTH', `Updated user account ${updatedUser.name} (${updatedUser.email})`);
     const { password: _, ...userWithoutPass } = updatedUser;
     res.json(userWithoutPass);
@@ -407,6 +410,7 @@ try {
         deletedName = r.rows[0].name;
       }
     }
+    await revokeSessionVersion(id);
     logAuditEvent(req, 'DELETE_USER', 'AUTH', `Deleted user account ${deletedName || id} (${deletedEmail || id})`);
     res.json({ success: true });
   } catch (err: any) {
@@ -442,6 +446,8 @@ try {
         targetName = r.rows[0].name;
       }
     }
+    if (userIdx !== -1) await rememberSessionVersion(users[userIdx]);
+    else await revokeSessionVersion(id);
     logAuditEvent(req, 'RESET_USER_PASSWORD', 'AUTH', `Password reset for user account ${targetName} (${targetEmail})`);
 
     const userWithoutPass = userIdx !== -1 ? (({ password, ...rest }) => rest)(users[userIdx]) : { id, email: targetEmail, name: targetName };

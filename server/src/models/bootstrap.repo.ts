@@ -178,6 +178,13 @@ export function parseSerialHistory(rows: any[]): any[] {
  * per deployed/rented CPE, so this array grew with the customer base too.
  * CDR-2 (2026-10-27) then moved its mapping to CACHE_ONLY_TABLES and retired
  * the slice that shared it; the operational cache still reads the mapping.
+ *
+ * OPS-3 (2026-11-16): purchaseReturns, salesReturns and auditLogs leave the
+ * first-paint fan-out too. They keep live BOOTSTRAP_TABLES slices (the two
+ * return registers also have paged list endpoints), and the client hydrates
+ * them through GET /api/bootstrap/local right after the full payload. The
+ * audit slice keeps its 200-row cap, but even that cap is the largest key on
+ * a real installation, so it must not be serialized on every login.
  */
 export async function fetchOperationalData(
   pool: QueryExecutor,
@@ -186,9 +193,6 @@ export async function fetchOperationalData(
   branches: any[];
   products: any[];
   stock: any[];
-  purchaseReturns: any[];
-  salesReturns: any[];
-  auditLogs: any[];
   suppliers: any[];
   users: any[];
   approvalRequests: any[];
@@ -201,9 +205,6 @@ export async function fetchOperationalData(
     branches,
     products,
     stock,
-    purchaseReturns,
-    salesReturns,
-    auditLogs,
     suppliers,
     users,
     approvalRequests,
@@ -217,9 +218,6 @@ export async function fetchOperationalData(
     fetchTable(pool, BOOTSTRAP_TABLES.branches, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.products, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.stock, scopeParams),
-    fetchTable(pool, BOOTSTRAP_TABLES.purchaseReturns, scopeParams),
-    fetchTable(pool, BOOTSTRAP_TABLES.salesReturns, scopeParams),
-    fetchTable(pool, BOOTSTRAP_TABLES.auditLogs, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.suppliers, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.users, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.approvalRequests, scopeParams),
@@ -256,9 +254,6 @@ export async function fetchOperationalData(
     branches,
     products,
     stock,
-    purchaseReturns,
-    salesReturns,
-    auditLogs,
     suppliers,
     users,
     approvalRequests,
@@ -269,4 +264,26 @@ export async function fetchOperationalData(
     companyProfile,
     damageRecords,
   };
+}
+
+/**
+ * SCALE-2 first-paint fan-out: only the identity/shell rows the checklist
+ * allows in the login payload. Master and ledger arrays are served by their
+ * paged endpoints or the deferred `/api/bootstrap/local?key=` slices, so a
+ * national installation never materializes them on every login.
+ */
+export async function fetchBootstrapFirstPaint(
+  pool: QueryExecutor,
+  scopeParams: BootstrapScopeParams
+): Promise<{
+  branches: any[];
+  users: any[];
+  companyProfile: any[];
+}> {
+  const [branches, users, companyProfile] = await Promise.all([
+    fetchTable(pool, BOOTSTRAP_TABLES.branches, scopeParams),
+    fetchTable(pool, BOOTSTRAP_TABLES.users, scopeParams),
+    fetchTable(pool, BOOTSTRAP_TABLES.companyProfile, scopeParams),
+  ]);
+  return { branches, users, companyProfile };
 }

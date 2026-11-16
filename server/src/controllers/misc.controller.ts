@@ -6,7 +6,8 @@
  * original route handlers.
  */
 import type { Request, Response } from 'express';
-import { ensurePostgresConnection, setPgConnected, setIsPgConnected, getPgConnected, pgPool, transactionLogs, approvalRequests, setApprovalRequests, withPrepended, logAuditEvent, getUserFromReq, withTransaction, withConnection, products, inventoryStock, setInventoryStock, withAppended, setTransactionLogs, shipments, branches, customerDeviceRecords, serialLogs, setSerialLogs, auditTrail, permissionMatrix, userPermissionOverrides, userPermissionSetGrants } from '../app';
+import { ensurePostgresConnection, getPgConnected, pgPool, transactionLogs, approvalRequests, setApprovalRequests, withPrepended, logAuditEvent, getUserFromReq, withTransaction, withConnection, products, inventoryStock, setInventoryStock, withAppended, setTransactionLogs, shipments, branches, customerDeviceRecords, serialLogs, setSerialLogs, auditTrail, permissionMatrix, userPermissionOverrides, userPermissionSetGrants } from '../app';
+import { classifyDbFailure, noteDbFailure } from '../../db';
 import { effectivePermission } from '../services/permissionOverrides.service';
 import { ApprovalRequest, AuditLog, CustomerDeviceRecord, TransactionLog } from '../../../client/src/types';
 import { todayBs } from '../utils/bsDate';
@@ -50,6 +51,7 @@ import { collectCpeFixedAsset } from '../services/cpeAssetLifecycle.service';
 import { resolveTransferUnitCost, reverseTransferJournal } from '../services/transferPosting.service';
 import { postStockValueJournal } from '../services/stockPosting.service';
 import { ApiError } from '../errors/ApiError';
+import { decodeKeysetCursor, encodeKeysetCursor, cursorTimestamp, keysetEnvelope, keysetLimit, requireLargeTableScope } from '../utils/keysetCursor';
 /** Forwarded from misc.routes.ts (get_status). */
 export async function get_status(req: any, res: Response): Promise<any> {
 let isConnected = await ensurePostgresConnection();
@@ -60,13 +62,12 @@ let isConnected = await ensurePostgresConnection();
     try {
       const testRes: any = await withConnection((client: any) => client.query(DB_STATUS_PROBE_SQL));
       isConnected = true;
-      setPgConnected(true);
-      setIsPgConnected(true);
+      // ensurePostgresConnection already recorded the success and closed the
+      // breaker; no request handler writes the flag directly (OPS-1).
       tableCount = parseInt(testRes.rows[0]?.tables || '0', 10);
     } catch (err: any) {
       isConnected = false;
-      setPgConnected(false);
-      setIsPgConnected(false);
+      noteDbFailure(classifyDbFailure(err, true));
       errorDetails = err?.message || 'Failed to connect to PostgreSQL server';
     }
   }
@@ -85,8 +86,16 @@ let isConnected = await ensurePostgresConnection();
 
 /** Forwarded from misc.routes.ts (get_auditTrail). */
 export async function get_auditTrail(req: any, res: Response): Promise<any> {
-const { branchId, serial, limit } = req.query;
+const { branchId, serial, limit, cursor, keyset, from, to } = req.query;
   const user = (req as any).user;
+  const wantsKeyset = cursor !== undefined || keyset === '1' || keyset === 'true';
+  const parsedCursor = cursor === undefined ? undefined : decodeKeysetCursor(cursor, 'audit_logs', 2);
+  if (cursor !== undefined && !parsedCursor) {
+    return res.status(400).json({ code: 'INVALID_CURSOR', message: 'The audit cursor is invalid. Reload the list and retry.' });
+  }
+  if (wantsKeyset && !requireLargeTableScope(res, {
+    branchId, dateFrom: from, dateTo: to, report: true,
+  })) return;
   // Branch scoping, same contract as the serial log: non-global roles read only
   // their own/allowed branches, and may not ask for someone else's.
   let branchScope: string[] | undefined;
@@ -111,8 +120,25 @@ const { branchId, serial, limit } = req.query;
   const take = Math.min(AUDIT_TRAIL_MAX_LIMIT, Math.max(1, Number(limit) || AUDIT_TRAIL_DEFAULT_LIMIT));
   const term = typeof serial === 'string' ? serial.trim() : '';
   if (getPgConnected()) {
-    const { sql, params } = buildAuditTrailQuery(branchScope ?? globalBranchId, take, term);
+    const size = wantsKeyset ? keysetLimit(limit, 50, AUDIT_TRAIL_MAX_LIMIT) : take;
+    const { sql, params } = buildAuditTrailQuery(
+      branchScope ?? globalBranchId,
+      size + (wantsKeyset ? 1 : 0),
+      term,
+      parsedCursor ? [String(parsedCursor[0]), String(parsedCursor[1])] : undefined,
+      from,
+      to
+    );
     const r = await pgPool.query(sql, params);
+    if (wantsKeyset) {
+      const hasMore = r.rows.length > size;
+      const items = hasMore ? r.rows.slice(0, size) : r.rows;
+      const last = items[items.length - 1];
+      const nextCursor = hasMore && last
+        ? encodeKeysetCursor('audit_logs', [cursorTimestamp(last.timestampAD), String(last.id)])
+        : null;
+      return res.json(keysetEnvelope(items, nextCursor, hasMore));
+    }
     res.json(r.rows);
     return;
   }

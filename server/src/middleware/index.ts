@@ -1,11 +1,14 @@
 // API middleware chain: authentication, PostgreSQL gate, fiscal-year write
 // lock, RBAC, matrix-based operation permissions, and branch access scoping.
 // Extracted verbatim from app.ts (isPgConnected now read via accessors).
-import { pgPool, realPoolInstance, ensurePostgresConnection, getIsPgConnected, setIsPgConnected } from '../../db';
-import { branches, users, permissionMatrix, userPermissionOverrides, userPermissionSetGrants, fiscalYears, logAuditEvent, getPgConnected, setPgConnected } from '../app';
+import { pgPool, realPoolInstance, ensurePostgresConnection, getIsPgConnected } from '../../db';
+import { dbBreaker } from '../observability/dbBreaker';
+import { branches, users, permissionMatrix, userPermissionOverrides, userPermissionSetGrants, fiscalYears, logAuditEvent, getPgConnected } from '../app';
 import { evaluateFiscalYearWriteGate } from './fiscalWriteGate';
 import { effectivePermission } from '../services/permissionOverrides.service';
 import { getUserFromReq, sessionStillValid, verifyAuthToken } from './auth';
+import { isRedisSharedState } from '../state/sharedStore';
+import { sessionStillValidShared } from '../state/sessionVersion';
 import { BRANCH_SCOPED_READ_PATHS, COLLECTION_SEGMENTS, findBranchScopedResource } from './branchScope';
 export { getUserFromReq } from './auth';
 export { verifyPassword } from './auth';
@@ -18,7 +21,7 @@ export { verifyPassword } from './auth';
  * Express Authentication Middleware
  * Resolves authenticated user details from headers/session and attaches to request
  */
-export function authenticateUser(req: any, _res: any, next: any) {
+export function authenticateUser(req: any, res: any, next: any) {
   const authorization = typeof req.headers.authorization === 'string' ? req.headers.authorization : '';
   const token = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : '';
   const verified = token ? verifyAuthToken(token) : null;
@@ -30,24 +33,59 @@ export function authenticateUser(req: any, _res: any, next: any) {
     next();
     return;
   }
-  req.user = verified;
-  next();
+  if (!verified || !isRedisSharedState()) {
+    req.user = verified;
+    next();
+    return;
+  }
+  // Shared revocation is a security decision: if Redis is unavailable we
+  // cannot prove the session was not revoked on another worker, so fail closed
+  // instead of accepting it on a possibly stale local cache.
+  void sessionStillValidShared(verified, users)
+    .then((valid) => {
+      req.sessionRevoked = !valid;
+      req.user = valid ? verified : null;
+      next();
+    })
+    .catch((err: any) => {
+      console.error('Shared session check failed (failing closed):', err?.message || err);
+      res.status(503).json({
+        message: 'Session verification is temporarily unavailable. Retry shortly.',
+        code: 'SHARED_STATE_UNAVAILABLE',
+      });
+    });
 }
 
+function databaseUnavailable(res: any, retryAfterSec: number) {
+  res.setHeader('Retry-After', String(Math.max(1, retryAfterSec)));
+  return res.status(503).json({
+    message: 'The database is temporarily unavailable. Retry shortly.',
+    code: 'DB_UNAVAILABLE',
+  });
+}
+
+/**
+ * Fail-closed PostgreSQL gate (OPS-1).
+ *
+ * Safe requests proceed; while the breaker is open this answers immediately
+ * with 503 + Retry-After and never queues on a database that is not there.
+ * The probe is single-flight inside ensurePostgresConnection: a burst of
+ * requests produces one SELECT 1, not one per request.
+ */
 export async function requirePostgres(req: any, res: any, next: any) {
   // Keep the diagnostic endpoint reachable while the database is down.
   if (req.path === '/db/status') return next();
 
-  if (!getPgConnected() || !getIsPgConnected()) {
+  const flagDown = !getPgConnected() || !getIsPgConnected();
+  if (flagDown || dbBreaker.isOpen()) {
     const isReconnected = await ensurePostgresConnection();
-    setPgConnected(isReconnected);
-    setIsPgConnected(isReconnected);
+    if (!isReconnected) {
+      return databaseUnavailable(res, dbBreaker.retryAfterSeconds());
+    }
   }
 
   if (!getPgConnected() || !getIsPgConnected() || !realPoolInstance) {
-    return res.status(503).json({
-      message: 'PostgreSQL is unavailable. Start the database and verify the connection settings before using the application.',
-    });
+    return databaseUnavailable(res, dbBreaker.retryAfterSeconds());
   }
   next();
 }

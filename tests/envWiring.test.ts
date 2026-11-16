@@ -7,6 +7,7 @@
  *
  *   PG_POOL_MAX            → pg pool `max` (server/db.ts buildPoolConfig)
  *   PG_CONNECT_TIMEOUT_MS  → pool connectionTimeoutMillis
+ *   PG_STATEMENT_TIMEOUT_MS → pg startup parameter on the pool (OPS-4)
  *   TRUST_PROXY            → express `trust proxy` (createApp), which decides
  *                            whether req.ip honors X-Forwarded-For. req.ip is
  *                            the key for the login rate limiter and the
@@ -22,7 +23,7 @@ import assert from 'node:assert/strict';
 import { buildPoolConfig } from '../server/db';
 import { createApp } from '../server/src/app';
 
-const TOUCHED = ['PG_POOL_MAX', 'PG_CONNECT_TIMEOUT_MS', 'TRUST_PROXY'];
+const TOUCHED = ['PG_POOL_MAX', 'PG_CONNECT_TIMEOUT_MS', 'PG_STATEMENT_TIMEOUT_MS', 'TRUST_PROXY'];
 const saved: Record<string, string | undefined> = {};
 for (const name of TOUCHED) saved[name] = process.env[name];
 
@@ -36,21 +37,44 @@ afterEach(() => {
 });
 
 describe('PG pool env knobs (server/db.ts buildPoolConfig)', () => {
-  test('unset → documented defaults (max 40, connect timeout 2000ms)', () => {
+  test('unset → documented defaults (max 40, connect timeout 2000ms, statement 30000ms)', () => {
     setEnv('PG_POOL_MAX', undefined);
     setEnv('PG_CONNECT_TIMEOUT_MS', undefined);
+    setEnv('PG_STATEMENT_TIMEOUT_MS', undefined);
     const cfg = buildPoolConfig();
     assert.equal(cfg.max, 40);
     assert.equal(cfg.connectionTimeoutMillis, 2000);
     assert.equal(cfg.idleTimeoutMillis, 30000);
+    assert.equal(cfg.statementTimeoutMs, 30000);
   });
 
   test('valid values are honoured', () => {
     setEnv('PG_POOL_MAX', '5');
     setEnv('PG_CONNECT_TIMEOUT_MS', '5000');
+    setEnv('PG_STATEMENT_TIMEOUT_MS', '1000');
     const cfg = buildPoolConfig();
     assert.equal(cfg.max, 5);
     assert.equal(cfg.connectionTimeoutMillis, 5000);
+    assert.equal(cfg.statementTimeoutMs, 1000);
+
+    setEnv('PG_STATEMENT_TIMEOUT_MS', '0');
+    assert.equal(buildPoolConfig().statementTimeoutMs, 0, '0 must mean disabled');
+  });
+
+  test('an invalid statement timeout stops the boot instead of silently becoming 30s', () => {
+    for (const bad of ['', 'abc', '999', '700000', '30s']) {
+      if (bad === '') {
+        setEnv('PG_STATEMENT_TIMEOUT_MS', '');
+        assert.equal(buildPoolConfig().statementTimeoutMs, 30000, 'empty means unset');
+        continue;
+      }
+      setEnv('PG_STATEMENT_TIMEOUT_MS', bad);
+      assert.throws(
+        () => buildPoolConfig(),
+        /PG_STATEMENT_TIMEOUT_MS/,
+        `PG_STATEMENT_TIMEOUT_MS=${JSON.stringify(bad)} must fail loudly`
+      );
+    }
   });
 
   test('garbage, zero and out-of-range values fall back instead of breaking the pool', () => {

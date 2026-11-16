@@ -119,7 +119,8 @@ describe('register load error — every paged register wires it in', () => {
     {
       file: 'client/src/features/sales/SalesInvoices.tsx',
       error: 'siLoadError',
-      loader: 'loadSiPage',
+      retry: 'siPager.reload',
+      cursorPaged: true,
       pageSubject: 'this page of sales invoices',
     },
     {
@@ -131,7 +132,8 @@ describe('register load error — every paged register wires it in', () => {
     {
       file: 'client/src/features/inventory/stockops/ConsumablesRegisterPanel.tsx',
       error: 'consumableRegisterError',
-      loader: 'loadConsumableRegisterPage',
+      retry: 'consumablePager.reload',
+      cursorPaged: true,
       pageSubject: 'this page of consumable issues',
     },
   ];
@@ -151,16 +153,25 @@ describe('register load error — every paged register wires it in', () => {
         source.includes(`message={${register.error}}`),
         'the notice must show the actual fetch error'
       );
-      assert.ok(
-        source.includes(`onRetry={() => { void ${register.loader}(); }}`),
-        'Retry must re-run exactly the page fetch that failed'
-      );
-      // A stale notice must not survive a successful refetch: each loader
-      // clears the error before it starts.
-      assert.ok(
-        source.includes(`set${register.error[0].toUpperCase()}${register.error.slice(1)}('');`),
-        'the loader must clear the error at the start of the next fetch'
-      );
+      if (register.cursorPaged) {
+        assert.ok(
+          source.includes(`onRetry={${register.retry}}`),
+          'Retry must re-run exactly the cursor fetch that failed'
+        );
+        assert.match(source, /useKeysetPager\(/, 'the cursor pager owns error clearing and retry');
+        assert.match(source, /scopeError=/, 'the screen must expose the scope refusal');
+      } else {
+        assert.ok(
+          source.includes(`onRetry={() => { void ${register.loader}(); }}`),
+          'Retry must re-run exactly the page fetch that failed'
+        );
+        // A stale notice must not survive a successful refetch: each loader
+        // clears the error before it starts.
+        assert.ok(
+          source.includes(`set${register.error[0].toUpperCase()}${register.error.slice(1)}('');`),
+          'the loader must clear the error at the start of the next fetch'
+        );
+      }
     });
   }
 

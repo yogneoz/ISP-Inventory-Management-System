@@ -1,6 +1,6 @@
 # Master data & ledger implementation plan
 
-_Status: active, started 2026-11-04._
+_Status: delivered; kept as the design record (started 2026-11-04)._
 
 This note tracks the legacy **General Ledger Master** menu against the screens that
 exist in this application, then records the order in which the gaps will be built.

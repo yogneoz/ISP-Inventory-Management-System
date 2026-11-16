@@ -555,8 +555,9 @@ describe('Paged-tab audit guard — no self-fetching data loads', () => {
     // the canonical wired example: it re-runs its
     // paged fetch whenever its sseRefreshKey bumps.
     const source = readFeatureSource('inventory/stockops/ConsumablesRegisterPanel.tsx');
-    assert.match(source, /const loadConsumableRegisterPage = useCallback/);
-    assert.match(source, /\[loadConsumableRegisterPage, sseRefreshKey\]/);
+    assert.match(source, /const fetchConsumablePage = useCallback/);
+    assert.match(source, /useKeysetPager\(/);
+    assert.match(source, /sseRefreshKey \?\? 0/);
     // App.tsx feeds the SSE-driven counter into EVERY render site of the
     // tab (11 today) — a newly added unwired render site fails here, as
     // does a counter attached to any other component.
@@ -721,8 +722,8 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
     assert.match(source, /sseRefreshKey\?: number;/);
     assert.match(
       source,
-      /useEffect\(\(\) => \{\s*loadSiPage\(\);\s*\}, \[loadSiPage, siRefreshKey, sseRefreshKey\]\);/,
-      'the sales-invoices paged fetch effect must depend on sseRefreshKey'
+      /resetKey: \[[^\]]*siRefreshKey[^\]]*sseRefreshKey[^\]]*\]/,
+      'the sales-invoices cursor reset must depend on sseRefreshKey'
     );
     assertNoRawFetch(source, 'SalesInvoices.tsx');
 
@@ -748,8 +749,8 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
     // The paged fetch effect re-runs when the counter bumps.
     assert.match(
       source,
-      /loadPage\(\);[\s\S]{0,200}?\}, \[scopeBranch, filterStatus, appliedSearch, dateFromAD, dateToAD, serverPage, serverPageSize, refreshKey\]\);/,
-      'the serial-log paged fetch effect must depend on refreshKey'
+      /resetKey: \[[^\]]*refreshKey[^\]]*\]/,
+      'the serial-log cursor reset must depend on refreshKey'
     );
     assertNoRawFetch(source, 'SerialLogRegister.tsx');
 
@@ -1409,9 +1410,10 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     // predate the 200-row slice, and "every event for this serial" is the
     // whole point. It is a search, not a second copy of the list: clearing the
     // box drops straight back to the bootstrap prop.
-    // VOL-1b: the serial focus is still the only audit read; the stock tab
-    // now pages its own movement rows from /api/transaction-logs.
-    'finance/AuditTrailReports.tsx': ['getAuditTrail', 'getTransactionLogs'],
+    // VOL-1b: the serial focus keeps its capped audit read; the stock tab
+    // pages its own movement rows from /api/transaction-logs. SCALE-2 adds the
+    // cursor page for the main audit register.
+    'finance/AuditTrailReports.tsx': ['getAuditTrail', 'getAuditTrailPage', 'getTransactionLogs'],
     // ASSET-1: both registers page/filter on the server and read their KPIs and
     // grouped summary from /overview; the export is the bounded all=1 read.
     // The fixed-asset register also resolves a `/:tagNumber` deep link through
@@ -1643,7 +1645,9 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     // VOL-1 movement screens (transactionLog key) — so a new one cannot page
     // without wiring its SSE re-read.
     // `pageSize:` or the shorthand `pageSize,` both count: VOL-3's register
-    // passes the pager's values straight through.
+    // passes the pager's values straight through. SCALE-2 cursor screens are
+    // pinned by their own `useKeysetPager`/`sseRefreshKey` tests above and no
+    // longer send `pageSize`.
     const paged = listFeatureScreens().filter((screen) => /pageSize(?::|,)/.test(readFeatureSource(screen)));
     assert.deepEqual(
       paged,
@@ -1653,10 +1657,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
         // ASSET-1: the asset registers page their own server reads.
         'finance/DepreciationRegister.tsx',
         'finance/FixedAssetRegister.tsx',
-        'finance/PostedVouchers.tsx',
         'inventory/AssetDeployments.tsx',
-        'inventory/SerialLogRegister.tsx',
-        'inventory/stockops/ConsumablesRegisterPanel.tsx',
         // WTY-6: the shared warranty register pages both coverage sides.
         'inventory/warranty/WarrantyRegister.tsx',
         'procurement/PurchaseInvoices.tsx',
@@ -1784,6 +1785,23 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
         );
       }
     }
+  });
+
+  test('OPS-3 deferred return/audit slices are hydrated and never cleared by a full payload', () => {
+    const app = readAppSource();
+    const start = app.indexOf('DEFERRED_BOOTSTRAP_SLICES = [');
+    const end = start === -1 ? -1 : app.indexOf('];', start);
+    assert.ok(start >= 0 && end > start, 'App.tsx must declare DEFERRED_BOOTSTRAP_SLICES');
+    const block = app.slice(start, end);
+    for (const key of ['purchaseReturns', 'salesReturns', 'auditLogs']) {
+      assert.ok(block.includes(`'${key}'`), `OPS-3 slice '${key}' is not deferred`);
+    }
+    assert.doesNotMatch(
+      app,
+      /set(PurchaseReturns|SalesReturns|AuditLogs)\(data\.\w+\s*\|\|\s*\[\]\)/,
+      'a full bootstrap that omits a deferred key must not reset it to []'
+    );
+    assert.match(app, /if \(data\.purchaseReturns\) setPurchaseReturns\(data\.purchaseReturns\)/);
   });
 
   test('docs screen-count claims match reality — total, table and pinned-elsewhere', () => {

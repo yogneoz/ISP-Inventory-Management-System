@@ -16,16 +16,27 @@ import { logAuditEvent } from '../app';
 import {
   AUTH_RATE_LIMIT_SCOPES,
   listAuthRateLimitBlocks,
+  listAuthRateLimitBlocksShared,
   releaseAuthRateLimit,
+  releaseAuthRateLimitShared,
 } from '../middleware/authRateLimit';
+import { isRedisSharedState } from '../state/sharedStore';
 
 /** GET /api/auth/rate-limit — who is currently throttled, and for how long. */
-export function get_authRateLimitBlocks(_req: Request, res: Response): void {
-  res.json({ blocks: listAuthRateLimitBlocks(), scopes: [...AUTH_RATE_LIMIT_SCOPES] });
+export async function get_authRateLimitBlocks(_req: Request, res: Response): Promise<void> {
+  try {
+    const blocks = isRedisSharedState()
+      ? await listAuthRateLimitBlocksShared()
+      : listAuthRateLimitBlocks();
+    res.json({ blocks, scopes: [...AUTH_RATE_LIMIT_SCOPES] });
+  } catch (err: any) {
+    console.error('Cannot read shared login locks:', err?.message || err);
+    res.status(503).json({ message: 'Login-lock state is temporarily unavailable. Retry shortly.', code: 'SHARED_STATE_UNAVAILABLE' });
+  }
 }
 
 /** POST /api/auth/rate-limit/release — lift a block immediately. */
-export function post_releaseAuthRateLimit(req: Request, res: Response): void {
+export async function post_releaseAuthRateLimit(req: Request, res: Response): Promise<void> {
   const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
   const ip = typeof req.body?.ip === 'string' ? req.body.ip.trim() : '';
   const all = req.body?.all === true;
@@ -35,7 +46,16 @@ export function post_releaseAuthRateLimit(req: Request, res: Response): void {
     return;
   }
 
-  const { released } = releaseAuthRateLimit({ email, ip, all });
+  let released = 0;
+  try {
+    ({ released } = isRedisSharedState()
+      ? await releaseAuthRateLimitShared({ email, ip, all })
+      : releaseAuthRateLimit({ email, ip, all }));
+  } catch (err: any) {
+    console.error('Cannot release shared login locks:', err?.message || err);
+    res.status(503).json({ message: 'Login-lock state is temporarily unavailable. Retry shortly.', code: 'SHARED_STATE_UNAVAILABLE' });
+    return;
+  }
   const actor = (req as any).user?.email || 'unknown';
   const target = all
     ? 'every bucket'

@@ -6,7 +6,6 @@
  * validate against the sold quantities recorded here.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useFilterPageReset } from '../../utils/useFilterPageReset';
 import {
   PlusCircle,
   Receipt,
@@ -27,7 +26,8 @@ import { LoadStateNotice } from '../../components/common/LoadStateNotice';
 import { CustomerPicker } from '../../components/common/CustomerPicker';
 import { FilterCard } from '../../components/common/FilterCard';
 import { ModalPanel } from '../../components/common/ModalPanel';
-import { TablePagination, useServerPageClamp } from '../../components/common/TablePagination';
+import { KeysetLoadMore } from '../../components/common/KeysetLoadMore';
+import { useKeysetPager } from '../../hooks/useKeysetPager';
 import { RegisterLoadError } from '../../components/common/RegisterLoadError';
 import { DocumentLetterhead } from '../../components/common/DocumentLetterhead';
 import { useDialog } from '../../components/common/DialogProvider';
@@ -355,8 +355,14 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
   ]);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
-  const [branchFilter, setBranchFilter] = useState('ALL');
+  const defaultBranchFilter =
+    (selectedBranchId && selectedBranchId !== 'ALL' ? selectedBranchId : '') ||
+    selectableBranches[0]?.id ||
+    'ALL';
+  const [branchFilter, setBranchFilter] = useState(defaultBranchFilter);
   const [query, setQuery] = useState('');
+  const [dateFromAD, setDateFromAD] = useState('');
+  const [dateToAD, setDateToAD] = useState('');
   // FilterCard owns the keystroke draft; an export clicked before the debounce
   // applies must use the text the operator can see, not the previous search.
   const searchDraftRef = useRef<string | null>(null);
@@ -381,53 +387,37 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
     return () => { live = false; };
   }, []);
 
-  // Server-side paged fetch state: the register asks /api/sales-invoices for
-  // one page of filtered rows instead of filtering the whole prop array.
-  const [siRows, setSiRows] = useState<SalesInvoice[]>([]);
-  const [siTotalItems, setSiTotalItems] = useState(0);
-  const [siPage, setSiPage] = useState(1);
-  const [siPageSize, setSiPageSize] = useState(25);
-  const [siLoading, setSiLoading] = useState(true);
-  const [siLoadError, setSiLoadError] = useState('');
+  // Cursor-paged register: later pages advance the signed nextCursor, so a
+  // concurrently posted invoice cannot shift an offset window.
   const [siRefreshKey, setSiRefreshKey] = useState(0);
   const [exporting, setExporting] = useState(false);
 
-  // One page of filtered invoice rows; the seq guard drops superseded responses.
-  const siFetchSeq = useRef(0);
-  const loadSiPage = useCallback(async () => {
-    const seq = ++siFetchSeq.current;
-    setSiLoading(true);
-    setSiLoadError('');
-    try {
-      const envelope = (await api.getSalesInvoices({
-        branchId: branchFilter !== 'ALL' ? branchFilter : undefined,
-        query: query.trim() || undefined,
-        page: siPage,
-        pageSize: siPageSize,
-      })) as SalesInvoice[] | { data: SalesInvoice[]; totalItems: number };
-      if (seq !== siFetchSeq.current) return; // superseded
-      if (Array.isArray(envelope)) {
-        setSiRows(envelope);
-        setSiTotalItems(envelope.length);
-      } else {
-        setSiRows(envelope.data || []);
-        setSiTotalItems(envelope.totalItems || 0);
-      }
-    } catch (err: any) {
-      if (seq !== siFetchSeq.current) return;
-      setSiLoadError(err?.message || 'Failed to load the register.');
-    } finally {
-      if (seq === siFetchSeq.current) setSiLoading(false);
+  const fetchSiPage = useCallback(async (cursor: string | null) => {
+    const envelope = (await api.getSalesInvoices({
+      branchId: branchFilter !== 'ALL' ? branchFilter : undefined,
+      query: query.trim() || undefined,
+      dateFromAD: dateFromAD || undefined,
+      dateToAD: dateToAD || undefined,
+      cursor,
+      limit: 25,
+    })) as SalesInvoice[] | { items?: SalesInvoice[]; data: SalesInvoice[]; nextCursor?: string | null; hasMore?: boolean };
+    if (Array.isArray(envelope)) {
+      return { items: envelope, nextCursor: null, hasMore: false };
     }
-  }, [branchFilter, query, siPage, siPageSize]);
+    return {
+      items: envelope.items || envelope.data || [],
+      nextCursor: envelope.nextCursor ?? null,
+      hasMore: Boolean(envelope.hasMore),
+    };
+  }, [branchFilter, query, dateFromAD, dateToAD]);
 
-  useEffect(() => {
-    loadSiPage();
-  }, [loadSiPage, siRefreshKey, sseRefreshKey]);
-
-  // A filter change snaps the page back to 1 in the same render, so one
-  // change costs one request for page 1 instead of two (DF-12).
-  useFilterPageReset([branchFilter, query].join('\u0000'), siPage, setSiPage);
+  const siPager = useKeysetPager({
+    fetchPage: fetchSiPage,
+    resetKey: [branchFilter, query, dateFromAD, dateToAD, siRefreshKey, sseRefreshKey].join('\u0000'),
+  });
+  const siRows = siPager.rows;
+  const siLoading = siPager.loading;
+  const siLoadError = siPager.error;
 
   const openInvoiceDetail = (invoice: SalesInvoice) => {
     setViewing(invoice);
@@ -488,9 +478,9 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
           query: recordKey,
           page: 1,
           pageSize: 10,
-        })) as SalesInvoice[] | { data: SalesInvoice[] };
+        })) as SalesInvoice[] | { data: SalesInvoice[]; items?: SalesInvoice[] };
         if (cancelled) return;
-        const rows = Array.isArray(envelope) ? envelope : envelope.data || [];
+        const rows = Array.isArray(envelope) ? envelope : envelope.items || envelope.data || [];
         const match = rows.find(matches);
         if (match) {
           setViewing(match);
@@ -1022,18 +1012,7 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
     }
   };
 
-  // The register has no full-array fallback: a failed page leaves the rows
-  // already on screen (if any) and shows the error + Retry. The bootstrap no
-  // longer carries the fiscal year's invoices, and silently filtering a stale
-  // copy was the last reason it did.
-  const totalItems = siTotalItems;
-  // A delete can shrink the filtered set under the current page; snap back to
-  // the new last page instead of asking the server for one that is gone (DF-09).
-  const safePage = useServerPageClamp(siPage, siPageSize, totalItems, setSiPage);
   const pageRows = siRows;
-  const pageCount = Math.max(1, Math.ceil(totalItems / siPageSize));
-  const rangeStart = totalItems === 0 ? 0 : (safePage - 1) * siPageSize + 1;
-  const rangeEnd = Math.min(totalItems, safePage * siPageSize);
 
   const branchName = (id: string) => branches.find((b) => b.id === id)?.name || id;
 
@@ -1055,6 +1034,8 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
         const envelope = (await api.getSalesInvoices({
           branchId: branchFilter !== 'ALL' ? branchFilter : undefined,
           query: (searchDraftRef.current ?? query).trim() || undefined,
+          dateFromAD: dateFromAD || undefined,
+          dateToAD: dateToAD || undefined,
           all: true,
         })) as SalesInvoice[] | { data: SalesInvoice[] };
         exported = Array.isArray(envelope) ? envelope : envelope.data || [];
@@ -1603,16 +1584,26 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
             searchValue={query}
             onSearchApply={setQuery}
             onSearchDraftChange={(draft) => { searchDraftRef.current = draft; }}
-            onClearAll={() => { setBranchFilter('ALL'); setQuery(''); }}
-            hasActiveFilters={branchFilter !== 'ALL' || !!query}
+            onClearAll={() => { setBranchFilter(defaultBranchFilter); setQuery(''); setDateFromAD(''); setDateToAD(''); }}
+            hasActiveFilters={branchFilter !== defaultBranchFilter || !!query || !!dateFromAD || !!dateToAD}
             filterChildren={
-              <div className="w-56">
-                <label className={labelClass}>Branch</label>
-                <select className={inputClass} value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)}>
-                  <option value="ALL">All Branches</option>
-                  {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-                </select>
-              </div>
+              <>
+                <div className="w-56">
+                  <label className={labelClass}>Branch</label>
+                  <select className={inputClass} value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)}>
+                    <option value="ALL">All Branches</option>
+                    {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                  </select>
+                </div>
+                <div className="w-40">
+                  <label className={labelClass}>From (AD)</label>
+                  <input type="date" className={inputClass} value={dateFromAD} max={dateToAD || undefined} onChange={(e) => setDateFromAD(e.target.value)} />
+                </div>
+                <div className="w-40">
+                  <label className={labelClass}>To (AD)</label>
+                  <input type="date" className={inputClass} value={dateToAD} min={dateFromAD || undefined} onChange={(e) => setDateToAD(e.target.value)} />
+                </div>
+              </>
             }
           />
 
@@ -1622,7 +1613,7 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
               message={siLoadError}
               hasCachedRows={siRows.length > 0}
               loading={siLoading}
-              onRetry={() => { void loadSiPage(); }}
+              onRetry={siPager.reload}
             />
           )}
 
@@ -1684,15 +1675,12 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
               </tbody>
             </table>
           </div>
-          <TablePagination
-            page={safePage}
-            pageSize={siPageSize}
-            totalItems={totalItems}
-            pageCount={pageCount}
-            rangeStart={rangeStart}
-            rangeEnd={rangeEnd}
-            onPageChange={setSiPage}
-            onPageSizeChange={(s) => { setSiPageSize(s); setSiPage(1); }}
+          <KeysetLoadMore
+            loaded={siRows.length}
+            hasMore={siPager.hasMore}
+            loadingMore={siPager.loadingMore}
+            onLoadMore={siPager.loadMore}
+            scopeError={siPager.scopeError ? siPager.error : ''}
           />
         </>
       )}
