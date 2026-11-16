@@ -8,7 +8,6 @@
  * the server: stock moves + ledger rows + the return document commit together.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useFilterPageReset } from '../../utils/useFilterPageReset';
 import {
   PlusCircle,
   Undo2,
@@ -35,8 +34,9 @@ import {
 import { PageHeader } from '../../components/common/PageHeader';
 import { formCardClass } from '../../components/common/FormCard';
 import { FilterCard } from '../../components/common/FilterCard';
-import { TablePagination, useServerPageClamp } from '../../components/common/TablePagination';
 import { RegisterLoadError } from '../../components/common/RegisterLoadError';
+import { KeysetLoadMore } from '../../components/common/KeysetLoadMore';
+import { useKeysetPager } from '../../hooks/useKeysetPager';
 import { SearchPicker } from '../../components/common/SearchPicker';
 import { useDialog } from '../../components/common/DialogProvider';
 import { useDarkMode } from '../../contexts/DarkModeContext';
@@ -160,55 +160,53 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
   const [lines, setLines] = useState<RetLine[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
-  const [branchFilter, setBranchFilter] = useState('ALL');
+  const [branchFilter, setBranchFilter] = useState(() =>
+    selectedBranchId && selectedBranchId !== 'ALL' ? selectedBranchId : branches[0]?.id || 'ALL'
+  );
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [query, setQuery] = useState('');
+  const [dateFromAD, setDateFromAD] = useState('');
+  const [dateToAD, setDateToAD] = useState('');
 
   const isPurchase = kind === 'PURCHASE';
   const docNumberLabel = isPurchase ? 'Debit Note (DN-…)' : 'Credit Note (CN-…)';
 
-  // Server-side paged fetch state: the register asks /api/purchase-returns
-  // or /api/sales-returns (by kind) for one page of filtered rows instead
-  // of filtering the whole prop array.
-  const [retRows, setRetRows] = useState<(PurchaseReturn | SalesReturn)[]>([]);
-  const [retTotalItems, setRetTotalItems] = useState(0);
-  const [retPage, setRetPage] = useState(1);
-  const [retPageSize] = useState(25);
-  const [retLoading, setRetLoading] = useState(true);
-  const [retLoadError, setRetLoadError] = useState('');
+  // Cursor-paged register: each Load more advances the signed nextCursor, so
+  // a return posted between requests cannot shift the rows already displayed.
   const [retRefreshKey, setRetRefreshKey] = useState(0);
 
-  // Server-side paged fetch: one page of filtered return rows.
-  const retFetchSeq = useRef(0);
-  const loadRetPage = useCallback(async () => {
-    const seq = ++retFetchSeq.current;
-    setRetLoading(true);
-    setRetLoadError('');
-    try {
-      const params = {
+  const fetchRetPage = useCallback(async (cursor: string | null) => {
+    const params = {
         branchId: branchFilter !== 'ALL' ? branchFilter : undefined,
         status: statusFilter !== 'ALL' ? statusFilter : undefined,
         query: query.trim() || undefined,
-        page: retPage,
-        pageSize: retPageSize,
+        dateFromAD: dateFromAD || undefined,
+        dateToAD: dateToAD || undefined,
+        cursor,
+        limit: 25,
       };
-      const envelope = (isPurchase
-        ? await api.getPurchaseReturns(params)
-        : await api.getSalesReturns(params)) as { data: (PurchaseReturn | SalesReturn)[]; totalItems: number };
-      if (seq !== retFetchSeq.current) return; // superseded
-      setRetRows(envelope.data || []);
-      setRetTotalItems(envelope.totalItems || 0);
-    } catch (err: any) {
-      if (seq !== retFetchSeq.current) return;
-      setRetLoadError(err?.message || 'Failed to load the register');
-    } finally {
-      if (seq === retFetchSeq.current) setRetLoading(false);
-    }
-  }, [branchFilter, statusFilter, query, retPage, retPageSize, isPurchase]);
+    const envelope = (isPurchase
+      ? await api.getPurchaseReturns(params)
+      : await api.getSalesReturns(params)) as {
+        data?: (PurchaseReturn | SalesReturn)[];
+        items?: (PurchaseReturn | SalesReturn)[];
+        nextCursor?: string | null;
+        hasMore?: boolean;
+      };
+    return {
+      items: envelope.items || envelope.data || [],
+      nextCursor: envelope.nextCursor ?? null,
+      hasMore: Boolean(envelope.hasMore),
+    };
+  }, [branchFilter, statusFilter, query, dateFromAD, dateToAD, isPurchase]);
 
-  useEffect(() => {
-    loadRetPage();
-  }, [loadRetPage, retRefreshKey, sseRefreshKey]);
+  const retPager = useKeysetPager({
+    fetchPage: fetchRetPage,
+    resetKey: [
+      branchFilter, statusFilter, query, dateFromAD, dateToAD, isPurchase,
+      retRefreshKey, sseRefreshKey ?? 0,
+    ].join('\u0000'),
+  });
 
   // The URL owns the open return: a shared `/:returnNumber` link resolves the
   // record from the loaded slices first, then the filtered server page. The
@@ -234,7 +232,7 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
       return;
     }
 
-    const local = [...returns, ...retRows].find(returnMatchesKey);
+    const local = [...returns, ...retPager.rows].find(returnMatchesKey);
     if (local) {
       setViewing((current) => (current && returnMatchesKey(current) ? current : local));
       return;
@@ -243,7 +241,10 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
     let cancelled = false;
     (async () => {
       try {
-        const params = { query: returnRecordKey, page: 1, pageSize: 25 };
+        // A shared /:returnNumber link is a targeted record lookup, not a
+        // register page: ask for the filtered set in one bounded response and
+        // find the record, so no OFFSET window can hide it.
+        const params = { query: returnRecordKey, all: true };
         const envelope: any = isPurchase
           ? await api.getPurchaseReturns(params)
           : await api.getSalesReturns(params);
@@ -259,15 +260,7 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [returnRecordKey, isPurchase, returns, retRows]);
-
-  // A filter change snaps the page back to 1 in the same render, so one
-  // change costs one request for page 1 instead of two (DF-12).
-  useFilterPageReset(
-    [branchFilter, statusFilter, query, isPurchase].join('\u0000'),
-    retPage,
-    setRetPage
-  );
+  }, [returnRecordKey, isPurchase, returns, retPager.rows]);
 
   const selectedInvoice = useMemo(() => {
     if (!isPurchase) return selectedSalesInvoice;
@@ -307,10 +300,9 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
     const envelope = await api.getSalesInvoices({
       branchId: branchId !== 'ALL' ? branchId : undefined,
       query: q,
-      page: 1,
-      pageSize: 20,
+      limit: 20,
     });
-    return Array.isArray(envelope) ? envelope : envelope.data;
+    return Array.isArray(envelope) ? envelope : envelope.items || envelope.data;
   }, [branchId]);
 
   const applyInvoice = (inv: PurchaseInvoice | SalesInvoice) => {
@@ -559,6 +551,8 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
     let list = returns as any[];
     if (branchFilter !== 'ALL') list = list.filter((r) => r.branchId === branchFilter);
     if (statusFilter !== 'ALL') list = list.filter((r) => r.status === statusFilter);
+    if (dateFromAD) list = list.filter((r) => (r.returnDateAD || '') >= dateFromAD);
+    if (dateToAD) list = list.filter((r) => (r.returnDateAD || '') <= dateToAD);
     if (query.trim()) {
       const q = query.trim().toLowerCase();
       list = list.filter((r) =>
@@ -568,20 +562,12 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
       );
     }
     return list;
-  }, [returns, branchFilter, statusFilter, query, isPurchase]);
+  }, [returns, branchFilter, statusFilter, query, isPurchase, dateFromAD, dateToAD]);
 
-  // Rows on screen: the server page, or (on fetch failure) the client-side
-  // filtered prop array so the register degrades instead of breaking.
-  const pageRows = retLoadError ? filtered : retRows;
-  const totalItems = retLoadError ? filtered.length : retTotalItems;
-  const pageSize = retPageSize;
-  // A delete can shrink the filtered set under the current page; snap back to
-  // the new last page instead of asking the server for one that is gone (DF-09).
-  const page = useServerPageClamp(retPage, pageSize, totalItems, setRetPage);
-  const pageCount = Math.max(1, Math.ceil(totalItems / pageSize));
-  const rangeStart = totalItems === 0 ? 0 : (page - 1) * pageSize + 1;
-  const rangeEnd = Math.min(page * pageSize, totalItems);
-  const setPage = (p: number) => setRetPage(Math.max(1, p));
+  // Rows on screen: the cursor pages, or (on a non-scope fetch failure) the
+  // client-side filtered prop array so the register degrades instead of
+  // breaking. A SCOPE_REQUIRED refusal must stay visible, never be masked.
+  const pageRows = retPager.error && !retPager.scopeError ? filtered : retPager.rows;
 
   const branchName = (id: string) => branches.find((b) => b.id === id)?.name || id;
   const partyName = (r: any) => (isPurchase ? r.supplierName : r.customerName) || '—';
@@ -968,10 +954,16 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
             searchPlaceholder="Return #, invoice #, party…"
             searchValue={query}
             onSearchApply={setQuery}
-            onClearAll={() => { setBranchFilter('ALL'); setStatusFilter('ALL'); setQuery(''); }}
-            hasActiveFilters={branchFilter !== 'ALL' || statusFilter !== 'ALL' || !!query}
+            onClearAll={() => {
+              setBranchFilter(selectedBranchId && selectedBranchId !== 'ALL' ? selectedBranchId : branches[0]?.id || 'ALL');
+              setStatusFilter('ALL');
+              setQuery('');
+              setDateFromAD('');
+              setDateToAD('');
+            }}
+            hasActiveFilters={branchFilter !== (selectedBranchId || '') || statusFilter !== 'ALL' || !!query || !!dateFromAD || !!dateToAD}
             filterChildren={
-              <div className="flex gap-3">
+              <div className="flex flex-wrap gap-3">
                 <div className="w-48">
                   <label className={labelClass}>Branch</label>
                   <select className={inputClass} value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)}>
@@ -988,17 +980,25 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
                     <option value="CANCELLED">CANCELLED</option>
                   </select>
                 </div>
+                <div className="w-40">
+                  <label className={labelClass}>Return Date From</label>
+                  <input type="date" className={inputClass} value={dateFromAD} max={dateToAD || undefined} onChange={(e) => setDateFromAD(e.target.value)} />
+                </div>
+                <div className="w-40">
+                  <label className={labelClass}>Return Date To</label>
+                  <input type="date" className={inputClass} value={dateToAD} min={dateFromAD || undefined} onChange={(e) => setDateToAD(e.target.value)} />
+                </div>
               </div>
             }
           />
 
-          {retLoadError && (
+          {retPager.error && (
             <RegisterLoadError
               subject="this page of returns"
-              message={retLoadError}
+              message={retPager.error}
               hasCachedRows={filtered.length > 0}
-              loading={retLoading}
-              onRetry={() => { void loadRetPage(); }}
+              loading={retPager.loading}
+              onRetry={retPager.reload}
             />
           )}
 
@@ -1062,14 +1062,12 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
               </tbody>
             </table>
           </div>
-          <TablePagination
-            page={page}
-            pageSize={pageSize}
-            totalItems={totalItems}
-            pageCount={pageCount}
-            rangeStart={rangeStart}
-            rangeEnd={rangeEnd}
-            onPageChange={setPage}
+          <KeysetLoadMore
+            loaded={pageRows.length}
+            hasMore={retPager.hasMore}
+            loadingMore={retPager.loadingMore}
+            onLoadMore={retPager.loadMore}
+            scopeError={retPager.scopeError ? retPager.error : ''}
           />
         </>
       )}

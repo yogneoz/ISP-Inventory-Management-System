@@ -612,7 +612,7 @@ export const CPE_REPLACEMENT_UNIT_SQL = `SELECT product_id AS "productId", produ
 // ---------------------------------------------------------------------------
 
 export const STOCK_OP_SELECT_COLUMNS =
-  'id, reference_number AS "referenceNumber", type, technician_name AS "technicianName", work_order_ref AS "workOrderRef", branch_id AS "branchId", branch_name AS "branchName", destination_warehouse_id AS "destinationWarehouseId", destination_warehouse_name AS "destinationWarehouseName", product_id AS "productId", quantity_changed AS "quantityChanged", cost_per_unit AS "costPerUnit", total_value AS "totalValue", reason, inspector_name AS "inspectorName", date_ad AS "dateAD", date_bs AS "dateBS", fiscal_year AS "fiscalYear", status, items';
+  'id, reference_number AS "referenceNumber", type, technician_name AS "technicianName", work_order_ref AS "workOrderRef", branch_id AS "branchId", branch_name AS "branchName", destination_warehouse_id AS "destinationWarehouseId", destination_warehouse_name AS "destinationWarehouseName", product_id AS "productId", quantity_changed AS "quantityChanged", cost_per_unit AS "costPerUnit", total_value AS "totalValue", reason, inspector_name AS "inspectorName", date_ad AS "dateAD", date_bs AS "dateBS", fiscal_year AS "fiscalYear", status, items, created_at AS "createdAt"';
 
 /**
  * Builds the stock-operations list query. A concrete branch also sees
@@ -659,8 +659,14 @@ export function buildStockOperationWhere(opts: StockOperationQueryOptions): { wh
     whereSql += ` AND (branch_id = $${params.length} OR destination_warehouse_id = $${params.length})`;
   }
   if (opts.type && typeof opts.type === 'string' && opts.type.trim()) {
-    params.push(opts.type.trim());
-    whereSql += ` AND type = $${params.length}`;
+    const types = opts.type.split(',').map((value) => value.trim()).filter(Boolean);
+    if (types.length === 1) {
+      params.push(types[0]);
+      whereSql += ` AND type = $${params.length}`;
+    } else if (types.length > 1) {
+      params.push(types);
+      whereSql += ` AND type = ANY($${params.length})`;
+    }
   }
   if (opts.status && opts.status !== 'ALL') {
     params.push(opts.status as string);

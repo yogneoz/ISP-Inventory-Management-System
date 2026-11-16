@@ -755,6 +755,22 @@ export function buildPurchaseReturnPagedQuery(opts: PurchaseReturnQueryOptions, 
   return { sql, params };
 }
 
+/** SCALE-2 keyset page: `(created_at, id)` descending, one extra row for hasMore. */
+export function buildPurchaseReturnKeysetQuery(
+  opts: PurchaseReturnQueryOptions,
+  cursor: [string, string] | undefined,
+  limit: number
+): { sql: string; params: unknown[]; limit: number } {
+  const { whereSql, params } = buildPurchaseReturnWhere(opts);
+  let sql = `SELECT ${PR_SELECT_COLUMNS} FROM purchase_returns` + whereSql;
+  if (cursor) {
+    params.push(cursor[0], cursor[1]);
+    sql += ` AND (created_at, id) < ($${params.length - 1}::timestamptz, $${params.length})`;
+  }
+  sql += ` ORDER BY created_at DESC, id DESC LIMIT ${limit + 1}`;
+  return { sql, params, limit };
+}
+
 export const PR_INSERT_SQL = `INSERT INTO purchase_returns (
    id, return_number, original_invoice_id, original_invoice_number, supplier_id, supplier_name, branch_id,
    return_date_ad, return_date_bs, reason, notes, taxable_amount, vat_amount, non_taxable_amount,

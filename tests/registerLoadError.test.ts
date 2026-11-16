@@ -125,8 +125,9 @@ describe('register load error — every paged register wires it in', () => {
     },
     {
       file: 'client/src/features/sales/ReturnsRegister.tsx',
-      error: 'retLoadError',
-      loader: 'loadRetPage',
+      error: 'retPager.error',
+      retry: 'retPager.reload',
+      cursorPaged: true,
       pageSubject: 'this page of returns',
     },
     {

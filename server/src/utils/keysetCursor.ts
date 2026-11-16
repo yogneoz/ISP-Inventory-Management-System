@@ -150,18 +150,22 @@ export function keysetEnvelope<T>(
  */
 export function requireLargeTableScope(
   res: { status: (code: number) => { json: (body: unknown) => unknown } },
-  options: { branchId?: unknown; dateFrom?: unknown; dateTo?: unknown; report: boolean }
+  options: { branchId?: unknown; dateFrom?: unknown; dateTo?: unknown; customerId?: unknown; report: boolean }
 ): boolean {
   if (!options.report) return true;
   const branch = typeof options.branchId === 'string' ? options.branchId.trim() : '';
   const hasBranch = Boolean(branch) && branch !== 'ALL';
   const hasFrom = typeof options.dateFrom === 'string' && options.dateFrom.trim() !== '';
   const hasTo = typeof options.dateTo === 'string' && options.dateTo.trim() !== '';
-  if (hasBranch || (hasFrom && hasTo)) return true;
+  // A single customer's invoice history is a selective scope too: it is the
+  // key the statement already filters on, and the customer ledger's receipt
+  // picker must page it without forcing the operator to pick one branch.
+  const hasCustomer = typeof options.customerId === 'string' && options.customerId.trim() !== '';
+  if (hasBranch || (hasFrom && hasTo) || hasCustomer) return true;
   res.status(400).json({
     code: 'SCOPE_REQUIRED',
     message:
-      'This request needs a branch_id or a bounded date range. Add one and retry; ' +
+      'This request needs a branch_id, a bounded date range or one customer. Add one and retry; ' +
       'a national table is never read without a scope.',
   });
   return false;

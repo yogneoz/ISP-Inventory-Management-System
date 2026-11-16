@@ -23,7 +23,8 @@ import {
   requireLargeTableScope,
 } from '../server/src/utils/keysetCursor';
 import { buildCustomerListQuery } from '../server/src/models/masterdata.repo';
-import { buildSalesInvoiceKeysetQuery } from '../server/src/models/sales.repo';
+import { buildSalesInvoiceKeysetQuery, buildSalesReturnKeysetQuery } from '../server/src/models/sales.repo';
+import { buildPurchaseReturnKeysetQuery } from '../server/src/models/procurement.repo';
 import {
   buildSerialLogKeysetQuery,
   buildStockOperationKeysetQuery,
@@ -91,6 +92,7 @@ describe('SCALE-2 keyset cursor contract', () => {
       requireLargeTableScope(res, { report: true, dateFrom: '2026-01-01', dateTo: '2026-01-31' }),
       true
     );
+    assert.equal(requireLargeTableScope(res, { report: true, customerId: 'cust-1' }), true);
     assert.equal(requireLargeTableScope(res, { report: false }), true);
   });
 
@@ -103,6 +105,16 @@ describe('SCALE-2 keyset cursor contract', () => {
     const ops = buildStockOperationKeysetQuery({ branchId: 'WH001' }, ['2026-01-01T00:00:00Z', 'o1'], 25);
     assert.match(ops.sql, /\(created_at, id\) < \(\$\d+::timestamptz, \$\d+\)/);
     assert.doesNotMatch(ops.sql, /OFFSET/);
+
+    const purchaseReturns = buildPurchaseReturnKeysetQuery({ branchId: 'WH001' }, ['2026-01-01T00:00:00Z', 'pr1'], 25);
+    assert.match(purchaseReturns.sql, /\(created_at, id\) < \(\$\d+::timestamptz, \$\d+\)/);
+    assert.match(purchaseReturns.sql, /ORDER BY created_at DESC, id DESC LIMIT 26/);
+    assert.doesNotMatch(purchaseReturns.sql, /OFFSET/);
+
+    const salesReturns = buildSalesReturnKeysetQuery({ branchId: 'WH001' }, ['2026-01-01T00:00:00Z', 'sr1'], 25);
+    assert.match(salesReturns.sql, /\(created_at, id\) < \(\$\d+::timestamptz, \$\d+\)/);
+    assert.match(salesReturns.sql, /ORDER BY created_at DESC, id DESC LIMIT 26/);
+    assert.doesNotMatch(salesReturns.sql, /OFFSET/);
 
     const serial = buildSerialLogKeysetQuery({ branchScope: ['WH001'] }, ['2026-01-01T00:00:00Z', 's1'], 25);
     assert.match(serial.sql, /\(created_at, id\) < \(\$\d+::timestamptz, \$\d+\)/);

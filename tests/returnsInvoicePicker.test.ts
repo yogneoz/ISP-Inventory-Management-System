@@ -102,8 +102,8 @@ describe('VOL-2 — sales-invoice source contract', () => {
     assert.ok(!/salesInvoices:\s*SalesInvoice\[\]/.test(returns), 'ReturnsRegister must not take an invoice array');
     assert.match(returns, /api\.getSalesInvoices\(/, 'the picker must read the paged endpoint');
     assert.match(returns, /query:\s*q/, 'the picker must search server-side');
-    assert.match(returns, /page:\s*1/, 'the picker searches the first result page');
-    assert.match(returns, /pageSize:\s*20/, 'the picker fetches a bounded result page');
+    assert.match(returns, /limit:\s*20/, 'the picker fetches a bounded keyset page');
+    assert.match(returns, /envelope\.items \|\| envelope\.data/, 'the picker reads the cursor envelope');
     assert.match(returns, /<SearchPicker<SalesInvoice>/, 'the sales kind uses the shared searchable picker');
     assert.match(returns, /refreshToken=\{sseRefreshKey\}/, 'a sales event must re-run an open search');
     assert.match(returns, /searchSalesInvoices/, 'the prefill path is fed by the picker result');

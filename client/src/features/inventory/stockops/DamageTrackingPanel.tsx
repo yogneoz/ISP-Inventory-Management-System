@@ -1,10 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { useStockOperationsCtx } from './StockOperationsContext';
 import {
   StockOperation,
 } from '../../../types';
 import { api } from '../../../services/api';
-import { TablePagination } from '../../../components/common/TablePagination';
+import { KeysetLoadMore } from '../../../components/common/KeysetLoadMore';
+import { useKeysetPager } from '../../../hooks/useKeysetPager';
 import { formatNPR } from '../../../utils/nprFormat';
 import {
   AlertTriangle,
@@ -20,7 +21,7 @@ import {
  * everything it does not own comes from the StockOperations context.
  */
 export const DamageTrackingPanel: React.FC = () => {
-  const { activeTab, allCombinedOps, currentUser, filteredOperations, isSuperOrInventory, onReverseOperation, promptDialog, showToast } = useStockOperationsCtx();
+  const { activeTab, branchFilter, currentUser, damageOperations, isSuperOrInventory, onReverseOperation, promptDialog, showToast, sseRefreshKey } = useStockOperationsCtx();
 
   // 2b. Reverse a recorded damage entry (Safe-guarded; Super Admin / Inventory Manager only).
   const canReverseDamage =
@@ -61,27 +62,45 @@ export const DamageTrackingPanel: React.FC = () => {
         await api.reverseStockOperation(op.id, reason.trim(), currentUser);
       }
       showToast(`Damage record ${op.referenceNumber} reversed. Units restored to available stock.`);
+      damagePager.reload();
     } catch (err: any) {
       showToast(`Reversal failed: ${err.message || 'Unknown error'}`);
     }
   };
 
 
-  // Damage-log register pagination: the DAMAGE_TRACKING tab renders this list
-  // without any server-side window, so cap the DOM with client pagination
-  // (same pattern as DamagedStockTracking).
-  const [damageLogPage, setDamageLogPage] = useState(1);
-  const [damageLogPageSize, setDamageLogPageSize] = useState(20);
-  const damageLogOps = useMemo(() => {
-    if (activeTab !== 'DAMAGE_TRACKING') return [];
-    return allCombinedOps.filter((op) => op.type === 'DAMAGE' || op.type === 'DISPOSAL');
-  }, [allCombinedOps, activeTab]);
-  const damageLogPageCount = Math.max(1, Math.ceil(damageLogOps.length / damageLogPageSize));
-  const safeDamageLogPage = Math.min(damageLogPage, damageLogPageCount);
-  const pagedDamageLogOps = useMemo(
-    () => damageLogOps.slice((safeDamageLogPage - 1) * damageLogPageSize, safeDamageLogPage * damageLogPageSize),
-    [damageLogOps, safeDamageLogPage, damageLogPageSize]
+  // Cursor-paged damage log. DISPOSAL shares this register, so the server type
+  // filter is the comma list; the synthetic damaged-stock rows stay a local
+  // prefix because they have no stock_operations row to page over.
+  const fetchDamagePage = useCallback(async (cursor: string | null) => {
+    const envelope = await api.getStockOperations({
+      type: 'DAMAGE,DISPOSAL',
+      branchId: branchFilter !== 'ALL' ? branchFilter : undefined,
+      cursor,
+      limit: 20,
+    }) as { data?: StockOperation[]; items?: StockOperation[]; nextCursor?: string | null; hasMore?: boolean };
+    return {
+      items: envelope.items || envelope.data || [],
+      nextCursor: envelope.nextCursor ?? null,
+      hasMore: Boolean(envelope.hasMore),
+    };
+  }, [branchFilter]);
+
+  const damagePager = useKeysetPager({
+    fetchPage: fetchDamagePage,
+    resetKey: [branchFilter, activeTab, sseRefreshKey ?? 0].join('\u0000'),
+    enabled: activeTab === 'DAMAGE_TRACKING',
+  });
+
+  const syntheticDamageOps = useMemo(
+    () => damageOperations.filter((op) =>
+      op.id.startsWith('syn-') && (branchFilter === 'ALL' || op.branchId === branchFilter)
+    ),
+    [damageOperations, branchFilter]
   );
+  const damageRows = damagePager.error && !damagePager.scopeError
+    ? damageOperations.filter((op) => branchFilter === 'ALL' || op.branchId === branchFilter)
+    : [...syntheticDamageOps, ...damagePager.rows];
 
   return (
     <>
@@ -103,13 +122,13 @@ export const DamageTrackingPanel: React.FC = () => {
           <div className={`flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 rounded-xl border bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800 text-xs`}>
             <span className="flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-300">
               <AlertTriangle className="h-3.5 w-3.5 text-rose-500 dark:text-rose-400" />
-              {filteredOperations.length} Records
+              {damageRows.length} loaded records
             </span>
             <span className="font-mono font-bold text-amber-600 dark:text-amber-400">
-              {filteredOperations.reduce((sum, op) => sum + Math.abs(op.quantityChanged || 1), 0)} Pcs
+              {damageRows.reduce((sum, op) => sum + Math.abs(op.quantityChanged || 1), 0)} Pcs
             </span>
             <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
-              {formatNPR(filteredOperations.reduce((sum, op) => sum + (op.totalValue || 0), 0))} Est. Loss
+              {formatNPR(damageRows.reduce((sum, op) => sum + (op.totalValue || 0), 0))} Est. Loss
             </span>
           </div>
 
@@ -137,7 +156,7 @@ export const DamageTrackingPanel: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
-                  {pagedDamageLogOps.map((op) => (
+                  {damageRows.map((op) => (
                     <tr key={op.id} className={`hover:bg-slate-200 dark:hover:bg-slate-800/40 ${op.status === 'CANCELLED' ? 'opacity-60' : ''}`}>
                       <td className={`p-2.5 font-mono font-bold text-rose-600 dark:text-rose-400`}>{op.referenceNumber}</td>
                       <td className="p-2.5">
@@ -196,18 +215,12 @@ export const DamageTrackingPanel: React.FC = () => {
             </div>
           </div>
 
-          <TablePagination
-            page={safeDamageLogPage}
-            pageCount={damageLogPageCount}
-            totalItems={damageLogOps.length}
-            rangeStart={damageLogOps.length === 0 ? 0 : (safeDamageLogPage - 1) * damageLogPageSize + 1}
-            rangeEnd={Math.min(safeDamageLogPage * damageLogPageSize, damageLogOps.length)}
-            pageSize={damageLogPageSize}
-            onPageChange={(p) => setDamageLogPage(Math.max(1, p))}
-            onPageSizeChange={(s) => {
-              setDamageLogPageSize(s);
-              setDamageLogPage(1);
-            }}
+          <KeysetLoadMore
+            loaded={damageRows.length}
+            hasMore={damagePager.hasMore}
+            loadingMore={damagePager.loadingMore}
+            onLoadMore={damagePager.loadMore}
+            scopeError={damagePager.scopeError ? damagePager.error : ''}
           />
         </div>
       )}

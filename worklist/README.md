@@ -39,9 +39,11 @@ is the plan, not a second source of truth.
   done (2026-11-16)**: Redis-backed limits, session fingerprints, locks/leader
   election and SSE fan-out, with pm2 in cluster mode. **SCALE-2 is done
   (2026-11-16)** for the bootstrap shell, keyset cursors and scope guards, and
-  the seven keyset registers now load/append through `nextCursor` with a
-  visible `SCOPE_REQUIRED` state. Non-keyset stock-operation panels and the
-  return/customer-ledger registers remain on their existing paged reads. Next:
+  every SCALE-2 register, both return registers, the pullout/damage/log stock
+  panels and the customer ledger's invoice picker now load/append through
+  `nextCursor` with a visible `SCOPE_REQUIRED` state. The serial-focused audit
+  lookup and the audit stock-movement window remain intentionally bounded;
+  registers outside the SCALE-2 set keep their offset paging. Next:
   [2026-11-16-enterprise-scale-and-public-exposure/README.md](2026-11-16-enterprise-scale-and-public-exposure/README.md).
   It owns partitioning, read/write split, queued writes and the TLS/CORS/CSP/MFA
   surface.

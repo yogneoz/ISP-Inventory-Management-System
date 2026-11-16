@@ -585,9 +585,10 @@ HMAC-signed in `server/src/utils/keysetCursor.ts`; it is bound to its table and
 rejects a tampered or cross-table value with `400 INVALID_CURSOR`. A first
 page sends `limit` without a cursor. `page`/`pageSize` still work as a bounded
 compatibility alias, clamped so its OFFSET never exceeds 10,000; `all=1`
-exports are hard-capped at 10,000 rows. A cursor/report read without a branch
-or bounded date range answers `400 SCOPE_REQUIRED` (a global `ALL` read still
-needs a date floor).
+exports are hard-capped at 10,000 rows. A cursor/report read without a branch,
+a bounded date range or one customer answers `400 SCOPE_REQUIRED` (a global
+`ALL` read still needs a date floor; the customer scope exists for the customer
+ledger's receipt-invoice picker).
 
 The customer directory, sales invoices, consumables/stock operations, serial
 log, posted vouchers, subledger book ledger and audit register now send `limit`
@@ -595,10 +596,13 @@ for the first page and append through `nextCursor` with **Load more**. A
 filter/branch/date change resets to the first cursor page and the footer ends
 at `hasMore=false`; a scope refusal is shown inline instead of an empty list.
 The shared client reader is `client/src/hooks/useKeysetPager.ts` with
-`client/src/components/common/KeysetLoadMore.tsx`. Non-consumable Stock
-Operations panels, the purchase/sales-return registers and `CustomerLedger`
-still use their prior bounded reads; the serial-focused audit lookup keeps its
-targeted capped read.
+`client/src/components/common/KeysetLoadMore.tsx`. Purchase and sales returns,
+the pullout/damage/log stock-operation panels and the customer ledger's open
+invoice picker also use it, so their filters reset the cursor and their footers
+end at `hasMore=false`. The serial-focused audit lookup intentionally keeps its
+targeted capped read; the audit stock-movement sub-tab and the operational
+registers outside the SCALE-2 set (fixed assets, warranty, shipments and the
+PO/PI document registers) keep their bounded offset windows.
 
 `GET /api/bootstrap` now carries only the identity/permission shell, switchable
 branches, fiscal-year context, company profile, settings/preferences and
@@ -820,7 +824,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 2517-test suite against a PostgreSQL 16 service container (zero DB skips;
+  full 2523-test suite against a PostgreSQL 16 service container (zero DB skips;
   the two unconditional skips are Windows-only real-signal checks, which CI runs,
   and the live-drain check runs under `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1` so its
   preconditions cannot silently skip it) →

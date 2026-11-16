@@ -174,6 +174,11 @@ test('every converted register uses the shared cursor pager and load-more footer
     'client/src/features/finance/PostedVouchers.tsx',
     'client/src/features/finance/SubledgersManagement.tsx',
     'client/src/features/finance/AuditTrailReports.tsx',
+    'client/src/features/sales/ReturnsRegister.tsx',
+    'client/src/features/finance/CustomerLedger.tsx',
+    'client/src/features/inventory/stockops/PulloutBinsPanel.tsx',
+    'client/src/features/inventory/stockops/DamageTrackingPanel.tsx',
+    'client/src/features/inventory/stockops/LogsPanel.tsx',
   ];
   for (const screen of screens) {
     const source = fs.readFileSync(path.resolve(screen), 'utf8');

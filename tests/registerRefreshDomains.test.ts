@@ -675,9 +675,9 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
 
   test('ReturnsRegister: api surface pinned to the two return paged fetches; wired at every render site', () => {
     const source = readFeatureSource('sales/ReturnsRegister.tsx');
-    // The LIST tab loads exactly one page of returns — purchase returns on
+    // The LIST tab loads one cursor page of returns — purchase returns on
     // the DN host, sales returns on the CN host — switched by kind in
-    // loadRetPage. The sales create form no longer reads a bootstrap array:
+    // fetchRetPage. The sales create form no longer reads a bootstrap array:
     // it searches invoices through the paged endpoint. Create/cancel/approve
     // mutations are all App callbacks, so no other api.* method may appear.
     assert.deepEqual(serverCallsIn(source), [
@@ -688,8 +688,8 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
     assert.match(source, /sseRefreshKey\?: number;/);
     assert.match(
       source,
-      /useEffect\(\(\) => \{\s*loadRetPage\(\);\s*\}, \[loadRetPage, retRefreshKey, sseRefreshKey\]\);/,
-      'the returns paged fetch effect must depend on sseRefreshKey'
+      /resetKey: \[[\s\S]{0,240}?retRefreshKey[\s\S]{0,80}?sseRefreshKey/,
+      'the returns cursor reset must depend on retRefreshKey and sseRefreshKey'
     );
     assert.match(
       source,
@@ -1478,7 +1478,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'inventory/stockops/ConsumablesRegisterPanel.tsx': ['getStockOperations', 'reverseConsumableIssue'],
     'inventory/stockops/CreatePulloutPanel.tsx': [],
     'inventory/stockops/CreateTransferPanel.tsx': [],
-    'inventory/stockops/DamageTrackingPanel.tsx': ['reverseStockOperation'],
+    'inventory/stockops/DamageTrackingPanel.tsx': ['getStockOperations', 'reverseStockOperation'],
     // lookupExchangeSerial: same stale-cache fallback as the customer modal — the
     // panel's mount-once register copy cannot name the state of a serial it has
     // not seen.
@@ -1486,10 +1486,10 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'inventory/stockops/LabelDamagePanel.tsx': [],
     // SER-1/D2: a product-sale stock-out can be reversed from the log; the
     // panel calls onRefreshData after the terminal reversal response.
-    'inventory/stockops/LogsPanel.tsx': ['reverseStockOutOperation'],
+    'inventory/stockops/LogsPanel.tsx': ['getStockOperations', 'reverseStockOutOperation'],
     // SER-1/D2: reverse an unreceived dispatch; onRefreshData re-reads stock,
     // the register and the operation list after the response.
-    'inventory/stockops/PulloutBinsPanel.tsx': ['reversePulloutOperation'],
+    'inventory/stockops/PulloutBinsPanel.tsx': ['getStockOperations', 'reversePulloutOperation'],
     'inventory/stockops/ReceiveTransferPanel.tsx': ['cancelApprovalRequest', 'cancelShipment', 'createApprovalRequest'],
     'inventory/stockops/StockOperationsTabBar.tsx': [],
   };
@@ -1664,7 +1664,6 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
         'procurement/PurchaseOrders.tsx',
         'procurement/ShipmentRegister.tsx',
         'sales/CustomerMasterDirectory.tsx',
-        'sales/ReturnsRegister.tsx',
         'sales/SalesInvoices.tsx',
       ],
       'a server-paged fetch outside the wired screens is a register missing its sseRefreshKey — wire it end to end (register key + DOMAIN_REGISTER_KEYS + App.tsx) before paging on the server'

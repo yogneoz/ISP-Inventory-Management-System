@@ -1,5 +1,7 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { useStockOperationsCtx } from './StockOperationsContext';
+import { KeysetLoadMore } from '../../../components/common/KeysetLoadMore';
+import { useKeysetPager } from '../../../hooks/useKeysetPager';
 import { formatNPR } from '../../../utils/nprFormat';
 import { isOperationAllowed } from '../../../utils/permissions';
 import { api } from '../../../services/api';
@@ -15,8 +17,31 @@ import {
  * everything it does not own comes from the StockOperations context.
  */
 export const PulloutBinsPanel: React.FC = () => {
-  const { activeTab, confirmDialog, currentUser, filteredOperations, onReceiveOperation, onRefreshData, promptDialog, showToast } =
+  const { activeTab, branchFilter, confirmDialog, currentUser, onReceiveOperation, onRefreshData, promptDialog, pulloutOperations, showToast, sseRefreshKey } =
     useStockOperationsCtx();
+
+  const fetchPulloutPage = useCallback(async (cursor: string | null) => {
+    const envelope = await api.getStockOperations({
+      type: 'PULLOUT',
+      branchId: branchFilter !== 'ALL' ? branchFilter : undefined,
+      cursor,
+      limit: 20,
+    }) as { data?: any[]; items?: any[]; nextCursor?: string | null; hasMore?: boolean };
+    return {
+      items: envelope.items || envelope.data || [],
+      nextCursor: envelope.nextCursor ?? null,
+      hasMore: Boolean(envelope.hasMore),
+    };
+  }, [branchFilter]);
+
+  const pulloutPager = useKeysetPager({
+    fetchPage: fetchPulloutPage,
+    resetKey: [branchFilter, activeTab, sseRefreshKey ?? 0].join('\u0000'),
+    enabled: activeTab === 'PULLOUT_BINS',
+  });
+  const pulloutRows = pulloutPager.error && !pulloutPager.scopeError
+    ? pulloutOperations.filter((op) => branchFilter === 'ALL' || op.branchId === branchFilter)
+    : pulloutPager.rows;
 
   // SER-1/D2: reverse a dispatch before it is received. The server returns the
   // operation's IN_TRANSIT units to IN_STOCK at the source branch.
@@ -43,6 +68,7 @@ export const PulloutBinsPanel: React.FC = () => {
       await api.reversePulloutOperation(op.id, reason.trim(), currentUser);
       showToast(`Pullout ${op.referenceNumber} reversed. Units returned to ${op.branchName || op.branchId}.`);
       await onRefreshData?.();
+      pulloutPager.reload();
     } catch (err: any) {
       showToast(`Reversal failed: ${err.message || 'Unknown error'}`);
     }
@@ -59,12 +85,12 @@ export const PulloutBinsPanel: React.FC = () => {
                 <span>Overstock & Damaged Stock Warehouse Pullout Dispatches</span>
               </h3>
               <span className="text-xs text-slate-400 font-mono">
-                Showing {filteredOperations.length} dispatches
+                Showing {pulloutRows.length} loaded dispatches
               </span>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {filteredOperations.map((op) => (
+              {pulloutRows.map((op) => (
                 <div
                   key={op.id}
                   className={`p-4 rounded-xl border flex flex-col justify-between space-y-3 bg-slate-50 border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}
@@ -88,7 +114,7 @@ export const PulloutBinsPanel: React.FC = () => {
                     {op.items && op.items.length > 0 && (
                       <div className="mt-2 text-[11px] font-medium text-slate-600 dark:text-slate-400 bg-white/50 dark:bg-slate-800/50 p-2 rounded-lg border border-slate-200/50 dark:border-slate-700/50">
                         <span className="font-bold">Contents: </span>
-                        {op.items.map((i) => `${i.productName} (${i.quantity} ${i.unit || 'pcs'} - ${i.condition})`).join(', ')}
+                        {op.items.map((i: any) => `${i.productName} (${i.quantity} ${i.unit || 'pcs'} - ${i.condition})`).join(', ')}
                       </div>
                     )}
                   </div>
@@ -125,6 +151,13 @@ export const PulloutBinsPanel: React.FC = () => {
                 </div>
               ))}
             </div>
+            <KeysetLoadMore
+              loaded={pulloutRows.length}
+              hasMore={pulloutPager.hasMore}
+              loadingMore={pulloutPager.loadingMore}
+              onLoadMore={pulloutPager.loadMore}
+              scopeError={pulloutPager.scopeError ? pulloutPager.error : ''}
+            />
           </div>
         </div>
       )}

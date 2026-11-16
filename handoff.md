@@ -230,7 +230,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 2517 tests; CI runs
+                                        #   drift/concurrency guards — 2523 tests; CI runs
                                         #   tsc + npm test + the source guards + the
                                         #   production build + the boot-timing gate +
                                         #   npm audit on every push/PR
@@ -1382,14 +1382,17 @@ deferred after first paint. The measured payload is **2,489 B gzip** on the demo
 database and **10,421 B gzip** with 500 branches (temporary fixture rows removed).
 The shared signed cursor in `server/src/utils/keysetCursor.ts` powers
 `{ items, nextCursor, hasMore }` pages on customers, sales invoices, stock
-operations, serial log, journals, subledger entries and audit logs, with
-`400 SCOPE_REQUIRED` for an unscoped cursor read. The seven keyset registers
-(customers, sales invoices, consumables/stock operations, serial log, posted
-vouchers, subledger book ledger, audit) now load the first page with `limit`
-and append through `nextCursor`; filters reset the cursor, Load more ends at
-`hasMore=false`, and a scope refusal is a visible state. Non-keyset stock
-operation panels, the return registers and `CustomerLedger` keep their prior
-paged reads. The absent `api_key_audit_logs`/journal-line endpoints are stated
+operations, serial log, journals, subledger entries, audit logs, purchase
+returns and sales returns, with `400 SCOPE_REQUIRED` when a cursor read has no
+branch, bounded date range or single customer. The keyset registers (customers,
+sales invoices, consumables/stock operations, serial log, posted vouchers,
+subledger book ledger, audit, both return registers, the pullout/damage/log
+Stock Operations panels and the customer ledger's open-invoice picker) load the
+first page with `limit` and append through `nextCursor`; filters reset the
+cursor, Load more ends at `hasMore=false`, and a scope refusal is a visible
+state. The serial-focused audit lookup keeps its targeted capped read; the audit
+stock-movement sub-tab and operational registers outside the SCALE-2 set keep
+bounded offset windows. The absent `api_key_audit_logs`/journal-line endpoints are stated
 open items in the SCALE-2 note; `EXPLAIN`/5M timing and partitioning remain
 SCALE-3.
 
@@ -1535,7 +1538,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 2517 tests against a real PostgreSQL 16 service container
+2. `npm test` — 2523 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM

@@ -60,7 +60,8 @@ export async function getPurchaseReturns(params?: {
   branchId?: string; status?: string; query?: string;
   dateFromAD?: string; dateToAD?: string;
   page?: number; pageSize?: number; all?: boolean;
-}): Promise<SalesReturn[] | { data: SalesReturn[]; page: number; pageSize: number; totalItems: number }> {
+  cursor?: string | null; limit?: number;
+}): Promise<SalesReturn[] | { data: SalesReturn[]; items?: SalesReturn[]; page?: number; pageSize?: number; totalItems?: number; nextCursor?: string | null; hasMore?: boolean }> {
   const search = new URLSearchParams();
   if (params?.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
   if (params?.status && params.status !== 'ALL') search.append('status', params.status);
@@ -68,6 +69,8 @@ export async function getPurchaseReturns(params?: {
   if (params?.dateFromAD) search.append('dateFromAD', params.dateFromAD);
   if (params?.dateToAD) search.append('dateToAD', params.dateToAD);
   if (params?.all) search.append('all', '1');
+  if (params?.cursor) search.append('cursor', params.cursor);
+  if (params?.limit !== undefined) search.append('limit', String(params.limit));
   if (params?.page !== undefined) {
     search.append('page', String(params.page));
     if (params.pageSize) search.append('pageSize', String(params.pageSize));
@@ -104,7 +107,8 @@ export async function getSalesReturns(params?: {
   branchId?: string; status?: string; query?: string;
   dateFromAD?: string; dateToAD?: string;
   page?: number; pageSize?: number; all?: boolean;
-}): Promise<SalesReturn[] | { data: SalesReturn[]; page: number; pageSize: number; totalItems: number }> {
+  cursor?: string | null; limit?: number;
+}): Promise<SalesReturn[] | { data: SalesReturn[]; items?: SalesReturn[]; page?: number; pageSize?: number; totalItems?: number; nextCursor?: string | null; hasMore?: boolean }> {
   const search = new URLSearchParams();
   if (params?.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
   if (params?.status && params.status !== 'ALL') search.append('status', params.status);
@@ -112,6 +116,8 @@ export async function getSalesReturns(params?: {
   if (params?.dateFromAD) search.append('dateFromAD', params.dateFromAD);
   if (params?.dateToAD) search.append('dateToAD', params.dateToAD);
   if (params?.all) search.append('all', '1');
+  if (params?.cursor) search.append('cursor', params.cursor);
+  if (params?.limit !== undefined) search.append('limit', String(params.limit));
   if (params?.page !== undefined) {
     search.append('page', String(params.page));
     if (params.pageSize) search.append('pageSize', String(params.pageSize));

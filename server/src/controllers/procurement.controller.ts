@@ -13,6 +13,7 @@ import { billLineNetAmounts, computeBillTotals, defaultVatRateFor, resolveLedger
 import { demoPurchaseInvoiceTxn, demoPurchaseReturnTxn, demoPurchaseReturnCancelTxn, findOrCreateDemoStock } from '../models/txnLogRows';
 import { bsDateOr400 } from '../utils/bsDate';
 import { intFromEnv } from '../utils/envGuard';
+import { decodeKeysetCursor, encodeKeysetCursor, cursorTimestamp, keysetEnvelope, keysetLimit, requireLargeTableScope } from '../utils/keysetCursor';
 import { firstLineQuantityRefusal } from '../utils/lineQuantity';
 import { ApiError } from '../errors/ApiError';
 import { postPurchaseInvoiceLedger, reverseInvoiceJournal } from '../services/invoicePosting.service';
@@ -40,6 +41,7 @@ import {
   buildPurchaseOrderPagedQuery, buildPurchaseOrderAggregateQuery, buildPurchaseOrderStatusCountQuery,
   buildPurchaseInvoicePagedQuery, buildPurchaseInvoiceAggregateQuery, buildPurchaseInvoiceStatusCountQuery,
   buildPurchaseReturnListSql, buildPurchaseReturnCountQuery, buildPurchaseReturnPagedQuery,
+  buildPurchaseReturnKeysetQuery,
   PR_INSERT_SQL, prInsertParams, PR_EXISTS_SQL, PR_LOCK_INVOICE_SQL,
   PR_RETURNED_QTY_SQL, PR_DEDUCT_STOCK_SQL, PR_RESTORE_STOCK_SQL, PR_CANCEL_SQL,
   PR_TXN_LOG_SQL, prTxnLogParams, PR_FIND_ONE_SQL,
@@ -1520,16 +1522,40 @@ function prValidateAgainstInvoice(invoiceItems: any[], returnItems: any[], alrea
 
 /** Forwarded from procurement.routes.ts (get_purchaseReturns). */
 export async function get_purchaseReturns(req: any, res: Response): Promise<any> {
-  const { branchId, status, query, dateFromAD, dateToAD, page, pageSize, all } = req.query;
+  const { branchId, status, query, dateFromAD, dateToAD, page, pageSize, all, cursor, limit } = req.query;
+  const wantsCursor = cursor !== undefined || limit !== undefined;
+  if (wantsCursor && !requireLargeTableScope(res, {
+    branchId, dateFrom: dateFromAD, dateTo: dateToAD, report: true,
+  })) return;
+  const parsedCursor = cursor === undefined ? undefined : decodeKeysetCursor(cursor, 'purchase_returns', 2);
+  if (cursor !== undefined && !parsedCursor) {
+    return res.status(400).json({ code: 'INVALID_CURSOR', message: 'The purchase-returns cursor is invalid. Reload the list and retry.' });
+  }
   // Paged mode: ?page=N (optional pageSize) returns an envelope with the page
   // slice and the filtered total (the purchase-orders pattern). Filters
   // without a page param keep the legacy full-array response; a bare
   // ?branchId= request is unchanged.
-  const wantsPaged = page !== undefined || pageSize !== undefined || all === '1';
+  const wantsPaged = page !== undefined || pageSize !== undefined || all === '1' || wantsCursor;
   const wantsFiltering = wantsPaged || status || query || dateFromAD || dateToAD;
   if (getPgConnected() && wantsFiltering) {
     try {
       const opts = { branchId, status, query, dateFromAD, dateToAD };
+      if (wantsCursor && all !== '1') {
+        const size = keysetLimit(limit, 50, 500);
+        const q = buildPurchaseReturnKeysetQuery(
+          opts,
+          parsedCursor ? [String(parsedCursor[0]), String(parsedCursor[1])] : undefined,
+          size
+        );
+        const r = await pgPool.query(q.sql, q.params as any[]);
+        const hasMore = r.rows.length > size;
+        const items = hasMore ? r.rows.slice(0, size) : r.rows;
+        const last = items[items.length - 1];
+        const nextCursor = hasMore && last
+          ? encodeKeysetCursor('purchase_returns', [cursorTimestamp(last.createdAt), String(last.id)])
+          : null;
+        return res.json(keysetEnvelope(items, nextCursor, hasMore));
+      }
       if (wantsPaged) {
         const n = Math.max(1, Number(page) || 1);
         const size = Math.max(1, Math.min(500, Number(pageSize) || 50));

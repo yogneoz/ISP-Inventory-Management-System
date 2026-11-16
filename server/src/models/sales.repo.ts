@@ -418,6 +418,22 @@ export function buildSalesReturnPagedQuery(opts: SalesReturnQueryOptions, paging
   return { sql, params };
 }
 
+/** SCALE-2 keyset page: `(created_at, id)` descending, one extra row for hasMore. */
+export function buildSalesReturnKeysetQuery(
+  opts: SalesReturnQueryOptions,
+  cursor: [string, string] | undefined,
+  limit: number
+): { sql: string; params: unknown[]; limit: number } {
+  const { whereSql, params } = buildSalesReturnWhere(opts);
+  let sql = `SELECT ${SR_SELECT_COLUMNS} FROM sales_returns` + whereSql;
+  if (cursor) {
+    params.push(cursor[0], cursor[1]);
+    sql += ` AND (created_at, id) < ($${params.length - 1}::timestamptz, $${params.length})`;
+  }
+  sql += ` ORDER BY created_at DESC, id DESC LIMIT ${limit + 1}`;
+  return { sql, params, limit };
+}
+
 export const SR_INSERT_SQL = `INSERT INTO sales_returns (
    id, return_number, original_invoice_id, original_invoice_number, customer_id, customer_name, branch_id,
    return_date_ad, return_date_bs, reason, restockable, notes, taxable_amount, vat_amount,

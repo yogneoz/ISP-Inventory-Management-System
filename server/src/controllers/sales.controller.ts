@@ -25,6 +25,7 @@ import {
   SI_INSERT_SQL, siInsertParams, SI_FIND_SQL, SI_EXISTS_SQL,
   SI_DEDUCT_STOCK_SQL, SI_RESTORE_STOCK_SQL, SI_TXN_LOG_SQL, siTxnLogParams,
   buildSalesReturnListSql, buildSalesReturnCountQuery, buildSalesReturnPagedQuery,
+  buildSalesReturnKeysetQuery,
   SR_INSERT_SQL, srInsertParams, SR_EXISTS_SQL, SR_LOCK_INVOICE_SQL,
   SR_RETURNED_QTY_SQL, SR_RESTOCK_SQL, srRestockParams, SR_REDEDUCT_STOCK_SQL, SR_CANCEL_SQL,
   SR_TXN_LOG_SQL, srTxnLogParams, SR_FIND_ONE_SQL,
@@ -235,7 +236,7 @@ export async function get_salesInvoices(req: any, res: Response): Promise<any> {
   // omits `cursor` but sends `limit`; later requests send the opaque cursor.
   const wantsCursor = cursor !== undefined || limit !== undefined;
   if (wantsCursor && !requireLargeTableScope(res, {
-    branchId, dateFrom: dateFromAD, dateTo: dateToAD, report: true,
+    branchId, dateFrom: dateFromAD, dateTo: dateToAD, customerId, report: true,
   })) return;
   const parsedCursor = cursor === undefined ? undefined : decodeKeysetCursor(cursor, 'sales_invoices', 2);
   if (cursor !== undefined && !parsedCursor) {
@@ -716,16 +717,40 @@ export async function post_salesInvoiceCancel(req: any, res: Response): Promise<
 
 /** Forwarded from sales.routes.ts (get_salesReturns). */
 export async function get_salesReturns(req: any, res: Response): Promise<any> {
-  const { branchId, status, query, dateFromAD, dateToAD, page, pageSize, all } = req.query;
+  const { branchId, status, query, dateFromAD, dateToAD, page, pageSize, all, cursor, limit } = req.query;
+  const wantsCursor = cursor !== undefined || limit !== undefined;
+  if (wantsCursor && !requireLargeTableScope(res, {
+    branchId, dateFrom: dateFromAD, dateTo: dateToAD, report: true,
+  })) return;
+  const parsedCursor = cursor === undefined ? undefined : decodeKeysetCursor(cursor, 'sales_returns', 2);
+  if (cursor !== undefined && !parsedCursor) {
+    return res.status(400).json({ code: 'INVALID_CURSOR', message: 'The sales-returns cursor is invalid. Reload the list and retry.' });
+  }
   // Paged mode: ?page=N (optional pageSize) returns an envelope with the page
   // slice and the filtered total (the purchase-orders pattern). Filters
   // without a page param keep the legacy full-array response; a bare
   // ?branchId= request is unchanged.
-  const wantsPaged = page !== undefined || pageSize !== undefined || all === '1';
+  const wantsPaged = page !== undefined || pageSize !== undefined || all === '1' || wantsCursor;
   const wantsFiltering = wantsPaged || status || query || dateFromAD || dateToAD;
   if (getPgConnected() && wantsFiltering) {
     try {
       const opts = { branchId, status, query, dateFromAD, dateToAD };
+      if (wantsCursor && all !== '1') {
+        const size = keysetLimit(limit, 50, 500);
+        const q = buildSalesReturnKeysetQuery(
+          opts,
+          parsedCursor ? [String(parsedCursor[0]), String(parsedCursor[1])] : undefined,
+          size
+        );
+        const r = await pgPool.query(q.sql, q.params as any[]);
+        const hasMore = r.rows.length > size;
+        const items = hasMore ? r.rows.slice(0, size) : r.rows;
+        const last = items[items.length - 1];
+        const nextCursor = hasMore && last
+          ? encodeKeysetCursor('sales_returns', [cursorTimestamp(last.createdAt), String(last.id)])
+          : null;
+        return res.json(keysetEnvelope(items, nextCursor, hasMore));
+      }
       if (wantsPaged) {
         const n = Math.max(1, Number(page) || 1);
         const size = Math.max(1, Math.min(500, Number(pageSize) || 50));

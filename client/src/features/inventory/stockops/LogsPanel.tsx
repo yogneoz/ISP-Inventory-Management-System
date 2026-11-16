@@ -1,5 +1,7 @@
-import React from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { useStockOperationsCtx } from './StockOperationsContext';
+import { KeysetLoadMore } from '../../../components/common/KeysetLoadMore';
+import { useKeysetPager } from '../../../hooks/useKeysetPager';
 import { formatNPR } from '../../../utils/nprFormat';
 import { isOperationAllowed } from '../../../utils/permissions';
 import { api } from '../../../services/api';
@@ -12,7 +14,35 @@ import { api } from '../../../services/api';
  * everything it does not own comes from the StockOperations context.
  */
 export const LogsPanel: React.FC = () => {
-  const { activeTab, currentUser, operations, onRefreshData, promptDialog, showToast } = useStockOperationsCtx();
+  const { activeTab, allCombinedOps, branchFilter, currentUser, filteredOperations, onRefreshData, promptDialog, showToast, sseRefreshKey } = useStockOperationsCtx();
+
+  const fetchLogsPage = useCallback(async (cursor: string | null) => {
+    const envelope = await api.getStockOperations({
+      branchId: branchFilter !== 'ALL' ? branchFilter : undefined,
+      cursor,
+      limit: 25,
+    }) as { data?: any[]; items?: any[]; nextCursor?: string | null; hasMore?: boolean };
+    return {
+      items: envelope.items || envelope.data || [],
+      nextCursor: envelope.nextCursor ?? null,
+      hasMore: Boolean(envelope.hasMore),
+    };
+  }, [branchFilter]);
+
+  const logsPager = useKeysetPager({
+    fetchPage: fetchLogsPage,
+    resetKey: [branchFilter, activeTab, sseRefreshKey ?? 0].join('\u0000'),
+    enabled: activeTab === 'LOGS',
+  });
+  const syntheticLogs = useMemo(
+    () => allCombinedOps.filter((op) =>
+      op.id.startsWith('syn-') && (branchFilter === 'ALL' || op.branchId === branchFilter)
+    ),
+    [allCombinedOps, branchFilter]
+  );
+  const logRows = logsPager.error && !logsPager.scopeError
+    ? filteredOperations
+    : [...syntheticLogs, ...logsPager.rows];
 
   // SER-1/D2: a product-sale stock-out issued its serials as SOLD. Reversing
   // returns this operation's units and serials to IN_STOCK at its branch.
@@ -39,6 +69,7 @@ export const LogsPanel: React.FC = () => {
       await api.reverseStockOutOperation(op.id, reason.trim(), currentUser);
       showToast(`Product sale ${op.referenceNumber} reversed. Units returned to available stock.`);
       await onRefreshData?.();
+      logsPager.reload();
     } catch (err: any) {
       showToast(`Reversal failed: ${err.message || 'Unknown error'}`);
     }
@@ -49,7 +80,7 @@ export const LogsPanel: React.FC = () => {
       {activeTab === 'LOGS' && (
         <div className={`p-4 rounded-2xl border bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
           <h3 className={`font-bold text-sm mb-3 text-slate-900 dark:text-white`}>
-            Audit Log of All Stock Operations ({operations.length})
+            Audit Log of All Stock Operations ({logRows.length} loaded)
           </h3>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
@@ -66,7 +97,7 @@ export const LogsPanel: React.FC = () => {
                 </tr>
               </thead>
               <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
-                {operations.map((op) => (
+                {logRows.map((op) => (
                   <tr key={op.id} className="hover:bg-slate-200 dark:hover:bg-slate-800/40">
                     <td className={`p-2.5 font-mono font-bold text-indigo-600 dark:text-indigo-400`}>{op.referenceNumber}</td>
                     <td className="p-2.5 font-bold">{op.type}</td>
@@ -93,6 +124,13 @@ export const LogsPanel: React.FC = () => {
               </tbody>
             </table>
           </div>
+          <KeysetLoadMore
+            loaded={logRows.length}
+            hasMore={logsPager.hasMore}
+            loadingMore={logsPager.loadingMore}
+            onLoadMore={logsPager.loadMore}
+            scopeError={logsPager.scopeError ? logsPager.error : ''}
+          />
         </div>
       )}
     </>

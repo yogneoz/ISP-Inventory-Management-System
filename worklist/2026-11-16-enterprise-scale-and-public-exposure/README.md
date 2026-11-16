@@ -171,7 +171,7 @@ fail**; docs gate 2,504.
 ### SCALE-2 — Bootstrap < 15 KB and keyset pagination
 
 Priority: P0 · Status: `[x]` complete 2026-11-16; the two absent endpoints and
-the unconverted non-keyset registers are stated limitations below
+the intentionally unconverted targeted/movement reads are stated limitations below
 
 - [x] Inventory every bootstrap key, its consumer, and its bytes. The end state
       keeps only: the caller's identity and effective permissions, the branches
@@ -267,12 +267,20 @@ Known limitations, stated explicitly:
   gained explicit From/To date filters so an `ALL`-branch read has a bounded
   scope; the subledger ledger defaults to the active fiscal-year window; audit
   uses the active fiscal-year window and the selected branch.
-- **Still unconverted:** the non-consumable Stock Operations panels (pullout,
-  damage, movement/logs) still read their deferred `stockOperations` slice; the
-  purchase-returns and sales-returns registers still use their bounded offset
-  pages; `CustomerLedger` still reads offset sales-invoice pages; and the
-  serial-focused audit lookup intentionally keeps its capped 500-row legacy
-  read. None of these is one of the seven keyset-enabled register surfaces.
+- **Converted in the follow-up pass:** purchase-returns and sales-returns
+  (`GET /api/purchase-returns` and `/api/sales-returns` now accept signed
+  cursors), the pullout, damage+disposal and all-operation Stock Operations
+  panels, and the CustomerLedger receipt picker's open-invoice list. The stock
+  panels share the existing `/api/stock-operations` cursor; `type` accepts a
+  comma list so DAMAGE and DISPOSAL page together. A customer id is now a valid
+  cursor scope for the customer ledger picker, alongside branch and date.
+- **Intentionally unconverted:** the serial-focused audit lookup keeps its
+  targeted capped 500-row read (a single-record identity lookup, not a
+  register). The audit stock-movement sub-tab still pages `/api/transaction-logs`
+  by offset because it is a user-selectable ascending/descending movement
+  window with its own export cap, not one of the SCALE-2 register surfaces.
+  Fixed-asset, warranty, shipment, PO/PI and other operational registers outside
+  the SCALE-2 set also keep their bounded offset paging.
 - `scripts/seed_scale_fixture.mjs` is present with the 5M/1M/10M/5M/500 defaults,
   scratch-database guards and cleanup, but the full fixture was not executed on
   this workstation; the live 500-branch measurement and the direct PostgreSQL
@@ -280,8 +288,12 @@ Known limitations, stated explicitly:
 - `EXPLAIN`/5M-vs-12k timing and partition pruning belong to SCALE-3's index and
   partition work; no speed claim is made for this slice.
 
-Full suite: **2,517 tests, 2,515 pass, 2 Windows-only skips, 0 fail**;
-`npx tsc --noEmit` is 0; the docs-count gate matches 2,517. The live payload
+Full suite: **2,523 tests, 2,521 pass, 2 Windows-only skips, 0 fail**;
+`npx tsc --noEmit` is 0; the docs-count gate matches 2,523. The new
+`tests/scale2RemainingRegisters.api.test.ts` walks each remaining converted read
+across a real insert boundary (newer and same-timestamp rows inserted after page
+1) and asserts exactly-once delivery, no newer-row leakage and cursor
+termination. The live payload
 measurement was taken on a fresh server on port 3200, which was stopped and its
 log/pid removed after the run; no scratch database or fixture rows remain
 (branches: 6 total, 0 fixture rows).

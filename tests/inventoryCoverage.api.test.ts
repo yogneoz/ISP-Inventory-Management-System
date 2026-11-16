@@ -53,7 +53,16 @@ const OTHER_BRANCH = 'iv-other';
 const PRODUCT = 'iv-prod';
 const UNBACKED = 'iv-unbacked';
 const CUSTOMER = 'iv-customer';
-const TODAY = new Date().toISOString().split('T')[0];
+// The business day is the local calendar day. A UTC slice reports yesterday
+// between 00:00 and 05:45 Nepal time; at 23:xx UTC it reports today while the
+// database's local timestamp date is already tomorrow, which hides a stock
+// adjustment from this period's reconciliation.
+const todayLocal = (() => {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+})();
+const TODAY = todayLocal;
 const CLOSE_PERIOD = '2027-06';
 
 const ADMIN = {
@@ -90,15 +99,24 @@ describe('inventory-to-finance coverage (real HTTP + PostgreSQL)', { skip: skipN
   const patch = (url: string, body: unknown) => request('PATCH', url, body);
 
   async function cleanup() {
-    await pool!.query("DELETE FROM gl_journals WHERE branch_id IN ($1, $2) OR source_id LIKE 'iv-%'", [BR, OTHER_BRANCH]);
-    await pool!.query("DELETE FROM sales_invoices WHERE id LIKE 'iv-%'");
-    await pool!.query("DELETE FROM purchase_invoices WHERE id LIKE 'iv-%'");
-    await pool!.query("DELETE FROM customer_records WHERE id LIKE 'iv-%'");
-    await pool!.query("DELETE FROM inventory_stock WHERE product_id LIKE 'iv-%'");
-    await pool!.query("DELETE FROM transaction_logs WHERE product_id LIKE 'iv-%'");
-    await pool!.query("DELETE FROM audit_logs WHERE details LIKE '%IV-%'");
-    await pool!.query("DELETE FROM products WHERE id LIKE 'iv-%'");
-    await pool!.query('DELETE FROM branches WHERE id IN ($1, $2)', [BR, OTHER_BRANCH]);
+    const client = await pool!.connect();
+    try {
+      // Posted ledgers are append-only. Test cleanup is the documented local
+      // bypass; keeping it on this connection also lets a failed assertion
+      // clean up after itself on the next run.
+      await client.query("SELECT set_config('inventory.allow_ledger_purge', 'on', false)");
+      await client.query("DELETE FROM gl_journals WHERE branch_id IN ($1, $2) OR source_id LIKE 'iv-%'", [BR, OTHER_BRANCH]);
+      await client.query("DELETE FROM sales_invoices WHERE id LIKE 'iv-%'");
+      await client.query("DELETE FROM purchase_invoices WHERE id LIKE 'iv-%'");
+      await client.query("DELETE FROM customer_records WHERE id LIKE 'iv-%'");
+      await client.query("DELETE FROM inventory_stock WHERE product_id LIKE 'iv-%'");
+      await client.query("DELETE FROM transaction_logs WHERE product_id LIKE 'iv-%'");
+      await client.query("DELETE FROM audit_logs WHERE details LIKE '%IV-%'");
+      await client.query("DELETE FROM products WHERE id LIKE 'iv-%'");
+      await client.query('DELETE FROM branches WHERE id IN ($1, $2)', [BR, OTHER_BRANCH]);
+    } finally {
+      client.release();
+    }
   }
 
   function invoiceLine(overrides: Record<string, any> = {}) {

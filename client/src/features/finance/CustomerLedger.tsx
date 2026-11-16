@@ -10,7 +10,7 @@
  * the party picker, the number labels and the color direction (a receivable is
  * healthy when positive) — and owns the api.getCustomerLedger call.
  */
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useCallback, useState, useEffect, useRef } from 'react';
 import { useActivationKey, useTabActive } from '../../components/common/KeepMounted';
 import {
   LedgerView,
@@ -23,6 +23,8 @@ import type { SalesInvoice } from '../../types';
 import { api } from '../../services/api';
 import { CustomerPicker } from '../../components/common/CustomerPicker';
 import { ModalPanel } from '../../components/common/ModalPanel';
+import { KeysetLoadMore } from '../../components/common/KeysetLoadMore';
+import { useKeysetPager } from '../../hooks/useKeysetPager';
 import { formCardClass } from '../../components/common/FormCard';
 import { inputClass, labelClass, btnPrimary, btnGhost } from '../../components/common/styleConstants';
 import { formatMoney } from '../../utils/nprFormat';
@@ -65,8 +67,6 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
   const [error, setError] = useState('');
   const [ledgerData, setLedgerData] = useState<SubLedgerData | null>(null);
   const [receiveOpen, setReceiveOpen] = useState(false);
-  const [openInvoices, setOpenInvoices] = useState<SalesInvoice[]>([]);
-  const [receiveLoading, setReceiveLoading] = useState(false);
   const [receiveSubmitting, setReceiveSubmitting] = useState(false);
   const [receiveError, setReceiveError] = useState('');
   const [receiveNotice, setReceiveNotice] = useState('');
@@ -113,6 +113,42 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
   const money = (value: number) => Math.round((Number(value) || 0) * 100) / 100;
   const remainingOf = (invoice: SalesInvoice) =>
     Math.max(0, money(Number(invoice.grandTotal || 0) - Number(invoice.amountPaid || 0)));
+
+  const fetchOpenInvoicePage = useCallback(async (cursor: string | null) => {
+    if (!selectedCustomerId) return { items: [], nextCursor: null, hasMore: false };
+    const result = await api.getSalesInvoices({
+      customerId: selectedCustomerId,
+      branchId: filters.branchId === 'ALL' ? undefined : filters.branchId,
+      cursor,
+      limit: 20,
+    });
+    const envelope = Array.isArray(result)
+      ? { items: result, nextCursor: null, hasMore: false }
+      : {
+          items: result.items || result.data || [],
+          nextCursor: result.nextCursor ?? null,
+          hasMore: Boolean(result.hasMore),
+        };
+    return envelope;
+  }, [selectedCustomerId, filters.branchId]);
+
+  const openInvoicePager = useKeysetPager<SalesInvoice>({
+    fetchPage: fetchOpenInvoicePage,
+    resetKey: [selectedCustomerId, filters.branchId, receiveOpen].join('\u0000'),
+    enabled: receiveOpen && Boolean(selectedCustomerId),
+    onPage: (page) => {
+      setReceiveAllocations((current) => {
+        const next = { ...current };
+        for (const invoice of page.items) if (!(invoice.id in next)) next[invoice.id] = '';
+        return next;
+      });
+    },
+  });
+  const openInvoices = openInvoicePager.rows.filter(
+    (invoice) => invoice.status !== 'CANCELLED' && remainingOf(invoice) > 0.005
+  );
+  const receiveLoading = openInvoicePager.loading;
+  const receiveListError = openInvoicePager.error;
   const receiveTotal = money(Number(receiveAmount) || 0);
   const receiveAllocated = money(
     openInvoices.reduce((sum, invoice) => sum + (Number(receiveAllocations[invoice.id]) || 0), 0)
@@ -122,30 +158,12 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
   const openReceive = async () => {
     if (!selectedCustomerId) return;
     setReceiveOpen(true);
-    setReceiveLoading(true);
     setReceiveError('');
     setReceiveNotice('');
     setReceiveAmount('');
     setReceiveDate(localTodayAD());
     setReceiveMethod('CASH');
-    try {
-      const result = await api.getSalesInvoices({
-        customerId: selectedCustomerId,
-        branchId: filters.branchId === 'ALL' ? undefined : filters.branchId,
-        all: true,
-      });
-      const rows = Array.isArray(result) ? result : result.data;
-      const open = rows.filter(
-        (invoice) => invoice.status !== 'CANCELLED' && remainingOf(invoice) > 0.005
-      );
-      setOpenInvoices(open);
-      setReceiveAllocations(Object.fromEntries(open.map((invoice) => [invoice.id, ''])));
-    } catch (err: any) {
-      setOpenInvoices([]);
-      setReceiveError(err?.message || 'Failed to load open invoices.');
-    } finally {
-      setReceiveLoading(false);
-    }
+    setReceiveAllocations({});
   };
 
   const submitReceive = async () => {
@@ -412,14 +430,21 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                 </tbody>
               </table>
             </div>
+            <KeysetLoadMore
+              loaded={openInvoices.length}
+              hasMore={openInvoicePager.hasMore}
+              loadingMore={openInvoicePager.loadingMore}
+              onLoadMore={openInvoicePager.loadMore}
+              scopeError={openInvoicePager.scopeError ? openInvoicePager.error : ''}
+            />
 
             <div className="grid grid-cols-2 gap-3 rounded-lg bg-slate-50 p-3 text-sm dark:bg-slate-800/60">
               <div><div className={labelClass}>Allocated</div><div className="font-mono font-semibold">{formatMoney(receiveAllocated)}</div></div>
               <div><div className={labelClass}>Unapplied advance</div><div className="font-mono font-semibold">{formatMoney(receiveUnapplied)}</div></div>
             </div>
 
-            {receiveError && (
-              <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">{receiveError}</div>
+            {(receiveListError || receiveError) && (
+              <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">{receiveListError || receiveError}</div>
             )}
             <div className="flex justify-end gap-2">
               <button className={btnGhost} onClick={() => setReceiveOpen(false)} disabled={receiveSubmitting}>Cancel</button>
