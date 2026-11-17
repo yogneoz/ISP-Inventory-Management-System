@@ -23,6 +23,19 @@ const MIGRATIONS_DIR = path.resolve(process.cwd(), 'scripts', 'migrations');
 
 /** Checks that the live schema already contains the migration's effects. */
 const VERIFIERS: Record<string, (client: pg.PoolClient) => Promise<void>> = {
+  '0030_hot_table_storage': async (client) => {
+    const result = await client.query(`
+      SELECT relname, reloptions
+        FROM pg_class
+       WHERE relname IN ('inventory_stock', 'document_sequence_daily')
+    `);
+    for (const table of ['inventory_stock', 'document_sequence_daily']) {
+      const options = String(result.rows.find((row: any) => row.relname === table)?.reloptions || '');
+      if (!options.includes('fillfactor=80') || !options.includes('autovacuum_vacuum_scale_factor=0.02')) {
+        throw new Error(`0030 cannot be reconciled: ${table} is missing its storage parameters.`);
+      }
+    }
+  },
   '0022_lenders_and_loans': async (client) => {
     const result = await client.query(`
       SELECT

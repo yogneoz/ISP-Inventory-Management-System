@@ -1429,6 +1429,19 @@ CREATE TABLE IF NOT EXISTS document_sequence_daily (
 CREATE INDEX IF NOT EXISTS idx_document_sequence_daily_branch ON document_sequence_daily(branch_id);
 CREATE INDEX IF NOT EXISTS idx_document_sequence_daily_date ON document_sequence_daily(date_ad);
 
+-- High-update storage: every issued document UPDATEs one row here, so the
+-- default 0.20 vacuum scale factor waits far too long on a table that is small
+-- but constantly rewritten. `fillfactor = 80` keeps free space on each page so
+-- those UPDATEs stay inside the page (HOT) and do not rewrite the primary-key
+-- index; the tighter autovacuum thresholds then reclaim the dead tuples before
+-- the table bloats. Storage parameters are idempotent and apply to new writes,
+-- so this needs no rewrite of existing rows.
+ALTER TABLE document_sequence_daily SET (
+    fillfactor = 80,
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_analyze_scale_factor = 0.05
+);
+
 -- 24c. Retired Document Numbers
 -- ==============================================================================
 -- A cancelled or deleted document retires its number permanently. The target
@@ -4046,6 +4059,18 @@ CREATE INDEX IF NOT EXISTS idx_stock_branch ON inventory_stock(branch_id);
 CREATE INDEX IF NOT EXISTS idx_stock_reorder ON inventory_stock(quantity_on_hand, min_reorder_level);
 CREATE INDEX IF NOT EXISTS idx_inventory_stock_demo ON inventory_stock(id) WHERE is_demo = TRUE;
 
+-- Same high-update treatment as document_sequence_daily: one row per
+-- product × branch is rewritten on every movement, so a tighter autovacuum
+-- (0.02 instead of the 0.20 default) keeps dead tuples off the heap and its
+-- three indexes. fillfactor 80 lets the updates that touch no indexed column
+-- stay on their page (HOT); the dominant `quantity_on_hand` update is covered by
+-- idx_stock_reorder and cannot be HOT at any fillfactor. Idempotent; no rewrite.
+ALTER TABLE inventory_stock SET (
+    fillfactor = 80,
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_analyze_scale_factor = 0.05
+);
+
 -- Fixed Assets indexes
 CREATE INDEX IF NOT EXISTS idx_fixed_assets_tag ON fixed_assets(tag_number);
 CREATE INDEX IF NOT EXISTS idx_fixed_assets_branch ON fixed_assets(branch_id);
@@ -4102,6 +4127,11 @@ CREATE INDEX IF NOT EXISTS idx_audit_module ON audit_logs(module);
 CREATE INDEX IF NOT EXISTS idx_audit_branch ON audit_logs(branch_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_fiscal_year_id ON audit_logs(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_audit_logs_demo ON audit_logs(id) WHERE is_demo = TRUE;
+-- Append-only and physically time-ordered: BRIN summarises block ranges, so a
+-- date-range scan skips the blocks outside it while the index stays a few pages
+-- wide as the table grows. The B-tree above is kept for the ordered audit-trail
+-- page — BRIN cannot produce ordering.
+CREATE INDEX IF NOT EXISTS idx_audit_timestamp_brin ON audit_logs USING brin (timestamp_ad);
 
 -- Transaction Logs indexes
 CREATE INDEX IF NOT EXISTS idx_txn_product ON transaction_logs(product_id);
@@ -4110,6 +4140,9 @@ CREATE INDEX IF NOT EXISTS idx_txn_timestamp ON transaction_logs(timestamp_ad DE
 CREATE INDEX IF NOT EXISTS idx_txn_type ON transaction_logs(change_type);
 CREATE INDEX IF NOT EXISTS idx_transaction_logs_fiscal_year_id ON transaction_logs(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_transaction_logs_demo ON transaction_logs(id) WHERE is_demo = TRUE;
+-- Same BRIN treatment as audit_logs: time-ordered inserts, range-bounded reads,
+-- and the B-tree on the same column kept for the ordered listing.
+CREATE INDEX IF NOT EXISTS idx_txn_timestamp_brin ON transaction_logs USING brin (timestamp_ad);
 
 -- Audit module enum: every module a caller writes must be listed here, or
 -- PostgreSQL rejects the row. This is the ONE vocabulary: the value passed as
