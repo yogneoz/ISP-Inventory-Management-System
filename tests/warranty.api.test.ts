@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * WTY-2 warranty coverage API — live HTTP against real PostgreSQL.
  *
@@ -143,7 +144,7 @@ describe('warranty coverage API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
     // SERIAL prefix as well — otherwise a rerun collides with the
     // one-current-row-per-unit index.
     await pool!.query("DELETE FROM warranty_coverages WHERE id LIKE 'wrt-cov-%' OR serial_number LIKE 'WRT-%'");
-    await pool!.query("DELETE FROM audit_logs WHERE details LIKE '%WRT-%'");
+    await purgeAuditLogs(pool!, "DELETE FROM audit_logs WHERE details LIKE '%WRT-%'");
 
     for (const f of FIXTURES) {
       await pool!.query(
@@ -200,7 +201,7 @@ describe('warranty coverage API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
     setPermissionMatrix({});
     if (pool) {
       await pool.query("DELETE FROM warranty_coverages WHERE id LIKE 'wrt-cov-%' OR serial_number LIKE 'WRT-%'");
-      await pool.query("DELETE FROM audit_logs WHERE details LIKE '%WRT-%'");
+      await purgeAuditLogs(pool, "DELETE FROM audit_logs WHERE details LIKE '%WRT-%'");
       await pool.end();
     }
   });

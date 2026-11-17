@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * WTY-3 product warranty defaults — live HTTP against real PostgreSQL.
  *
@@ -67,7 +68,7 @@ describe('product warranty defaults (real HTTP + PostgreSQL)', { skip: skipNoDb 
     await pool!.query("DELETE FROM products WHERE sku LIKE 'WRT3-%'");
     await pool!.query("DELETE FROM categories WHERE id = $1 OR code LIKE 'WRT3-%'", [CATEGORY_ID]);
     await pool!.query("DELETE FROM uom WHERE id = $1 OR symbol = $2", [UOM_ID, UOM_SYMBOL]);
-    await pool!.query("DELETE FROM audit_logs WHERE details LIKE '%WRT3-%'");
+    await purgeAuditLogs(pool!, "DELETE FROM audit_logs WHERE details LIKE '%WRT3-%'");
 
     // The controller resolves category/unit against its runtime caches; seed
     // both the cache and the DB so a save never has to invent master data.
@@ -102,7 +103,7 @@ describe('product warranty defaults (real HTTP + PostgreSQL)', { skip: skipNoDb 
       await pool.query("DELETE FROM products WHERE sku LIKE 'WRT3-%'");
       await pool.query("DELETE FROM categories WHERE id = $1 OR code LIKE 'WRT3-%'", [CATEGORY_ID]);
       await pool.query("DELETE FROM uom WHERE id = $1 OR symbol = $2", [UOM_ID, UOM_SYMBOL]);
-      await pool.query("DELETE FROM audit_logs WHERE details LIKE '%WRT3-%'");
+      await purgeAuditLogs(pool, "DELETE FROM audit_logs WHERE details LIKE '%WRT3-%'");
       await pool.end();
     }
   });

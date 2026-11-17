@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * WTY-4 fixed-asset capture — an asset carries its supplier warranty from the
  * moment it is registered, keyed by its tag, and loses only its CURRENT row
@@ -84,7 +85,7 @@ describe('fixed-asset supplier warranty (real HTTP + PostgreSQL)', { skip: skipN
     await pool!.query('DELETE FROM gl_journals WHERE branch_id = $1', [BRANCH]);
     await pool!.query("DELETE FROM warranty_coverages WHERE serial_number LIKE 'W4A-TAG-%'");
     await pool!.query("DELETE FROM fixed_assets WHERE id LIKE 'w4a-asset-%'");
-    await pool!.query("DELETE FROM audit_logs WHERE details LIKE '%W4A-TAG-%'");
+    await purgeAuditLogs(pool!, "DELETE FROM audit_logs WHERE details LIKE '%W4A-TAG-%'");
     await pool!.query('DELETE FROM products WHERE id = $1', [PRODUCT]);
     await pool!.query('DELETE FROM branches WHERE id = $1', [BRANCH]);
   }

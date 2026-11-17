@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * Phase 2 payroll run lifecycle — generated DRAFT → APPROVED → POSTED → PAID.
  *
@@ -267,7 +268,7 @@ describe('generated payroll run lifecycle (real HTTP + PostgreSQL)', { skip: ski
       `DELETE FROM hr_statutory_configs WHERE fiscal_year_id = ANY($1::varchar[])`,
       [[FY, FY_NO_CONFIG]]
     );
-    await pool!.query(
+    await purgeAuditLogs(pool!, 
       `DELETE FROM audit_logs
         WHERE branch_id = ANY($1::varchar[])
            OR details LIKE '%PRD-%'

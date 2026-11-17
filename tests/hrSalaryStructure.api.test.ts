@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * Phase 2 payroll preparation — effective-dated salary structures.
  *
@@ -166,7 +167,7 @@ describe('effective-dated salary structures (real HTTP + PostgreSQL)', { skip: s
            OR employee_id IN (SELECT id FROM employees WHERE employee_code LIKE 'SAL-%')`,
       [[SAL_BRANCH, OTHER_BRANCH]]
     );
-    await pool!.query(
+    await purgeAuditLogs(pool!, 
       `DELETE FROM audit_logs
         WHERE action IN ('CREATE_HR_SALARY_STRUCTURE', 'UPDATE_HR_SALARY_STRUCTURE')
           AND (branch_id = ANY($1::varchar[]) OR details LIKE '%SAL-%')`,

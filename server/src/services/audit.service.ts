@@ -9,6 +9,7 @@ import { todayBs } from '../utils/bsDate';
 import { auditTrail, setAuditTrail, getPgConnected } from '../state/runtimeState';
 import { broadcastChange } from '../realtime/sse';
 import { getUserFromReq } from '../middleware/auth';
+import { ensureLogMonthPartition } from '../boot/logPartitions';
 import type { AuditLog } from '../../../client/src/types';
 
 export function logAuditEvent(
@@ -60,11 +61,15 @@ export function logAuditEvent(
   //    the transaction — an audited action is never committed unlogged.
   //  - no `client` (demo mode / non-transactional callers): fire-and-forget
   //    best-effort insert; failures are logged, never silently dropped.
-  const insertAudit = async (executor: { query: (sql: string, params: any[]) => Promise<any> }) => {
+  const insertAudit = async (executor: { query: (sql: string, params?: any[]) => Promise<any> }) => {
+    // audit_logs is partitioned by month (A7): provision the month on the
+    // normal write path before inserting, the way posting provisions its GL
+    // month. Cached per process-month, so this is free after the first write.
+    await ensureLogMonthPartition(executor, 'audit_logs', auditItem.timestampAD);
     await executor.query(
       `INSERT INTO audit_logs (id, user_email, user_name, action, module, details, timestamp_ad, timestamp_bs, branch_id)
        VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7, $8)
-       ON CONFLICT (id) DO NOTHING`,
+       ON CONFLICT DO NOTHING`,
       [
         auditItem.id,
         auditItem.userEmail,

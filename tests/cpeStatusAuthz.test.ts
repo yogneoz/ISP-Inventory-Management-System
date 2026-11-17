@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * CPE status PATCH authorization — HTTP-layer integration tests on a real
  * Express app wired exactly as production (createApp + registerAllRoutes)
@@ -191,7 +192,7 @@ describe('CPE status PATCH authorization', () => {
       await pool.query("DELETE FROM products WHERE id LIKE 'csa-%'");
       await pool.query("DELETE FROM serial_log WHERE device_serial LIKE 'CSA-%'");
       await pool.query("DELETE FROM customer_device_records WHERE id LIKE 'csa-%' OR device_serial LIKE 'CSA-%'");
-      await pool.query("DELETE FROM audit_logs WHERE user_email LIKE 'csa-%'");
+      await purgeAuditLogs(pool, "DELETE FROM audit_logs WHERE user_email LIKE 'csa-%'");
       await pool.query("DELETE FROM branches WHERE id IN ('csa-a', 'csa-b')");
       await pool.end();
     }

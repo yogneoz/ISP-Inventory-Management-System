@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * LEND-1 — lender master, loan register and lender statement over real HTTP.
  *
@@ -163,7 +164,7 @@ describe('lender master, loan register and statement API (real HTTP + PostgreSQL
       `DELETE FROM gl_subledgers WHERE party_id IN (SELECT id FROM lenders WHERE code LIKE 'LNT-%')`
     );
     await pool!.query(`DELETE FROM lenders WHERE code LIKE 'LNT-%'`);
-    await pool!.query(
+    await purgeAuditLogs(pool!, 
       `DELETE FROM audit_logs WHERE details LIKE '%LNT-%' OR details LIKE '%LENDER TEST%'`
     );
   }

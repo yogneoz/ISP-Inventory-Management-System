@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * Invoice → ledger integration, driven through the real HTTP routes against
  * PostgreSQL.
@@ -101,7 +102,7 @@ describe('invoice ledger posting (real HTTP + PostgreSQL)', { skip: skipNoDb }, 
     await pool!.query("DELETE FROM customer_records WHERE id LIKE 'ia-%'");
     await pool!.query("DELETE FROM inventory_stock WHERE product_id LIKE 'ia-%'");
     await pool!.query("DELETE FROM transaction_logs WHERE product_id LIKE 'ia-%'");
-    await pool!.query("DELETE FROM audit_logs WHERE details LIKE '%IA-SI-%' OR details LIKE '%IA-PI-%'");
+    await purgeAuditLogs(pool!, "DELETE FROM audit_logs WHERE details LIKE '%IA-SI-%' OR details LIKE '%IA-PI-%'");
     await pool!.query('DELETE FROM document_number_retirements WHERE branch_id = $1', [BR]);
     await pool!.query("DELETE FROM products WHERE id LIKE 'ia-%'");
     await pool!.query('DELETE FROM branches WHERE id = $1', [BR]);

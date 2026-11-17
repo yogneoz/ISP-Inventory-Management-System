@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * Phase 3 employee self-service — the own-profile read.
  *
@@ -180,7 +181,7 @@ describe('employee self-service profile (real HTTP + PostgreSQL)', { skip: skipN
 
   async function cleanup() {
     await pool!.query("DELETE FROM employees WHERE employee_code LIKE 'ESS-%'");
-    await pool!.query(
+    await purgeAuditLogs(pool!, 
       "DELETE FROM audit_logs WHERE action = 'CREATE_EMPLOYEE' AND details LIKE '%ESS %'"
     );
     await pool!.query("DELETE FROM users WHERE id LIKE 'ess-user-%' OR id = 'ess-admin'");

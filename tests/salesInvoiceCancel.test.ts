@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * Cancel/void a posted sales invoice (POST /api/sales-invoices/:id/cancel) —
  * HTTP-layer integration tests, wired exactly as production (createApp +
@@ -89,7 +90,7 @@ describe('cancel sales invoice (POST /api/sales-invoices/:id/cancel)', () => {
     // branch FK is RESTRICT, so the ledger rows must leave first.
     await pool!.query("DELETE FROM gl_journals WHERE branch_id LIKE 'sivtest-%'");
     await pool!.query(`DELETE FROM transaction_logs WHERE product_id = '${PROD}'`);
-    await pool!.query("DELETE FROM audit_logs WHERE user_email LIKE 'sivtest-%@example.com'");
+    await purgeAuditLogs(pool!, "DELETE FROM audit_logs WHERE user_email LIKE 'sivtest-%@example.com'");
     await pool!.query(`DELETE FROM serial_log WHERE device_serial = '${SERIAL}'`);
     await pool!.query("DELETE FROM inventory_stock WHERE product_id LIKE 'sivtest-%'");
     await pool!.query("DELETE FROM document_sequence_daily WHERE branch_id = '" + BR + "'");
@@ -133,7 +134,7 @@ describe('cancel sales invoice (POST /api/sales-invoices/:id/cancel)', () => {
       await pool.query("DELETE FROM sales_invoices WHERE id LIKE 'sivtest-%'");
       await pool.query("DELETE FROM gl_journals WHERE branch_id LIKE 'sivtest-%'");
       await pool.query(`DELETE FROM transaction_logs WHERE product_id = '${PROD}'`);
-      await pool.query("DELETE FROM audit_logs WHERE user_email LIKE 'sivtest-%@example.com'");
+      await purgeAuditLogs(pool, "DELETE FROM audit_logs WHERE user_email LIKE 'sivtest-%@example.com'");
       await pool.query(`DELETE FROM serial_log WHERE device_serial = '${SERIAL}'`);
       await pool.query("DELETE FROM inventory_stock WHERE product_id LIKE 'sivtest-%'");
       await pool.query("DELETE FROM document_sequence_daily WHERE branch_id = '" + BR + "'");

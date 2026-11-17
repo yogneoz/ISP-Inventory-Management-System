@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * Phase 4 onboarding/offboarding API — real HTTP + PostgreSQL.
  *
@@ -91,7 +92,7 @@ describe('HR lifecycle API (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => 
       [[BRANCH_A, BRANCH_B], 'LIFE-%']
     );
     await pool!.query('DELETE FROM users WHERE id LIKE $1', ['hr-life-user-%']);
-    await pool!.query('DELETE FROM audit_logs WHERE branch_id = ANY($1::varchar[])', [
+    await purgeAuditLogs(pool!, 'DELETE FROM audit_logs WHERE branch_id = ANY($1::varchar[])', [
       [BRANCH_A, BRANCH_B],
     ]);
     await pool!.query('DELETE FROM branches WHERE id = ANY($1::varchar[])', [

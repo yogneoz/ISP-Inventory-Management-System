@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * Fixed-asset → ledger, driven through the real HTTP routes against PostgreSQL.
  *
@@ -107,7 +108,7 @@ describe('fixed-asset ledger posting (real HTTP + PostgreSQL)', { skip: skipNoDb
     await pool!.query("DELETE FROM inventory_stock WHERE product_id LIKE 'fad-%'");
     await pool!.query("DELETE FROM transaction_logs WHERE product_id LIKE 'fad-%'");
     await pool!.query("DELETE FROM products WHERE id LIKE 'fad-%'");
-    await pool!.query("DELETE FROM audit_logs WHERE details LIKE '%FAD-%'");
+    await purgeAuditLogs(pool!, "DELETE FROM audit_logs WHERE details LIKE '%FAD-%'");
     await pool!.query('DELETE FROM branches WHERE id = $1', [BR]);
   }
 

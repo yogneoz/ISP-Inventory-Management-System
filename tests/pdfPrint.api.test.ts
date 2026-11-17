@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * PDF reporting — real HTTP routes against PostgreSQL.
  *
@@ -139,7 +140,7 @@ describe('PDF reporting (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => {
     await pool!.query("DELETE FROM inventory_stock WHERE product_id = $1", [PRODUCT]);
     await pool!.query('DELETE FROM customer_records WHERE id = $1', [CUSTOMER]);
     await pool!.query('DELETE FROM products WHERE id = $1', [PRODUCT]);
-    await pool!.query("DELETE FROM audit_logs WHERE details LIKE '%PDF-SI-%' OR details LIKE '%PDF-PI-%'");
+    await purgeAuditLogs(pool!, "DELETE FROM audit_logs WHERE details LIKE '%PDF-SI-%' OR details LIKE '%PDF-PI-%'");
     await pool!.query('DELETE FROM branches WHERE id = ANY($1::varchar[])', [[BR, OTHER]]);
   }
 

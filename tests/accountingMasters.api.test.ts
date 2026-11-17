@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * Accounting dimension masters — real HTTP + PostgreSQL.
  *
@@ -84,7 +85,7 @@ describe('accounting dimension masters API (real HTTP + PostgreSQL)', { skip: sk
     await pool!.query("DELETE FROM cost_centers WHERE code LIKE 'ACM-CC-%'");
     await pool!.query("DELETE FROM narration_templates WHERE code LIKE 'ACM-NT-%'");
     await pool!.query("DELETE FROM document_number_configs WHERE id = 'ACMDOC'");
-    await pool!.query("DELETE FROM audit_logs WHERE details LIKE '%ACM TEST%' OR details LIKE '%ACM-CC-%' OR details LIKE '%ACM-NT-%' OR details LIKE '%ACMDOC%'");
+    await purgeAuditLogs(pool!, "DELETE FROM audit_logs WHERE details LIKE '%ACM TEST%' OR details LIKE '%ACM-CC-%' OR details LIKE '%ACM-NT-%' OR details LIKE '%ACMDOC%'");
 
     setPermissionMatrix(JSON.parse(JSON.stringify(DEFAULT_PERMISSIONS_MATRIX)));
     const app = createApp();
@@ -113,7 +114,7 @@ describe('accounting dimension masters API (real HTTP + PostgreSQL)', { skip: sk
       await pool.query("DELETE FROM cost_centers WHERE code LIKE 'ACM-CC-%'");
       await pool.query("DELETE FROM narration_templates WHERE code LIKE 'ACM-NT-%'");
       await pool.query("DELETE FROM document_number_configs WHERE id = 'ACMDOC'");
-      await pool.query("DELETE FROM audit_logs WHERE details LIKE '%ACM TEST%' OR details LIKE '%ACM-CC-%' OR details LIKE '%ACM-NT-%' OR details LIKE '%ACMDOC%'");
+      await purgeAuditLogs(pool, "DELETE FROM audit_logs WHERE details LIKE '%ACM TEST%' OR details LIKE '%ACM-CC-%' OR details LIKE '%ACM-NT-%' OR details LIKE '%ACMDOC%'");
       await pool.end();
     }
   });

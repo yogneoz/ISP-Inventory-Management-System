@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * Payroll → ledger, driven through the real HTTP routes against PostgreSQL.
  *
@@ -212,9 +213,9 @@ describe('payroll run and payment posting (real HTTP + PostgreSQL)', { skip: ski
     await pool!.query("DELETE FROM hr_leave_types WHERE code LIKE 'PAYT-%'");
     await pool!.query("DELETE FROM hr_org_masters WHERE code LIKE 'PAYT-ORG-%'");
     await pool!.query('DELETE FROM users WHERE id = $1', [LINK_USER_ID]);
-    await pool!.query("DELETE FROM audit_logs WHERE details LIKE '%pay-test-branch%'");
-    await pool!.query("DELETE FROM audit_logs WHERE action = 'IMPORT_EMPLOYEES'");
-    await pool!.query(
+    await purgeAuditLogs(pool!, "DELETE FROM audit_logs WHERE details LIKE '%pay-test-branch%'");
+    await purgeAuditLogs(pool!, "DELETE FROM audit_logs WHERE action = 'IMPORT_EMPLOYEES'");
+    await purgeAuditLogs(pool!, 
       `DELETE FROM audit_logs
         WHERE (branch_id = ANY($1::varchar[]) AND action IN (
           'CREATE_HR_HOLIDAY', 'DELETE_HR_HOLIDAY', 'UPSERT_HR_ATTENDANCE',

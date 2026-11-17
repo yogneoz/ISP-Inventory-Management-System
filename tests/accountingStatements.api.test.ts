@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * Financial statements API — real Express app against real PostgreSQL.
  *
@@ -184,7 +185,7 @@ describe('financial statements API (real HTTP + PostgreSQL)', { skip: skipNoDb }
     await pool!.query("DELETE FROM customer_records WHERE id LIKE 'ast-%'");
     await pool!.query("DELETE FROM inventory_stock WHERE product_id LIKE 'ast-%'");
     await pool!.query("DELETE FROM transaction_logs WHERE product_id LIKE 'ast-%'");
-    await pool!.query("DELETE FROM audit_logs WHERE details LIKE '%AST-%'");
+    await purgeAuditLogs(pool!, "DELETE FROM audit_logs WHERE details LIKE '%AST-%'");
     await pool!.query("DELETE FROM products WHERE id LIKE 'ast-%'");
     await pool!.query(
       "DELETE FROM gl_subledgers WHERE main_account_id IN (SELECT id FROM gl_accounts WHERE code LIKE 'AST-%')"

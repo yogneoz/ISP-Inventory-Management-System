@@ -13,6 +13,7 @@
 import 'dotenv/config';
 import pg from 'pg';
 import { repairDefaultPartitions } from '../server/src/boot/journalPartitionRepair';
+import { repairLogDefaultPartitions } from '../server/src/boot/logPartitions';
 
 const apply = process.argv.includes('--apply');
 
@@ -50,6 +51,36 @@ try {
       } else {
         console.log('✅ repair complete: every row is in its month partition and DEFAULT is reattached empty.');
         process.exitCode = 0;
+      }
+    }
+  }
+
+  // The same repair for the log tables (worklist A7): a dated row in
+  // audit_logs_default / transaction_logs_default is moved into its month.
+  const logs = await repairLogDefaultPartitions(pool, { apply });
+  const logDirtyBefore = logs.before.filter((entry) => entry.defaultRows - entry.undatedRows > 0);
+  if (logDirtyBefore.length === 0) {
+    console.log('Log DEFAULT partitions are empty — nothing to repair.');
+  } else {
+    for (const entry of logDirtyBefore) {
+      console.log(
+        `Log DEFAULT ${entry.table}: ${entry.defaultRows} row(s) (${entry.undatedRows} undated);` +
+          ` months with a child: ${entry.monthsWithChild.join(', ') || '(none)'};` +
+          ` months without: ${entry.monthsWithoutChild.join(', ') || '(none)'}`
+      );
+    }
+    if (!apply) {
+      console.log('  planned only — re-run with --apply to move the log rows into their month partitions.');
+    } else {
+      console.log(`  log rows moved      : ${logs.moved}`);
+      for (const entry of logs.after) {
+        console.log(`  DEFAULT after       : ${entry.table} ${entry.defaultRows} row(s) (${entry.undatedRows} undated)`);
+      }
+      if (logs.failures.length) {
+        for (const failure of logs.failures) console.error(`✗ ${failure}`);
+        process.exitCode = 1;
+      } else {
+        console.log('✅ log repair complete: every dated row is in its month partition.');
       }
     }
   }

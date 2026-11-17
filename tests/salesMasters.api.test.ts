@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * Sales Agents & Areas + customer defaults + invoice snapshots (real HTTP + PG).
  */
@@ -72,7 +73,7 @@ describe('sales areas, agents and invoice snapshots (real HTTP + PostgreSQL)', {
     await pool!.query("DELETE FROM inventory_stock WHERE product_id = 'sm-product'");
     await pool!.query("DELETE FROM products WHERE id = 'sm-product'");
     await pool!.query("DELETE FROM branches WHERE id = $1", [BR]);
-    await pool!.query("DELETE FROM audit_logs WHERE details LIKE '%SM TEST%' OR details LIKE '%SM-AR-%' OR details LIKE '%SM-AG-%'");
+    await purgeAuditLogs(pool!, "DELETE FROM audit_logs WHERE details LIKE '%SM TEST%' OR details LIKE '%SM-AR-%' OR details LIKE '%SM-AG-%'");
 
     await pool!.query(
       `INSERT INTO branches (id, code, name, location) VALUES ($1, 'SMB', 'SM Sales Branch', 'Test')`,
@@ -114,7 +115,7 @@ describe('sales areas, agents and invoice snapshots (real HTTP + PostgreSQL)', {
       await pool.query("DELETE FROM inventory_stock WHERE product_id = 'sm-product'");
       await pool.query("DELETE FROM products WHERE id = 'sm-product'");
       await pool.query("DELETE FROM branches WHERE id = $1", [BR]);
-      await pool.query("DELETE FROM audit_logs WHERE details LIKE '%SM TEST%' OR details LIKE '%SM-AR-%' OR details LIKE '%SM-AG-%'");
+      await purgeAuditLogs(pool, "DELETE FROM audit_logs WHERE details LIKE '%SM TEST%' OR details LIKE '%SM-AR-%' OR details LIKE '%SM-AG-%'");
       await pool.end();
     }
   });

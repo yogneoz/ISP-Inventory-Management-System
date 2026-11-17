@@ -216,12 +216,81 @@ call are pinned so the category cannot be dropped silently. The divergence is
 proven at the decision function; the live guard run proves the category is
 populated on both sides, not merely present in the query.
 
-### A7 — Partition the log tables, and guard the audit trail `[ ]`
+### A7 — Partition the log tables, and guard the audit trail `[x]`
 
 Done when: `audit_logs` and `transaction_logs` are range-partitioned by month
 (mirroring the ledger design, with registry tables for external FKs), retention
 becomes a detach rather than a delete, and `audit_logs` refuses UPDATE/DELETE
 like the ledger does.
+
+**Delivered:** migration `0032_log_table_partitions.sql` (mirrored in
+`scripts/schema.sql`) converts both tables to `PARTITION BY RANGE (timestamp_ad)`
+with `<table>_YYYYMM` children and a `<table>_default` catch-all, copies the live
+CHECK constraints from the old table instead of restating them (an install that
+has been through later migrations accepts more values than the original
+`CREATE TABLE` did — restating them refused a seeded boot), backfills a NULL
+timestamp (the column is now NOT NULL because the partition key is part of the
+primary key) and verifies the row count before dropping the legacy table, all in
+one transaction. `ensure_log_month_partition(table, ts)` is the single DDL
+function; `server/src/boot/logPartitions.ts` adds status, provisioning, dirty
+DEFAULT repair (staging + reinsert through the parent, under
+`inventory.allow_ledger_purge`), and `ensureLogMonthPartition()` with a
+per-process month cache that `audit.service` calls before its INSERT — the
+write-path month creation. The keeper now provisions the same window for both
+log tables and auto-repairs a dated row that landed in DEFAULT;
+`check:partitions` and `repair:partitions` report and fix the same state.
+`audit_logs` refuses UPDATE and DELETE through `reject_audit_log_mutation()`,
+using the same `SET LOCAL inventory.allow_ledger_purge = 'on'` switch the ledger
+purge uses; the guard is attached to the parent **and to every child** (a
+parent-level trigger does not fire for DML aimed at a child). Every test cleanup
+that deleted audit rows (44 files, 56 statements) now goes through
+`tests/support/purgeAuditLogs.ts`. Transaction-log inserts changed
+`ON CONFLICT (id)` to `ON CONFLICT DO NOTHING`: the partitioned primary key is
+`(id, timestamp_ad)`, so no unique index on `id` alone exists.
+
+**Deliberate deviations.** (1) No `BEFORE INSERT` routing trigger: PostgreSQL
+refuses `CREATE TABLE … PARTITION OF` inside the statement that inserts into the
+same table (`…because it is being used by active queries in this session`,
+measured), so month creation is its own statement on the write path, exactly how
+the GL posting path calls `ensure_journal_month_partition`. A write whose month
+is not provisioned still succeeds into DEFAULT and the keeper moves it within one
+tick. (2) No registry tables: nothing has a foreign key to either log table, so
+the external-FK problem the ledger registry solves does not exist here.
+
+**Proven.** `tests/logTablePartitions.test.ts` is 7/7 on throwaway databases:
+both tables partitioned with DEFAULT, audit and transaction writes read back
+from their month child across two months, an undated insert still succeeds, the
+database rejects UPDATE, DELETE and a child-targeted DELETE, the sanctioned purge
+still removes rows, and a pre-A7 populated table converts with counts preserved
+and a second apply a no-op. Real run on `inventory_a7_final` built from the
+pre-A7 `scripts/schema.sql`: schema exit 0; seeded 3 audit / 2 transaction rows;
+first apply exit 0; counts 3/2 before and after; rows landed in
+`audit_logs_202608/202609` and `transaction_logs_202608/202609`; second apply
+exit 0 with counts still 3/2; `ensure_log_month_partition` + insert routed to
+`*_202611` with DEFAULT 0/0; UPDATE exit 1, DELETE exit 1, child DELETE exit 1;
+sanctioned purge exit 0. The live dev database migrated on boot
+(`✅ Schema migrations at 0032_log_table_partitions`) and serves `/api/health`
+200.
+
+**Two more things the slice had to settle.** Audit rows mention a branch and a
+fiscal year, and both columns were `ON DELETE SET NULL`: deleting a master row
+performed a cascading UPDATE that the new guard refuses, so branch deletion
+would have failed. The FKs are gone (the trail keeps the id it was written
+with); the `transaction_logs` FKs stay, since that table has no guard. And
+`scripts/run_tests.mjs` gives every suite connection
+`inventory.allow_ledger_purge=on` (the ledger suites need it), so the guard
+test sets `off` for its own session — otherwise it would measure the escape
+hatch, not the guard. The schema-table count assertions moved 121 → 123 (the
+two new DEFAULT children).
+
+**Still unproven.** The keeper's cross-process leadership is only exercised with
+the in-memory store (no Redis daemon here), as with A1/A3. Retention as a
+detach has a tested primitive but no scheduled job — that stays an operator
+decision. Transaction-log writes provision their month through the boot/keeper
+window rather than a synchronous call at each of their ~30 call sites; backdated
+rows outside the window rely on the keeper's repair tick. TRUNCATE is not
+blocked by the row guard; the demo reseed's wipe is the one such path and it is
+documented, not guarded.
 
 ### A8 — CI truth `[ ]`
 

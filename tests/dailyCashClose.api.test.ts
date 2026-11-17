@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * Daily cash close — real HTTP routes against PostgreSQL.
  *
@@ -114,7 +115,7 @@ describe('daily cash close (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => 
     await pool!.query('DELETE FROM gl_journals WHERE branch_id = ANY($1::varchar[])', [BRANCH_IDS]);
     await pool!.query("DELETE FROM gl_accounts WHERE code = 'CCT-BANK'");
     testBankId = '';
-    await pool!.query('DELETE FROM audit_logs WHERE details LIKE $1', ['%cash-close-test%']);
+    await purgeAuditLogs(pool!, 'DELETE FROM audit_logs WHERE details LIKE $1', ['%cash-close-test%']);
     await pool!.query('DELETE FROM branches WHERE id = ANY($1::varchar[])', [BRANCH_IDS]);
   }
 

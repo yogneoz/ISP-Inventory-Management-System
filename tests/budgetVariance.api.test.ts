@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * Budgets and budget-vs-actual — real Express app against real PostgreSQL.
  *
@@ -169,7 +170,7 @@ describe('budget variance API (real HTTP + PostgreSQL)', { skip: skipNoDb }, () 
 
   async function cleanup() {
     if (!pool) return;
-    await pool.query("DELETE FROM audit_logs WHERE details LIKE '%BGT Budget%'");
+    await purgeAuditLogs(pool, "DELETE FROM audit_logs WHERE details LIKE '%BGT Budget%'");
     await pool.query(
       'DELETE FROM gl_budgets WHERE fiscal_year_id IN (SELECT id FROM fiscal_years WHERE code = $1) AND branch_id IN ($2, $3)',
       [FY_CODE, BR, OTHER]

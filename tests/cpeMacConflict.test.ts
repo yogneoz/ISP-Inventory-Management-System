@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * Customer Device Serials — normalized MAC conflicts and dead status
  * vocabulary (CPE-2), HTTP layer against real PostgreSQL.
@@ -164,7 +165,7 @@ describe('CPE MAC conflicts and legacy status vocabulary', () => {
     await pool.query("DELETE FROM customer_records WHERE customer_id LIKE 'CMC%'");
     await pool.query('DELETE FROM inventory_stock WHERE id = $1', [STOCK_ID]);
     await pool.query('DELETE FROM products WHERE id = $1', [PRODUCT_ID]);
-    await pool.query("DELETE FROM audit_logs WHERE user_email LIKE 'cmc-%'");
+    await purgeAuditLogs(pool, "DELETE FROM audit_logs WHERE user_email LIKE 'cmc-%'");
     // The successful exchange posts a journal in this branch; its RESTRICT FK
     // blocks deleting the branch until the ledger rows are gone.
     await pool.query('DELETE FROM gl_journals WHERE branch_id = $1', [BRANCH]);

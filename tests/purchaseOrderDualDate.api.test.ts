@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * Purchase-order dual-date read (2026-11-07).
  *
@@ -62,7 +63,7 @@ describe('purchase-order dual-date read (real HTTP + PostgreSQL)', { skip: skipN
 
   async function cleanup() {
     await pool!.query('DELETE FROM purchase_orders WHERE id = $1', [PO_ID]);
-    await pool!.query("DELETE FROM audit_logs WHERE details LIKE '%PODUAL-READ-1%'");
+    await purgeAuditLogs(pool!, "DELETE FROM audit_logs WHERE details LIKE '%PODUAL-READ-1%'");
   }
 
   before(async () => {

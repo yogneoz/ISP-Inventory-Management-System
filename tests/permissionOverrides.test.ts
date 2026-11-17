@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * Per-user permission overrides — phase 1 (docs/permission-overrides-plan.md).
  *
@@ -411,7 +412,7 @@ describe('per-user permission override API', () => {
     }
 
     await pool!.query("DELETE FROM user_permission_overrides WHERE user_id LIKE 'pov-%'");
-    await pool!.query("DELETE FROM audit_logs WHERE user_email = 'pov-super@example.com'");
+    await purgeAuditLogs(pool!, "DELETE FROM audit_logs WHERE user_email = 'pov-super@example.com'");
     await pool!.query("DELETE FROM users WHERE id LIKE 'pov-%'");
 
     const password = hashPassword('PovTest@1');
@@ -442,7 +443,7 @@ describe('per-user permission override API', () => {
     if (close) await close();
     if (pool && dbReachable) {
       await pool.query("DELETE FROM user_permission_overrides WHERE user_id LIKE 'pov-%'");
-      await pool.query("DELETE FROM audit_logs WHERE user_email = 'pov-super@example.com'");
+      await purgeAuditLogs(pool, "DELETE FROM audit_logs WHERE user_email = 'pov-super@example.com'");
       await pool.query("DELETE FROM users WHERE id LIKE 'pov-%'");
       await pool.end();
     }

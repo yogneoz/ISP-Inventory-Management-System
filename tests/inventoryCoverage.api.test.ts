@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * ACC-4 — inventory is part of Finance.
  *
@@ -111,7 +112,7 @@ describe('inventory-to-finance coverage (real HTTP + PostgreSQL)', { skip: skipN
       await client.query("DELETE FROM customer_records WHERE id LIKE 'iv-%'");
       await client.query("DELETE FROM inventory_stock WHERE product_id LIKE 'iv-%'");
       await client.query("DELETE FROM transaction_logs WHERE product_id LIKE 'iv-%'");
-      await client.query("DELETE FROM audit_logs WHERE details LIKE '%IV-%'");
+      await purgeAuditLogs(client, "DELETE FROM audit_logs WHERE details LIKE '%IV-%'");
       await client.query("DELETE FROM products WHERE id LIKE 'iv-%'");
       await client.query('DELETE FROM branches WHERE id IN ($1, $2)', [BR, OTHER_BRANCH]);
     } finally {

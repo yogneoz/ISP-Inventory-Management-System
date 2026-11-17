@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * Self-service profile hardening (audit finding H2).
  *
@@ -100,7 +101,7 @@ describe('self-service profile hardening', () => {
 
   after(async () => {
     if (created) {
-      await pgPool.query('DELETE FROM audit_logs WHERE branch_id = $1', [BRANCH]);
+      await purgeAuditLogs(pgPool, 'DELETE FROM audit_logs WHERE branch_id = $1', [BRANCH]);
       await pgPool.query('DELETE FROM users WHERE id = ANY($1::text[])', [[USER_ID, OTHER_ID]]);
       await pgPool.query('DELETE FROM branches WHERE id = $1', [BRANCH]);
     }

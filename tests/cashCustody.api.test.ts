@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * ACC-2 — cash, bank and wallet custody over real HTTP + PostgreSQL.
  *
@@ -103,7 +104,7 @@ describe('cash, bank and wallet custody (real HTTP + PostgreSQL)', { skip: skipN
     await pool!.query('DELETE FROM daily_cash_closes WHERE branch_id = ANY($1::varchar[])', [[BR_A, BR_B]]);
     await pool!.query('DELETE FROM gl_journals WHERE branch_id = ANY($1::varchar[])', [[BR_A, BR_B]]);
     await pool!.query('DELETE FROM gl_accounts WHERE code LIKE $1', [`${PREFIX}-%`]);
-    await pool!.query('DELETE FROM audit_logs WHERE details LIKE $1', ['%custody-test%']);
+    await purgeAuditLogs(pool!, 'DELETE FROM audit_logs WHERE details LIKE $1', ['%custody-test%']);
     await pool!.query('DELETE FROM branches WHERE id = ANY($1::varchar[])', [[BR_A, BR_B]]);
   }
 

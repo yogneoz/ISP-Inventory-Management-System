@@ -28,6 +28,12 @@ import {
   provisionJournalPartitions,
   type PartitionSqlClient,
 } from './journalPartitions';
+import {
+  defaultLogPartitionIsDirty,
+  describeLogPartitions,
+  provisionLogPartitions,
+  repairLogDefaultPartitions,
+} from './logPartitions';
 
 /**
  * Six hours. The window is months wide, so drift between ticks is harmless; the
@@ -63,6 +69,30 @@ export async function runJournalPartitionKeeperTick(
   const run = async (): Promise<PartitionKeeperOutcome> => {
     try {
       const report = await provisionJournalPartitions(client, { now });
+      // The log tables share the window and the same idempotent DDL functions;
+      // keeping them here means one timer owns every partitioned table (A7).
+      const logs = await provisionLogPartitions(client, { now });
+      const logSummary = describeLogPartitions(logs);
+      if (logs.failed.length || defaultLogPartitionIsDirty(logs)) {
+        warn(`⚠️  Log partitions need attention: ${logSummary}`);
+        for (const failure of logs.failed) {
+          warn(`   ${failure.table} ${failure.month} was not created: ${failure.message}`);
+        }
+        // A dated row in DEFAULT is a write that arrived before its month was
+        // provisioned (a backdated entry, or a server that outlived the
+        // lookahead). Moving it into its month here is what keeps DEFAULT from
+        // becoming a permanent parking lot — the write itself never fails.
+        if (defaultLogPartitionIsDirty(logs)) {
+          const repaired = await repairLogDefaultPartitions(client, { apply: true });
+          if (repaired.failures.length) {
+            for (const failure of repaired.failures) warn(`   log repair: ${failure}`);
+          } else {
+            log(`   log repair moved ${repaired.moved} row(s) out of DEFAULT`);
+          }
+        }
+      } else {
+        log(`✅ Log partitions kept ahead: ${logSummary}`);
+      }
       const summary = describeJournalPartitions(report);
       if (report.failed.length || defaultPartitionIsDirty(report)) {
         warn(`⚠️  Journal partitions need attention: ${summary}`);

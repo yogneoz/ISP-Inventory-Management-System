@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * Recurring journals + month-end close — real HTTP + PostgreSQL.
  *
@@ -125,7 +126,7 @@ describe('recurring journals and month-end close (real HTTP + PostgreSQL)', { sk
     );
     await pool.query("DELETE FROM gl_accounts WHERE code LIKE 'RCT-%'");
     await pool.query("DELETE FROM gl_account_groups WHERE code LIKE 'RCT-%'");
-    await pool.query("DELETE FROM audit_logs WHERE details LIKE '%RCT-%' OR details LIKE '%RECURRING%'");
+    await purgeAuditLogs(pool, "DELETE FROM audit_logs WHERE details LIKE '%RCT-%' OR details LIKE '%RECURRING%'");
   }
 
   before(async () => {

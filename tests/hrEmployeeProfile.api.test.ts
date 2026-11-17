@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * F1 Employee Profile — the paper form's personal, family, experience,
  * qualification, medical, declaration and reference sections.
@@ -172,7 +173,7 @@ describe('F1 employee profile (real HTTP + PostgreSQL)', { skip: skipNoDb }, () 
 
   async function cleanup() {
     await pool!.query('DELETE FROM employees WHERE employee_code LIKE $1', ['PRF1-%']);
-    await pool!.query('DELETE FROM audit_logs WHERE branch_id = ANY($1::varchar[])', [
+    await purgeAuditLogs(pool!, 'DELETE FROM audit_logs WHERE branch_id = ANY($1::varchar[])', [
       [BRANCH, OTHER_BRANCH],
     ]);
     await pool!.query('DELETE FROM branches WHERE id = ANY($1::varchar[])', [

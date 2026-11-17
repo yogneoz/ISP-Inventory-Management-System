@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * Stock-value journal integration, driven through the real stock-operation
  * routes against PostgreSQL.
@@ -109,7 +110,7 @@ describe('stock operations post value to the ledger (real HTTP + PostgreSQL)', {
     await pool!.query('DELETE FROM damage_records WHERE branch_id = $1 OR id LIKE \'dmr-sa-%\' OR damage_reference LIKE \'SA-%\'', [BR]);
     await pool!.query("DELETE FROM transaction_logs WHERE product_id = $1", [PRODUCT]);
     await pool!.query("DELETE FROM inventory_stock WHERE product_id = $1", [PRODUCT]);
-    await pool!.query("DELETE FROM audit_logs WHERE details LIKE '%SA-%'");
+    await purgeAuditLogs(pool!, "DELETE FROM audit_logs WHERE details LIKE '%SA-%'");
     await pool!.query('DELETE FROM products WHERE id = $1', [PRODUCT]);
     await pool!.query('DELETE FROM branches WHERE id IN ($1, $2)', [BR, DEST]);
   }

@@ -129,7 +129,7 @@ export function stockReconcileUpsertParams(stk: Record<string, any>): unknown[] 
 /** 14-bind transaction-log insert with an explicit timestamp_ad; idempotent. */
 export const TXN_INSERT_ON_CONFLICT_SQL = `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_ad, timestamp_bs)
  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
- ON CONFLICT (id) DO NOTHING`;
+ ON CONFLICT DO NOTHING`;
 
 export function txnInsertOnConflictParams(txn: TransactionLog): unknown[] {
   return [
@@ -394,9 +394,14 @@ export function damageRecordCancelBatchParams(
 }
 
 /**
- * Builds a multi-row INSERT ... ON CONFLICT (id) DO NOTHING for transaction
+ * Builds a multi-row INSERT ... ON CONFLICT DO NOTHING for transaction
  * logs — one statement instead of one per ledger row. Mirrors the column
- * list and conflict target of TXN_INSERT_ON_CONFLICT_SQL. The per-row params
+ * list and conflict target of TXN_INSERT_ON_CONFLICT_SQL.
+ *
+ * The conflict target is omitted on purpose: the table is partitioned by
+ * timestamp_ad (worklist A7), so its primary key is (id, timestamp_ad) and no
+ * unique index on id alone exists. An unqualified DO NOTHING still suppresses
+ * the duplicate-id retry the caller relies on. The per-row params
  * function `txnInsertOnConflictParams` supplies each row's values in the same
  * order, so callers can flatten [[row1params], [row2params], ...].
  */
@@ -410,7 +415,7 @@ export function buildTxnMultiRowInsertSql(rowCount: number): string {
     for (let c = 0; c < COLUMNS; c++) placeholders.push(`$${base + c + 1}`);
     valuesClauses.push(`(${placeholders.join(', ')})`);
   }
-  return `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_ad, timestamp_bs)\n VALUES ${valuesClauses.join(',\n ')}\n ON CONFLICT (id) DO NOTHING`;
+  return `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_ad, timestamp_bs)\n VALUES ${valuesClauses.join(',\n ')}\n ON CONFLICT DO NOTHING`;
 }
 
 /** Flattens per-row txn params (from txnInsertOnConflictParams) for the multi-row insert. */

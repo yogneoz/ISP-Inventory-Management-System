@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * Phase 2 statutory deductions — fiscal-year TDS slabs and SSF rates.
  *
@@ -198,7 +199,7 @@ describe('fiscal-year TDS slabs and SSF rates (real HTTP + PostgreSQL)', { skip:
         WHERE fiscal_year_id = ANY($1::varchar[])`,
       [[FY_2090, FY_2091, FY_2092, FY_2093]]
     );
-    await pool!.query(
+    await purgeAuditLogs(pool!, 
       `DELETE FROM audit_logs
         WHERE (action IN ('CREATE_HR_STATUTORY_CONFIG', 'UPDATE_HR_STATUTORY_CONFIG')
                AND (details LIKE '%FY 2090/91%' OR details LIKE '%FY 2091/92%'

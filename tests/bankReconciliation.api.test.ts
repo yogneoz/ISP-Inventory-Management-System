@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * Bank reconciliation through the real HTTP routes and PostgreSQL.
  *
@@ -101,7 +102,7 @@ describe('bank reconciliation (real HTTP + PostgreSQL)', { skip: skipNoDb }, () 
       [[BR, OTHER]]
     );
     await pool!.query('DELETE FROM gl_journals WHERE branch_id = ANY($1::varchar[])', [[BR, OTHER]]);
-    await pool!.query('DELETE FROM audit_logs WHERE user_email = ANY($1::varchar[])', [
+    await purgeAuditLogs(pool!, 'DELETE FROM audit_logs WHERE user_email = ANY($1::varchar[])', [
       [USERS.super.email, USERS.accountant.email, USERS.other.email],
     ]);
     await pool!.query('DELETE FROM branches WHERE id = ANY($1::varchar[])', [[BR, OTHER]]);

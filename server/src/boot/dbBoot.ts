@@ -42,6 +42,11 @@ import {
   describeJournalPartitions,
   provisionJournalPartitions,
 } from './journalPartitions';
+import {
+  defaultLogPartitionIsDirty,
+  describeLogPartitions,
+  provisionLogPartitions,
+} from './logPartitions';
 
 import {
   setDocNumberConfigs,
@@ -163,6 +168,13 @@ export async function syncDatabaseAndIndexes() {
     // the server, because the posting path still creates the month on demand.
     try {
       const partitions = await provisionJournalPartitions(client);
+      const logs = await provisionLogPartitions(client);
+      const logSummary = describeLogPartitions(logs);
+      if (logs.failed.length || defaultLogPartitionIsDirty(logs)) {
+        console.warn(`⚠️  Log partitions provisioned with gaps: ${logSummary}`);
+      } else {
+        console.log(`✅ Log partitions provisioned: ${logSummary}`);
+      }
       const summary = describeJournalPartitions(partitions);
       if (partitions.failed.length) {
         console.warn(`⚠️  Journal partitions provisioned with gaps: ${summary}`);

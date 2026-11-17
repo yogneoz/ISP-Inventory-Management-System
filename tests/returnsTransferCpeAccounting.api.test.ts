@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * Returns, inter-branch transfers and CPE moves → ledger, driven through the
  * real HTTP routes against PostgreSQL.
@@ -110,7 +111,7 @@ describe('returns, transfers and CPE post to the ledger (real HTTP + PostgreSQL)
     await pool!.query("DELETE FROM fixed_assets WHERE id LIKE 'ra-%'");
     await pool!.query("DELETE FROM transaction_logs WHERE product_id LIKE 'ra-%'");
     await pool!.query("DELETE FROM inventory_stock WHERE product_id LIKE 'ra-%'");
-    await pool!.query("DELETE FROM audit_logs WHERE details LIKE '%RA-%'");
+    await purgeAuditLogs(pool!, "DELETE FROM audit_logs WHERE details LIKE '%RA-%'");
     await pool!.query("DELETE FROM products WHERE id LIKE 'ra-%'");
     await pool!.query("DELETE FROM customer_records WHERE id LIKE 'ra-%'");
     await pool!.query('DELETE FROM branches WHERE id = ANY($1)', [[BR_A, BR_B]]);

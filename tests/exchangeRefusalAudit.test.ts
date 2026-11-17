@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * Refused replacements must leave a trail (real PostgreSQL, HTTP layer).
  *
@@ -106,7 +107,7 @@ describe('refused replacements are audited with the register\'s own facts', () =
     setPermissionMatrix(JSON.parse(JSON.stringify(DEFAULT_PERMISSIONS_MATRIX)));
     if (!dbReachable) return;
 
-    await pool.query("DELETE FROM audit_logs WHERE user_email LIKE 'rfa-%@example.com'");
+    await purgeAuditLogs(pool, "DELETE FROM audit_logs WHERE user_email LIKE 'rfa-%@example.com'");
     await pool.query("DELETE FROM serial_log WHERE device_serial LIKE 'RFA-%'");
     await pool.query("DELETE FROM customer_device_records WHERE id LIKE 'rfa-%' OR device_serial LIKE 'RFA-%'");
     await pool.query('DELETE FROM branches WHERE id = $1', [BRANCH]);
@@ -168,7 +169,7 @@ describe('refused replacements are audited with the register\'s own facts', () =
     setCustomerDeviceRecords(origCdr as any);
     setProducts(origProducts as any);
     if (dbReachable) {
-      await pool.query("DELETE FROM audit_logs WHERE user_email LIKE 'rfa-%@example.com'");
+      await purgeAuditLogs(pool, "DELETE FROM audit_logs WHERE user_email LIKE 'rfa-%@example.com'");
       await pool.query("DELETE FROM serial_log WHERE device_serial LIKE 'RFA-%'");
       await pool.query("DELETE FROM customer_device_records WHERE id LIKE 'rfa-%' OR device_serial LIKE 'RFA-%'");
       await pool.query('DELETE FROM products WHERE id = $1', [PRODUCT_ID]);

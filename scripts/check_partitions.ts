@@ -30,6 +30,12 @@ import {
   provisionJournalPartitions,
 } from '../server/src/boot/journalPartitions';
 import type { JournalPartitionReport } from '../server/src/boot/journalPartitions';
+import {
+  defaultLogPartitionIsDirty,
+  logPartitionStatus,
+  provisionLogPartitions,
+} from '../server/src/boot/logPartitions';
+import type { LogPartitionReport } from '../server/src/boot/logPartitions';
 
 function argValue(flag: string): string | null {
   const index = process.argv.indexOf(flag);
@@ -100,6 +106,33 @@ async function main(): Promise<void> {
       console.error(`✗ month ${failure.month} could not be created: ${failure.message}`);
     }
 
+    // The log tables share the window and the same check (worklist A7).
+    const logReport: LogPartitionReport = apply
+      ? await provisionLogPartitions(pool, options)
+      : { ...(await logPartitionStatus(pool, options)), created: [], failed: [] };
+    console.log('Log partitions (audit_logs, transaction_logs)');
+    for (const entry of logReport.tables) {
+      console.log(
+        `  ${entry.table}: present ${entry.present.length ? entry.present.join(', ') : '(none)'};` +
+          ` missing ${entry.missing.length ? entry.missing.join(', ') : '(none)'};` +
+          ` DEFAULT ${entry.defaultRows} row(s) (${entry.undatedRows} undated)`
+      );
+    }
+    if (apply) {
+      console.log(`  created : ${logReport.created.length ? logReport.created.join(', ') : '(none — already provisioned)'}`);
+    }
+    for (const failure of logReport.failed) {
+      console.error(`✗ ${failure.table} month ${failure.month} could not be created: ${failure.message}`);
+    }
+    const logDirty = defaultLogPartitionIsDirty(logReport);
+    if (logDirty) {
+      console.error(
+        '✗ log DEFAULT partitions hold dated rows. Run `npm run repair:partitions -- --apply` to move them into' +
+          ' their month partitions (a DEFAULT row cannot be pruned and blocks the month from being attached).'
+      );
+    }
+    const logGaps = logReport.tables.filter((entry) => entry.missing.length > 0);
+
     const dirty = defaultPartitionIsDirty(report);
     if (dirty) {
       console.error(
@@ -116,7 +149,7 @@ async function main(): Promise<void> {
           : `✗ ${report.missing.length} month(s) in the window have no partition (${report.missing.join(', ')}). Run with --apply.`
       );
     }
-    process.exitCode = dirty || report.missing.length ? 1 : 0;
+    process.exitCode = dirty || logDirty || report.missing.length || logGaps.length ? 1 : 0;
   } finally {
     await pool.end().catch(() => {});
   }

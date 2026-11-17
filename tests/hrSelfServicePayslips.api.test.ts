@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * Phase 3 employee self-service — own posted/paid payslips.
  *
@@ -311,7 +312,7 @@ describe('employee self-service payslips (real HTTP + PostgreSQL)', { skip: skip
     await pool!.query("DELETE FROM payroll_run_lines WHERE run_id LIKE 'ess-pay-run-%'");
     await pool!.query("DELETE FROM payroll_runs WHERE id LIKE 'ess-pay-run-%'");
     await pool!.query("DELETE FROM employees WHERE employee_code LIKE 'ESS-PAY-%'");
-    await pool!.query(
+    await purgeAuditLogs(pool!, 
       "DELETE FROM audit_logs WHERE action = 'CREATE_EMPLOYEE' AND details LIKE '%ESS-PAY-%'"
     );
     await pool!.query("DELETE FROM users WHERE id LIKE 'ess-pay-user-%' OR id = 'ess-pay-admin'");

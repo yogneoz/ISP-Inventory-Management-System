@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * Customer statement — signed keyset body against real HTTP + PostgreSQL.
  *
@@ -202,7 +203,7 @@ describe('customer ledger statement cursor (real HTTP + PostgreSQL)', { skip: sk
         await client.query('DELETE FROM gl_journals WHERE id = ANY($1::varchar[])', [allIds]);
         await client.query('DELETE FROM gl_journals_registry WHERE id = ANY($1::varchar[])', [allIds]);
       }
-      await client.query('DELETE FROM audit_logs WHERE details LIKE $1', ['%CLC clc-%']);
+      await purgeAuditLogs(client, 'DELETE FROM audit_logs WHERE details LIKE $1', ['%CLC clc-%']);
     });
     await pool!.query('DELETE FROM customer_records WHERE id = ANY($1::varchar[])', [[CUSTOMER_A, CUSTOMER_B]]);
     await pool!.query('DELETE FROM branches WHERE id = $1', [BR]);

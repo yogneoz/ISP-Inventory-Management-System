@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * WTY-4 purchase capture — the supplier warranty comes from the bill that
  * creates the unit, not from a later 12-month guess.
@@ -124,7 +125,7 @@ describe('purchase warranty capture (real HTTP + PostgreSQL)', { skip: skipNoDb 
     await pool!.query("DELETE FROM inventory_stock WHERE product_id IN ($1, $2)", [PRODUCT, BULK]);
     await pool!.query("DELETE FROM serial_log WHERE device_serial LIKE 'W4-%'");
     await pool!.query("DELETE FROM transaction_logs WHERE product_id IN ($1, $2)", [PRODUCT, BULK]);
-    await pool!.query("DELETE FROM audit_logs WHERE details LIKE '%W4-%'");
+    await purgeAuditLogs(pool!, "DELETE FROM audit_logs WHERE details LIKE '%W4-%'");
     await pool!.query("DELETE FROM products WHERE id IN ($1, $2)", [PRODUCT, BULK]);
     await pool!.query('DELETE FROM branches WHERE id = $1', [BRANCH]);
   }

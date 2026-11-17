@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * Cost-centre allocation API — real Express app against real PostgreSQL.
  *
@@ -206,7 +207,7 @@ describe('budget allocation API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
 
   async function cleanup() {
     if (!pool) return;
-    await pool.query("DELETE FROM audit_logs WHERE details LIKE '%BGA Allocation%'");
+    await purgeAuditLogs(pool, "DELETE FROM audit_logs WHERE details LIKE '%BGA Allocation%'");
     await pool.query('DELETE FROM gl_budget_allocation_profiles WHERE branch_id IN ($1, $2)', [
       BR,
       OTHER,

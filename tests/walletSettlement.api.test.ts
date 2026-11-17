@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * ACC-3 — wallet receipts, provider settlements and PSP reconciliation over
  * real HTTP + PostgreSQL.
@@ -103,7 +104,7 @@ describe('wallet receipts, settlements and PSP reconciliation (real HTTP + Postg
     );
     await pool!.query('DELETE FROM customer_payments WHERE branch_id = $1', [BR]);
     await pool!.query('DELETE FROM gl_journals WHERE branch_id = $1', [BR]);
-    await pool!.query('DELETE FROM audit_logs WHERE details LIKE $1', ['%wallet-test%']);
+    await purgeAuditLogs(pool!, 'DELETE FROM audit_logs WHERE details LIKE $1', ['%wallet-test%']);
     await pool!.query('DELETE FROM branches WHERE id = $1', [BR]);
     walletJournalIds = [];
   }

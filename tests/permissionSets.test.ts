@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * Reusable permission sets — phase 2 (docs/permission-overrides-plan.md).
  *
@@ -329,7 +330,7 @@ describe('permission-set API', () => {
 
     await pool!.query("DELETE FROM permission_sets WHERE name LIKE 'PSET %'");
     await pool!.query("DELETE FROM user_permission_overrides WHERE user_id LIKE 'pset-%'");
-    await pool!.query("DELETE FROM audit_logs WHERE user_email = $1", [SUPER_CALLER.email]);
+    await purgeAuditLogs(pool!, "DELETE FROM audit_logs WHERE user_email = $1", [SUPER_CALLER.email]);
     await pool!.query("DELETE FROM users WHERE id LIKE 'pset-%'");
 
     const password = hashPassword('PsetTest@1');
@@ -358,7 +359,7 @@ describe('permission-set API', () => {
     if (pool && dbReachable) {
       await pool.query("DELETE FROM permission_sets WHERE name LIKE 'PSET %'");
       await pool.query("DELETE FROM user_permission_overrides WHERE user_id LIKE 'pset-%'");
-      await pool.query("DELETE FROM audit_logs WHERE user_email = $1", [SUPER_CALLER.email]);
+      await purgeAuditLogs(pool, "DELETE FROM audit_logs WHERE user_email = $1", [SUPER_CALLER.email]);
       await pool.query("DELETE FROM users WHERE id LIKE 'pset-%'");
       await pool.end();
     }

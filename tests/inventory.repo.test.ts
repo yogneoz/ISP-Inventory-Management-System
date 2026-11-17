@@ -176,7 +176,10 @@ describe('transaction-log inserts', () => {
 
   test('idempotent 14-bind insert binds timestamp_ad explicitly', () => {
     assert.equal(maxPlaceholder(TXN_INSERT_ON_CONFLICT_SQL), 14);
-    assert.match(TXN_INSERT_ON_CONFLICT_SQL, /ON CONFLICT \(id\) DO NOTHING$/);
+    // No conflict target: transaction_logs is partitioned by timestamp_ad (A7),
+    // so the primary key is (id, timestamp_ad) and no unique index on id alone
+    // exists. An unqualified DO NOTHING still suppresses the duplicate retry.
+    assert.match(TXN_INSERT_ON_CONFLICT_SQL, /ON CONFLICT DO NOTHING$/);
     assert.deepEqual(txnInsertOnConflictParams(baseTxn), [
       'txn-1', 'TXN-12345', 'p1', 'SKU-1', 'ONU', 'WH001', 'DAMAGE',
       4, -1, 3, 3500, 'OP-1', '2026-09-22T00:00:00.000Z', '2083-04-22 BS',
@@ -707,7 +710,7 @@ describe('batched reversal builders', () => {
 
   test('buildTxnMultiRowInsertSql emits one values clause per row with sequential binds and ON CONFLICT', () => {
     const sql = buildTxnMultiRowInsertSql(3);
-    assert.match(sql, /ON CONFLICT \(id\) DO NOTHING/);
+    assert.match(sql, /ON CONFLICT DO NOTHING/);
     assert.match(sql, /VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10, \$11, \$12, \$13, \$14\)/);
     // Last row ends at bind 14 * 3 = 42
     assert.match(sql, /\$29, \$30, \$31, \$32, \$33, \$34, \$35, \$36, \$37, \$38, \$39, \$40, \$41, \$42\)/);

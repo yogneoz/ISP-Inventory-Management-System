@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * WTY-5 seller warranty capture — the promise we make to the customer is
  * written where the unit leaves us, and retired when it comes back.
@@ -103,7 +104,7 @@ describe('seller warranty capture (real HTTP + PostgreSQL)', { skip: skipNoDb },
     await pool!.query("DELETE FROM serial_log WHERE device_serial LIKE 'W5-%'");
     await pool!.query('DELETE FROM transaction_logs WHERE product_id IN ($1, $2)', [PRODUCT, ZERO]);
     await pool!.query('DELETE FROM inventory_stock WHERE product_id IN ($1, $2)', [PRODUCT, ZERO]);
-    await pool!.query("DELETE FROM audit_logs WHERE details LIKE '%W5-%'");
+    await purgeAuditLogs(pool!, "DELETE FROM audit_logs WHERE details LIKE '%W5-%'");
     await pool!.query('DELETE FROM products WHERE id IN ($1, $2)', [PRODUCT, ZERO]);
     await pool!.query('DELETE FROM branches WHERE id = $1', [BRANCH]);
   }

@@ -646,24 +646,28 @@ CREATE INDEX IF NOT EXISTS idx_vendor_opening_demo ON vendor_opening_balances(id
 -- 14. Audit Trail Table
 -- ==========================================
 CREATE TABLE IF NOT EXISTS audit_logs (
-    id VARCHAR(50) PRIMARY KEY,
+    id VARCHAR(50) NOT NULL,
     user_email VARCHAR(150) NOT NULL,
     user_name VARCHAR(150) NOT NULL,
     action VARCHAR(100) NOT NULL,
     module VARCHAR(50) NOT NULL CHECK (module IN ('AUTH', 'MASTER_DATA', 'PRODUCTS', 'CATEGORIES', 'PROCUREMENT', 'LOGISTICS', 'STOCK_OPERATIONS', 'FIXED_ASSETS', 'CPE_MANAGEMENT', 'INVENTORY', 'INVENTORY_AUDIT', 'OPERATIONS', 'BRANCH_OPERATIONS', 'FISCAL_YEAR', 'APPROVAL_WORKFLOW', 'SYSTEM')),
     details TEXT,
-    timestamp_ad TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    timestamp_ad TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     timestamp_bs VARCHAR(20),
-    branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE SET NULL,
-    fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL,
-    is_demo BOOLEAN NOT NULL DEFAULT FALSE
-);
+    -- No foreign keys here on purpose: the trail must survive the deletion of the
+    -- master row it mentions. `ON DELETE SET NULL` would rewrite history through
+    -- a cascading UPDATE, which the append-only guard (rightly) refuses.
+    branch_id VARCHAR(50),
+    fiscal_year_id VARCHAR(50),
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    PRIMARY KEY (id, timestamp_ad)
+) PARTITION BY RANGE (timestamp_ad);
 
 -- ==========================================
 -- 15. Transaction Logs Table
 -- ==========================================
 CREATE TABLE IF NOT EXISTS transaction_logs (
-    id VARCHAR(100) PRIMARY KEY,
+    id VARCHAR(100) NOT NULL,
     transaction_number VARCHAR(100) NOT NULL,
     product_id VARCHAR(50) REFERENCES products(id) ON DELETE SET NULL,
     product_sku VARCHAR(100),
@@ -675,12 +679,13 @@ CREATE TABLE IF NOT EXISTS transaction_logs (
     quantity_after INT NOT NULL,
     unit_cost NUMERIC(12, 2) DEFAULT 0.00,
     reference_doc_id VARCHAR(100),
-    timestamp_ad TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    timestamp_ad TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     timestamp_bs VARCHAR(20),
     fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL,
     is_demo BOOLEAN NOT NULL DEFAULT FALSE,
-    created_by VARCHAR(150)
-);
+    created_by VARCHAR(150),
+    PRIMARY KEY (id, timestamp_ad)
+) PARTITION BY RANGE (timestamp_ad);
 
 -- ==========================================
 -- 15b. Sales Areas and Agents (Step 5)
@@ -4248,8 +4253,85 @@ CREATE OR REPLACE TRIGGER trg_sales_returns_fiscal_year BEFORE INSERT OR UPDATE 
 CREATE OR REPLACE TRIGGER trg_customer_payments_fiscal_year BEFORE INSERT OR UPDATE ON customer_payments FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('payment_date_ad');
 CREATE OR REPLACE TRIGGER trg_shipments_fiscal_year BEFORE INSERT OR UPDATE ON shipments FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('dispatch_date_ad');
 CREATE OR REPLACE TRIGGER trg_stock_operations_fiscal_year BEFORE INSERT OR UPDATE ON stock_operations FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('date_ad');
-CREATE OR REPLACE TRIGGER trg_audit_logs_fiscal_year BEFORE INSERT OR UPDATE ON audit_logs FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('timestamp_ad');
-CREATE OR REPLACE TRIGGER trg_transaction_logs_fiscal_year BEFORE INSERT OR UPDATE ON transaction_logs FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('timestamp_ad');
+-- Log tables are partitioned by month (worklist A7): the same shape the GL
+-- ledgers use. A write provisions its own month through
+-- ensure_log_month_partition(); the DEFAULT child exists so an undated or
+-- out-of-range insert can never fail, and check/repair:partitions report and
+-- drain a dirty DEFAULT instead of letting it grow silently.
+CREATE OR REPLACE FUNCTION ensure_log_month_partition(p_table TEXT, p_ts TIMESTAMPTZ)
+RETURNS void AS $$
+DECLARE
+  v_start DATE := date_trunc('month', COALESCE(p_ts, CURRENT_TIMESTAMP))::date;
+  v_end DATE := (date_trunc('month', COALESCE(p_ts, CURRENT_TIMESTAMP)) + INTERVAL '1 month')::date;
+  v_name TEXT := p_table || '_' || to_char(COALESCE(p_ts, CURRENT_TIMESTAMP), 'YYYYMM');
+BEGIN
+  IF p_table NOT IN ('audit_logs', 'transaction_logs') THEN
+    RAISE EXCEPTION 'ensure_log_month_partition: % is not a log table this function owns', p_table;
+  END IF;
+  EXECUTE format(
+    'CREATE TABLE IF NOT EXISTS %I PARTITION OF %I FOR VALUES FROM (%L) TO (%L)',
+    v_name, p_table, v_start, v_end
+  );
+  IF p_table = 'audit_logs' THEN
+    EXECUTE format(
+      'CREATE OR REPLACE TRIGGER %I BEFORE UPDATE OR DELETE ON %I FOR EACH ROW EXECUTE FUNCTION reject_audit_log_mutation()',
+      v_name || '_append_only', v_name
+    );
+  END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Month creation is its own statement on the write path (audit.service calls
+-- ensure_log_month_partition before its INSERT), because PostgreSQL refuses
+-- CREATE TABLE ... PARTITION OF inside the statement that inserts into the same
+-- table. A row that still lands in DEFAULT never fails and is moved into its
+-- month by the keeper's repair tick.
+
+-- Audit rows are evidence: no UPDATE, no DELETE, unless the same explicit
+-- switch the ledger purge uses is set for the transaction.
+CREATE OR REPLACE FUNCTION reject_audit_log_mutation()
+RETURNS trigger AS $$
+BEGIN
+  IF current_setting('inventory.allow_ledger_purge', true) = 'on' THEN
+    IF TG_OP = 'DELETE' THEN
+      RETURN OLD;
+    END IF;
+    RETURN NEW;
+  END IF;
+  RAISE EXCEPTION 'audit_logs is append-only: % is not allowed. Use a sanctioned purge (SET LOCAL inventory.allow_ledger_purge = ''on'') if history must be removed.', TG_OP;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER trg_audit_logs_fiscal_year
+  BEFORE INSERT OR UPDATE ON audit_logs FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('timestamp_ad');
+CREATE OR REPLACE TRIGGER trg_transaction_logs_fiscal_year
+  BEFORE INSERT OR UPDATE ON transaction_logs FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('timestamp_ad');
+
+CREATE TABLE IF NOT EXISTS audit_logs_default PARTITION OF audit_logs DEFAULT;
+CREATE TABLE IF NOT EXISTS transaction_logs_default PARTITION OF transaction_logs DEFAULT;
+
+CREATE OR REPLACE TRIGGER trg_audit_logs_append_only
+  BEFORE UPDATE OR DELETE ON audit_logs FOR EACH ROW EXECUTE FUNCTION reject_audit_log_mutation();
+
+-- A child-level trigger does not fire from the parent and vice versa, so every
+-- audit child carries the guard too.
+DO $$
+DECLARE
+  v_child RECORD;
+BEGIN
+  FOR v_child IN
+    SELECT c.relname AS name
+      FROM pg_class c
+      JOIN pg_inherits i ON i.inhrelid = c.oid
+      JOIN pg_class p ON p.oid = i.inhparent
+     WHERE p.relname = 'audit_logs'
+  LOOP
+    EXECUTE format(
+      'CREATE OR REPLACE TRIGGER %I BEFORE UPDATE OR DELETE ON %I FOR EACH ROW EXECUTE FUNCTION reject_audit_log_mutation()',
+      v_child.name || '_append_only', v_child.name
+    );
+  END LOOP;
+END $$;
 CREATE OR REPLACE TRIGGER trg_customer_devices_fiscal_year BEFORE INSERT OR UPDATE ON customer_device_records FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('issued_date_ad');
 CREATE OR REPLACE TRIGGER trg_approval_requests_fiscal_year BEFORE INSERT OR UPDATE ON approval_requests FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('requested_at_ad');
 CREATE OR REPLACE TRIGGER trg_vendor_payments_fiscal_year BEFORE INSERT OR UPDATE ON vendor_payments FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('payment_date_ad');

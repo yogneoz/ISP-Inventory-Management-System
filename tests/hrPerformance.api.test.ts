@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * Phase 4 performance API — real HTTP + PostgreSQL.
  *
@@ -83,7 +84,7 @@ describe('HR performance API (real HTTP + PostgreSQL)', { skip: skipNoDb }, () =
     await pool!.query('DELETE FROM hr_review_cycles WHERE branch_id = ANY($1::varchar[])', [
       [BRANCH_A, BRANCH_B],
     ]);
-    await pool!.query('DELETE FROM audit_logs WHERE branch_id = ANY($1::varchar[])', [
+    await purgeAuditLogs(pool!, 'DELETE FROM audit_logs WHERE branch_id = ANY($1::varchar[])', [
       [BRANCH_A, BRANCH_B],
     ]);
     await pool!.query(

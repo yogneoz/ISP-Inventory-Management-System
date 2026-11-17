@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * Payment documents → ledger → cash book, driven through the real HTTP routes
  * against PostgreSQL.
@@ -127,7 +128,7 @@ describe('payment documents and the cash/bank book (real HTTP + PostgreSQL)', { 
     await pool!.query("DELETE FROM transaction_logs WHERE product_id LIKE 'pcb-%'");
     await pool!.query("DELETE FROM products WHERE id LIKE 'pcb-%'");
     await pool!.query("DELETE FROM customer_records WHERE id LIKE 'pcb-%'");
-    await pool!.query('DELETE FROM audit_logs WHERE branch_id = $1', [BR]);
+    await purgeAuditLogs(pool!, 'DELETE FROM audit_logs WHERE branch_id = $1', [BR]);
     await pool!.query('DELETE FROM branches WHERE id = $1', [BR]);
   }
 

@@ -1,3 +1,4 @@
+import { purgeAuditLogs } from './support/purgeAuditLogs';
 /**
  * Accounting ledger API — real Express app against real PostgreSQL.
  *
@@ -167,7 +168,7 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
     await pool!.query("DELETE FROM gl_periods WHERE period_key = $1 AND id LIKE 'glp-%'", [PERIOD_KEY]);
     await pool!.query("DELETE FROM gl_accounts WHERE code LIKE 'ATC-%'");
     await pool!.query("DELETE FROM gl_account_groups WHERE code LIKE 'ATC-%'");
-    await pool!.query("DELETE FROM audit_logs WHERE details LIKE '%ACC TEST%' OR details LIKE '%ATC-%'");
+    await purgeAuditLogs(pool!, "DELETE FROM audit_logs WHERE details LIKE '%ACC TEST%' OR details LIKE '%ATC-%'");
 
     const matrix = JSON.parse(JSON.stringify(DEFAULT_PERMISSIONS_MATRIX));
     setPermissionMatrix(matrix);
@@ -209,7 +210,7 @@ describe('accounting ledger API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
       await pool.query("DELETE FROM gl_periods WHERE period_key = $1 AND id LIKE 'glp-%'", [PERIOD_KEY]);
       await pool.query("DELETE FROM gl_accounts WHERE code LIKE 'ATC-%'");
       await pool.query("DELETE FROM gl_account_groups WHERE code LIKE 'ATC-%'");
-      await pool.query("DELETE FROM audit_logs WHERE details LIKE '%ACC TEST%' OR details LIKE '%ATC-%'");
+      await purgeAuditLogs(pool, "DELETE FROM audit_logs WHERE details LIKE '%ACC TEST%' OR details LIKE '%ATC-%'");
       await pool.end();
     }
   });
