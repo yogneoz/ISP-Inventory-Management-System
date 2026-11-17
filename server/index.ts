@@ -10,6 +10,7 @@ import { resolveSetupToken } from './src/boot/setupToken';
 import { initializeSharedState, assertSharedStateForWorkers, closeSharedState } from './src/state/sharedStore';
 import { withStartupLeadership } from './src/state/sharedLock';
 import { startSseSubscriber, stopSseSubscriber } from './src/realtime/sse';
+import { startReferenceCacheInvalidation } from './src/state/cacheInvalidation';
 
 /**
  * Every terminal exit of this process goes through ONE lifecycle:
@@ -113,6 +114,9 @@ async function startServer() {
   if (!startup.leader) console.log('Boot schema/seed already completed by another worker; skipping the duplicate job.');
   try {
     await startSseSubscriber();
+    // A3: a master-data write on one worker must refresh the reference caches on
+    // every other worker. Single-worker installs skip it (nothing to tell).
+    await startReferenceCacheInvalidation();
   } catch (err: any) {
     // SSE fan-out is a read-side convenience, not a security control: keep
     // serving local clients and alert if the subscriber cannot attach.

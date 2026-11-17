@@ -95,12 +95,29 @@ the case where a broken alarm would look green — makes the script **exit 1**.
 Not provable here: neither workflow has run on GitHub (private repo, no token),
 so the YAML itself is reviewed rather than observed.
 
-### A3 — Cross-worker reference-cache staleness `[ ]`
+### A3 — Cross-worker reference-cache staleness `[x]`
 
 Evidence: edits land only in the editing worker's binding.
 Done when: a master-data write publishes an invalidation for that cache name on
 the existing shared bus and every worker re-runs that `CACHE_LOADS` entry; a test
 proves a second worker observes the change without a restart.
+
+**Done (2026-11-17).** `state/cacheWriteHook.ts` is the dependency-free choke
+point: the ten reference-cache setters in `runtimeState` announce the write,
+`state/cacheInvalidation.ts` publishes `{ name, origin }` on
+`isp:cache:invalidated`, and every worker's subscriber re-runs that one
+`CACHE_LOADS` entry against PostgreSQL. The writing worker ignores its own
+message (its binding is already the current one), a name that is not in
+`CACHE_LOADS` is refused rather than guessed, and without Redis there is nothing
+to publish while the write still lands. `server/index.ts` wires it right after
+the SSE subscriber. `tests/referenceCacheInvalidation.test.ts` is 6/6, using the
+in-memory store in Redis mode — the repository's documented convention for the
+shared contract, since no Redis daemon is installed here — and proves a write on
+worker A reaches worker B's binding with no restart, plus the four guards above
+and a source pin that every hydrated reference cache except the hot stock
+projection announces. Live: the dev server reloaded this boot path and still
+answers `GET /api/health` 200. Not proven here: a real cross-process hop over a
+Redis socket, and a browser-visible refresh (the binding is server-side).
 
 ### A4 — Comment-insensitive migration checksums, and an immutability guard `[x]`
 
@@ -141,11 +158,43 @@ were `0003_partition_journals 3b948e1a…`, `0014_chart_governance e0b16c7d…` 
 `0016_existing_install_backfill fbce5ead…`; the outcome is in
 `SESSION_NOTES.md`.
 
-### A5 — Repair path for a dirty `DEFAULT` partition `[ ]`
+### A5 — Repair path for a dirty `DEFAULT` partition `[x]`
 
 Done when: a script detaches `DEFAULT`, creates the missing months, reinserts the
 rows through the parent and reattaches — rehearsed on a throwaway database, with
 a test that starts from a dirty `DEFAULT` and ends at a clean one.
+
+**Done (2026-11-17).** `server/src/boot/journalPartitionRepair.ts`, driven by
+`npm run repair:partitions [-- --apply]`. Plan mode reports the months and moves
+nothing. The repair is one transaction: stage both DEFAULT children in temporary
+tables, clear DEFAULT under the schema's own `inventory.allow_ledger_purge`
+switch (`SET LOCAL`), create the months with `ensure_journal_month_partition`,
+reinsert through the parent, and verify every staged row is readable from the
+parent again before COMMIT — a row that did not land aborts the transaction. The
+registry-sync triggers are disabled only for the reinsert (their rows already
+exist) and re-enabled before COMMIT.
+
+**Deliberate deviation from this note's wording.** Detaching is not possible for
+this schema: a line in `gl_journal_lines_default` references its journal row by
+the composite key, so `DETACH PARTITION gl_journals_default` fails with
+*removing partition … violates foreign key constraint*; detaching the lines child
+first only moves the error, and dropping the detached table's FK does not
+round-trip through `ATTACH` (both were measured before the design changed). The
+staging path reaches the same end state — DEFAULT empty and still attached,
+every row in its month, nothing lost — without touching any other month's
+membership.
+
+**Proof.** `tests/defaultPartitionRepair.test.ts` is 4/4 against a throwaway
+database: the starting state really is a dirty DEFAULT, a plan run moves nothing,
+the repair moves the journal **and its line** into `gl_journals_201908` /
+`gl_journal_lines_201908` with `DEFAULT` at 0/0, one registry row and both
+registry triggers re-enabled, and a second run reports `clean`. Live CLI on a
+throwaway `inventory_repair_probe` built from `scripts/schema.sql`: dirty 1
+journal / 1 line → plan **exit 0**, nothing moved → `--apply` **exit 0** printing
+`DEFAULT after 0 journal / 0 line` with `journals_201908=1` and
+`lines_201908=1` → rerun **exit 0** ("nothing to repair"); database dropped.
+Not covered: an undated row (the repair refuses and says so) has no test, and the
+repair is not wired into boot — it is an operator command, like `--apply`.
 
 ### A6 — Storage-parameter drift guard `[x]`
 
@@ -223,6 +272,11 @@ on the Redis state and MFA work in Part B.
 - 2026-11-17 — round opened; Rounds 11, 13 and 14 terminated as active plans and
   carried as Parts B and C. **A1 done**: keeper module + wiring + 5 tests
   (`npx tsc --noEmit` 0, suite green).
+- 2026-11-17 — **A3 and A5 done**: the shared-bus cache invalidation (10 setters
+  announce, every worker re-runs its `CACHE_LOADS` entry) and the dirty-`DEFAULT`
+  repair (`npm run repair:partitions`, staged and transactional, because detach
+  is refused by the line→journal FK). Tests: `tests/referenceCacheInvalidation.test.ts`
+  (6) and `tests/defaultPartitionRepair.test.ts` (4).
 - 2026-11-17 — **A2, A4 and A6 done**: the daily alarm and its self-test, the
   comment-insensitive checksums with both legacy conventions, and the
   storage-parameter drift guard. New tests: `tests/migrationChecksums.test.ts`

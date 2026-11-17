@@ -15,6 +15,9 @@
  * did `import { users } from '../app'` still observes updates.
  */
 import { BOOTSTRAP_TABLES, buildCacheSelectSql } from '../models/columnMappings';
+// A3: the setters below are the single choke point every master-data write goes
+// through, so this is where "this cache was rewritten" is announced.
+import { notifyReferenceCacheWrite } from './cacheWriteHook';
 import {
   INITIAL_BILL_TERMS,
   INITIAL_COMPANY_PROFILE,
@@ -95,17 +98,17 @@ let dataVersion = Date.now();
 let stateVersion = Date.now();
 
 // Setters — the ONLY way other modules may change these bindings.
-export function setCompanyProfile(value: CompanyProfile): void { companyProfile = value; }
+export function setCompanyProfile(value: CompanyProfile): void { companyProfile = value; notifyReferenceCacheWrite('companyProfile'); }
 export function setDocNumberConfigs(value: DocumentNumberConfig[]): void { docNumberConfigs = value; }
-export function setUsers(value: readonly User[]): void { users = value; }
-export function setSuppliers(value: readonly Supplier[]): void { suppliers = value; }
-export function setUomList(value: readonly UnitOfMeasure[]): void { uomList = value; }
-export function setLocationRecords(value: readonly LocationRecord[]): void { locationRecords = value; }
-export function setBranches(value: readonly Branch[]): void { branches = value; }
-export function setFiscalYears(value: readonly FiscalYear[]): void { fiscalYears = value; }
-export function setProducts(value: readonly Product[]): void { products = value; }
-export function setCategories(value: readonly Category[]): void { categories = value; }
-export function setProductGroups(value: readonly ProductGroup[]): void { productGroups = value; }
+export function setUsers(value: readonly User[]): void { users = value; notifyReferenceCacheWrite('users'); }
+export function setSuppliers(value: readonly Supplier[]): void { suppliers = value; notifyReferenceCacheWrite('suppliers'); }
+export function setUomList(value: readonly UnitOfMeasure[]): void { uomList = value; notifyReferenceCacheWrite('uom'); }
+export function setLocationRecords(value: readonly LocationRecord[]): void { locationRecords = value; notifyReferenceCacheWrite('locations'); }
+export function setBranches(value: readonly Branch[]): void { branches = value; notifyReferenceCacheWrite('branches'); }
+export function setFiscalYears(value: readonly FiscalYear[]): void { fiscalYears = value; notifyReferenceCacheWrite('fiscalYears'); }
+export function setProducts(value: readonly Product[]): void { products = value; notifyReferenceCacheWrite('products'); }
+export function setCategories(value: readonly Category[]): void { categories = value; notifyReferenceCacheWrite('categories'); }
+export function setProductGroups(value: readonly ProductGroup[]): void { productGroups = value; notifyReferenceCacheWrite('product_groups'); }
 export function setBillTerms(value: readonly BillTerm[]): void { billTerms = value; }
 export function setCostCenters(value: readonly CostCenter[]): void { costCenters = value; }
 export function setNarrationTemplates(value: readonly NarrationTemplate[]): void { narrationTemplates = value; }

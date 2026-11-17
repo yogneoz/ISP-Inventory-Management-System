@@ -11,6 +11,7 @@
     "clean": "rm -rf dist server.js",
     "integrity:check": "node scripts/integrity_check.mjs",
     "check:partitions": "tsx scripts/check_partitions.ts",
+    "repair:partitions": "tsx scripts/repair_default_partitions.ts",
     "smoke": "node scripts/smoke_test.mjs",
     "bench:write": "node scripts/bench_write_latency.mjs",
     "perf:bootstrap": "node scripts/load_probe_bootstrap.mjs",
