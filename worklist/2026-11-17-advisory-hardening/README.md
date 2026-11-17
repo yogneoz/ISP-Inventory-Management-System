@@ -400,3 +400,18 @@ on the Redis state and MFA work in Part B.
   replayed (never checksum-forged), server booting again. Next: A3 (cross-worker
   reference-cache staleness), A5 (the dirty `DEFAULT` repair path), A7 (log-table
   partitions and the audit append-only guard).
+- 2026-11-17 — **A7 done**: migration 0032 partitions `audit_logs` and
+  `transaction_logs` by month with a DEFAULT child, month creation on the audit
+  write path plus the boot/keeper window, an append-only guard on the audit trail
+  (parent and every child) behind `inventory.allow_ledger_purge`, and a
+  populated-install conversion that stages rows and constraints first so upgrade
+  and fresh schemas agree on names. `tests/logTablePartitions.test.ts` (7) plus
+  44 test files moved onto `purgeAuditLogs`. Populated pre-A7 database: 3 audit /
+  2 transaction rows before and after, both applies exit 0, second a no-op.
+- 2026-11-17 — **A8 done**: `npm run ci:local` runs the four workflow jobs
+  (static checks, partition window + negative control on a throwaway database,
+  fresh-install/build/bundle budget, full suite + docs gate) with strict job
+  selection; `tests/ciLocal.test.ts` (6) pins its commands to `ci.yml`. The
+  startup budget was red at 324.1 kB and is recalibrated to 330 kB on
+  measurement (no lazy leak; eager screen weight), and the runner strips
+  `NODE_ENV` so a local build is production, not a development React bundle.
