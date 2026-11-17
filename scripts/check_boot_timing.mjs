@@ -60,7 +60,18 @@
  * (a value that ignores typed text) and `shell` (the screen replaced by a
  * loading shell). Each exits 1 naming the element and the reason. --self-test
  * runs the healthy case and every fault in one session, and fails if any of
- * them was NOT detected.
+ * them was NOT detected. --inject-exception throws a real application error in
+ * the page to prove the fatal page-error path still fails on both servers.
+ *
+ * DEV SERVER
+ * `--base-url http://localhost:3000` works against `npm run dev`; the paint-order
+ * and input-readiness assertions run exactly as they do against `dist/`. Vite's
+ * HMR client rejects its own transport promise with "WebSocket closed without
+ * opened." when our back-to-back navigations close the previous document's
+ * socket mid-handshake (`/@vite/client`, vite 6.4.5 client.mjs:442-456). That
+ * message from that script is counted and printed as ignored dev tooling — the
+ * production bundle ships no HMR client — and every other page exception stays
+ * fatal (see scripts/browserPageErrors.mjs).
  *
  * The server needs PostgreSQL and the demo account seeded by `npm run setup:pg`
  * (superadmin@example.com / Demo@123 by default). Override the account with
@@ -85,6 +96,7 @@ import {
   retryBrowserLaunch,
 } from './bootTimingLaunchRetry.mjs';
 import { INPUT_FAULTS, describeReadiness, runInputReadiness } from './inputReadiness.mjs';
+import { describeIgnoredDevTooling, partitionPageErrors } from './browserPageErrors.mjs';
 
 const ROOT = process.cwd();
 const DEFAULT_BUDGET_MS = 6000;
@@ -1063,8 +1075,32 @@ async function main() {
   }
   const warm = await measureReload('Warm reload (cached bootstrap)', { clearCache: false, baseUrl });
 
-  if (pageErrors.length) {
-    throw new Error(`uncaught page exception(s) during boot:\n${pageErrors.join('\n')}`);
+  // A dev server ships Vite's HMR client, whose transport rejects with
+  // "WebSocket closed without opened." when our own back-to-back navigations
+  // close the previous socket mid-handshake. That is serving-stack tooling, it
+  // cannot exist in the production bundle, and it is the ONLY page error this
+  // check ignores — matched on both the message and the /@vite/client frame, so
+  // an app exception (including one that throws the same words) stays fatal.
+  const { fatal: fatalPageErrors, devTooling: ignoredDevTooling } = partitionPageErrors(pageErrors);
+  const ignoredLine = describeIgnoredDevTooling(ignoredDevTooling);
+  if (ignoredLine) log(`\n${ignoredLine}`);
+  if (fatalPageErrors.length) {
+    throw new Error(`uncaught page exception(s) during boot:\n${fatalPageErrors.join('\n')}`);
+  }
+
+  // --inject-exception proves the fatal path itself: a real, app-level throw
+  // must fail this check on both the production build and the dev server.
+  if (hasFlag('--inject-exception')) {
+    await evaluate(`(() => {
+      setTimeout(() => { throw new Error('deliberate app exception injected by --inject-exception'); }, 0);
+      return true;
+    })()`);
+    await sleep(400);
+    if (!pageErrors.length) throw new Error('--inject-exception did not reach the page as a page error');
+    // Report only the fatal ones: on a dev server the ignored HMR noise must not
+    // appear in a failure message as if it were part of the cause.
+    const { fatal: injectedFatal } = partitionPageErrors(pageErrors);
+    throw new Error(`uncaught page exception(s) during boot:\n${injectedFatal.join('\n')}`);
   }
   if (consoleErrors.length) {
     log(`\nConsole errors during boot (${consoleErrors.length}), first few:`);

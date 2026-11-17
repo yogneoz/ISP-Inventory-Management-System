@@ -547,6 +547,8 @@ docker run -d \
 
 It then proves the settled page can **receive input**, not merely that it rendered: the tab is brought to the front and must report itself visible and focused, `<main>` must contain an interactive control, and the chosen control must survive the browser's own hit-test (nothing covering it), not be disabled or read-only, take focus, and change value when text is typed through the real event path. A hidden or unfocused document, a backdrop over the field, a disabled form or a never-interactive loading shell fails the gate with a message naming the element and the reason. `-- --inject overlay|disabled|readonly|unfocusable|nontyping|shell` reproduces each failure state and `-- --self-test` proves every one of them is caught.
 
+It runs against a live dev server too (`npm run check:boot-timing -- --base-url http://localhost:3000 --budget-ms 12000`). Vite's HMR client throws `WebSocket closed without opened.` from `/@vite/client` when repeated automated navigations close its socket mid-handshake; that single message from that single script is counted and printed as ignored dev tooling, because the production bundle ships no HMR client at all — every other page exception stays fatal on both paths. `-- --inject-exception` throws a real application exception in the page to prove that path still fails.
+
 It needs a production build (`npm run build`, or pass `-- --build`), a reachable PostgreSQL and the demo account (`superadmin@example.com` / `Demo@123` by default; override with `BOOT_TRACE_EMAIL` / `BOOT_TRACE_PASSWORD`). Pass `-- --base-url http://host:port` to measure an already-running production server instead of starting one. Chrome/Edge/Chromium is auto-detected; set `BOOT_TRACE_BROWSER` if needed. It is not part of `npm test`, which must stay runnable without a browser, but CI runs it as a hard gate after the production build: `npm run setup:pg -- --force --skip-backup-check` seeds the demo account first, the CI budget is 12 s instead of the 6 s local default, and a missing browser fails the job rather than skipping the check. A launch that dies before writing `DevToolsActivePort` — a known GitHub-runner flake — is retried up to three times with a fresh profile before the gate fails.
 
 ---
@@ -826,7 +828,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 2609-test suite against a PostgreSQL 16 service container (zero DB skips;
+  full 2616-test suite against a PostgreSQL 16 service container (zero DB skips;
   the two unconditional skips are Windows-only real-signal checks, which CI runs,
   and the live-drain check runs under `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1` so its
   preconditions cannot silently skip it) →

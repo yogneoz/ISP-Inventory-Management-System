@@ -230,7 +230,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 2609 tests; CI runs
+                                        #   drift/concurrency guards — 2616 tests; CI runs
                                         #   tsc + npm test + the source guards + the
                                         #   production build + the boot-timing gate +
                                         #   npm audit on every push/PR
@@ -1538,7 +1538,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 2609 tests against a real PostgreSQL 16 service container
+2. `npm test` — 2616 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM
@@ -1582,7 +1582,20 @@ fails with the old 503 body on the pre-fix code.
    a DOM-presence test cannot catch that, because the splash covers both. It also
    asserts the settled screen and that the warm reload never mounts the shell
    spinner, and prints the splash window (measured 2026-10-29: ~0.93–1.12 s cold,
-   ~0.30–0.39 s warm). A missing browser or a failed login fails the job — there
+   ~0.30–0.39 s warm). It also proves the settled page can **receive input** —
+   the tab is brought to the front and must report visible and focused, `<main>`
+   must hold an interactive control, and the chosen control must pass the
+   browser's own hit-test, not be disabled or read-only, take focus, and change
+   value when typed through the real event path; the failure names the element
+   and the reason. `--inject overlay|disabled|readonly|unfocusable|nontyping|shell`
+   reproduces each state, `--self-test` proves all are caught, and
+   `--inject-exception` throws a real app exception to prove that path still
+   fails. Against a live dev server (`--base-url`) Vite's HMR client's own
+   `WebSocket closed without opened.` from `/@vite/client` — thrown when the
+   check's repeated navigations close its socket mid-handshake — is counted and
+   printed as ignored dev tooling; that exact message from that exact script is
+   the only page error ignored, and the production bundle ships no HMR client at
+   all. A missing browser or a failed login fails the job — there
    is no skip path. A launch that dies before writing `DevToolsActivePort` (a
    known GitHub-runner flake) is retried up to three times with a fresh profile
    before the gate fails, so a botched browser start cannot red the build. The

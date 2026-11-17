@@ -452,16 +452,53 @@ wiring: the gate imports the probe, folds its problems into the same failure lis
 that reddens the job, refuses an unknown `--inject` value, and the overlay/shell
 injections really paint a full-viewport layer and a loading shell.
 
-**Deviation / unproven.** The dev-server path (`--base-url http://localhost:3000`)
-cannot be used for the paint-order assertions at all: Vite's HMR socket throws
-`WebSocket closed without opened` on every navigation, which the gate correctly
-treats as an uncaught page exception. The readiness phase itself is dev-server
-safe; the production build is how CI and this proof run it. `Page.bringToFront`
-is what makes focus arrive in headless Edge here; on a runner where focus cannot
-be granted the gate fails rather than pretending, which is the intended
-behaviour but has not been observed on Linux CI. No app code needed changing —
-the real Create Sales Invoice form accepts input. The gate remains outside
-`npm test` (it needs a browser and a seeded demo account).
+**Dev-server path, fixed the same day (follow-up).** The first delivery could
+only be trusted against `dist/`: pointed at `--base-url http://localhost:3000`
+the gate aborted with `Error: WebSocket closed without opened. at
+WebSocket.<anonymous> (http://localhost:3000/@vite/client:454:22)`. Root cause,
+read in the installed source (vite 6.4.5,
+`node_modules/vite/dist/client/client.mjs:442-456`): Vite's HMR client waits for
+its transport's `open` event and rejects that promise from its `close` listener
+with exactly those words. The check's back-to-back navigations close the
+previous document's socket while the next one is still connecting, so the
+rejection escapes as an unhandled page error. Nothing in the app runs it, and
+the production bundle ships no HMR client at all — the failure was the gate's own
+navigation pattern meeting dev-only serving tooling, not a boot, paint-order or
+tab-activation defect.
+
+`scripts/browserPageErrors.mjs` now classifies captured page errors. Exactly one
+message (`WebSocket closed without opened.`) raised from exactly one script
+(`/@vite/client`, matched in the stack) is treated as dev tooling: it is counted
+and printed (`⚠ ignored 2 Vite HMR tooling error(s) — the dev server's own …`)
+and it cannot hide anything else. Every other page exception stays fatal on both
+paths, including an app that throws the same words from its own stack (pinned by
+test). `--inject-exception` throws a real application error in the page so the
+fatal path is provable rather than assumed.
+
+**Proven on the dev-server path** (live `npm run dev` on port 3000, budget 12 s):
+- healthy: **exit 0**, paint-order assertions genuinely ran (`frames sampled
+  52`, splash lifted at 1,809 ms cold / 1,481 ms warm, fallback and spinner 0
+  visible frames) and `✔ Input readiness — page visible and focused; 10
+  interactive control(s) in <main>; typed into it "input[…Search customer name,
+  code, ph…]" and the value changed.`
+- all six faults (`overlay`, `disabled`, `readonly`, `unfocusable`, `nontyping`,
+  `shell`) **exit 1**, each naming the element and the reason — identical
+  messages to the production run.
+- `--inject-exception` **exit 1**: `uncaught page exception(s) during boot:
+  Error: deliberate app exception injected by --inject-exception`.
+
+The production path re-verified after the change: healthy **exit 0**,
+`--self-test` **exit 0** (healthy + all six faults), `--inject-exception`
+**exit 1**. `tests/browserPageErrors.test.ts` (7) pins the narrow match and the
+two near-misses (same wording from an app stack; a different Vite client error),
+plus the wiring in the gate.
+
+**Remaining limitation.** `Page.bringToFront` is what makes focus arrive in
+headless Edge here; on a runner where focus cannot be granted the gate fails
+rather than pretending, which is the intended behaviour but has not been observed
+on Linux CI. No app code needed changing — the real Create Sales Invoice form
+accepts input on both paths. The gate remains outside `npm test` (it needs a
+browser and a seeded demo account).
 
 ## Part B — carried from Rounds 11 and 13
 
@@ -548,3 +585,16 @@ on the Redis state and MFA work in Part B.
   the element and the reason; `--self-test` **exit 0** with all six caught.
   `tests/inputReadiness.test.ts` (17). No app code changed — the real form does
   accept input.
+- 2026-11-17 — **A10 dev-server follow-up**: the gate aborted against
+  `--base-url http://localhost:3000` on Vite's own `WebSocket closed without
+  opened.` (`/@vite/client:454`, vite 6.4.5 `client.mjs:442-456` — the HMR
+  transport rejects its `open` promise from its `close` listener when the
+  check's repeated navigations close the socket mid-handshake).
+  `scripts/browserPageErrors.mjs` now ignores exactly that message from exactly
+  that script, counts and prints it, and keeps every other page exception fatal;
+  `--inject-exception` throws a real app error to prove it. Live dev server:
+  healthy **exit 0** with paint-order assertions actually running (52 frames,
+  splash 1,809 ms cold / 1,481 ms warm) and the readiness pass line; all six
+  faults **exit 1** naming the element; `--inject-exception` **exit 1**.
+  Production re-verified (0 / self-test 0 / exception 1).
+  `tests/browserPageErrors.test.ts` (7).
