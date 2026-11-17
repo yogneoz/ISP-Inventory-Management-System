@@ -22,6 +22,12 @@ import { rememberSessionVersion, sessionStillValidShared } from '../server/src/s
 import { createSharedLock, withStartupLeadership } from '../server/src/state/sharedLock';
 import { createAuthRateLimit } from '../server/src/middleware/authRateLimit';
 import { createSseBus, createSseHub } from '../server/src/realtime/sse';
+import {
+  adoptSharedStateVersion,
+  recordWriteStateVersion,
+  STATE_VERSION_KEY,
+} from '../server/src/state/bootstrapVersion';
+import { getStateVersion, setStateVersion } from '../server/src/state/runtimeState';
 
 let store: MemorySharedStore;
 
@@ -184,5 +190,41 @@ describe('SCALE-1 SSE fan-out', () => {
     assert.match(writes[0], /SALE_CREATED/);
     assert.match(writes[0], /"domain"/);
     assert.match(writes[0], /"dataVersion"/);
+  });
+});
+
+describe('SCALE-4 shared bootstrap payload version', () => {
+  test('a write on worker A moves the validator worker B computes', async () => {
+    // Both workers start from the same shared counter (the first adopt seeds it).
+    const seeded = await adoptSharedStateVersion();
+    assert.equal(seeded, getStateVersion());
+    assert.equal(await store.get(STATE_VERSION_KEY), String(seeded));
+
+    // A handles a committed write and records it.
+    const afterWrite = await recordWriteStateVersion();
+    assert.equal(afterWrite, seeded + 1, 'the shared counter advances exactly once per write');
+
+    // B still holds its pre-write value (nothing told it about the write); the
+    // ETag it is about to compute must not reuse it.
+    setStateVersion(seeded);
+    assert.equal(await adoptSharedStateVersion(), afterWrite, 'B must adopt the shared value');
+    assert.equal(getStateVersion(), afterWrite);
+  });
+
+  test('without Redis a single worker still invalidates its own validator', async () => {
+    configureSharedStore(new MemorySharedStore());
+    const before = getStateVersion();
+    assert.equal(await recordWriteStateVersion(), before + 1);
+    assert.equal(await adoptSharedStateVersion(), before + 1, 'adopt is a no-op without a shared store');
+  });
+
+  test('a store failure falls back to the local counter instead of failing the write', async () => {
+    const broken = new MemorySharedStore('redis');
+    broken.incr = async () => { throw new Error('redis down'); };
+    broken.get = async () => { throw new Error('redis down'); };
+    configureSharedStore(broken);
+    const before = getStateVersion();
+    assert.equal(await recordWriteStateVersion(), before + 1, 'the write path never rejects');
+    assert.equal(await adoptSharedStateVersion(), before + 1, 'the local counter remains the validator');
   });
 });

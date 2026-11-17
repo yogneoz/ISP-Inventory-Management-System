@@ -15,11 +15,15 @@
  *
  * A write that fails (4xx/5xx) does not bump: the payload did not change.
  * An out-of-band SQL edit bypasses this hook; a restart (fresh stateVersion)
- * or any subsequent write revalidates. The same caveat applies to a second
- * worker until SCALE-1 moves stateVersion to Redis.
+ * or any subsequent write revalidates.
+ *
+ * The counter is bumped through `state/bootstrapVersion.ts`, which keeps it in
+ * Redis when the cluster shares a store: otherwise a write handled by worker A
+ * left worker B's counter — and therefore its ETag — untouched, so B could
+ * answer 304 for a payload that had already changed.
  */
 import type { Request, Response, NextFunction } from 'express';
-import { bumpStateVersion } from '../state/runtimeState';
+import { recordWriteStateVersion } from '../state/bootstrapVersion';
 
 const NON_DATA_WRITES = new Set([
   '/auth/login',
@@ -39,7 +43,9 @@ export function bumpStateVersionOnWrite(req: Request, res: Response, next: NextF
   }
 
   res.on('finish', () => {
-    if (res.statusCode >= 200 && res.statusCode < 400) bumpStateVersion();
+    // Fire-and-forget: the response is already sent, and a shared-store failure
+    // falls back to the local bump instead of failing the write.
+    if (res.statusCode >= 200 && res.statusCode < 400) void recordWriteStateVersion();
   });
   next();
 }

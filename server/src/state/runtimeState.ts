@@ -88,8 +88,9 @@ let dataVersion = Date.now();
  * Version of the bootstrap payload's *content*, independent of dataVersion
  * (which SSE/sync keeps for its own invalidation contract). Every successful
  * non-GET bumps it once, so an ETag derived from it cannot claim "not
- * modified" after a write. In-memory per worker; SCALE-1 moves it to Redis
- * before horizontal workers, exactly like dataVersion/ver.
+ * modified" after a write. This binding is the worker-local mirror; with Redis
+ * configured `state/bootstrapVersion.ts` keeps it in step with the shared
+ * counter, so a write on one worker invalidates the validator on all of them.
  */
 let stateVersion = Date.now();
 
@@ -139,6 +140,7 @@ export function getActiveUser(): User | null { return activeUser; }
 export function getDataVersion(): number { return dataVersion; }
 export function setDataVersion(v: number): void { dataVersion = v; }
 export function getStateVersion(): number { return stateVersion; }
+export function setStateVersion(v: number): void { stateVersion = v; }
 export function bumpStateVersion(): void { stateVersion += 1; }
 
 // ---------------------------------------------------------------------------

@@ -7,7 +7,7 @@
  */
 import type { Request, Response } from 'express';
 import { createHash } from 'node:crypto';
-import { getStateVersion } from '../state/runtimeState';
+import { adoptSharedStateVersion } from '../state/bootstrapVersion';
 import {
   APP_SETTING_KEYS,
   APP_SETTINGS_SELECT_SQL,
@@ -39,14 +39,16 @@ import { effectivePermission } from '../services/permissionOverrides.service';
  * scope. It is computed BEFORE the first query so a 304 costs no database
  * work. The fiscal-year component is the *requested* selector, not the
  * resolved year: resolving the default year would itself require a query.
- * Every successful write bumps stateVersion, and user.ver covers role, branch
- * scope, switch permission, status and password, so the only way to change
- * the payload without changing this value is an out-of-band SQL edit; a
- * restart or any later write revalidates.
+ * Every successful write bumps stateVersion (shared through Redis when workers
+ * share a store), and user.ver covers role, branch scope, switch permission,
+ * status and password, so the only way to change the payload without changing
+ * this value is an out-of-band SQL edit; a restart or any later write
+ * revalidates.
  */
-function bootstrapEtag(user: any, branchId?: string, fiscalYearId?: string): string {
+async function bootstrapEtag(user: any, branchId?: string, fiscalYearId?: string): Promise<string> {
+  const version = await adoptSharedStateVersion();
   const scope = `${user?.id || ''}|${user?.ver ?? ''}|${branchId || ''}|${fiscalYearId || ''}`;
-  return `W/"${getStateVersion()}-${createHash('sha1').update(scope).digest('hex')}"`;
+  return `W/"${version}-${createHash('sha1').update(scope).digest('hex')}"`;
 }
 
 /** RFC 9110 If-None-Match uses weak comparison; '*' matches anything. */
@@ -108,7 +110,7 @@ const { branchId, fiscalYearId } = req.query;
   // Compute the validator before any query and answer a matching conditional
   // request immediately. Compression must never see a 304 body, and the ETag
   // must exist before res.json() runs.
-  const etag = bootstrapEtag(bootstrapUser, bId, fId);
+  const etag = await bootstrapEtag(bootstrapUser, bId, fId);
   res.setHeader('ETag', etag);
   res.setHeader('Vary', 'Authorization, Accept-Encoding');
   res.setHeader('Cache-Control', 'private, no-cache');
