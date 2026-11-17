@@ -292,11 +292,55 @@ rows outside the window rely on the keeper's repair tick. TRUNCATE is not
 blocked by the row guard; the demo reseed's wipe is the one such path and it is
 documented, not guarded.
 
-### A8 — CI truth `[ ]`
+### A8 — CI truth `[x]`
 
 Done when: `check:bundle-budget` is green by decision (calibrated deliberately
 with a comment, or the eager startup trimmed), and `npm run ci:local` runs the
 four workflow jobs as one command so a change can be validated without a token.
+
+**Delivered:** `scripts/ci_local.mjs` + `npm run ci:local` runs the workflow's
+four jobs — `static-checks` (tsc, no-inline-SQL, no-raw-dialogs, `npm audit
+--omit=dev`), `partition-window` (schema + provisioning + the alarm and its
+negative control, on a throwaway database it creates and drops),
+`build-and-boot-timing` (fresh-install parity, production build, startup bundle
+budget) and `test-suite` (`scripts/run_tests.mjs`, i.e. the suite + docs gate).
+`--list`, `--only`, `--skip` and `--with-browser` are supported; an unknown job
+name or a run with every job skipped exits 2 instead of reporting a green.
+`tests/ciLocal.test.ts` is 6/6 and pins the runner to the workflow: every command
+it lists must still appear in `.github/workflows/ci.yml`, and it asserts the
+runner does not leak `NODE_ENV` from `.env`.
+
+**The bundle budget was failing, and the runner found why.**
+`check:bundle-budget` measured startup 324.1 kB against the unchanged 322 kB
+gate. `findLazyScreenChunksInStartup` reports no lazy leak; the growth is real
+screen weight in App.tsx's eager route table (StockOperations, ProductManagement,
+Dashboard, PurchaseOrders). The gate is therefore recalibrated **deliberately**
+to 330 kB (5.9 kB, ~1.8 % headroom ≈ one screen) with the measurement and the
+reason in the script, and the entry budget stays at 22.25 kB because the shell
+itself did not grow. The honest fix — moving those screens to lazy routes — is
+Part B work, not a shaved constant here.
+
+Running the runner also exposed a real local/CI divergence: `.env` sets
+`NODE_ENV=development` for the dev server, and passing it to `vite build` emits
+the React **development** bundle (startup 420.5 kB, `react-dom.development` in
+`vendor-react`) which no budget can pass — CI has no `.env`, so the workflow
+would have been green while a local build was double the size. `ci:local` strips
+`NODE_ENV` for every step and pins `NODE_ENV=production` on the build step;
+it proves the point by rebuilding to 324.1 kB.
+
+**Proven this turn.** `ci:local --only static-checks,partition-window` exit 0
+(the partition job provisioned `inventory_ci_local_partitions` from
+`scripts/schema.sql`, reported both log tables' window present with DEFAULT 0/0,
+and its stale-window negative control still failed with 202001 named);
+`ci:local --only build-and-boot-timing` exit 0 (fresh-install parity, build,
+budget 324.1/330 kB); the boot-timing step is opt-in locally because it needs a
+browser and a seeded demo account — CI runs it on every push.
+
+**Deviation / unproven.** The browser boot-timing step did not run locally
+(`--with-browser` not passed; no seeded demo account was created for it). The
+workflow file itself is unchanged, so a step added there without a matching job
+here would only be caught by the parity test's curated command list, not by a
+general workflow parser.
 
 ### A9 — Pay the scale-measurement debt `[ ]`
 
