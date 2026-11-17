@@ -220,7 +220,7 @@ export interface CustomerLedgerResponse {
 
 export async function getCustomerLedger(
   customerId: string,
-  params?: { fromAd?: string; toAd?: string; branchId?: string; cursor?: string | null; limit?: number }
+  params?: { fromAd?: string; toAd?: string; branchId?: string; cursor?: string | null; limit?: number; all?: boolean }
 ): Promise<CustomerLedgerResponse> {
   const queryParams = new URLSearchParams();
   if (params?.fromAd) queryParams.set('fromAd', params.fromAd);
@@ -228,6 +228,15 @@ export async function getCustomerLedger(
   if (params?.branchId) queryParams.set('branchId', params.branchId);
   if (params?.cursor) queryParams.set('cursor', params.cursor);
   if (params?.limit) queryParams.set('limit', String(params.limit));
+  if (params?.all) queryParams.set('all', '1');
   const qs = queryParams.toString();
   return fetchJson(`/api/customers/${encodeURIComponent(customerId)}/ledger${qs ? `?${qs}` : ''}`);
+}
+
+/** Explicit full-statement read for the CSV export; never used by the pager. */
+export async function exportCustomerLedger(
+  customerId: string,
+  params?: { fromAd?: string; toAd?: string; branchId?: string }
+): Promise<CustomerLedgerResponse> {
+  return getCustomerLedger(customerId, { ...params, all: true });
 }

@@ -99,6 +99,25 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     };
   }, [selectedCustomerId, filters.fromAd, filters.toAd, filters.branchId]);
 
+  const fetchLedgerExport = useCallback(async (): Promise<SubLedgerData> => {
+    if (!selectedCustomerId) throw new Error('Select a customer before exporting the statement.');
+    const data = await api.exportCustomerLedger(selectedCustomerId, {
+      fromAd: filters.fromAd || undefined,
+      toAd: filters.toAd || undefined,
+      branchId: filters.branchId === 'ALL' ? undefined : filters.branchId,
+    });
+    return {
+      partyName: data.customer.name,
+      partyCode: data.customer.customerId,
+      openingBalance: data.openingBalance,
+      totalDebit: data.totalDebit,
+      totalCredit: data.totalCredit,
+      closingBalance: data.closingBalance,
+      ledger: data.ledger,
+      tieOut: data.tieOut,
+    };
+  }, [selectedCustomerId, filters.fromAd, filters.toAd, filters.branchId]);
+
   const ledgerPager = useKeysetPager<SubLedgerLine, CustomerLedgerResponse | undefined>({
     fetchPage: fetchStatementPage,
     resetKey: [
@@ -294,6 +313,7 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
       loading={ledgerPager.loading}
       error={ledgerPager.error}
       data={ledgerView}
+      fetchExport={fetchLedgerExport}
       dateMode={dateMode}
       headerIcon={Wallet}
       partyIcon={Users}

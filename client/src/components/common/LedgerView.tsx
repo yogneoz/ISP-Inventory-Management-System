@@ -21,7 +21,7 @@
  * screen, so it must stay out of the screen-count and screen-surface tables.
  */
 import React from 'react';
-import { Search, Download, RefreshCw, Wallet } from 'lucide-react';
+import { Search, Download, RefreshCw, Wallet, Loader2 } from 'lucide-react';
 import StatCard, { StatCardTone } from './StatCard';
 import { formatNumber } from '../../utils/nprFormat';
 import { exportToCSV, CSVColumn } from '../../utils/exportUtils';
@@ -122,6 +122,11 @@ export interface LedgerViewProps {
   headerActions?: React.ReactNode;
   /** Optional cursor footer, rendered outside the table's data state. */
   footer?: React.ReactNode;
+  /**
+   * Optional complete-statement export source. When supplied, the CSV action
+   * ignores the rows loaded by the pager and reads this snapshot instead.
+   */
+  fetchExport?: () => Promise<SubLedgerData>;
   loading: boolean;
   error: string;
   data: SubLedgerData | null;
@@ -197,6 +202,20 @@ export function ledgerExportColumns(
   ];
 }
 
+/** The exact row projection shared by the table's CSV export and tests. */
+export function ledgerExportRows(data: SubLedgerData): Record<string, any>[] {
+  return data.ledger.map((line) => ({
+    [EXPORT_COLUMN_KEYS.dateAD]: line.dateAD,
+    [EXPORT_COLUMN_KEYS.dateBS]: line.dateBS,
+    [EXPORT_COLUMN_KEYS.documentNumber]: line.documentNumber,
+    [EXPORT_COLUMN_KEYS.type]: line.type,
+    [EXPORT_COLUMN_KEYS.debit]: line.debit,
+    [EXPORT_COLUMN_KEYS.credit]: line.credit,
+    [EXPORT_COLUMN_KEYS.balance]: line.balance,
+    [EXPORT_COLUMN_KEYS.notes]: line.notes || '',
+  }));
+}
+
 export const LedgerView: React.FC<LedgerViewProps> = ({
   title,
   subtitle,
@@ -211,6 +230,7 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
   onLoad,
   headerActions,
   footer,
+  fetchExport,
   loading,
   error,
   data,
@@ -226,19 +246,45 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
   exportColumns,
   emptyPrompt,
 }) => {
-  const handleExport = () => {
-    if (!data) return;
-    const rows = data.ledger.map((line) => ({
-      [EXPORT_COLUMN_KEYS.dateAD]: line.dateAD,
-      [EXPORT_COLUMN_KEYS.dateBS]: line.dateBS,
-      [EXPORT_COLUMN_KEYS.documentNumber]: line.documentNumber,
-      [EXPORT_COLUMN_KEYS.type]: line.type,
-      [EXPORT_COLUMN_KEYS.debit]: line.debit,
-      [EXPORT_COLUMN_KEYS.credit]: line.credit,
-      [EXPORT_COLUMN_KEYS.balance]: line.balance,
-      [EXPORT_COLUMN_KEYS.notes]: line.notes || '',
-    }));
-    exportToCSV(`${exportFilenamePrefix}${data.partyName.replace(/\s+/g, '_')}`, rows, exportColumns);
+  const [exporting, setExporting] = React.useState(false);
+  const [exportError, setExportError] = React.useState('');
+
+  const handleExport = async () => {
+    if (!data || !selectedPartyId) return;
+    setExportError('');
+    setExporting(true);
+    try {
+      // A paged statement must export its complete filtered history. The
+      // explicit export read is independent of how many pages are on screen;
+      // the file is written only after that whole response has arrived.
+      const snapshot = fetchExport ? await fetchExport() : data;
+      const rows = ledgerExportRows(snapshot);
+      if (rows.length === 0) {
+        setExportError(
+          'No statement entries matched these filters. No file was written. Retry after changing or clearing the filters.'
+        );
+        return;
+      }
+      const filename = `${exportFilenamePrefix}${snapshot.partyName.replace(/\s+/g, '_')}`;
+      if (fetchExport) {
+        // No volatile export-time header: the same statement and filters must
+        // produce byte-identical files regardless of when the export is run.
+        exportToCSV({
+          filename,
+          data: rows,
+          columns: exportColumns as CSVColumn<Record<string, any>>[],
+          includeMetadataHeader: false,
+        });
+      } else {
+        exportToCSV(filename, rows, exportColumns);
+      }
+    } catch (err: any) {
+      setExportError(
+        `${err?.message || 'The complete statement could not be loaded.'} No file was written. Retry when the connection is available.`
+      );
+    } finally {
+      setExporting(false);
+    }
   };
 
   const loadDisabled = !selectedPartyId || loading;
@@ -265,15 +311,33 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
             {loading ? 'Loading...' : 'Refresh'}
           </button>
           <button
-            onClick={handleExport}
-            disabled={!data || data.ledger.length === 0}
+            type="button"
+            onClick={() => { void handleExport(); }}
+            disabled={exporting || !data || data.ledger.length === 0}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-40 text-sm font-medium transition"
           >
-            <Download className="h-4 w-4" />
-            Export CSV
+            {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            {exporting ? 'Exporting...' : 'Export CSV'}
           </button>
         </div>
       </div>
+
+      {exportError && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300"
+        >
+          <span>{exportError}</span>
+          <button
+            type="button"
+            onClick={() => { void handleExport(); }}
+            disabled={exporting}
+            className="rounded-md border border-rose-300 px-2.5 py-1 text-xs font-semibold transition hover:bg-rose-100 disabled:opacity-50 dark:border-rose-700 dark:hover:bg-rose-950"
+          >
+            Retry export
+          </button>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60">

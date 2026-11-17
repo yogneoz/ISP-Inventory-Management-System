@@ -1168,8 +1168,9 @@ export async function post_salesReturnApprove(req: any, res: Response): Promise<
 export async function get_customerLedger(req: any, res: Response): Promise<any> {
   try {
     const { customerId } = req.params;
-    const { fromAd, toAd, branchId, cursor, limit } = req.query;
-    const paged = cursor !== undefined || limit !== undefined;
+    const { fromAd, toAd, branchId, cursor, limit, all } = req.query;
+    const exportAll = all === '1' || all === 'true';
+    const paged = cursor !== undefined || limit !== undefined || exportAll;
     let customer: any;
     if (getPgConnected()) {
       const found = await pgPool.query(CUSTOMER_FIND_BY_ID_OR_CODE_SQL, [customerId]);
@@ -1215,6 +1216,33 @@ export async function get_customerLedger(req: any, res: Response): Promise<any> 
       })
     ) {
       return;
+    }
+
+    if (exportAll && cursor !== undefined) {
+      return res.status(400).json({
+        code: 'INVALID_CURSOR',
+        message: 'The customer-statement export cannot combine all=1 with a cursor. Reload the statement and retry.',
+      });
+    }
+
+    if (exportAll) {
+      const statement = await buildPartyLedger(pgPool, {
+        side: 'CUSTOMER',
+        partyId: customer.id,
+        partyName: customer.customerName,
+        branchId: branchId as string | undefined,
+        from: fromAd,
+        to: toAd,
+      });
+      return res.json(
+        keysetEnvelope(statement.ledger, null, false, {
+          customer: { id: customer.id, customerId: customer.customerId, name: customer.customerName },
+          ...statement,
+          ledger: statement.ledger,
+          totalEntries: statement.ledger.length,
+          exportAll: true,
+        })
+      );
     }
 
     let cursorKey: [string, string] | null = null;

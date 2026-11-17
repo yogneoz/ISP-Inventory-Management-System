@@ -24,6 +24,12 @@ import { issueAuthToken } from '../server/src/middleware/auth';
 import { setPermissionMatrix } from '../server/src/state/runtimeState';
 import { DEFAULT_PERMISSIONS_MATRIX } from '../client/src/utils/permissionMatrixData';
 import { ensureReferenceData, todayAd } from './fixtures/referenceData';
+import { buildExportCsv } from '../client/src/utils/exportUtils';
+import {
+  ledgerExportColumns,
+  ledgerExportRows,
+  type SubLedgerData,
+} from '../client/src/components/common/LedgerView';
 
 dotenv.config();
 
@@ -110,10 +116,15 @@ describe('customer ledger statement cursor (real HTTP + PostgreSQL)', { skip: sk
     }
   }
 
-  async function postJournal(sourceId: string, amount: number, entryDate: string) {
+  async function postJournal(
+    sourceId: string,
+    amount: number,
+    entryDate: string,
+    options: { branchId?: string; partyId?: string; partyName?: string } = {}
+  ) {
     const res = await post('/api/accounting/journals', {
       journalDateAD: entryDate,
-      branchId: BR,
+      branchId: options.branchId || BR,
       sourceId,
       memo: `CLC ${sourceId}`,
       lines: [
@@ -122,8 +133,8 @@ describe('customer ledger statement cursor (real HTTP + PostgreSQL)', { skip: sk
           debit: amount,
           credit: 0,
           subledgerType: 'CUSTOMER',
-          partyId: CUSTOMER_A,
-          partyName: 'CLC Customer A',
+          partyId: options.partyId || CUSTOMER_A,
+          partyName: options.partyName || 'CLC Customer A',
         },
         { accountId: salesAccount, debit: 0, credit: amount },
       ],
@@ -133,6 +144,35 @@ describe('customer ledger statement cursor (real HTTP + PostgreSQL)', { skip: sk
     assert.ok(id, `journal ${sourceId} did not return its id`);
     journalIds.push(id);
     return id;
+  }
+
+  function csvOf(response: any): string {
+    const data: SubLedgerData = {
+      partyName: response.customer.name,
+      partyCode: response.customer.customerId,
+      openingBalance: response.openingBalance,
+      totalDebit: response.totalDebit,
+      totalCredit: response.totalCredit,
+      closingBalance: response.closingBalance,
+      ledger: response.ledger,
+      tieOut: response.tieOut,
+    };
+    return buildExportCsv({
+      filename: 'Customer_Ledger',
+      data: ledgerExportRows(data),
+      columns: ledgerExportColumns(
+        {
+          documentNumber: 'Document Number',
+          type: 'Type',
+          debit: 'Debit / Sales (NPR)',
+          credit: 'Credit / Payments & Credit Notes (NPR)',
+          balance: 'Running Balance (NPR)',
+          notes: 'Notes',
+        },
+        'AD'
+      ),
+      includeMetadataHeader: false,
+    }).content;
   }
 
   async function setCreatedAt(journalId: string, createdAt: string, id?: string) {
@@ -336,5 +376,94 @@ describe('customer ledger statement cursor (real HTTP + PostgreSQL)', { skip: sk
     );
     assert.equal(crossCustomer.status, 400, JSON.stringify(crossCustomer.json));
     assert.equal(crossCustomer.json.code, 'INVALID_CURSOR');
+  });
+
+  test('all=1 exports the complete chronological statement regardless of pager position', async () => {
+    // CUSTOMER_B has never been paged in this suite: the first export below is
+    // the zero-pages-pre-loaded case. Seven entries make the export span more
+    // than two pages at PAGE_SIZE.
+    for (let index = 0; index < 5; index += 1) {
+      await postJournal(`clc-b-${index}`, 100 + index, today, {
+        partyId: CUSTOMER_B,
+        partyName: 'CLC Customer B',
+      });
+    }
+    for (let index = 0; index < 2; index += 1) {
+      await postJournal(`clc-b-tomorrow-${index}`, 200 + index, tomorrow, {
+        partyId: CUSTOMER_B,
+        partyName: 'CLC Customer B',
+      });
+    }
+    const otherBranchId = await postJournal('clc-b-other-branch', 999, today, {
+      branchId: 'WH001',
+      partyId: CUSTOMER_B,
+      partyName: 'CLC Customer B',
+    });
+
+    const scope = `branchId=${BR}&fromAd=${today}&toAd=${tomorrow}`;
+    const zeroLoaded = await statement(CUSTOMER_B, `${scope}&all=1`);
+    assert.equal(zeroLoaded.status, 200, JSON.stringify(zeroLoaded.json));
+    assert.equal(zeroLoaded.json.exportAll, true);
+    assert.equal(zeroLoaded.json.hasMore, false);
+    assert.equal(zeroLoaded.json.nextCursor, null);
+    assert.equal(zeroLoaded.json.ledger.length, 7);
+
+    // Advance the pager two pages so the export is taken after several loaded
+    // pages, then export again with the exact same filters.
+    const page1 = await statement(CUSTOMER_B, `${scope}&limit=${PAGE_SIZE}`);
+    assert.equal(page1.status, 200, JSON.stringify(page1.json));
+    const page2 = await statement(
+      CUSTOMER_B,
+      `${scope}&limit=${PAGE_SIZE}&cursor=${encodeURIComponent(String(page1.json.nextCursor))}`
+    );
+    assert.equal(page2.status, 200, JSON.stringify(page2.json));
+    assert.ok(page2.json.items.length > 0, 'the pager must advance before the second export');
+
+    const afterPaging = await statement(CUSTOMER_B, `${scope}&all=1`);
+    assert.equal(afterPaging.status, 200, JSON.stringify(afterPaging.json));
+    assert.equal(csvOf(zeroLoaded.json), csvOf(afterPaging.json), 'the export bytes must not depend on pager position');
+
+    const unpaged = await statement(CUSTOMER_B, scope);
+    assert.equal(unpaged.status, 200, JSON.stringify(unpaged.json));
+    assert.deepEqual(
+      afterPaging.json.ledger.map((line: any) => String(line.id)),
+      unpaged.json.ledger.map((line: any) => String(line.id)),
+      'the file must read chronologically, exactly like the unpaged statement'
+    );
+    assert.equal(new Set(afterPaging.json.ledger.map((line: any) => String(line.id))).size, 7);
+    assert.ok(!afterPaging.json.ledger.some((line: any) => String(line.id) === otherBranchId));
+    assert.equal(afterPaging.json.totalDebit, unpaged.json.totalDebit);
+    assert.equal(afterPaging.json.totalCredit, unpaged.json.totalCredit);
+    assert.equal(afterPaging.json.openingBalance, unpaged.json.openingBalance);
+    assert.equal(afterPaging.json.closingBalance, unpaged.json.closingBalance);
+    const unpagedBalances = new Map(
+      unpaged.json.ledger.map((line: any) => [String(line.id), Number(line.balance)] as [string, number])
+    );
+    for (const line of afterPaging.json.ledger) {
+      assert.equal(Number(line.balance), unpagedBalances.get(String(line.id)));
+    }
+
+    const dateOnly = await statement(
+      CUSTOMER_B,
+      `branchId=${BR}&fromAd=${tomorrow}&toAd=${tomorrow}&all=1`
+    );
+    assert.equal(dateOnly.status, 200, JSON.stringify(dateOnly.json));
+    assert.equal(dateOnly.json.ledger.length, 2, 'the active date range must stay applied to the export');
+    assert.ok(dateOnly.json.ledger.every((line: any) => line.dateAD === tomorrow));
+  });
+
+  test('all=1 keeps the statement scope and cursor guards', async () => {
+    const unscoped = await statement(CUSTOMER_B, 'all=1');
+    assert.equal(unscoped.status, 400, JSON.stringify(unscoped.json));
+    assert.equal(unscoped.json.code, 'SCOPE_REQUIRED');
+
+    const scope = `branchId=${BR}&fromAd=${today}&toAd=${tomorrow}`;
+    const page1 = await statement(CUSTOMER_B, `${scope}&limit=${PAGE_SIZE}`);
+    const withCursor = await statement(
+      CUSTOMER_B,
+      `${scope}&all=1&cursor=${encodeURIComponent(String(page1.json.nextCursor))}`
+    );
+    assert.equal(withCursor.status, 400, JSON.stringify(withCursor.json));
+    assert.equal(withCursor.json.code, 'INVALID_CURSOR');
   });
 });

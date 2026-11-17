@@ -417,6 +417,7 @@ export const api = {
   refundCustomerPayment: sales.refundCustomerPayment,
   chargebackCustomerPayment: sales.chargebackCustomerPayment,
   getCustomerLedger: sales.getCustomerLedger,
+  exportCustomerLedger: sales.exportCustomerLedger,
 
   // Shipments
   getShipments: procurement.getShipments,

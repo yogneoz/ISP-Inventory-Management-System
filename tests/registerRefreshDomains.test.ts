@@ -1094,6 +1094,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     ],
     'finance/CustomerLedger.tsx': [
       'createCustomerPayment',
+      'exportCustomerLedger',
       'getCustomerLedger',
       'getSalesInvoices',
       'searchCustomers',
