@@ -36,6 +36,11 @@ import {
 import { hashPassword } from '../middleware/auth';
 import { ensureDefaultChart, ensureDefaultSubledgers } from '../services/accountingSeed.service';
 import { runSchemaMigrations } from './migrations';
+import {
+  defaultPartitionIsDirty,
+  describeJournalPartitions,
+  provisionJournalPartitions,
+} from './journalPartitions';
 
 import {
   setDocNumberConfigs,
@@ -149,6 +154,35 @@ export async function syncDatabaseAndIndexes() {
     );
 
     setDatabaseConnected(true);
+
+    // SCALE-3: keep the monthly journal partitions ahead of the calendar so a
+    // posting never has to run DDL (under an ACCESS EXCLUSIVE lock) inside a
+    // user's transaction, and so the DEFAULT catch-all stays empty. Idempotent,
+    // therefore safe on every boot; a failure here is logged but must not stop
+    // the server, because the posting path still creates the month on demand.
+    try {
+      const partitions = await provisionJournalPartitions(client);
+      const summary = describeJournalPartitions(partitions);
+      if (partitions.failed.length) {
+        console.warn(`⚠️  Journal partitions provisioned with gaps: ${summary}`);
+        for (const failure of partitions.failed) {
+          console.warn(`   month ${failure.month} was not created: ${failure.message}`);
+        }
+      } else {
+        console.log(`✅ Journal partitions provisioned: ${summary}`);
+      }
+      if (defaultPartitionIsDirty(partitions)) {
+        console.warn(
+          '⚠️  Journal rows are sitting in the DEFAULT partition: those months predate provisioning,' +
+            ' so their rows cannot be pruned and PostgreSQL will refuse to attach a partition for a' +
+            ' month the DEFAULT already holds rows in. `npm run check:partitions` reports them;' +
+            ' moving them out of DEFAULT is a manual step (docs/database-optimization-audit-2026-11-17.md).'
+        );
+      }
+    } catch (err: any) {
+      console.warn('Journal partition provisioning skipped:', err?.message || err);
+    }
+
     await seedInitialPostgresData(client);
     // A fresh install must be able to post its first invoice without a manual
     // chart setup: seed the minimum posting defaults idempotently. Existing
