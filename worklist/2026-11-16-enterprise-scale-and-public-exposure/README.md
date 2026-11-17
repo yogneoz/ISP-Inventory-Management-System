@@ -298,8 +298,8 @@ Known limitations, stated explicitly:
 - `EXPLAIN`/5M-vs-12k timing and partition pruning belong to SCALE-3's index and
   partition work; no speed claim is made for this slice.
 
-Full suite: **2,545 tests, 2,543 pass, 2 Windows-only skips, 0 fail**;
-`npx tsc --noEmit` is 0; the docs-count gate matches 2,545. The new
+Full suite: **2,546 tests, 2,544 pass, 2 Windows-only skips, 0 fail**;
+`npx tsc --noEmit` is 0; the docs-count gate matches 2,546. The new
 `tests/scale2RemainingRegisters.api.test.ts` walks each SCALE-2 follow-up read,
 and `tests/scale2OperationalRegisters.api.test.ts` walks all five operational
 registers across a real insert boundary (newer and same-timestamp rows inserted
