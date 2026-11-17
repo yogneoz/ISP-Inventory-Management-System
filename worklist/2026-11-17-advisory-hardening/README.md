@@ -342,11 +342,57 @@ workflow file itself is unchanged, so a step added there without a matching job
 here would only be caught by the parity test's curated command list, not by a
 general workflow parser.
 
-### A9 — Pay the scale-measurement debt `[ ]`
+### A9 — Pay the scale-measurement debt `[x]`
 
 Done when: `scripts/seed_scale_fixture.mjs` has been run once on a scratch
 database and the audit records trial-balance latency, whether the planner picks
 the BRIN, and the `pages_per_range` decision it implies.
+
+**Delivered.** `scripts/seed_scale_fixture.mjs` ran on the scratch
+`inventory_scale` database and `scripts/measure_scale.mjs` (new) measured it with
+`EXPLAIN (ANALYZE, BUFFERS)`, median of 7 runs; every number is in audit §4 under
+"Measured at scale" and §6 was corrected to match.
+
+- **Trial balance: 3,607 ms median** (3,545–4,370) over 3.0M ledger lines / 1,064
+  MB, `Aggregate` over 160 scan nodes. The 100 ms acceptance target is refuted at
+  this size, not merely unproven.
+- **Pruning:** a one-month window filtered on `j.journal_date_ad` scans **80/80**
+  line partitions (1,161 ms); the same window on `l.journal_date_ad` prunes to
+  `gl_journal_lines_202001` (300 ms). The application's month filter therefore
+  gets no line pruning — Part B work, recorded rather than silently "fixed".
+- **BRIN:** the planner does not pick it — a one-day range prunes to
+  `audit_logs_202506` and uses the B-Tree `…_timestamp_ad_idx` (Index Only Scan,
+  16 buffers, 1.2 ms), also with `enable_seqscan = off`.
+- **`pages_per_range`: stays at the inherited default 128, no migration.** All 24
+  child indexes rebuilt at 32/128/256/512 give the same 720 kB index, the same 32
+  heap blocks and 0.42–0.51 ms, because a month partition is ~83k rows / 14 MB.
+  `ALTER INDEX … SET` on the parent is refused outright (`42809`, partitioned
+  index) and only the parent's definition is inherited by future partitions, so
+  any other value would need a keeper step per new child. Reopen trigger: a
+  month's log partition in the hundreds of MB, together with that step.
+
+Running the fixture exposed four real defects in it, all fixed here: `ON CONFLICT
+(id)` is invalid against a partitioned `gl_journals` (now `ON CONFLICT DO
+NOTHING`); a line's `journal_date_ad` must equal its journal's because the FK is
+composite (the seed used an unrelated date formula); `--branches 0` divided by
+zero in the branch modulo; and A7's append-only guard blocked the teardown, which
+now runs inside `SET LOCAL inventory.allow_ledger_purge = 'on'` in one
+transaction. The fixture also seeds `audit_logs`/`transaction_logs` across 24
+months through `ensure_log_month_partition`, so the BRIN question is measured on
+real month partitions instead of a single `DEFAULT` child.
+
+**Deviation / unproven.** The 10M-line seed was stopped after ~30 minutes at ~4k
+rows/s (the composite journal FK dominates) and the recorded run is 3.0M lines
+with 2.0M audit and 0.5M transaction rows; the scratch database was created by
+`scripts/schema.sql` and booted once to seed masters. Latencies are from one
+workstation, so absolute numbers will differ on production hardware — the plan
+shapes and the pruning result are the transferable part. `transaction_logs` was
+seeded but only spot-checked; the BRIN trade-off was measured on `audit_logs`,
+whose index A7 created with `IF NOT EXISTS` in the same shape.
+
+New tests: `tests/scaleFixtureGuards.test.ts` (5) — neither script may fall back
+to `DATABASE_URL`, both refuse a database whose name lacks `_scale`, `--dry-run`
+writes nothing, and the fixture refuses to write without `--yes`.
 
 ### A10 — Fail browser checks when the page cannot receive input `[ ]`
 
@@ -415,3 +461,14 @@ on the Redis state and MFA work in Part B.
   startup budget was red at 324.1 kB and is recalibrated to 330 kB on
   measurement (no lazy leak; eager screen weight), and the runner strips
   `NODE_ENV` so a local build is production, not a development React bundle.
+- 2026-11-17 — **A9 done**: the scale fixture ran on a scratch `_scale` database
+  and the new `scripts/measure_scale.mjs` measured it with `EXPLAIN (ANALYZE,
+  BUFFERS)`: trial balance **3,607 ms** median over 3.0M lines (the 100 ms target
+  is refuted, not owed), a one-month window prunes line partitions only when it
+  filters `l.journal_date_ad` (1,161 ms over 80/80 vs 300 ms over 1), the planner
+  does not pick the BRIN at 2.0M rows, and `pages_per_range` stays at the
+  inherited 128 because each child index rebuilds identically at 32/128/256/512
+  and the parent refuses the option (`42809`). The fixture itself gained
+  `audit_logs`/`transaction_logs` seeding plus four real fixes (partitioned
+  `ON CONFLICT`, the composite journal FK date, the zero-branch modulo, and the
+  A7 append-only guard on teardown). `tests/scaleFixtureGuards.test.ts` (5).

@@ -196,10 +196,65 @@ for either table.
 
 **Declined, with reasons:**
 - **Dropping either timestamp B-Tree** — ~25× on the ordered page (measured above).
-- **`pages_per_range = 32`** — tuning a constant to an 8k-row development table
-  bakes in a number that is wrong at production size; revisit with the size trigger.
+- **`pages_per_range = 32`** — measured at scale below: the option changes nothing
+  on a month partition, and a partitioned index rejects it on the parent anyway.
 - **BRIN on `gl_journal_lines`** — ledger reads go through month partitions whose
   pruning already bounds the scan, and item 4 names only the two log tables.
+
+#### Measured at scale — the fixture was finally run (worklist A9, 2026-11-17)
+
+`scripts/seed_scale_fixture.mjs` was run on a scratch database
+(`inventory_scale`, name-guarded) and `scripts/measure_scale.mjs` measured it with
+`EXPLAIN (ANALYZE, BUFFERS)`, median of 7 runs:
+
+| table | rows | on disk |
+|---|---|---|
+| `gl_journal_lines` (80 month children) | 3,000,000 | 1,064 MB |
+| `audit_logs` (24 month children) | 2,000,000 | 704 MB |
+| `transaction_logs` (24 month children) | 500,000 | 220 MB |
+| `gl_journals` | 1,000 | 7.9 MB |
+
+**Trial balance latency — the 100 ms acceptance target is refuted at this size.**
+`FISCAL_YEAR_TRIAL_BALANCE_ROWS_SQL` (the statement a close runs) through
+2026-12-31: **3,607 ms median** (3,545–4,370), `Aggregate` over 160 scan nodes —
+80 `gl_journals` partitions and all 80 `gl_journal_lines` partitions. The
+statement bounds the ledger by `j.journal_date_ad`, which prunes the journal
+partitions but not the **line** partitions, so every posted line is aggregated.
+That is the shape of a correct trial balance, not a regression, and it is an
+order of magnitude past the target — the remedy is the pre-aggregated closed-year
+snapshot already listed in Part B, not a plan hint.
+
+**Partition pruning — measured, and narrower than assumed.** A one-month window
+filtered the way the application filters (`j.journal_date_ad`): **1,161 ms over
+80/80 line partitions, i.e. no line pruning.** The same window filtered on
+`l.journal_date_ad` prunes to `gl_journal_lines_202001` and runs in **300 ms**.
+So the pruning SCALE-3 assumed exists only for a report that filters the lines'
+own date; a month-bounded report must use `l.journal_date_ad` to get it.
+
+**BRIN: the planner does not pick it, and `pages_per_range` is not a lever.**
+A one-day range (`2025-06-15`) prunes to `audit_logs_202506`, where the planner
+chose `audit_logs_202506_timestamp_ad_idx` (B-Tree, Index Only Scan, 16 buffers,
+1.2 ms) — the BRIN was not chosen even with `enable_seqscan = off`. The option
+itself was measured by rebuilding all 24 child indexes at 32 / 128 / 256 / 512:
+
+| `pages_per_range` | index (all 24 children) | % of the 346.6 MB log heap | one-day probe | heap blocks |
+|---|---|---|---|---|
+| 32 | 720 kB | 0.20 % | 0.47 ms | 32 |
+| 128 (default) | 720 kB | 0.20 % | 0.51 ms | 32 |
+| 256 | 720 kB | 0.20 % | 0.45 ms | 32 |
+| 512 | 720 kB | 0.20 % | 0.42 ms | 32 |
+
+A month partition holds ~83k rows / 14 MB, so a BRIN over it is three pages no
+matter how the ranges are cut: **the setting is unmeasurable at this size.** It is
+also not settable where it would need to be: `ALTER INDEX idx_audit_timestamp_brin
+SET (pages_per_range = 64)` fails with `42809 This operation is not supported for
+partitioned indexes`, and only the parent definition is inherited by each new
+month partition.
+
+**Decision: `pages_per_range` stays at the inherited default 128, no migration.**
+Reopen when a single month's log partition reaches the hundreds of MB — at that
+point the option becomes measurable *and* the keeper needs a step that re-applies
+it to each new child index, because the parent cannot carry it.
 
 #### Operational note — an applied numbered migration is immutable, comments included
 
@@ -283,13 +338,22 @@ reading the output.
 
 ## 6. Not measured here (stated limitations)
 
-- No `EXPLAIN (ANALYZE, BUFFERS)` run at production volume. The 5M-customer /
-  10M-line fixture (`scripts/seed_scale_fixture.mjs`) was **not** executed on
-  this workstation, so "a trial balance completes under 100 ms on 10M lines"
-  remains an acceptance target, not a measurement.
+- **Resolved 2026-11-17 (A9):** the fixture *was* run — 3,000,000 ledger lines,
+  2,000,000 audit rows, 500,000 transaction rows, 500,000 customers and 250,000
+  invoices — and the trial balance, the partition-pruning plan and the BRIN
+  decision are measured in §4. What remains unmeasured is the 10M-line point:
+  the full 10M-line seed was stopped after ~30 minutes on this workstation (≈4k
+  rows/s through the composite journal FK) and the recorded run is 3M lines.
+  "A trial balance completes under 100 ms on 10M lines" is therefore **refuted,
+  not merely unproven** — 3M lines already take 3.6 s.
 - No PgBouncer instance and no read replica were available, so the
   transaction-mode smoke test and the `pg_is_in_recovery()` routing test are
   still open.
-- Partition-pruning proof for a one-month trial balance (SCALE-3's acceptance
-  line) is still owed; the provisioning and the bound-per-month shape are
-  tested, the plan is not.
+- Partition pruning for a one-month trial balance is now measured (§4): it works
+  only when the window filters `gl_journal_lines.journal_date_ad`; the
+  application's own month filter on `j.journal_date_ad` scans all 80 line
+  partitions. Closing that gap is Part B work, not a measurement.
+- The numbers come from one workstation's PostgreSQL, seeded by a script whose
+  data distribution is synthetic (monotonic timestamps, 1,000 journals for 3M
+  lines). Absolute latencies on production hardware will differ; the plan
+  shapes and the pruning behaviour are the transferable findings.

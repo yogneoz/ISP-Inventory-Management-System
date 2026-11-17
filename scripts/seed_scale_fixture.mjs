@@ -49,6 +49,10 @@ const counts = {
   invoices: numberFlag('--invoices', 1_000_000),
   journalLines: numberFlag('--journal-lines', 10_000_000),
   stockOperations: numberFlag('--stock-operations', 5_000_000),
+  // The log tables are what the BRIN question is about (A7 put the BRIN there):
+  // seed them wide enough that the planner has a real choice to make.
+  auditLogs: numberFlag('--audit-logs', 2_000_000),
+  transactionLogs: numberFlag('--transaction-logs', 1_000_000),
 };
 
 const url = process.env.SCALE_FIXTURE_DATABASE_URL;
@@ -81,12 +85,20 @@ const client = new pg.Client({ connectionString: url });
 await client.connect();
 try {
   if (cleanup) {
+    // audit_logs is append-only (A7), so the fixture removes its own rows through
+    // the same schema-sanctioned switch the ledger purge uses, in one
+    // transaction with the rest of the teardown.
+    await client.query('BEGIN');
+    await client.query("SET LOCAL inventory.allow_ledger_purge = 'on'");
     await client.query("DELETE FROM gl_journal_lines WHERE id LIKE 'scale-fixture-%'");
     await client.query("DELETE FROM sales_invoices WHERE id LIKE 'scale-fixture-%'");
     await client.query("DELETE FROM stock_operations WHERE id LIKE 'scale-fixture-%'");
     await client.query("DELETE FROM customer_records WHERE id LIKE 'scale-fixture-%'");
     await client.query("DELETE FROM gl_journals WHERE id LIKE 'scale-fixture-%'");
     await client.query("DELETE FROM branches WHERE id LIKE 'scale-fixture-%'");
+    await client.query("DELETE FROM audit_logs WHERE id LIKE 'scale-fixture-%'");
+    await client.query("DELETE FROM transaction_logs WHERE id LIKE 'scale-fixture-%'");
+    await client.query('COMMIT');
     console.log('fixture rows removed');
   } else {
     const schema = await client.query(`
@@ -119,6 +131,18 @@ try {
         const periodId = period.rows[0].id;
         const accountId = account.rows[0].id;
 
+        // A partial earlier run may already own the branches; counts.branches can
+        // therefore be 0 while rows still need a branch to reference. Everything
+        // below assigns rows with a modulo of this value.
+        const branchTotal = Math.max(
+          counts.branches,
+          Number((await client.query("SELECT count(*) FROM branches WHERE id LIKE 'scale-fixture-%'")).rows[0].count)
+        );
+        if (branchTotal === 0 && counts.customers + counts.invoices + counts.stockOperations > 0) {
+          console.error('Scale fixture needs at least one scale-fixture branch; pass --branches.');
+          process.exit(1);
+        }
+
         await client.query(
           `INSERT INTO branches (id, code, name, location, active, is_demo)
            SELECT 'scale-fixture-br-' || g, 'SF' || lpad(g::text, 4, '0'),
@@ -137,7 +161,7 @@ try {
                   'scale-fixture-br-' || (1 + (g % $1)),
                   'ACTIVE'
            FROM generate_series(1, $2) g`,
-          [counts.branches, counts.customers]
+          [branchTotal, counts.customers]
         );
 
         await client.query(
@@ -156,7 +180,7 @@ try {
                   'PAID',
                   '[]'::jsonb
            FROM generate_series(1, $2) g`,
-          [counts.branches, counts.invoices]
+          [branchTotal, counts.invoices]
         );
 
         // A small journal header set keeps the 10M lines FK-valid without
@@ -171,7 +195,7 @@ try {
                   '2076-01-01',
                   $1, $2, 'scale-fixture-br-1', 'MANUAL', 'Scale fixture journal'
            FROM generate_series(1, $3) g
-           ON CONFLICT (id) DO NOTHING`,
+           ON CONFLICT DO NOTHING`,
           [fiscalYearId, periodId, Math.min(1000, counts.journalLines)]
         );
 
@@ -181,7 +205,10 @@ try {
               debit, credit, memo)
            SELECT 'scale-fixture-line-' || g,
                   'scale-fixture-jr-' || (1 + (g % $1)),
-                  DATE '2020-01-01' + (g % 2200),
+                  -- Must equal the referenced journal's date: the ledger's
+                  -- (journal_id, journal_date_ad) foreign key is composite
+                  -- because gl_journals is partitioned by the date.
+                  DATE '2020-01-01' + ((1 + (g % $1)) % 2200),
                   '2076-01-01',
                   g,
                   $2,
@@ -205,8 +232,55 @@ try {
                   'scale-fixture-br-' || (1 + (g % $1)),
                   'LOGGED'
            FROM generate_series(1, $2) g`,
-          [counts.branches, counts.stockOperations]
+          [branchTotal, counts.stockOperations]
         );
+
+        // The BRIN question is about the two log tables (A7): seed them across 24
+        // months, provisioning each month through the function the write path
+        // uses, so the measurement scans real month partitions instead of one
+        // DEFAULT child.
+        if (counts.auditLogs > 0 || counts.transactionLogs > 0) {
+          await client.query(
+            `SELECT ensure_log_month_partition('audit_logs', d::timestamptz)
+               FROM generate_series(TIMESTAMPTZ '2024-03-01', TIMESTAMPTZ '2026-02-01', INTERVAL '1 month') d`
+          );
+          await client.query(
+            `SELECT ensure_log_month_partition('transaction_logs', d::timestamptz)
+               FROM generate_series(TIMESTAMPTZ '2024-03-01', TIMESTAMPTZ '2026-02-01', INTERVAL '1 month') d`
+          );
+          if (counts.auditLogs > 0) {
+            await client.query(
+              `INSERT INTO audit_logs (id, user_email, user_name, action, module, details, timestamp_ad, timestamp_bs)
+               SELECT 'scale-fixture-aud-' || g,
+                      'scale@fixture',
+                      'Scale Fixture',
+                      'SCALE_FIXTURE',
+                      'SYSTEM',
+                      'scale fixture audit row ' || g,
+                      TIMESTAMPTZ '2024-03-01' + (g::numeric / $1 * INTERVAL '730 days'),
+                      '2080-11-12'
+               FROM generate_series(1, $1) g`,
+              [counts.auditLogs]
+            );
+          }
+          if (counts.transactionLogs > 0) {
+            await client.query(
+              `INSERT INTO transaction_logs
+                 (id, transaction_number, change_type, quantity_before, quantity_changed, quantity_after,
+                  branch_id, timestamp_ad, timestamp_bs, created_by)
+               SELECT 'scale-fixture-txn-' || g,
+                      'STXN-' || lpad(g::text, 9, '0'),
+                      'MANUAL_ADJUSTMENT',
+                      0, 1, 1,
+                      'scale-fixture-br-1',
+                      TIMESTAMPTZ '2024-03-01' + (g::numeric / $1 * INTERVAL '730 days'),
+                      '2080-11-12',
+                      'scale@fixture'
+               FROM generate_series(1, $1) g`,
+              [counts.transactionLogs]
+            );
+          }
+        }
 
         await client.query(
           `ANALYZE branches;
@@ -214,7 +288,9 @@ try {
            ANALYZE sales_invoices;
            ANALYZE gl_journals;
            ANALYZE gl_journal_lines;
-           ANALYZE stock_operations;`
+           ANALYZE stock_operations;
+           ANALYZE audit_logs;
+           ANALYZE transaction_logs;`
         );
         console.log('fixture seeded');
       }
