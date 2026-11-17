@@ -11,11 +11,11 @@
  *
  * Usage: npx tsx scripts/reconcile_migration_checksums.ts
  */
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import dotenv from 'dotenv';
 import pg from 'pg';
+import { migrationChecksum } from '../server/src/boot/migrations';
 
 dotenv.config({ quiet: true });
 
@@ -49,8 +49,13 @@ const VERIFIERS: Record<string, (client: pg.PoolClient) => Promise<void>> = {
   },
 };
 
+/**
+ * The same digest the runner records, imported rather than re-implemented: a
+ * repaired row must agree with what the next boot recomputes, and a comment-only
+ * difference is not a mismatch at all any more (worklist A4).
+ */
 function checksum(sql: string): string {
-  return crypto.createHash('sha256').update(sql).digest('hex');
+  return migrationChecksum(sql);
 }
 
 async function main(): Promise<void> {

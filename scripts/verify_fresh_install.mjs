@@ -19,8 +19,9 @@
  *      Readiness is confirmed via GET /api/health.
  *   4. Compares the two runtime schemas exhaustively — tables, columns
  *      (exact types, nullability, defaults, identity/generated), constraints,
- *      indexes, triggers, sequences, views — and exits non-zero with a diff
- *      on any drift.
+ *      indexes, storage parameters (`reloptions`: fillfactor, autovacuum, BRIN
+ *      pages_per_range), triggers, sequences, views — and exits non-zero with a
+ *      diff on any drift.
  *
  * Requires the connecting role to have CREATEDB (scripts/setup_postgres.sh
  * grants it). Both throwaway databases are dropped again in a finally block.
@@ -36,6 +37,7 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { diffRows, renderRows, snapshotSchema as snapshotSchemaRows } from './schemaSnapshot.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCHEMA_SQL_PATH = path.join(ROOT, 'scripts', 'schema.sql');
@@ -111,89 +113,27 @@ async function recreateDatabase(admin, dbName) {
 }
 
 // ---------------------------------------------------------------------------
-// Schema snapshot: everything structural, normalized and sorted.
+// Schema snapshot: imported from scripts/schemaSnapshot.mjs so the guard’s
+// decision logic is testable (worklist A6). `storage` carries reloptions —
+// fillfactor, autovacuum and BRIN pages_per_range — which pg_indexes.indexdef
+// does not, so index and table storage tuning is now compared too.
 // ---------------------------------------------------------------------------
 
 async function snapshotSchema(url) {
-  return withClient(url, async (client) => {
-    const q = async (sql) => (await client.query(sql)).rows;
-
-    const tables = await q(`
-      SELECT c.relname AS table_name, c.relkind AS kind
-      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-      WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm')
-      ORDER BY 1`);
-
-    const columns = await q(`
-      SELECT cls.relname AS table_name, attr.attname AS column_name,
-             pg_catalog.format_type(attr.atttypid, attr.atttypmod) AS data_type,
-             attr.attnotnull AS not_null,
-             COALESCE(pg_get_expr(d.adbin, d.adrelid), '') AS column_default,
-             attr.attidentity AS identity, attr.attgenerated AS generated
-      FROM pg_attribute attr
-      JOIN pg_class cls ON cls.oid = attr.attrelid
-      JOIN pg_namespace n ON n.oid = cls.relnamespace
-      LEFT JOIN pg_attrdef d ON d.adrelid = attr.attrelid AND d.adnum = attr.attnum
-      WHERE n.nspname = 'public' AND cls.relkind IN ('r', 'p')
-        AND attr.attnum > 0 AND NOT attr.attisdropped
-      ORDER BY cls.relname, attr.attnum`);
-
-    const constraints = await q(`
-      SELECT cls.relname AS table_name, con.conname, con.contype,
-             pg_get_constraintdef(con.oid) AS def
-      FROM pg_constraint con
-      JOIN pg_class cls ON cls.oid = con.conrelid
-      JOIN pg_namespace n ON n.oid = cls.relnamespace
-      WHERE n.nspname = 'public'
-      ORDER BY 1, 2`);
-
-    const indexes = await q(`
-      SELECT tablename, indexname, indexdef
-      FROM pg_indexes WHERE schemaname = 'public'
-      ORDER BY 1, 2`);
-
-    const triggers = await q(`
-      SELECT cls.relname AS table_name, trg.tgname,
-             pg_get_triggerdef(trg.oid) AS def
-      FROM pg_trigger trg
-      JOIN pg_class cls ON cls.oid = trg.tgrelid
-      JOIN pg_namespace n ON n.oid = cls.relnamespace
-      WHERE n.nspname = 'public' AND NOT trg.tgisinternal
-      ORDER BY 1, 2`);
-
-    const sequences = await q(`
-      SELECT sequencename, data_type, start_value, increment_by, min_value,
-             max_value, cycle
-      FROM pg_sequences WHERE schemaname = 'public'
-      ORDER BY 1`);
-
-    const views = await q(`
-      SELECT viewname, regexp_replace(definition, '\\s+', ' ', 'g') AS definition
-      FROM pg_views WHERE schemaname = 'public'
-      ORDER BY 1`);
-
-    return { tables, columns, constraints, indexes, triggers, sequences, views };
-  });
-}
-
-function renderRows(rows) {
-  return rows.map((r) => JSON.stringify(r)).sort();
+  return withClient(url, (client) => snapshotSchemaRows(client));
 }
 
 function diffCategory(label, refRows, bootRows, diffs) {
-  const ref = renderRows(refRows);
-  const boot = renderRows(bootRows);
-  const onlyRef = ref.filter((r) => !boot.includes(r));
-  const onlyBoot = boot.filter((r) => !ref.includes(r));
+  const { onlyRef, onlyBoot } = diffRows(refRows, bootRows);
   if (onlyRef.length === 0 && onlyBoot.length === 0) {
-    log(`  ✓ ${label}: identical (${ref.length} entries)`);
+    log(`  ✓ ${label}: identical (${renderRows(refRows).length} entries)`);
     return;
   }
   diffs.push({ label, onlyRef, onlyBoot });
   log(`  ✗ ${label}: ${onlyRef.length} missing / ${onlyBoot.length} extra`);
   for (const r of onlyRef.slice(0, 10)) log(`      only in reference : ${r}`);
   for (const r of onlyBoot.slice(0, 10)) log(`      only in booted DB: ${r}`);
-  if (onlyRef.length > 10 || onlyBoot.length > 10) log('      … (truncated)');
+  if (onlyRef.length > 10 || onlyBoot.length > 10) log("      … (truncated)");
 }
 
 // ---------------------------------------------------------------------------
@@ -336,6 +276,10 @@ try {
   diffCategory('columns', ref.columns, boot.columns, diffs);
   diffCategory('constraints', ref.constraints, boot.constraints, diffs);
   diffCategory('indexes', ref.indexes, boot.indexes, diffs);
+  // A6: pg_indexes.indexdef has no storage parameters, so without this category
+  // a fresh install and a booted install could disagree on fillfactor or on
+  // BRIN's pages_per_range with the guard still green.
+  diffCategory('storage', ref.storage, boot.storage, diffs);
   diffCategory('triggers', ref.triggers, boot.triggers, diffs);
   diffCategory('sequences', ref.sequences, boot.sequences, diffs);
   diffCategory('views', ref.views, boot.views, diffs);

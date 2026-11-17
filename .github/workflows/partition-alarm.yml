@@ -1,0 +1,63 @@
+name: Partition window alarm
+
+# Worklist A2. The maintenance task this guards runs on elapsed time, not on a
+# push: a monthly window that falls behind (or a dirty DEFAULT left by an import)
+# is invisible in a build that only runs when someone commits. This job therefore
+# runs every day against a real PostgreSQL service container, provisions the
+# window through the same module the server boots with, and then fails unless the
+# read-only check passes — with a negative control that fails if the alarm ever
+# stops detecting a stale window.
+on:
+  schedule:
+    # 03:23 UTC daily. Off the hour on purpose: GitHub's scheduler is busiest at
+    # :00 and queues (then drops) runs it cannot start promptly.
+    - cron: '23 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  partition-window:
+    name: partition window is provisioned and the alarm fires
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: inventory_user
+          POSTGRES_PASSWORD: securepassword
+          POSTGRES_DB: inventory_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U inventory_user -d inventory_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://inventory_user:securepassword@localhost:5432/inventory_db
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # The partition window is runtime DDL by design (its children are named
+      # after months), so a fresh database has only the DEFAULT children. Apply
+      # the baseline exactly as the other jobs do, then let the script provision
+      # through `check_partitions.ts --apply` — the same module the server boots
+      # with, never a second copy of the DDL.
+      - name: Apply schema.sql
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/schema.sql
+      # No `|| true` and no continue-on-error: the script provisions, asserts the
+      # read-only alarm exits 0, and asserts it exits non-zero with the stale
+      # month named when the window cannot be complete. A silent pass fails here.
+      - name: Provision, alarm and negative control
+        run: bash scripts/partition_alarm.sh

@@ -54,8 +54,130 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 
 const ADVISORY_LOCK_SQL = `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`;
 
-function checksum(sql: string): string {
+function checksumRaw(sql: string): string {
   return crypto.createHash('sha256').update(sql).digest('hex');
+}
+
+/**
+ * Comments are prose, not schema (worklist A4). A numbered migration is frozen
+ * once applied, but "frozen" has to mean its STATEMENTS: on 2026-11-17 rewording
+ * 0030's comments stopped every boot with "changed after it was applied" and
+ * needed a hand-written reconciliation. The recorded checksum therefore hashes
+ * the SQL with comments removed.
+ *
+ * The scanner knows the three places where `--` or `/*` is not a comment:
+ * single-quoted strings (with `''` escapes), double-quoted identifiers, and
+ * dollar-quoted bodies (`$$ … $$`, `$tag$ … $tag$`). A dollar-quoted body is
+ * copied verbatim — a comment inside a function body is part of that body — so
+ * this can never merge two statements into one hash.
+ */
+export function stripSqlComments(sql: string): string {
+  let out = '';
+  let i = 0;
+  const n = sql.length;
+  while (i < n) {
+    const ch = sql[i];
+    const next = sql[i + 1];
+
+    if (ch === '$') {
+      const match = /^(\$\$|\$[A-Za-z_][A-Za-z0-9_]*\$)/.exec(sql.slice(i));
+      if (match) {
+        const tag = match[0];
+        const close = sql.indexOf(tag, i + tag.length);
+        const end = close === -1 ? n : close + tag.length;
+        out += sql.slice(i, end);
+        i = end;
+        continue;
+      }
+    }
+
+    if (ch === "'" || ch === '"') {
+      const quote = ch;
+      out += quote;
+      let j = i + 1;
+      while (j < n) {
+        if (sql[j] === quote) {
+          if (sql[j + 1] === quote) {
+            out += quote + quote;
+            j += 2;
+            continue;
+          }
+          out += quote;
+          j += 1;
+          break;
+        }
+        out += sql[j];
+        j += 1;
+      }
+      i = j;
+      continue;
+    }
+
+    if (ch === '-' && next === '-') {
+      while (i < n && sql[i] !== '\n') i += 1;
+      continue;
+    }
+
+    if (ch === '/' && next === '*') {
+      let depth = 1;
+      i += 2;
+      while (i < n && depth > 0) {
+        if (sql[i] === '/' && sql[i + 1] === '*') {
+          depth += 1;
+          i += 2;
+          continue;
+        }
+        if (sql[i] === '*' && sql[i + 1] === '/') {
+          depth -= 1;
+          i += 2;
+          continue;
+        }
+        i += 1;
+      }
+      // A removed block comment would glue two tokens together; a space is what
+      // PostgreSQL itself sees (`SELECT/*c*/1` is `SELECT 1`).
+      out += ' ';
+      continue;
+    }
+
+    // Whitespace outside a literal is formatting, not a statement: a removed
+    // comment must not change the hash by leaving its newline behind, so every
+    // run collapses to a single space. Inside string literals, quoted
+    // identifiers and dollar-quoted bodies the branches above copied the text
+    // verbatim, so their whitespace is untouched and a literal edit still
+    // changes the checksum.
+    if (/\s/.test(ch)) {
+      if (out.length > 0 && out[out.length - 1] !== ' ') out += ' ';
+      i += 1;
+      continue;
+    }
+    out += ch;
+    i += 1;
+  }
+  return out.trim();
+}
+
+/** The checksum recorded for a numbered migration: statements, not comments. */
+export function migrationChecksum(sql: string): string {
+  return checksumRaw(stripSqlComments(sql));
+}
+
+/**
+ * Digests an earlier runner may have recorded for this file. Two conventions
+ * exist in real installs:
+ *
+ *   raw     — the whole file, comments included (the runner before A4);
+ *   naive   — the file with comments removed and whitespace left exactly as it
+ *             was, which is what the development ledger was written with.
+ *
+ * Both are accepted exactly once and replaced by the canonical digest, so an
+ * existing install keeps booting without a hand-written reconciliation. Neither
+ * can match a changed statement: a statement edit alters the digest under every
+ * one of these transformations.
+ */
+function legacyChecksums(sql: string): string[] {
+  const naive = sql.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--[^\n]*/g, '');
+  return [checksumRaw(sql), checksumRaw(naive)];
 }
 
 /** Whether a database already has the current baseline's core shape. */
@@ -127,7 +249,7 @@ async function establishBaseline(
       client,
       BASELINE_VERSION,
       BASELINE_NAME,
-      checksum(baselineSql),
+      checksumRaw(baselineSql),
       Date.now() - startedAt,
       source
     );
@@ -165,7 +287,7 @@ async function applyPendingMigrations(
   const applied: string[] = [];
   for (const migration of listMigrationFiles(migrationsDir)) {
     const sql = fs.readFileSync(migration.filePath, 'utf8');
-    const sqlChecksum = checksum(sql);
+    const sqlChecksum = migrationChecksum(sql);
 
     await client.query('BEGIN');
     try {
@@ -177,11 +299,24 @@ async function applyPendingMigrations(
       if (existing.rowCount) {
         const recorded = String(existing.rows[0].checksum || '');
         // The baseline file is expected to evolve with schema.sql; numbered
-        // migrations are immutable once recorded.
+        // migrations are immutable once recorded — statements, not comments.
         if (migration.version !== BASELINE_VERSION && recorded !== sqlChecksum) {
+          // An installation that applied this migration under an earlier
+          // convention recorded a different digest. Accept it exactly once and
+          // re-record the canonical, comment-insensitive checksum, so prose
+          // edits stop breaking the boot while a statement edit still fails.
+          if (legacyChecksums(sql).includes(recorded)) {
+            await client.query(
+              'UPDATE schema_migrations SET checksum = $2 WHERE version = $1',
+              [migration.version, sqlChecksum]
+            );
+            await client.query('COMMIT');
+            continue;
+          }
           throw new Error(
             `Migration ${migration.version} changed after it was applied ` +
-              `(recorded ${recorded.slice(0, 12)}…, file ${sqlChecksum.slice(0, 12)}…).`
+              `(recorded ${recorded.slice(0, 12)}…, file ${sqlChecksum.slice(0, 12)}…). ` +
+              'Only comments may change in an applied migration; a statement change needs a new migration.'
           );
         }
         await client.query('COMMIT');

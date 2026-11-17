@@ -36,6 +36,46 @@ jobs:
       - name: Fail on npm audit vulnerabilities (production deps)
         run: npm audit --omit=dev
 
+  # Worklist A2: the partition window is a maintenance task that runs on elapsed
+  # time, so the daily proof lives in partition-alarm.yml. This job runs the same
+  # script on every push, so a change to the provisioning module, the check or
+  # the window arithmetic fails here first — and the script's negative control
+  # fails the job if the alarm ever stops detecting a stale window.
+  partition-window:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: inventory_user
+          POSTGRES_PASSWORD: securepassword
+          POSTGRES_DB: inventory_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U inventory_user -d inventory_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://inventory_user:securepassword@localhost:5432/inventory_db
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Apply schema.sql
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/schema.sql
+      - name: Provision, alarm and negative control
+        run: bash scripts/partition_alarm.sh
+
   # Build and boot proof, with its own PostgreSQL service. This job runs in
   # parallel with static-checks and the test matrix.
   build-and-boot-timing:

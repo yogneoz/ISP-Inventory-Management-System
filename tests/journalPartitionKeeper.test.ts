@@ -21,6 +21,8 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import type { PartitionSqlClient } from '../server/src/boot/journalPartitions';
 import { partitionWindow } from '../server/src/boot/journalPartitions';
 import {
@@ -116,6 +118,19 @@ describe('journal partition keeper (A1)', () => {
     const outcome = await runJournalPartitionKeeperTick(client, { now: () => NOW, log: () => {}, warn: () => {} });
     assert.equal(outcome, 'provisioned');
     assert.ok(client.created.length > 0);
+  });
+
+  test('dbBoot arms the keeper once, after the boot provisioning pass', () => {
+    const source = readFileSync(path.resolve('server/src/boot/dbBoot.ts'), 'utf8');
+    const provisioning = source.indexOf('provisionJournalPartitions(client)');
+    const arming = source.indexOf('startJournalPartitionKeeper(pgPool)');
+    assert.ok(provisioning > 0, 'the boot pass still provisions the window');
+    assert.ok(arming > provisioning, 'the keeper is armed after the pass it complements');
+    assert.equal(
+      source.match(/startJournalPartitionKeeper\(/g)?.length,
+      1,
+      'armed exactly once — not per request and not twice for one process'
+    );
   });
 
   test('the timer is armed once, and stop() ends it', async () => {
