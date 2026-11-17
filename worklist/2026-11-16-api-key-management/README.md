@@ -1,6 +1,6 @@
 # Round 14 — Module-scoped API keys, governance and administration UI
 
-Status: `[ ]` planned · Opened 2026-11-16 · **Not started**
+Status: `[—]` superseded 2026-11-17 by [Round 15](../2026-11-17-advisory-hardening/README.md) (Part C) · Opened 2026-11-16
 
 Source: the 2026-11-16 API-key task in the mandate. Depends on Round 13's
 shared state ([SCALE-1](../2026-11-16-enterprise-scale-and-public-exposure/README.md#scale-1--shared-state-and-horizontal-workers))

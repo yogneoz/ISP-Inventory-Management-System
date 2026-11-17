@@ -13,6 +13,7 @@ import { readFileSync, existsSync, statSync } from 'fs';
 import path from 'path';
 import { pgPool, realPoolInstance, setDatabaseConnected } from '../../db';
 import { hydrateBsCalendarFromDb } from '../config/bsCalendar';
+import { startJournalPartitionKeeper } from './journalPartitionKeeper';
 import { auditBsCalendar } from '../services/bsCalendarIntegrity.service';
 import {
 INITIAL_COMPANY_PROFILE,
@@ -182,6 +183,12 @@ export async function syncDatabaseAndIndexes() {
     } catch (err: any) {
       console.warn('Journal partition provisioning skipped:', err?.message || err);
     }
+
+    // A1: the pass above only covers a process that restarts. A long-running
+    // process would otherwise run past the three-month lookahead and return to
+    // creating the month with DDL inside a user's transaction. The keeper
+    // re-runs the same idempotent job on a timer, leader-only across workers.
+    startJournalPartitionKeeper(pgPool);
 
     await seedInitialPostgresData(client);
     // A fresh install must be able to post its first invoice without a manual

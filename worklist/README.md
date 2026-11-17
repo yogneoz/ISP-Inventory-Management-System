@@ -19,7 +19,12 @@ is the plan, not a second source of truth.
 - [parked.md](parked.md) — decisions we are not acting on, with the trigger to
   reopen each one.
 - [done/](done/README.md) — completed rounds, kept for reference. Never delete.
-- **Round 11 is active** — cash receipts, voucher classes and non-trade
+- **Round 15 is active** — advisory hardening from the 2026-11-17 database audit
+  and the Sign-In investigation. Rounds 11, 13 and 14 were terminated as active
+  plans on 2026-11-17 and carried into Round 15 as Parts B and C, so one plan is
+  active and nothing was dropped. Plan and slice list:
+  [2026-11-17-advisory-hardening/README.md](2026-11-17-advisory-hardening/README.md).
+- **Round 11 — superseded 2026-11-17** (Round 15 Part B) — cash receipts, voucher classes and non-trade
   funding. Plan and slice list:
   [2026-11-14-cash-receipts-and-funding/README.md](2026-11-14-cash-receipts-and-funding/README.md).
 - **Round 12 is complete** — backup/recovery and database availability from
@@ -33,7 +38,7 @@ is the plan, not a second source of truth.
   gzip from **157,569 B to 6,198 B (−96.1%)**; SCALE-2 then took the shell to
   **2,489 B** on demo data and **10,421 B with 500 branches**. Plan and slice list:
   [2026-11-16-backup-and-db-availability/README.md](2026-11-16-backup-and-db-availability/README.md).
-- **Round 13 is active** — the enterprise-scale envelope
+- **Round 13 — superseded 2026-11-17** (Round 15 Part B) — the enterprise-scale envelope
   (3,000–10,000+ sessions, 200–500+ branches, 5M–50M customers, 1B–10B rows)
   and public-internet hardening, from the 2026-11-16 mandate. **SCALE-1 is
   done (2026-11-16)**: Redis-backed limits, session fingerprints, locks/leader
@@ -56,7 +61,7 @@ is the plan, not a second source of truth.
   [docs/database-optimization-audit-2026-11-17.md](../docs/database-optimization-audit-2026-11-17.md).
   It still owns the partition conversions, read/write split, queued writes and the TLS/CORS/CSP/MFA
   surface.
-- **Round 14 is planned, not started** — module-scoped API keys with an
+- **Round 14 — superseded 2026-11-17** (Round 15 Part C) — module-scoped API keys with an
   Administration & Governance UI, audit and revocation:
   [2026-11-16-api-key-management/README.md](2026-11-16-api-key-management/README.md).
   It is blocked on Round 13's Redis state (rate limits, revocation) and MFA.

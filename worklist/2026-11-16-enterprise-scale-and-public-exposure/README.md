@@ -1,6 +1,6 @@
 # Round 13 — Enterprise scale envelope and public-internet hardening
 
-Status: `[ ]` planned · Opened 2026-11-16 · Mandate-driven · **Not started**
+Status: `[—]` superseded 2026-11-17 by [Round 15](../2026-11-17-advisory-hardening/README.md) (Part B); its partition/BRIN assumptions are corrected there · Opened 2026-11-16 · Mandate-driven
 
 Source: the 2026-11-16 architectural and deployment mandate, plus audit findings
 H3, H4, H5, H6, M4, M5, M8 and L1–L3 in

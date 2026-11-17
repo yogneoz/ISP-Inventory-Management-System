@@ -1,6 +1,6 @@
 # Round 11 — Cash receipts, voucher classes and non-trade funding
 
-Status: `[~]` in progress · Opened 2026-11-14 · Owner: main
+Status: `[—]` superseded 2026-11-17 by [Round 15](../2026-11-17-advisory-hardening/README.md) (Part B) · Opened 2026-11-14 · Owner: main
 
 Goal: make every way money enters the business auditable and correct, not just
 the customer-invoice path. The round covers partial customer receipts, the
