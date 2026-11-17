@@ -47,7 +47,14 @@ is the plan, not a second source of truth.
   serial-focused audit lookup, the audit stock-movement report window and the
   CustomerLedger statement body remain intentionally unconverted. Next:
   [2026-11-16-enterprise-scale-and-public-exposure/README.md](2026-11-16-enterprise-scale-and-public-exposure/README.md).
-  It owns partitioning, read/write split, queued writes and the TLS/CORS/CSP/MFA
+  **The first SCALE-3 slice is done (2026-11-17):** monthly journal partitions are
+  provisioned at boot with `npm run check:partitions` as the read-only gate,
+  `inventory_stock` and `document_sequence_daily` carry HOT-friendly storage
+  parameters (migration `0030`), and the bootstrap payload version is shared
+  through Redis. The database audit — what already exists, what each remaining
+  suggestion would cost, and the trigger that reopens it — is
+  [docs/database-optimization-audit-2026-11-17.md](../docs/database-optimization-audit-2026-11-17.md).
+  It still owns the partition conversions, read/write split, queued writes and the TLS/CORS/CSP/MFA
   surface.
 - **Round 14 is planned, not started** — module-scoped API keys with an
   Administration & Governance UI, audit and revocation:
@@ -100,6 +107,25 @@ current year's file; a completed item adds one short entry there, not a
 checklist here.
 
 ## Active work
+
+**Completed outside a round — the “Sign In sends no request” report (2026-11-17).** The
+symptom was reported twice and never explained; it is now reproduced, instrumented
+and closed as a browser-session condition, with no app change. Driving the real
+login form in the Local Chromium against a temporary server on port 3200 showed
+the failing click producing **no mouse events at all** (no `pointerdown`), with
+`document.hasFocus()` false during the click and true straight after — the
+coordinate click was consumed activating the window — while
+`document.visibilityState` stayed `"hidden"` (the panel was not being rendered).
+When the page is live, the identical click yields `pointerdown → … → click →
+submit` → `POST /api/auth/login` → 200 → token → authenticated view, pressing
+**Enter** in the password field does the same, and a wrong password still
+reaches the endpoint and shows the inline 401 error. `LoginModal.tsx` is
+unchanged. UIX-8's existing synthetic-`submit` test could not see this class, so
+it gained *“clicking the submit button issues the sign-in request, with native
+validation satisfied”* (button type/enablement/ownership, `checkValidity()`,
+click → handler with the native post cancelled); breaking the button to
+`type="button"` fails it, restoring it passes. Detail:
+[session note](../SESSION_NOTES.md) (the 2026-11-17 entry at the top).
 
 **Completed outside a round — documentation truth (2026-11-16).** The
 superseded 2026-11-04 audit was removed (git history keeps it) and

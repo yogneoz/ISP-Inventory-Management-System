@@ -104,7 +104,7 @@ for every future change, not just this round.
 | Partitioning | `gl_journals` + `gl_journal_lines` declared RANGE by `journal_date_ad`; fresh install only `DEFAULT`; `gl_subledger_entries`, `stock_operations`, `serial_log`, `sales_invoices` unpartitioned | SCALE-3 |
 | Read path | `REPORT_DATABASE_URL` + `reportingPool` already exist (`server/db.ts`); reporting coverage is partial | SCALE-3 |
 | PgBouncer | not configured; the pool uses `connectionTimeoutMillis` and session-level statements | SCALE-3 |
-| Caches | 11 `CACHE_LOADS` hydrate per worker at boot; no shared cache/invalidation yet | SCALE-4 |
+| Caches | 11 `CACHE_LOADS` hydrate per worker **at boot only** — OPS-2 deleted the post-write reload, so a write costs one version bump, not eleven table reads; the bootstrap ETag's version counter is shared through Redis since 2026-11-17 | SCALE-4 (remaining: pre-aggregated balances) |
 | Balances | `fiscal_year_balances` exists (`schema.sql:2168+`); no branch stock balance table | SCALE-4 |
 | Transport | `server/src/app.ts:236-249` disables HSTS and clears `upgrade-insecure-requests`; no TLS proxy in the repo | PUB-1 |
 | Headers/CORS | Helmet CSP in production/test; no `ALLOWED_ORIGINS`, no explicit CORS policy | PUB-2 |
@@ -298,8 +298,8 @@ Known limitations, stated explicitly:
 - `EXPLAIN`/5M-vs-12k timing and partition pruning belong to SCALE-3's index and
   partition work; no speed claim is made for this slice.
 
-Full suite: **2,535 tests, 2,533 pass, 2 Windows-only skips, 0 fail**;
-`npx tsc --noEmit` is 0; the docs-count gate matches 2,535. The new
+Full suite: **2,545 tests, 2,543 pass, 2 Windows-only skips, 0 fail**;
+`npx tsc --noEmit` is 0; the docs-count gate matches 2,545. The new
 `tests/scale2RemainingRegisters.api.test.ts` walks each SCALE-2 follow-up read,
 and `tests/scale2OperationalRegisters.api.test.ts` walks all five operational
 registers across a real insert boundary (newer and same-timestamp rows inserted
@@ -318,14 +318,25 @@ log/pid removed after the run; no scratch database or fixture rows remain
 
 ### SCALE-3 — Partitioning, indexes, read/write split, PgBouncer
 
-Priority: P0 · Status: `[ ]`
+Priority: P0 · Status: `[~]` — provisioned partitioning and hot-table storage
+landed 2026-11-17; the partition *conversions*, BRIN/composite index work,
+replica routing and PgBouncer are open. Audit:
+[docs/database-optimization-audit-2026-11-17.md](../../docs/database-optimization-audit-2026-11-17.md).
 
-- [ ] Provision monthly partitions for **both** ledger parents. They are
-      already RANGE-declared, but a fresh install only has `DEFAULT`
-      (`schema.sql:4874-4875`); add a boot/CLI job that creates the current
-      month + 3 months ahead, keeps a `DEFAULT` only as a safety net, and
-      detaches/archives partitions older than the retention window (84 months,
-      configurable).
+- [x] Provision monthly partitions for **both** ledger parents. They are
+      already RANGE-declared, but a fresh install only had `DEFAULT`
+      (`schema.sql:4874-4875`); `boot/journalPartitions.ts` now creates the
+      current month + 1 behind + 3 ahead on every boot (idempotent, leader-only
+      through the existing boot lock) and reports how many rows sit in
+      `DEFAULT`, and `npm run check:partitions` is the read-only gate that exits
+      non-zero on a gap or a dirty `DEFAULT`.
+      **Done 2026-11-17** — `tests/journalPartitions.test.ts` (window is
+      contiguous; provisioning fills exactly the reported gaps; a second run is
+      a no-op; each child's bound covers exactly its month). The
+      detach/archive half is **not** done and is recorded as a deliberate
+      deferral: a monthly `gl_journals` child is referenced by the inherited FK
+      on `gl_journal_lines`, so removal needs a rehearsed detach + archive, not
+      a boot job.
 - [ ] Convert `gl_subledger_entries`, `stock_operations`, `serial_log` and
       `sales_invoices` to RANGE partitioning by their document date. Do it as a
       shadow table + backfill + swap per table (the 0003 pattern), never an
@@ -335,6 +346,16 @@ Priority: P0 · Status: `[ ]`
       `operation_date_ad` (append-only, physically ordered); composite B-Tree
       `(branch_id, fiscal_year_id, <date> DESC, id DESC)` for the page reads.
       Drop the indexes the new composites make redundant, after measuring.
+      **2026-11-17 assessment:** every current `audit_logs`/`transaction_logs`
+      read is branch-scoped and page-ordered, which the existing B-Tree serves;
+      a BRIN now would be write cost the planner never chooses. Trigger and the
+      measurement query are recorded in the audit (§4).
+- [x] Storage tuning for the two high-update tables with no rewrite:
+      `inventory_stock` and `document_sequence_daily` now run at
+      `fillfactor = 80` with `autovacuum_vacuum_scale_factor = 0.02` and
+      `autovacuum_analyze_scale_factor = 0.05` (fresh installs from
+      `schema.sql`, existing installs from `scripts/migrations/0030_hot_table_storage.sql`).
+      **Done 2026-11-17.**
 - [ ] `DATABASE_WRITE_URL` (primary) and `DATABASE_READ_URL` (replica), with
       `REPORT_DATABASE_URL` kept as an alias for compatibility. Separate pools
       with their own `PG_POOL_MAX`; `reportingPool` routes Trial Balance, P&L,
@@ -358,19 +379,31 @@ transaction mode passes the smoke and the concurrency tests.
 
 ### SCALE-4 — Redis caching and write-path decoupling
 
-Priority: P1 · Status: `[ ]`
+Priority: P1 · Status: `[~]` — the shared-version piece is done; the cache-key
+work is obsolete and the balance work is open.
 
-- [ ] Replace the synchronous post-commit reload of all `CACHE_LOADS` with
-      granular keys: `branch:{id}:stock_summary`, `fy:{id}:coa`,
-      `company:profile`, `master:suppliers`, …; a write invalidates only the
-      keys its entity/table owns.
-- [ ] Single-flight population: `SET key:lock <token> NX PX 5000`; waiters poll
-      the key briefly or read through to the DB with a bounded retry. No
-      thundering herd after an invalidation.
-- [ ] Invalidate after commit, asynchronously, through a durable outbox
-      (`cache_invalidations` table) consumed by a worker and published on
-      Redis. A Redis outage delays freshness but cannot roll back or block a
-      committed write.
+> **Correction (2026-11-17).** The premise of the first three bullets — a
+> synchronous post-commit reload of all `CACHE_LOADS` in the write path — no
+> longer exists. OPS-2 deleted `cacheRefreshHook`; `middleware/stateVersion.ts`
+> only bumps a counter after a successful non-GET, and `hydrateOperationalData`
+> runs at boot alone. What WAS still per worker is that counter, which the
+> bootstrap ETag is built from: a write on worker A left worker B answering
+> `304` for a payload that had changed. That is fixed (below). Adding a cache
+> bus with a per-route invalidation matrix would now be a second invalidation
+> mechanism with no reload to remove.
+
+- [—] Granular cache keys + single-flight population + an invalidation outbox.
+      **Deliberately not doing:** there is no post-write cache reload to
+      replace, so there is nothing for the keys, the lock or the outbox to
+      coordinate. Reopen only if a cache hydration returns to a request path.
+- [x] Share the bootstrap payload version across workers: `state/bootstrapVersion.ts`
+      keeps `isp:state:version` in the shared store (`INCR` after a committed
+      write, `GET` before the validator is computed), with the local counter as
+      the single-worker and fail-open path. A Redis outage can serve a stale
+      `304` for a moment — never a failed request.
+      **Done 2026-11-17** — `tests/sharedState.test.ts` (a write on A moves B's
+      validator; single worker still invalidates itself; a dead store falls
+      back), with `tests/bootstrapEtag.test.ts` unchanged and green.
 - [ ] Pre-aggregate stock: `branch_stock_balances(branch_id, product_id,
       quantity, value, updated_at)` maintained in the same transaction as the
       stock movement (or by a trigger), with a rebuild command. Stock-on-hand
@@ -529,8 +562,9 @@ the app starts with a read-only rootfs; `/metrics` is unreachable publicly.
   per-worker pool.
 - Round 14 depends on SCALE-1 (Redis for key rate limits/revocation) and PUB-3
   (MFA for the management endpoints). Its schema slice can start in parallel.
-- Audit H6's `0030_fk_indexes` and the API-key migration compete for the next
-  migration number. Reserve numbers in the order the slices actually land.
+- **`0030` is taken** (`0030_hot_table_storage.sql`, 2026-11-17). Audit H6's
+  `0030_fk_indexes` and the API-key migration take `0031` onward in the order
+  the slices actually land.
 - `gl_journal_lines` is already RANGE-declared; do not write a migration that
   "adds partitioning" without first checking whether the target install has
   monthly children or only `DEFAULT`.
