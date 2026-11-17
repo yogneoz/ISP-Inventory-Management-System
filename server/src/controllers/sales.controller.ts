@@ -231,7 +231,7 @@ function srValidateAgainstInvoice(invoiceItems: any[], returnItems: any[], alrea
 
 /** Forwarded from sales.routes.ts (get_salesInvoices). */
 export async function get_salesInvoices(req: any, res: Response): Promise<any> {
-  const { branchId, customerId, status, query, dateFromAD, dateToAD, page, pageSize, all, cursor, limit } = req.query;
+  const { branchId, customerId, status, query, dateFromAD, dateToAD, openOnly, page, pageSize, all, cursor, limit } = req.query;
   // SCALE-2: cursor reads are the register's stable path. The first request
   // omits `cursor` but sends `limit`; later requests send the opaque cursor.
   const wantsCursor = cursor !== undefined || limit !== undefined;
@@ -247,10 +247,10 @@ export async function get_salesInvoices(req: any, res: Response): Promise<any> {
   // without a page param keep the legacy full-array response; a bare
   // ?branchId= request is unchanged.
   const wantsPaged = page !== undefined || pageSize !== undefined || all === '1';
-  const wantsFiltering = wantsPaged || wantsCursor || status || query || dateFromAD || dateToAD;
+  const wantsFiltering = wantsPaged || wantsCursor || status || query || dateFromAD || dateToAD || openOnly;
   if (getPgConnected() && wantsFiltering) {
     try {
-      const opts = { branchId, customerId, status, query, dateFromAD, dateToAD };
+      const opts = { branchId, customerId, status, query, dateFromAD, dateToAD, openOnly };
       if (wantsCursor && all !== '1') {
         const size = keysetLimit(limit, 50, 500);
         const q = buildSalesInvoiceKeysetQuery(
@@ -1371,7 +1371,14 @@ export async function post_customerPayments(req: any, res: Response): Promise<an
       allocationInvoices.push({ request, invoice });
     }
     const linkedInvoice = allocationInvoices[0]?.invoice;
-    const singleInvoice = allocationInvoices.length === 1 ? linkedInvoice : null;
+    // The header's single-invoice link claims the receipt settled that invoice.
+    // A partly applied receipt (some of it left as an advance) must not claim
+    // it: the allocation rows are the authority, and `invoiceId` is only the
+    // one-invoice compatibility path.
+    const singleInvoice =
+      allocationInvoices.length === 1 && Math.abs(roundMoney(amount - allocatedTotal)) < 0.005
+        ? linkedInvoice
+        : null;
 
     let customerId: string | null = body.customerId || linkedInvoice?.customerId || null;
     let customerName = body.customerName || linkedInvoice?.customerName || '';
@@ -1543,9 +1550,13 @@ export async function post_customerPayments(req: any, res: Response): Promise<an
             throw new ApiError(409, `Invoice ${locked.invoiceNumber} is already fully paid.`);
           }
           if (row.request.amount > remaining + 0.005) {
+            // REC-1: name the excess and the lane that can carry it, so the
+            // operator can record it as an advance instead of guessing.
+            const excess = roundMoney(row.request.amount - remaining);
             throw new ApiError(
               400,
-              `Allocation ${row.request.amount.toFixed(2)} exceeds the ${remaining.toFixed(2)} still open on invoice ${locked.invoiceNumber}.`
+              `Allocation ${row.request.amount.toFixed(2)} exceeds the ${remaining.toFixed(2)} still open on invoice ${locked.invoiceNumber} by ${excess.toFixed(2)}. ` +
+                'An invoice can never take more than it still owes — record the excess as a separate unapplied advance (a receipt with no allocation).'
             );
           }
         }

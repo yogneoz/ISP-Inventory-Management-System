@@ -152,7 +152,12 @@ unsecured loans as a Loan Payable control with a lender subledger instead of
 AP or supplier records. REC-1 (partial receipt guard + concurrency), REC-2
 (allocations and Receive Payment), CASH-1 (explicit cash/bank classes and AR/AP
 refusal), NUM-1 (validated invoice/import overrides, fail-closed numbering and
-retired-number registry) and the LENDER control foundation are complete.
+retired-number registry) and the LENDER control foundation are complete. The
+Round 11 carry-over for partial receipts was re-audited on 2026-11-17 under
+Round 15 Part B and closed: the Receive Payment list is now filtered in SQL
+(`openOnly`, so settled pages cannot hide open invoices), the over-allocation
+refusal names the excess and the advance lane, and a partly applied receipt no
+longer claims the single-invoice header.
 LEND-1's lender master, loan register and lender statement are also complete;
 the remaining scope is the dedicated loan receipt/repayment documents
 (including interest TDS) and the round close gates.

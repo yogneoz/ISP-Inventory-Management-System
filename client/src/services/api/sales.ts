@@ -13,6 +13,8 @@ export async function getSalesInvoices(params?: {
   branchId?: string; status?: string; query?: string;
   customerId?: string;
   dateFromAD?: string; dateToAD?: string;
+  /** Posted invoices with an open balance — the Receive Payment list. */
+  openOnly?: boolean;
   page?: number; pageSize?: number; all?: boolean;
   /** SCALE-2 keyset read: opaque cursor + bounded limit. */
   cursor?: string | null; limit?: number;
@@ -24,6 +26,7 @@ export async function getSalesInvoices(params?: {
   if (params?.query) search.append('query', params.query);
   if (params?.dateFromAD) search.append('dateFromAD', params.dateFromAD);
   if (params?.dateToAD) search.append('dateToAD', params.dateToAD);
+  if (params?.openOnly) search.append('openOnly', '1');
   if (params?.cursor) search.append('cursor', params.cursor);
   if (params?.limit !== undefined) search.append('limit', String(params.limit));
   if (params?.all) search.append('all', '1');

@@ -155,9 +155,13 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
 
   const fetchOpenInvoicePage = useCallback(async (cursor: string | null) => {
     if (!selectedCustomerId) return { items: [], nextCursor: null, hasMore: false };
+    // `openOnly` is a server-side filter, not a client-side one: a customer
+    // with a page of settled invoices would otherwise hide every invoice that
+    // can still receive money.
     const result = await api.getSalesInvoices({
       customerId: selectedCustomerId,
       branchId: filters.branchId === 'ALL' ? undefined : filters.branchId,
+      openOnly: true,
       cursor,
       limit: 20,
     });

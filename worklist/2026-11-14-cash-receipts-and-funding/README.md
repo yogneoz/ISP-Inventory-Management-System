@@ -86,6 +86,24 @@ receipt against a 360 invoice leaves 260; a reversal restores every allocated
 invoice and the ledger; an unapplied receipt appears as an advance, not as a
 fake invoice payment.
 
+**Re-audited 2026-11-17 (two gaps closed).** REC-1's refusal named only the
+amount and the open balance; it now also names the excess and tells the
+operator to record it as an unapplied advance
+(`Allocation 400.00 exceeds the 260.00 still open on invoice INV-… by 140.00. An
+invoice can never take more than it still owes — record the excess as a separate
+unapplied advance (a receipt with no allocation).`). REC-2's **Receive Payment**
+dialog fetched one keyset page of *every* invoice for the customer (newest
+first, `limit: 20`) and filtered for open ones in the browser, so a customer
+with a page of settled invoices saw an empty or partial open list and older
+open invoices could not be selected at all. `/api/sales-invoices` now accepts
+`openOnly=1`, applied in the shared `WHERE` fragment as
+`status = 'POSTED' AND amount_paid < grand_total - 0.005` (the same half-cent
+tolerance the receipt path uses) for the keyset, paged and count queries, and
+the dialog sends it. A partly applied receipt also no longer claims the
+single-invoice `invoiceId` header: that link is set only when the allocation
+totals the whole receipt, so an unapplied remainder cannot read as a fake
+invoice settlement.
+
 ### CASH-1 — Explicit cash/bank classes and numbers
 
 Priority: P1 · Status: `[x]`

@@ -38,6 +38,12 @@ export interface SalesInvoiceQueryOptions {
   dateFromAD?: unknown;
   /** Inclusive upper bound on invoice_date_ad, AD YYYY-MM-DD. */
   dateToAD?: unknown;
+  /**
+   * Only invoices that can still receive money: posted, with an open balance.
+   * The customer-ledger Receive Payment list asks for this server-side, so a
+   * customer's open invoices are never hidden behind a page of settled ones.
+   */
+  openOnly?: unknown;
 }
 
 /** WHERE fragment shared by the sales-invoices count and paged list queries. */
@@ -69,6 +75,12 @@ export function buildSalesInvoiceWhere(opts: SalesInvoiceQueryOptions): { whereS
   if (typeof opts.dateToAD === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(opts.dateToAD)) {
     params.push(opts.dateToAD);
     whereSql += ` AND invoice_date_ad <= $${params.length}::date`;
+  }
+  if (opts.openOnly === true || opts.openOnly === '1' || opts.openOnly === 'true') {
+    // `status` is the invoice document state; the money state is amount_paid.
+    // The half-cent tolerance is the same one the receipt path uses, so an
+    // invoice rounded to its total is not offered as "open".
+    whereSql += ` AND status = 'POSTED' AND amount_paid < grand_total - 0.005`;
   }
   return { whereSql, params };
 }

@@ -504,8 +504,13 @@ browser and a seeded demo account).
 
 Authoritative detail stays in those notes; this round owns their scheduling.
 
-- Round 11 remainder: partial customer receipts with allocations, explicit
-  voucher classes for direct cash/bank movements, and the non-trade funding lane.
+- Round 11 remainder — **partial customer receipts with allocations: done
+  2026-11-17** (the Progress log records the three gaps a re-audit of the
+  delivered slice found and closed: the Receive Payment list was filtered in the
+  browser over one page of every invoice, the refusal did not name the excess or
+  the advance lane, and a partly applied receipt still claimed the invoice it
+  did not fully settle). Still open: the dedicated loan receipt/repayment
+  documents and the round-close gates.
 - Round 13 remainder: partition conversions of `gl_subledger_entries`,
   `stock_operations`, `serial_log`; replica/PgBouncer decision (audit §1 row 2);
   pre-aggregated stock and closed-year trial balance; queued writes; and the
@@ -598,3 +603,24 @@ on the Redis state and MFA work in Part B.
   faults **exit 1** naming the element; `--inject-exception` **exit 1**.
   Production re-verified (0 / self-test 0 / exception 1).
   `tests/browserPageErrors.test.ts` (7).
+- 2026-11-17 — **Part B / Round 11 partial receipts re-audited and closed**: the
+  slice was already implemented (REC-1/REC-2), so the pass audited it against
+  the note's acceptance criteria instead of rewriting it, and three real gaps
+  fell out. (1) The Customer Ledger **Receive Payment** dialog fetched one keyset
+  page of *every* invoice for the customer and filtered for open ones in the
+  browser, so a page of settled invoices hid older open ones —
+  `/api/sales-invoices` now takes `openOnly=1`, applied in the shared `WHERE`
+  fragment (`status = 'POSTED' AND amount_paid < grand_total - 0.005`) for the
+  keyset, paged and count queries, and the dialog sends it. (2) The
+  over-allocation refusal named neither the excess nor the advance lane; it now
+  says `… exceeds the 260.00 still open on invoice INV-… by 140.00 … record the
+  excess as a separate unapplied advance`. (3) A partly applied receipt still set
+  the single-invoice `invoiceId` header, which claims a settlement it did not
+  make; that link is now set only when the allocations total the whole receipt.
+  Tests: `tests/salesInvoiceOpenFilter.test.ts` (5, including wiring pins) and
+  two API tests in `tests/paymentCashBook.api.test.ts` (open list filtered in
+  SQL behind newer settled pages; 300 receipt allocating 250 → invoice `PARTIAL`,
+  `invoiceId` null, cash 300 / AR 300). Repair proof: with `openOnly` dropped
+  from the controller options and the `singleInvoice` condition reverted, the
+  two API tests fail (`12 pass / 2 fail`) and the pure wiring pin fails; both
+  tests pass with the change (`14/14`).

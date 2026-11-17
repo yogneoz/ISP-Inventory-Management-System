@@ -299,6 +299,9 @@ describe('payment documents and the cash/bank book (real HTTP + PostgreSQL)', { 
     });
     assert.equal(receipt.status, 400, JSON.stringify(receipt.json));
     assert.match(String(receipt.json.message), /exceeds the 339\.00 still open/);
+    // REC-1: the refusal names the excess and the lane that can carry it.
+    assert.match(String(receipt.json.message), /by 1\.00/);
+    assert.match(String(receipt.json.message), /unapplied advance/);
 
     const invoice = await pool!.query(
       'SELECT amount_paid::numeric AS "amountPaid", payment_status AS "paymentStatus" FROM sales_invoices WHERE id = $1',
@@ -1072,4 +1075,129 @@ describe('payment documents and the cash/bank book (real HTTP + PostgreSQL)', { 
     const reversals = await journalFor('CUSTOMER_PAYMENT_REVERSAL', winningReceiptId);
     assert.equal(reversals.length, 1, 'exactly one contra journal may be posted');
   });
+  test('a partly applied receipt keeps its remainder an advance and does not claim the invoice', async () => {
+    // This test runs after every cash-book assertion, so its stock use cannot
+    // starve them; top the row up rather than assuming what earlier tests left.
+    await pool!.query(
+      'UPDATE inventory_stock SET quantity_on_hand = quantity_on_hand + 20 WHERE product_id = $1 AND branch_id = $2',
+      [PRODUCT, BR]
+    );
+    await pool!.query(
+      `INSERT INTO customer_records (id, customer_id, customer_name, contact_number, branch_id, status)
+       VALUES ('pcb-part-customer', 'pcb-part-customer', 'PCB Part Customer', '9800000001', $1, 'ACTIVE')
+       ON CONFLICT (id) DO NOTHING`,
+      [BR]
+    );
+    const invoice = await post('/api/sales-invoices', {
+      id: 'pcb-si-part',
+      invoiceNumber: 'INV-2083-PCB-SI-PART',
+      customerId: 'pcb-part-customer',
+      customerName: 'PCB Part Customer',
+      branchId: BR,
+      invoiceDateAD: today,
+      paymentMethod: 'CREDIT',
+      paymentStatus: 'UNPAID',
+      amountPaid: 0,
+      items: [invoiceLine({ quantity: 4, unitPrice: 100, taxRate: 0, isTaxExempt: true })],
+    });
+    assert.equal(invoice.status, 201, JSON.stringify(invoice.json));
+
+    const receipt = await post('/api/customer-payments', {
+      customerId: 'pcb-part-customer',
+      customerName: 'PCB Part Customer',
+      branchId: BR,
+      paymentDateAD: today,
+      amount: 300,
+      paymentMethod: 'CASH',
+      notes: 'PCB partly applied receipt',
+      allocations: [{ invoiceId: 'pcb-si-part', amount: 250 }],
+    });
+    assert.equal(receipt.status, 201, JSON.stringify(receipt.json));
+    assert.deepEqual(receipt.json.allocations, [
+      { invoiceId: 'pcb-si-part', invoiceNumber: 'INV-2083-PCB-SI-PART', amount: 250 },
+    ]);
+    assert.equal(
+      receipt.json.invoiceId,
+      null,
+      'the 50 unapplied remainder means the receipt did not settle this invoice'
+    );
+
+    const row = await pool!.query(
+      'SELECT amount_paid::numeric AS "amountPaid", payment_status AS "paymentStatus" FROM sales_invoices WHERE id = $1',
+      ['pcb-si-part']
+    );
+    assert.equal(Number(row.rows[0].amountPaid), 250, 'only the allocated part reaches the invoice');
+    assert.equal(row.rows[0].paymentStatus, 'PARTIAL');
+
+    // The cash side is the whole 300; the extra 50 is the customer's advance.
+    const journal = await journalFor('CUSTOMER_PAYMENT', String(receipt.json.id));
+    assert.equal(journal.length, 1);
+    const legs = await journalLines(journal[0].id);
+    assert.equal(legs[0].debit, 300);
+    assert.equal(legs[1].credit, 300);
+  });
+
+  test('the receive-from-ledger list is filtered in SQL, so settled pages cannot hide it', async () => {
+    // The Customer Ledger dialog asks for open invoices with a keyset page. A
+    // client-side filter over one page of every invoice loses an older open
+    // invoice behind newer settled ones; `openOnly` moves the decision into SQL.
+    await pool!.query(
+      'UPDATE inventory_stock SET quantity_on_hand = quantity_on_hand + 20 WHERE product_id = $1 AND branch_id = $2',
+      [PRODUCT, BR]
+    );
+    await pool!.query(
+      `INSERT INTO customer_records (id, customer_id, customer_name, contact_number, branch_id, status)
+       VALUES ('pcb-open-customer', 'pcb-open-customer', 'PCB Open Customer', '9800000002', $1, 'ACTIVE')
+       ON CONFLICT (id) DO NOTHING`,
+      [BR]
+    );
+    await post('/api/sales-invoices', {
+      id: 'pcb-open-a',
+      invoiceNumber: 'INV-2083-PCB-OPEN-A',
+      customerId: 'pcb-open-customer',
+      customerName: 'PCB Open Customer',
+      branchId: BR,
+      invoiceDateAD: today,
+      paymentMethod: 'CREDIT',
+      paymentStatus: 'UNPAID',
+      amountPaid: 0,
+      items: [invoiceLine({ quantity: 1, unitPrice: 100 })],
+    });
+    for (const suffix of ['b', 'c']) {
+      const created = await post('/api/sales-invoices', {
+        id: `pcb-open-${suffix}`,
+        invoiceNumber: `INV-2083-PCB-OPEN-${suffix.toUpperCase()}`,
+        customerId: 'pcb-open-customer',
+        customerName: 'PCB Open Customer',
+        branchId: BR,
+        invoiceDateAD: today,
+        paymentMethod: 'CREDIT',
+        paymentStatus: 'UNPAID',
+        amountPaid: 0,
+        items: [invoiceLine({ quantity: 1, unitPrice: 100 })],
+      });
+      assert.equal(created.status, 201, JSON.stringify(created.json));
+    }
+    // A is the oldest invoice and still open; B and C are newer and settled.
+    await pool!.query(
+      "UPDATE sales_invoices SET created_at = CURRENT_TIMESTAMP - INTERVAL '3 days' WHERE id = 'pcb-open-a'"
+    );
+    await pool!.query(
+      "UPDATE sales_invoices SET amount_paid = grand_total, payment_status = 'PAID' WHERE id IN ('pcb-open-b', 'pcb-open-c')"
+    );
+
+    const page = await get(
+      `/api/sales-invoices?customerId=pcb-open-customer&branchId=${BR}&limit=2`
+    );
+    assert.equal(page.status, 200, JSON.stringify(page.json));
+    assert.deepEqual(page.json.items.map((row: any) => row.id).sort(), ['pcb-open-b', 'pcb-open-c']);
+
+    const open = await get(
+      `/api/sales-invoices?customerId=pcb-open-customer&branchId=${BR}&openOnly=1&limit=2`
+    );
+    assert.equal(open.status, 200, JSON.stringify(open.json));
+    assert.deepEqual(open.json.items.map((row: any) => row.id), ['pcb-open-a']);
+    assert.equal(Number(open.json.items[0].amountPaid), 0);
+  });
+
 });
