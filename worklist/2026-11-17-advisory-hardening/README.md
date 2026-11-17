@@ -394,10 +394,74 @@ New tests: `tests/scaleFixtureGuards.test.ts` (5) — neither script may fall ba
 to `DATABASE_URL`, both refuse a database whose name lacks `_scale`, `--dry-run`
 writes nothing, and the fixture refuses to write without `--yes`.
 
-### A10 — Fail browser checks when the page cannot receive input `[ ]`
+### A10 — Fail browser checks when the page cannot receive input `[x]`
 
 Done when: any browser-driven check asserts `visibilityState`/focus first and
 reports "input cannot reach this page" instead of a silent no-op.
+
+**Delivered.** The repo's one browser-driven check is
+`scripts/check_boot_timing.mjs` (headless Edge/Chrome over CDP); it measured
+paint order and never touched an input, so a page that rendered but could not
+accept input passed. `scripts/inputReadiness.mjs` is now the readiness probe, and
+the gate fails on its verdict. Three root causes were fixed, not worked around:
+
+1. **The check never activated its own tab.** A headless tab reports
+   `hasFocus() === false` and the first click is consumed activating the window —
+   the exact condition the Sign-In investigation spent an afternoon on. The probe
+   now calls `Page.bringToFront` and waits up to 2 s for focus; if the page still
+   does not hold focus, that is a failure, not a pass.
+2. **“A control exists” was never checked against the browser's own hit-test.**
+   The probe runs `document.elementFromPoint` at the control's centre (the same
+   test a real click uses) and names whatever covers it.
+3. **A broken control let the check re-pick a healthy neighbour.** Once a target
+   is chosen it is pinned (`data-input-readiness-target`) and judged even when it
+   becomes disabled, read-only or unfocusable — otherwise a form whose first
+   field broke would pass on its second.
+
+The verdict covers all the states named in the audit: hidden document, unfocused
+page, no interactive control at all (a loading/disabled shell), a control that is
+invisible, covered by an overlay, disabled, read-only, unable to take focus, or
+one whose value does not change when `Input.insertText` types through the real
+event path. Each problem is prefixed `input cannot reach this page:` and names
+the element (`input[type="text"][placeholder="Search customer name, code, ph"].…`)
+and the covering element where relevant. `diagnoseInputReadiness()` is pure and
+unit-tested for every state; the app is not asked to fake anything.
+
+**Proven both ways** against the production build (`npm run build`, budget 12 s):
+- healthy `dist/` on a seeded demo account: **exit 0**, `✔ Input readiness —
+  page visible and focused; 11 interactive control(s) in <main>; typed into it
+  "input[…Search customer name, code, ph…]" and the value changed.`
+- `--inject overlay` **exit 1**: `… is covered by "div#input-readiness-overlay" —
+  a click at its centre lands on that element instead, so it cannot receive
+  input`.
+- `--inject disabled` **exit 1**: `… "input[type="date"].w-full.rounded-lg" is
+  disabled, so it refuses input`.
+- `--inject readonly` **exit 1**: `… is read-only, so typing cannot change it`.
+- `--inject unfocusable` **exit 1**: `… cannot take focus, so keystrokes never
+  reach it`.
+- `--inject nontyping` **exit 1**: `typing into "…" did not change its value
+  (still "") — the input is not accepting text`.
+- `--inject shell` **exit 1**: `no interactive control is on screen (main shows:
+  "Loading…") — the page is still a loading/disabled shell`.
+- `--self-test` **exit 0**: healthy page passes and all six injected faults are
+  detected in one run, so the gate's own strictness is itself checked.
+
+`tests/inputReadiness.test.ts` (17) pins the fourteen decision cases (including
+"a pinned target that becomes disabled must not be reported as a shell") and the
+wiring: the gate imports the probe, folds its problems into the same failure list
+that reddens the job, refuses an unknown `--inject` value, and the overlay/shell
+injections really paint a full-viewport layer and a loading shell.
+
+**Deviation / unproven.** The dev-server path (`--base-url http://localhost:3000`)
+cannot be used for the paint-order assertions at all: Vite's HMR socket throws
+`WebSocket closed without opened` on every navigation, which the gate correctly
+treats as an uncaught page exception. The readiness phase itself is dev-server
+safe; the production build is how CI and this proof run it. `Page.bringToFront`
+is what makes focus arrive in headless Edge here; on a runner where focus cannot
+be granted the gate fails rather than pretending, which is the intended
+behaviour but has not been observed on Linux CI. No app code needed changing —
+the real Create Sales Invoice form accepts input. The gate remains outside
+`npm test` (it needs a browser and a seeded demo account).
 
 ## Part B — carried from Rounds 11 and 13
 
@@ -472,3 +536,15 @@ on the Redis state and MFA work in Part B.
   `audit_logs`/`transaction_logs` seeding plus four real fixes (partitioned
   `ON CONFLICT`, the composite journal FK date, the zero-branch modulo, and the
   A7 append-only guard on teardown). `tests/scaleFixtureGuards.test.ts` (5).
+- 2026-11-17 — **A10 done**: the repo's browser gate (`check:boot-timing`) now
+  fails when the settled page cannot receive input. `scripts/inputReadiness.mjs`
+  brings the tab to the front and requires visibility and focus, runs the
+  browser's own hit-test at the control's centre, and types through
+  `Input.insertText` to prove the value actually changes; a pinned target is
+  judged even after it breaks, so a form cannot pass on a healthy neighbour.
+  Proven on the production build: healthy **exit 0** (`typed into "input[…
+  Search customer name, code, ph…]" and the value changed`); `--inject
+  overlay|disabled|readonly|unfocusable|nontyping|shell` each **exit 1** naming
+  the element and the reason; `--self-test` **exit 0** with all six caught.
+  `tests/inputReadiness.test.ts` (17). No app code changed — the real form does
+  accept input.

@@ -33,6 +33,15 @@
  *      end, with no uncaught page exception during boot.
  *   6. The warm reload never mounts the shell spinner at all: the cached
  *      bootstrap paints immediately instead of re-showing the sync surface.
+ *   7. The settled page can genuinely RECEIVE INPUT (worklist A10): it is
+ *      visible and focused, at least one interactive control is on screen, and
+ *      the chosen control is not covered by an overlay, not disabled, not
+ *      read-only, takes focus, and its value changes when text is typed into it
+ *      through the real event path. A page that merely renders — a hidden or
+ *      unfocused document, a backdrop over the field, a disabled form, or a
+ *      never-interactive shell — fails the check instead of passing silently.
+ *      `--inject <fault>` reproduces each failure state (see INPUT_FAULTS) and
+ *      `--self-test` proves the check catches every one of them.
  *
  * The check pins the demo user's activeTab preference to create-sale for the
  * run (a previous value is restored) so the saved lazy screen is deterministic:
@@ -43,6 +52,15 @@
  *   npm run check:boot-timing                 # build must exist in dist/
  *   npm run check:boot-timing -- --build      # build first
  *   node scripts/check_boot_timing.mjs --base-url http://localhost:3000
+ *   npm run check:boot-timing -- --inject overlay   # reproduce a rejected state
+ *   npm run check:boot-timing -- --self-test        # healthy passes, all faults caught
+ *
+ * --inject reproduces one state the gate must reject: `overlay` (a full-viewport
+ * layer over the control), `disabled`, `readonly`, `unfocusable`, `nontyping`
+ * (a value that ignores typed text) and `shell` (the screen replaced by a
+ * loading shell). Each exits 1 naming the element and the reason. --self-test
+ * runs the healthy case and every fault in one session, and fails if any of
+ * them was NOT detected.
  *
  * The server needs PostgreSQL and the demo account seeded by `npm run setup:pg`
  * (superadmin@example.com / Demo@123 by default). Override the account with
@@ -66,6 +84,7 @@ import {
   launchRetryAnnotation,
   retryBrowserLaunch,
 } from './bootTimingLaunchRetry.mjs';
+import { INPUT_FAULTS, describeReadiness, runInputReadiness } from './inputReadiness.mjs';
 
 const ROOT = process.cwd();
 const DEFAULT_BUDGET_MS = 6000;
@@ -910,6 +929,62 @@ function assertTrace(label, trace, { requireNoSpinner = false } = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Self-test: every input fault must be caught, and the healthy page must pass
+// ---------------------------------------------------------------------------
+async function selfTestInputReadiness(baseUrl) {
+  const rootUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+  const problems = [];
+  const lines = [];
+
+  const reload = async () => {
+    await cdp.send('Page.navigate', { url: rootUrl });
+    await readTrace();
+  };
+
+  await reload();
+  const healthy = await runInputReadiness(cdp, {});
+  if (!healthy.ok) {
+    problems.push(
+      `the healthy page failed input readiness before any fault was injected: ${healthy.problems.join('; ')}`
+    );
+    lines.push('✖ healthy page — reported a failure with no fault present');
+  } else {
+    lines.push(`✔ healthy page — input reaches "${healthy.target}"`);
+  }
+
+  for (const fault of INPUT_FAULTS) {
+    await reload();
+    let caught = null;
+    let first = null;
+    try {
+      const verdict = await runInputReadiness(cdp, { faults: fault });
+      caught = !verdict.ok;
+      first = verdict.problems[0] || null;
+    } catch (err) {
+      caught = false;
+      first = `the fault could not be applied: ${err?.message || err}`;
+    }
+    if (!caught) {
+      problems.push(`the injected "${fault}" state was NOT detected — ${first}`);
+      lines.push(`✖ ${fault} — not detected`);
+    } else {
+      lines.push(`✔ ${fault} — ${first}`);
+    }
+  }
+
+  log('\nInput-readiness self-test');
+  for (const line of lines) log(`  ${line}`);
+
+  return {
+    problems,
+    line:
+      problems.length === 0
+        ? `✔ Input readiness self-test — healthy page passes; all ${INPUT_FAULTS.length} injected input faults (${INPUT_FAULTS.join(', ')}) were detected.`
+        : null,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 async function main() {
@@ -1000,6 +1075,28 @@ async function main() {
     ...assertTrace('cold reload', cold),
     ...assertTrace('warm reload', warm, { requireNoSpinner: true }),
   ];
+
+  // A10: a rendered page is not an interactive page. Readiness is measured on
+  // the settled page, after the paint-order assertions, and its problems join
+  // the same failure list — there is no "warn only" path.
+  const injectFault = argValue('--inject') || null;
+  if (injectFault && !INPUT_FAULTS.includes(injectFault)) {
+    throw new Error(`--inject expects one of: ${INPUT_FAULTS.join(', ')}`);
+  }
+  let readinessLine = null;
+  if (!hasFlag('--self-test')) {
+    const readiness = await runInputReadiness(cdp, { faults: injectFault, log });
+    if (!readiness.ok) {
+      problems.push(...readiness.problems.map((problem) => `input cannot reach this page: ${problem}`));
+    } else {
+      readinessLine = describeReadiness(readiness.snapshot, readiness);
+    }
+  } else {
+    const sweep = await selfTestInputReadiness(baseUrl);
+    if (sweep.problems.length) problems.push(...sweep.problems);
+    readinessLine = sweep.line;
+  }
+
   if (problems.length) {
     for (const problem of problems) {
       annotateProblem(problem);
@@ -1016,6 +1113,7 @@ async function main() {
   }
 
   const launchLine = describeLaunchOutcome(browserLaunchAttempts);
+  if (readinessLine) log(`\n${readinessLine}`);
   log(
     `\n✔ Boot timing OK — no visible lazy fallback on either reload; ` +
       `splash lifted onto "${EXPECTED_SCREEN}" in ${cold.splashWindowMs} ms cold / ${warm.splashWindowMs} ms warm ` +
