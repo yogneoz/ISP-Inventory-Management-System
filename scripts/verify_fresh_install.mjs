@@ -6,7 +6,13 @@
  *
  *   1. Creates two throwaway databases from the same PostgreSQL instance.
  *   2. `reference`  — scripts/schema.sql plus numbered scripts/migrations/*.sql
- *      applied directly (what a psql-style fresh install gets).
+ *      applied directly, then the documented partition provisioning
+ *      (`scripts/check_partitions.ts --apply`), which is what a psql-style
+ *      fresh install gets. The monthly ledger children are runtime DDL by
+ *      design — their names depend on the calendar — so the reference side must
+ *      be provisioned too, or the guard would report them as drift every month
+ *      and could never pass. Both sides go through the SAME provisioning module,
+ *      so a change in a child's shape still fails here.
  *   3. `boot`       — left EMPTY, then the real server is booted against it
  *      (DATABASE_URL pointed at it), so dbBoot.ts loads and executes
  *      scripts/schema.sql itself, exactly like a production fresh install.
@@ -235,6 +241,35 @@ function bootServerOnBootDb() {
   return { child, getOutput: () => output, exited };
 }
 
+/**
+ * Provision the reference database's journal month partitions with the same
+ * module the server boots with (never a second copy of the window logic).
+ */
+async function provisionReferencePartitions() {
+  const child = spawn(
+    process.execPath,
+    [resolveTsxCli(), path.join('scripts', 'check_partitions.ts'), '--apply'],
+    {
+      cwd: ROOT,
+      // dotenv does not override an explicit DATABASE_URL, so this targets the
+      // throwaway reference database and never the developer's own.
+      env: { ...process.env, DATABASE_URL: referenceUrl },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    }
+  );
+  let output = '';
+  child.stdout.on('data', (d) => (output += d));
+  child.stderr.on('data', (d) => (output += d));
+  const code = await new Promise((resolve) => child.on('exit', resolve));
+  if (code !== 0) {
+    throw new Error(
+      `check_partitions --apply failed on the reference database (exit ${code}).\n${output.slice(-2000)}`
+    );
+  }
+  log('reference database provisioned with the same journal partition window');
+}
+
 async function waitForHealth(exited, getOutput) {
   const deadline = Date.now() + BOOT_TIMEOUT_MS;
   while (Date.now() < deadline) {
@@ -285,6 +320,7 @@ try {
     await client.query(schemaSql);
     for (const migration of migrations) await client.query(migration.sql);
   });
+  await provisionReferencePartitions();
 
   log(`booting the real server on port ${BOOT_PORT} against the empty "${BOOT_DB}"…`);
   booted = bootServerOnBootDb();
