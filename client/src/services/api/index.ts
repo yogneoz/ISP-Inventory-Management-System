@@ -355,6 +355,7 @@ export const api = {
   createAsset: inventory.createAsset,
   updateAssetStatus: inventory.updateAssetStatus,
   getFixedAssetPage: inventory.getFixedAssetPage,
+  getFixedAssetCursorPage: inventory.getFixedAssetCursorPage,
   getFixedAssetExport: inventory.getFixedAssetExport,
   getFixedAssetOverview: inventory.getFixedAssetOverview,
   getAvailableFixedAssets: inventory.getAvailableFixedAssets,
@@ -420,6 +421,7 @@ export const api = {
   // Shipments
   getShipments: procurement.getShipments,
   getShipmentPage: procurement.getShipmentPage,
+  getShipmentCursorPage: procurement.getShipmentCursorPage,
   getShipmentOverview: procurement.getShipmentOverview,
   createShipment: procurement.createShipment,
   receiveShipment: procurement.receiveShipment,
@@ -680,6 +682,7 @@ export const api = {
   // Warranty registers (WTY-6): supplier-side and seller-side coverage
   fetchVendorWarranties: warranty.fetchVendorWarranties,
   fetchSellerWarranties: warranty.fetchSellerWarranties,
+  fetchWarrantyCursorPage: warranty.fetchWarrantyCursorPage,
   updateWarrantyCoverage: warranty.updateWarrantyCoverage,
 
   // Warranty claims / RMA lifecycle

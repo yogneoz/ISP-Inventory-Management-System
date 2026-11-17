@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useFilterPageReset } from '../../utils/useFilterPageReset';
 import { PurchaseOrder, PurchaseInvoice, Product, Branch, InventoryStock, Supplier, User, CompanyProfile } from '../../types';
 import { formatDualDate, formatBSDate } from '../../utils/nepaliCalendar';
 import { DateField } from '../../components/DateField';
@@ -25,7 +24,8 @@ import {
 import { PageHeader } from '../../components/common/PageHeader';
 import { FilterCard } from '../../components/common/FilterCard';
 import { api } from '../../services/api';
-import { TablePagination, useServerPageClamp } from '../../components/common/TablePagination';
+import { useKeysetPager } from '../../hooks/useKeysetPager';
+import { KeysetLoadMore } from '../../components/common/KeysetLoadMore';
 import { RegisterLoadError } from '../../components/common/RegisterLoadError';
 import { PurchaseOrderForm, type OrderFormLine } from './PurchaseOrderForm';
 import type { RecordRoute } from '../../routes/appPaths';
@@ -114,15 +114,10 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
   const [orderDateToAD, setOrderDateToAD] = useState('');
   // Server-side paged fetch state: the register asks /api/purchase-orders
   // for one page of filtered rows instead of filtering the whole prop array.
-  const [poRows, setPoRows] = useState<PurchaseOrder[]>([]);
   const [poTotalItems, setPoTotalItems] = useState(0);
   const [poStatusCounts, setPoStatusCounts] = useState<Record<string, number>>({});
   const [poPendingValue, setPoPendingValue] = useState(0);
   const [poReceivedValue, setPoReceivedValue] = useState(0);
-  const [poPage, setPoPage] = useState(1);
-  const [poPageSize, setPoPageSize] = useState(15);
-  const [poLoading, setPoLoading] = useState(true);
-  const [poLoadError, setPoLoadError] = useState('');
   const [poRefreshKey, setPoRefreshKey] = useState(0);
 
   // Sync the internal page with the sidebar menu that opened this component.
@@ -154,49 +149,46 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
     availableSuppliers.find((s) => s.id === selectedSupplierFilter)?.name.toLowerCase() === (po?.supplierName || '').toLowerCase();
 
   // Server-side paged fetch: one page of filtered PO rows plus aggregate KPIs.
-  const poFetchSeq = useRef(0);
   const supplierFilterName = selectedSupplierFilter === 'ALL' || !availableSuppliers.find((s) => s.id === selectedSupplierFilter)
     ? selectedSupplierFilter === 'ALL' ? undefined : selectedSupplierFilter
     : availableSuppliers.find((s) => s.id === selectedSupplierFilter)!.name;
-  const loadPoPage = useCallback(async () => {
-    const seq = ++poFetchSeq.current;
-    setPoLoading(true);
-    setPoLoadError('');
-    try {
-      const envelope = await api.getPurchaseOrders({
+  const poPager = useKeysetPager<PurchaseOrder>({
+    fetchPage: (cursor) =>
+      api.getPurchaseOrders({
         branchId: selectedBranchId !== 'ALL' ? selectedBranchId : undefined,
         supplier: supplierFilterName,
         query: searchQuery.trim() || undefined,
         dateFromAD: orderDateFromAD || undefined,
         dateToAD: orderDateToAD || undefined,
-        page: poPage,
-        pageSize: poPageSize,
-      }) as { data: PurchaseOrder[]; totalItems: number; statusCounts: Record<string, number>; pendingValue: number; receivedValue: number };
-      if (seq !== poFetchSeq.current) return; // superseded
-      setPoRows(envelope.data || []);
-      setPoTotalItems(envelope.totalItems || 0);
-      setPoStatusCounts(envelope.statusCounts || {});
-      setPoPendingValue(envelope.pendingValue || 0);
-      setPoReceivedValue(envelope.receivedValue || 0);
-    } catch (err: any) {
-      if (seq !== poFetchSeq.current) return;
-      setPoLoadError(err?.message || 'Failed to load the register');
-    } finally {
-      if (seq === poFetchSeq.current) setPoLoading(false);
-    }
-  }, [selectedBranchId, supplierFilterName, searchQuery, orderDateFromAD, orderDateToAD, poPage, poPageSize]);
-
-  useEffect(() => {
-    loadPoPage();
-  }, [loadPoPage, poRefreshKey, sseRefreshKey]);
-
-  // A filter change snaps the page back to 1 in the same render, so one
-  // change costs one request for page 1 instead of two (DF-12).
-  useFilterPageReset(
-    [selectedBranchId, supplierFilterName, searchQuery, orderDateFromAD, orderDateToAD].join('\u0000'),
-    poPage,
-    setPoPage
-  );
+        cursor,
+        limit: 15,
+      }) as any,
+    resetKey: [
+      selectedBranchId,
+      supplierFilterName,
+      searchQuery,
+      orderDateFromAD,
+      orderDateToAD,
+      poRefreshKey,
+      sseRefreshKey,
+    ].join('|'),
+    onPage: (page: any) => {
+      setPoTotalItems(Number(page.totalItems) || 0);
+      setPoStatusCounts(page.statusCounts || {});
+      setPoPendingValue(Number(page.pendingValue) || 0);
+      setPoReceivedValue(Number(page.receivedValue) || 0);
+    },
+  });
+  const {
+    rows: poRows,
+    loading: poLoading,
+    error: poLoadError,
+    scopeError: poScopeError,
+    loadingMore: poLoadingMore,
+    hasMore: poHasMore,
+    loadMore: poLoadMore,
+    reload: reloadPoPage,
+  } = poPager;
 
   // Rows on screen: the server page, or (on fetch failure) the client-side
   // filtered prop array so the register degrades instead of breaking.
@@ -278,24 +270,6 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
       cancelled = true;
     };
   }, [recordKey, recordKind, activeTab, poRows, purchaseOrders]);
-
-  // A delete can shrink the filtered set under the current page; snap back to
-  // the new last page instead of asking the server for one that is gone (DF-09).
-  const poSafePage = useServerPageClamp(poPage, poPageSize, poTotalItems, setPoPage);
-
-  const poPagination = {
-    page: poSafePage,
-    pageCount: Math.max(1, Math.ceil(poTotalItems / poPageSize)),
-    pageSize: poPageSize,
-    totalItems: poTotalItems,
-    rangeStart: poTotalItems === 0 ? 0 : (poSafePage - 1) * poPageSize + 1,
-    rangeEnd: Math.min(poSafePage * poPageSize, poTotalItems),
-    setPage: (p: number) => setPoPage(Math.max(1, p)),
-    setPageSize: (s: number) => {
-      setPoPageSize(s);
-      setPoPage(1);
-    },
-  };
 
   // Export all filtered Purchase Orders (not just the current page) to CSV
   const handleExportPOCSV = async () => {
@@ -674,13 +648,13 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
             }
           />
 
-          {poLoadError && (
+          {poLoadError && !poScopeError && (
             <RegisterLoadError
               subject="this page of purchase orders"
               message={poLoadError}
               hasCachedRows={filteredPOs.length > 0}
               loading={poLoading}
-              onRetry={() => { void loadPoPage(); }}
+              onRetry={reloadPoPage}
             />
           )}
 
@@ -871,15 +845,12 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                 </tbody>
               </table>
             </div>
-            <TablePagination
-              page={poPagination.page}
-              pageCount={poPagination.pageCount}
-              totalItems={poPagination.totalItems}
-              rangeStart={poPagination.rangeStart}
-              rangeEnd={poPagination.rangeEnd}
-              pageSize={poPagination.pageSize}
-              onPageChange={poPagination.setPage}
-              onPageSizeChange={poPagination.setPageSize}
+            <KeysetLoadMore
+              loaded={poRows.length}
+              hasMore={poHasMore}
+              loadingMore={poLoadingMore}
+              onLoadMore={poLoadMore}
+              scopeError={poScopeError ? poLoadError : ''}
               className="mt-1"
             />
           </div>

@@ -300,18 +300,18 @@ describe('fixed assets are off the login payload', () => {
 
   test('the asset screens read the paged / overview endpoints', () => {
     const register = read('client/src/features/finance/FixedAssetRegister.tsx');
-    assert.match(register, /api\.getFixedAssetPage\(/);
+    assert.match(register, /api\.getFixedAssetCursorPage\(/);
     assert.match(register, /api\.getFixedAssetOverview\(/);
     assert.match(register, /api\.getFixedAssetExport\(/);
     assert.match(register, /refreshToken/);
 
     const deployments = read('client/src/features/inventory/AssetDeployments.tsx');
-    assert.match(deployments, /api\.getFixedAssetPage\(/);
+    assert.match(deployments, /api\.getFixedAssetCursorPage\(/);
     assert.match(deployments, /assigned:\s*true/);
 
     const depreciation = read('client/src/features/finance/DepreciationRegister.tsx');
     assert.match(depreciation, /groupBy:\s*'master'/);
-    assert.match(depreciation, /api\.getFixedAssetPage\(/);
+    assert.match(depreciation, /api\.getFixedAssetCursorPage\(/);
 
     const panel = read('client/src/features/inventory/stockops/AssignAssetPanel.tsx');
     assert.doesNotMatch(panel, /\bassets\.find\(/);

@@ -509,7 +509,7 @@ describe('Paged-tab audit guard — no self-fetching data loads', () => {
     // ASSET-1: deployments page/filter through GET /api/fixed-assets/page
     // (assigned=1) and export the matching set, instead of filtering a
     // bootstrap array. Unassignment still flows up through onUnassignAsset.
-    assert.deepEqual(serverCallsIn(source), ['getFixedAssetExport', 'getFixedAssetPage']);
+    assert.deepEqual(serverCallsIn(source), ['getFixedAssetCursorPage', 'getFixedAssetExport']);
     assert.match(source, /assigned:\s*true/);
     assertEveryRenderSiteWired('AssetDeployments', /refreshToken=\{registerRefresh\.fixedAssets\}/);
   });
@@ -578,7 +578,7 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
   test('PurchaseOrders: api surface pinned to the PO paged fetch; wired at every render site', () => {
     const source = readFeatureSource('procurement/PurchaseOrders.tsx');
     // The data loads are /api/purchase-orders: the paged register fetch
-    // (loadPoPage), the all:true CSV read, and the explicit PDF download.
+    // (cursor pager), the all:true CSV read, and the explicit PDF download.
     // Create / update / status / delete mutations all arrive as App
     // callbacks (onCreatePO, onUpdatePO, onUpdatePOStatus, onDeletePO), so
     // no other api.* method may appear here.
@@ -588,7 +588,7 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
     // ...and the paged-fetch effect re-runs when it bumps.
     assert.match(
       source,
-      /useEffect\(\(\) => \{\s*loadPoPage\(\);\s*\}, \[loadPoPage, poRefreshKey, sseRefreshKey\]\);/,
+      /poRefreshKey,\s*sseRefreshKey,/,
       'the PO paged fetch effect must depend on sseRefreshKey'
     );
     assertNoRawFetch(source, 'PurchaseOrders.tsx');
@@ -611,7 +611,7 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
   test('PurchaseInvoices: api surface pinned to the PI paged fetch + payment-modal flows; wired at every render site', () => {
     const source = readFeatureSource('procurement/PurchaseInvoices.tsx');
     // Rendered grid rows come from exactly one load: getPurchaseInvoices
-    // (loadPiPage + the all:true CSV export). The other three are the
+    // (cursor pager + the all:true CSV export). The other three are the
     // invoice-detail modal's payment history and the two reversal write
     // flows — none of them supplies the grid, all are user-initiated.
     assert.deepEqual(serverCallsIn(source), [
@@ -625,7 +625,7 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
     assert.match(source, /sseRefreshKey\?: number;/);
     assert.match(
       source,
-      /useEffect\(\(\) => \{\s*loadPiPage\(\);\s*\}, \[loadPiPage, piRefreshKey, sseRefreshKey\]\);/,
+      /piRefreshKey,\s*sseRefreshKey,/,
       'the PI paged fetch effect must depend on sseRefreshKey'
     );
     assertNoRawFetch(source, 'PurchaseInvoices.tsx');
@@ -804,8 +804,7 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
     // WTY-6: the two warranty registers share one paged body and both re-read
     // when the device/asset counter bumps (a capture can add or retire a row).
     const warrantyRegister = readFeatureSource('inventory/warranty/WarrantyRegister.tsx');
-    assert.match(warrantyRegister, /api\.fetchVendorWarranties\b/);
-    assert.match(warrantyRegister, /api\.fetchSellerWarranties\b/);
+    assert.match(warrantyRegister, /api\.fetchWarrantyCursorPage\b/);
     assert.match(warrantyRegister, /refreshKey,\s+retryKey,/);
     assertNoRawFetch(warrantyRegister, 'WarrantyRegister.tsx');
 
@@ -1172,7 +1171,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       'cancelApprovalRequest',
       'cancelReceiveShipment',
       'createApprovalRequest',
-      'getShipmentPage',
+      'getShipmentCursorPage',
       'getShipments',
     ],
     // lookupExchangeSerial: the exchange modal resolves a serial the cached
@@ -1418,8 +1417,8 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     // grouped summary from /overview; the export is the bounded all=1 read.
     // The fixed-asset register also resolves a `/:tagNumber` deep link through
     // the existing branch-scoped lookup endpoint.
-    'finance/DepreciationRegister.tsx': ['getFixedAssetExport', 'getFixedAssetOverview', 'getFixedAssetPage'],
-    'finance/FixedAssetRegister.tsx': ['getFixedAssetExport', 'getFixedAssetOverview', 'getFixedAssetPage', 'lookupFixedAsset'],
+    'finance/DepreciationRegister.tsx': ['getFixedAssetCursorPage', 'getFixedAssetExport', 'getFixedAssetOverview'],
+    'finance/FixedAssetRegister.tsx': ['getFixedAssetCursorPage', 'getFixedAssetExport', 'getFixedAssetOverview', 'lookupFixedAsset'],
     'finance/VatRegister.tsx': [],
     'inventory/BranchStockTracking.tsx': [],
     'inventory/ExportStock.tsx': ['getCustomerDeviceExport', 'getCustomerDevicePage'],
@@ -1436,7 +1435,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'inventory/SupplierWarrantyRegister.tsx': [],
     'inventory/SellerWarrantyRegister.tsx': [],
     'inventory/warranty/WarrantyEditModal.tsx': ['updateWarrantyCoverage'],
-    'inventory/warranty/WarrantyRegister.tsx': ['fetchSellerWarranties', 'fetchVendorWarranties'],
+    'inventory/warranty/WarrantyRegister.tsx': ['fetchSellerWarranties', 'fetchVendorWarranties', 'fetchWarrantyCursorPage'],
     'procurement/ReceiveInboundWarehouse.tsx': [],
     'procurement/SuppliersManagement.tsx': [
       'getBillTerms',
@@ -1654,15 +1653,8 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       [
         'dashboard/Dashboard.tsx',
         'finance/AuditTrailReports.tsx',
-        // ASSET-1: the asset registers page their own server reads.
-        'finance/DepreciationRegister.tsx',
-        'finance/FixedAssetRegister.tsx',
-        'inventory/AssetDeployments.tsx',
-        // WTY-6: the shared warranty register pages both coverage sides.
-        'inventory/warranty/WarrantyRegister.tsx',
         'procurement/PurchaseInvoices.tsx',
         'procurement/PurchaseOrders.tsx',
-        'procurement/ShipmentRegister.tsx',
         'sales/CustomerMasterDirectory.tsx',
         'sales/SalesInvoices.tsx',
       ],

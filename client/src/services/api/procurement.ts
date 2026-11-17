@@ -109,7 +109,7 @@ export async function deleteProduct(id: string): Promise<{ success: boolean }> {
 export async function getPurchaseOrders(params?: {
   branchId?: string; status?: string; supplier?: string; query?: string;
   dateFromAD?: string; dateToAD?: string;
-  page?: number; pageSize?: number; all?: boolean;
+  page?: number; pageSize?: number; all?: boolean; cursor?: string | null; limit?: number;
 }): Promise<PurchaseOrder[] | { data: PurchaseOrder[]; page: number; pageSize: number; totalItems: number; statusCounts: Record<string, number>; pendingValue: number; receivedValue: number }> {
   const search = new URLSearchParams();
   if (params?.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
@@ -123,6 +123,8 @@ export async function getPurchaseOrders(params?: {
     search.append('page', String(params.page));
     if (params.pageSize) search.append('pageSize', String(params.pageSize));
   }
+  if (params?.limit !== undefined) search.append('limit', String(params.limit));
+  if (params?.cursor) search.append('cursor', params.cursor);
   const query = search.toString() ? `?${search.toString()}` : '';
   return fetchJson(`/api/purchase-orders${query}`);
 }
@@ -130,6 +132,17 @@ export async function getPurchaseOrders(params?: {
 export async function getPurchaseOrderPdf(id: string): Promise<Blob> {
   const { fetchBlob } = await import('./blob');
   return fetchBlob(`/api/purchase-orders/${encodeURIComponent(id)}/print`);
+}
+
+export interface PurchaseOrderCursorPage {
+  items: PurchaseOrder[];
+  data: PurchaseOrder[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  totalItems: number;
+  statusCounts: Record<string, number>;
+  pendingValue: number;
+  receivedValue: number;
 }
 
 export async function createPurchaseOrder(po: Omit<PurchaseOrder, 'id' | 'poNumber' | 'subtotalAmount' | 'taxAmount' | 'totalAmount'> & { poNumber?: string }): Promise<PurchaseOrder> {
@@ -168,7 +181,7 @@ export async function deletePurchaseOrder(id: string): Promise<{ success: boolea
 export async function getPurchaseInvoices(params?: {
   branchId?: string; paymentStatus?: string; supplier?: string; query?: string;
   dateFromAD?: string; dateToAD?: string;
-  page?: number; pageSize?: number; all?: boolean;
+  page?: number; pageSize?: number; all?: boolean; cursor?: string | null; limit?: number;
 }): Promise<PurchaseInvoice[] | { data: PurchaseInvoice[]; page: number; pageSize: number; totalItems: number; statusCounts: Record<string, number>; sums: { taxable: number; vat: number; grand: number; unpaid: number } }> {
   const search = new URLSearchParams();
   if (params?.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
@@ -182,6 +195,8 @@ export async function getPurchaseInvoices(params?: {
     search.append('page', String(params.page));
     if (params.pageSize) search.append('pageSize', String(params.pageSize));
   }
+  if (params?.limit !== undefined) search.append('limit', String(params.limit));
+  if (params?.cursor) search.append('cursor', params.cursor);
   const query = search.toString() ? `?${search.toString()}` : '';
   return fetchJson(`/api/purchase-invoices${query}`);
 }
@@ -192,6 +207,16 @@ export async function createPurchaseInvoice(inv: Partial<PurchaseInvoice>): Prom
     method: 'POST',
     body: JSON.stringify(inv),
   });
+}
+
+export interface PurchaseInvoiceCursorPage {
+  items: PurchaseInvoice[];
+  data: PurchaseInvoice[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  totalItems: number;
+  statusCounts: Record<string, number>;
+  sums: { taxable: number; vat: number; grand: number; unpaid: number };
 }
 
 export async function recordInvoicePayment(id: string, amount: number, paymentMethod?: string): Promise<PurchaseInvoice> {
@@ -323,7 +348,7 @@ export interface ShipmentQuery {
   destinationBranchIds?: string[];
 }
 
-function shipmentQueryString(params: ShipmentQuery & { page?: number; pageSize?: number } = {}): string {
+function shipmentQueryString(params: ShipmentQuery & { page?: number; pageSize?: number; cursor?: string | null; limit?: number } = {}): string {
   const search = new URLSearchParams();
   if (params.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
   if (params.dateFromAD) search.append('dateFromAD', params.dateFromAD);
@@ -336,6 +361,8 @@ function shipmentQueryString(params: ShipmentQuery & { page?: number; pageSize?:
   }
   if (params.page !== undefined) search.append('page', String(params.page));
   if (params.pageSize !== undefined) search.append('pageSize', String(params.pageSize));
+  if (params.limit !== undefined) search.append('limit', String(params.limit));
+  if (params.cursor) search.append('cursor', params.cursor);
   return search.toString() ? `?${search.toString()}` : '';
 }
 
@@ -360,6 +387,22 @@ export async function getShipmentPage(
   params: ShipmentQuery & { page?: number; pageSize?: number } = {}
 ): Promise<ShipmentPage> {
   return fetchJson(`/api/shipments/page${shipmentQueryString(params)}`);
+}
+
+export interface ShipmentCursorPage extends ShipmentPage {
+  items: Shipment[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+export async function getShipmentCursorPage(
+  params: ShipmentQuery = {},
+  cursor: string | null = null,
+  limit = 15
+): Promise<ShipmentCursorPage> {
+  return fetchJson<ShipmentCursorPage>(
+    `/api/shipments/page${shipmentQueryString({ ...params, cursor, limit })}`
+  );
 }
 
 /**

@@ -58,6 +58,7 @@ export const WARRANTY_SELECT_COLUMNS = `w.id,
   w.is_current AS "isCurrent",
   w.superseded_at AS "supersededAt",
   w.retired_reason AS "retiredReason",
+  w.created_at AS "createdAt",
   w.retired_ref AS "retiredRef",
   w.is_demo AS "isDemo",
   ${WARRANTY_STATE_CASE_SQL} AS "warrantyState",
@@ -176,6 +177,26 @@ export function buildWarrantyPageQuery(
       LIMIT ${limit} OFFSET ${offset}`,
     params,
   };
+}
+
+/** SCALE-3 cursor page over `(created_at, id)` descending. */
+export function buildWarrantyKeysetQuery(
+  opts: WarrantyQueryOptions,
+  cursor: [string, string] | undefined,
+  limit: number
+): { sql: string; params: unknown[] } {
+  const { whereSql, params } = buildWarrantyWhere(opts);
+  const status = normalizeStatus(opts.status);
+  const statusClause = status ? ` AND ${WARRANTY_STATE_SQL[status]}` : '';
+  let sql = `SELECT ${WARRANTY_SELECT_COLUMNS}
+    FROM warranty_coverages w
+    LEFT JOIN branches b ON b.id = w.branch_id${whereSql}${statusClause}`;
+  if (cursor) {
+    params.push(cursor[0], cursor[1]);
+    sql += ` AND (w.created_at, w.id) < ($${params.length - 1}::timestamptz, $${params.length})`;
+  }
+  sql += ` ORDER BY w.created_at DESC, w.id DESC LIMIT ${limit + 1}`;
+  return { sql, params };
 }
 
 /**

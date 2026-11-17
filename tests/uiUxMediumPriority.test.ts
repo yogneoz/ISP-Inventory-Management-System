@@ -464,6 +464,9 @@ describe('UIX-5 — purchase-bill actions stay reachable', () => {
     } as any;
     api.getPurchaseInvoices = (async () => ({
       data: [invoice],
+      items: [invoice],
+      nextCursor: null,
+      hasMore: false,
       totalItems: 1,
       sums: { taxable: 100, vat: 13, grand: 113, unpaid: 113 },
     })) as any;

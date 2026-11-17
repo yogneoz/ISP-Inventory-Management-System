@@ -182,6 +182,25 @@ export function buildFixedAssetPageQuery(
   return { sql, params };
 }
 
+/**
+ * SCALE-3: cursor page over `(created_at, id)` descending. The extra row is
+ * read by the controller so `hasMore` is exact without a second query.
+ */
+export function buildFixedAssetKeysetQuery(
+  opts: FixedAssetQueryOptions = {},
+  cursor: [string, string] | undefined,
+  limit: number
+) {
+  const { whereSql, params } = buildFixedAssetWhere(opts);
+  let sql = `SELECT ${ASSET_SELECT_COLUMNS} FROM fixed_assets${whereSql}`;
+  if (cursor) {
+    params.push(cursor[0], cursor[1]);
+    sql += ` AND (created_at, id) < ($${params.length - 1}::timestamptz, $${params.length})`;
+  }
+  sql += ` ORDER BY created_at DESC, id DESC LIMIT ${limit + 1}`;
+  return { sql, params };
+}
+
 /** Filtered total for the page footer and the export envelope. */
 export function buildFixedAssetCountQuery(opts: FixedAssetQueryOptions = {}) {
   const { whereSql, params } = buildFixedAssetWhere(opts);

@@ -179,6 +179,13 @@ test('every converted register uses the shared cursor pager and load-more footer
     'client/src/features/inventory/stockops/PulloutBinsPanel.tsx',
     'client/src/features/inventory/stockops/DamageTrackingPanel.tsx',
     'client/src/features/inventory/stockops/LogsPanel.tsx',
+    'client/src/features/finance/FixedAssetRegister.tsx',
+    'client/src/features/finance/DepreciationRegister.tsx',
+    'client/src/features/inventory/AssetDeployments.tsx',
+    'client/src/features/inventory/warranty/WarrantyRegister.tsx',
+    'client/src/features/procurement/ShipmentRegister.tsx',
+    'client/src/features/procurement/PurchaseOrders.tsx',
+    'client/src/features/procurement/PurchaseInvoices.tsx',
   ];
   for (const screen of screens) {
     const source = fs.readFileSync(path.resolve(screen), 'utf8');
@@ -186,7 +193,11 @@ test('every converted register uses the shared cursor pager and load-more footer
     assert.match(source, /KeysetLoadMore/, `${screen} must render the load-more footer`);
     assert.match(source, /scopeError=/, `${screen} must render the SCOPE_REQUIRED state`);
     assert.match(source, /cursor/, `${screen} must send an opaque cursor`);
-    assert.match(source, /limit:\s*\d+/, `${screen} must send a bounded limit`);
+    assert.match(
+      source,
+      /limit:\s*\d+|getFixedAssetCursorPage|getShipmentCursorPage|fetchWarrantyCursorPage/,
+      `${screen} must send a bounded limit`
+    );
     if (!screen.endsWith('AuditTrailReports.tsx')) {
       assert.doesNotMatch(source, /TablePagination\b/, `${screen} must not keep an offset pager`);
     } else {

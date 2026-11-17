@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useFilterPageReset } from '../../utils/useFilterPageReset';
+import { useKeysetPager } from '../../hooks/useKeysetPager';
+import { KeysetLoadMore } from '../../components/common/KeysetLoadMore';
 import {
   PurchaseInvoice,
   PurchaseOrder,
@@ -40,7 +41,6 @@ import {
   History,
   Loader2,
 } from 'lucide-react';
-import { TablePagination, useServerPageClamp } from '../../components/common/TablePagination';
 import { RegisterLoadError } from '../../components/common/RegisterLoadError';
 import { FilterCard } from '../../components/common/FilterCard';
 import { PageHeader } from '../../components/common/PageHeader';
@@ -181,13 +181,8 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   const [billDateToAD, setBillDateToAD] = useState('');
   // Server-side paged fetch state: the register asks /api/purchase-invoices
   // for one page of filtered rows instead of filtering the whole prop array.
-  const [piRows, setPiRows] = useState<PurchaseInvoice[]>([]);
   const [piTotalItems, setPiTotalItems] = useState(0);
   const [piSums, setPiSums] = useState({ taxable: 0, vat: 0, grand: 0, unpaid: 0 });
-  const [piPage, setPiPage] = useState(1);
-  const [piPageSize, setPiPageSize] = useState(15);
-  const [piLoading, setPiLoading] = useState(true);
-  const [piLoadError, setPiLoadError] = useState('');
   const [piRefreshKey, setPiRefreshKey] = useState(0);
   const [billTerms, setBillTerms] = useState<BillTerm[]>([]);
 
@@ -223,45 +218,41 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
     }
   }, [autoOpenModal, activeTab, recordRoute?.kind]);
 
-  // Server-side paged fetch: one page of filtered invoice rows plus sums.
-  const piFetchSeq = useRef(0);
-  const loadPiPage = useCallback(async () => {
-    const seq = ++piFetchSeq.current;
-    setPiLoading(true);
-    setPiLoadError('');
-    try {
-      const envelope = await api.getPurchaseInvoices({
+  const piPager = useKeysetPager<PurchaseInvoice>({
+    fetchPage: (cursor) =>
+      api.getPurchaseInvoices({
         branchId: selectedBranchId !== 'ALL' ? selectedBranchId : undefined,
         supplier: vendorFilter !== 'ALL' ? vendorFilter : undefined,
         query: searchQuery.trim() || undefined,
         dateFromAD: billDateFromAD || undefined,
         dateToAD: billDateToAD || undefined,
-        page: piPage,
-        pageSize: piPageSize,
-      }) as { data: PurchaseInvoice[]; totalItems: number; sums: { taxable: number; vat: number; grand: number; unpaid: number } };
-      if (seq !== piFetchSeq.current) return; // superseded
-      setPiRows(envelope.data || []);
-      setPiTotalItems(envelope.totalItems || 0);
-      setPiSums(envelope.sums || { taxable: 0, vat: 0, grand: 0, unpaid: 0 });
-    } catch (err: any) {
-      if (seq !== piFetchSeq.current) return;
-      setPiLoadError(err?.message || 'Failed to load the register');
-    } finally {
-      if (seq === piFetchSeq.current) setPiLoading(false);
-    }
-  }, [selectedBranchId, vendorFilter, searchQuery, billDateFromAD, billDateToAD, piPage, piPageSize]);
-
-  useEffect(() => {
-    loadPiPage();
-  }, [loadPiPage, piRefreshKey, sseRefreshKey]);
-
-  // A filter change snaps the page back to 1 in the same render, so one
-  // change costs one request for page 1 instead of two (DF-12).
-  useFilterPageReset(
-    [selectedBranchId, vendorFilter, searchQuery, billDateFromAD, billDateToAD].join('\u0000'),
-    piPage,
-    setPiPage
-  );
+        cursor,
+        limit: 15,
+      }) as any,
+    resetKey: [
+      selectedBranchId,
+      vendorFilter,
+      searchQuery,
+      billDateFromAD,
+      billDateToAD,
+      piRefreshKey,
+      sseRefreshKey,
+    ].join('|'),
+    onPage: (page: any) => {
+      setPiTotalItems(Number(page.totalItems) || 0);
+      setPiSums(page.sums || { taxable: 0, vat: 0, grand: 0, unpaid: 0 });
+    },
+  });
+  const {
+    rows: piRows,
+    loading: piLoading,
+    error: piLoadError,
+    scopeError: piScopeError,
+    loadingMore: piLoadingMore,
+    hasMore: piHasMore,
+    loadMore: piLoadMore,
+    reload: reloadPiPage,
+  } = piPager;
 
   const openInvoiceDetail = (invoice: PurchaseInvoice) => {
     setViewingInvoice(invoice);
@@ -363,24 +354,6 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
         return matchesBranch && matchesVendor && matchesSearch && matchesDate;
       }).sort((a, b) => (b.invoiceDateAD || '').localeCompare(a.invoiceDateAD || ''))
     : piRows;
-
-  // A delete can shrink the filtered set under the current page; snap back to
-  // the new last page instead of asking the server for one that is gone (DF-09).
-  const piSafePage = useServerPageClamp(piPage, piPageSize, piTotalItems, setPiPage);
-
-  const invoicePagination = {
-    page: piSafePage,
-    pageCount: Math.max(1, Math.ceil(piTotalItems / piPageSize)),
-    pageSize: piPageSize,
-    totalItems: piTotalItems,
-    rangeStart: piTotalItems === 0 ? 0 : (piSafePage - 1) * piPageSize + 1,
-    rangeEnd: Math.min(piSafePage * piPageSize, piTotalItems),
-    setPage: (p: number) => setPiPage(Math.max(1, p)),
-    setPageSize: (s: number) => {
-      setPiPageSize(s);
-      setPiPage(1);
-    },
-  };
 
   // Financial Metrics — server aggregate over the full filtered set (falls
   // back to page rows only when the paged fetch failed).
@@ -868,13 +841,13 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
             }
           />
 
-          {piLoadError && (
+          {piLoadError && !piScopeError && (
             <RegisterLoadError
               subject="this page of purchase bills"
               message={piLoadError}
               hasCachedRows={filteredInvoices.length > 0}
               loading={piLoading}
-              onRetry={() => { void loadPiPage(); }}
+              onRetry={reloadPiPage}
               cachedNote=" Showing cached rows instead of this page — they may be out of date or filtered differently, and the totals above are recomputed from them."
             />
           )}
@@ -1040,15 +1013,12 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                 </tbody>
               </table>
             </div>
-            <TablePagination
-              page={invoicePagination.page}
-              pageCount={invoicePagination.pageCount}
-              totalItems={invoicePagination.totalItems}
-              rangeStart={invoicePagination.rangeStart}
-              rangeEnd={invoicePagination.rangeEnd}
-              pageSize={invoicePagination.pageSize}
-              onPageChange={invoicePagination.setPage}
-              onPageSizeChange={invoicePagination.setPageSize}
+            <KeysetLoadMore
+              loaded={piRows.length}
+              hasMore={piHasMore}
+              loadingMore={piLoadingMore}
+              onLoadMore={piLoadMore}
+              scopeError={piScopeError ? piLoadError : ''}
               className="mt-1"
             />
           </div>

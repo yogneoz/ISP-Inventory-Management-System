@@ -28,8 +28,8 @@ import { exportToCSV } from '../../../utils/exportUtils';
 import { buildWarrantyExportRows, warrantyExportColumns, warrantySourceLabel } from '../../../utils/warrantyExport';
 import { utilityAlert } from '../../../components/common/DialogProvider';
 import { isOperationAllowed } from '../../../utils/permissions';
-import { useFilterPageReset } from '../../../utils/useFilterPageReset';
-import { useServerPageClamp, TablePagination } from '../../../components/common/TablePagination';
+import { useKeysetPager } from '../../../hooks/useKeysetPager';
+import { KeysetLoadMore } from '../../../components/common/KeysetLoadMore';
 import { FilterCard } from '../../../components/common/FilterCard';
 import { LoadStateNotice } from '../../../components/common/LoadStateNotice';
 import { PageHeader } from '../../../components/common/PageHeader';
@@ -117,28 +117,12 @@ export const WarrantyRegister: React.FC<WarrantyRegisterProps> = ({
   const [startFrom, setStartFrom] = useState('');
   const [startTo, setStartTo] = useState('');
 
-  const [rows, setRows] = useState<WarrantyCoverageRow[]>([]);
   const [totalItems, setTotalItems] = useState(0);
   const [counts, setCounts] = useState(EMPTY_COUNTS);
-  const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState('');
   const [retryKey, setRetryKey] = useState(0);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(15);
   const [editing, setEditing] = useState<WarrantyCoverageRow | null>(null);
   const [exporting, setExporting] = useState(false);
   const [view, setView] = useState<'COVERAGE' | 'CLAIMS' | 'RECOVERY'>('COVERAGE');
-
-  useFilterPageReset(
-    `${coverageType}|${selectedBranchId}|${searchQuery}|${status}|${category}|${startFrom}|${startTo}`,
-    page,
-    setPage
-  );
-
-  const safePage = useServerPageClamp(page, pageSize, totalItems, setPage);
-  const pageCount = Math.max(1, Math.ceil(totalItems / pageSize));
-  const rangeStart = totalItems === 0 ? 0 : (safePage - 1) * pageSize + 1;
-  const rangeEnd = Math.min(safePage * pageSize, totalItems);
 
   const categoryOptions = useMemo(
     () =>
@@ -156,54 +140,42 @@ export const WarrantyRegister: React.FC<WarrantyRegisterProps> = ({
     [isVendor]
   );
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    const fetchPage = isVendor ? api.fetchVendorWarranties : api.fetchSellerWarranties;
-    fetchPage(
-      {
-        branchId: selectedBranchId,
-        query: searchQuery || undefined,
-        status: status !== 'ALL' ? status : undefined,
-        category: category !== 'ALL' ? category : undefined,
-        startFrom: startFrom || undefined,
-        startTo: startTo || undefined,
-      },
-      page,
-      pageSize
-    )
-      .then((result) => {
-        if (cancelled) return;
-        setRows(Array.isArray(result?.data) ? result.data : []);
-        setTotalItems(Number(result?.totalItems) || 0);
-        setCounts(result?.counts || EMPTY_COUNTS);
-        setLoadError('');
-      })
-      .catch((err: any) => {
-        if (!cancelled) {
-          setLoadError(err?.message || 'The warranty register could not be read.');
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    coverageType,
-    isVendor,
-    selectedBranchId,
-    searchQuery,
-    status,
-    category,
-    startFrom,
-    startTo,
-    page,
-    pageSize,
-    refreshKey,
-    retryKey,
-  ]);
+  const pager = useKeysetPager<
+    WarrantyCoverageRow,
+    { totalItems?: number; counts?: typeof EMPTY_COUNTS }
+  >({
+    fetchPage: (cursor) =>
+      api.fetchWarrantyCursorPage(
+        {
+          branchId: selectedBranchId,
+          query: searchQuery || undefined,
+          status: status !== 'ALL' ? status : undefined,
+          category: category !== 'ALL' ? category : undefined,
+          startFrom: startFrom || undefined,
+          startTo: startTo || undefined,
+        },
+        cursor,
+        15,
+        isVendor ? 'VENDOR' : 'SELLER'
+      ),
+    resetKey: [
+      coverageType,
+      selectedBranchId,
+      searchQuery,
+      status,
+      category,
+      startFrom,
+      startTo,
+      refreshKey,
+      retryKey,
+    ].join('|'),
+    enabled: view === 'COVERAGE',
+    onPage: (page: any) => {
+      setTotalItems(Number(page.totalItems) || 0);
+      setCounts(page.counts || EMPTY_COUNTS);
+    },
+  });
+  const { rows, loading, error: loadError, scopeError, loadingMore, hasMore, loadMore } = pager;
 
   const filtersActive =
     Boolean(searchQuery) ||
@@ -247,7 +219,7 @@ export const WarrantyRegister: React.FC<WarrantyRegisterProps> = ({
           all: true,
         },
         1,
-        pageSize
+        15
       );
       const exportRows = Array.isArray(envelope?.data) ? envelope.data : [];
       exportToCSV({
@@ -327,7 +299,7 @@ export const WarrantyRegister: React.FC<WarrantyRegisterProps> = ({
 
       <div className={view === 'COVERAGE' ? 'space-y-3' : 'hidden'}>
 
-      {loadError && (
+      {loadError && !scopeError && (
         <LoadStateNotice
           subject={isVendor ? 'the suppliers warranty register' : 'the sellers warranty register'}
           loading={loading}
@@ -652,15 +624,12 @@ export const WarrantyRegister: React.FC<WarrantyRegisterProps> = ({
             </tbody>
           </table>
         </div>
-        <TablePagination
-          page={safePage}
-          pageCount={pageCount}
-          totalItems={totalItems}
-          rangeStart={rangeStart}
-          rangeEnd={rangeEnd}
-          pageSize={pageSize}
-          onPageChange={setPage}
-          onPageSizeChange={setPageSize}
+        <KeysetLoadMore
+          loaded={rows.length}
+          hasMore={hasMore}
+          loadingMore={loadingMore}
+          onLoadMore={loadMore}
+          scopeError={scopeError ? loadError : ''}
           className="mt-1"
         />
       </div>

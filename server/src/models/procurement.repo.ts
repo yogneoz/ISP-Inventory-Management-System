@@ -13,7 +13,7 @@
 // ---------------------------------------------------------------------------
 
 export const PO_SELECT_COLUMNS =
-  'id, po_number AS "poNumber", supplier_id AS "supplierId", supplier_name AS "supplierName", branch_id AS "branchId", order_date_ad AS "orderDateAD", order_date_bs AS "orderDateBS", expected_delivery_date_ad AS "expectedDeliveryDateAD", expected_delivery_date_bs AS "expectedDeliveryDateBS", status, subtotal_amount AS "subtotalAmount", tax_amount AS "taxAmount", total_amount AS "totalAmount", notes, items';
+  'id, po_number AS "poNumber", supplier_id AS "supplierId", supplier_name AS "supplierName", branch_id AS "branchId", order_date_ad AS "orderDateAD", order_date_bs AS "orderDateBS", expected_delivery_date_ad AS "expectedDeliveryDateAD", expected_delivery_date_bs AS "expectedDeliveryDateBS", status, subtotal_amount AS "subtotalAmount", tax_amount AS "taxAmount", total_amount AS "totalAmount", notes, items, created_at AS "createdAt"';
 
 export function buildPoListSql(branchId?: unknown): { sql: string; params: unknown[] } {
   const filter = branchId && branchId !== 'ALL';
@@ -121,6 +121,22 @@ export function buildPurchaseOrderPagedQuery(opts: PurchaseOrderQueryOptions, pa
   return { sql, params };
 }
 
+/** SCALE-3 cursor page over `(created_at, id)` descending. */
+export function buildPurchaseOrderKeysetQuery(
+  opts: PurchaseOrderQueryOptions,
+  cursor: [string, string] | undefined,
+  limit: number
+): { sql: string; params: unknown[] } {
+  const { whereSql, params } = buildPurchaseOrderWhere(opts);
+  let sql = `SELECT ${PO_SELECT_COLUMNS} FROM purchase_orders${whereSql}`;
+  if (cursor) {
+    params.push(cursor[0], cursor[1]);
+    sql += ` AND (created_at, id) < ($${params.length - 1}::timestamptz, $${params.length})`;
+  }
+  sql += ` ORDER BY created_at DESC, id DESC LIMIT ${limit + 1}`;
+  return { sql, params };
+}
+
 export const PO_UPSERT_SQL = `INSERT INTO purchase_orders (
    id, po_number, supplier_id, supplier_name, branch_id, order_date_ad, order_date_bs, expected_delivery_date_ad, expected_delivery_date_bs, status, subtotal_amount, tax_amount, total_amount, notes, items
  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
@@ -204,7 +220,7 @@ export const PO_RELEASE_INCOMING_SQL = `UPDATE inventory_stock SET incoming_qty 
 // ---------------------------------------------------------------------------
 
 export const PI_SELECT_COLUMNS =
-  'id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", vendor_bill_number AS "vendorBillNumber", vendor_bill_date_ad AS "vendorBillDateAD", vendor_bill_date_bs AS "vendorBillDateBS", supplier_id AS "supplierId", supplier_name AS "supplierName", branch_id AS "branchId", invoice_date_ad AS "invoiceDateAD", invoice_date_bs AS "invoiceDateBS", bill_terms_id AS "billTermsId", due_date_ad AS "dueDateAD", due_date_bs AS "dueDateBS", taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", payment_status AS "paymentStatus", payment_method AS "paymentMethod", amount_paid AS "amountPaid", notes, items';
+  'id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", vendor_bill_number AS "vendorBillNumber", vendor_bill_date_ad AS "vendorBillDateAD", vendor_bill_date_bs AS "vendorBillDateBS", supplier_id AS "supplierId", supplier_name AS "supplierName", branch_id AS "branchId", invoice_date_ad AS "invoiceDateAD", invoice_date_bs AS "invoiceDateBS", bill_terms_id AS "billTermsId", due_date_ad AS "dueDateAD", due_date_bs AS "dueDateBS", taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", payment_status AS "paymentStatus", payment_method AS "paymentMethod", amount_paid AS "amountPaid", notes, items, created_at AS "createdAt"';
 
 export function buildPiListSql(branchId?: unknown): { sql: string; params: unknown[] } {
   const filter = branchId && branchId !== 'ALL';
@@ -294,6 +310,22 @@ export function buildPurchaseInvoicePagedQuery(opts: PurchaseInvoiceQueryOptions
     const page = Math.max(1, Math.floor(paging.page));
     sql += ` LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
   }
+  return { sql, params };
+}
+
+/** SCALE-3 cursor page over `(created_at, id)` descending. */
+export function buildPurchaseInvoiceKeysetQuery(
+  opts: PurchaseInvoiceQueryOptions,
+  cursor: [string, string] | undefined,
+  limit: number
+): { sql: string; params: unknown[] } {
+  const { whereSql, params } = buildPurchaseInvoiceWhere(opts);
+  let sql = `SELECT ${PI_SELECT_COLUMNS} FROM purchase_invoices${whereSql}`;
+  if (cursor) {
+    params.push(cursor[0], cursor[1]);
+    sql += ` AND (created_at, id) < ($${params.length - 1}::timestamptz, $${params.length})`;
+  }
+  sql += ` ORDER BY created_at DESC, id DESC LIMIT ${limit + 1}`;
   return { sql, params };
 }
 

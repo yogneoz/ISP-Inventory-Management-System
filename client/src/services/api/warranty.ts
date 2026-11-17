@@ -31,11 +31,7 @@ export interface WarrantyCorrectionInput {
   notes?: string | null;
 }
 
-function warrantyQueryString(
-  params: WarrantyRegisterQuery,
-  page: number,
-  pageSize: number
-): string {
+function warrantyFilterParams(params: WarrantyRegisterQuery): URLSearchParams {
   const search = new URLSearchParams();
   const branchId =
     params.branchId && params.branchId !== 'ALL' ? params.branchId : getActiveBranchId();
@@ -46,10 +42,40 @@ function warrantyQueryString(
   if (params.startFrom) search.append('startFrom', params.startFrom);
   if (params.startTo) search.append('startTo', params.startTo);
   if (params.all) search.append('all', '1');
+  return search;
+}
+
+function warrantyQueryString(
+  params: WarrantyRegisterQuery,
+  page: number,
+  pageSize: number
+): string {
+  const search = warrantyFilterParams(params);
   search.append('page', String(page));
   search.append('pageSize', String(pageSize));
   const queryString = search.toString();
   return queryString ? `?${queryString}` : '';
+}
+
+/** One signed cursor page; `limit` is the only page-size input. */
+export interface WarrantyCursorPage extends WarrantyCoveragePage {
+  items: WarrantyCoverageRow[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+export async function fetchWarrantyCursorPage(
+  params: WarrantyRegisterQuery = {},
+  cursor: string | null,
+  limit: number,
+  coverageType: 'VENDOR' | 'SELLER'
+): Promise<WarrantyCursorPage> {
+  const search = warrantyFilterParams(params);
+  search.append('limit', String(limit));
+  if (cursor) search.append('cursor', cursor);
+  return fetchJson<WarrantyCursorPage>(
+    `/api/warranties/${coverageType === 'VENDOR' ? 'vendor' : 'seller'}?${search.toString()}`
+  );
 }
 
 /** The inbound side: what our suppliers owe us on each purchased unit. */

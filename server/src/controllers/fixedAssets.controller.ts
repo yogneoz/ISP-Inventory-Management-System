@@ -35,12 +35,14 @@ import {
   buildFixedAssetCountQuery,
   buildFixedAssetExportQuery,
   buildFixedAssetLookupQuery,
+  buildFixedAssetKeysetQuery,
   buildFixedAssetPageQuery,
   buildFixedAssetWhere,
   normalizeFixedAssetPaging,
   normalizeFixedAssetStatuses,
   type FixedAssetQueryOptions,
 } from '../models/fixedAssets.repo';
+import { cursorTimestamp, decodeKeysetCursor, encodeKeysetCursor, keysetEnvelope, keysetLimit, requireLargeTableScope } from '../utils/keysetCursor';
 import { calculateFixedAssetValues } from '../../../shared/depreciation';
 import { roundMoney } from '../utils/money';
 
@@ -322,6 +324,18 @@ export async function get_fixedAssetsPage(req: any, res: Response): Promise<any>
   const opts = fixedAssetQueryOptions(req, scope);
   const exportAll = req.query?.all === '1' || req.query?.all === 'true';
   const paging = normalizeFixedAssetPaging(req.query?.page, req.query?.pageSize);
+  const { cursor, limit } = req.query;
+  const wantsCursor = cursor !== undefined || limit !== undefined;
+  if (wantsCursor && !requireLargeTableScope(res, {
+    branchId: req.query?.branchId,
+    dateFrom: req.query?.acquisitionFrom,
+    dateTo: req.query?.acquisitionTo,
+    report: true,
+  })) return;
+  const parsedCursor = cursor === undefined ? undefined : decodeKeysetCursor(cursor, 'fixed_assets', 2);
+  if (cursor !== undefined && !parsedCursor) {
+    return res.status(400).json({ code: 'INVALID_CURSOR', message: 'The fixed-asset cursor is invalid. Reload the register and retry.' });
+  }
 
   if (scope.empty) {
     return res.json({ data: [], page: 1, pageSize: paging.pageSize, totalItems: 0 });
@@ -329,6 +343,28 @@ export async function get_fixedAssetsPage(req: any, res: Response): Promise<any>
 
   if (getPgConnected()) {
     try {
+      if (wantsCursor && !exportAll) {
+        const size = keysetLimit(limit, paging.pageSize, 500);
+        const list = buildFixedAssetKeysetQuery(
+          opts,
+          parsedCursor ? [String(parsedCursor[0]), String(parsedCursor[1])] : undefined,
+          size
+        );
+        const count = buildFixedAssetCountQuery(opts);
+        const [rows, totals] = await Promise.all([
+          pgPool.query(list.sql, list.params as any[]),
+          pgPool.query(count.sql, count.params as any[]),
+        ]);
+        const hasMore = rows.rows.length > size;
+        const items = hasMore ? rows.rows.slice(0, size) : rows.rows;
+        const last = items[items.length - 1];
+        const nextCursor = hasMore && last
+          ? encodeKeysetCursor('fixed_assets', [cursorTimestamp(last.createdAt), String(last.id)])
+          : null;
+        return res.json(keysetEnvelope(items, nextCursor, hasMore, {
+          totalItems: Number(totals.rows[0]?.count) || 0,
+        }));
+      }
       const list = exportAll ? buildFixedAssetExportQuery(opts) : buildFixedAssetPageQuery(opts, paging.page, paging.pageSize);
       const count = buildFixedAssetCountQuery(opts);
       const [rows, totals] = await Promise.all([

@@ -21,7 +21,8 @@ import {
   FileText,
 } from 'lucide-react';
 import { StatCard } from '../../components/common/StatCard';
-import { useServerPageClamp, TablePagination } from '../../components/common/TablePagination';
+import { useKeysetPager } from '../../hooks/useKeysetPager';
+import { KeysetLoadMore } from '../../components/common/KeysetLoadMore';
 import { RegisterLoadError } from '../../components/common/RegisterLoadError';
 import { useDialog } from '../../components/common/DialogProvider';
 import { getRowActivationProps, ROW_FOCUS_CLASS } from '../../utils/interactiveRow';
@@ -56,15 +57,12 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   // Server reads (ASSET-1). The summary groups and the KPI totals come from
-  // /overview; the date-wise tab pages through /page ordered by invoice date.
+  // /overview; the date-wise tab reads a signed cursor page.
   const [groups, setGroups] = useState<FixedAssetGroup[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [totals, setTotals] = useState<FixedAssetTotals>(ZERO_TOTALS);
   const [overviewTotal, setOverviewTotal] = useState(0);
-  const [rows, setRows] = useState<Asset[]>([]);
   const [totalItems, setTotalItems] = useState(0);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(15);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [retryToken, setRetryToken] = useState(0);
@@ -78,33 +76,28 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
     category: categoryFilter === 'ALL' ? undefined : categoryFilter,
   } as const;
 
-  const filterKey = [selectedBranchId, searchQuery, categoryFilter].join('|');
-  const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
-  if (filterKey !== prevFilterKey) {
-    setPrevFilterKey(filterKey);
-    if (page !== 1) setPage(1);
-  }
+  const pager = useKeysetPager<Asset, { totalItems?: number }>({
+    fetchPage: (cursor) => api.getFixedAssetCursorPage(scopedParams, cursor, 15),
+    resetKey: [selectedBranchId, searchQuery, categoryFilter, asOfDateAD, activeTab, refreshToken, retryToken].join('|'),
+    enabled: activeTab === 'DATE_WISE',
+    onPage: (page: any) => setTotalItems(Number(page.totalItems) || 0),
+  });
+  const { rows, scopeError, loadingMore, hasMore, loadMore } = pager;
+  const registerError = loadError || pager.error;
+  const registerLoading = loading || pager.loading;
 
   useEffect(() => {
     const seq = ++requestSeq.current;
     setLoading(true);
     setLoadError('');
-    Promise.all([
-      api.getFixedAssetOverview({ ...scopedParams, asOf: asOfDateAD, groupBy: 'master', categories: true }),
-      activeTab === 'DATE_WISE'
-        ? api.getFixedAssetPage({ ...scopedParams, sort: 'invoiceDate' }, page, pageSize)
-        : Promise.resolve(null),
-    ])
-      .then(([overview, pageResult]) => {
+    api
+      .getFixedAssetOverview({ ...scopedParams, asOf: asOfDateAD, groupBy: 'master', categories: true })
+      .then((overview) => {
         if (seq !== requestSeq.current) return;
         setGroups(overview?.groups ?? []);
         setCategories(overview?.categories ?? []);
         setTotals(overview?.totals ?? ZERO_TOTALS);
         setOverviewTotal(Number(overview?.total) || 0);
-        if (pageResult) {
-          setRows(Array.isArray(pageResult.data) ? pageResult.data : []);
-          setTotalItems(Number(pageResult.totalItems) || 0);
-        }
         setLoading(false);
       })
       .catch((err) => {
@@ -112,12 +105,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
         setLoadError(err?.message || 'Could not load the depreciation register.');
         setLoading(false);
       });
-  }, [selectedBranchId, searchQuery, categoryFilter, asOfDateAD, activeTab, page, pageSize, refreshToken, retryToken]);
-
-  const safePage = useServerPageClamp(page, pageSize, totalItems, setPage);
-  const pageCount = Math.max(1, Math.ceil(totalItems / pageSize));
-  const rangeStart = totalItems === 0 ? 0 : (safePage - 1) * pageSize + 1;
-  const rangeEnd = Math.min(safePage * pageSize, totalItems);
+  }, [selectedBranchId, searchQuery, categoryFilter, asOfDateAD, refreshToken, retryToken]);
 
   const toggleGroupExpand = (group: FixedAssetGroup) => {
     const willExpand = !expandedGroups[group.key];
@@ -362,12 +350,12 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
         }
       />
 
-      {loadError && (
+      {registerError && !scopeError && (
         <RegisterLoadError
           subject="the depreciation register"
-          message={loadError}
+          message={registerError}
           hasCachedRows={groups.length > 0 || rows.length > 0}
-          loading={loading}
+          loading={registerLoading}
           onRetry={() => setRetryToken((n) => n + 1)}
         />
       )}
@@ -577,7 +565,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                 {rows.length === 0 ? (
                   <tr>
                     <td colSpan={9} className="px-3 py-6 text-center text-slate-400">
-                      {loading ? 'Loading purchase lots…' : 'No purchase lots found matching filter criteria.'}
+                      {registerLoading ? 'Loading purchase lots…' : 'No purchase lots found matching filter criteria.'}
                     </td>
                   </tr>
                 ) : (
@@ -645,18 +633,12 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
               </tfoot>
             </table>
           </div>
-          <TablePagination
-            page={safePage}
-            pageCount={pageCount}
-            totalItems={totalItems}
-            rangeStart={rangeStart}
-            rangeEnd={rangeEnd}
-            pageSize={pageSize}
-            onPageChange={setPage}
-            onPageSizeChange={(size) => {
-              setPageSize(size);
-              setPage(1);
-            }}
+          <KeysetLoadMore
+            loaded={rows.length}
+            hasMore={hasMore}
+            loadingMore={loadingMore}
+            onLoadMore={loadMore}
+            scopeError={scopeError ? pager.error : ''}
           />
         </div>
       )}

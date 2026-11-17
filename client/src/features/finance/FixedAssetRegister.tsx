@@ -17,7 +17,8 @@ import {
   Info,
   Download,
 } from 'lucide-react';
-import { useServerPageClamp, TablePagination } from '../../components/common/TablePagination';
+import { useKeysetPager } from '../../hooks/useKeysetPager';
+import { KeysetLoadMore } from '../../components/common/KeysetLoadMore';
 import { PageHeader } from '../../components/common/PageHeader';
 import { RegisterLoadError } from '../../components/common/RegisterLoadError';
 import { useDialog } from '../../components/common/DialogProvider';
@@ -80,15 +81,10 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
   // Server-paged register (ASSET-1). The page and the KPI totals answer the
   // same branch + search scope; the totals are formula sums over the whole
   // filtered set, not just the rows on this page.
-  const [rows, setRows] = useState<Asset[]>([]);
   const [totalItems, setTotalItems] = useState(0);
   const [totals, setTotals] = useState<FixedAssetTotals>(ZERO_TOTALS);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(15);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState('');
   const [retryToken, setRetryToken] = useState(0);
-  const requestSeq = useRef(0);
+  const overviewSeq = useRef(0);
 
   // Form state
   const [tagNumber, setTagNumber] = useState(`AST-${Math.floor(1000 + Math.random() * 9000)}`);
@@ -120,36 +116,28 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
     }
   };
 
-  // A filter change snaps back to page 1 in the same commit, so a search edit
-  // never requests the previous filter's page number.
-  const filterKey = [selectedBranchId, search].join('|');
-  const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
-  if (filterKey !== prevFilterKey) {
-    setPrevFilterKey(filterKey);
-    if (page !== 1) setPage(1);
-  }
+  const pager = useKeysetPager<Asset, { totalItems?: number }>({
+    fetchPage: (cursor) =>
+      api.getFixedAssetCursorPage(
+        { branchId: selectedBranchId, query: search || undefined },
+        cursor,
+        15
+      ),
+    resetKey: [selectedBranchId, search, asOfDateAD, refreshToken, retryToken].join('|'),
+    onPage: (page: any) => setTotalItems(Number(page.totalItems) || 0),
+  });
+  const { rows, loading, error: loadError, scopeError, loadingMore, hasMore, loadMore } = pager;
 
   useEffect(() => {
-    const seq = ++requestSeq.current;
-    setLoading(true);
-    setLoadError('');
-    Promise.all([
-      api.getFixedAssetPage({ branchId: selectedBranchId, query: search || undefined }, page, pageSize),
-      api.getFixedAssetOverview({ branchId: selectedBranchId, query: search || undefined, asOf: asOfDateAD }),
-    ])
-      .then(([pageResult, overview]) => {
-        if (seq !== requestSeq.current) return;
-        setRows(Array.isArray(pageResult?.data) ? pageResult.data : []);
-        setTotalItems(Number(pageResult?.totalItems) || 0);
-        setTotals(overview?.totals ?? ZERO_TOTALS);
-        setLoading(false);
+    const seq = ++overviewSeq.current;
+    api.getFixedAssetOverview({ branchId: selectedBranchId, query: search || undefined, asOf: asOfDateAD })
+      .then((overview) => {
+        if (seq === overviewSeq.current) setTotals(overview?.totals ?? ZERO_TOTALS);
       })
-      .catch((err) => {
-        if (seq !== requestSeq.current) return;
-        setLoadError(err?.message || 'Could not load the fixed-asset register.');
-        setLoading(false);
+      .catch(() => {
+        // The register's own error state owns the failure surface.
       });
-  }, [selectedBranchId, search, page, pageSize, asOfDateAD, refreshToken, retryToken]);
+  }, [selectedBranchId, search, asOfDateAD, refreshToken, retryToken]);
 
   const openCreateModal = () => {
     setTagNumber(`AST-${Math.floor(1000 + Math.random() * 9000)}`);
@@ -221,10 +209,6 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
     };
   }, [recordKind, recordId, rows, selectedBranchId]);
 
-  const safePage = useServerPageClamp(page, pageSize, totalItems, setPage);
-  const pageCount = Math.max(1, Math.ceil(totalItems / pageSize));
-  const rangeStart = totalItems === 0 ? 0 : (safePage - 1) * pageSize + 1;
-  const rangeEnd = Math.min(safePage * pageSize, totalItems);
   const totalCost = totals.acquisitionCost;
   const totalAccumDep = totals.accumulatedDepreciation;
   const totalNBV = totals.netBookValue;
@@ -377,7 +361,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
         />
       </div>
 
-      {loadError && (
+      {loadError && !scopeError && (
         <RegisterLoadError
           subject="the fixed-asset register"
           message={loadError}
@@ -472,18 +456,12 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
             </tbody>
           </table>
         </div>
-        <TablePagination
-          page={safePage}
-          pageCount={pageCount}
-          totalItems={totalItems}
-          rangeStart={rangeStart}
-          rangeEnd={rangeEnd}
-          pageSize={pageSize}
-          onPageChange={setPage}
-          onPageSizeChange={(size) => {
-            setPageSize(size);
-            setPage(1);
-          }}
+        <KeysetLoadMore
+          loaded={rows.length}
+          hasMore={hasMore}
+          loadingMore={loadingMore}
+          onLoadMore={loadMore}
+          scopeError={scopeError ? loadError : ''}
           className="mt-1"
         />
       </div>

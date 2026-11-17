@@ -183,7 +183,7 @@ describe('VOL-3 wiring', () => {
 
   test('the register pages its own reads instead of receiving a filtered array', () => {
     const register = read('client/src/features/procurement/ShipmentRegister.tsx');
-    assert.match(register, /api\s*\.\s*getShipmentPage\(/);
+    assert.match(register, /api\s*\.\s*getShipmentCursorPage\(/);
     assert.match(register, /refreshToken/, 'the register must re-run its page on an SSE/full refresh');
     assert.ok(!/filteredShipments/.test(register), 'the host-filtered array is gone');
     const host = read('client/src/features/procurement/Shipments.tsx');

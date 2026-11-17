@@ -247,7 +247,7 @@ ids from a retry are dropped, and the footer says "End of register" at
 `hasMore=false`. `tests/scale2ClientRegisterPaging.test.ts` walks a pager across
 page boundaries while newer and same-timestamp rows are inserted, asserts every
 pre-existing row appears exactly once and no newer row leaks into the walk, and
-pins the visible `SCOPE_REQUIRED` state. It also guards all seven screens against
+pins the visible `SCOPE_REQUIRED` state. It also guards every converted screen against
 reintroducing an offset pager.
 `tests/customerPaging.api.test.ts` performs the same page-boundary insert through
 the real `GET /api/customers` cursor endpoint and asserts the next page still
@@ -267,20 +267,30 @@ Known limitations, stated explicitly:
   gained explicit From/To date filters so an `ALL`-branch read has a bounded
   scope; the subledger ledger defaults to the active fiscal-year window; audit
   uses the active fiscal-year window and the selected branch.
-- **Converted in the follow-up pass:** purchase-returns and sales-returns
+- **Converted in the SCALE-2 follow-up:** purchase-returns and sales-returns
   (`GET /api/purchase-returns` and `/api/sales-returns` now accept signed
   cursors), the pullout, damage+disposal and all-operation Stock Operations
   panels, and the CustomerLedger receipt picker's open-invoice list. The stock
   panels share the existing `/api/stock-operations` cursor; `type` accepts a
   comma list so DAMAGE and DISPOSAL page together. A customer id is now a valid
   cursor scope for the customer ledger picker, alongside branch and date.
+- **Converted in the SCALE-2 operational-register follow-up:** fixed assets (the register, Asset Deployments and
+  the date-wise depreciation tab), warranty coverage for both sides, the
+  shipment transfer register, purchase orders and purchase invoices. Each
+  endpoint accepts a signed `(created_at, id)` cursor, keeps every existing
+  branch/date/status/search filter, and requires a branch or a bounded date
+  range before serving a cursor page. Their client registers use
+  `useKeysetPager` + `KeysetLoadMore`; the depreciation tab no longer claims
+  invoice-date ordering, because the cursor contract is `created_at` order.
 - **Intentionally unconverted:** the serial-focused audit lookup keeps its
   targeted capped 500-row read (a single-record identity lookup, not a
   register). The audit stock-movement sub-tab still pages `/api/transaction-logs`
   by offset because it is a user-selectable ascending/descending movement
-  window with its own export cap, not one of the SCALE-2 register surfaces.
-  Fixed-asset, warranty, shipment, PO/PI and other operational registers outside
-  the SCALE-2 set also keep their bounded offset paging.
+  window with its own export cap, not a register surface. The CustomerLedger
+  statement body also remains one computed response (opening balance, running
+  balances and tie-out); only its invoice picker is cursor-paged. Master-data
+  directories and settings lists that paginate local arrays are not large
+  operational registers and remain unchanged.
 - `scripts/seed_scale_fixture.mjs` is present with the 5M/1M/10M/5M/500 defaults,
   scratch-database guards and cleanup, but the full fixture was not executed on
   this workstation; the live 500-branch measurement and the direct PostgreSQL
@@ -288,12 +298,13 @@ Known limitations, stated explicitly:
 - `EXPLAIN`/5M-vs-12k timing and partition pruning belong to SCALE-3's index and
   partition work; no speed claim is made for this slice.
 
-Full suite: **2,523 tests, 2,521 pass, 2 Windows-only skips, 0 fail**;
-`npx tsc --noEmit` is 0; the docs-count gate matches 2,523. The new
-`tests/scale2RemainingRegisters.api.test.ts` walks each remaining converted read
-across a real insert boundary (newer and same-timestamp rows inserted after page
-1) and asserts exactly-once delivery, no newer-row leakage and cursor
-termination. The live payload
+Full suite: **2,530 tests, 2,528 pass, 2 Windows-only skips, 0 fail**;
+`npx tsc --noEmit` is 0; the docs-count gate matches 2,530. The new
+`tests/scale2RemainingRegisters.api.test.ts` walks each SCALE-2 follow-up read,
+and `tests/scale2OperationalRegisters.api.test.ts` walks all five operational
+registers across a real insert boundary (newer and same-timestamp rows inserted
+after page 1), asserting exactly-once delivery, no newer-row leakage, cursor
+termination and both `SCOPE_REQUIRED` / `INVALID_CURSOR` guards. The live payload
 measurement was taken on a fresh server on port 3200, which was stopped and its
 log/pid removed after the run; no scratch database or fixture rows remain
 (branches: 6 total, 0 fixture rows).

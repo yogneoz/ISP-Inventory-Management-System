@@ -168,6 +168,7 @@ describe('UIX-12 — the fiscal-year trigger names the year without clipping', (
 describe('UIX-11 — the warranty start range is one filter group', () => {
   const originalVendor = api.fetchVendorWarranties;
   const originalSeller = api.fetchSellerWarranties;
+  const originalCursor = api.fetchWarrantyCursorPage;
 
   beforeEach(() => {
     const empty = async () => ({
@@ -177,11 +178,18 @@ describe('UIX-11 — the warranty start range is one filter group', () => {
     });
     api.fetchVendorWarranties = empty as any;
     api.fetchSellerWarranties = empty as any;
+    api.fetchWarrantyCursorPage = (async () => ({
+      ...(await empty()),
+      items: [],
+      nextCursor: null,
+      hasMore: false,
+    })) as any;
   });
 
   afterEach(() => {
     api.fetchVendorWarranties = originalVendor;
     api.fetchSellerWarranties = originalSeller;
+    api.fetchWarrantyCursorPage = originalCursor;
   });
 
   test('both date fields and labels share one wrapping group', async () => {

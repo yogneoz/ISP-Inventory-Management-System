@@ -133,7 +133,7 @@ describe('DF-12 wiring', () => {
     ];
     for (const file of registers) {
       const source = read(file);
-      if (source.includes('useKeysetPager(')) {
+      if (/useKeysetPager[<(]/.test(source)) {
         assert.match(source, /resetKey:\s*\[/, `${file} must reset the cursor when filters change`);
       } else {
         assert.ok(source.includes('useFilterPageReset('), `${file} must use the shared page reset`);

@@ -13,7 +13,7 @@
 // ---------------------------------------------------------------------------
 
 export const SHIPMENT_SELECT_COLUMNS =
-  'id, tracking_code AS "trackingCode", type, source_branch_id AS "sourceBranchId", source_branch_name AS "sourceBranchName", destination_branch_id AS "destinationBranchId", destination_branch_name AS "destinationBranchName", dispatch_date_ad AS "dispatchDateAD", dispatch_date_bs AS "dispatchDateBS", estimated_arrival_ad AS "estimatedArrivalAD", status, notes, items, received_by_notes AS "receivedByNotes", received_date_ad AS "receivedDateAD", received_date_bs AS "receivedDateBS", has_discrepancy AS "hasDiscrepancy"';
+  'id, tracking_code AS "trackingCode", type, source_branch_id AS "sourceBranchId", source_branch_name AS "sourceBranchName", destination_branch_id AS "destinationBranchId", destination_branch_name AS "destinationBranchName", dispatch_date_ad AS "dispatchDateAD", dispatch_date_bs AS "dispatchDateBS", estimated_arrival_ad AS "estimatedArrivalAD", status, notes, items, received_by_notes AS "receivedByNotes", received_date_ad AS "receivedDateAD", received_date_bs AS "receivedDateBS", has_discrepancy AS "hasDiscrepancy", created_at AS "createdAt"';
 
 /**
  * List/page scope for the shipment register, the receive lanes and the FY
@@ -152,6 +152,22 @@ export function buildShipmentListSql(opts: ShipmentListOptions = {}): { sql: str
     params.push(Math.min(5000, Math.max(1, Number(opts.limit))));
     sql += ` LIMIT $${params.length}`;
   }
+  return { sql, params };
+}
+
+/** SCALE-3 cursor page over `(created_at, id)` descending. */
+export function buildShipmentKeysetSql(
+  opts: ShipmentListOptions,
+  cursor: [string, string] | undefined,
+  limit: number
+): { sql: string; params: unknown[] } {
+  const { where, params } = buildShipmentWhere(opts);
+  let sql = `SELECT ${SHIPMENT_SELECT_COLUMNS} FROM shipments${where}`;
+  if (cursor) {
+    params.push(cursor[0], cursor[1]);
+    sql += ` AND (created_at, id) < ($${params.length - 1}::timestamptz, $${params.length})`;
+  }
+  sql += ` ORDER BY created_at DESC, id DESC LIMIT ${limit + 1}`;
   return { sql, params };
 }
 

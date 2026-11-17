@@ -122,6 +122,9 @@ const sellerRows: WarrantyCoverageRow[] = [
 function pageOf(data: WarrantyCoverageRow[], over: Partial<WarrantyCoveragePage> = {}): WarrantyCoveragePage {
   return {
     data,
+    items: data,
+    nextCursor: null,
+    hasMore: false,
     page: 1,
     pageSize: 15,
     totalItems: data.length,
@@ -132,7 +135,15 @@ function pageOf(data: WarrantyCoverageRow[], over: Partial<WarrantyCoveragePage>
       expired: data.filter((row) => row.warrantyState === 'EXPIRED').length,
     },
     ...over,
-  };
+  } as any;
+}
+
+function cursorPage(
+  data: WarrantyCoverageRow[],
+  over: Partial<WarrantyCoveragePage> = {},
+  hasMore = false
+): any {
+  return { ...pageOf(data, over), nextCursor: hasMore ? 'cursor-2' : null, hasMore };
 }
 
 const settle = async () => {
@@ -167,6 +178,7 @@ describe('warranty registers', () => {
   const real = {
     vendor: api.fetchVendorWarranties,
     seller: api.fetchSellerWarranties,
+    cursor: api.fetchWarrantyCursorPage,
     update: api.updateWarrantyCoverage,
   };
   let vendorCalls: any[] = [];
@@ -185,6 +197,16 @@ describe('warranty registers', () => {
       sellerCalls.push({ params, page, pageSize });
       return pageOf(sellerRows);
     }) as any;
+    api.fetchWarrantyCursorPage = (async (
+      params: any,
+      cursor: string | null,
+      limit: number,
+      coverageType: 'VENDOR' | 'SELLER'
+    ) => {
+      const calls = coverageType === 'VENDOR' ? vendorCalls : sellerCalls;
+      calls.push({ params, cursor, limit });
+      return cursorPage(coverageType === 'VENDOR' ? rows : sellerRows);
+    }) as any;
     api.updateWarrantyCoverage = (async (id: string, input: any) => {
       updates.push({ id, input });
       return { ...rows[0], ...input } as any;
@@ -194,6 +216,7 @@ describe('warranty registers', () => {
   afterEach(() => {
     api.fetchVendorWarranties = real.vendor;
     api.fetchSellerWarranties = real.seller;
+    api.fetchWarrantyCursorPage = real.cursor;
     api.updateWarrantyCoverage = real.update;
   });
 
@@ -250,13 +273,11 @@ describe('warranty registers', () => {
   });
 
   test('the KPIs describe the whole filtered population, not the page on screen', async () => {
-    api.fetchVendorWarranties = (async () => ({
-      data: rows.slice(0, 1),
-      page: 1,
-      pageSize: 15,
-      totalItems: 7,
-      counts: { total: 7, valid: 4, expiring: 2, expired: 1 },
-    })) as any;
+    api.fetchWarrantyCursorPage = (async () =>
+      cursorPage(rows.slice(0, 1), {
+        totalItems: 7,
+        counts: { total: 7, valid: 4, expiring: 2, expired: 1 },
+      })) as any;
     const tree = await mountVendor();
     try {
       const text = tree.container.textContent || '';
@@ -270,9 +291,16 @@ describe('warranty registers', () => {
   });
 
   test('search, status, type, date range and paging all round-trip to the server', async () => {
-    api.fetchSellerWarranties = (async (params: any, page: number, pageSize: number) => {
-      sellerCalls.push({ params, page, pageSize });
-      return pageOf(sellerRows, { totalItems: 40 });
+    api.fetchWarrantyCursorPage = (async (
+      params: any,
+      cursor: string | null,
+      limit: number,
+      coverageType: 'VENDOR' | 'SELLER'
+    ) => {
+      sellerCalls.push({ params, cursor, limit });
+      return coverageType === 'SELLER'
+        ? cursorPage(sellerRows, { totalItems: 40 }, true)
+        : cursorPage(rows);
     }) as any;
     const tree = await mountSeller();
     try {
@@ -303,18 +331,22 @@ describe('warranty registers', () => {
       assert.equal(last.params.startFrom, '2026-01-01');
       assert.equal(last.params.branchId, 'br-a');
 
-      const next = button(tree.container, /Next page/);
-      assert.ok(next, 'a 40-row population must page');
+      const next = button(tree.container, /Load more/);
+      assert.ok(next, 'a 40-row population must offer the cursor footer');
       inAct(() => next!.click());
       await settle();
-      assert.equal(sellerCalls[sellerCalls.length - 1].page, 2, 'Next must ask the server for page 2');
+      assert.equal(
+        sellerCalls[sellerCalls.length - 1].cursor,
+        'cursor-2',
+        'Load more must advance the signed cursor, not an offset page'
+      );
     } finally {
       tree.unmount();
     }
   });
 
   test('empty states differ and both name the applied filters', async () => {
-    api.fetchVendorWarranties = (async () => pageOf([], { totalItems: 0 })) as any;
+    api.fetchWarrantyCursorPage = (async () => cursorPage([], { totalItems: 0 })) as any;
     const emptyTree = await mountVendor();
     try {
       const text = emptyTree.container.textContent || '';

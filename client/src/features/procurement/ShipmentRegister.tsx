@@ -19,7 +19,8 @@ import {
   Info,
   FileSpreadsheet,
 } from 'lucide-react';
-import { useServerPageClamp, TablePagination } from '../../components/common/TablePagination';
+import { useKeysetPager } from '../../hooks/useKeysetPager';
+import { KeysetLoadMore } from '../../components/common/KeysetLoadMore';
 import { useReceiveVerification, ReceiveVerificationModal } from '../../components/common/ReceiveVerificationModal';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 
@@ -259,76 +260,38 @@ export const ShipmentRegister: React.FC<ShipmentRegisterProps> = ({
   // pinned to its own branch by App, and the server refuses any other id, so
   // rows and the KPI counts below answer the same scope.
   const scopeBranchId = selectedBranchId;
-  const [rows, setRows] = useState<Shipment[]>([]);
   const [totalItems, setTotalItems] = useState(0);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(15);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState('');
   const [retryToken, setRetryToken] = useState(0);
-  const requestSeq = useRef(0);
   // FilterCard's live draft — `searchQuery` is only the debounced apply.
   const searchDraftRef = useRef<string | null>(null);
 
-  // A filter change snaps back to page 1 in the same commit (the React
-  // "adjust state during render" pattern the client paginator used), so a
-  // filter edit never requests a page number from the previous filter.
-  const filterKey = [
-    scopeBranchId,
-    searchQuery,
-    shipmentStatusFilter,
-    shipmentMode,
-    startDateAD,
-    endDateAD,
-  ].join('|');
-  const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
-  if (filterKey !== prevFilterKey) {
-    setPrevFilterKey(filterKey);
-    if (page !== 1) setPage(1);
-  }
-
-  useEffect(() => {
-    const seq = ++requestSeq.current;
-    setLoading(true);
-    setLoadError('');
-    api.getShipmentPage({
-        branchId: scopeBranchId,
-        search: searchQuery || undefined,
-        status: shipmentStatusFilter,
-        direction: shipmentMode === 'ALL' ? undefined : shipmentMode,
-        dateFromAD: startDateAD || undefined,
-        dateToAD: endDateAD || undefined,
-        page,
-        pageSize,
-      })
-      .then((result) => {
-        if (seq !== requestSeq.current) return;
-        setRows(Array.isArray(result?.data) ? result.data : []);
-        setTotalItems(Number(result?.totalItems) || 0);
-        setLoading(false);
-      })
-      .catch((err) => {
-        if (seq !== requestSeq.current) return;
-        setLoadError(err?.message || 'Could not load the transfer register.');
-        setLoading(false);
-      });
-  }, [
-    scopeBranchId,
-    searchQuery,
-    shipmentStatusFilter,
-    shipmentMode,
-    startDateAD,
-    endDateAD,
-    page,
-    pageSize,
-    refreshToken,
-    retryToken,
-  ]);
-
-  const safePage = useServerPageClamp(page, pageSize, totalItems, setPage);
-  const pageCount = Math.max(1, Math.ceil(totalItems / pageSize));
-  const rangeStart = totalItems === 0 ? 0 : (safePage - 1) * pageSize + 1;
-  const rangeEnd = Math.min(safePage * pageSize, totalItems);
+  const pager = useKeysetPager<Shipment, { totalItems?: number }>({
+    fetchPage: (cursor) =>
+      api.getShipmentCursorPage(
+        {
+          branchId: scopeBranchId,
+          search: searchQuery || undefined,
+          status: shipmentStatusFilter,
+          direction: shipmentMode === 'ALL' ? undefined : shipmentMode,
+          dateFromAD: startDateAD || undefined,
+          dateToAD: endDateAD || undefined,
+        },
+        cursor,
+        15
+      ),
+    resetKey: [
+      scopeBranchId,
+      searchQuery,
+      shipmentStatusFilter,
+      shipmentMode,
+      startDateAD,
+      endDateAD,
+      refreshToken,
+      retryToken,
+    ].join('|'),
+    onPage: (page: any) => setTotalItems(Number(page.totalItems) || 0),
+  });
+  const { rows, loading, error: loadError, scopeError, loadingMore, hasMore, loadMore } = pager;
 
   // Exact scope counts for the KPI cards come from the shared bounded
   // overview the host already subscribes to, not from the page currently on
@@ -707,18 +670,12 @@ export const ShipmentRegister: React.FC<ShipmentRegisterProps> = ({
             </tbody>
           </table>
         </div>
-        <TablePagination
-          page={safePage}
-          pageCount={pageCount}
-          totalItems={totalItems}
-          rangeStart={rangeStart}
-          rangeEnd={rangeEnd}
-          pageSize={pageSize}
-          onPageChange={setPage}
-          onPageSizeChange={(size) => {
-            setPageSize(size);
-            setPage(1);
-          }}
+        <KeysetLoadMore
+          loaded={rows.length}
+          hasMore={hasMore}
+          loadingMore={loadingMore}
+          onLoadMore={loadMore}
+          scopeError={scopeError ? loadError : ''}
           className="mt-1"
         />
       </div>

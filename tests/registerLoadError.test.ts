@@ -107,13 +107,15 @@ describe('register load error — every paged register wires it in', () => {
     {
       file: 'client/src/features/procurement/PurchaseOrders.tsx',
       error: 'poLoadError',
-      loader: 'loadPoPage',
+      retry: 'reloadPoPage',
+      cursorPaged: true,
       pageSubject: 'this page of purchase orders',
     },
     {
       file: 'client/src/features/procurement/PurchaseInvoices.tsx',
       error: 'piLoadError',
-      loader: 'loadPiPage',
+      retry: 'reloadPiPage',
+      cursorPaged: true,
       pageSubject: 'this page of purchase bills',
     },
     {
@@ -159,11 +161,11 @@ describe('register load error — every paged register wires it in', () => {
           source.includes(`onRetry={${register.retry}}`),
           'Retry must re-run exactly the cursor fetch that failed'
         );
-        assert.match(source, /useKeysetPager\(/, 'the cursor pager owns error clearing and retry');
+        assert.match(source, /useKeysetPager[<(]/, 'the cursor pager owns error clearing and retry');
         assert.match(source, /scopeError=/, 'the screen must expose the scope refusal');
       } else {
         assert.ok(
-          source.includes(`onRetry={() => { void ${register.loader}(); }}`),
+          source.includes(`onRetry={() => { void ${(register as any).loader}(); }}`),
           'Retry must re-run exactly the page fetch that failed'
         );
         // A stale notice must not survive a successful refetch: each loader

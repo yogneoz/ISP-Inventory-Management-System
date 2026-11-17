@@ -187,6 +187,26 @@ export async function getFixedAssetPage(
   return fetchJson(`/api/fixed-assets/page${fixedAssetQueryString(params, { page, pageSize })}`);
 }
 
+/** One signed cursor page of the fixed-asset register. */
+export interface FixedAssetCursorPage extends FixedAssetPage {
+  items: Asset[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+export async function getFixedAssetCursorPage(
+  params: FixedAssetQueryParams = {},
+  cursor: string | null = null,
+  limit = 15
+): Promise<FixedAssetCursorPage> {
+  return fetchJson<FixedAssetCursorPage>(
+    `/api/fixed-assets/page${fixedAssetQueryString(params, {
+      limit,
+      ...(cursor ? { cursor } : {}),
+    })}`
+  );
+}
+
 /** CSV/report export: every matching row, capped server-side with `truncated`. */
 export async function getFixedAssetExport(params: FixedAssetQueryParams = {}): Promise<FixedAssetPage> {
   return fetchJson(`/api/fixed-assets/page${fixedAssetQueryString(params, { all: 1 })}`);

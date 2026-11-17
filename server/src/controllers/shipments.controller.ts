@@ -12,6 +12,7 @@ import { planSerialGateEntries, resolveSerialGateInDb, SerialGateError, serialGa
 import { OperationError, errorResponse } from '../utils/operationError';
 import {
   buildShipmentListSql, buildShipmentCountSql, buildShipmentSummarySql, filterShipmentsMirror,
+  buildShipmentKeysetSql,
   type ShipmentListOptions,
   SHIPMENT_UPSERT_SQL, SHIPMENT_FIND_FOR_OVERWRITE_SQL, shipmentUpsertParams,
   SHIPMENT_FIND_ONE_SQL,
@@ -29,6 +30,7 @@ import {
 } from '../services/transferPosting.service';
 import { buildTxnMultiRowInsertSql, flattenTxnParams, txnInsertOnConflictParams } from '../models/inventory.repo';
 import { bsDateOr400 } from '../utils/bsDate';
+import { cursorTimestamp, decodeKeysetCursor, encodeKeysetCursor, keysetEnvelope, keysetLimit, requireLargeTableScope } from '../utils/keysetCursor';
 import { firstLineQuantityRefusal } from '../utils/lineQuantity';
 import type { TransactionLog } from '../../../client/src/types';
 
@@ -253,9 +255,43 @@ export async function get_shipmentsPage(req: any, res: Response): Promise<any> {
   if (!scope) return;
   const page = Math.max(1, Number(req.query?.page) || 1);
   const pageSize = Math.min(SHIPMENT_PAGE_MAX, Math.max(1, Number(req.query?.pageSize) || SHIPMENT_PAGE_DEFAULT));
+  const { cursor, limit } = req.query;
+  const wantsCursor = cursor !== undefined || limit !== undefined;
+  if (wantsCursor && !requireLargeTableScope(res, {
+    branchId: req.query?.branchId,
+    dateFrom: req.query?.dateFromAD,
+    dateTo: req.query?.dateToAD,
+    report: true,
+  })) return;
+  const parsedCursor = cursor === undefined ? undefined : decodeKeysetCursor(cursor, 'shipments', 2);
+  if (cursor !== undefined && !parsedCursor) {
+    return res.status(400).json({ code: 'INVALID_CURSOR', message: 'The shipment cursor is invalid. Reload the register and retry.' });
+  }
   const opts = shipmentQueryOptions(req, scope, { pageSize, offset: (page - 1) * pageSize });
   if (getPgConnected()) {
     try {
+      if (wantsCursor) {
+        const size = keysetLimit(limit, pageSize, SHIPMENT_PAGE_MAX);
+        const listQ = buildShipmentKeysetSql(
+          opts,
+          parsedCursor ? [String(parsedCursor[0]), String(parsedCursor[1])] : undefined,
+          size
+        );
+        const countQ = buildShipmentCountSql(opts);
+        const [listR, countR] = await Promise.all([
+          pgPool.query(listQ.sql, listQ.params as any[]),
+          pgPool.query(countQ.sql, countQ.params as any[]),
+        ]);
+        const hasMore = listR.rows.length > size;
+        const items = hasMore ? listR.rows.slice(0, size) : listR.rows;
+        const last = items[items.length - 1];
+        const nextCursor = hasMore && last
+          ? encodeKeysetCursor('shipments', [cursorTimestamp(last.createdAt), String(last.id)])
+          : null;
+        return res.json(keysetEnvelope(items, nextCursor, hasMore, {
+          totalItems: Number(countR.rows[0]?.count) || 0,
+        }));
+      }
       const countQ = buildShipmentCountSql(opts);
       const listQ = buildShipmentListSql(opts);
       const [countR, listR] = await Promise.all([

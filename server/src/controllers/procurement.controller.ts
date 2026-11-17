@@ -39,7 +39,9 @@ import {
   PO_FIND_BY_ID_SQL, PI_FIND_BY_ID_SQL, PI_EXISTS_FOR_PO_SQL, VP_POSTED_BY_INVOICE_SQL, VP_FIND_BY_ID_SQL,
   buildPoListSql, buildPiListSql,
   buildPurchaseOrderPagedQuery, buildPurchaseOrderAggregateQuery, buildPurchaseOrderStatusCountQuery,
+  buildPurchaseOrderKeysetQuery,
   buildPurchaseInvoicePagedQuery, buildPurchaseInvoiceAggregateQuery, buildPurchaseInvoiceStatusCountQuery,
+  buildPurchaseInvoiceKeysetQuery,
   buildPurchaseReturnListSql, buildPurchaseReturnCountQuery, buildPurchaseReturnPagedQuery,
   buildPurchaseReturnKeysetQuery,
   PR_INSERT_SQL, prInsertParams, PR_EXISTS_SQL, PR_LOCK_INVOICE_SQL,
@@ -77,13 +79,21 @@ import {
 } from '../services/returnSerials.service';
 /** Forwarded from procurement.routes.ts (get_purchaseOrders). */
 export async function get_purchaseOrders(req: any, res: Response): Promise<any> {
-const { branchId, status, supplier, query, dateFromAD, dateToAD, page, pageSize, all } = req.query;
+const { branchId, status, supplier, query, dateFromAD, dateToAD, page, pageSize, all, cursor, limit } = req.query;
   // Paged mode: ?page=N (optional pageSize) returns an envelope with the page
   // slice, the filtered total, per-status counts, and pending/received value
   // sums for the register KPIs. ?all=1 returns every filtered row (CSV
   // export). No page param keeps the legacy full-array shape for existing
   // callers (bootstrap consumers, PI PO dropdowns, movement ledger).
-  const wantsPaged = page !== undefined || pageSize !== undefined || all === '1';
+  const wantsCursor = cursor !== undefined || limit !== undefined;
+  if (wantsCursor && !requireLargeTableScope(res, {
+    branchId, dateFrom: dateFromAD, dateTo: dateToAD, report: true,
+  })) return;
+  const parsedCursor = cursor === undefined ? undefined : decodeKeysetCursor(cursor, 'purchase_orders', 2);
+  if (cursor !== undefined && !parsedCursor) {
+    return res.status(400).json({ code: 'INVALID_CURSOR', message: 'The purchase-order cursor is invalid. Reload the register and retry.' });
+  }
+  const wantsPaged = page !== undefined || pageSize !== undefined || all === '1' || wantsCursor;
   const wantsFiltering = wantsPaged || status || supplier || query || dateFromAD || dateToAD;
   if (getPgConnected()) {
     try {
@@ -95,6 +105,36 @@ const { branchId, status, supplier, query, dateFromAD, dateToAD, page, pageSize,
         return res.json(allRows.rows);
       }
       const opts = { branchId, status, supplier, query, dateFromAD, dateToAD };
+      if (wantsCursor && all !== '1') {
+        const size = keysetLimit(limit, 50, 500);
+        const aggQ = buildPurchaseOrderAggregateQuery(opts);
+        const statusQ = buildPurchaseOrderStatusCountQuery(opts);
+        const listQ = buildPurchaseOrderKeysetQuery(
+          opts,
+          parsedCursor ? [String(parsedCursor[0]), String(parsedCursor[1])] : undefined,
+          size
+        );
+        const [aggR, statusR, r] = await Promise.all([
+          pgPool.query(aggQ.sql, aggQ.params as any[]),
+          pgPool.query(statusQ.sql, statusQ.params as any[]),
+          pgPool.query(listQ.sql, listQ.params as any[]),
+        ]);
+        const agg = aggR.rows[0] || {};
+        const statusCounts: Record<string, number> = {};
+        for (const row of statusR.rows) statusCounts[String(row.status)] = Number(row.count);
+        const hasMore = r.rows.length > size;
+        const items = hasMore ? r.rows.slice(0, size) : r.rows;
+        const last = items[items.length - 1];
+        const nextCursor = hasMore && last
+          ? encodeKeysetCursor('purchase_orders', [cursorTimestamp(last.createdAt), String(last.id)])
+          : null;
+        return res.json(keysetEnvelope(items, nextCursor, hasMore, {
+          totalItems: Number(agg.count || 0),
+          statusCounts,
+          pendingValue: Number(agg.pending_value || 0),
+          receivedValue: Number(agg.received_value || 0),
+        }));
+      }
       if (wantsPaged) {
         const n = Math.max(1, Number(page) || 1);
         const size = Math.max(1, Math.min(500, Number(pageSize) || 50));
@@ -345,12 +385,20 @@ try {
 
 /** Forwarded from procurement.routes.ts (get_purchaseInvoices). */
 export async function get_purchaseInvoices(req: any, res: Response): Promise<any> {
-const { branchId, paymentStatus, supplier, query, dateFromAD, dateToAD, page, pageSize, all } = req.query;
+const { branchId, paymentStatus, supplier, query, dateFromAD, dateToAD, page, pageSize, all, cursor, limit } = req.query;
   // Paged mode: ?page=N (optional pageSize) returns an envelope with the page
   // slice, the filtered total, per-payment-status counts, and the taxable/VAT/
   // grand/unpaid sums for the register KPIs. ?all=1 returns every filtered row
   // (CSV export). No page param keeps the legacy full-array shape.
-  const wantsPaged = page !== undefined || pageSize !== undefined || all === '1';
+  const wantsCursor = cursor !== undefined || limit !== undefined;
+  if (wantsCursor && !requireLargeTableScope(res, {
+    branchId, dateFrom: dateFromAD, dateTo: dateToAD, report: true,
+  })) return;
+  const parsedCursor = cursor === undefined ? undefined : decodeKeysetCursor(cursor, 'purchase_invoices', 2);
+  if (cursor !== undefined && !parsedCursor) {
+    return res.status(400).json({ code: 'INVALID_CURSOR', message: 'The purchase-invoice cursor is invalid. Reload the register and retry.' });
+  }
+  const wantsPaged = page !== undefined || pageSize !== undefined || all === '1' || wantsCursor;
   const wantsFiltering = wantsPaged || paymentStatus || supplier || query || dateFromAD || dateToAD;
   if (getPgConnected()) {
     try {
@@ -362,6 +410,40 @@ const { branchId, paymentStatus, supplier, query, dateFromAD, dateToAD, page, pa
         return res.json(allRows.rows);
       }
       const opts = { branchId, paymentStatus, supplier, query, dateFromAD, dateToAD };
+      if (wantsCursor && all !== '1') {
+        const size = keysetLimit(limit, 50, 500);
+        const aggQ = buildPurchaseInvoiceAggregateQuery(opts);
+        const statusQ = buildPurchaseInvoiceStatusCountQuery(opts);
+        const listQ = buildPurchaseInvoiceKeysetQuery(
+          opts,
+          parsedCursor ? [String(parsedCursor[0]), String(parsedCursor[1])] : undefined,
+          size
+        );
+        const [aggR, statusR, r] = await Promise.all([
+          pgPool.query(aggQ.sql, aggQ.params as any[]),
+          pgPool.query(statusQ.sql, statusQ.params as any[]),
+          pgPool.query(listQ.sql, listQ.params as any[]),
+        ]);
+        const agg = aggR.rows[0] || {};
+        const statusCounts: Record<string, number> = {};
+        for (const row of statusR.rows) statusCounts[String(row.status)] = Number(row.count);
+        const hasMore = r.rows.length > size;
+        const items = hasMore ? r.rows.slice(0, size) : r.rows;
+        const last = items[items.length - 1];
+        const nextCursor = hasMore && last
+          ? encodeKeysetCursor('purchase_invoices', [cursorTimestamp(last.createdAt), String(last.id)])
+          : null;
+        return res.json(keysetEnvelope(items, nextCursor, hasMore, {
+          totalItems: Number(agg.count || 0),
+          statusCounts,
+          sums: {
+            taxable: Number(agg.taxable_sum || 0),
+            vat: Number(agg.vat_sum || 0),
+            grand: Number(agg.grand_sum || 0),
+            unpaid: Number(agg.unpaid_sum || 0),
+          },
+        }));
+      }
       if (wantsPaged) {
         const n = Math.max(1, Number(page) || 1);
         const size = Math.max(1, Math.min(500, Number(pageSize) || 50));

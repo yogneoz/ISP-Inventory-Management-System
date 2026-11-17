@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { MapPin, UserCheck, Building, Download, Undo2 } from 'lucide-react';
 import { Asset, Branch, LocationRecord, User } from '../../types';
 import { FilterCard } from '../../components/common/FilterCard';
-import { useServerPageClamp, TablePagination } from '../../components/common/TablePagination';
+import { useKeysetPager } from '../../hooks/useKeysetPager';
+import { KeysetLoadMore } from '../../components/common/KeysetLoadMore';
 import { RegisterLoadError } from '../../components/common/RegisterLoadError';
 import { formatNPR } from '../../utils/nprFormat';
 import { exportToCSV } from '../../utils/exportUtils';
@@ -54,21 +55,8 @@ export const AssetDeployments: React.FC<AssetDeploymentsProps> = ({
 
   // Server-paged deployment register (ASSET-1): assigned rows only, filtered by
   // branch, deployment type, POP location and the indexed text search.
-  const [rows, setRows] = useState<Asset[]>([]);
   const [totalItems, setTotalItems] = useState(0);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(15);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState('');
   const [retryToken, setRetryToken] = useState(0);
-  const requestSeq = useRef(0);
-
-  const filterKey = [appliedSearch, branchFilter, locationFilter, typeFilter].join('|');
-  const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
-  if (filterKey !== prevFilterKey) {
-    setPrevFilterKey(filterKey);
-    if (page !== 1) setPage(1);
-  }
 
   const pageParams = {
     branchId: branchFilter,
@@ -78,28 +66,12 @@ export const AssetDeployments: React.FC<AssetDeploymentsProps> = ({
     assignedLocationId: locationFilter === 'ALL' ? undefined : locationFilter,
   } as const;
 
-  useEffect(() => {
-    const seq = ++requestSeq.current;
-    setLoading(true);
-    setLoadError('');
-    api.getFixedAssetPage(pageParams, page, pageSize)
-      .then((result) => {
-        if (seq !== requestSeq.current) return;
-        setRows(Array.isArray(result?.data) ? result.data : []);
-        setTotalItems(Number(result?.totalItems) || 0);
-        setLoading(false);
-      })
-      .catch((err) => {
-        if (seq !== requestSeq.current) return;
-        setLoadError(err?.message || 'Could not load the asset deployments.');
-        setLoading(false);
-      });
-  }, [appliedSearch, branchFilter, locationFilter, typeFilter, page, pageSize, refreshToken, retryToken]);
-
-  const safePage = useServerPageClamp(page, pageSize, totalItems, setPage);
-  const pageCount = Math.max(1, Math.ceil(totalItems / pageSize));
-  const rangeStart = totalItems === 0 ? 0 : (safePage - 1) * pageSize + 1;
-  const rangeEnd = Math.min(safePage * pageSize, totalItems);
+  const pager = useKeysetPager<Asset, { totalItems?: number }>({
+    fetchPage: (cursor) => api.getFixedAssetCursorPage(pageParams, cursor, 15),
+    resetKey: [appliedSearch, branchFilter, locationFilter, typeFilter, refreshToken, retryToken].join('|'),
+    onPage: (page: any) => setTotalItems(Number(page.totalItems) || 0),
+  });
+  const { rows, loading, error: loadError, scopeError, loadingMore, hasMore, loadMore } = pager;
 
   /**
    * Reverse a deployment: clears the assignment and — server-side, guarded by
@@ -275,7 +247,7 @@ export const AssetDeployments: React.FC<AssetDeploymentsProps> = ({
         }
       />
 
-      {loadError && (
+      {loadError && !scopeError && (
         <RegisterLoadError
           subject="the asset deployments"
           message={loadError}
@@ -366,18 +338,12 @@ export const AssetDeployments: React.FC<AssetDeploymentsProps> = ({
               </tbody>
             </table>
           </div>
-          <TablePagination
-            page={safePage}
-            pageCount={pageCount}
-            totalItems={totalItems}
-            rangeStart={rangeStart}
-            rangeEnd={rangeEnd}
-            pageSize={pageSize}
-            onPageChange={setPage}
-            onPageSizeChange={(size) => {
-              setPageSize(size);
-              setPage(1);
-            }}
+          <KeysetLoadMore
+            loaded={rows.length}
+            hasMore={hasMore}
+            loadingMore={loadingMore}
+            onLoadMore={loadMore}
+            scopeError={scopeError ? loadError : ''}
           />
         </div>
       )}

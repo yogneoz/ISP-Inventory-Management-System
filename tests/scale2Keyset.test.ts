@@ -24,7 +24,14 @@ import {
 } from '../server/src/utils/keysetCursor';
 import { buildCustomerListQuery } from '../server/src/models/masterdata.repo';
 import { buildSalesInvoiceKeysetQuery, buildSalesReturnKeysetQuery } from '../server/src/models/sales.repo';
-import { buildPurchaseReturnKeysetQuery } from '../server/src/models/procurement.repo';
+import {
+  buildPurchaseInvoiceKeysetQuery,
+  buildPurchaseOrderKeysetQuery,
+  buildPurchaseReturnKeysetQuery,
+} from '../server/src/models/procurement.repo';
+import { buildFixedAssetKeysetQuery } from '../server/src/models/fixedAssets.repo';
+import { buildShipmentKeysetSql } from '../server/src/models/shipments.repo';
+import { buildWarrantyKeysetQuery } from '../server/src/models/warranty.repo';
 import {
   buildSerialLogKeysetQuery,
   buildStockOperationKeysetQuery,
@@ -115,6 +122,18 @@ describe('SCALE-2 keyset cursor contract', () => {
     assert.match(salesReturns.sql, /\(created_at, id\) < \(\$\d+::timestamptz, \$\d+\)/);
     assert.match(salesReturns.sql, /ORDER BY created_at DESC, id DESC LIMIT 26/);
     assert.doesNotMatch(salesReturns.sql, /OFFSET/);
+
+    for (const [label, q] of [
+      ['fixed assets', buildFixedAssetKeysetQuery({ branchId: 'WH001' }, ['2026-01-01T00:00:00Z', 'f1'], 25)],
+      ['warranty', buildWarrantyKeysetQuery({ coverageType: 'VENDOR', branchId: 'WH001' }, ['2026-01-01T00:00:00Z', 'w1'], 25)],
+      ['shipments', buildShipmentKeysetSql({ branchId: 'WH001' }, ['2026-01-01T00:00:00Z', 'sh1'], 25)],
+      ['purchase orders', buildPurchaseOrderKeysetQuery({ branchId: 'WH001' }, ['2026-01-01T00:00:00Z', 'po1'], 25)],
+      ['purchase invoices', buildPurchaseInvoiceKeysetQuery({ branchId: 'WH001' }, ['2026-01-01T00:00:00Z', 'pi1'], 25)],
+    ] as const) {
+      assert.match(q.sql, /\((?:w\.)?created_at, (?:w\.)?id\) < \(\$\d+::timestamptz, \$\d+\)/, label);
+      assert.match(q.sql, /ORDER BY (?:w\.)?created_at DESC, (?:w\.)?id DESC LIMIT 26/, label);
+      assert.doesNotMatch(q.sql, /OFFSET/, label);
+    }
 
     const serial = buildSerialLogKeysetQuery({ branchScope: ['WH001'] }, ['2026-01-01T00:00:00Z', 's1'], 25);
     assert.match(serial.sql, /\(created_at, id\) < \(\$\d+::timestamptz, \$\d+\)/);

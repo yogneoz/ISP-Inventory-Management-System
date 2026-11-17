@@ -13,6 +13,7 @@ import { getUserFromReq } from '../middleware/auth';
 import {
   buildWarrantyCountQuery,
   buildWarrantyExportQuery,
+  buildWarrantyKeysetQuery,
   buildWarrantyPageQuery,
   buildWarrantySummaryQuery,
   WARRANTY_FIND_BY_ID_SQL,
@@ -28,6 +29,7 @@ import {
 } from '../services/warranty.service';
 import { branches, warrantyCoverages } from '../state/runtimeState';
 import { isAdDate, warrantyStateFor } from '../../../shared/warrantyTerm';
+import { cursorTimestamp, decodeKeysetCursor, encodeKeysetCursor, keysetEnvelope, keysetLimit, requireLargeTableScope } from '../utils/keysetCursor';
 
 const DEFAULT_PAGE_SIZE = 15;
 const MAX_PAGE_SIZE = 200;
@@ -206,6 +208,18 @@ async function listWarranty(req: any, res: Response, coverageType: 'VENDOR' | 'S
   // ?all=1 is the CSV export: every filtered row, never the visible page.
   // The response stays the same envelope so one client shape reads both.
   const wantsAll = String(req.query?.all ?? '') === '1';
+  const { cursor, limit } = req.query;
+  const wantsCursor = cursor !== undefined || limit !== undefined;
+  if (wantsCursor && !requireLargeTableScope(res, {
+    branchId: req.query?.branchId,
+    dateFrom: req.query?.startFrom,
+    dateTo: req.query?.startTo,
+    report: true,
+  })) return;
+  const parsedCursor = cursor === undefined ? undefined : decodeKeysetCursor(cursor, 'warranty_coverages', 2);
+  if (cursor !== undefined && !parsedCursor) {
+    return res.status(400).json({ code: 'INVALID_CURSOR', message: 'The warranty cursor is invalid. Reload the register and retry.' });
+  }
   const opts = queryOptions(req, coverageType, scope);
   if (scope.empty) {
     return res.json({
@@ -219,6 +233,36 @@ async function listWarranty(req: any, res: Response, coverageType: 'VENDOR' | 'S
 
   if (getPgConnected()) {
     try {
+      if (wantsCursor && !wantsAll) {
+        const size = keysetLimit(limit, pageSize, MAX_PAGE_SIZE);
+        const rowsQuery = buildWarrantyKeysetQuery(
+          opts,
+          parsedCursor ? [String(parsedCursor[0]), String(parsedCursor[1])] : undefined,
+          size
+        );
+        const countQuery = buildWarrantyCountQuery(opts);
+        const summaryQuery = buildWarrantySummaryQuery(opts);
+        const [rows, count, summary] = await Promise.all([
+          pgPool.query(rowsQuery.sql, rowsQuery.params as any[]),
+          pgPool.query(countQuery.sql, countQuery.params as any[]),
+          pgPool.query(summaryQuery.sql, summaryQuery.params as any[]),
+        ]);
+        const hasMore = rows.rows.length > size;
+        const items = hasMore ? rows.rows.slice(0, size) : rows.rows;
+        const last = items[items.length - 1];
+        const nextCursor = hasMore && last
+          ? encodeKeysetCursor('warranty_coverages', [cursorTimestamp(last.createdAt), String(last.id)])
+          : null;
+        return res.json(keysetEnvelope(items, nextCursor, hasMore, {
+          totalItems: Number(count.rows[0]?.count) || 0,
+          counts: {
+            total: Number(summary.rows[0]?.total) || 0,
+            valid: Number(summary.rows[0]?.valid) || 0,
+            expiring: Number(summary.rows[0]?.expiring) || 0,
+            expired: Number(summary.rows[0]?.expired) || 0,
+          },
+        }));
+      }
       const rowsQuery = wantsAll
         ? buildWarrantyExportQuery(opts)
         : buildWarrantyPageQuery(opts, page, pageSize);
