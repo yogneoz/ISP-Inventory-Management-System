@@ -8,6 +8,8 @@
  *   - the bell has a real accessible name instead of its badge number,
  *   - Create Purchase Bill starts with NO supplier and NO fabricated bill
  *     number, and both controls stay required (UIX-6),
+ *   - clicking the login form's visible Sign In button — not just dispatching
+ *     a submit event — reaches the handler that issues POST /api/auth/login,
  *   - the purchase-bill action cell is pinned to the right edge and dates
  *     render compactly with the full BS/AD pair in the tooltip (UIX-5).
  */
@@ -173,6 +175,76 @@ describe('UIX-8 — login keyboard order and error announcement', () => {
       assert.equal(password.getAttribute('aria-invalid'), 'true');
       assert.equal(email.getAttribute('aria-describedby'), 'login-error');
       assert.equal(password.getAttribute('aria-describedby'), 'login-error');
+    } finally {
+      tree.unmount();
+    }
+  });
+
+  /**
+   * The click path, not only the submit event.
+   *
+   * Every other test here dispatches `submit` on the form directly, which
+   * cannot fail if the button is the wrong type, disabled, outside the form, or
+   * blocked by native constraint validation. A sign-in that "does nothing" is
+   * exactly that class: the handler is fine, but no submit event is ever
+   * produced. This walks the user's actual action — fill both fields, click the
+   * visible Sign In button — and requires the credentials to reach the handler
+   * (which is what issues POST /api/auth/login) with the form's default action
+   * suppressed.
+   */
+  test('clicking the submit button issues the sign-in request, with native validation satisfied', async () => {
+    const calls: Array<[string, string]> = [];
+    const tree = mountTree(
+      h(LoginModal, {
+        onLoginSuccess: async (email: string, pass: string) => {
+          calls.push([email, pass]);
+        },
+      })
+    );
+
+    try {
+      await settle();
+      const form = tree.container.querySelector('form') as HTMLFormElement;
+      const email = tree.container.querySelector('#login-email') as HTMLInputElement;
+      const password = tree.container.querySelector('#login-password') as HTMLInputElement;
+      const submit = [...tree.container.querySelectorAll('button')].find(
+        (button) => button.type === 'submit'
+      ) as HTMLButtonElement;
+
+      assert.ok(form && email && password && submit, 'the login form must render its controls');
+      assert.equal(submit.type, 'submit', 'a type="button" would never produce a submit event');
+      assert.equal(submit.disabled, false, 'a disabled button swallows the click');
+
+      setInputValue(email, 'operator@example.com');
+      setInputValue(password, 'Demo@123');
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      assert.equal(
+        form.checkValidity(),
+        true,
+        'the typed credentials must satisfy the required/email rules, or the browser blocks submit with no request'
+      );
+
+      // React's handler must cancel the form's own navigation: a native post
+      // would reload the page and throw away the session the click just made.
+      let navigationCancelled = false;
+      const observe = (event: Event) => {
+        navigationCancelled = event.defaultPrevented;
+      };
+      document.addEventListener('submit', observe);
+      await act(async () => {
+        submit.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      document.removeEventListener('submit', observe);
+
+      assert.deepEqual(
+        calls,
+        [['operator@example.com', 'Demo@123']],
+        'clicking Sign In must reach onLoginSuccess with the typed credentials'
+      );
+      assert.equal(navigationCancelled, true, 'the submit handler must cancel the native form post');
     } finally {
       tree.unmount();
     }
