@@ -120,6 +120,8 @@ export interface LedgerViewProps {
   onLoad: () => void;
   /** Optional screen-specific action beside Refresh (e.g. Receive Payment). */
   headerActions?: React.ReactNode;
+  /** Optional cursor footer, rendered outside the table's data state. */
+  footer?: React.ReactNode;
   loading: boolean;
   error: string;
   data: SubLedgerData | null;
@@ -208,6 +210,7 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
   onFilterChange,
   onLoad,
   headerActions,
+  footer,
   loading,
   error,
   data,
@@ -456,6 +459,7 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
           <p>{emptyPrompt}</p>
         </div>
       )}
+      {footer}
     </div>
   );
 };

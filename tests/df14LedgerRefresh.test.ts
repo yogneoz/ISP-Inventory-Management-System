@@ -78,14 +78,14 @@ test('DF-14: the customer ledger follows sales and return register events', () =
     source.includes("useTabActive('customer-ledger')"),
     'the ledger must know whether its keep-mounted tab is visible'
   );
+  assert.ok(
+    source.includes('enabled: Boolean(selectedCustomerId) && isVisible'),
+    'the cursor pager must stay disabled while the tab is hidden or no customer is selected'
+  );
   assert.match(
     source,
-    /if \(!isVisible\) return;/,
-    'the effect must skip the read while the tab is hidden'
-  );
-  assert.ok(
-    source.includes('[selectedCustomerId, activationKey, sseRefreshKey, returnsRefreshKey, isVisible]'),
-    'the fetch effect must re-run on sales/return events and keep the party/activation triggers'
+    /activationKey,[\s\S]*?sseRefreshKey \?\? 0,[\s\S]*?returnsRefreshKey \?\? 0,/,
+    'the statement reset key must re-run on sales/return events and keep the party/activation triggers'
   );
   assert.ok(
     source.includes('if (!selectedCustomerId) return;'),
@@ -113,19 +113,25 @@ test('DF-14: App feeds each ledger the counters that actually move it', () => {
 });
 
 test('DF-14: the ledgers keep their DF-08 sequence guard and latest-only paint', () => {
-  for (const file of [
-    'client/src/features/finance/VendorLedger.tsx',
-    'client/src/features/finance/CustomerLedger.tsx',
-  ]) {
-    const source = read(file);
-    assert.ok(
-      source.includes('createLatestOnly()'),
-      `${file} lost the sequence guard: a slower previous response must not paint over a newer one`
-    );
-    assert.match(
-      source,
-      /if \(!fetchSeq\.isCurrent\(ticket\)\) return;/,
-      `${file} must discard a response that is no longer current`
-    );
-  }
+  const vendor = read('client/src/features/finance/VendorLedger.tsx');
+  assert.ok(
+    vendor.includes('createLatestOnly()'),
+    'the vendor ledger lost the sequence guard: a slower previous response must not paint over a newer one'
+  );
+  assert.match(
+    vendor,
+    /if \(!fetchSeq\.isCurrent\(ticket\)\) return;/,
+    'the vendor ledger must discard a response that is no longer current'
+  );
+
+  // The customer statement moved to the shared cursor pager, which owns the
+  // same latest-only guard for every page request.
+  const customer = read('client/src/features/finance/CustomerLedger.tsx');
+  assert.match(customer, /useKeysetPager<SubLedgerLine/, 'the customer statement must use the shared pager');
+  assert.match(customer, /fetchPage: fetchStatementPage/, 'the pager must own the statement read');
+  assert.match(
+    fs.readFileSync(path.resolve('client/src/hooks/useKeysetPager.ts'), 'utf8'),
+    /const mine = \+\+seq\.current;/,
+    'the shared pager must discard a stale page response'
+  );
 });

@@ -75,7 +75,7 @@ import {
   postWalletRefundLedger,
   reverseCustomerReceiptJournal,
 } from '../services/paymentPosting.service';
-import { buildPartyLedger } from '../services/partyLedger.service';
+import { buildPartyLedger, buildPartyLedgerPage } from '../services/partyLedger.service';
 import {
   loadSalesIssueCosts,
   postSalesReturnJournal,
@@ -1168,7 +1168,8 @@ export async function post_salesReturnApprove(req: any, res: Response): Promise<
 export async function get_customerLedger(req: any, res: Response): Promise<any> {
   try {
     const { customerId } = req.params;
-    const { fromAd, toAd, branchId } = req.query;
+    const { fromAd, toAd, branchId, cursor, limit } = req.query;
+    const paged = cursor !== undefined || limit !== undefined;
     let customer: any;
     if (getPgConnected()) {
       const found = await pgPool.query(CUSTOMER_FIND_BY_ID_OR_CODE_SQL, [customerId]);
@@ -1204,14 +1205,66 @@ export async function get_customerLedger(req: any, res: Response): Promise<any> 
       return res.status(503).json({ message: 'The customer statement requires the accounting database.' });
     }
 
-    const statement = await buildPartyLedger(pgPool, {
+    if (
+      paged &&
+      !requireLargeTableScope(res, {
+        branchId,
+        dateFrom: fromAd,
+        dateTo: toAd,
+        report: true,
+      })
+    ) {
+      return;
+    }
+
+    let cursorKey: [string, string] | null = null;
+    if (cursor !== undefined) {
+      const decoded = decodeKeysetCursor(cursor, 'gl_subledger_entries', 2);
+      if (!decoded) {
+        return res.status(400).json({
+          code: 'INVALID_CURSOR',
+          message: 'The customer-statement cursor is invalid. Reload the statement and retry.',
+        });
+      }
+      cursorKey = [String(decoded[0]), String(decoded[1])];
+    }
+
+    const partyInput = {
       side: 'CUSTOMER',
       partyId: customer.id,
       partyName: customer.customerName,
       branchId: branchId as string | undefined,
       from: fromAd,
       to: toAd,
-    });
+    } as const;
+
+    if (paged) {
+      const page = await buildPartyLedgerPage(pgPool, {
+        ...partyInput,
+        cursor: cursorKey,
+        limit: keysetLimit(limit, 50, 500),
+      });
+      if (!page) {
+        return res.status(400).json({
+          code: 'INVALID_CURSOR',
+          message: 'The customer-statement cursor is outside the selected statement. Reload it and retry.',
+        });
+      }
+      const nextCursor = page.nextCursorKey
+        ? encodeKeysetCursor('gl_subledger_entries', page.nextCursorKey)
+        : null;
+      const { nextCursorKey: _nextCursorKey, ...statement } = page;
+      return res.json(
+        keysetEnvelope(statement.ledger, nextCursor, page.hasMore, {
+          customer: { id: customer.id, customerId: customer.customerId, name: customer.customerName },
+          ...statement,
+          ledger: statement.ledger,
+          totalEntries: page.totalEntries,
+        })
+      );
+    }
+
+    const statement = await buildPartyLedger(pgPool, partyInput);
 
     res.json({
       customer: { id: customer.id, customerId: customer.customerId, name: customer.customerName },

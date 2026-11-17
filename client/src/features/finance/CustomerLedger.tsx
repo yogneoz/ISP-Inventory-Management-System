@@ -10,26 +10,27 @@
  * the party picker, the number labels and the color direction (a receivable is
  * healthy when positive) — and owns the api.getCustomerLedger call.
  */
-import React, { useCallback, useState, useEffect, useRef } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { useActivationKey, useTabActive } from '../../components/common/KeepMounted';
 import {
   LedgerView,
   ledgerExportColumns,
   SubLedgerData,
+  SubLedgerLine,
   LedgerFilters,
 } from '../../components/common/LedgerView';
 import { Branch } from '../../types';
 import type { SalesInvoice } from '../../types';
 import { api } from '../../services/api';
+import type { CustomerLedgerResponse } from '../../services/api/sales';
 import { CustomerPicker } from '../../components/common/CustomerPicker';
 import { ModalPanel } from '../../components/common/ModalPanel';
 import { KeysetLoadMore } from '../../components/common/KeysetLoadMore';
-import { useKeysetPager } from '../../hooks/useKeysetPager';
+import { useKeysetPager, type KeysetPage } from '../../hooks/useKeysetPager';
 import { formCardClass } from '../../components/common/FormCard';
 import { inputClass, labelClass, btnPrimary, btnGhost } from '../../components/common/styleConstants';
 import { formatMoney } from '../../utils/nprFormat';
 import { localTodayAD } from '../../utils/localDate';
-import { createLatestOnly } from '../../utils/latestOnly';
 import { ArrowDownRight, ArrowUpRight, Banknote, BookOpen, Loader2, SlidersHorizontal, Undo2, Users, Wallet } from 'lucide-react';
 
 interface CustomerLedgerProps {
@@ -63,8 +64,6 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [selectedCustomerLabel, setSelectedCustomerLabel] = useState<string>('');
   const [filters, setFilters] = useState<LedgerFilters>({ fromAd: '', toAd: '', branchId: 'ALL' });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
   const [ledgerData, setLedgerData] = useState<SubLedgerData | null>(null);
   const [receiveOpen, setReceiveOpen] = useState(false);
   const [receiveSubmitting, setReceiveSubmitting] = useState(false);
@@ -75,40 +74,61 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
   const [receiveMethod, setReceiveMethod] = useState<'CASH' | 'BANK_TRANSFER' | 'CHEQUE' | 'CARD'>('CASH');
   const [receiveAllocations, setReceiveAllocations] = useState<Record<string, string>>({});
 
-  // Sequence guard (DF-08): switching customer while a request is in flight
-  // must not let the slower previous response paint over the newer one.
-  const fetchSeq = useRef(createLatestOnly()).current;
+  const activationKey = useActivationKey('customer-ledger');
+  const isVisible = useTabActive('customer-ledger');
 
-  const fetchLedger = async () => {
-    if (!selectedCustomerId) return;
-    const ticket = fetchSeq.begin();
-    setLoading(true);
-    setError('');
-    try {
-      const data = await api.getCustomerLedger(selectedCustomerId, {
-        fromAd: filters.fromAd || undefined,
-        toAd: filters.toAd || undefined,
-        branchId: filters.branchId === 'ALL' ? undefined : filters.branchId,
-      });
-      if (!fetchSeq.isCurrent(ticket)) return;
+  // The statement body is one keyset read. The first page also carries the
+  // whole-filter opening/totals/tie-out; every later page keeps those figures
+  // and appends only its entries, so a page boundary never restarts a balance.
+  const fetchStatementPage = useCallback(async (
+    cursor: string | null
+  ): Promise<KeysetPage<SubLedgerLine, CustomerLedgerResponse | undefined>> => {
+    if (!selectedCustomerId) return { items: [], nextCursor: null, hasMore: false, meta: undefined };
+    const data = await api.getCustomerLedger(selectedCustomerId, {
+      fromAd: filters.fromAd || undefined,
+      toAd: filters.toAd || undefined,
+      branchId: filters.branchId === 'ALL' ? undefined : filters.branchId,
+      cursor,
+      limit: 50,
+    });
+    return {
+      items: data.items || data.ledger || [],
+      nextCursor: data.nextCursor ?? null,
+      hasMore: Boolean(data.hasMore),
+      meta: data,
+    };
+  }, [selectedCustomerId, filters.fromAd, filters.toAd, filters.branchId]);
+
+  const ledgerPager = useKeysetPager<SubLedgerLine, CustomerLedgerResponse | undefined>({
+    fetchPage: fetchStatementPage,
+    resetKey: [
+      selectedCustomerId,
+      filters.fromAd,
+      filters.toAd,
+      filters.branchId,
+      activationKey,
+      sseRefreshKey ?? 0,
+      returnsRefreshKey ?? 0,
+    ].join('\u0000'),
+    enabled: Boolean(selectedCustomerId) && isVisible,
+    onPage: (page) => {
+      const statement = page.meta;
+      if (!statement) return;
       setLedgerData({
-        partyName: data.customer.name,
-        partyCode: data.customer.customerId,
-        openingBalance: data.openingBalance,
-        totalDebit: data.totalDebit,
-        totalCredit: data.totalCredit,
-        closingBalance: data.closingBalance,
-        ledger: data.ledger,
-        tieOut: data.tieOut,
+        partyName: statement.customer.name,
+        partyCode: statement.customer.customerId,
+        openingBalance: statement.openingBalance,
+        totalDebit: statement.totalDebit,
+        totalCredit: statement.totalCredit,
+        closingBalance: statement.closingBalance,
+        ledger: [],
+        tieOut: statement.tieOut,
       });
-    } catch (err: any) {
-      if (!fetchSeq.isCurrent(ticket)) return;
-      setError(err?.message || 'Failed to load customer ledger.');
-      setLedgerData(null);
-    } finally {
-      if (fetchSeq.isCurrent(ticket)) setLoading(false);
-    }
-  };
+    },
+  });
+  const ledgerView: SubLedgerData | null = ledgerData
+    ? { ...ledgerData, ledger: ledgerPager.rows }
+    : null;
 
   const money = (value: number) => Math.round((Number(value) || 0) * 100) / 100;
   const remainingOf = (invoice: SalesInvoice) =>
@@ -205,20 +225,13 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
       setReceiveNotice(
         `Receipt recorded: ${formatMoney(receiveTotal)} received${receiveUnapplied > 0 ? `, ${formatMoney(receiveUnapplied)} left unapplied` : ''}.`
       );
-      await fetchLedger();
+      ledgerPager.reload();
     } catch (err: any) {
       setReceiveError(err?.message || 'Failed to record the receipt.');
     } finally {
       setReceiveSubmitting(false);
     }
   };
-
-  // Refetch the selected customer's ledger on every tab re-activation, and in
-  // place when sales or a credit note changes it while the tab is open (DF-14).
-  // A hidden keep-mounted tab skips the read: the next activation re-runs it,
-  // so an event burst elsewhere cannot issue a ledger request nobody can see.
-  const activationKey = useActivationKey('customer-ledger');
-  const isVisible = useTabActive('customer-ledger');
 
   useEffect(() => {
     if (!focusRequest?.partyId) return;
@@ -227,11 +240,8 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
   }, [focusRequest?.token]);
 
   useEffect(() => {
-    if (!isVisible) return;
-    // fetchLedger() is a no-op while no customer is selected.
-    fetchLedger();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCustomerId, activationKey, sseRefreshKey, returnsRefreshKey, isVisible]);
+    setLedgerData(null);
+  }, [selectedCustomerId, filters.fromAd, filters.toAd, filters.branchId]);
 
   return (
     <div className="space-y-3">
@@ -268,7 +278,7 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
       branches={branches}
       filters={filters}
       onFilterChange={(patch) => setFilters((prev) => ({ ...prev, ...patch }))}
-      onLoad={fetchLedger}
+      onLoad={ledgerPager.reload}
       headerActions={
         selectedCustomerId ? (
           <button
@@ -281,9 +291,9 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
           </button>
         ) : null
       }
-      loading={loading}
-      error={error}
-      data={ledgerData}
+      loading={ledgerPager.loading}
+      error={ledgerPager.error}
+      data={ledgerView}
       dateMode={dateMode}
       headerIcon={Wallet}
       partyIcon={Users}
@@ -344,6 +354,17 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
         },
         dateMode
       )}
+      footer={
+        selectedCustomerId ? (
+          <KeysetLoadMore
+            loaded={ledgerPager.rows.length}
+            hasMore={ledgerPager.hasMore}
+            loadingMore={ledgerPager.loadingMore}
+            onLoadMore={ledgerPager.loadMore}
+            scopeError={ledgerPager.scopeError ? ledgerPager.error : ''}
+          />
+        ) : undefined
+      }
       />
       {receiveOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !receiveSubmitting && setReceiveOpen(false)}>

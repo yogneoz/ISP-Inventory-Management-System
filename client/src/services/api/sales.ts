@@ -179,6 +179,7 @@ export async function chargebackCustomerPayment(id: string, reason: string): Pro
 
 export interface LedgerLineDTO {
   id: string;
+  createdAt?: string;
   documentNumber: string;
   dateAD: string;
   dateBS: string;
@@ -210,17 +211,23 @@ export interface CustomerLedgerResponse {
   totalCredit: number;
   closingBalance: number;
   ledger: LedgerLineDTO[];
+  items?: LedgerLineDTO[];
+  nextCursor?: string | null;
+  hasMore?: boolean;
+  totalEntries?: number;
   tieOut: PartyLedgerTieOut;
 }
 
 export async function getCustomerLedger(
   customerId: string,
-  params?: { fromAd?: string; toAd?: string; branchId?: string }
+  params?: { fromAd?: string; toAd?: string; branchId?: string; cursor?: string | null; limit?: number }
 ): Promise<CustomerLedgerResponse> {
   const queryParams = new URLSearchParams();
   if (params?.fromAd) queryParams.set('fromAd', params.fromAd);
   if (params?.toAd) queryParams.set('toAd', params.toAd);
   if (params?.branchId) queryParams.set('branchId', params.branchId);
+  if (params?.cursor) queryParams.set('cursor', params.cursor);
+  if (params?.limit) queryParams.set('limit', String(params.limit));
   const qs = queryParams.toString();
   return fetchJson(`/api/customers/${encodeURIComponent(customerId)}/ledger${qs ? `?${qs}` : ''}`);
 }

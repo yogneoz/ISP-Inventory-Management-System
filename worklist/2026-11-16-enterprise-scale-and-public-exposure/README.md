@@ -298,13 +298,17 @@ Known limitations, stated explicitly:
 - `EXPLAIN`/5M-vs-12k timing and partition pruning belong to SCALE-3's index and
   partition work; no speed claim is made for this slice.
 
-Full suite: **2,530 tests, 2,528 pass, 2 Windows-only skips, 0 fail**;
-`npx tsc --noEmit` is 0; the docs-count gate matches 2,530. The new
+Full suite: **2,532 tests, 2,530 pass, 2 Windows-only skips, 0 fail**;
+`npx tsc --noEmit` is 0; the docs-count gate matches 2,532. The new
 `tests/scale2RemainingRegisters.api.test.ts` walks each SCALE-2 follow-up read,
 and `tests/scale2OperationalRegisters.api.test.ts` walks all five operational
 registers across a real insert boundary (newer and same-timestamp rows inserted
 after page 1), asserting exactly-once delivery, no newer-row leakage, cursor
 termination and both `SCOPE_REQUIRED` / `INVALID_CURSOR` guards. The live payload
+statement walk is `tests/customerLedgerCursor.api.test.ts`: the CustomerLedger
+body is now a signed `(created_at, id)` read, and its page 2+ responses keep the
+whole-statement opening/totals/running balances while rejecting newer and
+same-timestamp rows inserted after page 1. The live payload
 measurement was taken on a fresh server on port 3200, which was stopped and its
 log/pid removed after the run; no scratch database or fixture rows remain
 (branches: 6 total, 0 fixture rows).
