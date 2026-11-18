@@ -92,6 +92,7 @@ import {
   buildStockOperationKeysetQuery,
   STOCK_OPERATION_INSERT_SQL,
   stockOperationInsertParams,
+  ENSURE_STOCK_OPERATION_PARTITION_SQL,
   STOCK_DAMAGE_APPLY_SQL,
   STOCK_RELEASE_DAMAGED_SQL,
   STOCK_RESTORE_DAMAGED_SQL,
@@ -1757,6 +1758,11 @@ try {
           productName: (entry) => entry.productName,
         });
 
+        // SCALE-3: provision the month before the row lands, so a stock
+        // operation never ends up in the DEFAULT catch-all (where it could not
+        // be pruned) just because its month had no child yet. Same function the
+        // boot provisioner and `check:partitions` call.
+        await client.query(ENSURE_STOCK_OPERATION_PARTITION_SQL, [newOp.dateAD]);
         await client.query(
           STOCK_OPERATION_INSERT_SQL,
           stockOperationInsertParams(newOp, opType, totalValue, JSON.stringify(items))

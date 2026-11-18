@@ -293,7 +293,13 @@ describe('stock operations', () => {
 
   test('insert takes 20 binds and upserts only status + items on conflict', () => {
     assert.equal(maxPlaceholder(STOCK_OPERATION_INSERT_SQL), 20);
-    assert.match(STOCK_OPERATION_INSERT_SQL, /ON CONFLICT \(id\) DO UPDATE SET\s*\n\s*status = EXCLUDED\.status,\s*\n\s*items = EXCLUDED\.items;/);
+    // SCALE-3: the table is partitioned by date_ad, so the conflict target must
+    // carry the partition key. Same id + same date still updates in place; the
+    // registry (not a unique column) is what keeps reference_number global.
+    assert.match(
+      STOCK_OPERATION_INSERT_SQL,
+      /ON CONFLICT \(id, date_ad\) DO UPDATE SET\s*\n\s*status = EXCLUDED\.status,\s*\n\s*items = EXCLUDED\.items;/
+    );
     const params = stockOperationInsertParams(
       { id: 'op-1', referenceNumber: 'DMG-1', branchName: 'HQ', destinationWarehouseId: 'WH001', destinationWarehouseName: 'HQ', dateAD: '2026-09-22', dateBS: '2083-04-22 BS', fiscalYear: '2083-84', status: 'LOGGED' },
       'DAMAGE', 500, '[]'

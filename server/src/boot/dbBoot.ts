@@ -47,6 +47,11 @@ import {
   describeLogPartitions,
   provisionLogPartitions,
 } from './logPartitions';
+import {
+  defaultStockOperationPartitionIsDirty,
+  describeStockOperationPartitions,
+  provisionStockOperationPartitions,
+} from './stockOperationPartitions';
 
 import {
   setDocNumberConfigs,
@@ -174,6 +179,16 @@ export async function syncDatabaseAndIndexes() {
         console.warn(`⚠️  Log partitions provisioned with gaps: ${logSummary}`);
       } else {
         console.log(`✅ Log partitions provisioned: ${logSummary}`);
+      }
+      // SCALE-3: the operational register is partitioned too; its rows are
+      // written by the stock-operation path, which provisions on demand, so a
+      // gap here means a month nobody has posted into yet.
+      const stockOps = await provisionStockOperationPartitions(client);
+      const stockOpsSummary = describeStockOperationPartitions(stockOps);
+      if (stockOps.failed.length || defaultStockOperationPartitionIsDirty(stockOps)) {
+        console.warn(`⚠️  Stock operation partitions provisioned with gaps: ${stockOpsSummary}`);
+      } else {
+        console.log(`✅ Stock operation partitions provisioned: ${stockOpsSummary}`);
       }
       const summary = describeJournalPartitions(partitions);
       if (partitions.failed.length) {

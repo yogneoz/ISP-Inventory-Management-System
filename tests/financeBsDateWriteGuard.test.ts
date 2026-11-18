@@ -45,6 +45,7 @@ export const TABLE_EXEMPTIONS = new Map<string, string>([
   ['gl_recurring_runs', 'idempotency log keyed by the posted journal date; the journal itself carries the business dual date'],
   ['gl_journals_registry', 'non-partitioned identity registry for external journal FKs; the ledger journal carries the dual date'],
   ['gl_journal_line_registry', 'non-partitioned identity registry for external line FKs; the ledger line carries the dual date'],
+  ['document_identity_registry', 'non-partitioned identity registry for partitioned document tables (SCALE-3); the document row carries the dual date'],
 ]);
 
 /**

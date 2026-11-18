@@ -36,6 +36,12 @@ import {
   provisionLogPartitions,
 } from '../server/src/boot/logPartitions';
 import type { LogPartitionReport } from '../server/src/boot/logPartitions';
+import {
+  defaultStockOperationPartitionIsDirty,
+  provisionStockOperationPartitions,
+  stockOperationPartitionStatus,
+} from '../server/src/boot/stockOperationPartitions';
+import type { StockOperationPartitionReport } from '../server/src/boot/stockOperationPartitions';
 
 function argValue(flag: string): string | null {
   const index = process.argv.indexOf(flag);
@@ -124,6 +130,33 @@ async function main(): Promise<void> {
     for (const failure of logReport.failed) {
       console.error(`✗ ${failure.table} month ${failure.month} could not be created: ${failure.message}`);
     }
+    // The operational register shares the same window and provisioning function
+    // as the write path (worklist SCALE-3).
+    const stockOpReport: StockOperationPartitionReport = apply
+      ? await provisionStockOperationPartitions(pool, options)
+      : { ...(await stockOperationPartitionStatus(pool, options)), created: [], failed: [] };
+    console.log('Stock operation partitions (stock_operations)');
+    console.log(
+      `  present : ${stockOpReport.present.length ? stockOpReport.present.join(', ') : '(none)'};` +
+        ` missing ${stockOpReport.missing.length ? stockOpReport.missing.join(', ') : '(none)'};` +
+        ` DEFAULT ${stockOpReport.defaultRows} row(s)`
+    );
+    if (apply) {
+      console.log(`  created : ${stockOpReport.created.length ? stockOpReport.created.join(', ') : '(none — already provisioned)'}`);
+    }
+    for (const failure of stockOpReport.failed) {
+      console.error(`✗ stock_operations month ${failure.month} could not be created: ${failure.message}`);
+    }
+    const stockOpDirty = defaultStockOperationPartitionIsDirty(stockOpReport);
+    if (stockOpDirty) {
+      console.error(
+        `✗ ${stockOpReport.defaultRows} stock operation row(s) are in stock_operations_default: their dates` +
+          ' cannot be pruned, and PostgreSQL refuses to attach a month whose range DEFAULT already holds' +
+          ' rows in. Move them into their month partitions, then re-run.'
+      );
+    }
+    const stockOpGaps = stockOpReport.missing.length;
+
     const logDirty = defaultLogPartitionIsDirty(logReport);
     if (logDirty) {
       console.error(
@@ -160,7 +193,9 @@ async function main(): Promise<void> {
       );
     }
     process.exitCode =
-      dirty || subledgerDirty || logDirty || report.missing.length || logGaps.length ? 1 : 0;
+      dirty || subledgerDirty || logDirty || stockOpDirty || report.missing.length || logGaps.length || stockOpGaps
+        ? 1
+        : 0;
   } finally {
     await pool.end().catch(() => {});
   }

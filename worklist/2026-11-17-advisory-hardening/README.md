@@ -523,14 +523,20 @@ Authoritative detail stays in those notes; this round owns their scheduling.
   RANGE partitions by `entry_date_ad` with a DEFAULT catch-all, provisions the
   month from `ensure_journal_month_partition()` so a posting creates all three
   ledger children, prunes a one-month read to one child, and keeps the
-  append-only guard on the parent and every child. Still open: the same
-  conversion for `stock_operations`, `serial_log` and `sales_invoices` (each
-  needs a registry for its globally unique business key first — a partitioned
-  unique constraint must contain the partition key, so `reference_number` and
-  the invoice number cannot stay globally unique on the partitioned table
-  alone); replica/PgBouncer decision (audit §1 row 2); pre-aggregated stock and
-  closed-year trial balance; queued writes; and the whole public-exposure
-  surface — TLS, CORS, CSP, MFA, reverse proxy, HSTS, `TRUST_PROXY`, real client
+  append-only guard on the parent and every child. **The `stock_operations`
+  conversion is done too (2026-11-17)** — migration `0035` partitions the
+  operational register by `date_ad`, and `reference_number` keeps its global
+  uniqueness through `document_identity_registry`, a generalised form of
+  `gl_journals_registry` with one sync/guard trigger
+  (`enforce_document_identity`) that the remaining tables reuse: a reused
+  reference still raises `23505`, the `ON CONFLICT (id, date_ad)` upsert still
+  updates in place, and a date or reference edit is refused so a row can never
+  be reparented into another month. Still open: `serial_log` and
+  `sales_invoices` converted the same way (both now just need their registry
+  row plus the trigger; `sales_invoices` additionally has inbound FKs and
+  item-child tables to keep pointing at the parent); replica/PgBouncer decision
+  (audit §1 row 2); pre-aggregated stock and closed-year trial balance; queued
+  writes; and the whole public-exposure surface — TLS, CORS, CSP, MFA, reverse proxy, HSTS, `TRUST_PROXY`, real client
   IP in the audit trail.
 
 ## Part C — carried from Round 14
@@ -687,3 +693,25 @@ on the Redis state and MFA work in Part B.
   unique business key that a partitioned unique constraint cannot enforce
   without the date, so they need the `gl_journals_registry` treatment first —
   recorded in SCALE-3 rather than half-done here.
+- 2026-11-17 — **`stock_operations` converted, and the registry pattern
+  generalised**: migration `0035` partitions the operational register by
+  `date_ad` (shadow table + swap, aborting on a row-count or registry-count
+  mismatch) and moves `reference_number`'s global uniqueness into
+  `document_identity_registry` — `gl_journals_registry` generalised to
+  `(document_type, id, business_key, document_date)` with one protocol trigger,
+  `enforce_document_identity()`. A reused reference still raises `23505`; the
+  write path's `ON CONFLICT (id)` became `ON CONFLICT (id, date_ad)` and still
+  updates in place; a backdate and a reference edit are refused, so a row can
+  never be reparented into another month; DELETE on a child releases its keys,
+  which is what makes detaching a month viable. The month function is called by
+  the write path, the boot provisioner (`boot/stockOperationPartitions.ts`) and
+  `check:partitions`, and the DEFAULT child is counted there. No append-only
+  guard on the children: the table is updated by design (status, receipt,
+  cancellation, reversal). Measured on the populated dev database: 5 rows → 5,
+  5 registry keys, DEFAULT empty, `EXPLAIN` of a one-month read touching only
+  `stock_operations_202610`, duplicate reference refused (`23505`), date edit
+  refused, month child emptied then dropped; `verify:fresh-install` PASS (156
+  tables / 2426 columns / 2096 constraints / 862 indexes / 94 triggers).
+  Tests: `tests/stockOperationPartitions.test.ts` (6 new). `serial_log` and
+  `sales_invoices` reuse `enforce_document_identity` next; what remains table-
+  specific for them is recorded in SCALE-3.

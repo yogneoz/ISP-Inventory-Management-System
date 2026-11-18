@@ -2,7 +2,7 @@
  * Docs-truth guard.
  *
  * The 2026-11-04 audit claimed README's table count had been corrected to 57;
- * the schema actually has 119 top-level tables. A later reader also reasonably
+ * the schema actually has 120 top-level tables. A later reader also reasonably
  * asked whether the app had moved to Next.js — it had not. Both are cheap to
  * check from the tree itself, so they are pinned here rather than left to the
  * next audit:
@@ -58,7 +58,7 @@ describe('docs truth — schema counts', () => {
     const actual = countTopLevelTables();
     // Pinned on purpose: a schema change must update README and this guard in
     // the same commit. Update the number here only after counting the new DDL.
-    assert.equal(actual, 119, 'schema.sql top-level table count moved; update README and this guard');
+    assert.equal(actual, 120, 'schema.sql top-level table count moved; update README and this guard');
 
     const readme = read('README.md');
     const claims: Array<{ pattern: RegExp; label: string }> = [

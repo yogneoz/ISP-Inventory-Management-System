@@ -746,9 +746,16 @@ export function buildStockOperationKeysetQuery(
 export const STOCK_OPERATION_INSERT_SQL = `INSERT INTO stock_operations (
    id, reference_number, type, technician_name, work_order_ref, branch_id, branch_name, destination_warehouse_id, destination_warehouse_name, product_id, quantity_changed, cost_per_unit, total_value, reason, inspector_name, date_ad, date_bs, fiscal_year, status, items
  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
- ON CONFLICT (id) DO UPDATE SET
+ ON CONFLICT (id, date_ad) DO UPDATE SET
    status = EXCLUDED.status,
    items = EXCLUDED.items;`;
+
+/**
+ * SCALE-3: the month child must exist before its row lands, or the row falls
+ * into `stock_operations_default` and can never be pruned. Same single-SQL-
+ * function path the boot provisioner and `check:partitions` use.
+ */
+export const ENSURE_STOCK_OPERATION_PARTITION_SQL = 'SELECT ensure_stock_operation_month_partition($1::date)';
 
 export function stockOperationInsertParams(
   op: Record<string, any>,

@@ -319,9 +319,9 @@ log/pid removed after the run; no scratch database or fixture rows remain
 ### SCALE-3 — Partitioning, indexes, read/write split, PgBouncer
 
 Priority: P0 · Status: `[~]` — provisioned partitioning, hot-table storage and
-the `gl_subledger_entries` partition conversion landed 2026-11-17; the other
-three conversions, BRIN/composite index work, replica routing and PgBouncer are
-open. Audit:
+the `gl_subledger_entries` and `stock_operations` partition conversions landed
+2026-11-17; `serial_log`/`sales_invoices`, BRIN/composite index work, replica
+routing and PgBouncer are open. Audit:
 [docs/database-optimization-audit-2026-11-17.md](../../docs/database-optimization-audit-2026-11-17.md).
 
 - [x] Provision monthly partitions for **both** ledger parents. They are
@@ -353,17 +353,48 @@ open. Audit:
       single child, by a child-level UPDATE being refused, and by
       `node scripts/verify_fresh_install.mjs` (schema.sql + migrations
       identical to a booted install). Tests in `tests/journalPartitions.test.ts`.
-- [ ] Convert `stock_operations`, `serial_log` and `sales_invoices` to the same
-      shape. Do it as a shadow table + backfill + swap per table (the 0003/0032
-      pattern), never an in-place rewrite of a billion rows. Composite primary
-      keys must include the partition key, and each table keeps a globally
-      unique business key (`reference_number`, the serial number, the invoice
-      number) that a partitioned unique constraint cannot enforce without the
-      date — so these three need the `gl_journals_registry` treatment (a small
-      unpartitioned registry holding the unique key) before the swap, and the
-      `ON CONFLICT` write paths move to that registry. That design is the
-      reason this one is separate from the ledger conversion, not a missing
-      patch.
+- [x] Convert `stock_operations` to RANGE partitioning by its operation date
+      (`date_ad`), keeping `reference_number` globally unique. **Done
+      2026-11-17** — migration `0035` converts the table as a shadow table +
+      swap (stage rows and CHECK/FOREIGN KEY/NOT NULL constraints, drop the
+      plain table, recreate it partitioned with `PRIMARY KEY (id, date_ad)`,
+      register the legacy keys, insert the rows back; a row-count or
+      registry-count mismatch raises inside the runner's transaction), kept
+      `idx_stock_ops_ref` as the lookup index and replaced the unique column
+      with **`document_identity_registry`** — `gl_journals_registry`
+      generalised into one unpartitioned table
+      (`document_type, id, business_key, document_date`, `UNIQUE
+      (document_type, business_key)`) and one trigger
+      (`enforce_document_identity`). The trigger is the protocol: INSERT
+      registers the key (a reused reference still raises `23505`; re-sending
+      the same id is allowed only for the same key and date, so the write
+      path's `ON CONFLICT (id, date_ad)` upsert still updates in place), UPDATE
+      refuses `date_ad` (a row must never be silently reparented by a
+      backdate) and `reference_number`, DELETE releases the key so a month can
+      be emptied and detached. `ensure_stock_operation_month_partition()` is
+      called by the write path before its insert, by the boot provisioner and
+      by `npm run check:partitions`, so all three share one DDL path; the
+      DEFAULT child is counted by `check:partitions` and fails the command
+      while it holds rows. **No append-only guard on the children:** the table
+      is meant to be updated (status, receipt, cancellation, reversal), which
+      is the opposite of the subledger; the identity trigger is what protects
+      its history. Verified on the populated development database (5 rows → 5,
+      5 registry keys, one child for the data month plus the provisioned
+      window, DEFAULT empty), by `EXPLAIN` pruning a one-month read to a single
+      child, by a duplicate-reference insert being refused, by a date edit
+      being refused and by a month child being emptied, releasing its keys and
+      dropped. Tests in `tests/stockOperationPartitions.test.ts` (6).
+- [ ] Convert `serial_log` and `sales_invoices` the same way. The registry
+      pattern is established and they should use it as-is:
+      `enforce_document_identity('SERIAL_LOG', 'serial_number', '<date>')` and
+      `enforce_document_identity('SALES_INVOICE', 'invoice_number',
+      'invoice_date_ad')`, each with its own month function and swap. What is
+      still table-specific: `serial_log` has a case-insensitive unique serial
+      key and `ON CONFLICT` writes that must move to the registry's
+      `business_key` comparison; `sales_invoices` has item children and other
+      tables pointing at it, so its conversion has to keep those FKs on the
+      partitioned parent and re-point the keys through the registry in the same
+      migration.
 - [ ] BRIN indexes on `created_at`, `journal_date_ad`, `entry_date_ad`,
       `operation_date_ad` (append-only, physically ordered); composite B-Tree
       `(branch_id, fiscal_year_id, <date> DESC, id DESC)` for the page reads.

@@ -557,9 +557,30 @@ CREATE TABLE IF NOT EXISTS shipments (
 -- ==========================================
 -- 12. Stock Operations Table (with items JSONB)
 -- ==========================================
+/*
+ * SCALE-3 — document identity registry.
+ *
+ * A partitioned table cannot enforce a globally unique business key: every
+ * unique constraint has to contain the partition key, so `reference_number`
+ * alone could only be unique within a month. `gl_journals_registry` solved this
+ * for the ledger by keeping the document number in a small unpartitioned table;
+ * this is the same registry generalised, so every converted document table
+ * (stock_operations today, serial_log and sales_invoices next) keeps ONE
+ * mechanism instead of a copy each. `enforce_document_identity()` below is the
+ * whole protocol.
+ */
+CREATE TABLE IF NOT EXISTS document_identity_registry (
+    document_type VARCHAR(40) NOT NULL,
+    id VARCHAR(60) NOT NULL,
+    business_key VARCHAR(160) NOT NULL,
+    document_date DATE NOT NULL,
+    PRIMARY KEY (document_type, id),
+    UNIQUE (document_type, business_key)
+);
+
 CREATE TABLE IF NOT EXISTS stock_operations (
-    id VARCHAR(50) PRIMARY KEY,
-    reference_number VARCHAR(100) UNIQUE NOT NULL,
+    id VARCHAR(50) NOT NULL,
+    reference_number VARCHAR(100) NOT NULL,
     type VARCHAR(50) NOT NULL CHECK (type IN ('PULLOUT', 'DAMAGE', 'DISPOSAL', 'STOCK_OUT', 'MANUAL_ADJUSTMENT', 'CONSUMABLE_ISSUE')),
     technician_name VARCHAR(150),
     work_order_ref VARCHAR(100),
@@ -594,8 +615,18 @@ CREATE TABLE IF NOT EXISTS stock_operations (
     created_by VARCHAR(150),
     updated_by VARCHAR(150),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    -- SCALE-3: partitioned by the operation date, so a month or a fiscal year
+    -- prunes to the months it names. The partition key must be in the primary
+    -- key; `reference_number` stays globally unique through
+    -- `document_identity_registry`, because a unique constraint on a partitioned
+    -- table cannot be enforced without the partition key.
+    PRIMARY KEY (id, date_ad)
+) PARTITION BY RANGE (date_ad);
+
+-- Safety net: a backdated or out-of-window write must not fail. Rows that land
+-- here defeat pruning and `npm run check:partitions` fails while they exist.
+CREATE TABLE IF NOT EXISTS stock_operations_default PARTITION OF stock_operations DEFAULT;
 
 -- ==========================================
 -- 13. Fiscal-Year Opening Stock Balances
@@ -5022,6 +5053,19 @@ CREATE OR REPLACE TRIGGER trg_fiscal_year_balances_immutable
 CREATE TABLE IF NOT EXISTS gl_journals_default PARTITION OF gl_journals DEFAULT;
 CREATE TABLE IF NOT EXISTS gl_journal_lines_default PARTITION OF gl_journal_lines DEFAULT;
 
+CREATE OR REPLACE FUNCTION ensure_stock_operation_month_partition(p_date DATE)
+RETURNS void AS $$
+DECLARE
+  v_start DATE := date_trunc('month', p_date)::date;
+  v_end DATE := (date_trunc('month', p_date) + INTERVAL '1 month')::date;
+BEGIN
+  EXECUTE format(
+    'CREATE TABLE IF NOT EXISTS %I PARTITION OF stock_operations FOR VALUES FROM (%L) TO (%L)',
+    'stock_operations_' || to_char(p_date, 'YYYYMM'), v_start, v_end
+  );
+END;
+$$ LANGUAGE plpgsql;
+
 CREATE OR REPLACE FUNCTION ensure_subledger_month_partition(p_date DATE)
 RETURNS void AS $$
 DECLARE
@@ -5064,6 +5108,84 @@ BEGIN
   PERFORM ensure_subledger_month_partition(p_date);
 END;
 $$ LANGUAGE plpgsql;
+
+/*
+ * SCALE-3 — the registry protocol for a partitioned document table.
+ *
+ * TG_ARGV: 0 = document_type, 1 = business-key column, 2 = partition-date
+ * column. The trigger is attached to the partitioned parent and PostgreSQL
+ * clones it to every child (existing and future), so DML aimed straight at a
+ * month is covered too.
+ *
+ *   INSERT — register the key. A reused business key raises 23505 on
+ *            `document_identity_registry`, exactly like the UNIQUE column it
+ *            replaced. A row id that is already registered may be re-sent
+ *            (the write paths upsert by id), but only for the same key and the
+ *            same date.
+ *   UPDATE — refuse both identity columns: a changed date would silently
+ *            reparent the row into another month, and a changed key would leave
+ *            the registry holding a reference the row no longer carries.
+ *   DELETE — release the key, so a month's rows can be deleted and the child
+ *            detached for archival without leaving stale registry entries.
+ */
+CREATE OR REPLACE FUNCTION enforce_document_identity()
+RETURNS trigger AS $$
+DECLARE
+  v_type TEXT := TG_ARGV[0];
+  v_key TEXT := TG_ARGV[1];
+  v_date TEXT := TG_ARGV[2];
+  v_new_key TEXT;
+  v_new_date DATE;
+  v_old_key TEXT;
+  v_old_date DATE;
+  v_existing RECORD;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    DELETE FROM document_identity_registry WHERE document_type = v_type AND id = OLD.id;
+    RETURN OLD;
+  END IF;
+
+  v_new_key := to_jsonb(NEW) ->> v_key;
+  v_new_date := (to_jsonb(NEW) ->> v_date)::date;
+
+  IF TG_OP = 'UPDATE' THEN
+    v_old_key := to_jsonb(OLD) ->> v_key;
+    v_old_date := (to_jsonb(OLD) ->> v_date)::date;
+    IF v_new_date IS DISTINCT FROM v_old_date THEN
+      RAISE EXCEPTION 'a % row cannot move to another %: % is the partition key (row %). Reverse it and post a new document instead.', v_type, v_date, v_date, NEW.id
+        USING ERRCODE = 'check_violation';
+    END IF;
+    IF v_new_key IS DISTINCT FROM v_old_key THEN
+      RAISE EXCEPTION 'a % row cannot change its %: it is the registered business key (row %).', v_type, v_key, NEW.id
+        USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  SELECT business_key, document_date INTO v_existing
+    FROM document_identity_registry
+   WHERE document_type = v_type AND id = NEW.id;
+  IF FOUND THEN
+    IF v_existing.document_date IS DISTINCT FROM v_new_date THEN
+      RAISE EXCEPTION 'a % row cannot move to another %: % is the partition key (row %). Reverse it and post a new document instead.', v_type, v_date, v_date, NEW.id
+        USING ERRCODE = 'check_violation';
+    END IF;
+    IF v_existing.business_key IS DISTINCT FROM v_new_key THEN
+      RAISE EXCEPTION 'a % row cannot change its %: it is the registered business key (row %).', v_type, v_key, NEW.id
+        USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  INSERT INTO document_identity_registry (document_type, id, business_key, document_date)
+  VALUES (v_type, NEW.id, v_new_key, v_new_date);
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER trg_stock_operations_identity
+  BEFORE INSERT OR UPDATE OR DELETE ON stock_operations
+  FOR EACH ROW EXECUTE FUNCTION enforce_document_identity('STOCK_OPERATION', 'reference_number', 'date_ad');
 
 CREATE OR REPLACE FUNCTION sync_gl_journal_registry()
 RETURNS trigger AS $$
