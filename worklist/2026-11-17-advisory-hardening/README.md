@@ -363,6 +363,16 @@ the BRIN, and the `pages_per_range` decision it implies.
 - **BRIN:** the planner does not pick it — a one-day range prunes to
   `audit_logs_202506` and uses the B-Tree `…_timestamp_ad_idx` (Index Only Scan,
   16 buffers, 1.2 ms), also with `enable_seqscan = off`.
+- **Page reads, not BRIN, were the cost (measured 2026-11-18).** The BRIN
+  decline above was measured on a *one-day* read that prunes to one month child —
+  where the B-tree wins, as recorded. A *six-month* range read across the
+  append-only tables is the case BRIN exists for, and on the `_scale` fixture it
+  is chosen (`stock_operations.date_ad`, `sales_invoices.created_at`, 1.8 MB
+  against a 179 MB / 146 MB heap). The same measurement found the real page-read
+  defect: `ORDER BY created_at DESC, id DESC` over `(branch_id, created_at DESC)`
+  could not return in index order, so sales-register pages took 124 ms and stock
+  pages 159 ms against 3.7 / 3.4 ms once the `id` tie-breaker was added (`0040`,
+  `scripts/measure_page_read_indexes.mjs`, `tests/pageReadIndexes.test.ts`).
 - **`pages_per_range`: stays at the inherited default 128, no migration.** All 24
   child indexes rebuilt at 32/128/256/512 give the same 720 kB index, the same 32
   heap blocks and 0.42–0.51 ms, because a month partition is ~83k rows / 14 MB.

@@ -2327,6 +2327,9 @@ ALTER TABLE gl_subledger_entries
 ALTER TABLE gl_subledger_entries ADD COLUMN IF NOT EXISTS entry_date_bs VARCHAR(20);
 
 CREATE INDEX IF NOT EXISTS idx_gl_subledger_book ON gl_subledger_entries(subledger_id);
+-- The book ledger pages `ORDER BY entry_date_ad DESC, id DESC`; the index carries
+-- both columns so a keyset page needs no sort.
+CREATE INDEX IF NOT EXISTS idx_gl_subledger_date_page ON gl_subledger_entries(entry_date_ad DESC, id DESC);
 
 DO $$
 BEGIN
@@ -4231,6 +4234,16 @@ CREATE INDEX IF NOT EXISTS idx_transaction_logs_demo ON transaction_logs(id) WHE
 -- and the B-tree on the same column kept for the ordered listing.
 CREATE INDEX IF NOT EXISTS idx_txn_timestamp_brin ON transaction_logs USING brin (timestamp_ad);
 
+-- The rest of the append-only set, same treatment: inserted in date order, read
+-- by bounded range (year-end reports, retention sweeps) far more often than by
+-- equality. BRIN stays a few pages wide on tables that grow without bound; the
+-- B-trees that page reads sort with are kept alongside.
+CREATE INDEX IF NOT EXISTS idx_gl_journals_date_brin ON gl_journals USING brin (journal_date_ad, id);
+CREATE INDEX IF NOT EXISTS idx_gl_subledger_entry_date_brin ON gl_subledger_entries USING brin (entry_date_ad, id);
+CREATE INDEX IF NOT EXISTS idx_stock_ops_date_brin ON stock_operations USING brin (date_ad, id);
+CREATE INDEX IF NOT EXISTS idx_serial_log_created_brin ON serial_log USING brin (created_at, id);
+CREATE INDEX IF NOT EXISTS idx_sales_invoices_created_brin ON sales_invoices USING brin (created_at, id);
+
 -- Audit module enum: every module a caller writes must be listed here, or
 -- PostgreSQL rejects the row. This is the ONE vocabulary: the value passed as
 -- `logAuditEvent(req, action, module, …)` (and the serial-log upsert path's
@@ -4895,8 +4908,8 @@ CREATE INDEX IF NOT EXISTS idx_sales_invoices_customer_trgm
 -- user uses the created_at-only index instead of sorting the whole table.
 CREATE INDEX IF NOT EXISTS idx_sales_invoices_page_all
   ON sales_invoices (created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_sales_invoices_branch_page
-  ON sales_invoices (branch_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sales_invoices_branch_page_id
+  ON sales_invoices (branch_id, created_at DESC, id DESC);
 
 CREATE INDEX IF NOT EXISTS idx_purchase_orders_page_all
   ON purchase_orders (created_at DESC);
@@ -4912,8 +4925,8 @@ CREATE INDEX IF NOT EXISTS idx_purchase_invoices_branch_page
 -- columns need an index before the created_at page can be served without a sort.
 CREATE INDEX IF NOT EXISTS idx_stock_ops_page_all
   ON stock_operations (created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_stock_ops_branch_page
-  ON stock_operations (branch_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_stock_ops_branch_page_id
+  ON stock_operations (branch_id, created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_stock_ops_destination_page
   ON stock_operations (destination_warehouse_id, created_at DESC);
 
@@ -4922,8 +4935,8 @@ CREATE INDEX IF NOT EXISTS idx_stock_ops_destination_page
 -- timestamp index plus the id tie-breaker in the page order.
 CREATE INDEX IF NOT EXISTS idx_txn_branch_time
   ON transaction_logs (branch_id, timestamp_ad DESC, id DESC);
-CREATE INDEX IF NOT EXISTS idx_audit_branch_timestamp
-  ON audit_logs (branch_id, timestamp_ad DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_branch_timestamp_id
+  ON audit_logs (branch_id, timestamp_ad DESC, id DESC);
 
 -- ---------------------------------------------------------------------------
 -- Procurement / warranty dual-date parity (2026-11-07).

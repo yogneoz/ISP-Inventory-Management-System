@@ -137,6 +137,20 @@ contract are preserved).
 
 ## 4. Recorded decisions (with the trigger that reopens each)
 
+> **Update 2026-11-18 — the range-read case was measured and applied.** The
+> assessment below stands for what it measured (a one-day read that prunes to a
+> single month child: the B-tree wins, and that is still true). A six-month range
+> read across the append-only tables is a different plan: on the `_scale` fixture
+> the planner chooses BRIN on `stock_operations.date_ad` and
+> `sales_invoices.created_at`, at 1.8 MB against a 179 MB / 146 MB heap
+> (migration `0040_page_read_indexes`). The same measurement found the page-read
+> defect worth more than either index: `ORDER BY created_at DESC, id DESC` could
+> not be served in index order by `(branch_id, created_at DESC)`, so sales pages
+> took 124 ms and stock pages 159 ms against 3.7 / 3.4 ms after adding the `id`
+> tie-breaker. Reproduce with `SCALE_FIXTURE_DATABASE_URL=…/inventory_scale node
+> scripts/measure_page_read_indexes.mjs`; guarded by
+> `tests/pageReadIndexes.test.ts`.
+
 ### BRIN on `audit_logs` / `transaction_logs` — APPLIED 2026-11-17, B-Tree kept on measurement
 
 Applied by migration `0031_log_timestamp_brin` (and in `schema.sql` for fresh

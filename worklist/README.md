@@ -73,9 +73,12 @@ is the plan, not a second source of truth.
   closed the programme (2026-11-18):** migration `0039` partitions the sales
   register by `invoice_date_ad`, and its three inbound foreign keys now point at
   the registry (the `gl_journals_registry` pattern) because a partitioned table
-  cannot satisfy an FK on `(id)` alone. All four partition conversions are done;
-  the remaining SCALE-3 work is the index passes, replica routing, PgBouncer and
-  the pre-aggregated read models. The database audit — what already exists, what each remaining
+  cannot satisfy an FK on `(id)` alone. All four partition conversions are done,
+  and so is the page-read/BRIN index pass (`0040`: `(branch_id, <date> DESC, id
+  DESC)` composites for the three registers, `(entry_date_ad DESC, id DESC)` for
+  the book ledger, BRIN on the five append-only dates — measured 33×/47×/~800× on
+  the branch page, stock page and book ledger at fixture volume). The remaining
+  SCALE-3 work is replica routing, PgBouncer and the pre-aggregated read models. The database audit — what already exists, what each remaining
   suggestion would cost, and the trigger that reopens it — is
   [docs/database-optimization-audit-2026-11-17.md](../docs/database-optimization-audit-2026-11-17.md).
   It still owns the partition conversions, read/write split, queued writes and the TLS/CORS/CSP/MFA

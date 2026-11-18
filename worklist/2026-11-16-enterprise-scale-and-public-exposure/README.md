@@ -318,10 +318,11 @@ log/pid removed after the run; no scratch database or fixture rows remain
 
 ### SCALE-3 — Partitioning, indexes, read/write split, PgBouncer
 
-Priority: P0 · Status: `[~]` — provisioned partitioning, hot-table storage and
-all four partition conversions landed 2026-11-17/18 (`gl_subledger_entries`,
-`stock_operations`, `serial_log`, `sales_invoices`); the BRIN/composite index
-work, replica routing, PgBouncer and the pre-aggregated read models are open.
+Priority: P0 · Status: `[~]` — provisioned partitioning, hot-table storage, all
+four partition conversions and the page-read/BRIN index pass landed
+2026-11-17/18 (`gl_subledger_entries`, `stock_operations`, `serial_log`,
+`sales_invoices`); replica routing, PgBouncer and the pre-aggregated read models
+are open.
 Audit:
 [docs/database-optimization-audit-2026-11-17.md](../../docs/database-optimization-audit-2026-11-17.md).
 
@@ -437,16 +438,34 @@ Audit:
       function per table shared by the write path, boot and `check:partitions`,
       counted through the DEFAULT child, and — where they carry a business key —
       registry-backed through `document_identity_registry`. Remaining SCALE-3
-      work is not conversion: the index passes below, replica routing, PgBouncer
-      and the pre-aggregated read models.
-- [ ] BRIN indexes on `created_at`, `journal_date_ad`, `entry_date_ad`,
-      `operation_date_ad` (append-only, physically ordered); composite B-Tree
-      `(branch_id, fiscal_year_id, <date> DESC, id DESC)` for the page reads.
-      Drop the indexes the new composites make redundant, after measuring.
-      **2026-11-17 assessment:** every current `audit_logs`/`transaction_logs`
-      read is branch-scoped and page-ordered, which the existing B-Tree serves;
-      a BRIN now would be write cost the planner never chooses. Trigger and the
-      measurement query are recorded in the audit (§4).
+      work is not conversion: replica routing, PgBouncer and the pre-aggregated
+      read models.
+- [x] Page-read composites + BRIN on the append-only dates. **Done 2026-11-18**
+      — migration `0040` replaces the three branch page indexes with
+      `(branch_id, <date> DESC, id DESC)` (`idx_sales_invoices_branch_page_id`,
+      `idx_stock_ops_branch_page_id`, `idx_audit_branch_timestamp_id`), adds
+      `idx_gl_subledger_date_page (entry_date_ad DESC, id DESC)` for the book
+      ledger, and puts a BRIN on `gl_journals.journal_date_ad`,
+      `gl_subledger_entries.entry_date_ad`, `stock_operations.date_ad`,
+      `serial_log.created_at` and `sales_invoices.created_at`. The three dropped
+      indexes are exact prefixes of their replacements, so nothing can prefer
+      them. The `fiscal_year_id` middle column the plan originally sketched is
+      deliberately absent: every page read scopes by branch (or by nothing) and
+      orders by date, so a fiscal-year column between them would break both the
+      equality prefix and the ordering. Measured on the `_scale` fixture
+      (`scripts/measure_page_read_indexes.mjs`, before/after inside a rolled-back
+      transaction): the sales register page 123.7 → 3.7 ms (33×), the stock
+      operations page 158.9 → 3.4 ms (47×), the subledger book page 100.3 ms with
+      a `Sort` and a `Seq Scan` → 0.12 ms on an index scan over 200,000 synthetic
+      rows; the BRIN on `stock_operations.date_ad` and
+      `sales_invoices.created_at` is chosen for a six-month range read and costs
+      1.8 MB against a 179 MB / 146 MB heap. It also records where a BRIN is
+      *not* the answer: on the 1,000-row `gl_journals` the planner keeps the
+      B-tree, which is correct. This supersedes the 2026-11-17 "decline" note —
+      that assessment was about a table whose reads were all branch-scoped pages
+      (the B-tree's job); the page composites now do that job properly and the
+      BRIN only carries the wide range reads. Tests:
+      `tests/pageReadIndexes.test.ts` (5).
 - [x] Storage tuning for the two high-update tables with no rewrite:
       `inventory_stock` and `document_sequence_daily` now run at
       `fillfactor = 80` with `autovacuum_vacuum_scale_factor = 0.02` and
