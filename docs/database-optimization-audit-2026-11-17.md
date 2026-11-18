@@ -314,10 +314,25 @@ the operator has rehearsed detach + archive on a restored copy.
 
 - The pool ceiling is real: `PG_POOL_MAX=40` × `instances: 'max'`. With a
   default `max_connections` of 100, a handful of workers exhausts the server.
-- `statement_timeout` is sent in the **startup packet** (`server/db.ts`), which
-  transaction pooling tolerates only because every client gets the same value;
-  the worklist's contract says it belongs in `ALTER ROLE … SET` before PgBouncer
-  is enabled.
+- ~~`statement_timeout` is sent in the **startup packet**~~ — **changed
+  2026-11-18.** The pool no longer carries `statement_timeout` or `options`;
+  boot applies it to the role (`server/src/db/statementTimeout.ts`), which every
+  backend inherits whichever pooler opened it. Verified against PostgreSQL: a
+  role setting of `12345ms` is what a **new** connection reports, the second
+  call is a no-op, and the prior value is restored afterwards. Residual risk:
+  connections open at the moment of the ALTER keep their old value, and a role
+  that cannot ALTER ROLE only gets a warning.
+- Two boot repair paths (`journalPartitionRepair.ts`, `logPartitions.ts`) used
+  `TEMP` tables; both are now `ON COMMIT DROP`, so nothing session-scoped can
+  outlive its transaction on a backend the pooler reuses. The ledger purge
+  switch was already transaction-scoped (`SET LOCAL` / `set_config(…, true)`),
+  and the request path has no session advisory lock, `LISTEN` or `PREPARE`.
+- **Blocked, not done:** the `pool_mode=transaction` run itself. PgBouncer is not
+  installed on this host and cannot be provisioned here (no chocolatey, winget
+  or scoop package; no Docker, WSL or Windows compiler), so the live proof needs
+  the operator to install EDB PgBouncer for Windows or place `pgbouncer.exe` on
+  PATH. The unit/integration guards that would fail on a regression are in place
+  (`tests/pgbouncerReadiness.test.ts`).
 - The audit found no session-level `SET`, temporary table or session advisory
   lock in the request path (every advisory lock used is `pg_advisory_xact_lock`,
   which releases at commit and is therefore transaction-scoped — the one

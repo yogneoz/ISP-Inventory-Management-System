@@ -138,8 +138,17 @@ export async function repairDefaultPartitions(
       await client.query(`ALTER TABLE ${table} DISABLE TRIGGER ${trigger}`);
     }
 
-    await client.query('CREATE TEMP TABLE repair_journals_stage (LIKE gl_journals INCLUDING DEFAULTS)');
-    await client.query('CREATE TEMP TABLE repair_lines_stage (LIKE gl_journal_lines INCLUDING DEFAULTS)');
+    // ON COMMIT DROP: a temporary table is session state, and behind a
+    // transaction-mode pooler the next client to borrow this server connection
+    // must not find it (SCALE-3 PgBouncer audit). Everything that reads these is
+    // inside the same transaction, so dropping them at COMMIT is correct and
+    // leaves no residue on a pooled connection.
+    await client.query(
+      'CREATE TEMP TABLE repair_journals_stage (LIKE gl_journals INCLUDING DEFAULTS) ON COMMIT DROP'
+    );
+    await client.query(
+      'CREATE TEMP TABLE repair_lines_stage (LIKE gl_journal_lines INCLUDING DEFAULTS) ON COMMIT DROP'
+    );
     await client.query('INSERT INTO repair_journals_stage SELECT * FROM gl_journals_default');
     await client.query('INSERT INTO repair_lines_stage SELECT * FROM gl_journal_lines_default');
 

@@ -14,6 +14,11 @@
  *
  * The env assignments must happen before the first server import: dotenv does
  * not overwrite existing variables, and db.ts/dbBreaker read them at load.
+ *
+ * SCALE-3 (PgBouncer transaction pooling): the timeout no longer rides in the
+ * client's startup packet, so it is applied to the database ROLE before this
+ * file's pool opens a connection — exactly what boot does — and restored in
+ * `after()`. A startup parameter would be lost by a transaction-mode pooler.
  */
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -28,6 +33,29 @@ process.env.DB_BREAKER_COOLDOWN_MS = '100';
 process.env.DB_BREAKER_MAX_COOLDOWN_MS = '200';
 process.env.DB_RETRY_AFTER_SECONDS = '2';
 process.env.AUTH_TOKEN_SECRET = process.env.AUTH_TOKEN_SECRET || 'ops4-regression-secret';
+
+const pgModule = (await import('pg')).default;
+const dotenv = (await import('dotenv')).default;
+// server/db.ts loads .env on import; the role must be prepared before that import
+// and before any pool connection exists, so load it here explicitly.
+dotenv.config();
+const { ensureRoleStatementTimeout, readRoleStatementTimeout } = await import('../server/src/db/statementTimeout');
+
+let originalRoleTimeout: string | null = null;
+let rolePrepared = false;
+if (process.env.DATABASE_URL) {
+  const prep = new pgModule.Client({ connectionString: process.env.DATABASE_URL });
+  try {
+    await prep.connect();
+    originalRoleTimeout = await readRoleStatementTimeout(prep);
+    await ensureRoleStatementTimeout(prep, 1_000, () => undefined);
+    rolePrepared = true;
+  } catch {
+    rolePrepared = false;
+  } finally {
+    await prep.end().catch(() => undefined);
+  }
+}
 
 const db = await import('../server/db');
 const { DbBreaker, dbBreaker, dbBreakerConfigFromEnv, dbRetryAfterSeconds } = await import(
@@ -172,7 +200,7 @@ describe('OPS-4 real statement timeout', () => {
     assert.equal(dbBreaker.snapshot().state, 'closed', 'a statement timeout must not open the breaker');
   });
 
-  test('unset uses the documented 30s default on a real session', { skip: skipNoDb }, async () => {
+  test('unset applies the documented 30s default to the role, so a new connection inherits it', { skip: skipNoDb }, async () => {
     const env = { ...process.env };
     delete env.PG_STATEMENT_TIMEOUT_MS;
     const result = await runChild(
@@ -180,16 +208,32 @@ describe('OPS-4 real statement timeout', () => {
         '--import',
         'tsx',
         '-e',
-        "import('./server/db.ts').then(async ({ ensurePostgresConnection, realPoolInstance }) => {" +
-          " await ensurePostgresConnection();" +
-          " const r = await realPoolInstance.query('SHOW statement_timeout');" +
+        "import('./server/db.ts').then(async ({ buildPoolConfig }) => {" +
+          " const pg = (await import('pg')).default;" +
+          " const { ensureRoleStatementTimeout } = await import('./server/src/db/statementTimeout.ts');" +
+          " const c = new pg.Client({ connectionString: process.env.DATABASE_URL });" +
+          ' await c.connect();' +
+          ' const ms = buildPoolConfig().statementTimeoutMs;' +
+          ' await ensureRoleStatementTimeout(c, ms, () => {});' +
+          ' const fresh = new pg.Client({ connectionString: process.env.DATABASE_URL });' +
+          ' await fresh.connect();' +
+          " const r = await fresh.query('SHOW statement_timeout');" +
           " console.log('STATEMENT_TIMEOUT=' + r.rows[0].statement_timeout);" +
-          ' await realPoolInstance.end(); })',
+          ' await fresh.end(); await c.end(); })',
       ],
       env
     );
     assert.equal(result.code, 0, result.output);
     assert.match(result.output, /STATEMENT_TIMEOUT=30s/);
+
+    // Leave the role at this file's 1s setting for the HTTP test that follows.
+    const restore = new pgModule.Client({ connectionString: process.env.DATABASE_URL });
+    await restore.connect();
+    try {
+      await ensureRoleStatementTimeout(restore, 1_000, () => undefined);
+    } finally {
+      await restore.end();
+    }
   });
 
   test('the timeout also reaches HTTP as a generic 503', { skip: skipNoDb }, async () => {
@@ -229,7 +273,22 @@ describe('OPS-4 real statement timeout', () => {
     }
   });
 
-  after(() => {
+  after(async () => {
     dbBreaker.reset();
+    if (rolePrepared && process.env.DATABASE_URL) {
+      const restore = new pgModule.Client({ connectionString: process.env.DATABASE_URL });
+      try {
+        await restore.connect();
+        const ddl = originalRoleTimeout
+          ? await restore.query(
+              `SELECT format('ALTER ROLE %I SET statement_timeout = %L', current_user, $1::text) AS ddl`,
+              [originalRoleTimeout]
+            )
+          : await restore.query(`SELECT format('ALTER ROLE %I RESET statement_timeout', current_user) AS ddl`);
+        await restore.query(ddl.rows[0].ddl);
+      } finally {
+        await restore.end();
+      }
+    }
   });
 });

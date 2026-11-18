@@ -82,9 +82,14 @@ export function buildPoolConfig(): {
   connectionTimeoutMillis: number;
   max: number;
   idleTimeoutMillis: number;
+  /**
+   * Exposed for boot, which applies it to the ROLE (SCALE-3). It is deliberately
+   * not a pool/startup parameter: behind a transaction-mode pooler a client's
+   * startup parameters are not replayed onto the reused server connection, so a
+   * per-connection timeout would be silently lost (or rejected). See
+   * `src/db/statementTimeout.ts`.
+   */
   statementTimeoutMs: number;
-  /** Passed to pg as a startup parameter, so it applies before the first query. */
-  statement_timeout?: number;
 } {
   // OPS-4: a typo in a timeout is a configuration error and must stop the
   // boot with a message naming the variable, not silently become 30s. 0 is
@@ -108,10 +113,6 @@ export function buildPoolConfig(): {
     max: intFromEnv('PG_POOL_MAX', 40, { min: 1, max: 500 }),
     idleTimeoutMillis: 30000,
     statementTimeoutMs,
-    // pg sends this in the startup packet: the session has the timeout before
-    // the first caller query, including the boot/probe connection. 0 is the
-    // documented disable value and is omitted so PostgreSQL keeps its default.
-    statement_timeout: statementTimeoutMs > 0 ? statementTimeoutMs : undefined,
   };
 }
 

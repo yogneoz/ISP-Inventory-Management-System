@@ -505,10 +505,43 @@ Audit:
       the demo cannot stream from the application database itself — the script
       carries its own clusters, and a real standby of the app database remains an
       operator decision.
-- [ ] PgBouncer transaction-mode audit: remove session `SET`s, temporary
-      tables, session advisory locks and `PREPARE`/`DEALLOCATE` from the
-      request path. `statement_timeout` via `ALTER ROLE … SET`, not a pool
-      `options` startup parameter. Test with `pool_mode=transaction`.
+- [ ] PgBouncer transaction-mode audit — **code side done 2026-11-18, blocked
+      on a PgBouncer binary for the live `pool_mode=transaction` proof.** What
+      was session state, and what happened to it: (a) `statement_timeout` was sent in the client's startup
+      packet, which a transaction-mode pooler does not replay onto the reused
+      server connection; it is now applied to the **role**
+      (`server/src/db/statementTimeout.ts`, called from boot with
+      `ALTER ROLE … SET statement_timeout`, idempotent by comparing the role's
+      configured value as an interval, `0` still meaning disabled) and the pool
+      carries no `statement_timeout`/`options` at all; (b) two boot repair paths
+      created `TEMP` tables without `ON COMMIT DROP`, so they could outlive their
+      transaction on a pooled backend — both are now `ON COMMIT DROP` (the log
+      repair already was); (c) the ledger purge switch was already
+      `SET LOCAL` / `set_config(…, true)`, i.e. transaction-scoped, and stays;
+      (d) no session advisory lock, `LISTEN` or `PREPARE` exists in the request
+      path (`pg_advisory_xact_lock` only). Residual risk: the role setting only
+      takes effect for connections opened after boot, and a non-superuser role
+      without ALTER ROLE privilege logs a warning instead of applying it (the
+      timeout then depends on the operator's server configuration). Read-your-own
+      -writes across connection swaps is already enforced by the read router
+      (a request that has written is pinned to the primary), so a pooled request
+      cannot silently read a backend that has not seen its write. Verified live on
+      PostgreSQL for the role setting: applying `12,345ms` to the role makes a
+      **brand-new** connection report `12345ms`, the second call is a no-op, and
+      the previous value is restored. Tests: `tests/pgbouncerReadiness.test.ts`
+      (5) fail if the startup parameter returns, if a session-scoped `SET` /
+      session lock / `LISTEN` / `PREPARE` appears in the request path, or if a
+      temp table loses `ON COMMIT DROP`. **Blocker for the remaining half:** the
+      `pool_mode=transaction` run needs PgBouncer on this host — it is not
+      installed, there is no chocolatey/winget/scoop package for it, no Docker or
+      WSL, and no Windows compiler, so the only route is the operator installing
+      EDB's PgBouncer for Windows (or dropping a `pgbouncer.exe` + `pgbevent.dll`
+      build somewhere on PATH). Once present, the verification is a scripted
+      run: start PgBouncer with `pool_mode=transaction` against the dev database,
+      assert `SHOW statement_timeout` on a fresh pooled connection shows the role
+      value, run a write-then-read through the pool and confirm the row is
+      visible, and confirm a `SET` issued on one pooled client is not visible to
+      the next.
 - [ ] Tenant/branch isolation at scale: every repository query already takes
       the session scope; add a CI guard that greps new SQL on the partitioned
       tables for a `branch_id` predicate (the review checklist, not a runtime

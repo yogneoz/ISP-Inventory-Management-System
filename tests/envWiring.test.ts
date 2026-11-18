@@ -7,7 +7,9 @@
  *
  *   PG_POOL_MAX            → pg pool `max` (server/db.ts buildPoolConfig)
  *   PG_CONNECT_TIMEOUT_MS  → pool connectionTimeoutMillis
- *   PG_STATEMENT_TIMEOUT_MS → pg startup parameter on the pool (OPS-4)
+ *   PG_STATEMENT_TIMEOUT_MS → the database ROLE's statement_timeout at boot
+ *                            (SCALE-3: not a client startup parameter, which a
+ *                            transaction-mode pooler cannot replay)
  *   TRUST_PROXY            → express `trust proxy` (createApp), which decides
  *                            whether req.ip honors X-Forwarded-For. req.ip is
  *                            the key for the login rate limiter and the

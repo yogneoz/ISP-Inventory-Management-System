@@ -11,7 +11,8 @@
 import pg from 'pg';
 import { readFileSync, existsSync, statSync } from 'fs';
 import path from 'path';
-import { pgPool, realPoolInstance, setDatabaseConnected } from '../../db';
+import { buildPoolConfig, pgPool, realPoolInstance, setDatabaseConnected } from '../../db';
+import { ensureRoleStatementTimeout } from '../db/statementTimeout';
 import { hydrateBsCalendarFromDb } from '../config/bsCalendar';
 import { startJournalPartitionKeeper } from './journalPartitionKeeper';
 import { auditBsCalendar } from '../services/bsCalendarIntegrity.service';
@@ -160,6 +161,22 @@ export async function syncDatabaseAndIndexes() {
       throw new Error('PostgreSQL connection could not be established.');
     }
     console.log('PostgreSQL Pool connected successfully. Verifying schema migrations (scripts/schema.sql baseline)...');
+
+    // SCALE-3 (PgBouncer transaction pooling): the statement timeout lives on the
+    // ROLE, not in a client startup parameter, so it survives the pooler reusing
+    // one server connection for many clients. Idempotent: only altered when the
+    // effective value differs from PG_STATEMENT_TIMEOUT_MS.
+    try {
+      await ensureRoleStatementTimeout(client, buildPoolConfig().statementTimeoutMs);
+    } catch (error: any) {
+      // A role without ALTER ROLE privilege must still boot; log it, because the
+      // timeout then depends on the operator's server configuration.
+      const requested = `${buildPoolConfig().statementTimeoutMs}ms`;
+      console.warn(
+        `⚠️  Could not apply statement_timeout to the database role: ${error?.message || error}. ` +
+          `Ask an administrator to run: ALTER ROLE <app role> SET statement_timeout = '${requested}';`
+      );
+    }
 
     // scripts/schema.sql is still the single baseline source: the runner applies
     // it only on an empty/legacy database, adopts an already-current database,
