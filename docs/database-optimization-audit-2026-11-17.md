@@ -387,10 +387,21 @@ the operator has rehearsed detach + archive on a restored copy.
   journal, plus the closing journal's effect), honouring the immutability trigger
   through the documented transaction-local purge switch. A queued recompute
   replays through the same flush.
-- **Not done:** the statement endpoints still scan `gl_journal_lines`; reading a
-  closed year from the snapshot plus an open-year delta is open (recorded in the
-  worklist), as is pointing the stock-on-hand screens at
-  `BRANCH_STOCK_BALANCES_SQL` / `BRANCH_STOCK_VALUE_SQL`.
+- **Closed-year statements read the snapshot.** `opening_balance`,
+  `period_debit` and `period_credit` (`0042_closed_year_turnover.sql`) make a
+  snapshot row foot (`opening + period = post_close`), which is what the trial
+  balance needs; `loadAccountBalances` switches to
+  `FISCAL_YEAR_BALANCE_ACCOUNT_ROWS_SQL` for a window that is exactly one closed
+  fiscal year and stays on the ledger otherwise. Measured equality rather than
+  asserted: the snapshot rows equal `ACCOUNT_BALANCE_ROWS_SQL` for the same
+  window, and `buildTrialBalance` produces identical accounts and totals through
+  both paths (`tests/readModels.test.ts`). Line-level drill-downs still read
+  lines (that is what they show), the balance sheet as-of path has no opening
+  window to map, and an open-year delta is not wired.
+- **Not done:** pointing the stock-on-hand screens at
+  `BRANCH_STOCK_BALANCES_SQL` / `BRANCH_STOCK_VALUE_SQL` (the model is
+  maintained and verified; the screen cutover is separate), and the
+  write-path measurement item below.
 
   lock in the request path (every advisory lock used is `pg_advisory_xact_lock`,
   which releases at commit and is therefore transaction-scoped — the one

@@ -392,6 +392,9 @@ interface CloseSnapshotEntry {
   code: string;
   name: string;
   accountType: string;
+  /** Debit/credit posted before the year began — the opening column. */
+  openingDebit: number;
+  openingCredit: number;
   preCloseDebit: number;
   preCloseCredit: number;
   preCloseBalance: number;
@@ -438,10 +441,10 @@ export async function closeFiscalYear(
   // Capture the trial balance before the closing entries zero the P&L. Once
   // those entries commit, this pre-close position is not reconstructible.
   const preCloseRows = (
-    await client.query(
-      FISCAL_YEAR_TRIAL_BALANCE_ROWS_SQL,
-      [String(fiscalYear.endDateAD).slice(0, 10)]
-    )
+    await client.query(FISCAL_YEAR_TRIAL_BALANCE_ROWS_SQL, [
+      String(fiscalYear.endDateAD).slice(0, 10),
+      String(fiscalYear.startDateAD).slice(0, 10),
+    ])
   ).rows;
   const snapshot = new Map<string, CloseSnapshotEntry>();
   const accountMeta = new Map<string, { code: string; name: string; accountType: string }>();
@@ -456,6 +459,8 @@ export async function closeFiscalYear(
       code: String(row.code),
       name: String(row.name),
       accountType: String(row.accountType),
+      openingDebit: roundMoney(Number(row.openingDebit) || 0),
+      openingCredit: roundMoney(Number(row.openingCredit) || 0),
       preCloseDebit: debit,
       preCloseCredit: credit,
       preCloseBalance: roundMoney(debit - credit),
@@ -597,6 +602,8 @@ export async function closeFiscalYear(
           code: meta.code,
           name: meta.name,
           accountType: meta.accountType,
+          openingDebit: 0,
+          openingCredit: 0,
           preCloseDebit: 0,
           preCloseCredit: 0,
           preCloseBalance: 0,
@@ -615,6 +622,11 @@ export async function closeFiscalYear(
     const postCloseBalance = roundMoney(
       entry.preCloseBalance + entry.closeDebit - entry.closeCredit
     );
+    // The statement window is the whole year, so its turnover is the year's own
+    // posted movement plus the closing journal this close just added: exactly
+    // what the ledger scan would return for the same dates.
+    const periodDebit = roundMoney(entry.preCloseDebit - entry.openingDebit + entry.closeDebit);
+    const periodCredit = roundMoney(entry.preCloseCredit - entry.openingCredit + entry.closeCredit);
     await client.query(FISCAL_YEAR_BALANCE_INSERT_SQL, [
       fiscalYearId,
       entry.branchId,
@@ -622,6 +634,9 @@ export async function closeFiscalYear(
       entry.code,
       entry.name,
       entry.accountType,
+      roundMoney(entry.openingDebit - entry.openingCredit),
+      periodDebit,
+      periodCredit,
       entry.preCloseDebit,
       entry.preCloseCredit,
       entry.preCloseBalance,

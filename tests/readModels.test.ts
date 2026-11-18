@@ -22,6 +22,14 @@ import pg from 'pg';
 import dotenv from 'dotenv';
 import { createThrowawayDatabase, dropThrowawayDatabase } from './fixtures/throwawayDatabase';
 import {
+  ACCOUNT_BALANCE_ROWS_SQL,
+  FISCAL_YEAR_BALANCE_ACCOUNT_ROWS_SQL,
+} from '../server/src/models/accounting.repo';
+import {
+  buildTrialBalance,
+  resolveStatementWindow,
+} from '../server/src/services/accountingStatements.service';
+import {
   BRANCH_STOCK_BALANCES_SQL,
   BRANCH_STOCK_VALUE_SQL,
   FISCAL_YEAR_BALANCES_REBUILD_SQL,
@@ -343,5 +351,65 @@ describe('read models (throwaway PostgreSQL)', { skip: skipNoDb }, () => {
       [FY]
     )).rows[0].n;
     assert.equal(count, 3, 'the snapshot was recomputed by the queued replay');
+  });
+
+  test('a closed year reads the snapshot with the ledger\'s own figures', async () => {
+    const fy = (
+      await pool!.query(
+        `SELECT start_date_ad::text AS start, end_date_ad::text AS "end"
+           FROM fiscal_years WHERE id = $1`,
+        [FY]
+      )
+    ).rows[0];
+    assert.ok(fy, 'the fixture fiscal year exists');
+    await pool!.query(FISCAL_YEAR_BALANCES_REBUILD_SQL, [FY]);
+
+    // Same shape, same figures: the snapshot is a read path, not a definition.
+    const ledger = (await pool!.query(ACCOUNT_BALANCE_ROWS_SQL, [fy.start, fy.end, null])).rows;
+    const snapshot = (
+      await pool!.query(FISCAL_YEAR_BALANCE_ACCOUNT_ROWS_SQL, [FY, null])
+    ).rows;
+    const shape = (row: any) => ({
+      accountId: row.accountId,
+      openingBalance: Number(row.openingBalance),
+      periodDebit: Number(row.periodDebit),
+      periodCredit: Number(row.periodCredit),
+    });
+    assert.deepEqual(snapshot.map(shape), ledger.map(shape));
+
+    // The window switches onto the snapshot only for a closed year whose bounds
+    // are exactly the requested window.
+    await pool!.query('UPDATE fiscal_years SET is_closed = TRUE WHERE id = $1', [FY]);
+    try {
+      const client = await pool!.connect();
+      try {
+        const window = await resolveStatementWindow(
+          client as any,
+          { from: fy.start, to: fy.end },
+          'TRIAL_BALANCE',
+          { branchId: null, empty: false }
+        );
+        assert.equal(window.snapshotFiscalYearId, FY);
+        const viaSnapshot = await buildTrialBalance(client as any, window);
+        const viaLedger = await buildTrialBalance(client as any, {
+          ...window,
+          snapshotFiscalYearId: null,
+        });
+        assert.deepEqual(viaSnapshot.accounts, viaLedger.accounts);
+        assert.deepEqual(viaSnapshot.totals, viaLedger.totals);
+
+        const partial = await resolveStatementWindow(
+          client as any,
+          { from: fy.start, to: fy.start },
+          'TRIAL_BALANCE',
+          { branchId: null, empty: false }
+        );
+        assert.equal(partial.snapshotFiscalYearId, null, 'a partial window stays on the ledger');
+      } finally {
+        client.release();
+      }
+    } finally {
+      await pool!.query('UPDATE fiscal_years SET is_closed = FALSE WHERE id = $1', [FY]);
+    }
   });
 });

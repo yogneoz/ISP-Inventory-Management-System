@@ -2264,6 +2264,9 @@ CREATE TABLE IF NOT EXISTS fiscal_year_balances (
     account_code VARCHAR(30) NOT NULL,
     account_name VARCHAR(150) NOT NULL,
     account_type VARCHAR(20) NOT NULL,
+    opening_balance NUMERIC(16, 2) NOT NULL DEFAULT 0,
+    period_debit NUMERIC(16, 2) NOT NULL DEFAULT 0,
+    period_credit NUMERIC(16, 2) NOT NULL DEFAULT 0,
     pre_close_debit NUMERIC(16, 2) NOT NULL DEFAULT 0,
     pre_close_credit NUMERIC(16, 2) NOT NULL DEFAULT 0,
     pre_close_balance NUMERIC(16, 2) NOT NULL DEFAULT 0,
@@ -5779,10 +5782,12 @@ $$ LANGUAGE plpgsql;
 --    is transaction-local, so a failed rebuild leaves the snapshot untouched.
 CREATE OR REPLACE FUNCTION rebuild_fiscal_year_balances(p_fiscal_year_id VARCHAR) RETURNS BIGINT AS $$
 DECLARE
+    v_start DATE;
     v_end DATE;
     v_count BIGINT;
 BEGIN
-    SELECT end_date_ad INTO v_end FROM fiscal_years WHERE id = p_fiscal_year_id;
+    SELECT start_date_ad, end_date_ad INTO v_start, v_end
+      FROM fiscal_years WHERE id = p_fiscal_year_id;
     IF NOT FOUND THEN
         RAISE EXCEPTION 'fiscal year % does not exist', p_fiscal_year_id
             USING ERRCODE = 'no_data_found';
@@ -5793,10 +5798,21 @@ BEGIN
 
     INSERT INTO fiscal_year_balances (
         fiscal_year_id, branch_id, account_id, account_code, account_name, account_type,
+        opening_balance, period_debit, period_credit,
         pre_close_debit, pre_close_credit, pre_close_balance,
         close_debit, close_credit, post_close_balance
     )
-    WITH pre AS (
+    WITH opening AS (
+        SELECT l.branch_id,
+               l.account_id,
+               SUM(l.debit)::numeric(16, 2) AS debit,
+               SUM(l.credit)::numeric(16, 2) AS credit
+          FROM gl_journal_lines l
+          JOIN gl_journals j ON j.id = l.journal_id
+         WHERE j.status = 'POSTED'
+           AND j.journal_date_ad < v_start
+         GROUP BY l.branch_id, l.account_id
+    ), pre AS (
         SELECT l.branch_id,
                l.account_id,
                SUM(l.debit)::numeric(16, 2) AS debit,
@@ -5819,6 +5835,8 @@ BEGIN
            AND j.source_id = p_fiscal_year_id
          GROUP BY l.branch_id, l.account_id
     ), keys AS (
+        SELECT branch_id, account_id FROM opening
+        UNION
         SELECT branch_id, account_id FROM pre
         UNION
         SELECT branch_id, account_id FROM closing
@@ -5829,6 +5847,15 @@ BEGIN
            a.code,
            a.name,
            g.account_type,
+           round(COALESCE(op.debit, 0) - COALESCE(op.credit, 0), 2),
+           round(
+               COALESCE(pre.debit, 0) - COALESCE(op.debit, 0) + COALESCE(closing.debit, 0),
+               2
+           ),
+           round(
+               COALESCE(pre.credit, 0) - COALESCE(op.credit, 0) + COALESCE(closing.credit, 0),
+               2
+           ),
            COALESCE(pre.debit, 0),
            COALESCE(pre.credit, 0),
            round(COALESCE(pre.debit, 0) - COALESCE(pre.credit, 0), 2),
@@ -5840,6 +5867,7 @@ BEGIN
                2
            )
       FROM keys k
+      LEFT JOIN opening op ON op.branch_id = k.branch_id AND op.account_id = k.account_id
       LEFT JOIN pre ON pre.branch_id = k.branch_id AND pre.account_id = k.account_id
       LEFT JOIN closing ON closing.branch_id = k.branch_id AND closing.account_id = k.account_id
       JOIN gl_accounts a ON a.id = k.account_id

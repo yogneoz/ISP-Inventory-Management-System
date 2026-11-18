@@ -617,22 +617,30 @@ work is obsolete and the balance work is open.
       yet switched onto the new read SQL (`BRANCH_STOCK_BALANCES_SQL` /
       `BRANCH_STOCK_VALUE_SQL` are ready and branch-scoped) — the model is
       maintained and verified, the screen cutover is a separate change.
-- [~] Trial balance reads `fiscal_year_balances` for closed years and the
-      summary/delta path for the open year. **Partially done 2026-11-18:** the
-      closed-year snapshot can now be rebuilt from the ledger
-      (`rebuild_fiscal_year_balances(fiscal_year_id)`, in `0041_read_models.sql`),
-      reproducing the close-time definition — cumulative posted position through
-      the year end excluding that year's own closing journal, plus that closing
-      journal's effect — with the immutability trigger honoured through the
-      documented transaction-local purge switch. Proven on a hand-computed
-      fixture (three accounts, one ordinary journal and one closing journal):
-      the rebuilt rows equal the expected pre-close / close / post-close figures
-      exactly, a second rebuild is identical, and a queued recompute replays
-      through `read-models:flush` (model `fiscal_year_balances`). **Still open:**
-      the statement endpoints themselves (`TRIAL_BALANCE_ACCOUNT_LINES_SQL`,
-      P&L, balance sheet) still scan `gl_journal_lines`; switching a closed year
-      onto the snapshot plus an open-year delta is untouched, and stays open
-      until it can be measured against the statement test suite.
+- [x] Closed-year statements read the immutable snapshot instead of rescanning
+      `gl_journal_lines`. The snapshot now carries the columns a statement needs
+      (`0042_closed_year_turnover.sql`, mirrored in `schema.sql`):
+      `opening_balance` (posted net before the year), `period_debit` and
+      `period_credit` (the year's own posted turnover, the closing journal
+      included) beside the existing pre-close, close and post-close columns, so
+      `opening_balance + period_debit - period_credit = post_close_balance` and
+      the statement columns foot. `resolveStatementWindow` marks a window
+      snapshot-eligible only when the request is exactly one closed fiscal year
+      (`from` = year start, `to` = year end, `fiscal_years.is_closed`), and
+      `loadAccountBalances` then reads `FISCAL_YEAR_BALANCE_ACCOUNT_ROWS_SQL`
+      for the trial balance and the P&L. The close writer fills the new columns
+      from the pre-close trial balance it already captures (plus the closing
+      journal it posts), and `rebuild_fiscal_year_balances` recomputes them the
+      same way, so a rebuilt snapshot and a close-written one agree. Proven in
+      `tests/readModels.test.ts` (10): the snapshot rows equal
+      `ACCOUNT_BALANCE_ROWS_SQL` for the same window account by account,
+      `buildTrialBalance` returns identical accounts and totals through the
+      snapshot and through the ledger, and a partial window keeps
+      `snapshotFiscalYearId` null. **Still open:** the line-level drill-downs
+      (`TRIAL_BALANCE_ACCOUNT_LINES_SQL`, `TRIAL_BALANCE_GROUP_LINES_SQL`) are
+      per-line by definition, the balance sheet (`from = null`) has no opening
+      window to map onto a year, and an open-year delta layered on a closed
+      snapshot is not wired.
 - [ ] Write-path measurement: `npm run bench:write` at 10/50 concurrent writes
       must show scaling, not the current 0.7×.
 

@@ -45,6 +45,7 @@ import {
   STATEMENT_GROUP_LINES_SQL,
   STATEMENT_GROUPS,
   STATEMENT_BRANCHES_SQL,
+  FISCAL_YEAR_BALANCE_ACCOUNT_ROWS_SQL,
   TRIAL_BALANCE_ACCOUNT_LINES_SQL,
   TRIAL_BALANCE_GROUP_LINES_SQL,
   type AccountType,
@@ -67,6 +68,14 @@ export interface StatementWindow {
   branchId: string | null;
   /** A session with no branch assignment reads an empty, honest statement. */
   empty: boolean;
+  /**
+   * Set when the window is exactly one closed fiscal year: the statement then
+   * reads the immutable `fiscal_year_balances` snapshot instead of scanning
+   * `gl_journal_lines`. It carries the same figures the ledger window would
+   * return (see FISCAL_YEAR_BALANCE_ACCOUNT_ROWS_SQL), so it is a read-path
+   * switch, not a different definition.
+   */
+  snapshotFiscalYearId?: string | null;
 }
 
 export interface StatementScope {
@@ -530,7 +539,13 @@ export async function resolveStatementWindow(
   if (rawFrom) {
     const from = requireDate(rawFrom, 'Statement start date');
     if (from > to) throw new ApiError(400, 'The statement start date must not be after the end date.');
-    return { from, to, branchId: scope.branchId, empty: Boolean(scope.empty) };
+    return {
+      from,
+      to,
+      branchId: scope.branchId,
+      empty: Boolean(scope.empty),
+      snapshotFiscalYearId: await closedYearSnapshotFor(client, from, to),
+    };
   }
 
   const fiscalYear = (await client.query(FISCAL_YEAR_BOUNDS_SQL, [to])).rows[0];
@@ -540,12 +555,32 @@ export async function resolveStatementWindow(
       `No fiscal year contains ${to}. Create the fiscal year first, or pass an explicit from date.`
     );
   }
+  const from = String(fiscalYear.startDateAD).slice(0, 10);
   return {
-    from: String(fiscalYear.startDateAD).slice(0, 10),
+    from,
     to,
     branchId: scope.branchId,
     empty: Boolean(scope.empty),
+    snapshotFiscalYearId: await closedYearSnapshotFor(client, from, to),
   };
+}
+
+/**
+ * The fiscal-year id whose immutable snapshot can serve this exact window, or
+ * null. A snapshot covers one whole year (its opening is "before the year", its
+ * turnover is "inside the year"), so a partial window must stay on the ledger;
+ * only a closed year with a snapshot is eligible.
+ */
+async function closedYearSnapshotFor(
+  client: AccountingClient,
+  from: string,
+  to: string
+): Promise<string | null> {
+  const fiscalYear = (await client.query(FISCAL_YEAR_BOUNDS_SQL, [to])).rows[0];
+  if (!fiscalYear || fiscalYear.isClosed !== true) return null;
+  if (String(fiscalYear.endDateAD).slice(0, 10) !== to) return null;
+  if (String(fiscalYear.startDateAD).slice(0, 10) !== from) return null;
+  return String(fiscalYear.id);
 }
 
 /** Signed balance: positive means the account is net-debited. */
@@ -568,7 +603,12 @@ async function loadAccountBalances(
 ): Promise<AccountBalanceRow[]> {
   if (window.empty) return [];
   const rows = (
-    await client.query(ACCOUNT_BALANCE_ROWS_SQL, [window.from, window.to, window.branchId])
+    window.snapshotFiscalYearId
+      ? await client.query(FISCAL_YEAR_BALANCE_ACCOUNT_ROWS_SQL, [
+          window.snapshotFiscalYearId,
+          window.branchId,
+        ])
+      : await client.query(ACCOUNT_BALANCE_ROWS_SQL, [window.from, window.to, window.branchId])
   ).rows;
   return rows.map((row: any) => ({
     accountId: String(row.accountId),

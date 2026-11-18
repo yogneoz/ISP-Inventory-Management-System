@@ -772,7 +772,9 @@ export const FISCAL_YEAR_TRIAL_BALANCE_ROWS_SQL = `SELECT
   g.account_type AS "accountType",
   COALESCE(SUM(l.debit), 0)::numeric AS debit,
   COALESCE(SUM(l.credit), 0)::numeric AS credit,
-  COALESCE(SUM(l.debit - l.credit), 0)::numeric AS balance
+  COALESCE(SUM(l.debit - l.credit), 0)::numeric AS balance,
+  COALESCE(SUM(l.debit) FILTER (WHERE j.journal_date_ad < $2::date), 0)::numeric AS "openingDebit",
+  COALESCE(SUM(l.credit) FILTER (WHERE j.journal_date_ad < $2::date), 0)::numeric AS "openingCredit"
 FROM gl_journal_lines l
 JOIN gl_journals j ON j.id = l.journal_id
 JOIN gl_accounts a ON a.id = l.account_id
@@ -790,9 +792,55 @@ LIMIT 1`;
 
 export const FISCAL_YEAR_BALANCE_INSERT_SQL = `INSERT INTO fiscal_year_balances (
   fiscal_year_id, branch_id, account_id, account_code, account_name, account_type,
+  opening_balance, period_debit, period_credit,
   pre_close_debit, pre_close_credit, pre_close_balance,
   close_debit, close_credit, post_close_balance
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`;
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`;
+
+/**
+ * A closed year's statement rows, read from the snapshot instead of the ledger.
+ *
+ * The shape is exactly `ACCOUNT_BALANCE_ROWS_SQL`'s, so every statement builder
+ * consumes it unchanged: `openingBalance` is the position before the year,
+ * `periodDebit`/`periodCredit` are that year's posted turnover (the closing
+ * journal included, like the ledger window it replaces), and
+ * `opening + periodDebit - periodCredit` therefore equals the close-time
+ * `post_close_balance` the ledger would also show. `$2` is the caller's branch
+ * scope; NULL rolls every branch up, and the sum over branches is what the
+ * company-level statement needs.
+ */
+export const FISCAL_YEAR_BALANCE_ACCOUNT_ROWS_SQL = `WITH snapshot AS (
+  SELECT account_id,
+    SUM(opening_balance) AS opening_balance,
+    SUM(period_debit) AS period_debit,
+    SUM(period_credit) AS period_credit
+  FROM fiscal_year_balances
+  WHERE fiscal_year_id = $1
+    AND ($2::varchar IS NULL OR branch_id = $2::varchar)
+  GROUP BY account_id
+)
+SELECT a.id AS "accountId",
+  a.code,
+  a.name,
+  a.is_active AS "isActive",
+  a.subledger_type AS "subledgerType",
+  a.posting_role AS "postingRole",
+  a.account_kind AS "accountKind",
+  g.id AS "groupId",
+  g.parent_id AS "parentGroupId",
+  g.code AS "groupCode",
+  g.name AS "groupName",
+  g.account_type AS "accountType",
+  g.statement_group AS "statementGroup",
+  g.normal_balance AS "normalBalance",
+  g.sort_order AS "groupSortOrder",
+  COALESCE(s.opening_balance, 0)::numeric AS "openingBalance",
+  COALESCE(s.period_debit, 0)::numeric AS "periodDebit",
+  COALESCE(s.period_credit, 0)::numeric AS "periodCredit"
+FROM gl_accounts a
+JOIN gl_account_groups g ON g.id = a.group_id
+LEFT JOIN snapshot s ON s.account_id = a.id
+ORDER BY g.sort_order ASC, a.code ASC`;
 
 /** One fiscal year's snapshot, optionally narrowed to one branch. */
 export const FISCAL_YEAR_BALANCES_LIST_SQL = `SELECT
@@ -1512,7 +1560,8 @@ WHERE j.status = 'POSTED'
 
 export const FISCAL_YEAR_BOUNDS_SQL = `SELECT id, code,
   start_date_ad::text AS "startDateAD",
-  end_date_ad::text AS "endDateAD"
+  end_date_ad::text AS "endDateAD",
+  is_closed AS "isClosed"
 FROM fiscal_years
 WHERE $1::date BETWEEN start_date_ad AND end_date_ad
 ORDER BY start_date_ad DESC
