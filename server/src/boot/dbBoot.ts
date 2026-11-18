@@ -52,6 +52,11 @@ import {
   describeStockOperationPartitions,
   provisionStockOperationPartitions,
 } from './stockOperationPartitions';
+import {
+  defaultSerialLogPartitionIsDirty,
+  describeSerialLogPartitions,
+  provisionSerialLogPartitions,
+} from './serialLogPartitions';
 
 import {
   setDocNumberConfigs,
@@ -189,6 +194,13 @@ export async function syncDatabaseAndIndexes() {
         console.warn(`⚠️  Stock operation partitions provisioned with gaps: ${stockOpsSummary}`);
       } else {
         console.log(`✅ Stock operation partitions provisioned: ${stockOpsSummary}`);
+      }
+      const serials = await provisionSerialLogPartitions(client);
+      const serialsSummary = describeSerialLogPartitions(serials);
+      if (serials.failed.length || defaultSerialLogPartitionIsDirty(serials)) {
+        console.warn(`⚠️  Serial register partitions provisioned with gaps: ${serialsSummary}`);
+      } else {
+        console.log(`✅ Serial register partitions provisioned: ${serialsSummary}`);
       }
       const summary = describeJournalPartitions(partitions);
       if (partitions.failed.length) {

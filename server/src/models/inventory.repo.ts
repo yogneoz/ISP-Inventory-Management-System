@@ -1682,6 +1682,15 @@ export function serialLogUpdateParams(rec: {
  * of the same serial a no-op instead of a raw duplicate-key 500; the caller
  * treats a 0-row insert as "already registered" and refuses the invoice.
  */
+/**
+ * SCALE-3: `serial_log` is partitioned by `created_at`; the month child must
+ * exist before the row lands, or the row falls into `serial_log_default` and can
+ * never be pruned. The date is taken in UTC because the partition bounds are,
+ * so a late-evening local timestamp cannot provision the wrong month.
+ */
+export const ENSURE_SERIAL_LOG_PARTITION_SQL =
+  "SELECT ensure_serial_log_month_partition(((($1)::timestamptz) AT TIME ZONE 'UTC')::date)";
+
 export const SERIAL_LOG_INSERT_SQL = `INSERT INTO serial_log (id, device_serial, pon_serial, mac_address, product_id, product_name, branch_id, customer_id, customer_name, status, source_type, source_id, history_json, created_at, updated_at, is_demo)
  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, FALSE) ON CONFLICT DO NOTHING`;
 

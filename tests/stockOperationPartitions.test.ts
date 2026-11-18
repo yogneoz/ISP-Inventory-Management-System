@@ -116,8 +116,8 @@ describe('stock operation partitions', () => {
         WHERE conrelid = 'document_identity_registry'::regclass AND contype = 'u'`
     );
     assert.ok(
-      registryUnique.rows.some((row: any) => /document_type, business_key/.test(row.def)),
-      'the registry holds the global uniqueness'
+      registryUnique.rows.some((row: any) => /document_type, key_role, business_key/.test(row.def)),
+      'the registry holds the global uniqueness, one owner per (document, key role)'
     );
 
     // The conversion registered every legacy row: identity is not detachable

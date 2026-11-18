@@ -531,10 +531,15 @@ Authoritative detail stays in those notes; this round owns their scheduling.
   (`enforce_document_identity`) that the remaining tables reuse: a reused
   reference still raises `23505`, the `ON CONFLICT (id, date_ad)` upsert still
   updates in place, and a date or reference edit is refused so a row can never
-  be reparented into another month. Still open: `serial_log` and
-  `sales_invoices` converted the same way (both now just need their registry
-  row plus the trigger; `sales_invoices` additionally has inbound FKs and
-  item-child tables to keep pointing at the parent); replica/PgBouncer decision
+  be reparented into another month. **`serial_log` followed (2026-11-18)** —
+  migration `0036` partitions the register by `created_at` and generalises the
+  registry to carry several keys per document (`key_role` + per-key
+  `role:column:flags` specs), so its three `lower(trim())` partial uniques are
+  now the SERIAL/PON/MAC roles with identical semantics; the insert-if-absent
+  writes still skip a row whose key is held, a rename onto a held key still
+  raises `23505`, and the date is immovable. Still open: `sales_invoices`
+  converted the same way (it has inbound FKs and item-child tables to keep
+  pointing at the parent); replica/PgBouncer decision
   (audit §1 row 2); pre-aggregated stock and closed-year trial balance; queued
   writes; and the whole public-exposure surface — TLS, CORS, CSP, MFA, reverse proxy, HSTS, `TRUST_PROXY`, real client
   IP in the audit trail.
@@ -715,3 +720,21 @@ on the Redis state and MFA work in Part B.
   Tests: `tests/stockOperationPartitions.test.ts` (6 new). `serial_log` and
   `sales_invoices` reuse `enforce_document_identity` next; what remains table-
   specific for them is recorded in SCALE-3.
+- 2026-11-18 — **`serial_log` converted, and the registry generalised to
+  several keys per document**: migration `0036` RANGE-partitions the register by
+  `created_at` (shadow table + swap; aborting on a row-count or per-role
+  registry-count mismatch) and replaces its three `lower(trim())` partial
+  uniques with SERIAL / PON / MAC roles on `document_identity_registry`
+  (new `key_role`, `role:column[:ci][:optional][:fixed][:refuse]` trigger specs).
+  The insert-if-absent writes keep their exact behaviour — a held key makes the
+  trigger return NULL so `ON CONFLICT DO NOTHING` inserts nothing and the
+  survivor is updated by serial, while a *rename* onto a held key raises 23505
+  and a date move is refused. `ensure_serial_log_month_partition()` serves the
+  three write paths, the boot provisioner (`boot/serialLogPartitions.ts`) and
+  `check:partitions`. Measured: 96 rows → 96, registry 96/96/84, DEFAULT empty,
+  one-month `EXPLAIN` touching only `serial_log_202611`, duplicate keys
+  rejected with 0 rows, month child emptied then detached; `verify:fresh-install`
+  PASS (162 tables / 2541 columns / 2164 constraints / 875 indexes / 101
+  triggers) and the legacy-upgrade comparison PASS. Tests:
+  `tests/serialLogPartitions.test.ts` (6). `sales_invoices` is the last
+  conversion.

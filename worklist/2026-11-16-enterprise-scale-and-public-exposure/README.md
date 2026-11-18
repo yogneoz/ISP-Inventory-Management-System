@@ -319,9 +319,9 @@ log/pid removed after the run; no scratch database or fixture rows remain
 ### SCALE-3 — Partitioning, indexes, read/write split, PgBouncer
 
 Priority: P0 · Status: `[~]` — provisioned partitioning, hot-table storage and
-the `gl_subledger_entries` and `stock_operations` partition conversions landed
-2026-11-17; `serial_log`/`sales_invoices`, BRIN/composite index work, replica
-routing and PgBouncer are open. Audit:
+the `gl_subledger_entries`, `stock_operations` and `serial_log` partition
+conversions landed 2026-11-17/18; `sales_invoices`, the BRIN/composite index
+work, replica routing and PgBouncer are open. Audit:
 [docs/database-optimization-audit-2026-11-17.md](../../docs/database-optimization-audit-2026-11-17.md).
 
 - [x] Provision monthly partitions for **both** ledger parents. They are
@@ -384,17 +384,39 @@ routing and PgBouncer are open. Audit:
       child, by a duplicate-reference insert being refused, by a date edit
       being refused and by a month child being emptied, releasing its keys and
       dropped. Tests in `tests/stockOperationPartitions.test.ts` (6).
-- [ ] Convert `serial_log` and `sales_invoices` the same way. The registry
-      pattern is established and they should use it as-is:
-      `enforce_document_identity('SERIAL_LOG', 'serial_number', '<date>')` and
-      `enforce_document_identity('SALES_INVOICE', 'invoice_number',
-      'invoice_date_ad')`, each with its own month function and swap. What is
-      still table-specific: `serial_log` has a case-insensitive unique serial
-      key and `ON CONFLICT` writes that must move to the registry's
-      `business_key` comparison; `sales_invoices` has item children and other
-      tables pointing at it, so its conversion has to keep those FKs on the
-      partitioned parent and re-point the keys through the registry in the same
-      migration.
+- [x] Convert `serial_log` to RANGE partitioning on its document date,
+      keeping all three of its case-insensitive global keys. **Done
+      2026-11-18** — migration `0036` partitions the register by `created_at`
+      (the date every insert already carries: NOW() for purchase/receive, the
+      source document's date for the reconcile backfill) as a shadow table +
+      swap with row-count and per-role registry-count checks. The registry was
+      generalised rather than duplicated: `document_identity_registry` gained
+      `key_role` (one row per document **per key**) and
+      `enforce_document_identity()` takes per-key specs
+      (`role:column[:ci][:optional][:fixed][:refuse]`), so the three old partial
+      uniques became the SERIAL / PON / MAC roles with `ci` reproducing
+      `lower(trim())` and `optional` reproducing the blank-value predicate. The
+      insert-if-absent contract is unchanged: all three write paths are
+      `INSERT ... ON CONFLICT DO NOTHING`, a key already held makes the trigger
+      return NULL (no row, no error, then the survivor is updated by serial) —
+      a BEFORE-INSERT trigger cannot raise through `ON CONFLICT`, so this is
+      the only faithful reproduction — while a rename onto a held key still
+      raises `23505` and the partition date is immovable.
+      `ensure_serial_log_month_partition()` serves the write paths, the boot
+      provisioner and `check:partitions`, and DEFAULT is counted there.
+      Measured on the dev database: 96 rows → 96, registry 96 SERIAL / 96 PON /
+      84 MAC, DEFAULT empty, `EXPLAIN` of a one-month read touching only the
+      data month's child, duplicate serial/PON/MAC inserts inserting 0 rows,
+      rename-onto-held refused, month child emptied (keys released) and
+      detached. Tests: `tests/serialLogPartitions.test.ts` (6).
+- [ ] Convert `sales_invoices` the same way. The registry pattern now carries
+      multiple keys per document and is ready as-is:
+      `enforce_document_identity('SALES_INVOICE', 'invoice_date_ad',
+      'PRIMARY:invoice_number:fixed:refuse', …)`, its own month function and
+      swap. What is still table-specific: `sales_invoices` has item children and
+      other tables pointing at it, so its conversion has to keep those FKs on
+      the partitioned parent and re-point the invoice key through the registry
+      in the same migration.
 - [ ] BRIN indexes on `created_at`, `journal_date_ad`, `entry_date_ad`,
       `operation_date_ad` (append-only, physically ordered); composite B-Tree
       `(branch_id, fiscal_year_id, <date> DESC, id DESC)` for the page reads.

@@ -14,6 +14,7 @@
  * concerns only.
  */
 import { pgPool } from '../../db';
+import { ENSURE_SERIAL_LOG_PARTITION_SQL } from '../models/inventory.repo';
 import {
   parseSerialHistory as parseSerialHistoryValue,
   buildOldValueExclusions,
@@ -288,6 +289,9 @@ export async function handleUpdateSerials(req: any, res: any) {
           await client.query(slStep.updateSql, slStep.updateParams(oldRow.id, history));
         } else {
           const slId = `sl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          // SCALE-3: the register is partitioned by created_at (this insert uses
+          // NOW()); provision the month before the row lands.
+          await client.query(ENSURE_SERIAL_LOG_PARTITION_SQL, [new Date().toISOString()]);
           await client.query(slStep.insertSql, slStep.insertParams(slId, matchedBranchId || null));
         }
       });

@@ -116,33 +116,50 @@ describe('dbBoot.ts ↔ scripts/schema.sql single-source-of-truth guard', () => 
     }
   });
 
-  test('schema.sql still declares all 126 tables (fresh-install completeness)', () => {
+  test('schema.sql still declares all 127 tables (fresh-install completeness)', () => {
     // Anchor to the line start so the prose comment that mentions
     // "CREATE TABLE IF NOT EXISTS does not alter…" is not counted as a table.
     const tables = new Set(
       (schemaSql.match(/^CREATE TABLE IF NOT EXISTS (\w+)/gm) || []).map((s) => s.replace('CREATE TABLE IF NOT EXISTS ', ''))
     );
-    assert.equal(tables.size, 126, `schema.sql should declare exactly 126 tables, found ${tables.size}`);
+    assert.equal(tables.size, 127, `schema.sql should declare exactly 127 tables, found ${tables.size}`);
   });
 
   test('serial_log carries the register-wide uniqueness (device serial + PON + MAC)', () => {
-    // The register is the authority the pick-only screens read PON/MAC from,
-    // so it must enforce the same invariant customer_device_records does.
-    // Each new index must be GUARDED (dbBoot applies this file verbatim at
-    // every start): an unguarded CREATE UNIQUE INDEX aborts the boot of a
-    // legacy database that merely holds a duplicate.
+    // The register is the authority the pick-only screens read PON/MAC from, so
+    // it must enforce the same invariant customer_device_records does.
+    //
+    // SCALE-3: the invariant moved from partial unique indexes to the document
+    // identity registry, because serial_log is partitioned by created_at and a
+    // partitioned unique index must contain the partition key. The three keys,
+    // their lower(trim()) comparison (`ci`) and their partial predicate
+    // (`optional`, blank values not governed) are unchanged — only the carrier
+    // is. uq_serial_log_pon_serial / uq_serial_log_mac_address cannot exist on
+    // the partitioned table any more, so the guard asserts the registry specs
+    // and the trigger instead of the indexes it used to require.
     const normalized = schemaSql.replace(/\s+/g, ' ');
-    for (const [index, column] of [
-      ['uq_serial_log_pon_serial', 'pon_serial'],
-      ['uq_serial_log_mac_address', 'mac_address'],
+    for (const [role, column] of [
+      ['SERIAL', 'device_serial'],
+      ['PON', 'pon_serial'],
+      ['MAC', 'mac_address'],
     ]) {
       assert.ok(
-        normalized.includes(`CREATE UNIQUE INDEX IF NOT EXISTS ${index} ON serial_log ((lower(trim(${column})))) WHERE trim(coalesce(${column}, '')) <> ''`),
-        `schema.sql must declare ${index} on serial_log(${column})`
+        normalized.includes(`'${role}:${column}:ci:optional'`),
+        `schema.sql must register the ${role} key on serial_log(${column})`
       );
+    }
+    assert.ok(
+      normalized.includes('CREATE OR REPLACE TRIGGER trg_serial_log_identity BEFORE INSERT OR UPDATE OR DELETE ON serial_log'),
+      'the register must carry the identity trigger'
+    );
+    assert.ok(
+      normalized.includes('UNIQUE (document_type, key_role, business_key)'),
+      'the registry must keep exactly one owner per (document, key role)'
+    );
+    for (const index of ['uq_serial_log_pon_serial', 'uq_serial_log_mac_address', 'uq_serial_log_device_serial']) {
       assert.ok(
-        normalized.includes(`GROUP BY lower(trim(${column})) HAVING count(*) > 1`),
-        `${index} must be guarded by a duplicate pre-check (dbBoot runs this file verbatim at every start)`
+        !normalized.includes(`CREATE UNIQUE INDEX IF NOT EXISTS ${index}`),
+        `${index} cannot exist on a partitioned table; its key must live in the registry`
       );
     }
   });

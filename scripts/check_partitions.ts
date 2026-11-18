@@ -42,6 +42,12 @@ import {
   stockOperationPartitionStatus,
 } from '../server/src/boot/stockOperationPartitions';
 import type { StockOperationPartitionReport } from '../server/src/boot/stockOperationPartitions';
+import {
+  defaultSerialLogPartitionIsDirty,
+  provisionSerialLogPartitions,
+  serialLogPartitionStatus,
+} from '../server/src/boot/serialLogPartitions';
+import type { SerialLogPartitionReport } from '../server/src/boot/serialLogPartitions';
 
 function argValue(flag: string): string | null {
   const index = process.argv.indexOf(flag);
@@ -157,6 +163,33 @@ async function main(): Promise<void> {
     }
     const stockOpGaps = stockOpReport.missing.length;
 
+    // The serial register shares the same window and provisioning function as
+    // its write paths (worklist SCALE-3).
+    const serialReport: SerialLogPartitionReport = apply
+      ? await provisionSerialLogPartitions(pool, options)
+      : { ...(await serialLogPartitionStatus(pool, options)), created: [], failed: [] };
+    console.log('Serial register partitions (serial_log)');
+    console.log(
+      `  present : ${serialReport.present.length ? serialReport.present.join(', ') : '(none)'};` +
+        ` missing ${serialReport.missing.length ? serialReport.missing.join(', ') : '(none)'};` +
+        ` DEFAULT ${serialReport.defaultRows} row(s)`
+    );
+    if (apply) {
+      console.log(`  created : ${serialReport.created.length ? serialReport.created.join(', ') : '(none — already provisioned)'}`);
+    }
+    for (const failure of serialReport.failed) {
+      console.error(`✗ serial_log month ${failure.month} could not be created: ${failure.message}`);
+    }
+    const serialDirty = defaultSerialLogPartitionIsDirty(serialReport);
+    if (serialDirty) {
+      console.error(
+        `✗ ${serialReport.defaultRows} serial register row(s) are in serial_log_default: their dates` +
+          ' cannot be pruned, and PostgreSQL refuses to attach a month whose range DEFAULT already holds' +
+          ' rows in. Move them into their month partitions, then re-run.'
+      );
+    }
+    const serialGaps = serialReport.missing.length;
+
     const logDirty = defaultLogPartitionIsDirty(logReport);
     if (logDirty) {
       console.error(
@@ -193,7 +226,15 @@ async function main(): Promise<void> {
       );
     }
     process.exitCode =
-      dirty || subledgerDirty || logDirty || stockOpDirty || report.missing.length || logGaps.length || stockOpGaps
+      dirty ||
+      subledgerDirty ||
+      logDirty ||
+      stockOpDirty ||
+      serialDirty ||
+      report.missing.length ||
+      logGaps.length ||
+      stockOpGaps ||
+      serialGaps
         ? 1
         : 0;
   } finally {

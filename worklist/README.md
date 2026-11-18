@@ -64,8 +64,13 @@ is the plan, not a second source of truth.
   migration `0035` partitions the operational register by `date_ad` and keeps
   `reference_number` globally unique through `document_identity_registry`, the
   generalised form of `gl_journals_registry` (one table, one trigger, a reused
-  reference still refused and a backdate refused). `serial_log` and
-  `sales_invoices` reuse that registry pattern next. The database audit — what already exists, what each remaining
+  reference still refused and a backdate refused). **`serial_log` followed
+  (2026-11-18):** migration `0036` partitions the register by `created_at` and
+  the registry now carries several keys per document (`key_role` + per-key
+  `ci`/`optional` specs), so its three case-insensitive keys keep their exact
+  semantics — a held key still skips an insert-if-absent row, a rename onto a
+  held key still raises `23505`, and the date cannot move. `sales_invoices`
+  reuses that pattern next. The database audit — what already exists, what each remaining
   suggestion would cost, and the trigger that reopens it — is
   [docs/database-optimization-audit-2026-11-17.md](../docs/database-optimization-audit-2026-11-17.md).
   It still owns the partition conversions, read/write split, queued writes and the TLS/CORS/CSP/MFA

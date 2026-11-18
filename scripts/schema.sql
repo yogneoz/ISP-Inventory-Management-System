@@ -571,11 +571,12 @@ CREATE TABLE IF NOT EXISTS shipments (
  */
 CREATE TABLE IF NOT EXISTS document_identity_registry (
     document_type VARCHAR(40) NOT NULL,
+    key_role VARCHAR(20) NOT NULL DEFAULT 'PRIMARY',
     id VARCHAR(60) NOT NULL,
     business_key VARCHAR(160) NOT NULL,
     document_date DATE NOT NULL,
-    PRIMARY KEY (document_type, id),
-    UNIQUE (document_type, business_key)
+    PRIMARY KEY (document_type, key_role, id),
+    UNIQUE (document_type, key_role, business_key)
 );
 
 CREATE TABLE IF NOT EXISTS stock_operations (
@@ -1222,7 +1223,7 @@ CREATE INDEX IF NOT EXISTS idx_warranty_claim_event_claim
 -- 17b. Serial Log (one row per unique serial — consolidated register)
 -- ==========================================
 CREATE TABLE IF NOT EXISTS serial_log (
-    id VARCHAR(50) PRIMARY KEY,
+    id VARCHAR(50) NOT NULL,
     device_serial VARCHAR(100) NOT NULL,
     pon_serial VARCHAR(100),
     mac_address VARCHAR(100),
@@ -1239,9 +1240,20 @@ CREATE TABLE IF NOT EXISTS serial_log (
     is_demo BOOLEAN NOT NULL DEFAULT FALSE,
     created_by VARCHAR(150),
     updated_by VARCHAR(150),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
+    -- SCALE-3: the register's document date. Every insert carries it (the
+    -- purchase/receive paths use NOW(), the backfill uses the document date),
+    -- so it is the partition key. It joins the primary key because a
+    -- partitioned unique constraint must contain it; the three globally unique
+    -- serial keys live in `document_identity_registry` instead.
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id, created_at)
+) PARTITION BY RANGE (created_at);
+
+-- Safety net: a serial logged with a date outside the provisioned window must
+-- not fail. Rows here defeat pruning and `npm run check:partitions` fails while
+-- they exist.
+CREATE TABLE IF NOT EXISTS serial_log_default PARTITION OF serial_log DEFAULT;
 
 -- ==========================================
 -- 18. Approval Requests Table
@@ -4249,7 +4261,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_customer_device_mac_address ON customer_dev
 CREATE INDEX IF NOT EXISTS idx_serial_log_branch ON serial_log(branch_id) WHERE branch_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_serial_log_status ON serial_log(status);
 CREATE INDEX IF NOT EXISTS idx_serial_log_demo ON serial_log(id) WHERE is_demo = TRUE;
-CREATE UNIQUE INDEX IF NOT EXISTS uq_serial_log_device_serial ON serial_log ((lower(trim(device_serial)))) WHERE trim(device_serial) <> '';
+CREATE INDEX IF NOT EXISTS idx_serial_log_created_at ON serial_log(created_at DESC);
+-- SCALE-3: uq_serial_log_device_serial is gone. A partitioned unique index must
+-- contain the partition key, so the case-insensitive serial key is registered
+-- through document_identity_registry (role SERIAL) and enforced by
+-- trg_serial_log_identity. idx_serial_log_device_serial stays as the lookup
+-- index. The name is kept in this comment so a reader searching for it lands
+-- here rather than assuming the invariant was dropped.
 
 -- Approval Requests indexes
 CREATE INDEX IF NOT EXISTS idx_approval_requests_status ON approval_requests(status, branch_id);
@@ -4475,50 +4493,22 @@ CREATE INDEX IF NOT EXISTS idx_serial_log_device_serial ON serial_log((lower(tri
 
 -- ---------------------------------------------------------------------------
 -- serial_log PON/MAC uniqueness (2026-10-13, Slice 1 of the serial-register
--- plan). The register is the mirror-and-verify of customer_device_records,
--- which has enforced unique PON and unique MAC since v3.2
--- (uq_customer_device_pon_serial / uq_customer_device_mac_address). The
--- register never did, and it is now the authority the pick-only screens read
--- PON/MAC from, so the same invariant has to hold here.
+-- plan; moved to the registry by SCALE-3).
 --
--- Partial indexes rather than table constraints because both columns are
--- nullable: only non-empty values are governed (a manual row or a
--- QUANTITY_ONLY receive carries neither). The application already refuses
--- every duplicate on both sides — the purchase owner probes and the serial
--- rename clash checks — so this closes the check-then-write race those reads
--- cannot: two invoices posting the same PON concurrently.
---
--- Applied conditionally (same degrade-gracefully pattern as the status
--- hardening below): dbBoot applies this file verbatim at EVERY start, so a
--- legacy database already holding duplicate PON/MAC rows logs a WARNING and
--- keeps booting instead of refusing to start; the app-level checks still
--- refuse every new duplicate. Deduplicate such a database, then restart to
--- apply the index.
+-- The register is the mirror-and-verify of customer_device_records, which has
+-- enforced unique PON and unique MAC since v3.2
+-- (uq_customer_device_pon_serial / uq_customer_device_mac_address). The same
+-- invariant still holds here, but the partial unique indexes
+-- (uq_serial_log_pon_serial / uq_serial_log_mac_address) could not survive the
+-- partition conversion: a partitioned unique index must contain the partition
+-- key, and these keys are global. They are now registered as the PON and MAC
+-- roles of document_identity_registry by trg_serial_log_identity, with the same
+-- `ci` and `optional` semantics as the partial indexes: only non-empty values
+-- are governed, and comparison is lower(trim(value)). A key already held by
+-- another row is skipped exactly as the old `ON CONFLICT DO NOTHING` insert
+-- paths were; a rename onto a held key still raises 23505.
 -- ---------------------------------------------------------------------------
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM serial_log
-    WHERE trim(coalesce(pon_serial, '')) <> ''
-    GROUP BY lower(trim(pon_serial)) HAVING count(*) > 1
-  ) THEN
-    CREATE UNIQUE INDEX IF NOT EXISTS uq_serial_log_pon_serial
-      ON serial_log ((lower(trim(pon_serial)))) WHERE trim(coalesce(pon_serial, '')) <> '';
-  ELSE
-    RAISE WARNING 'serial_log holds duplicate PON serials - skipping uq_serial_log_pon_serial (deduplicate, then restart to apply it).';
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM serial_log
-    WHERE trim(coalesce(mac_address, '')) <> ''
-    GROUP BY lower(trim(mac_address)) HAVING count(*) > 1
-  ) THEN
-    CREATE UNIQUE INDEX IF NOT EXISTS uq_serial_log_mac_address
-      ON serial_log ((lower(trim(mac_address)))) WHERE trim(coalesce(mac_address, '')) <> '';
-  ELSE
-    RAISE WARNING 'serial_log holds duplicate MAC addresses - skipping uq_serial_log_mac_address (deduplicate, then restart to apply it).';
-  END IF;
-END $$;
+-- (No DDL here: the registry rows and the trigger above are the enforcement.)
 
 
 -- ---------------------------------------------------------------------------
@@ -5053,6 +5043,19 @@ CREATE OR REPLACE TRIGGER trg_fiscal_year_balances_immutable
 CREATE TABLE IF NOT EXISTS gl_journals_default PARTITION OF gl_journals DEFAULT;
 CREATE TABLE IF NOT EXISTS gl_journal_lines_default PARTITION OF gl_journal_lines DEFAULT;
 
+CREATE OR REPLACE FUNCTION ensure_serial_log_month_partition(p_date DATE)
+RETURNS void AS $$
+DECLARE
+  v_start TIMESTAMPTZ := (date_trunc('month', p_date)::timestamp) AT TIME ZONE 'UTC';
+  v_end TIMESTAMPTZ := ((date_trunc('month', p_date) + INTERVAL '1 month')::timestamp) AT TIME ZONE 'UTC';
+BEGIN
+  EXECUTE format(
+    'CREATE TABLE IF NOT EXISTS %I PARTITION OF serial_log FOR VALUES FROM (%L) TO (%L)',
+    'serial_log_' || to_char(p_date, 'YYYYMM'), v_start, v_end
+  );
+END;
+$$ LANGUAGE plpgsql;
+
 CREATE OR REPLACE FUNCTION ensure_stock_operation_month_partition(p_date DATE)
 RETURNS void AS $$
 DECLARE
@@ -5112,80 +5115,163 @@ $$ LANGUAGE plpgsql;
 /*
  * SCALE-3 — the registry protocol for a partitioned document table.
  *
- * TG_ARGV: 0 = document_type, 1 = business-key column, 2 = partition-date
- * column. The trigger is attached to the partitioned parent and PostgreSQL
- * clones it to every child (existing and future), so DML aimed straight at a
- * month is covered too.
+ * TG_ARGV: 0 = document_type, 1 = partition-date column, then one spec per
+ * globally unique key: `role:column[:flags]`, flags being `ci` (compare
+ * lower(btrim(value)), the way the case-insensitive index did), `optional`
+ * (a NULL/blank value is not registered, matching a partial unique index),
+ * `fixed` (the column is immutable; the default is a correctable key) and
+ * `refuse` (a duplicate raises 23505 instead of skipping the row).
  *
- *   INSERT — register the key. A reused business key raises 23505 on
- *            `document_identity_registry`, exactly like the UNIQUE column it
- *            replaced. A row id that is already registered may be re-sent
- *            (the write paths upsert by id), but only for the same key and the
- *            same date.
- *   UPDATE — refuse both identity columns: a changed date would silently
- *            reparent the row into another month, and a changed key would leave
- *            the registry holding a reference the row no longer carries.
- *   DELETE — release the key, so a month's rows can be deleted and the child
+ * The trigger is attached to the partitioned parent and PostgreSQL clones it to
+ * every child (existing and future), so DML aimed straight at a month is
+ * covered too.
+ *
+ *   INSERT — register every key. A key already registered to another row is
+ *            SKIPPED (the row is not inserted) unless the spec says `refuse`:
+ *            that is exactly what `INSERT ... ON CONFLICT DO NOTHING` did when
+ *            the unique index existed, and the register's write paths depend on
+ *            it (insert-if-absent, then update the surviving row). A row id
+ *            that is already registered may be re-sent only for the same keys
+ *            and the same date.
+ *   UPDATE — the partition date is never movable (a row must not be silently
+ *            reparented into another month). A `fixed` key refuses any change;
+ *            a correctable key re-claims its new value and raises 23505 if
+ *            another row already holds it.
+ *   DELETE — release the keys, so a month's rows can be deleted and the child
  *            detached for archival without leaving stale registry entries.
  */
 CREATE OR REPLACE FUNCTION enforce_document_identity()
 RETURNS trigger AS $$
 DECLARE
   v_type TEXT := TG_ARGV[0];
-  v_key TEXT := TG_ARGV[1];
-  v_date TEXT := TG_ARGV[2];
-  v_new_key TEXT;
+  v_date_col TEXT := TG_ARGV[1];
+  v_specs TEXT[] := TG_ARGV[2:array_upper(TG_ARGV, 1)];
+  v_parts TEXT[];
+  v_role TEXT;
+  v_col TEXT;
+  v_ci BOOLEAN;
+  v_optional BOOLEAN;
+  v_fixed BOOLEAN;
+  v_refuse BOOLEAN;
+  v_new TEXT;
+  v_old TEXT;
   v_new_date DATE;
-  v_old_key TEXT;
   v_old_date DATE;
   v_existing RECORD;
+  v_inserted TEXT[] := '{}';
+  i INT;
 BEGIN
   IF TG_OP = 'DELETE' THEN
     DELETE FROM document_identity_registry WHERE document_type = v_type AND id = OLD.id;
     RETURN OLD;
   END IF;
 
-  v_new_key := to_jsonb(NEW) ->> v_key;
-  v_new_date := (to_jsonb(NEW) ->> v_date)::date;
-
+  -- The partitioned tables carry a DEFAULT on their date column (serial_log:
+  -- CURRENT_TIMESTAMP), because PostgreSQL applies column defaults before
+  -- routing the row and a BEFORE trigger must not change the partition key.
+  -- The COALESCE only keeps the registry sane if a caller ever passes NULL
+  -- explicitly; it does not move the row.
+  v_new_date := COALESCE((to_jsonb(NEW) ->> v_date_col)::date, CURRENT_DATE);
   IF TG_OP = 'UPDATE' THEN
-    v_old_key := to_jsonb(OLD) ->> v_key;
-    v_old_date := (to_jsonb(OLD) ->> v_date)::date;
+    v_old_date := (to_jsonb(OLD) ->> v_date_col)::date;
     IF v_new_date IS DISTINCT FROM v_old_date THEN
-      RAISE EXCEPTION 'a % row cannot move to another %: % is the partition key (row %). Reverse it and post a new document instead.', v_type, v_date, v_date, NEW.id
+      RAISE EXCEPTION 'a % row cannot move to another %: it is the partition key (row %). Reverse it and post a new document instead.', v_type, v_date_col, NEW.id
         USING ERRCODE = 'check_violation';
     END IF;
-    IF v_new_key IS DISTINCT FROM v_old_key THEN
-      RAISE EXCEPTION 'a % row cannot change its %: it is the registered business key (row %).', v_type, v_key, NEW.id
-        USING ERRCODE = 'check_violation';
-    END IF;
-    RETURN NEW;
   END IF;
 
-  SELECT business_key, document_date INTO v_existing
-    FROM document_identity_registry
-   WHERE document_type = v_type AND id = NEW.id;
-  IF FOUND THEN
-    IF v_existing.document_date IS DISTINCT FROM v_new_date THEN
-      RAISE EXCEPTION 'a % row cannot move to another %: % is the partition key (row %). Reverse it and post a new document instead.', v_type, v_date, v_date, NEW.id
-        USING ERRCODE = 'check_violation';
-    END IF;
-    IF v_existing.business_key IS DISTINCT FROM v_new_key THEN
-      RAISE EXCEPTION 'a % row cannot change its %: it is the registered business key (row %).', v_type, v_key, NEW.id
-        USING ERRCODE = 'check_violation';
-    END IF;
-    RETURN NEW;
-  END IF;
+  FOR i IN 1 .. COALESCE(array_length(v_specs, 1), 0) LOOP
+    v_parts := string_to_array(v_specs[i], ':');
+    v_role := v_parts[1];
+    v_col := v_parts[2];
+    v_ci := 'ci' = ANY (v_parts[3:]);
+    v_optional := 'optional' = ANY (v_parts[3:]);
+    v_fixed := 'fixed' = ANY (v_parts[3:]);
+    v_refuse := 'refuse' = ANY (v_parts[3:]);
 
-  INSERT INTO document_identity_registry (document_type, id, business_key, document_date)
-  VALUES (v_type, NEW.id, v_new_key, v_new_date);
+    v_new := to_jsonb(NEW) ->> v_col;
+    IF v_ci THEN v_new := lower(btrim(v_new)); END IF;
+    IF v_optional AND (v_new IS NULL OR v_new = '') THEN v_new := NULL; END IF;
+
+    IF TG_OP = 'UPDATE' THEN
+      v_old := to_jsonb(OLD) ->> v_col;
+      IF v_ci THEN v_old := lower(btrim(v_old)); END IF;
+      IF v_optional AND (v_old IS NULL OR v_old = '') THEN v_old := NULL; END IF;
+      IF v_new IS NOT DISTINCT FROM v_old THEN CONTINUE; END IF;
+      IF v_fixed THEN
+        RAISE EXCEPTION 'a % row cannot change its %: it is the registered business key (row %).', v_type, v_col, NEW.id
+          USING ERRCODE = 'check_violation';
+      END IF;
+      DELETE FROM document_identity_registry
+       WHERE document_type = v_type AND key_role = v_role AND id = NEW.id;
+      IF v_new IS NOT NULL THEN
+        INSERT INTO document_identity_registry (document_type, key_role, id, business_key, document_date)
+        VALUES (v_type, v_role, NEW.id, v_new, v_new_date)
+        ON CONFLICT (document_type, key_role, business_key) DO NOTHING;
+        IF NOT FOUND THEN
+          RAISE EXCEPTION 'duplicate key value: another % document already holds % % (row %).', v_type, v_role, v_new, NEW.id
+            USING ERRCODE = 'unique_violation';
+        END IF;
+      END IF;
+      CONTINUE;
+    END IF;
+
+    IF v_new IS NULL THEN CONTINUE; END IF;
+
+    SELECT business_key, document_date INTO v_existing
+      FROM document_identity_registry
+     WHERE document_type = v_type AND key_role = v_role AND id = NEW.id;
+    IF FOUND THEN
+      IF v_existing.business_key IS DISTINCT FROM v_new OR v_existing.document_date IS DISTINCT FROM v_new_date THEN
+        IF v_fixed THEN
+          RAISE EXCEPTION 'a % row cannot change its % or move to another %: both are registered (row %).', v_type, v_col, v_date_col, NEW.id
+            USING ERRCODE = 'check_violation';
+        END IF;
+        IF array_length(v_inserted, 1) IS NOT NULL THEN
+          DELETE FROM document_identity_registry
+           WHERE document_type = v_type AND key_role = ANY (v_inserted) AND id = NEW.id;
+        END IF;
+        RETURN NULL;
+      END IF;
+      CONTINUE;
+    END IF;
+
+    INSERT INTO document_identity_registry (document_type, key_role, id, business_key, document_date)
+    VALUES (v_type, v_role, NEW.id, v_new, v_new_date)
+    ON CONFLICT (document_type, key_role, business_key) DO NOTHING;
+    IF NOT FOUND THEN
+      IF v_refuse THEN
+        RAISE EXCEPTION 'duplicate key value: another % document already holds % % (row %).', v_type, v_role, v_new, NEW.id
+          USING ERRCODE = 'unique_violation';
+      END IF;
+      IF array_length(v_inserted, 1) IS NOT NULL THEN
+        DELETE FROM document_identity_registry
+         WHERE document_type = v_type AND key_role = ANY (v_inserted) AND id = NEW.id;
+      END IF;
+      RETURN NULL;
+    END IF;
+    v_inserted := v_inserted || v_role;
+  END LOOP;
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE TRIGGER trg_stock_operations_identity
   BEFORE INSERT OR UPDATE OR DELETE ON stock_operations
-  FOR EACH ROW EXECUTE FUNCTION enforce_document_identity('STOCK_OPERATION', 'reference_number', 'date_ad');
+  FOR EACH ROW EXECUTE FUNCTION enforce_document_identity('STOCK_OPERATION', 'date_ad', 'PRIMARY:reference_number:fixed:refuse');
+
+-- The register's three global keys. `ci` reproduces the lower(trim()) unique
+-- index comparison, `optional` reproduces its partial predicate (blank PON/MAC
+-- and a blank device serial are not governed), and no `refuse` keeps the
+-- insert-if-absent contract of the write paths (a key already held skips the
+-- row, exactly like their ON CONFLICT DO NOTHING).
+CREATE OR REPLACE TRIGGER trg_serial_log_identity
+  BEFORE INSERT OR UPDATE OR DELETE ON serial_log
+  FOR EACH ROW EXECUTE FUNCTION enforce_document_identity(
+    'SERIAL_LOG', 'created_at',
+    'SERIAL:device_serial:ci:optional',
+    'PON:pon_serial:ci:optional',
+    'MAC:mac_address:ci:optional');
 
 CREATE OR REPLACE FUNCTION sync_gl_journal_registry()
 RETURNS trigger AS $$

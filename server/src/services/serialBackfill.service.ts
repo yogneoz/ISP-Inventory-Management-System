@@ -14,6 +14,7 @@
  * legacy database runs it once and a converged one reports 0 / 0.
  */
 import { setSerialLogs } from '../state/runtimeState';
+import { ENSURE_SERIAL_LOG_PARTITION_SQL } from '../models/inventory.repo';
 
 /**
  * Minimal query surface: the boot/transaction `pg.PoolClient`, the raw
@@ -194,6 +195,9 @@ export async function backfillSerialLog(db: SerialBackfillDb): Promise<SerialBac
     if (!row) {
       const id = `sl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       try {
+        // SCALE-3: the register is partitioned by created_at; the backfill writes
+        // the source document's date, so that month's child must exist first.
+        await db.query(ENSURE_SERIAL_LOG_PARTITION_SQL, [`${c.dateAD}T00:00:00Z`]);
         await db.query(
           // Historical documents can name a product or branch that has since
           // been hard-deleted (the legacy JSON keeps ids that no longer exist).

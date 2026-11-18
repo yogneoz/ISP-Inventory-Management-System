@@ -249,11 +249,9 @@ CREATE INDEX IF NOT EXISTS idx_stock_ops_date ON stock_operations(date_ad DESC);
 CREATE INDEX IF NOT EXISTS idx_stock_operations_fiscal_year_id ON stock_operations(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_stock_operations_demo ON stock_operations(id) WHERE is_demo = TRUE;
 CREATE INDEX IF NOT EXISTS idx_stock_operations_search_trgm ON stock_operations USING gin (search_text gin_trgm_ops);
--- Same names as scripts/schema.sql (the upgrade-vs-fresh comparison is what
--- catches a renamed index).
-CREATE INDEX IF NOT EXISTS idx_stock_ops_page_all ON stock_operations (created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_stock_ops_branch_page ON stock_operations (branch_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_stock_ops_destination_page ON stock_operations (destination_warehouse_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_stock_operations_created_at ON stock_operations (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_stock_operations_branch_created_at ON stock_operations (branch_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_stock_operations_destination_created_at ON stock_operations (destination_warehouse_id, created_at DESC);
 
 CREATE OR REPLACE TRIGGER trg_stock_operations_fiscal_year
   BEFORE INSERT OR UPDATE ON stock_operations

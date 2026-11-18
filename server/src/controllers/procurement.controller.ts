@@ -53,6 +53,7 @@ import {
 import {
   SERIAL_LOG_FIND_BY_DEVICE_SQL, SERIAL_LOG_PON_OWNER_SQL, SERIAL_LOG_MAC_OWNER_SQL,
   SERIAL_LOG_INSERT_SQL, serialLogInsertParams, SERIAL_LOG_UPDATE_SQL, serialLogUpdateParams,
+  ENSURE_SERIAL_LOG_PARTITION_SQL,
   SERIAL_LOG_DELETE_BY_INVOICE_SERIALS_SQL, SERIAL_LOG_MOVED_BY_INVOICE_SERIALS_SQL,
 } from '../models/inventory.repo';
 import {
@@ -526,6 +527,9 @@ async function registerPurchaseSerials(
     const existing = await client.query(SERIAL_LOG_FIND_BY_DEVICE_SQL, [entry.deviceSerial]);
     const timestamp = new Date().toISOString();
     if (!existing.rowCount) {
+      // SCALE-3: provision the register's month before the row lands (same SQL
+      // function the boot provisioner and check:partitions use).
+      await client.query(ENSURE_SERIAL_LOG_PARTITION_SQL, [timestamp]);
       const inserted = await client.query(SERIAL_LOG_INSERT_SQL, serialLogInsertParams({
         id: `sl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         deviceSerial: entry.deviceSerial,
