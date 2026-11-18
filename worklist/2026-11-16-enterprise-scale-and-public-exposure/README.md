@@ -642,7 +642,15 @@ work is obsolete and the balance work is open.
       window to map onto a year, and an open-year delta layered on a closed
       snapshot is not wired.
 - [ ] Write-path measurement: `npm run bench:write` at 10/50 concurrent writes
-      must show scaling, not the current 0.7×.
+      must show scaling, not the current 0.7×. **Re-measured 2026-11-18 after the
+      read-model and statement work: still not scaling — one write sequential
+      12.6 ms, 10 concurrent writes 322.9 ms wall (10/10 committed, 32.3 ms
+      amortised) against a 125.9 ms queue-free equivalent, i.e. 0.4×.** The run
+      also reports Phase A: 11 catalog loads re-read after every committed write.
+      That refresh, not the ledger insert, is where the concurrency goes, so the
+      fix is a coalesced/debounced refresh (one refresh per burst, with a bound
+      on how stale a read may be) rather than a write-path rewrite — it needs its
+      own staleness tests before it ships, which is why it is still open.
 
 Acceptance: a write's p95 is independent of catalog/document count on the
 fixture; ten concurrent writes take no longer than the serial equivalent (≥ 1×
