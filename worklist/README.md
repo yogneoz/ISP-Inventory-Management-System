@@ -119,8 +119,9 @@ have passed, and the commit hash is recorded in the note.
 3. Permanent docs win. Update the code, `docs/` and SESSION_NOTES in the same
    commit; this folder only points at them.
 4. Gates before done: `npx tsc --noEmit`, the item's tests, the full `npm test`
-   at round close, `check:no-inline-sql`, `check:no-raw-dialogs`, and
-   `check:bundle-budget` when client code changed.
+   at round close, `check:no-inline-sql`, `check:no-raw-dialogs`,
+   `check:branch-predicates`, and `check:bundle-budget` when client code
+   changed.
 5. Do not reopen a parked item without its recorded trigger. Add new evidence
    to [parked.md](parked.md) first.
 6. Keep SESSION_NOTES to a short outcome plus a link. If the detail matters,

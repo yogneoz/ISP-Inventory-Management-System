@@ -64,6 +64,19 @@ grep instances ecosystem.config.js                   -> line 12: instances: 'max
   and external tables keep their FKs through `gl_journals_registry` /
   `gl_journal_line_registry`. Monthly children carry their own indexes (created
   through the parent, so the definition cannot drift).
+- **Branch predicates are now enforced for writes.** `npm run
+  check:branch-predicates` (`scripts/check_branch_predicates.ts`, 2026-11-18)
+  scans every SQL literal under `server/src` and fails CI when a mutation
+  (`INSERT`/`UPDATE`/`DELETE`) against a branch-scoped partitioned table names
+  neither `branch_id` nor a single-row key (`id`, the domain's natural key, or
+  the originating `source_id`). Scope comes from `scripts/schema.sql` — any
+  `PARTITION BY RANGE` table with a `branch_id` — so 8 tables are covered today
+  and a new one is covered on the day it is added. Three statements in the tree
+  are genuinely branch-agnostic: two boot-repair staging `INSERT`s carry a
+  recorded exemption with the reason, a third is `source_id`-scoped. Nine tests
+  pin both directions; `SELECT`s are deliberately out of scope (the repository
+  layer scopes reads through the session, and this is a review checklist, not a
+  runtime substitute).
 - **Scope guards instead of scans.** Every large read names a branch, a bounded
   date range or one customer; an unscoped read is `400 SCOPE_REQUIRED`
   (SCALE-2). This is the single biggest reason the billion-row tables are

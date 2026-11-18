@@ -30,6 +30,10 @@ jobs:
       # from creeping back in (see scripts/check_no_raw_dialogs.ts).
       - name: Enforce dialog convention (no native alert/confirm/prompt in client)
         run: npm run check:no-raw-dialogs
+      # SCALE-3: a mutation on a branch-scoped partitioned table must name the
+      # branch (or address one row by its key); see scripts/check_branch_predicates.ts.
+      - name: Enforce branch predicates on the partitioned tables
+        run: npm run check:branch-predicates
       # npm audit exits non-zero when vulnerabilities are found; gating on
       # --omit=dev covers the deployable dependency surface (dev tooling
       # advisories are surfaced in local audits but do not block the build).

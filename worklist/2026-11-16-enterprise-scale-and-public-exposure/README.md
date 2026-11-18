@@ -542,10 +542,31 @@ Audit:
       value, run a write-then-read through the pool and confirm the row is
       visible, and confirm a `SET` issued on one pooled client is not visible to
       the next.
-- [ ] Tenant/branch isolation at scale: every repository query already takes
-      the session scope; add a CI guard that greps new SQL on the partitioned
-      tables for a `branch_id` predicate (the review checklist, not a runtime
-      substitute).
+- [x] Tenant/branch isolation at scale: `npm run check:branch-predicates`
+      (`scripts/check_branch_predicates.ts`) scans every SQL literal under
+      `server/src`, and for each **mutation** (`INSERT`/`UPDATE`/`DELETE`)
+      against a branch-scoped partitioned table requires either a `branch_id`
+      predicate or a single-row key (`id`, the domain's unique natural key, or
+      the originating `source_id`) — the shape that cannot sweep every branch at
+      once. The table list is **derived from `scripts/schema.sql`** (every table
+      that is `PARTITION BY RANGE` and has a `branch_id`), so a new partitioned
+      table is in scope the moment it is added; today that is 8 tables
+      (`audit_logs`, `gl_journal_lines`, `gl_journals`, `gl_subledger_entries`,
+      `sales_invoices`, `serial_log`, `stock_operations`, `transaction_logs`).
+      Measured against the existing code: 3 statements were genuinely
+      branch-agnostic; the two boot-repair staging `INSERT`s are recorded in
+      `BRANCH_PREDICATE_EXEMPTIONS` with the reason (they move rows out of the
+      DEFAULT partition on a single-tenant install and must not filter by
+      branch), and the third turned out to be a `source_id`-scoped restore, which
+      the guard now accepts as a row key. Wired into `check:branch-predicates`,
+      `scripts/ci_local.mjs` and the `static-checks` CI job. Tests:
+      `tests/branchPredicates.guard.test.ts` (9) cover both directions — a
+      status-only `UPDATE` without a branch is rejected, every legitimate key
+      form is accepted, comments and reads are out of scope, a multi-line
+      template is judged whole, an exemption only applies to its own file, and
+      the real project scan is clean. Not a runtime substitute: the repository
+      layer still scopes reads through the session, and a `SELECT` is out of the
+      guard's scope by design.
 
 Acceptance: `EXPLAIN` prunes to one partition for a one-month trial balance;
 provisioning creates 12 months of children idempotently and a second run is a

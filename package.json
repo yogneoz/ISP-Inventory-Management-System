@@ -26,6 +26,7 @@
     "test": "tsc --noEmit && node scripts/run_tests.mjs",
     "check:no-inline-sql": "tsx scripts/check_no_inline_sql.ts",
     "check:no-raw-dialogs": "tsx scripts/check_no_raw_dialogs.ts",
+    "check:branch-predicates": "tsx scripts/check_branch_predicates.ts",
     "check:bundle-budget": "node scripts/check_bundle_budget.mjs",
     "ci:local": "node scripts/ci_local.mjs",
     "check:boot-timing": "node scripts/check_boot_timing.mjs",
