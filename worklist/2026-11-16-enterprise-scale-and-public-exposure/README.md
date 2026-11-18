@@ -505,43 +505,34 @@ Audit:
       the demo cannot stream from the application database itself — the script
       carries its own clusters, and a real standby of the app database remains an
       operator decision.
-- [ ] PgBouncer transaction-mode audit — **code side done 2026-11-18, blocked
-      on a PgBouncer binary for the live `pool_mode=transaction` proof.** What
-      was session state, and what happened to it: (a) `statement_timeout` was sent in the client's startup
-      packet, which a transaction-mode pooler does not replay onto the reused
-      server connection; it is now applied to the **role**
-      (`server/src/db/statementTimeout.ts`, called from boot with
-      `ALTER ROLE … SET statement_timeout`, idempotent by comparing the role's
-      configured value as an interval, `0` still meaning disabled) and the pool
-      carries no `statement_timeout`/`options` at all; (b) two boot repair paths
-      created `TEMP` tables without `ON COMMIT DROP`, so they could outlive their
-      transaction on a pooled backend — both are now `ON COMMIT DROP` (the log
-      repair already was); (c) the ledger purge switch was already
-      `SET LOCAL` / `set_config(…, true)`, i.e. transaction-scoped, and stays;
-      (d) no session advisory lock, `LISTEN` or `PREPARE` exists in the request
-      path (`pg_advisory_xact_lock` only). Residual risk: the role setting only
-      takes effect for connections opened after boot, and a non-superuser role
-      without ALTER ROLE privilege logs a warning instead of applying it (the
-      timeout then depends on the operator's server configuration). Read-your-own
-      -writes across connection swaps is already enforced by the read router
-      (a request that has written is pinned to the primary), so a pooled request
-      cannot silently read a backend that has not seen its write. Verified live on
-      PostgreSQL for the role setting: applying `12,345ms` to the role makes a
-      **brand-new** connection report `12345ms`, the second call is a no-op, and
-      the previous value is restored. Tests: `tests/pgbouncerReadiness.test.ts`
-      (5) fail if the startup parameter returns, if a session-scoped `SET` /
-      session lock / `LISTEN` / `PREPARE` appears in the request path, or if a
-      temp table loses `ON COMMIT DROP`. **Blocker for the remaining half:** the
-      `pool_mode=transaction` run needs PgBouncer on this host — it is not
-      installed, there is no chocolatey/winget/scoop package for it, no Docker or
-      WSL, and no Windows compiler, so the only route is the operator installing
-      EDB's PgBouncer for Windows (or dropping a `pgbouncer.exe` + `pgbevent.dll`
-      build somewhere on PATH). Once present, the verification is a scripted
-      run: start PgBouncer with `pool_mode=transaction` against the dev database,
-      assert `SHOW statement_timeout` on a fresh pooled connection shows the role
-      value, run a write-then-read through the pool and confirm the row is
-      visible, and confirm a `SET` issued on one pooled client is not visible to
-      the next.
+- [x] PgBouncer transaction-mode audit — **proven against a real PgBouncer
+      1.26.1 with `pool_mode=transaction`** (`npm run verify:pgbouncer`,
+      `scripts/verify_pgbouncer_pooling.ts`, which provisions its own config and
+      userlist in the OS temp directory and starts/stops the pooler itself).
+      What was session state and where it went: (a) `statement_timeout` rode in
+      the client startup packet, which a transaction-mode pooler never replays;
+      it is now applied to the **role** at boot (`server/src/db/statementTimeout.ts`)
+      and the pool carries neither `statement_timeout` nor `options`; (b) two boot
+      repair paths created `TEMP` tables without `ON COMMIT DROP` — both now drop
+      at commit; (c) the ledger purge switch was already `SET LOCAL` /
+      `set_config(…, true)`; (d) the request path has no session advisory lock,
+      `LISTEN` or `PREPARE`. Live results through the pooler: a pooled connection
+      reports the role's `1s` timeout; `SELECT pg_sleep(5)` is cancelled at
+      **1,016 ms with SQLSTATE 57014**; a bare `SET statement_timeout` is
+      discarded by the pooler before the next statement while `SET LOCAL` inside
+      a transaction applies and then disappears; a committed write is visible on
+      a different pooled backend and a rolled-back one is visible nowhere —
+      **5/5 scenarios**. Two findings the demo produced, both now recorded
+      requirements: PgBouncer on Windows cannot resolve `localhost` for its
+      server entry (the config pins `127.0.0.1`), and with the default
+      `server_reset_query_always = 0` a client's session `SET` **leaks to the
+      next client** — the deployment must set `server_reset_query_always = 1`
+      (the script's config does, and the scenario fails without it). Residual
+      risk: the role setting only reaches connections opened after the ALTER, and
+      a role without `ALTER ROLE` privilege logs a warning at boot instead of
+      applying it. Guards: `tests/pgbouncerReadiness.test.ts` (5) fail if the
+      startup parameter, a session-scoped `SET`/session lock/`LISTEN`/`PREPARE`,
+      or a non-transactional temp table returns.
 - [x] Tenant/branch isolation at scale: `npm run check:branch-predicates`
       (`scripts/check_branch_predicates.ts`) scans every SQL literal under
       `server/src`, and for each **mutation** (`INSERT`/`UPDATE`/`DELETE`)
@@ -601,14 +592,47 @@ work is obsolete and the balance work is open.
       **Done 2026-11-17** — `tests/sharedState.test.ts` (a write on A moves B's
       validator; single worker still invalidates itself; a dead store falls
       back), with `tests/bootstrapEtag.test.ts` unchanged and green.
-- [ ] Pre-aggregate stock: `branch_stock_balances(branch_id, product_id,
-      quantity, value, updated_at)` maintained in the same transaction as the
-      stock movement (or by a trigger), with a rebuild command. Stock-on-hand
-      and the shell badges read it; the append-only ledger remains the audit
-      source.
-- [ ] Trial balance reads `fiscal_year_balances` for closed years and the
-      summary/delta path for the open year; the P&L and balance sheet reuse the
-      same producer. No statement scans the full line table.
+- [x] Pre-aggregate stock: `branch_stock_balances(branch_id, product_id,
+      quantity, value, updated_at)` (migration `0041_read_models.sql`, mirrored
+      in `schema.sql`) is maintained by an `AFTER INSERT` trigger on
+      `transaction_logs` — the append-only quantity ledger — so it is updated in
+      the writer's own transaction: a rollback removes the ledger row and the
+      model change together. The apply is monotonic on `(source_timestamp,
+      source_txn_id)`, so a late backdated row cannot overwrite a newer position.
+      When the apply fails (locked row, maintenance window, constraint) the
+      trigger catches the error and writes the same payload to
+      `read_model_outbox` — durable, replayable, and observable with
+      `npm run read-models:pending` (exit 1 while work is pending);
+      `npm run read-models:flush` replays it through the same function and
+      reports applied/failed/remaining. `npm run read-models:rebuild -- --stock
+      --verify` truncates and recomputes from the ledger, then compares every
+      column byte for byte — measured on the dev database: **80 rows rebuilt,
+      identical**; on a throwaway database the trigger-maintained table and the
+      rebuild are identical including `updated_at` (which carries the ledger
+      row's timestamp in both paths), a rolled-back write leaves no phantom, a
+      row locked by another transaction is queued (pending = 1 while the model is
+      one position behind) and replays to the committed value, and a truncated
+      model rebuilds to exactly the ledger-derived rows. Tests:
+      `tests/readModels.test.ts` (9). Stock-on-hand and the shell badges are not
+      yet switched onto the new read SQL (`BRANCH_STOCK_BALANCES_SQL` /
+      `BRANCH_STOCK_VALUE_SQL` are ready and branch-scoped) — the model is
+      maintained and verified, the screen cutover is a separate change.
+- [~] Trial balance reads `fiscal_year_balances` for closed years and the
+      summary/delta path for the open year. **Partially done 2026-11-18:** the
+      closed-year snapshot can now be rebuilt from the ledger
+      (`rebuild_fiscal_year_balances(fiscal_year_id)`, in `0041_read_models.sql`),
+      reproducing the close-time definition — cumulative posted position through
+      the year end excluding that year's own closing journal, plus that closing
+      journal's effect — with the immutability trigger honoured through the
+      documented transaction-local purge switch. Proven on a hand-computed
+      fixture (three accounts, one ordinary journal and one closing journal):
+      the rebuilt rows equal the expected pre-close / close / post-close figures
+      exactly, a second rebuild is identical, and a queued recompute replays
+      through `read-models:flush` (model `fiscal_year_balances`). **Still open:**
+      the statement endpoints themselves (`TRIAL_BALANCE_ACCOUNT_LINES_SQL`,
+      P&L, balance sheet) still scan `gl_journal_lines`; switching a closed year
+      onto the snapshot plus an open-year delta is untouched, and stays open
+      until it can be measured against the statement test suite.
 - [ ] Write-path measurement: `npm run bench:write` at 10/50 concurrent writes
       must show scaling, not the current 0.7×.
 

@@ -313,7 +313,7 @@ the operator has rehearsed detach + archive on a restored copy.
 
 ### PgBouncer and replica routing — SCALE-3, infrastructure
 
-> **Update 2026-11-18 — the replica half shipped; PgBouncer remains open.**
+> **Update 2026-11-18 — both halves shipped; PgBouncer is proven live.**
 > `DATABASE_WRITE_URL` / `DATABASE_READ_URL` now drive two pools and
 > `server/src/db/readRouting.ts` guards the read path: a replica-eligible
 > reporting read is served by the replica only while pending-WAL lag is within
@@ -322,8 +322,14 @@ the operator has rehearsed detach + archive on a restored copy.
 > read is served by the primary and the replica is skipped for
 > `REPLICA_COOLDOWN_MS`. Proven against a real streaming standby by
 > `scripts/verify_read_routing.ts` (5/5 scenarios, lag measured 1,674 ms >
-> 1,500 ms before the fallback). The PgBouncer work below is unchanged and still
-> owns transaction pooling.
+> 1,500 ms before the fallback). The PgBouncer half is now proven too:
+> `npm run verify:pgbouncer` (`scripts/verify_pgbouncer_pooling.ts`) provisions
+> its own PgBouncer 1.26.1 config and starts `/stops` the pooler on
+> `127.0.0.1:56432` with `pool_mode=transaction`; 5/5 scenarios pass — the role
+> `statement_timeout` reaches a pooled connection, `pg_sleep(5)` is cancelled at
+> 1,016 ms with SQLSTATE 57014, a bare session `SET` is discarded while
+> `SET LOCAL` applies only inside its transaction, and a committed write is
+> visible on a second pooled backend while a rolled-back one is not.
 
 - The pool ceiling is real: `PG_POOL_MAX=40` × `instances: 'max'`. With a
   default `max_connections` of 100, a handful of workers exhausts the server.
@@ -340,13 +346,52 @@ the operator has rehearsed detach + archive on a restored copy.
   outlive its transaction on a backend the pooler reuses. The ledger purge
   switch was already transaction-scoped (`SET LOCAL` / `set_config(…, true)`),
   and the request path has no session advisory lock, `LISTEN` or `PREPARE`.
-- **Blocked, not done:** the `pool_mode=transaction` run itself. PgBouncer is not
-  installed on this host and cannot be provisioned here (no chocolatey, winget
-  or scoop package; no Docker, WSL or Windows compiler), so the live proof needs
-  the operator to install EDB PgBouncer for Windows or place `pgbouncer.exe` on
-  PATH. The unit/integration guards that would fail on a regression are in place
-  (`tests/pgbouncerReadiness.test.ts`).
-- The audit found no session-level `SET`, temporary table or session advisory
+- **Done, 2026-11-18 — the live `pool_mode=transaction` run.** The proof above
+  found two deployment requirements: PgBouncer on Windows could not resolve
+  `localhost` for its server entry (pin `127.0.0.1`), and with the default
+  `server_reset_query_always = 0` a client's session `SET` leaks to the next
+  client that borrows the server connection — set
+  `server_reset_query_always = 1` (with `server_reset_query = DISCARD ALL`).
+  Residual risk after both: the role setting only reaches connections opened
+  after the ALTER, and a role without ALTER ROLE privilege logs a warning at
+  boot. Guards: `tests/pgbouncerReadiness.test.ts` (5) fail if the startup
+  parameter, a session-scoped `SET`/session lock/`LISTEN`/`PREPARE`, or a
+  non-transactional temp table returns.
+
+### Pre-aggregated read models — SCALE-3
+
+`branch_stock_balances` (migration `0041_read_models.sql`, mirrored in
+`schema.sql`) is the on-hand position per `(branch, product)`, maintained by an
+`AFTER INSERT` trigger on `transaction_logs`:
+
+- **Same transaction, no phantom.** The ledger row and the model change commit
+  or roll back together; a rolled-back write leaves the model exactly as it was
+  (tested).
+- **Monotonic.** The apply wins only when `(source_timestamp, source_txn_id)` is
+  greater than the stored one, so a late backdated import cannot overwrite a
+  newer position. The rebuild uses the same ordering, which is why the two are
+  identical including `updated_at` (the ledger row's own timestamp in both
+  paths).
+- **Lagging writes are queued, not dropped.** If the apply raises (locked row,
+  maintenance, constraint), the trigger's exception handler writes the payload
+  to `read_model_outbox`. `npm run read-models:pending` prints the pending count,
+  the oldest entry and the max attempts and exits 1 while work is pending;
+  `npm run read-models:flush` replays it through the same function and reports
+  applied/failed/remaining.
+- **Rebuild is demonstrable.** `npm run read-models:rebuild -- --stock --verify`
+  snapshots, rebuilds from the ledger, and compares every column; on the dev
+  database 80 rows came back identical.
+- **Closed years.** `rebuild_fiscal_year_balances(fy)` recomputes
+  `fiscal_year_balances` from the ledger with the close's own definition
+  (cumulative posted position through the year end excluding that year's closing
+  journal, plus the closing journal's effect), honouring the immutability trigger
+  through the documented transaction-local purge switch. A queued recompute
+  replays through the same flush.
+- **Not done:** the statement endpoints still scan `gl_journal_lines`; reading a
+  closed year from the snapshot plus an open-year delta is open (recorded in the
+  worklist), as is pointing the stock-on-hand screens at
+  `BRANCH_STOCK_BALANCES_SQL` / `BRANCH_STOCK_VALUE_SQL`.
+
   lock in the request path (every advisory lock used is `pg_advisory_xact_lock`,
   which releases at commit and is therefore transaction-scoped — the one
   `set_config(..., true)` in the purge path is also local to its transaction).

@@ -162,6 +162,11 @@ export const BRANCH_SCOPE_EXEMPTIONS: readonly BranchScopeExemption[] = [
       "Year-end close snapshots are addressed by fiscal year, never by a row id: GET /api/accounting/fiscal-years/:id/balances resolves the caller's branch scope in accounting.controller and applies it in SQL. No /fiscal-year-balances/:id route exists, so the by-id guard does not apply.",
   },
   {
+    table: 'branch_stock_balances',
+    reason:
+      'Pre-aggregated stock positions (SCALE-3 read model): one row per branch and product, maintained by the transaction-log trigger and read only through branch-scoped SQL (BRANCH_STOCK_BALANCES_SQL / BRANCH_STOCK_VALUE_SQL in readModels.repo). There is no row-id route and no client-supplied branch, so the by-id guard has nothing to address.',
+  },
+  {
     table: 'fiscal_year_opening_stock',
     reason:
       "Batch fiscal-year register (product × branch): the GET filters and the PUT refuses rows outside the actor's allowed branches in fiscal.routes.ts. The path id is the fiscal year, not a row id, so the by-id lookup does not apply.",
