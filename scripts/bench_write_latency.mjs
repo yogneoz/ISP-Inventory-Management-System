@@ -61,10 +61,14 @@ const fmt = (v) => (Number.isFinite(v) ? v.toFixed(1) : 'n/a');
 
 function phaseA(db) {
   const names = extractCacheLoadNames();
-  console.log(`Phase A — cache-refresh inventory: ${names.length} loads re-read after every committed write`);
+  // OPS-2 deleted cacheRefreshHook, so this list is hydrated at boot only: no
+  // committed write re-reads it. The inventory is printed for context, and any
+  // cache-refresh phase that did run would surface as a Server-Timing header on
+  // the response — Phase C counts those instead of assuming none.
+  console.log(`Phase A — catalog loads: ${names.length} reference tables hydrated at boot`);
   console.log(`  ${names.join(', ')}`);
   if (names.length < 20) console.warn(`  ⚠ only ${names.length} CACHE_LOADS entries found — the list may have moved again`);
-  console.log('  (per-load timings are measured live in Phase B via the refresh hook header)');
+  console.log('  (the write path performs no post-write reload; Phase C measures it directly)');
   return { loads: names.map((name) => ({ name })), fanout: null };
 }
 
@@ -89,7 +93,9 @@ async function phaseC() {
     address: TAG,
   }, token);
 
-  // Warm-up + sequential baseline of 3 writes.
+  // Warm-up: one single write, then one full burst. Only a cold connection pool
+  // and cold JIT are taken out of the measurement, and every measured burst is
+  // printed below — the median is the reported number, not a selected one.
   await make('warm');
   const seq = [];
   for (let i = 0; i < 3; i++) {
@@ -98,23 +104,38 @@ async function phaseC() {
     if (r.status < 400) seq.push(performance.now() - t0);
   }
   const sequentialMs = median(seq);
+  await Promise.all(Array.from({ length: C }, (_, i) => make(`pre${i}`)));
 
-  const startedAt = performance.now();
-  const burst = await Promise.all(Array.from({ length: C }, (_, i) => make(i)));
-  const wallMs = performance.now() - startedAt;
-
-  const okCount = burst.filter((r) => r.status < 400).length;
-  const refreshes = burst.filter((r) => r.status < 400 && r.refreshMs != null).map((r) => r.refreshMs);
-
-  console.log(`\nPhase C — ${C} concurrent writes (all against one process)`);
-  console.log(`  one write, sequential:            ${fmt(sequentialMs)} ms`);
-  console.log(`  ${C} writes, concurrent wall clock:   ${fmt(wallMs)} ms  (${okCount}/${C} committed)`);
-  console.log(`  amortised per write:              ${fmt(wallMs / Math.max(1, okCount))} ms`);
-  console.log(`  queue-free equivalent (C × sequential, old chain): ${fmt(sequentialMs * C)} ms`);
-  if (refreshes.length) {
-    console.log(`  refresh per response: median ${fmt(median(refreshes))} ms, p95 ${fmt(pct(refreshes, 95))} ms`);
+  const bursts = [];
+  let okCount = 0;
+  let refreshCount = 0;
+  const refreshMs = [];
+  for (let b = 0; b < 3; b++) {
+    const startedAt = performance.now();
+    const burst = await Promise.all(Array.from({ length: C }, (_, i) => make(`${b}-${i}`)));
+    bursts.push(performance.now() - startedAt);
+    for (const r of burst) {
+      if (r.status < 400) okCount += 1;
+      if (r.refreshMs != null) {
+        refreshCount += 1;
+        refreshMs.push(r.refreshMs);
+      }
+    }
   }
-  return { sequentialMs, wallMs, okCount, C };
+  const attempts = C * 3;
+  const wallMs = median(bursts);
+
+  console.log(`\nPhase C — ${C} concurrent writes (all against one process, 3 measured bursts)`);
+  console.log(`  one write, sequential:            ${fmt(sequentialMs)} ms`);
+  console.log(`  ${C} writes, wall clock per burst:    ${bursts.map(fmt).join(' / ')} ms (median ${fmt(wallMs)} ms)`);
+  console.log(`  amortised per write (median):      ${fmt(wallMs / C)} ms`);
+  console.log(`  committed:                         ${okCount}/${attempts}`);
+  console.log(`  responses carrying a cache-refresh phase: ${refreshCount} of ${attempts}`);
+  if (refreshMs.length) {
+    console.log(`  refresh per response: median ${fmt(median(refreshMs))} ms, p95 ${fmt(pct(refreshMs, 95))} ms`);
+  }
+  console.log(`  queue-free equivalent (${C} × one sequential write): ${fmt(sequentialMs * C)} ms`);
+  return { sequentialMs, wallMs, okCount, attempts, C, bursts, refreshCount };
 }
 
 // ---------------------------------------------------------------------------
@@ -326,7 +347,7 @@ async function main() {
     if (a && a.fanout != null) console.log(`Full refresh fan-out standalone: ${fmt(a.fanout)} ms.`);
     if (c) {
       const speedup = c.sequentialMs > 0 ? (c.sequentialMs * c.C) / Math.max(1, c.wallMs) : NaN;
-      console.log(`${c.C} concurrent writes: ${fmt(c.wallMs)} ms wall vs ${fmt(c.sequentialMs * c.C)} ms queued one-pass-each (${Number.isFinite(speedup) ? speedup.toFixed(1) : 'n/a'}×).`);
+      console.log(`${c.C} concurrent writes: ${fmt(c.wallMs)} ms wall (median of ${c.bursts.length}) vs ${fmt(c.sequentialMs * c.C)} ms queued one-pass-each (${Number.isFinite(speedup) ? speedup.toFixed(1) : 'n/a'}×), ${c.okCount}/${c.attempts} committed, ${c.refreshCount} cache-refresh phases.`);
     }
   }
   await db?.end().catch(() => {});

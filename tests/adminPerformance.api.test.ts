@@ -105,4 +105,58 @@ describe('GET /api/admin/performance — authenticated metrics', { skip: skipNoD
     const result = await get();
     assert.equal(result.status, 401);
   });
+
+  test('a committed catalog write is visible to the next read with no cache reload', async () => {
+    // The throughput guarantee is that a write does NOT re-read the reference
+    // catalog, and the freshness guarantee is that the worker which took the
+    // write serves it immediately (staleness bound 0). Both are asserted here,
+    // on the same burst, so neither can regress silently.
+    const token = issueAuthToken(ADMIN);
+    const names = Array.from({ length: 10 }, (_, i) => `PERF fresh ${Date.now()}-${i}`);
+    const writes = await Promise.all(
+      names.map((name) =>
+        fetch(`http://127.0.0.1:${port}/api/locations`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ name, type: 'STORE', branchId: 'WH001', address: 'PERF' }),
+        }).then(async (response) => ({
+          status: response.status,
+          timing: response.headers.get('server-timing') || '',
+          body: await response.json().catch(() => null),
+        }))
+      )
+    );
+    for (const write of writes) {
+      assert.equal(write.status, 201, `write rejected: ${JSON.stringify(write.body)}`);
+      assert.ok(
+        !/cache-refresh/.test(write.timing),
+        'the write path ran a catalog cache refresh'
+      );
+    }
+
+    const list = (await fetch(`http://127.0.0.1:${port}/api/locations?branchId=WH001`, {
+      headers: { Authorization: `Bearer ${token}` },
+    }).then((response) => response.json())) as any[];
+    const present = new Set(list.map((row) => String(row.name)));
+    for (const name of names) {
+      assert.ok(present.has(name), `${name} was not visible after its commit`);
+    }
+
+    const metrics = await get(token);
+    assert.equal(
+      metrics.body.cacheRefresh.passes,
+      0,
+      'a committed write re-ran the reference-catalog fan-out'
+    );
+
+    for (const write of writes) {
+      const id = (write.body as any)?.id;
+      if (id) {
+        await fetch(`http://127.0.0.1:${port}/api/locations/${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      }
+    }
+  });
 });

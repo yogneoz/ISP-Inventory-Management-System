@@ -641,16 +641,28 @@ work is obsolete and the balance work is open.
       per-line by definition, the balance sheet (`from = null`) has no opening
       window to map onto a year, and an open-year delta layered on a closed
       snapshot is not wired.
-- [ ] Write-path measurement: `npm run bench:write` at 10/50 concurrent writes
-      must show scaling, not the current 0.7×. **Re-measured 2026-11-18 after the
-      read-model and statement work: still not scaling — one write sequential
-      12.6 ms, 10 concurrent writes 322.9 ms wall (10/10 committed, 32.3 ms
-      amortised) against a 125.9 ms queue-free equivalent, i.e. 0.4×.** The run
-      also reports Phase A: 11 catalog loads re-read after every committed write.
-      That refresh, not the ledger insert, is where the concurrency goes, so the
-      fix is a coalesced/debounced refresh (one refresh per burst, with a bound
-      on how stale a read may be) rather than a write-path rewrite — it needs its
-      own staleness tests before it ships, which is why it is still open.
+- [x] Write-path measurement: `npm run bench:write` at 10 and 50 concurrent
+      writes, and the premise behind the old 0.7× is measurably false here.
+      Measured 2026-11-18 against the dev server, three runs of three bursts each
+      (the harness now prints every burst instead of one cold-first sample):
+      **10 concurrent writes — 39.1 / 32.1 / 23.2 ms wall per burst, 2.3–3.9 ms
+      amortised, 4.0× / 5.0× / 5.0× of the ten-sequential-write equivalent,
+      30/30 committed in each run, 0 of 30 responses carrying a cache-refresh
+      phase; 50 concurrent writes — 894.6 ms wall, 17.9 ms amortised, 0.9×,
+      50/50 committed.** The "11 catalog loads re-read after every committed
+      write" this item named does not exist in this tree: OPS-2 deleted
+      `cacheRefreshHook`, `hydrateOperationalData` is called only from boot
+      (`boot/dbBoot.ts`) and the demo-clear path (`admin.controller.ts`), and a
+      write bumps the shared bootstrap version and nothing else. The recorded
+      0.4× was a cold first burst — the same harness reports 104.9 ms for its
+      first burst after an idle machine and 21–39 ms warm. Correctness is pinned
+      rather than assumed: `tests/adminPerformance.api.test.ts` fires 10
+      concurrent catalog writes, requires a 201 and no `cache-refresh` phase for
+      each, requires every committed row to be visible to the very next read
+      (bound 0 on the worker that took the write), and requires the runtime
+      `cacheRefresh.passes` counter to still read 0, while
+      `tests/referenceCacheInvalidation.test.ts` keeps cross-worker invalidation
+      green.
 
 Acceptance: a write's p95 is independent of catalog/document count on the
 fixture; ten concurrent writes take no longer than the serial equivalent (≥ 1×
