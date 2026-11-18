@@ -662,7 +662,10 @@ work is obsolete and the balance work is open.
       (bound 0 on the worker that took the write), and requires the runtime
       `cacheRefresh.passes` counter to still read 0, while
       `tests/referenceCacheInvalidation.test.ts` keeps cross-worker invalidation
-      green.
+      green. That path is also proven against a real Redis server
+      across two processes: `npm run verify:redis-invalidation` (worker B
+      subscribes, worker A writes and publishes, B reloads from PostgreSQL and
+      sees the row).
 
 Acceptance: a write's p95 is independent of catalog/document count on the
 fixture; ten concurrent writes take no longer than the serial equivalent (≥ 1×

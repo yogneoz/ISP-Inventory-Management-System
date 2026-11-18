@@ -527,6 +527,7 @@ docker run -d \
 | **Branch-Predicate Guard (partitioned tables)** | `npm run check:branch-predicates` |
 | **Read-Model Queue (pending / replay / rebuild + verify)** | `npm run read-models:pending` · `npm run read-models:flush` · `npm run read-models:rebuild -- --stock --verify` |
 | **PgBouncer transaction-mode Proof** *(needs PgBouncer; `PGBOUNCER_BIN` overrides the default path)* | `npm run verify:pgbouncer` |
+| **Redis cross-worker invalidation Proof** *(needs a live Redis at `REDIS_URL`; runs one worker per process)* | `npm run verify:redis-invalidation` |
 | **Production Build** | `npm run build` |
 | **Start Production Server** | `npm start` |
 | **Automated DB Setup (Node)** | `npm run setup:pg -- --force` *(after a verified backup; add `--skip-backup-check` only for a disposable database)* |
