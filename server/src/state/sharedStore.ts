@@ -270,8 +270,21 @@ class RedisSharedStore implements SharedStore {
 
   async rateRevoke(key: string, member?: string): Promise<void> {
     const bucketed = rateKeySet(key);
-    if (member) await this.client().zRem(bucketed, member);
-    else await this.client().zPopMax(bucketed);
+    if (member) {
+      await this.client().zRem(bucketed, member);
+      return;
+    }
+    try {
+      await this.client().zPopMax(bucketed);
+    } catch (err: any) {
+      // ZPOPMAX arrived in Redis 5; older servers (the Windows 3.x port is one)
+      // answer "unknown command". Popping the newest member is exactly
+      // ZREVRANGE 0 0 followed by ZREM, so the revoke stays correct there
+      // instead of failing on every attempt.
+      if (!/unknown command/i.test(String(err?.message || err))) throw err;
+      const newest = await this.client().zRange(bucketed, -1, -1);
+      if (newest.length > 0) await this.client().zRem(bucketed, newest[0]);
+    }
   }
 
   async rateList(now: number, windowMs: number, limit: number): Promise<Array<{ key: string; count: number; limit: number; retryAfterMs: number }>> {

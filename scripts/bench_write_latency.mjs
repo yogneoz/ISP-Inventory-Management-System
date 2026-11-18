@@ -81,11 +81,8 @@ function phaseA(db) {
  * sequential cost of one write and then the wall clock of C concurrent writes,
  * which is the number that decides throughput.
  */
-async function phaseC() {
+async function phaseC(token) {
   const C = Math.max(2, Number(process.env.C || 10));
-  const login = await req('POST', '/api/auth/login', { email: EMAIL, password: PASSWORD });
-  if (login.status !== 200 || !login.data?.token) throw new Error(`login failed (${login.status})`);
-  const token = login.data.token;
   const make = (i) => req('POST', '/api/locations', {
     name: `${TAG} conc ${Date.now()}-${i}`,
     type: 'STORE',
@@ -156,10 +153,7 @@ async function req(method, path, body, token) {
   return { status: res.status, data, refreshMs: mm ? Number(mm[1]) : null };
 }
 
-async function phaseB() {
-  const login = await req('POST', '/api/auth/login', { email: EMAIL, password: PASSWORD });
-  if (login.status !== 200 || !login.data?.token) throw new Error(`login failed (${login.status}) — start the server or fix credentials`);
-  const token = login.data.token;
+async function phaseB(token) {
   const today = new Date().toISOString().split('T')[0];
 
   // Fixtures (created outside the measured loop).
@@ -324,8 +318,15 @@ async function main() {
 
   let a = null;
   if (db) a = await phaseA(db);
-  const b = await phaseB();
-  const c = await phaseC();
+  // One login for the whole run: a per-phase login tripped the auth rate limit
+  // (429) on repeated runs, which measures the limiter rather than the writes.
+  const login = await req('POST', '/api/auth/login', { email: EMAIL, password: PASSWORD });
+  if (login.status !== 200 || !login.data?.token) {
+    throw new Error(`login failed (${login.status}) — start the server or fix credentials`);
+  }
+  const token = login.data.token;
+  const b = await phaseB(token);
+  const c = await phaseC(token);
 
   if (db) {
     const dels = [

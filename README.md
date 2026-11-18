@@ -537,7 +537,7 @@ docker run -d \
 | **API Smoke Test** *(server must be running)* | `npm run smoke` |
 | **Production Boot Timing** *(after `npm run build`; needs Chrome + demo DB)* | `npm run check:boot-timing` |
 | **Bootstrap Payload Measurement** *(server must be running)* | `npm run measure:bootstrap` |
-| **Write-Latency Benchmark** *(server must be running)* | `npm run bench:write` |
+| **Write-Latency Benchmark** *(server must be running; `BASE_URL` and `C` select the target and concurrency, e.g. `BASE_URL=http://localhost:3100 C=50 npm run bench:write`)* | `npm run bench:write` |
 | **Full Reset & Verification Seed** | `npm run seed:verify` |
 | **PM2 Process Status** | `pm2 status` |
 | **View Server Logs** | `pm2 logs enterprise-erp` |
@@ -639,7 +639,15 @@ so a page does not sort a branch's whole history.
 
 The PostgreSQL pool defaults to **40** connections (`PG_POOL_MAX`) instead of
 20, which keeps ordinary reads moving behind long report queries on a
-single-instance deployment. `PG_STATEMENT_TIMEOUT_MS` (default 30,000; `0`
+single-instance deployment. Boot opens the pool up front (`warmDatabasePool`,
+one line in the boot log) and raises the pool's `min` to that size, so
+`idleTimeoutMillis` cannot shrink it back, because client setup — TCP, SCRAM,
+session — was what a cold concurrent burst actually paid for. A PgBouncer in
+`pool_mode=transaction` in front is supported as `DATABASE_URL`: the statement
+timeout is on the role rather than the startup packet, no request path uses a
+session `SET`, `LISTEN`, a session advisory lock or a temp table without
+`ON COMMIT DROP`, and the pool can then be warm cheaply because PgBouncer
+multiplexes those clients onto far fewer server connections. `PG_STATEMENT_TIMEOUT_MS` (default 30,000; `0`
 disables) is applied as a session startup parameter on both the primary and
 reporting pools, so a runaway statement becomes the typed 503 instead of
 holding a connection. The breaker knobs — `DB_BREAKER_FAILURE_THRESHOLD` (3),

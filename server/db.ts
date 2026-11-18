@@ -104,13 +104,14 @@ export function buildPoolConfig(): {
         'must be 0 (disabled) or between 1000 and 600000 milliseconds.'
     );
   }
+  const max = intFromEnv('PG_POOL_MAX', 40, { min: 1, max: 500 });
   return {
     connectionTimeoutMillis: intFromEnv('PG_CONNECT_TIMEOUT_MS', 2000, { min: 100, max: 120_000 }),
     // 500 concurrent users is the modelled ceiling. 20 connections made
     // ordinary page reads queue behind long report queries; 40 keeps two
     // connections per available CPU core on a typical 20-core database host
     // without exhausting PostgreSQL's default 100-connection budget.
-    max: intFromEnv('PG_POOL_MAX', 40, { min: 1, max: 500 }),
+    max,
     idleTimeoutMillis: 30000,
     statementTimeoutMs,
   };
@@ -329,6 +330,49 @@ export const reportingPool: { query: (text: string, params?: any[]) => Promise<a
 /** What the router has served and the last lag it measured, for /api/health. */
 export function readRouterStatus() {
   return readRouter.status();
+}
+
+let poolWarmPromise: Promise<number> | null = null;
+
+/**
+ * Open the pool's connections up front, at boot (SCALE-3 write path).
+ *
+ * Establishing a PostgreSQL connection costs TCP + SCRAM + session setup, and
+ * `pg` does it lazily: the first C concurrent writes each create a client, so
+ * the burst pays the setup serially inside its own measured window. Warming at
+ * boot moves that cost out of the request path, and `min` in the pool config
+ * keeps the connections afterwards. Best effort: a failed warm never blocks
+ * boot, because the pool still connects on demand.
+ *
+ * Single-flight, so a second boot step cannot open a second set of connections.
+ */
+export function warmDatabasePool(target?: number): Promise<number> {
+  if (poolWarmPromise) return poolWarmPromise;
+  if (!realPoolInstance) return Promise.resolve(0);
+  const max = buildPoolConfig().max;
+  const want = Math.max(0, Math.min(target ?? max, max));
+  poolWarmPromise = (async () => {
+    const held: any[] = [];
+    try {
+      await Promise.all(
+        Array.from({ length: want }, async () => {
+          try {
+            held.push(await realPoolInstance.connect());
+          } catch {
+            /* best effort — the pool connects on demand */
+          }
+        })
+      );
+    } finally {
+      for (const client of held) {
+        try {
+          client.release();
+        } catch (_e) {}
+      }
+    }
+    return held.length;
+  })();
+  return poolWarmPromise;
 }
 
 export const pgPool = {

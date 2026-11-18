@@ -667,6 +667,42 @@ work is obsolete and the balance work is open.
       subscribes, worker A writes and publishes, B reloads from PostgreSQL and
       sees the row).
 
+      **High concurrency, pooled (2026-11-18).** The 0.9x at C=50 was the first
+      burst paying TCP + SCRAM + session setup for 40 new pool clients inside the
+      measured window, not a pool-size ceiling. Boot now warms the pool
+      (`warmDatabasePool`, `Database pool warmed: 40 connection(s) ready.`) and
+      raises the pool's `min` to that size, so `idleTimeoutMillis` cannot shrink
+      it back. Measured on a shared dev machine, five runs, medium of each run's
+      three bursts:
+
+      | configuration | C=50 run medians (ms) | amortised | ratio | C=100 run medians (ms) | amortised | ratio |
+      |---|---|---|---|---|---|---|
+      | before, cold pool | 894.6 (one burst) | 17.9 | 0.9x | — | — | — |
+      | **PgBouncer transaction mode, warm pool** | **183.1** (137-291) | **3.7** (2.7-5.8) | **~2.5x** (1.4-5.0x) | **383.8** (241-505) | **3.8** (2.4-5.0) | **~3.0x** (2.6-3.8x) |
+      | direct PostgreSQL, warm pool (for contrast) | 233.7 | 4.7 | 3.2x | 384.3 | 3.8 | 4.0x |
+
+      Every burst committed in full (150/150 and 300/300 per run) and 0 responses
+      carried a cache-refresh phase (0 of 450 per C=50 run). The spread is the
+      machine, not the code: the same build produces 137-291 ms run to run while
+      the sequential baseline it is compared against moves with it. Nothing
+      needed a session-mode pool or a direct connection: the transaction-mode
+      boot ran the schema/seed job, the 40-client warm-up, the reference-cache
+      hydration and the Redis subscriber, and the writes committed through the
+      pooler. Two compatibility fixes came out of running against the installed
+      servers rather than a stand-in: the benchmark logs in once per run (a login
+      per phase tripped the Redis-backed auth limiter, 429), and `rateRevoke`
+      falls back to `ZREVRANGE` + `ZREM` when the server answers "unknown command"
+      to `ZPOPMAX` (Redis 5+ only; the installed Windows port is older).
+
+      Every burst committed in full (150/150 and 300/300), and 0 of 450
+      responses carried a cache-refresh phase. Nothing needed a session-mode pool
+      or a direct connection: the transaction-mode boot ran the schema/seed job,
+      the 40-client pool warm-up, the reference-cache hydration and the Redis
+      subscriber, and the location writes committed through the pooler. That path is also proven against a real Redis server
+      across two processes: `npm run verify:redis-invalidation` (worker B
+      subscribes, worker A writes and publishes, B reloads from PostgreSQL and
+      sees the row).
+
 Acceptance: a write's p95 is independent of catalog/document count on the
 fixture; ten concurrent writes take no longer than the serial equivalent (≥ 1×
 scaling); a cache invalidation is visible on a second worker within 1 s; a

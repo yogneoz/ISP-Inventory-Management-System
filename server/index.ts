@@ -3,7 +3,7 @@ import express from 'express';
 import type { Server } from 'http';
 import { createServer as createViteServer } from 'vite';
 import { PORT, syncDatabaseAndIndexes, createApp, registerAllRoutes } from './src/app';
-import { realPoolInstance } from './db';
+import { realPoolInstance, warmDatabasePool } from './db';
 import { createLifecycle } from './src/boot/lifecycle';
 import { validateAuthSecret } from './src/boot/authSecret';
 import { resolveSetupToken } from './src/boot/setupToken';
@@ -121,6 +121,16 @@ async function startServer() {
     // SSE fan-out is a read-side convenience, not a security control: keep
     // serving local clients and alert if the subscriber cannot attach.
     console.error('SSE subscriber failed to start (local fan-out only):', err?.message || err);
+  }
+
+  // SCALE-3: move connection setup out of the first concurrent burst. Behind a
+  // transaction-mode pooler the client connections are cheap, so a boot can
+  // afford to hold the whole pool open.
+  try {
+    const warmed = await warmDatabasePool();
+    if (warmed > 0) console.log(`Database pool warmed: ${warmed} connection(s) ready.`);
+  } catch (err: any) {
+    console.error('Database pool warm-up failed (the pool will connect on demand):', err?.message || err);
   }
 
   const server: Server = app.listen(PORT, '0.0.0.0', () => {
