@@ -318,11 +318,10 @@ log/pid removed after the run; no scratch database or fixture rows remain
 
 ### SCALE-3 — Partitioning, indexes, read/write split, PgBouncer
 
-Priority: P0 · Status: `[~]` — provisioned partitioning, hot-table storage, all
-four partition conversions and the page-read/BRIN index pass landed
-2026-11-17/18 (`gl_subledger_entries`, `stock_operations`, `serial_log`,
-`sales_invoices`); replica routing, PgBouncer and the pre-aggregated read models
-are open.
+Priority: P0 · Status: `[~]` — provisioned partitioning, hot-table storage, all four partition conversions, the page-read/BRIN index pass and the read/write
+split with a replication lag guard landed 2026-11-17/18 (`gl_subledger_entries`,
+`stock_operations`, `serial_log`, `sales_invoices`, `readRouting.ts`); PgBouncer
+and the pre-aggregated read models are open.
 Audit:
 [docs/database-optimization-audit-2026-11-17.md](../../docs/database-optimization-audit-2026-11-17.md).
 
@@ -438,8 +437,7 @@ Audit:
       function per table shared by the write path, boot and `check:partitions`,
       counted through the DEFAULT child, and — where they carry a business key —
       registry-backed through `document_identity_registry`. Remaining SCALE-3
-      work is not conversion: replica routing, PgBouncer and the pre-aggregated
-      read models.
+      work is not conversion: PgBouncer and the pre-aggregated read models.
 - [x] Page-read composites + BRIN on the append-only dates. **Done 2026-11-18**
       — migration `0040` replaces the three branch page indexes with
       `(branch_id, <date> DESC, id DESC)` (`idx_sales_invoices_branch_page_id`,
@@ -472,12 +470,41 @@ Audit:
       `autovacuum_analyze_scale_factor = 0.05` (fresh installs from
       `schema.sql`, existing installs from `scripts/migrations/0030_hot_table_storage.sql`).
       **Done 2026-11-17.**
-- [ ] `DATABASE_WRITE_URL` (primary) and `DATABASE_READ_URL` (replica), with
-      `REPORT_DATABASE_URL` kept as an alias for compatibility. Separate pools
-      with their own `PG_POOL_MAX`; `reportingPool` routes Trial Balance, P&L,
-      Balance Sheet, Stock Valuation and Aging. A lag guard
-      (`REPLICA_MAX_LAG_MS`, default 5,000) reads `pg_last_wal_replay_lsn()`;
-      over the limit, fall back to primary or `503 Retry-After`.
+- [x] `DATABASE_WRITE_URL` (primary) and `DATABASE_READ_URL` (replica), with
+      `REPORT_DATABASE_URL` / `READ_REPLICA_DATABASE_URL` kept as aliases, and a
+      lag guard. **Done 2026-11-18.** `server/src/db/readRouting.ts` resolves the
+      two URLs (`DATABASE_WRITE_URL` → `DATABASE_URL` fallback, so a single-URL
+      install is unchanged), owns the guard and the per-request "this request has
+      written" context; `server/db.ts` builds the second pool from the read URL
+      and routes `reportingPool` (the Trial Balance / summary reporting path)
+      through the router. The lag signal is *pending WAL*: `now() -
+      pg_last_xact_replay_timestamp()` **only while**
+      `pg_last_wal_receive_lsn() IS DISTINCT FROM pg_last_wal_replay_lsn()`, so
+      an idle but current replica reads as 0 instead of looking hours stale; the
+      WAL byte gap is recorded beside it. `REPLICA_MAX_LAG_MS` defaults to 5,000
+      (a monthly report cannot see five seconds, while 250 ms would flip between
+      databases on ordinary commits and 30 s would let a stalled replica serve a
+      stale balance). Over the limit, or when the replica is unreachable or
+      errors mid-read, the read is served by the **primary** — no `503`, because
+      a replica has its own failure domain and a reporting read has a correct
+      source of truth available — and the replica is skipped for
+      `REPLICA_COOLDOWN_MS` (10 s) so a dead replica costs one connect timeout
+      rather than one per request. A request that has written (any non-read
+      statement on the primary pool, or any explicit transaction) is pinned to
+      the primary so it sees its own write. State is visible on `GET /api/health`
+      under `readRouting`. Proven live, not simulated:
+      `scripts/verify_read_routing.ts` provisions a throwaway primary and a real
+      streaming standby (`initdb` + `pg_basebackup -R`), wires the shipped router
+      into them and reads `pg_is_in_recovery()` through it — 5/5 scenarios routed
+      as intended: healthy → replica; replay paused, 500-row WAL write, measured
+      lag 1,674 ms > 1,500 ms threshold → primary (`replica-lagging`); resume →
+      replica; request has written → primary (`request-wrote`); standby stopped →
+      primary (`replica-unreachable`), no error surfaced. Tests:
+      `tests/readRouting.test.ts` (10) pin each decision input in both directions.
+      Out of scope here: the application role has no `REPLICATION` attribute, so
+      the demo cannot stream from the application database itself — the script
+      carries its own clusters, and a real standby of the app database remains an
+      operator decision.
 - [ ] PgBouncer transaction-mode audit: remove session `SET`s, temporary
       tables, session advisory locks and `PREPARE`/`DEALLOCATE` from the
       request path. `statement_timeout` via `ALTER ROLE … SET`, not a pool

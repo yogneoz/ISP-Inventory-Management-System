@@ -300,6 +300,18 @@ the operator has rehearsed detach + archive on a restored copy.
 
 ### PgBouncer and replica routing — SCALE-3, infrastructure
 
+> **Update 2026-11-18 — the replica half shipped; PgBouncer remains open.**
+> `DATABASE_WRITE_URL` / `DATABASE_READ_URL` now drive two pools and
+> `server/src/db/readRouting.ts` guards the read path: a replica-eligible
+> reporting read is served by the replica only while pending-WAL lag is within
+> `REPLICA_MAX_LAG_MS` (default 5,000 ms) and the request has not written;
+> otherwise — lag over the limit, replica unreachable, or a replica error — the
+> read is served by the primary and the replica is skipped for
+> `REPLICA_COOLDOWN_MS`. Proven against a real streaming standby by
+> `scripts/verify_read_routing.ts` (5/5 scenarios, lag measured 1,674 ms >
+> 1,500 ms before the fallback). The PgBouncer work below is unchanged and still
+> owns transaction pooling.
+
 - The pool ceiling is real: `PG_POOL_MAX=40` × `instances: 'max'`. With a
   default `max_connections` of 100, a handful of workers exhausts the server.
 - `statement_timeout` is sent in the **startup packet** (`server/db.ts`), which

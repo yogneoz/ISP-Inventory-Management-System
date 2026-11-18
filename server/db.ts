@@ -13,6 +13,12 @@ import {
   type DbFailureKind,
 } from './src/observability/dbBreaker';
 import { DbBusyError, DbUnavailableError } from './src/errors/dbErrors';
+import {
+  createReadRouter,
+  isWriteStatement,
+  markRequestWrote,
+  resolveReadRouting,
+} from './src/db/readRouting';
 import { setPgConnected } from './src/state/runtimeState';
 
 dotenv.config();
@@ -109,10 +115,16 @@ export function buildPoolConfig(): {
   };
 }
 
-if (process.env.DATABASE_URL || process.env.POSTGRES_HOST) {
+/**
+ * SCALE-3 read/write split: the primary is `DATABASE_WRITE_URL` when set and
+ * `DATABASE_URL` otherwise, so an existing single-URL install is untouched.
+ */
+export const DATABASE_WRITE_URL = resolveReadRouting().writeUrl;
+
+if (process.env.DATABASE_URL || process.env.DATABASE_WRITE_URL || process.env.POSTGRES_HOST) {
   const { statementTimeoutMs, ...poolConfig } = buildPoolConfig();
   realPoolInstance = new RealPgPool({
-    connectionString: process.env.DATABASE_URL || undefined,
+    connectionString: DATABASE_WRITE_URL || undefined,
     host: process.env.POSTGRES_HOST || 'localhost',
     port: parseInt(process.env.POSTGRES_PORT || '5432', 10),
     database: process.env.POSTGRES_DB || 'inventory_db',
@@ -123,20 +135,22 @@ if (process.env.DATABASE_URL || process.env.POSTGRES_HOST) {
 }
 
 /**
- * Optional reporting read path: a replica, or PgBouncer in front of one.
- * Reporting queries tolerate a little replication lag and must not queue
- * behind write traffic on the 40-connection primary pool. When unset, every
- * reporting read falls back to the primary, so a single-database install is
+ * Optional lag-tolerant read path: a streaming replica, or PgBouncer in front
+ * of one. Reads tolerate a little replication lag and must not queue behind
+ * write traffic on the primary pool. `DATABASE_READ_URL` is the name; the older
+ * `REPORT_DATABASE_URL` / `READ_REPLICA_DATABASE_URL` still work, and when none
+ * is set every read stays on the primary, so a single-database install is
  * unchanged.
  */
-export const REPORT_DATABASE_URL =
-  process.env.REPORT_DATABASE_URL || process.env.READ_REPLICA_DATABASE_URL || '';
+export const DATABASE_READ_URL = resolveReadRouting().readUrl;
+/** Alias kept for importers and for the boot log; same value as the read URL. */
+export const REPORT_DATABASE_URL = DATABASE_READ_URL;
 
 export let reportPoolInstance: any = null;
-if (REPORT_DATABASE_URL) {
+if (DATABASE_READ_URL) {
   const { statementTimeoutMs, ...poolConfig } = buildPoolConfig();
   reportPoolInstance = new RealPgPool({
-    connectionString: REPORT_DATABASE_URL,
+    connectionString: DATABASE_READ_URL,
     ...poolConfig,
   });
 }
@@ -267,43 +281,54 @@ export function ensurePostgresConnection(): Promise<boolean> {
 }
 
 /**
+ * The read router (SCALE-3). `reportingPool` runs a reporting read on the
+ * replica only when the request has not written and the replica's measured lag
+ * is within `REPLICA_MAX_LAG_MS`; otherwise — stale, unreachable, or after a
+ * write — the read is served by the primary. A replica failure never surfaces as
+ * an error to the user, and never opens the primary breaker: the replica has its
+ * own failure domain.
+ */
+export const readRouter = createReadRouter({
+  writePool: {
+    async query(text: string, params?: any[]) {
+      if (!isPgConnected) throw new DbUnavailableError();
+      return pgPool.query(text, params);
+    },
+  },
+  readPool: reportPoolInstance
+    ? {
+        async query(text: string, params?: any[]) {
+          const startedAt = performance.now();
+          let failed = false;
+          try {
+            return await reportPoolInstance.query(text, params);
+          } catch (err) {
+            failed = true;
+            throw err;
+          } finally {
+            recordDbQuery(performance.now() - startedAt, text, failed);
+          }
+        },
+      }
+    : null,
+});
+
+/**
  * Reporting pool. The primary is the default; a configured replica is used
- * only by read-only reporting endpoints, never by the write/ledger path.
- * A replica has its own failure domain, so its errors are mapped to typed 503s
- * but do not open the primary breaker.
+ * only by read-only reporting endpoints, never by the write/ledger path, and
+ * only while the lag guard says it is safe — see `readRouter`.
  */
 export const reportingPool: { query: (text: string, params?: any[]) => Promise<any> } = {
   async query(text: string, params?: any[]) {
     if (!isPgConnected) throw new DbUnavailableError();
-    if (!reportPoolInstance) return pgPool.query(text, params);
-    const startedAt = performance.now();
-    let client: any = null;
-    let queryStarted = false;
-    let failed = false;
-    try {
-      const acquireStartedAt = performance.now();
-      try {
-        client = await reportPoolInstance.connect();
-        recordPoolAcquire(performance.now() - acquireStartedAt);
-      } catch (err) {
-        recordPoolAcquire(performance.now() - acquireStartedAt, true);
-        throw databaseErrorFor(classifyDbFailure(err, false), err);
-      }
-      queryStarted = true;
-      return await client.query(text, params);
-    } catch (err: any) {
-      failed = true;
-      console.error('PostgreSQL reporting query failed:', err?.message || err);
-      if (err instanceof DbBusyError || err instanceof DbUnavailableError) throw err;
-      throw databaseErrorFor(classifyDbFailure(err, true), err);
-    } finally {
-      if (client && typeof client.release === 'function') {
-        try { client.release(); } catch (_e) {}
-      }
-      if (queryStarted) recordDbQuery(performance.now() - startedAt, text, failed);
-    }
+    return readRouter.query(text, params);
   },
 };
+
+/** What the router has served and the last lag it measured, for /api/health. */
+export function readRouterStatus() {
+  return readRouter.status();
+}
 
 export const pgPool = {
   async query(text: string, params?: any[]) {
@@ -340,6 +365,9 @@ export const pgPool = {
     }
 
     queryStarted = true;
+    // SCALE-3: a write in this request makes later replica reads unsafe (they
+    // may not see it yet), so record it before the statement runs.
+    if (isWriteStatement(text)) markRequestWrote();
     try {
       return await client.query(text, params);
     } catch (err: any) {

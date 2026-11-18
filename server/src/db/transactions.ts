@@ -5,6 +5,7 @@
  */
 import { pgPool } from '../../db';
 import { recordTransactionRetry } from './transactionMetrics';
+import { markRequestWrote } from './readRouting';
 
 /**
  * One attempt of the transaction runner. Extracted so the retry wrapper below
@@ -16,6 +17,11 @@ async function runTransactionOnce<T>(callback: (client: any) => Promise<T>): Pro
   try {
     client = await pgPool.connect();
     if (client) {
+      // SCALE-3: an explicit transaction may write, and a read inside it must
+      // see the transaction's own work. Marking the request here (rather than
+      // trying to sniff every statement the callback sends) keeps every later
+      // replica-eligible read of this request on the primary.
+      markRequestWrote();
       await client.query('BEGIN');
       inTransaction = true;
     }

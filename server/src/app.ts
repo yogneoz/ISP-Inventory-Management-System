@@ -33,7 +33,8 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import type { SharedStateAccessors } from './sharedState';
-import { pgPool, realPoolInstance, ensurePostgresConnection, setIsPgConnected } from '../db';
+import { pgPool, realPoolInstance, ensurePostgresConnection, setIsPgConnected, readRouterStatus } from '../db';
+import { runWithReadContext } from './db/readRouting';
 import {
   withPrepended, withAppended, withReplaced, withSorted, mutable,
 } from './utils/copyHelpers';
@@ -212,6 +213,12 @@ export function createApp(): express.Express {
   // requests and unmatched routes, contributes to the latency snapshot.
   app.use(httpMetricsMiddleware);
 
+  // SCALE-3: every request gets a read-routing context. The first write it runs
+  // (through the primary pool or an explicit transaction) marks it, and from
+  // then on its replica-eligible reads go to the primary so it can see its own
+  // write. Outside a request the context is absent and replica reads are allowed.
+  app.use((_req, _res, next) => runWithReadContext(next));
+
   // TRUST_PROXY (documented in .env.example). Behind a reverse proxy every
   // request otherwise appears to arrive from the proxy's own IP, so req.ip
   // would collapse ALL clients into one bucket — which matters here because
@@ -274,11 +281,15 @@ export function createApp(): express.Express {
   app.get('/api/health', (req, res) => {
     // Retry counters ride along with the liveness check: this endpoint stays
     // reachable when PostgreSQL is down, which is exactly when monitoring
-    // needs to see contention. They are counts only — no request data.
+    // needs to see contention. They are counts only — no request data. The
+    // read-routing block (SCALE-3) shows which target served the last
+    // replica-eligible read and the lag it measured, so a fallback to the
+    // primary is visible during an incident instead of silent.
     res.json({
       status: 'ok',
       timestamp: new Date().toISOString(),
       transactionRetries: transactionRetryMetrics(),
+      readRouting: readRouterStatus(),
     });
   });
 

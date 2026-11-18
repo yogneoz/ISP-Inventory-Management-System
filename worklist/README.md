@@ -77,8 +77,10 @@ is the plan, not a second source of truth.
   and so is the page-read/BRIN index pass (`0040`: `(branch_id, <date> DESC, id
   DESC)` composites for the three registers, `(entry_date_ad DESC, id DESC)` for
   the book ledger, BRIN on the five append-only dates — measured 33×/47×/~800× on
-  the branch page, stock page and book ledger at fixture volume). The remaining
-  SCALE-3 work is replica routing, PgBouncer and the pre-aggregated read models. The database audit — what already exists, what each remaining
+  the branch page, stock page and book ledger at fixture volume). The read/write
+  split also landed (`DATABASE_WRITE_URL`/`DATABASE_READ_URL` with a pending-WAL
+  lag guard, `server/src/db/readRouting.ts`, proven on a real streaming standby).
+  The remaining SCALE-3 work is PgBouncer and the pre-aggregated read models. The database audit — what already exists, what each remaining
   suggestion would cost, and the trigger that reopens it — is
   [docs/database-optimization-audit-2026-11-17.md](../docs/database-optimization-audit-2026-11-17.md).
   It still owns the partition conversions, read/write split, queued writes and the TLS/CORS/CSP/MFA
