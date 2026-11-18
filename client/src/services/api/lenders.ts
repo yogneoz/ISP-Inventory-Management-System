@@ -170,6 +170,12 @@ export interface LoanTransaction {
   journalId: string;
   journalNo: string;
   journalStatus: string;
+  /** A posted document is corrected by reversal, never by editing it. */
+  status: 'POSTED' | 'REVERSED';
+  reversalReason?: string | null;
+  reversedBy?: string | null;
+  reversedAt?: string | null;
+  reversalJournalId?: string | null;
   createdBy?: string | null;
   createdAt?: string;
 }
@@ -217,6 +223,11 @@ export interface LoanInterestAccrual {
   journalId: string;
   journalNo: string;
   journalStatus: string;
+  status: 'POSTED' | 'REVERSED';
+  reversalReason?: string | null;
+  reversedBy?: string | null;
+  reversedAt?: string | null;
+  reversalJournalId?: string | null;
   createdBy?: string | null;
   createdAt?: string;
 }
@@ -427,6 +438,32 @@ export async function recordLoanInterestAccrual(
     method: 'POST',
     body: JSON.stringify(input),
   });
+}
+
+/**
+ * A posted loan document is corrected by reversal, never by editing it: the
+ * API posts a linked contra journal and marks the document REVERSED.
+ */
+export async function reverseLoanTransaction(
+  id: string,
+  txnId: string,
+  input: { reason: string; dateAD?: string }
+): Promise<{ transaction: LoanTransaction; loan: LoanRecord }> {
+  return fetchJson(
+    `/api/accounting/loans/${encodeURIComponent(id)}/transactions/${encodeURIComponent(txnId)}/reverse`,
+    { method: 'POST', body: JSON.stringify(input) }
+  );
+}
+
+export async function reverseLoanInterestAccrual(
+  id: string,
+  accrualId: string,
+  input: { reason: string; dateAD?: string }
+): Promise<{ accrual: LoanInterestAccrual; loan: LoanRecord }> {
+  return fetchJson(
+    `/api/accounting/loans/${encodeURIComponent(id)}/interest-accruals/${encodeURIComponent(accrualId)}/reverse`,
+    { method: 'POST', body: JSON.stringify(input) }
+  );
 }
 
 export async function createLoan(input: LoanInput): Promise<LoanRecord> {

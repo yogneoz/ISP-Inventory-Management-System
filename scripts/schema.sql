@@ -5145,8 +5145,18 @@ CREATE TABLE IF NOT EXISTS loan_transactions (
     reference_no VARCHAR(100),
     notes TEXT,
     journal_id VARCHAR(50) NOT NULL REFERENCES gl_journals_registry(id) ON DELETE RESTRICT,
+    status VARCHAR(20) NOT NULL DEFAULT 'POSTED',
+    reversed_at TIMESTAMP WITH TIME ZONE,
+    reversed_by VARCHAR(150),
+    reversal_reason TEXT,
+    reversal_journal_id VARCHAR(50) REFERENCES gl_journals_registry(id) ON DELETE RESTRICT,
     created_by VARCHAR(150),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT loan_transactions_status_check CHECK (status IN ('POSTED', 'REVERSED')),
+    CONSTRAINT loan_transactions_reversal_shape_check CHECK (
+        (status = 'POSTED' AND reversed_at IS NULL AND reversal_journal_id IS NULL AND reversal_reason IS NULL)
+        OR (status = 'REVERSED' AND reversed_at IS NOT NULL AND reversal_journal_id IS NOT NULL AND reversal_reason IS NOT NULL)
+    ),
     CONSTRAINT loan_transactions_interest_payable_applied_check CHECK (
         interest_payable_applied >= 0 AND interest_payable_applied <= interest_amount + 0.005
     ),
@@ -5211,13 +5221,27 @@ CREATE TABLE IF NOT EXISTS loan_interest_accruals (
     days INTEGER NOT NULL CHECK (days > 0),
     interest_amount NUMERIC(14, 2) NOT NULL CHECK (interest_amount > 0),
     journal_id VARCHAR(50) NOT NULL REFERENCES gl_journals_registry(id) ON DELETE RESTRICT,
+    status VARCHAR(20) NOT NULL DEFAULT 'POSTED',
+    reversed_at TIMESTAMP WITH TIME ZONE,
+    reversed_by VARCHAR(150),
+    reversal_reason TEXT,
+    reversal_journal_id VARCHAR(50) REFERENCES gl_journals_registry(id) ON DELETE RESTRICT,
     created_by VARCHAR(150),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT loan_interest_accruals_period CHECK (to_date_ad >= from_date_ad)
+    CONSTRAINT loan_interest_accruals_period CHECK (to_date_ad >= from_date_ad),
+    CONSTRAINT loan_interest_accruals_status_check CHECK (status IN ('POSTED', 'REVERSED')),
+    CONSTRAINT loan_interest_accruals_reversal_shape_check CHECK (
+        (status = 'POSTED' AND reversed_at IS NULL AND reversal_journal_id IS NULL AND reversal_reason IS NULL)
+        OR (status = 'REVERSED' AND reversed_at IS NOT NULL AND reversal_journal_id IS NOT NULL AND reversal_reason IS NOT NULL)
+    )
 );
 
 CREATE INDEX IF NOT EXISTS idx_loan_interest_accruals_loan
     ON loan_interest_accruals(loan_id, to_date_ad, id);
+CREATE INDEX IF NOT EXISTS idx_loan_transactions_status
+    ON loan_transactions(loan_id, status, txn_date_ad);
+CREATE INDEX IF NOT EXISTS idx_loan_interest_accruals_status
+    ON loan_interest_accruals(loan_id, status, to_date_ad);
 CREATE INDEX IF NOT EXISTS idx_loan_interest_accruals_lender
     ON loan_interest_accruals(lender_id, to_date_ad, id);
 

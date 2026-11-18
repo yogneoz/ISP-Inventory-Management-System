@@ -158,9 +158,12 @@ Round 15 Part B and closed: the Receive Payment list is now filtered in SQL
 (`openOnly`, so settled pages cannot hide open invoices), the over-allocation
 refusal names the excess and the advance lane, and a partly applied receipt no
 longer claims the single-invoice header.
-LEND-1's lender master, loan register and lender statement are also complete;
-the remaining scope is the dedicated loan receipt/repayment documents
-(including interest TDS) and the round close gates.
+LEND-1's lender master, loan register, statement and the dedicated
+receipt/repayment/interest-accrual documents (including interest TDS) are
+complete, and 2026-11-17 added the correction path they needed: a posted loan
+document is reversed through a linked contra journal (migration `0033`) with
+the installment schedule and every loan sum rebuilt from what is still posted.
+The remaining scope is the round close gates.
 
 **Completed outside a round — rail storage healing, purchase-return scan, profile-switch stock cache (2026-10-31).**
 The persisted open-group set is now intersected with the groups the current menu

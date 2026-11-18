@@ -148,9 +148,11 @@ import {
   patch_loanTdsEvidence,
   post_lender,
   post_loan,
+  post_loanAccrualReversal,
   post_loanInterestAccrual,
   post_loanReceipt,
   post_loanRepayment,
+  post_loanTransactionReversal,
 } from '../controllers/lenders.controller';
 
 export function registerAccountingRoutes(app: Express) {
@@ -302,6 +304,20 @@ export function registerAccountingRoutes(app: Express) {
     requirePermission('gl-post'),
     async (req, res, next) => {
       post_loanInterestAccrual(req as any, res as any).catch(next);
+    }
+  );
+  app.post(
+    '/api/accounting/loans/:id/transactions/:txnId/reverse',
+    requirePermission('gl-post'),
+    async (req, res, next) => {
+      post_loanTransactionReversal(req as any, res as any).catch(next);
+    }
+  );
+  app.post(
+    '/api/accounting/loans/:id/interest-accruals/:accrualId/reverse',
+    requirePermission('gl-post'),
+    async (req, res, next) => {
+      post_loanAccrualReversal(req as any, res as any).catch(next);
     }
   );
   app.patch('/api/accounting/loans/:id', requirePermission('gl-subledger-manage'), async (req, res, next) => {

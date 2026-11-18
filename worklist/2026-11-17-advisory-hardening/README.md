@@ -509,8 +509,15 @@ Authoritative detail stays in those notes; this round owns their scheduling.
   delivered slice found and closed: the Receive Payment list was filtered in the
   browser over one page of every invoice, the refusal did not name the excess or
   the advance lane, and a partly applied receipt still claimed the invoice it
-  did not fully settle). Still open: the dedicated loan receipt/repayment
-  documents and the round-close gates.
+  did not fully settle).   **LEND-1's correction path is now closed too** (2026-11-17): posted loan
+  receipts, repayments and interest accruals were append-only with no reversal
+  in sight, while `patch_loan` told the operator to "reverse the documents
+  first". `POST /api/accounting/loans/:id/transactions/:txnId/reverse` and
+  `.../interest-accruals/:accrualId/reverse` now post the shared linked contra
+  journal and mark the document `REVERSED` (migration `0033`), with the
+  installment schedule, every loan sum and the accrual sums rebuilt from what
+  is still posted, and both screens offering the action through the in-app
+  prompt. Still open: the round-close gates.
 - Round 13 remainder: partition conversions of `gl_subledger_entries`,
   `stock_operations`, `serial_log`; replica/PgBouncer decision (audit §1 row 2);
   pre-aggregated stock and closed-year trial balance; queued writes; and the
@@ -624,3 +631,26 @@ on the Redis state and MFA work in Part B.
   from the controller options and the `singleInvoice` condition reverted, the
   two API tests fail (`12 pass / 2 fail`) and the pure wiring pin fails; both
   tests pass with the change (`14/14`).
+- 2026-11-17 — **Part B / LEND-1 correction path closed**: the lender master,
+  loan register, statement and the receipt/repayment/accrual documents were
+  already delivered, but the documents could not be corrected — Round 11's
+  decision 6 had no loan implementation, and `patch_loan` refused a term change
+  with "reverse the documents first" pointing at nothing. Migration `0033` adds
+  the reversal marker to `loan_transactions` and `loan_interest_accruals` (a
+  REVERSED row must carry its journal, actor, reason and timestamp; a POSTED row
+  must carry none), and two routes post the shared linked contra journal:
+  `POST /api/accounting/loans/:id/transactions/:txnId/reverse` and
+  `POST /api/accounting/loans/:id/interest-accruals/:accrualId/reverse`. Every
+  loan sum, the accrual sums, the TDS register/worklist and the statement read
+  only POSTED documents; a repayment reversal rebuilds the installment paid
+  columns from the surviving repayments; a receipt reversal is refused while
+  principal is still repaid (`reverse the repayments first`) or interest is
+  accrued; an accrual reversal is refused when repayments have already applied
+  more interest than would remain; a second reversal is refused. The history
+  table and accrual list show the status and offer Reverse with a reason through
+  the in-app prompt. Tests: one new API test in `tests/lenders.api.test.ts`
+  (receipt/repayment reversal, contra journal linkage, schedule reset, statement
+  tie-out, double-reversal and both order guards, accrual reversal and re-accrual
+  plus the settled-accrual refusal). Repair proof: dropping the
+  `status = 'POSTED'` filter from the loan sums makes the new test fail with the
+  reversal refused `409`; the filter restored, the file is `8/8`.

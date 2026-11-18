@@ -42,6 +42,8 @@ import {
   recordLoanInterestAccrual,
   recordLoanReceipt,
   recordLoanRepayment,
+  reverseLoanInterestAccrual,
+  reverseLoanTransaction,
   updateLender,
   updateLoan,
 } from '../../services/api/lenders';
@@ -225,7 +227,7 @@ export const LendersManagement: React.FC<LendersManagementProps> = ({
   currentUser,
   companyProfile = null,
 }) => {
-  const { confirm: confirmDialog, alert: alertDialog } = useDialog();
+  const { confirm: confirmDialog, alert: alertDialog, prompt: promptDialog } = useDialog();
   const canManage = isOperationAllowed('gl-subledger-manage', currentUser?.role);
   const canPost = isOperationAllowed('gl-post', currentUser?.role);
   const activationKey = useActivationKey('lenders');
@@ -668,6 +670,58 @@ export const LendersManagement: React.FC<LendersManagementProps> = ({
       alertDialog(`Failed to read loan history: ${err?.message || 'Database error'}`);
     } finally {
       setHistoryLoading(false);
+    }
+  };
+
+  /** A posted receipt/repayment is corrected by a linked reversal, with a reason. */
+  const reverseTransaction = async (row: LoanTransaction) => {
+    if (!historyLoan) return;
+    const reason = await promptDialog(
+      `Reverse ${row.txnNumber} (${row.txnType.toLowerCase()} of ${money(row.principalAmount)} principal)? A linked contra journal is posted; the original stays visible.`,
+      { title: 'Reverse loan document', placeholder: 'Why is this document being reversed?', confirmLabel: 'Post reversal' }
+    );
+    if (reason === null) return;
+    if (reason.trim().length < 3) {
+      alertDialog('A reversal reason of at least 3 characters is required.');
+      return;
+    }
+    try {
+      const result = await reverseLoanTransaction(historyLoan.id, row.id, { reason: reason.trim() });
+      const detail = await getLoan(historyLoan.id);
+      setHistoryRows(detail.transactions || []);
+      setHistoryInstallments(detail.installments || []);
+      setHistoryAccruals(detail.accruals || []);
+      setHistoryLoan(detail.loan || result.loan);
+      await loadLenders(true);
+      if (selected?.id === historyLoan.lenderId) await loadDetail(historyLoan.id);
+    } catch (err: any) {
+      alertDialog(`Failed to reverse the document: ${err?.message || 'Database error'}`);
+    }
+  };
+
+  const reverseAccrual = async (accrual: LoanInterestAccrual) => {
+    if (!historyLoan) return;
+    const reason = await promptDialog(
+      `Reverse accrual ${accrual.accrualNumber} of ${money(accrual.interestAmount)}? The contra journal clears the accrual; the original stays visible.`,
+      { title: 'Reverse interest accrual', placeholder: 'Why is this accrual being reversed?', confirmLabel: 'Post reversal' }
+    );
+    if (reason === null) return;
+    if (reason.trim().length < 3) {
+      alertDialog('A reversal reason of at least 3 characters is required.');
+      return;
+    }
+    try {
+      const result = await reverseLoanInterestAccrual(historyLoan.id, accrual.id, {
+        reason: reason.trim(),
+      });
+      const detail = await getLoan(historyLoan.id);
+      setHistoryRows(detail.transactions || []);
+      setHistoryInstallments(detail.installments || []);
+      setHistoryAccruals(detail.accruals || []);
+      setHistoryLoan(detail.loan || result.loan);
+      if (selected) await loadDetail(selected.id);
+    } catch (err: any) {
+      alertDialog(`Failed to reverse the accrual: ${err?.message || 'Database error'}`);
     }
   };
 
@@ -2081,12 +2135,13 @@ export const LendersManagement: React.FC<LendersManagementProps> = ({
                           <th className="px-2 py-1.5 text-right">Days</th>
                           <th className="px-2 py-1.5 text-right">Interest</th>
                           <th className="px-2 py-1.5">Journal</th>
+                          <th className="px-2 py-1.5">Status</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                         {historyAccruals.length === 0 ? (
                           <tr>
-                            <td colSpan={7} className="p-4 text-center text-slate-500">
+                            <td colSpan={8} className="p-4 text-center text-slate-500">
                               No interest has been accrued on this loan.
                             </td>
                           </tr>
@@ -2104,7 +2159,28 @@ export const LendersManagement: React.FC<LendersManagementProps> = ({
                               <td className="px-2 py-1.5 text-right font-mono font-bold">{money(row.interestAmount)}</td>
                               <td className="px-2 py-1.5 font-mono text-[10px]">
                                 {row.journalNo}
-                                {row.journalStatus === 'REVERSED' ? ' · reversed' : ''}
+                                {row.status === 'REVERSED' ? ' · reversed' : ''}
+                              </td>
+                              <td className="px-2 py-1.5">
+                                {row.status === 'REVERSED' ? (
+                                  <span
+                                    className="inline-flex rounded-full border border-rose-300 bg-rose-50 px-1.5 py-0.5 text-[10px] font-bold text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300"
+                                    title={row.reversalReason || ''}
+                                  >
+                                    REVERSED
+                                  </span>
+                                ) : canPost ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => void reverseAccrual(row)}
+                                    className="cursor-pointer rounded border border-slate-300 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                                    title={`Reverse ${row.accrualNumber}`}
+                                  >
+                                    Reverse
+                                  </button>
+                                ) : (
+                                  'POSTED'
+                                )}
                               </td>
                             </tr>
                           ))
@@ -2130,12 +2206,13 @@ export const LendersManagement: React.FC<LendersManagementProps> = ({
                           <th className="px-2 py-1.5 text-right">TDS</th>
                           <th className="px-2 py-1.5 text-right">Cash</th>
                           <th className="px-2 py-1.5">Journal</th>
+                          <th className="px-2 py-1.5">Status</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                         {historyRows.length === 0 ? (
                           <tr>
-                            <td colSpan={8} className="p-4 text-center text-slate-500">
+                            <td colSpan={9} className="p-4 text-center text-slate-500">
                               No receipts or repayments have been posted for this loan.
                             </td>
                           </tr>
@@ -2151,7 +2228,28 @@ export const LendersManagement: React.FC<LendersManagementProps> = ({
                               <td className="px-2 py-1.5 text-right font-mono">{money(row.cashAmount)}</td>
                               <td className="px-2 py-1.5 font-mono text-[10px]">
                                 {row.journalNo}
-                                {row.journalStatus === 'REVERSED' ? ' · reversed' : ''}
+                                {row.status === 'REVERSED' ? ' · reversed' : ''}
+                              </td>
+                              <td className="px-2 py-1.5">
+                                {row.status === 'REVERSED' ? (
+                                  <span
+                                    className="inline-flex rounded-full border border-rose-300 bg-rose-50 px-1.5 py-0.5 text-[10px] font-bold text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300"
+                                    title={row.reversalReason || ''}
+                                  >
+                                    REVERSED
+                                  </span>
+                                ) : canPost ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => void reverseTransaction(row)}
+                                    className="cursor-pointer rounded border border-slate-300 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                                    title={`Reverse ${row.txnNumber}`}
+                                  >
+                                    Reverse
+                                  </button>
+                                ) : (
+                                  'POSTED'
+                                )}
                               </td>
                             </tr>
                           ))

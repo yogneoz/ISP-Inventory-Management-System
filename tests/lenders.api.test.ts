@@ -573,6 +573,190 @@ describe('lender master, loan register and statement API (real HTTP + PostgreSQL
     assert.equal(overdue.json.some((loan: any) => loan.id === loanId), false);
   });
 
+  test('reverses a posted receipt or repayment as a linked contra journal, never an edit', async () => {
+    // A dedicated lender and loan keep this correction path away from the
+    // fixtures the other tests assert on.
+    const lender = await post('/api/accounting/lenders', tokens.super, {
+      code: 'LNT-REV-OWNER',
+      name: 'LENDER TEST Reversal Owner',
+      lenderType: 'OWNER',
+      panNumber: 'PAN-LNT-REV',
+      defaultCashAccountId: cashAccountId,
+      defaultInterestAccountId: 'gla-7410',
+      defaultTdsAccountId: 'gla-5230',
+      defaultLoanAccountId: loanAccountId,
+    });
+    assert.equal(lender.status, 201, JSON.stringify(lender.json));
+    const revLenderId = String(lender.json.id);
+
+    const loan = await post('/api/accounting/loans', tokens.super, {
+      lenderId: revLenderId,
+      branchId: BR,
+      principal: 900,
+      interestRate: 12,
+      startDateAD: '2026-08-01',
+      maturityDateAD: '2027-07-31',
+      repaymentFrequency: 'LUMP_SUM',
+      securityType: 'UNSECURED',
+      status: 'OPEN',
+      agreementReference: 'LENDER TEST REVERSAL',
+    });
+    assert.equal(loan.status, 201, JSON.stringify(loan.json));
+    const revLoanId = String(loan.json.id);
+
+    const receipt = await post(`/api/accounting/loans/${revLoanId}/receipts`, tokens.super, {
+      dateAD: '2026-08-01',
+      principal: 900,
+    });
+    assert.equal(receipt.status, 201, JSON.stringify(receipt.json));
+
+    const repayment = await post(`/api/accounting/loans/${revLoanId}/repayments`, tokens.super, {
+      dateAD: '2026-08-15',
+      principal: 300,
+      interestAmount: 9,
+      tdsAmount: 0,
+      tdsExemptionReason: 'OTHER',
+      tdsExemptionReference: 'LENDER TEST REVERSAL NOTE',
+    });
+    assert.equal(repayment.status, 201, JSON.stringify(repayment.json));
+    assert.equal(repayment.json.loan.outstandingPrincipal, 600);
+
+    const originalJournal = repayment.json.transaction.journalId as string;
+    const reversal = await post(
+      `/api/accounting/loans/${revLoanId}/transactions/${repayment.json.transaction.id}/reverse`,
+      tokens.super,
+      { reason: 'LENDER TEST repayment reversed', dateAD: '2026-08-16' }
+    );
+    assert.equal(reversal.status, 201, JSON.stringify(reversal.json));
+    assert.equal(reversal.json.transaction.status, 'REVERSED');
+    assert.ok(reversal.json.transaction.reversalJournalId);
+    assert.equal(reversal.json.transaction.reversalReason, 'LENDER TEST repayment reversed');
+    assert.equal(reversal.json.loan.repaidPrincipal, 0);
+    assert.equal(reversal.json.loan.outstandingPrincipal, 900);
+    assert.equal(reversal.json.loan.status, 'OPEN');
+
+    // The original posting stays; the contra journal is linked and mirrors it.
+    const journals = await pool!.query(
+      `SELECT id, journal_no AS "journalNo", status, source_type AS "sourceType",
+              reversal_of_id AS "reversalOfId"
+         FROM gl_journals
+        WHERE id = $1 OR reversal_of_id = $1`,
+      [originalJournal]
+    );
+    assert.equal(journals.rowCount, 2);
+    const original = journals.rows.find((row) => row.id === originalJournal);
+    const contra = journals.rows.find((row) => row.reversalOfId === originalJournal);
+    assert.equal(original.status, 'POSTED');
+    assert.equal(contra.sourceType, 'LOAN_REPAYMENT_REVERSAL');
+    const contraLines = await pool!.query(
+      `SELECT account_id, debit, credit FROM gl_journal_lines WHERE journal_id = $1`,
+      [contra.id]
+    );
+    const contraByAccount = new Map(
+      contraLines.rows.map((row) => [row.account_id, { debit: Number(row.debit), credit: Number(row.credit) }])
+    );
+    assert.deepEqual(contraByAccount.get(loanAccountId), { debit: 0, credit: 300 });
+    const contraDebits = contraLines.rows.reduce((sum, row) => sum + Number(row.debit), 0);
+    const contraCredits = contraLines.rows.reduce((sum, row) => sum + Number(row.credit), 0);
+    assert.equal(contraDebits, contraCredits, 'a reversal must balance');
+
+    // The installment schedule follows the surviving repayments, not history.
+    const detail = await get(`/api/accounting/loans/${revLoanId}`, tokens.super);
+    assert.equal(detail.status, 200, JSON.stringify(detail.json));
+    assert.equal(detail.json.installments[0].principalPaid, 0);
+    assert.equal(detail.json.installments[0].interestPaid, 0);
+    assert.equal(
+      detail.json.transactions.find((row: any) => row.id === repayment.json.transaction.id).status,
+      'REVERSED'
+    );
+
+    const afterReversal = await get(
+      `/api/accounting/lenders/${revLenderId}/statement?from=2026-08-01&to=2026-08-31`,
+      tokens.super
+    );
+    assert.equal(afterReversal.status, 200, JSON.stringify(afterReversal.json));
+    assert.equal(afterReversal.json.totals.closingBalance, 900);
+    assert.equal(afterReversal.json.tieOut.status, 'RECONCILED');
+
+    const twice = await post(
+      `/api/accounting/loans/${revLoanId}/transactions/${repayment.json.transaction.id}/reverse`,
+      tokens.super,
+      { reason: 'LENDER TEST double reversal' }
+    );
+    assert.equal(twice.status, 409, JSON.stringify(twice.json));
+    assert.match(twice.json.message, /already reversed/i);
+
+    // With no principal repaid, the receipt is reversible too.
+    const receiptReversal = await post(
+      `/api/accounting/loans/${revLoanId}/transactions/${receipt.json.transaction.id}/reverse`,
+      tokens.super,
+      { reason: 'LENDER TEST receipt reversed' }
+    );
+    assert.equal(receiptReversal.status, 201, JSON.stringify(receiptReversal.json));
+    assert.equal(receiptReversal.json.loan.fundedPrincipal, 0);
+    assert.equal(receiptReversal.json.loan.outstandingPrincipal, 0);
+
+    // Reversing a receipt while principal is still repaid would leave the
+    // repayment with nothing to settle; the guard names the order to follow.
+    const secondReceipt = await post(`/api/accounting/loans/${revLoanId}/receipts`, tokens.super, {
+      dateAD: '2026-08-18',
+      principal: 900,
+    });
+    assert.equal(secondReceipt.status, 201, JSON.stringify(secondReceipt.json));
+    const secondRepayment = await post(`/api/accounting/loans/${revLoanId}/repayments`, tokens.super, {
+      dateAD: '2026-08-20',
+      principal: 400,
+    });
+    assert.equal(secondRepayment.status, 201, JSON.stringify(secondRepayment.json));
+    const blocked = await post(
+      `/api/accounting/loans/${revLoanId}/transactions/${secondReceipt.json.transaction.id}/reverse`,
+      tokens.super,
+      { reason: 'LENDER TEST out of order' }
+    );
+    assert.equal(blocked.status, 409, JSON.stringify(blocked.json));
+    assert.match(blocked.json.message, /reverse the repayments first/i);
+
+    // Interest accruals reverse the same way, and a reversed period frees the
+    // window for a corrected accrual.
+    const accrual = await post(`/api/accounting/loans/${revLoanId}/interest-accruals`, tokens.super, {
+      fromAD: '2026-08-01',
+      toAD: '2026-08-05',
+    });
+    assert.equal(accrual.status, 201, JSON.stringify(accrual.json));
+    assert.ok(accrual.json.accrual.interestAmount > 0);
+    const accrualReversal = await post(
+      `/api/accounting/loans/${revLoanId}/interest-accruals/${accrual.json.accrual.id}/reverse`,
+      tokens.super,
+      { reason: 'LENDER TEST accrual reversed' }
+    );
+    assert.equal(accrualReversal.status, 201, JSON.stringify(accrualReversal.json));
+    assert.equal(accrualReversal.json.accrual.status, 'REVERSED');
+    assert.equal(accrualReversal.json.loan.interestAccrued, 0);
+    const reAccrued = await post(`/api/accounting/loans/${revLoanId}/interest-accruals`, tokens.super, {
+      fromAD: '2026-08-01',
+      toAD: '2026-08-05',
+    });
+    assert.equal(reAccrued.status, 201, JSON.stringify(reAccrued.json));
+
+    // Accrued interest already settled by a repayment cannot be un-accrued.
+    const interestRepayment = await post(`/api/accounting/loans/${revLoanId}/repayments`, tokens.super, {
+      dateAD: '2026-08-21',
+      principal: 1,
+      interestAmount: 50,
+      tdsAmount: 0,
+      tdsExemptionReason: 'OTHER',
+      tdsExemptionReference: 'LENDER TEST REVERSAL NOTE',
+    });
+    assert.equal(interestRepayment.status, 201, JSON.stringify(interestRepayment.json));
+    const unaccrued = await post(
+      `/api/accounting/loans/${revLoanId}/interest-accruals/${reAccrued.json.accrual.id}/reverse`,
+      tokens.super,
+      { reason: 'LENDER TEST settled accrual' }
+    );
+    assert.equal(unaccrued.status, 409, JSON.stringify(unaccrued.json));
+    assert.match(unaccrued.json.message, /already been settled/i);
+  });
+
   test('retirement waits for open loans, and a branch account cannot touch another branch', async () => {
     const openLoan = await post('/api/accounting/loans', tokens.super, {
       lenderId,

@@ -1081,6 +1081,8 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       'recordLoanInterestAccrual',
       'recordLoanReceipt',
       'recordLoanRepayment',
+      'reverseLoanInterestAccrual',
+      'reverseLoanTransaction',
       'type AccountingAccount',
       'updateLender',
       'updateLoan',

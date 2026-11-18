@@ -14,6 +14,7 @@ import { allowedBranchScope } from '../middleware/branchScope';
 import { resolveBranchScope } from './accounting.controller';
 import { logAuditEvent } from '../services/audit.service';
 import { postJournalLegs, type JournalLeg } from '../services/accounting.service';
+import { reverseSourceJournal } from '../services/invoicePosting.service';
 import { ACCOUNT_BY_ID_SQL } from '../models/accounting.repo';
 import { bsDateOrThrow } from '../utils/bsDate';
 import { booleanFlag } from '../utils/booleanFlag';
@@ -56,6 +57,9 @@ import {
   LOAN_ACCRUAL_COUNT_SQL,
   LOAN_ACCRUAL_INSERT_SQL,
   LOAN_ACCRUAL_LAST_SQL,
+  LOAN_ACCRUAL_LOCK_SQL,
+  LOAN_ACCRUAL_POSTED_COUNT_SQL,
+  LOAN_ACCRUAL_REVERSE_SQL,
   LOAN_ACCRUAL_LIST_SQL,
   LOAN_ACCRUAL_OVERLAP_SQL,
   LOAN_ACCRUAL_SUM_SQL,
@@ -66,7 +70,11 @@ import {
   LOAN_INSTALLMENT_INSERT_SQL,
   LOAN_INSTALLMENT_LIST_SQL,
   LOAN_INSTALLMENT_LOCK_SQL,
+  LOAN_INSTALLMENT_RESET_PAID_SQL,
   LOAN_INSTALLMENT_UPDATE_SQL,
+  LOAN_POSTED_REPAYMENTS_SQL,
+  LOAN_TRANSACTION_LOCK_SQL,
+  LOAN_TRANSACTION_REVERSE_SQL,
   LOAN_INTEREST_PAYABLE_APPLIED_SQL,
   LOAN_LOCK_SQL,
   LOAN_PAYABLE_ACCOUNT_BY_ID_SQL,
@@ -1615,6 +1623,174 @@ export async function post_loanInterestAccrual(req: any, res: Response): Promise
       accrual: loanAccrualResponse(saved),
       loan: loanResponse(current),
     };
+  });
+  return res.status(201).json(result);
+}
+
+/**
+ * Rebuilds the installment schedule's paid columns from what is still posted.
+ * A reversal deletes no document, so the paid side must be derived from the
+ * surviving repayments in date order — the sum of the columns then equals the
+ * posted repayments and cannot drift from the ledger.
+ */
+async function reapplyInstallmentAllocations(client: any, loanId: string): Promise<void> {
+  await client.query(LOAN_INSTALLMENT_RESET_PAID_SQL, [loanId]);
+  const posted = (await client.query(LOAN_POSTED_REPAYMENTS_SQL, [loanId])).rows as any[];
+  for (const row of posted) {
+    await allocateRepayment(
+      client,
+      loanId,
+      money(row.principalAmount),
+      money(row.interestAmount),
+      money(row.tdsAmount)
+    );
+  }
+}
+
+/** Recomputes OPEN/CLOSED from the posted documents after a correction. */
+async function refreshLoanStatus(client: any, loanId: string, currentStatus: string): Promise<void> {
+  if (currentStatus === 'CANCELLED') return;
+  const sums = (await client.query(LOAN_TRANSACTION_SUM_SQL, [loanId])).rows[0] || {};
+  const funded = money(sums.funded);
+  const outstanding = money(funded - money(sums.repaid));
+  await client.query(LOAN_STATUS_UPDATE_SQL, [
+    loanId,
+    outstanding <= 0.004 && funded > 0.004 ? 'CLOSED' : 'OPEN',
+  ]);
+}
+
+/**
+ * POST /api/accounting/loans/:id/transactions/:txnId/reverse
+ *
+ * A posted loan receipt or repayment is append-only, so the correction is a
+ * linked contra journal plus a REVERSED marker — never an edit and never a
+ * delete. The guards keep the loan readable at every point: a receipt cannot
+ * be reversed while principal is still repaid against it or while interest is
+ * still accrued on it, because either order would leave a repayment or an
+ * accrual with nothing to apply to. Reverse those documents first.
+ */
+export async function post_loanTransactionReversal(req: any, res: Response): Promise<any> {
+  requireDb();
+  const loanId = text(req.params?.id, 50);
+  const txnId = text(req.params?.txnId, 50);
+  if (!loanId || !txnId) throw new ApiError(400, 'A loan id and a document id are required.');
+  const reason = text(req.body?.reason, 500);
+  if (reason.length < 3) {
+    throw new ApiError(400, 'A reversal reason of at least 3 characters is required.');
+  }
+  const dateAD = dateOnly(req.body?.dateAD ?? todayAD(), 'Reversal date');
+  const result = await withTransaction(async (client) => {
+    const loan = await loanForWrite(client, req, loanId);
+    const txn = (await client.query(LOAN_TRANSACTION_LOCK_SQL, [txnId, loanId])).rows[0];
+    if (!txn) throw new ApiError(404, 'Loan document not found.');
+    if (txn.status !== 'POSTED') {
+      throw new ApiError(409, `Document ${txn.txnNumber} is already reversed.`);
+    }
+    const sums = (await client.query(LOAN_TRANSACTION_SUM_SQL, [loanId])).rows[0] || {};
+    if (txn.txnType === 'RECEIPT') {
+      const fundedAfter = money(money(sums.funded) - money(txn.principalAmount));
+      const repaid = money(sums.repaid);
+      if (repaid > fundedAfter + 0.004) {
+        throw new ApiError(
+          409,
+          `Receipt ${txn.txnNumber} cannot be reversed while ${repaid.toFixed(2)} of principal is still repaid against this loan — reverse the repayments first.`
+        );
+      }
+      const accruals = (await client.query(LOAN_ACCRUAL_POSTED_COUNT_SQL, [loanId])).rows[0];
+      if (Number(accruals?.count) > 0) {
+        throw new ApiError(
+          409,
+          'Interest has been accrued on this loan; reverse the interest accruals before reversing a receipt.'
+        );
+      }
+    }
+    const journal = await reverseSourceJournal(client, {
+      sourceType: txn.txnType === 'RECEIPT' ? 'LOAN_RECEIPT' : 'LOAN_REPAYMENT',
+      sourceId: txn.id,
+      reason,
+      dateAD,
+      actor: actorOf(req),
+    });
+    if (!journal) {
+      throw new ApiError(409, `Document ${txn.txnNumber} has no posted journal to reverse.`);
+    }
+    await client.query(LOAN_TRANSACTION_REVERSE_SQL, [txn.id, actorOf(req), reason, journal.id]);
+    if (txn.txnType === 'REPAYMENT') {
+      await reapplyInstallmentAllocations(client, loanId);
+    }
+    await refreshLoanStatus(client, loanId, loan.status);
+    await logAuditEvent(
+      req,
+      txn.txnType === 'RECEIPT' ? 'REVERSE_LOAN_RECEIPT' : 'REVERSE_LOAN_REPAYMENT',
+      'ACCOUNTING',
+      `Reversed ${txn.txnType === 'RECEIPT' ? 'receipt' : 'repayment'} ${txn.txnNumber} for loan ${loan.loanNumber} — ${reason}`,
+      undefined,
+      client
+    );
+    const saved = (await client.query(LOAN_TRANSACTION_BY_ID_SQL, [txn.id])).rows[0];
+    const current = (await client.query(LOAN_BY_ID_SQL, [loanId])).rows[0];
+    return { transaction: loanTransactionResponse(saved), loan: loanResponse(current) };
+  });
+  return res.status(201).json(result);
+}
+
+/**
+ * POST /api/accounting/loans/:id/interest-accruals/:accrualId/reverse
+ *
+ * Reverses one posted accrual. Refused when repayments have already cleared
+ * more accrued interest than would remain, which would leave the interest
+ * payable account over-applied after the contra posting.
+ */
+export async function post_loanAccrualReversal(req: any, res: Response): Promise<any> {
+  requireDb();
+  const loanId = text(req.params?.id, 50);
+  const accrualId = text(req.params?.accrualId, 50);
+  if (!loanId || !accrualId) throw new ApiError(400, 'A loan id and an accrual id are required.');
+  const reason = text(req.body?.reason, 500);
+  if (reason.length < 3) {
+    throw new ApiError(400, 'A reversal reason of at least 3 characters is required.');
+  }
+  const dateAD = dateOnly(req.body?.dateAD ?? todayAD(), 'Reversal date');
+  const result = await withTransaction(async (client) => {
+    const loan = await loanForWrite(client, req, loanId);
+    const accrual = (await client.query(LOAN_ACCRUAL_LOCK_SQL, [accrualId, loanId])).rows[0];
+    if (!accrual) throw new ApiError(404, 'Interest accrual not found.');
+    if (accrual.status !== 'POSTED') {
+      throw new ApiError(409, `Accrual ${accrual.accrualNumber} is already reversed.`);
+    }
+    const accrued = money((await client.query(LOAN_ACCRUAL_SUM_SQL, [loanId])).rows[0]?.accrued);
+    const applied = money(
+      (await client.query(LOAN_INTEREST_PAYABLE_APPLIED_SQL, [loanId])).rows[0]?.applied
+    );
+    const accruedAfter = money(accrued - money(accrual.interestAmount));
+    if (applied > accruedAfter + 0.004) {
+      throw new ApiError(
+        409,
+        `Accrual ${accrual.accrualNumber} cannot be reversed: ${applied.toFixed(2)} of accrued interest has already been settled by repayments and only ${accruedAfter.toFixed(2)} would remain.`
+      );
+    }
+    const journal = await reverseSourceJournal(client, {
+      sourceType: 'LOAN_INTEREST_ACCRUAL',
+      sourceId: accrual.id,
+      reason,
+      dateAD,
+      actor: actorOf(req),
+    });
+    if (!journal) {
+      throw new ApiError(409, `Accrual ${accrual.accrualNumber} has no posted journal to reverse.`);
+    }
+    await client.query(LOAN_ACCRUAL_REVERSE_SQL, [accrual.id, actorOf(req), reason, journal.id]);
+    await logAuditEvent(
+      req,
+      'REVERSE_LOAN_INTEREST_ACCRUAL',
+      'ACCOUNTING',
+      `Reversed interest accrual ${accrual.accrualNumber} for loan ${loan.loanNumber} — ${reason}`,
+      undefined,
+      client
+    );
+    const saved = (await client.query(LOAN_ACCRUAL_BY_ID_SQL, [accrual.id])).rows[0];
+    const current = (await client.query(LOAN_BY_ID_SQL, [loanId])).rows[0];
+    return { accrual: loanAccrualResponse(saved), loan: loanResponse(current) };
   });
   return res.status(201).json(result);
 }

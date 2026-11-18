@@ -199,29 +199,29 @@ export const LOAN_COLUMNS = `ln.id,
   COALESCE((SELECT SUM(t.principal_amount)
     FROM loan_transactions t
     JOIN gl_journals j ON j.id = t.journal_id AND j.status = 'POSTED'
-   WHERE t.loan_id = ln.id AND t.txn_type = 'RECEIPT'), 0)::numeric AS "fundedPrincipal",
+   WHERE t.loan_id = ln.id AND t.txn_type = 'RECEIPT' AND t.status = 'POSTED'), 0)::numeric AS "fundedPrincipal",
   COALESCE((SELECT SUM(t.principal_amount)
     FROM loan_transactions t
     JOIN gl_journals j ON j.id = t.journal_id AND j.status = 'POSTED'
-   WHERE t.loan_id = ln.id AND t.txn_type = 'REPAYMENT'), 0)::numeric AS "repaidPrincipal",
+   WHERE t.loan_id = ln.id AND t.txn_type = 'REPAYMENT' AND t.status = 'POSTED'), 0)::numeric AS "repaidPrincipal",
   COALESCE((SELECT SUM(t.interest_amount)
     FROM loan_transactions t
     JOIN gl_journals j ON j.id = t.journal_id AND j.status = 'POSTED'
-   WHERE t.loan_id = ln.id AND t.txn_type = 'REPAYMENT'), 0)::numeric AS "interestPaid",
+   WHERE t.loan_id = ln.id AND t.txn_type = 'REPAYMENT' AND t.status = 'POSTED'), 0)::numeric AS "interestPaid",
   COALESCE((SELECT SUM(t.tds_amount)
     FROM loan_transactions t
     JOIN gl_journals j ON j.id = t.journal_id AND j.status = 'POSTED'
-   WHERE t.loan_id = ln.id AND t.txn_type = 'REPAYMENT'), 0)::numeric AS "tdsWithheld",
+   WHERE t.loan_id = ln.id AND t.txn_type = 'REPAYMENT' AND t.status = 'POSTED'), 0)::numeric AS "tdsWithheld",
   (SELECT MAX(t.txn_date_ad)::text
     FROM loan_transactions t
     JOIN gl_journals j ON j.id = t.journal_id AND j.status = 'POSTED'
-   WHERE t.loan_id = ln.id) AS "lastTransactionDateAD",
+   WHERE t.loan_id = ln.id AND t.status = 'POSTED') AS "lastTransactionDateAD",
   COALESCE((SELECT SUM(a.interest_amount)
     FROM loan_interest_accruals a
-   WHERE a.loan_id = ln.id), 0)::numeric AS "interestAccrued",
+   WHERE a.loan_id = ln.id AND a.status = 'POSTED'), 0)::numeric AS "interestAccrued",
   (SELECT MAX(a.to_date_ad)::text
     FROM loan_interest_accruals a
-   WHERE a.loan_id = ln.id) AS "lastAccrualDateAD",
+   WHERE a.loan_id = ln.id AND a.status = 'POSTED') AS "lastAccrualDateAD",
   (SELECT COUNT(*)::int FROM loan_installments li WHERE li.loan_id = ln.id) AS "installmentCount",
   (SELECT MIN(li.due_date_ad)::text
     FROM loan_installments li
@@ -322,6 +322,11 @@ export const LOAN_TRANSACTION_COLUMNS = `t.id,
   t.journal_id AS "journalId",
   j.journal_no AS "journalNo",
   j.status AS "journalStatus",
+  t.status,
+  t.reversal_reason AS "reversalReason",
+  t.reversed_by AS "reversedBy",
+  t.reversed_at AS "reversedAt",
+  t.reversal_journal_id AS "reversalJournalId",
   t.created_by AS "createdBy",
   t.created_at AS "createdAt"`;
 
@@ -383,6 +388,7 @@ JOIN loans ln ON ln.id = t.loan_id
 JOIN lenders l ON l.id = t.lender_id
 JOIN branches b ON b.id = t.branch_id
 WHERE t.txn_type = 'REPAYMENT'
+  AND t.status = 'POSTED'
   AND t.tds_amount = 0
   AND t.interest_amount > 0
   AND t.tds_exemption_reason IS NULL
@@ -410,7 +416,7 @@ export const LOAN_TRANSACTION_SUM_SQL = `SELECT
   COALESCE(SUM(t.tds_amount) FILTER (WHERE t.txn_type = 'REPAYMENT'), 0)::numeric AS tds
 FROM loan_transactions t
 JOIN gl_journals j ON j.id = t.journal_id AND j.status = 'POSTED'
-WHERE t.loan_id = $1`;
+WHERE t.loan_id = $1 AND t.status = 'POSTED'`;
 
 export const LOAN_STATUS_UPDATE_SQL = `UPDATE loans
 SET status = $2, updated_at = CURRENT_TIMESTAMP
@@ -419,16 +425,21 @@ WHERE id = $1`;
 export const LOAN_REPAYMENT_COUNT_SQL = `SELECT COUNT(*)::int AS count
 FROM loan_transactions t
 JOIN gl_journals j ON j.id = t.journal_id AND j.status = 'POSTED'
-WHERE t.loan_id = $1 AND t.txn_type = 'REPAYMENT'`;
+WHERE t.loan_id = $1 AND t.txn_type = 'REPAYMENT' AND t.status = 'POSTED'`;
 
 export const LOAN_ACCRUAL_COUNT_SQL = `SELECT COUNT(*)::int AS count
-FROM loan_interest_accruals WHERE loan_id = $1`;
+FROM loan_interest_accruals WHERE loan_id = $1 AND status = 'POSTED'`;
+
+/** How many interest accruals a receipt reversal would have to unwind first. */
+export const LOAN_ACCRUAL_POSTED_COUNT_SQL = `SELECT COUNT(*)::int AS count
+FROM loan_interest_accruals
+WHERE loan_id = $1 AND status = 'POSTED'`;
 
 export const LOAN_INTEREST_PAYABLE_APPLIED_SQL = `SELECT
   COALESCE(SUM(t.interest_payable_applied), 0)::numeric AS applied
 FROM loan_transactions t
 JOIN gl_journals j ON j.id = t.journal_id AND j.status = 'POSTED'
-WHERE t.loan_id = $1 AND t.txn_type = 'REPAYMENT'`;
+WHERE t.loan_id = $1 AND t.txn_type = 'REPAYMENT' AND t.status = 'POSTED'`;
 
 export const LOAN_INSTALLMENT_COLUMNS = `li.id,
   li.loan_id AS "loanId",
@@ -467,6 +478,43 @@ export const LOAN_INSTALLMENT_UPDATE_SQL = `UPDATE loan_installments SET
 WHERE id = $1
 RETURNING id`;
 
+/**
+ * A reversal replays the schedule from the posted repayments, so the paid
+ * columns are cleared and rebuilt in one transaction. Deriving them from what
+ * is still posted is the only allocation that cannot drift: the sum of the
+ * paid columns always equals the posted repayments, in order.
+ */
+export const LOAN_INSTALLMENT_RESET_PAID_SQL = `UPDATE loan_installments SET
+  principal_paid = 0,
+  interest_paid = 0,
+  tds_paid = 0
+WHERE loan_id = $1`;
+
+export const LOAN_POSTED_REPAYMENTS_SQL = `SELECT
+  t.principal_amount::numeric AS "principalAmount",
+  t.interest_amount::numeric AS "interestAmount",
+  t.tds_amount::numeric AS "tdsAmount"
+FROM loan_transactions t
+WHERE t.loan_id = $1 AND t.txn_type = 'REPAYMENT' AND t.status = 'POSTED'
+ORDER BY t.txn_date_ad ASC, t.created_at ASC, t.id ASC`;
+
+/** Locks one posted loan document for reversal; the loan id must match. */
+export const LOAN_TRANSACTION_LOCK_SQL = `SELECT ${LOAN_TRANSACTION_COLUMNS}
+FROM loan_transactions t
+JOIN gl_journals j ON j.id = t.journal_id
+WHERE t.id = $1 AND t.loan_id = $2
+FOR UPDATE OF t`;
+
+export const LOAN_TRANSACTION_REVERSE_SQL = `UPDATE loan_transactions SET
+  status = 'REVERSED',
+  reversed_at = CURRENT_TIMESTAMP,
+  reversed_by = $2,
+  reversal_reason = $3,
+  reversal_journal_id = $4
+WHERE id = $1 AND status = 'POSTED'
+RETURNING id`;
+
+
 export const LOAN_ACCRUAL_COLUMNS = `a.id,
   a.accrual_number AS "accrualNumber",
   a.loan_id AS "loanId",
@@ -483,6 +531,11 @@ export const LOAN_ACCRUAL_COLUMNS = `a.id,
   a.journal_id AS "journalId",
   j.journal_no AS "journalNo",
   j.status AS "journalStatus",
+  a.status,
+  a.reversal_reason AS "reversalReason",
+  a.reversed_by AS "reversedBy",
+  a.reversed_at AS "reversedAt",
+  a.reversal_journal_id AS "reversalJournalId",
   a.created_by AS "createdBy",
   a.created_at AS "createdAt"`;
 
@@ -497,17 +550,34 @@ FROM loan_interest_accruals a
 JOIN gl_journals j ON j.id = a.journal_id
 WHERE a.id = $1`;
 
+/** Locks one interest accrual for reversal. */
+export const LOAN_ACCRUAL_LOCK_SQL = `SELECT ${LOAN_ACCRUAL_COLUMNS}
+FROM loan_interest_accruals a
+JOIN gl_journals j ON j.id = a.journal_id
+WHERE a.id = $1 AND a.loan_id = $2
+FOR UPDATE OF a`;
+
+export const LOAN_ACCRUAL_REVERSE_SQL = `UPDATE loan_interest_accruals SET
+  status = 'REVERSED',
+  reversed_at = CURRENT_TIMESTAMP,
+  reversed_by = $2,
+  reversal_reason = $3,
+  reversal_journal_id = $4
+WHERE id = $1 AND status = 'POSTED'
+RETURNING id`;
+
 export const LOAN_ACCRUAL_SUM_SQL = `SELECT COALESCE(SUM(a.interest_amount), 0)::numeric AS accrued
 FROM loan_interest_accruals a
-WHERE a.loan_id = $1`;
+WHERE a.loan_id = $1 AND a.status = 'POSTED'`;
 
 export const LOAN_ACCRUAL_LAST_SQL = `SELECT MAX(to_date_ad)::text AS last
 FROM loan_interest_accruals
-WHERE loan_id = $1`;
+WHERE loan_id = $1 AND status = 'POSTED'`;
 
 export const LOAN_ACCRUAL_OVERLAP_SQL = `SELECT id, accrual_number
 FROM loan_interest_accruals
 WHERE loan_id = $1
+  AND status = 'POSTED'
   AND from_date_ad <= $3::date
   AND to_date_ad >= $2::date
 LIMIT 1`;
@@ -547,6 +617,7 @@ JOIN gl_journals j ON j.id = t.journal_id AND j.status = 'POSTED'
 JOIN loans ln ON ln.id = t.loan_id
 WHERE t.lender_id = $1
   AND t.txn_type = 'REPAYMENT'
+  AND t.status = 'POSTED'
   AND ($2::date IS NULL OR t.txn_date_ad >= $2::date)
   AND ($3::date IS NULL OR t.txn_date_ad <= $3::date)
   AND ($4::varchar IS NULL OR t.branch_id = $4)
@@ -562,6 +633,7 @@ FROM loan_transactions t
 JOIN gl_journals j ON j.id = t.journal_id AND j.status = 'POSTED'
 WHERE t.lender_id = $1
   AND t.txn_type = 'REPAYMENT'
+  AND t.status = 'POSTED'
   AND ($2::date IS NULL OR t.txn_date_ad >= $2::date)
   AND ($3::date IS NULL OR t.txn_date_ad <= $3::date)
   AND ($4::varchar IS NULL OR t.branch_id = $4)`;

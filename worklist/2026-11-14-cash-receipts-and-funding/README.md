@@ -153,7 +153,7 @@ document instead of inventing a number.
 
 ### LEND-1 — Owner and third-party unsecured loans
 
-Priority: P1 · Status: `[x]`
+Priority: P1 · Status: `[x]` (correction path added 2026-11-17)
 
 - [x] Add a **Lender** master: `id`, `code`, `name`, `lender_type`
       (`OWNER`, `RELATED_PARTY`, `OTHER`), PAN, phone, address, active.
@@ -184,6 +184,33 @@ through the normal journal path and link their voucher to the loan record.
 Acceptance: NPR 100,000 from a person is not posted to AP or customer AR; it
 credits Loan Payable under that person's lender book, appears in the lender
 statement, and a repayment reduces the book without touching trade payables.
+
+**Correction path (2026-11-17).** Round 11's decision 6 (posted history is
+append-only; corrections are reversals) had no loan implementation: a receipt,
+repayment or accrual recorded in error could not be corrected at all, and
+`patch_loan` refused a term change with "reverse the documents first" pointing
+at an operation that did not exist. Migration `0033` adds `status`,
+`reversed_at`, `reversed_by`, `reversal_reason` and `reversal_journal_id` to
+`loan_transactions` and `loan_interest_accruals`, with a check that a REVERSED
+row carries its journal and reason and a POSTED row carries none. The two new
+routes post the same linked contra journal payments and invoices use
+(`reverseSourceJournal`), then:
+
+- rebuild the installment paid columns from the surviving posted repayments, so
+the schedule's paid side always equals the ledger;
+- recompute OPEN/CLOSED from the posted documents;
+- refuse a receipt reversal while principal is still repaid against it
+(`… reverse the repayments first`) or while interest is accrued on it, and
+refuse an accrual reversal that would leave more accrued interest applied than
+remains — each refusal names the order to follow;
+- refuse a second reversal of the same document.
+
+Every loan sum (funded, repaid, interest, TDS), the accrual sums, the TDS
+register/worklist and the lender statement now read only `status = 'POSTED'`
+documents, so a reversed document stops moving balances while its rows, its
+journal and the contra journal stay visible. The loan history table and the
+accrual list in **Lenders & Loans** show the status and offer a **Reverse**
+action with a reason (in-app prompt, no native dialog).
 
 ### DATA-1 — Correcting a receipt already posted the wrong way
 
