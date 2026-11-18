@@ -22,7 +22,7 @@ import { bsDateOr400 } from '../utils/bsDate';
 import {
   buildSalesInvoiceListSql, buildSalesInvoiceCountQuery, buildSalesInvoicePagedQuery,
   buildSalesInvoiceKeysetQuery,
-  SI_INSERT_SQL, siInsertParams, SI_FIND_SQL, SI_EXISTS_SQL,
+  SI_INSERT_SQL, siInsertParams, SI_FIND_SQL, SI_EXISTS_SQL, ENSURE_SALES_INVOICE_PARTITION_SQL,
   SI_DEDUCT_STOCK_SQL, SI_RESTORE_STOCK_SQL, SI_TXN_LOG_SQL, siTxnLogParams,
   buildSalesReturnListSql, buildSalesReturnCountQuery, buildSalesReturnPagedQuery,
   buildSalesReturnKeysetQuery,
@@ -475,6 +475,9 @@ export async function post_salesInvoices(req: any, res: Response): Promise<any> 
       // default, a closed period or a rejected journal rolls the WHOLE invoice
       // back — there is no document without its ledger entry.
       await withTransaction(async (client) => {
+        // SCALE-3: provision the invoice's month before it lands (same SQL
+        // function the boot provisioner and check:partitions call).
+        await client.query(ENSURE_SALES_INVOICE_PARTITION_SQL, [newInv.invoiceDateAD]);
         await client.query(SI_INSERT_SQL, siInsertParams(newInv, JSON.stringify(items)));
         await claimInvoiceSerials(client, items, newInv, targetBranchId, invDate);
         await writeSellerCoveragePlan(client, sellerWarrantyPlan.captures);

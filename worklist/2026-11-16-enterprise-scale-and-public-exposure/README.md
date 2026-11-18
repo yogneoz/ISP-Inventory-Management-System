@@ -319,9 +319,10 @@ log/pid removed after the run; no scratch database or fixture rows remain
 ### SCALE-3 — Partitioning, indexes, read/write split, PgBouncer
 
 Priority: P0 · Status: `[~]` — provisioned partitioning, hot-table storage and
-the `gl_subledger_entries`, `stock_operations` and `serial_log` partition
-conversions landed 2026-11-17/18; `sales_invoices`, the BRIN/composite index
-work, replica routing and PgBouncer are open. Audit:
+all four partition conversions landed 2026-11-17/18 (`gl_subledger_entries`,
+`stock_operations`, `serial_log`, `sales_invoices`); the BRIN/composite index
+work, replica routing, PgBouncer and the pre-aggregated read models are open.
+Audit:
 [docs/database-optimization-audit-2026-11-17.md](../../docs/database-optimization-audit-2026-11-17.md).
 
 - [x] Provision monthly partitions for **both** ledger parents. They are
@@ -409,14 +410,35 @@ work, replica routing and PgBouncer are open. Audit:
       data month's child, duplicate serial/PON/MAC inserts inserting 0 rows,
       rename-onto-held refused, month child emptied (keys released) and
       detached. Tests: `tests/serialLogPartitions.test.ts` (6).
-- [ ] Convert `sales_invoices` the same way. The registry pattern now carries
-      multiple keys per document and is ready as-is:
-      `enforce_document_identity('SALES_INVOICE', 'invoice_date_ad',
-      'PRIMARY:invoice_number:fixed:refuse', …)`, its own month function and
-      swap. What is still table-specific: `sales_invoices` has item children and
-      other tables pointing at it, so its conversion has to keep those FKs on
-      the partitioned parent and re-point the invoice key through the registry
-      in the same migration.
+- [x] Convert `sales_invoices` the same way. **Done 2026-11-18** — migration
+      `0039` partitions the sales register by `invoice_date_ad` (shadow table +
+      swap with row-count and registry-count checks), registers `invoice_number`
+      as role PRIMARY with `fixed` and `refuse`, and drops the old unique index
+      in the same migration. It is the one conversion with inbound foreign keys:
+      three tables referenced `sales_invoices(id)`, which a partitioned table
+      cannot satisfy once the primary key is `(id, invoice_date_ad)`. Following
+      the ledger's `gl_journals_registry` precedent but reusing the registry
+      already present, each child gained `document_type`/`key_role` columns that
+      default to `SALES_INVOICE`/`PRIMARY` and a composite FK to
+      `document_identity_registry (document_type, key_role, id)`; `SET NULL`
+      names the id column only (the anchor columns stay NOT NULL) and `RESTRICT`
+      still blocks deleting an allocated invoice. Month children,
+      `ensure_sales_invoice_month_partition()`, the boot provisioner and
+      `check:partitions` follow the `serial_log` shape. Measured on the dev
+      database: 72 rows → 72, 72 registry keys, DEFAULT empty, `EXPLAIN` of a
+      one-month read touching only `sales_invoices_202610`, duplicate number
+      refused 23505, updates by id and by number in place, date move refused,
+      payment nulled on invoice delete and an allocation blocking it (23001),
+      month child emptied then detached. Tests:
+      `tests/salesInvoicePartitions.test.ts` (7).
+- [x] **The partition conversion programme is complete:**
+      `gl_subledger_entries`, `stock_operations`, `serial_log` and
+      `sales_invoices` are all monthly-partitioned, provisioned by one SQL
+      function per table shared by the write path, boot and `check:partitions`,
+      counted through the DEFAULT child, and — where they carry a business key —
+      registry-backed through `document_identity_registry`. Remaining SCALE-3
+      work is not conversion: the index passes below, replica routing, PgBouncer
+      and the pre-aggregated read models.
 - [ ] BRIN indexes on `created_at`, `journal_date_ad`, `entry_date_ad`,
       `operation_date_ad` (append-only, physically ordered); composite B-Tree
       `(branch_id, fiscal_year_id, <date> DESC, id DESC)` for the page reads.

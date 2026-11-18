@@ -537,9 +537,12 @@ Authoritative detail stays in those notes; this round owns their scheduling.
   `role:column:flags` specs), so its three `lower(trim())` partial uniques are
   now the SERIAL/PON/MAC roles with identical semantics; the insert-if-absent
   writes still skip a row whose key is held, a rename onto a held key still
-  raises `23505`, and the date is immovable. Still open: `sales_invoices`
-  converted the same way (it has inbound FKs and item-child tables to keep
-  pointing at the parent); replica/PgBouncer decision
+  raises `23505`, and the date is immovable. **`sales_invoices` completed the
+  programme (2026-11-18)** — migration `0039` partitions the sales register by
+  `invoice_date_ad`, and the three inbound foreign keys now anchor on
+  `document_identity_registry` (the `gl_journals_registry` pattern), because a
+  partitioned table cannot satisfy an FK on `(id)` alone; the end-to-end
+  conversion programme is closed. Remaining Round 13 work: replica/PgBouncer decision
   (audit §1 row 2); pre-aggregated stock and closed-year trial balance; queued
   writes; and the whole public-exposure surface — TLS, CORS, CSP, MFA, reverse proxy, HSTS, `TRUST_PROXY`, real client
   IP in the audit trail.
@@ -736,5 +739,21 @@ on the Redis state and MFA work in Part B.
   rejected with 0 rows, month child emptied then detached; `verify:fresh-install`
   PASS (162 tables / 2541 columns / 2164 constraints / 875 indexes / 101
   triggers) and the legacy-upgrade comparison PASS. Tests:
-  `tests/serialLogPartitions.test.ts` (6). `sales_invoices` is the last
-  conversion.
+  `tests/serialLogPartitions.test.ts` (6).
+- 2026-11-18 — **`sales_invoices` converted; the SCALE-3 partition programme is
+  complete**: migration `0039` RANGE-partitions the sales register by
+  `invoice_date_ad` (shadow table + swap, aborting on row-count or registry-count
+  mismatch), drops `sales_invoices_invoice_number_key` and registers the number
+  as role PRIMARY with `fixed`+`refuse` (a reused number still raises 23505, a
+  rename is refused). The three inbound foreign keys — `sales_returns`,
+  `customer_payments`, `customer_payment_allocations` — cannot target `(id)` any
+  more, so each child gained `document_type`/`key_role` columns defaulting to
+  `SALES_INVOICE`/`PRIMARY` and a composite FK to the registry, with SET NULL
+  naming only the id column and RESTRICT preserved. Month provisioning is the
+  same shape as `serial_log` (write path, boot, `check:partitions`). Measured: 72
+  rows → 72, 72 registry keys, DEFAULT empty, one-month `EXPLAIN` touching only
+  `sales_invoices_202610`, duplicate number refused, updates by id and number in
+  place, date move refused, payment nulled on delete, allocation blocking it
+  (23001), month child emptied then detached; `verify:fresh-install` PASS and the
+  legacy-upgrade comparison PASS. Tests: `tests/salesInvoicePartitions.test.ts`
+  (7).

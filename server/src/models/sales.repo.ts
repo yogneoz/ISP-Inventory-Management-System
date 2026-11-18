@@ -126,6 +126,15 @@ export function buildSalesInvoiceKeysetQuery(
   return { sql, params, limit };
 }
 
+/**
+ * SCALE-3: `sales_invoices` is partitioned by `invoice_date_ad`; the month child
+ * must exist before the invoice lands, or the row falls into
+ * `sales_invoices_default` and can never be pruned. Same single-SQL-function
+ * path the boot provisioner and `check:partitions` use.
+ */
+export const ENSURE_SALES_INVOICE_PARTITION_SQL =
+  'SELECT ensure_sales_invoice_month_partition($1::date)';
+
 export const SI_INSERT_SQL = `INSERT INTO sales_invoices (
    id, invoice_number, customer_id, customer_name, branch_id, invoice_date_ad, invoice_date_bs,
    bill_terms_id, due_date_ad, due_date_bs, area_id, area_name, agent_id, agent_name,

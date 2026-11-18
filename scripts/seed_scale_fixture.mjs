@@ -164,6 +164,17 @@ try {
           [branchTotal, counts.customers]
         );
 
+        // SCALE-3: the invoice register is partitioned by invoice_date_ad, so the
+        // fixture provisions every month it is about to write (the write path
+        // does the same for real sales; this is a bulk insert straight into the
+        // table, so it has to do it explicitly).
+        await client.query(
+          `SELECT ensure_sales_invoice_month_partition(m)
+             FROM (SELECT DISTINCT date_trunc('month', DATE '2020-01-01' + (g % 2200))::date AS m
+                     FROM generate_series(1, $1) g) months`,
+          [counts.invoices]
+        );
+
         await client.query(
           `INSERT INTO sales_invoices
              (id, invoice_number, customer_name, branch_id, invoice_date_ad, invoice_date_bs,

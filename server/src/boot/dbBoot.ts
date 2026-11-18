@@ -57,6 +57,11 @@ import {
   describeSerialLogPartitions,
   provisionSerialLogPartitions,
 } from './serialLogPartitions';
+import {
+  defaultSalesInvoicePartitionIsDirty,
+  describeSalesInvoicePartitions,
+  provisionSalesInvoicePartitions,
+} from './salesInvoicePartitions';
 
 import {
   setDocNumberConfigs,
@@ -201,6 +206,13 @@ export async function syncDatabaseAndIndexes() {
         console.warn(`⚠️  Serial register partitions provisioned with gaps: ${serialsSummary}`);
       } else {
         console.log(`✅ Serial register partitions provisioned: ${serialsSummary}`);
+      }
+      const invoices = await provisionSalesInvoicePartitions(client);
+      const invoicesSummary = describeSalesInvoicePartitions(invoices);
+      if (invoices.failed.length || defaultSalesInvoicePartitionIsDirty(invoices)) {
+        console.warn(`⚠️  Sales invoice partitions provisioned with gaps: ${invoicesSummary}`);
+      } else {
+        console.log(`✅ Sales invoice partitions provisioned: ${invoicesSummary}`);
       }
       const summary = describeJournalPartitions(partitions);
       if (partitions.failed.length) {

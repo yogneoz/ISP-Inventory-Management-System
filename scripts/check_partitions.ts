@@ -48,6 +48,12 @@ import {
   serialLogPartitionStatus,
 } from '../server/src/boot/serialLogPartitions';
 import type { SerialLogPartitionReport } from '../server/src/boot/serialLogPartitions';
+import {
+  defaultSalesInvoicePartitionIsDirty,
+  provisionSalesInvoicePartitions,
+  salesInvoicePartitionStatus,
+} from '../server/src/boot/salesInvoicePartitions';
+import type { SalesInvoicePartitionReport } from '../server/src/boot/salesInvoicePartitions';
 
 function argValue(flag: string): string | null {
   const index = process.argv.indexOf(flag);
@@ -190,6 +196,31 @@ async function main(): Promise<void> {
     }
     const serialGaps = serialReport.missing.length;
 
+    const invoiceReport: SalesInvoicePartitionReport = apply
+      ? await provisionSalesInvoicePartitions(pool, options)
+      : { ...(await salesInvoicePartitionStatus(pool, options)), created: [], failed: [] };
+    console.log('Sales invoice partitions (sales_invoices)');
+    console.log(
+      `  present : ${invoiceReport.present.length ? invoiceReport.present.join(', ') : '(none)'};` +
+        ` missing ${invoiceReport.missing.length ? invoiceReport.missing.join(', ') : '(none)'};` +
+        ` DEFAULT ${invoiceReport.defaultRows} row(s)`
+    );
+    if (apply) {
+      console.log(`  created : ${invoiceReport.created.length ? invoiceReport.created.join(', ') : '(none — already provisioned)'}`);
+    }
+    for (const failure of invoiceReport.failed) {
+      console.error(`✗ sales_invoices month ${failure.month} could not be created: ${failure.message}`);
+    }
+    const invoiceDirty = defaultSalesInvoicePartitionIsDirty(invoiceReport);
+    if (invoiceDirty) {
+      console.error(
+        `✗ ${invoiceReport.defaultRows} sales invoice row(s) are in sales_invoices_default: their dates` +
+          ' cannot be pruned, and PostgreSQL refuses to attach a month whose range DEFAULT already holds' +
+          ' rows in. Move them into their month partitions, then re-run.'
+      );
+    }
+    const invoiceGaps = invoiceReport.missing.length;
+
     const logDirty = defaultLogPartitionIsDirty(logReport);
     if (logDirty) {
       console.error(
@@ -234,7 +265,8 @@ async function main(): Promise<void> {
       report.missing.length ||
       logGaps.length ||
       stockOpGaps ||
-      serialGaps
+      serialGaps ||
+      invoiceGaps
         ? 1
         : 0;
   } finally {

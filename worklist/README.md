@@ -69,8 +69,13 @@ is the plan, not a second source of truth.
   the registry now carries several keys per document (`key_role` + per-key
   `ci`/`optional` specs), so its three case-insensitive keys keep their exact
   semantics — a held key still skips an insert-if-absent row, a rename onto a
-  held key still raises `23505`, and the date cannot move. `sales_invoices`
-  reuses that pattern next. The database audit — what already exists, what each remaining
+  held key still raises `23505`, and the date cannot move. **`sales_invoices`
+  closed the programme (2026-11-18):** migration `0039` partitions the sales
+  register by `invoice_date_ad`, and its three inbound foreign keys now point at
+  the registry (the `gl_journals_registry` pattern) because a partitioned table
+  cannot satisfy an FK on `(id)` alone. All four partition conversions are done;
+  the remaining SCALE-3 work is the index passes, replica routing, PgBouncer and
+  the pre-aggregated read models. The database audit — what already exists, what each remaining
   suggestion would cost, and the trigger that reopens it — is
   [docs/database-optimization-audit-2026-11-17.md](../docs/database-optimization-audit-2026-11-17.md).
   It still owns the partition conversions, read/write split, queued writes and the TLS/CORS/CSP/MFA

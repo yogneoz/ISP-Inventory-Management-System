@@ -797,8 +797,8 @@ CREATE INDEX IF NOT EXISTS idx_customer_records_agent ON customer_records(agent_
 -- purchase_invoices with customer fields instead of supplier fields.
 -- Posting a sales invoice DECREMENTS branch stock (guard: quantity_on_hand).
 CREATE TABLE IF NOT EXISTS sales_invoices (
-    id VARCHAR(50) PRIMARY KEY,
-    invoice_number VARCHAR(100) UNIQUE NOT NULL,
+    id VARCHAR(50) NOT NULL,
+    invoice_number VARCHAR(100) NOT NULL,
     customer_id VARCHAR(50) REFERENCES customer_records(id) ON DELETE SET NULL,
     customer_name VARCHAR(200) NOT NULL,
     branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
@@ -830,8 +830,17 @@ CREATE TABLE IF NOT EXISTS sales_invoices (
     created_by VARCHAR(150),
     updated_by VARCHAR(150),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    -- SCALE-3: partitioned by the invoice date. The partition key joins the
+    -- primary key (a partitioned unique constraint must contain it), and
+    -- invoice_number stays globally unique through document_identity_registry
+    -- (role PRIMARY), because the UNIQUE column it used to be cannot exist here.
+    PRIMARY KEY (id, invoice_date_ad)
+) PARTITION BY RANGE (invoice_date_ad);
+
+-- Safety net: an invoice dated outside the provisioned window must not fail.
+-- Rows here defeat pruning and `npm run check:partitions` fails while they exist.
+CREATE TABLE IF NOT EXISTS sales_invoices_default PARTITION OF sales_invoices DEFAULT;
 
 CREATE INDEX IF NOT EXISTS idx_sales_invoices_customer ON sales_invoices(customer_id);
 CREATE INDEX IF NOT EXISTS idx_sales_invoices_branch ON sales_invoices(branch_id);
@@ -903,7 +912,7 @@ CREATE INDEX IF NOT EXISTS idx_purchase_returns_demo ON purchase_returns(id) WHE
 CREATE TABLE IF NOT EXISTS sales_returns (
     id VARCHAR(50) PRIMARY KEY,
     return_number VARCHAR(100) UNIQUE NOT NULL,
-    original_invoice_id VARCHAR(50) REFERENCES sales_invoices(id) ON DELETE SET NULL,
+    original_invoice_id VARCHAR(50),
     original_invoice_number VARCHAR(100),
     customer_id VARCHAR(50) REFERENCES customer_records(id) ON DELETE SET NULL,
     customer_name VARCHAR(200) NOT NULL,
@@ -934,7 +943,16 @@ CREATE TABLE IF NOT EXISTS sales_returns (
     created_by VARCHAR(150),
     updated_by VARCHAR(150),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    -- SCALE-3: the invoice is partitioned, so a foreign key can no longer target
+    -- sales_invoices(id) alone. The identity registry is the referential anchor
+    -- (one PRIMARY row per invoice, exactly like gl_journals_registry is for the
+    -- ledger), and these two columns name the document type/role it holds. They
+    -- default, so every existing insert keeps working untouched. Declared last so
+    -- an upgraded table (ADD COLUMN) and a fresh one have the same column order.
+    original_invoice_document_type VARCHAR(40) NOT NULL DEFAULT 'SALES_INVOICE',
+    original_invoice_key_role VARCHAR(20) NOT NULL DEFAULT 'PRIMARY',
+    CONSTRAINT sales_returns_original_invoice_fk FOREIGN KEY (original_invoice_document_type, original_invoice_key_role, original_invoice_id) REFERENCES document_identity_registry (document_type, key_role, id) ON DELETE SET NULL (original_invoice_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_sales_returns_customer ON sales_returns(customer_id);
@@ -956,7 +974,7 @@ CREATE TABLE IF NOT EXISTS customer_payments (
     customer_id VARCHAR(50) REFERENCES customer_records(id) ON DELETE SET NULL,
     customer_name VARCHAR(200) NOT NULL,
     branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE SET NULL,
-    invoice_id VARCHAR(50) REFERENCES sales_invoices(id) ON DELETE SET NULL,
+    invoice_id VARCHAR(50),
     invoice_number VARCHAR(100),
     payment_date_ad DATE NOT NULL,
     payment_date_bs VARCHAR(20),
@@ -989,7 +1007,11 @@ CREATE TABLE IF NOT EXISTS customer_payments (
     is_demo BOOLEAN NOT NULL DEFAULT FALSE,
     created_by VARCHAR(150),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    -- SCALE-3: same registry anchor as sales_returns (see the note there).
+    invoice_document_type VARCHAR(40) NOT NULL DEFAULT 'SALES_INVOICE',
+    invoice_key_role VARCHAR(20) NOT NULL DEFAULT 'PRIMARY',
+    CONSTRAINT customer_payments_invoice_fk FOREIGN KEY (invoice_document_type, invoice_key_role, invoice_id) REFERENCES document_identity_registry (document_type, key_role, id) ON DELETE SET NULL (invoice_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_customer_payments_customer ON customer_payments(customer_id);
@@ -1006,14 +1028,19 @@ CREATE INDEX IF NOT EXISTS idx_customer_payments_demo ON customer_payments(id) W
 CREATE TABLE IF NOT EXISTS customer_payment_allocations (
     id VARCHAR(60) PRIMARY KEY,
     payment_id VARCHAR(50) NOT NULL REFERENCES customer_payments(id) ON DELETE CASCADE,
-    invoice_id VARCHAR(50) NOT NULL REFERENCES sales_invoices(id) ON DELETE RESTRICT,
+    invoice_id VARCHAR(50) NOT NULL,
     amount NUMERIC(14, 2) NOT NULL CHECK (amount > 0),
     status VARCHAR(20) NOT NULL DEFAULT 'POSTED' CHECK (status IN ('POSTED', 'REVERSED')),
     reversed_at TIMESTAMP WITH TIME ZONE,
     reversed_by VARCHAR(150),
     reversal_reason TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (payment_id, invoice_id)
+    -- SCALE-3: the registry is the referential anchor; RESTRICT keeps the
+    -- "an allocated invoice cannot be deleted" rule intact.
+    invoice_document_type VARCHAR(40) NOT NULL DEFAULT 'SALES_INVOICE',
+    invoice_key_role VARCHAR(20) NOT NULL DEFAULT 'PRIMARY',
+    UNIQUE (payment_id, invoice_id),
+    CONSTRAINT customer_payment_allocations_invoice_fk FOREIGN KEY (invoice_document_type, invoice_key_role, invoice_id) REFERENCES document_identity_registry (document_type, key_role, id) ON DELETE RESTRICT
 );
 
 CREATE INDEX IF NOT EXISTS idx_customer_payment_allocations_payment
@@ -5043,6 +5070,19 @@ CREATE OR REPLACE TRIGGER trg_fiscal_year_balances_immutable
 CREATE TABLE IF NOT EXISTS gl_journals_default PARTITION OF gl_journals DEFAULT;
 CREATE TABLE IF NOT EXISTS gl_journal_lines_default PARTITION OF gl_journal_lines DEFAULT;
 
+CREATE OR REPLACE FUNCTION ensure_sales_invoice_month_partition(p_date DATE)
+RETURNS void AS $$
+DECLARE
+  v_start DATE := date_trunc('month', p_date)::date;
+  v_end DATE := (date_trunc('month', p_date) + INTERVAL '1 month')::date;
+BEGIN
+  EXECUTE format(
+    'CREATE TABLE IF NOT EXISTS %I PARTITION OF sales_invoices FOR VALUES FROM (%L) TO (%L)',
+    'sales_invoices_' || to_char(p_date, 'YYYYMM'), v_start, v_end
+  );
+END;
+$$ LANGUAGE plpgsql;
+
 CREATE OR REPLACE FUNCTION ensure_serial_log_month_partition(p_date DATE)
 RETURNS void AS $$
 DECLARE
@@ -5265,6 +5305,15 @@ CREATE OR REPLACE TRIGGER trg_stock_operations_identity
 -- and a blank device serial are not governed), and no `refuse` keeps the
 -- insert-if-absent contract of the write paths (a key already held skips the
 -- row, exactly like their ON CONFLICT DO NOTHING).
+-- The invoice key: `refuse` keeps the old UNIQUE column's behaviour (a reused
+-- invoice number is an error, and the sales controller maps 23505 to a 409),
+-- `fixed` because an invoice number is never renamed.
+CREATE OR REPLACE TRIGGER trg_sales_invoices_identity
+  BEFORE INSERT OR UPDATE OR DELETE ON sales_invoices
+  FOR EACH ROW EXECUTE FUNCTION enforce_document_identity(
+    'SALES_INVOICE', 'invoice_date_ad',
+    'PRIMARY:invoice_number:fixed:refuse');
+
 CREATE OR REPLACE TRIGGER trg_serial_log_identity
   BEFORE INSERT OR UPDATE OR DELETE ON serial_log
   FOR EACH ROW EXECUTE FUNCTION enforce_document_identity(
