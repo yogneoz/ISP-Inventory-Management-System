@@ -96,7 +96,7 @@ async function main(): Promise<void> {
     console.log(`  missing : ${report.missing.length ? report.missing.join(', ') : '(none)'}`);
     if (apply) console.log(`  created : ${report.created.length ? report.created.join(', ') : '(none — already provisioned)'}`);
     console.log(
-      `  DEFAULT : ${report.defaultRows ? `${report.defaultRows.journals} journal / ${report.defaultRows.lines} line row(s)` : 'absent'}`
+      `  DEFAULT : ${report.defaultRows ? `${report.defaultRows.journals} journal / ${report.defaultRows.lines} line / ${report.defaultRows.subledger} subledger row(s)` : 'absent'}`
     );
 
     // A month can be missing because nothing created it yet, or because the DDL
@@ -134,6 +134,16 @@ async function main(): Promise<void> {
     const logGaps = logReport.tables.filter((entry) => entry.missing.length > 0);
 
     const dirty = defaultPartitionIsDirty(report);
+    // The subledger parent is provisioned from the same month function, so a
+    // row in its DEFAULT means a posting bypassed the journal call entirely.
+    const subledgerDirty = (report.defaultRows?.subledger ?? 0) > 0;
+    if (subledgerDirty) {
+      console.error(
+        `✗ ${report.defaultRows!.subledger} subledger row(s) are in gl_subledger_entries_default: their dates` +
+          ' cannot be pruned and they block that month from being attached. Move them into their month' +
+          ' partitions before re-running.'
+      );
+    }
     if (dirty) {
       console.error(
         `✗ ${report.defaultRows!.journals} journal row(s) and ${report.defaultRows!.lines} line row(s) are in the` +
@@ -149,7 +159,8 @@ async function main(): Promise<void> {
           : `✗ ${report.missing.length} month(s) in the window have no partition (${report.missing.join(', ')}). Run with --apply.`
       );
     }
-    process.exitCode = dirty || logDirty || report.missing.length || logGaps.length ? 1 : 0;
+    process.exitCode =
+      dirty || subledgerDirty || logDirty || report.missing.length || logGaps.length ? 1 : 0;
   } finally {
     await pool.end().catch(() => {});
   }

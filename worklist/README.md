@@ -56,7 +56,12 @@ is the plan, not a second source of truth.
   provisioned at boot with `npm run check:partitions` as the read-only gate,
   `inventory_stock` and `document_sequence_daily` carry HOT-friendly storage
   parameters (migration `0030`), and the bootstrap payload version is shared
-  through Redis. The database audit — what already exists, what each remaining
+  through Redis. **The first partition conversion landed (2026-11-17):**
+  migration `0034` turns `gl_subledger_entries` into monthly RANGE partitions by
+  `entry_date_ad` with a DEFAULT child and an append-only guard on every child,
+  provisioned from the posting path's existing month call; a one-month read now
+  prunes to a single child. `stock_operations`, `serial_log` and `sales_invoices`
+  still need the registry for their globally unique business key first. The database audit — what already exists, what each remaining
   suggestion would cost, and the trigger that reopens it — is
   [docs/database-optimization-audit-2026-11-17.md](../docs/database-optimization-audit-2026-11-17.md).
   It still owns the partition conversions, read/write split, queued writes and the TLS/CORS/CSP/MFA

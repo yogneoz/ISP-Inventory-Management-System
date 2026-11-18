@@ -81,6 +81,7 @@ describe('journal partition provisioning', () => {
     assert.ok(before.defaultRows, 'the DEFAULT children exist after the baseline schema');
     assert.equal(typeof before.defaultRows!.journals, 'number');
     assert.equal(typeof before.defaultRows!.lines, 'number');
+    assert.equal(typeof before.defaultRows!.subledger, 'number', 'the subledger DEFAULT is reported too');
 
     const report = await provisionJournalPartitions(pool!);
     assert.deepEqual([...report.created].sort(), [...before.missing].sort(), 'only the gaps are created');
@@ -167,6 +168,98 @@ describe('journal partition provisioning', () => {
         assert.ok(child!.bound && child!.bound.includes(next), `${table} bound ends at ${next}: ${child!.bound}`);
       }
     }
+  });
+
+  /**
+   * SCALE-3's first table conversion: `gl_subledger_entries` is RANGE-partitioned
+   * by `entry_date_ad`, provisioned from the same month function the journals
+   * use, and guarded like the rest of the ledger. The conversion is a shadow
+   * table + swap (migration 0034), so this checks the shape the database
+   * actually ended up with, not the DDL that was meant to run.
+   */
+  test('the subledger ledger is partitioned by entry date, provisioned and guarded', { skip: skipNoDb }, async () => {
+    const kind = await pool!.query(
+      `SELECT c.relkind FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public' AND c.relname = 'gl_subledger_entries'`
+    );
+    assert.equal(kind.rows[0]?.relkind, 'p', 'gl_subledger_entries must be a partitioned parent');
+
+    const children = await pool!.query(
+      `SELECT c.relname AS name, pg_get_expr(c.relpartbound, c.oid) AS bound
+         FROM pg_class c
+         JOIN pg_inherits i ON i.inhrelid = c.oid
+         JOIN pg_class p ON p.oid = i.inhparent
+        WHERE p.relname = 'gl_subledger_entries'
+        ORDER BY c.relname`
+    );
+    const months = children.rows.filter((row: any) => row.bound && row.bound !== 'DEFAULT');
+    assert.ok(months.length > 0, 'the conversion created a child for every month the rows occupy');
+
+    // A conversion that left rows behind in the catch-all would have lost the
+    // pruning it exists for; the count is exact because DEFAULT must be empty.
+    const defaults = await pool!.query('SELECT count(*)::int AS n FROM gl_subledger_entries_default');
+    assert.equal(defaults.rows[0].n, 0, 'no converted row may sit in the DEFAULT partition');
+
+    const written = await pool!.query(
+      `SELECT to_char(entry_date_ad, 'YYYY-MM') AS ym, count(*)::int AS n
+         FROM gl_subledger_entries GROUP BY 1 ORDER BY n DESC LIMIT 1`
+    );
+    assert.ok(written.rows.length > 0, 'the fixture database holds posted subledger rows');
+    const month = String(written.rows[0].ym);
+    const start = `${month}-01`;
+    const boundary = new Date(`${start}T00:00:00Z`);
+    boundary.setUTCMonth(boundary.getUTCMonth() + 1);
+    const next = boundary.toISOString().slice(0, 10);
+
+    // One month's total must touch exactly one child. enable_seqscan is off so
+    // the plan is the partition choice rather than a cost comparison.
+    await pool!.query('BEGIN');
+    try {
+      await pool!.query('SET LOCAL enable_seqscan = off');
+      const plan = await pool!.query(
+        `EXPLAIN (COSTS OFF) SELECT sum(debit), sum(credit) FROM gl_subledger_entries
+          WHERE entry_date_ad >= DATE '${start}' AND entry_date_ad < DATE '${next}'`
+      );
+      const text = plan.rows.map((row: any) => Object.values(row)[0]).join('\n');
+      const touched = [...new Set(text.match(/gl_subledger_entries_[0-9]{6}/g) || [])];
+      assert.deepEqual(touched, [`gl_subledger_entries_${month.replace('-', '')}`], `one month, one child:\n${text}`);
+      assert.doesNotMatch(text, /gl_subledger_entries_default/, 'the catch-all is never read for a dated month');
+    } finally {
+      await pool!.query('ROLLBACK');
+    }
+
+    // The append-only guard reaches the child, not only the parent: DML aimed
+    // straight at the month is refused unless the purge switch is set.
+    const child = months.find((row: any) => row.name === `gl_subledger_entries_${month.replace('-', '')}`);
+    assert.ok(child, 'the busiest month must have its own child');
+    await pool!.query('BEGIN');
+    try {
+      await pool!.query("SET LOCAL inventory.allow_ledger_purge = 'off'");
+      await assert.rejects(
+        pool!.query(
+          `UPDATE ${child!.name} SET credit = credit + 1 WHERE entry_date_ad >= DATE '${start}' AND entry_date_ad < DATE '${next}'`
+        ),
+        /append-only/,
+        'a child partition must refuse an UPDATE of a posted row'
+      );
+    } finally {
+      await pool!.query('ROLLBACK');
+    }
+  });
+
+  test('the month function provisions the subledger child with the journal children', () => {
+    const source = readFileSync(new URL('../scripts/schema.sql', import.meta.url), 'utf8');
+    assert.match(
+      source,
+      /CREATE TABLE IF NOT EXISTS gl_subledger_entries_default\s+PARTITION OF gl_subledger_entries DEFAULT/,
+      'a fresh install declares the DEFAULT catch-all'
+    );
+    const journalFn = source.slice(source.indexOf('CREATE OR REPLACE FUNCTION ensure_journal_month_partition'));
+    assert.match(
+      journalFn.slice(0, journalFn.indexOf('END;')),
+      /PERFORM ensure_subledger_month_partition\(p_date\)/,
+      'the posting path provisions all three ledger tables from one call'
+    );
   });
 
   test('the CLI entry point shares this module instead of a second copy of the DDL', () => {

@@ -518,11 +518,20 @@ Authoritative detail stays in those notes; this round owns their scheduling.
   installment schedule, every loan sum and the accrual sums rebuilt from what
   is still posted, and both screens offering the action through the in-app
   prompt. Still open: the round-close gates.
-- Round 13 remainder: partition conversions of `gl_subledger_entries`,
-  `stock_operations`, `serial_log`; replica/PgBouncer decision (audit §1 row 2);
-  pre-aggregated stock and closed-year trial balance; queued writes; and the
-  whole public-exposure surface — TLS, CORS, CSP, MFA, reverse proxy, HSTS,
-  `TRUST_PROXY`, real client IP in the audit trail.
+- Round 13 remainder: **the `gl_subledger_entries` partition conversion is done
+  (2026-11-17)** — migration `0034` converts the third ledger table to monthly
+  RANGE partitions by `entry_date_ad` with a DEFAULT catch-all, provisions the
+  month from `ensure_journal_month_partition()` so a posting creates all three
+  ledger children, prunes a one-month read to one child, and keeps the
+  append-only guard on the parent and every child. Still open: the same
+  conversion for `stock_operations`, `serial_log` and `sales_invoices` (each
+  needs a registry for its globally unique business key first — a partitioned
+  unique constraint must contain the partition key, so `reference_number` and
+  the invoice number cannot stay globally unique on the partitioned table
+  alone); replica/PgBouncer decision (audit §1 row 2); pre-aggregated stock and
+  closed-year trial balance; queued writes; and the whole public-exposure
+  surface — TLS, CORS, CSP, MFA, reverse proxy, HSTS, `TRUST_PROXY`, real client
+  IP in the audit trail.
 
 ## Part C — carried from Round 14
 
@@ -654,3 +663,27 @@ on the Redis state and MFA work in Part B.
   plus the settled-accrual refusal). Repair proof: dropping the
   `status = 'POSTED'` filter from the loan sums makes the new test fail with the
   reversal refused `409`; the filter restored, the file is `8/8`.
+- 2026-11-17 — **Round 13's first partition conversion landed**: migration
+  `0034` turns `gl_subledger_entries` into monthly RANGE partitions by
+  `entry_date_ad`. The partition key joins the primary key (`(id, entry_date_ad)`) —
+  a partitioned unique constraint must contain it — and the conversion is a
+  shadow table + swap: stage rows, the CHECK/FOREIGN KEY/NOT NULL constraints
+  and the canonical indexes, drop the plain table, recreate it partitioned, and
+  insert back through the parent; a row-count mismatch raises inside the
+  runner's transaction. `ensure_journal_month_partition()` now calls
+  `ensure_subledger_month_partition()`, so the one month call the posting path
+  already made provisions journals, lines and subledger children together, and
+  the append-only guard is attached to the parent and every child (a child-level
+  UPDATE is refused). The status/keeper report and `npm run check:partitions`
+  now count the subledger DEFAULT child and fail on rows in it. Measured on the
+  populated development database: 231 rows → 231 across 14 month children,
+  DEFAULT empty, `EXPLAIN` of a one-month total touching only
+  `gl_subledger_entries_202611`, and `node scripts/verify_fresh_install.mjs`
+  reporting an identical runtime schema (149 tables, 2260 columns, 2001
+  constraints, 774 indexes, 81 triggers). Tests: two added to
+  `tests/journalPartitions.test.ts` (shape/prune/guard against the real database,
+  and the provisioning path pinned to the one SQL function). `stock_operations`,
+  `serial_log` and `sales_invoices` are **not** converted: each keeps a globally
+  unique business key that a partitioned unique constraint cannot enforce
+  without the date, so they need the `gl_journals_registry` treatment first —
+  recorded in SCALE-3 rather than half-done here.

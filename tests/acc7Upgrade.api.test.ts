@@ -76,7 +76,20 @@ async function schemaSignature(pool: pg.Pool): Promise<Record<string, string[]>>
         ORDER BY 1`
     )
   ).rows.map((row) => Object.values(row)[0] as string);
-  return { tables, columns, constraints, indexes, triggers };
+  // Month partitions are provisioned data-dependently (a converted ledger
+  // creates a child only for the months its rows occupy), so which ones exist
+  // says nothing about whether the upgrade and the fresh install agree on the
+  // schema. Their shape is verified by the fresh-install comparison script and
+  // the partition tests instead.
+  const provisionedChild = /_\d{6}(?:[._:]|$)/;
+  const schemaOnly = (entries: string[]) => entries.filter((entry) => !provisionedChild.test(entry));
+  return {
+    tables: schemaOnly(tables),
+    columns: schemaOnly(columns),
+    constraints: schemaOnly(constraints),
+    indexes: schemaOnly(indexes),
+    triggers: schemaOnly(triggers),
+  };
 }
 
 async function snap(pool: pg.Pool) {

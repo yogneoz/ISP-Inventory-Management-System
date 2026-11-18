@@ -44,6 +44,13 @@ export interface JournalPartitionWindow {
 export interface JournalPartitionCounts {
   journals: number;
   lines: number;
+  /**
+   * Rows in `gl_subledger_entries_default`. The subledger parent is provisioned
+   * from the same month function (SCALE-3), so a month can only be missing its
+   * subledger child when it is missing its journal children too — but a row
+   * that landed in DEFAULT still defeats pruning for every subledger read.
+   */
+  subledger: number;
 }
 
 export interface JournalPartitionStatus {
@@ -124,13 +131,19 @@ async function monthIsProvisioned(client: PartitionSqlClient, key: string): Prom
 async function defaultPartitionRows(client: PartitionSqlClient): Promise<JournalPartitionCounts | null> {
   if (!(await tableExists(client, 'gl_journals_default'))) return null;
   if (!(await tableExists(client, 'gl_journal_lines_default'))) return null;
+  const hasSubledgerDefault = await tableExists(client, 'gl_subledger_entries_default');
   const result = await client.query(
     `SELECT
        (SELECT count(*)::int FROM gl_journals_default) AS journals,
-       (SELECT count(*)::int FROM gl_journal_lines_default) AS lines`
+       (SELECT count(*)::int FROM gl_journal_lines_default) AS lines,
+       ${hasSubledgerDefault ? '(SELECT count(*)::int FROM gl_subledger_entries_default)' : '0'} AS subledger`
   );
   const row = result.rows[0] || {};
-  return { journals: Number(row.journals) || 0, lines: Number(row.lines) || 0 };
+  return {
+    journals: Number(row.journals) || 0,
+    lines: Number(row.lines) || 0,
+    subledger: Number(row.subledger) || 0,
+  };
 }
 
 async function childPartitions(client: PartitionSqlClient): Promise<Array<{ name: string; bound: string | null }>> {
@@ -139,7 +152,7 @@ async function childPartitions(client: PartitionSqlClient): Promise<Array<{ name
        FROM pg_class c
        JOIN pg_inherits i ON i.inhrelid = c.oid
        JOIN pg_class p ON p.oid = i.inhparent
-      WHERE p.relname IN ('gl_journals', 'gl_journal_lines')
+      WHERE p.relname IN ('gl_journals', 'gl_journal_lines', 'gl_subledger_entries')
       ORDER BY c.relname`
   );
   return result.rows.map((row: any) => ({ name: String(row.name), bound: row.bound ?? null }));
@@ -220,7 +233,7 @@ export function describeJournalPartitions(report: JournalPartitionReport): strin
   const window = `${report.window[0]}..${report.window[report.window.length - 1]}`;
   const created = report.created.length ? report.created.join(', ') : 'none';
   const defaults = report.defaultRows
-    ? `${report.defaultRows.journals} journal / ${report.defaultRows.lines} line row(s)`
+    ? `${report.defaultRows.journals} journal / ${report.defaultRows.lines} line / ${report.defaultRows.subledger} subledger row(s)`
     : 'absent';
   const failed = report.failed.length ? `, failed ${report.failed.map((entry) => entry.month).join(', ')}` : '';
   return `window ${window}, created ${created}, DEFAULT ${defaults}${failed}`;

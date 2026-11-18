@@ -2207,7 +2207,7 @@ CREATE INDEX IF NOT EXISTS idx_fiscal_year_balances_account
     ON fiscal_year_balances(fiscal_year_id, account_code, branch_id);
 
 CREATE TABLE IF NOT EXISTS gl_subledger_entries (
-    id VARCHAR(60) PRIMARY KEY,
+    id VARCHAR(60) NOT NULL,
     journal_id VARCHAR(50) NOT NULL REFERENCES gl_journals_registry(id) ON DELETE CASCADE,
     journal_line_id VARCHAR(60) NOT NULL REFERENCES gl_journal_line_registry(id) ON DELETE CASCADE,
     account_id VARCHAR(50) NOT NULL REFERENCES gl_accounts(id) ON DELETE RESTRICT,
@@ -2228,8 +2228,20 @@ CREATE TABLE IF NOT EXISTS gl_subledger_entries (
     CONSTRAINT gl_subledger_entries_one_sided CHECK (
         debit >= 0 AND credit >= 0 AND
         ((debit > 0 AND credit = 0) OR (credit > 0 AND debit = 0))
-    )
-);
+    ),
+    -- SCALE-3: the ledger's third table is RANGE-partitioned by its own posting
+    -- date, so a one-month or closed-year read prunes to the months it names
+    -- instead of scanning every subledger entry ever written. The partition key
+    -- has to be part of the primary key; `id` stays unique within its month,
+    -- which is all a posted row is ever looked up by (the document is reached
+    -- through `journal_id`).
+    PRIMARY KEY (id, entry_date_ad)
+) PARTITION BY RANGE (entry_date_ad);
+
+-- Safety net, exactly like the two journal parents: an undated or out-of-range
+-- insert must never fail the posting. `npm run check:partitions` fails the
+-- command while this child holds rows, because pruning cannot help those.
+CREATE TABLE IF NOT EXISTS gl_subledger_entries_default PARTITION OF gl_subledger_entries DEFAULT;
 
 CREATE INDEX IF NOT EXISTS idx_gl_subledger_account_branch ON gl_subledger_entries(account_id, branch_id);
 CREATE INDEX IF NOT EXISTS idx_gl_subledger_party ON gl_subledger_entries(subledger_type, party_id);
@@ -4956,6 +4968,27 @@ CREATE OR REPLACE TRIGGER trg_gl_subledger_entries_append_only
   BEFORE UPDATE OR DELETE ON gl_subledger_entries
   FOR EACH ROW EXECUTE FUNCTION reject_posted_ledger_mutation();
 
+-- Children created by provisioning get their own guard from
+-- ensure_subledger_month_partition(); the DEFAULT child (and any child that
+-- existed before this block) is covered here.
+DO $$
+DECLARE
+  v_child RECORD;
+BEGIN
+  FOR v_child IN
+    SELECT c.relname AS name
+      FROM pg_class c
+      JOIN pg_inherits i ON i.inhrelid = c.oid
+      JOIN pg_class p ON p.oid = i.inhparent
+     WHERE p.relname = 'gl_subledger_entries'
+  LOOP
+    EXECUTE format(
+      'CREATE OR REPLACE TRIGGER %I BEFORE UPDATE OR DELETE ON %I FOR EACH ROW EXECUTE FUNCTION reject_posted_ledger_mutation()',
+      v_child.name || '_append_only', v_child.name
+    );
+  END LOOP;
+END $$;
+
 -- The snapshot records what was closed; it is evidence, not a working table.
 -- A correction belongs in a linked reversal journal inside a reopened year,
 -- then a fresh close, never in an UPDATE of the closed position.
@@ -4989,6 +5022,27 @@ CREATE OR REPLACE TRIGGER trg_fiscal_year_balances_immutable
 CREATE TABLE IF NOT EXISTS gl_journals_default PARTITION OF gl_journals DEFAULT;
 CREATE TABLE IF NOT EXISTS gl_journal_lines_default PARTITION OF gl_journal_lines DEFAULT;
 
+CREATE OR REPLACE FUNCTION ensure_subledger_month_partition(p_date DATE)
+RETURNS void AS $$
+DECLARE
+  v_start DATE := date_trunc('month', p_date)::date;
+  v_end DATE := (date_trunc('month', p_date) + INTERVAL '1 month')::date;
+  v_name TEXT := 'gl_subledger_entries_' || to_char(p_date, 'YYYYMM');
+BEGIN
+  EXECUTE format(
+    'CREATE TABLE IF NOT EXISTS %I PARTITION OF gl_subledger_entries FOR VALUES FROM (%L) TO (%L)',
+    v_name, v_start, v_end
+  );
+  -- A row-level trigger on a partitioned parent does not fire for DML aimed
+  -- directly at a child, so the append-only guard is attached to each month as
+  -- well; otherwise DELETE FROM gl_subledger_entries_202608 would bypass it.
+  EXECUTE format(
+    'CREATE OR REPLACE TRIGGER %I BEFORE UPDATE OR DELETE ON %I FOR EACH ROW EXECUTE FUNCTION reject_posted_ledger_mutation()',
+    v_name || '_append_only', v_name
+  );
+END;
+$$ LANGUAGE plpgsql;
+
 CREATE OR REPLACE FUNCTION ensure_journal_month_partition(p_date DATE)
 RETURNS void AS $$
 DECLARE
@@ -5004,6 +5058,10 @@ BEGIN
     'CREATE TABLE IF NOT EXISTS %I PARTITION OF gl_journal_lines FOR VALUES FROM (%L) TO (%L)',
     'gl_journal_lines_' || v_suffix, v_start, v_end
   );
+  -- One posting date writes all three ledger tables; provisioning them
+  -- together from the one function the posting path already calls keeps a
+  -- subledger row from landing in DEFAULT while its journal child exists.
+  PERFORM ensure_subledger_month_partition(p_date);
 END;
 $$ LANGUAGE plpgsql;
 

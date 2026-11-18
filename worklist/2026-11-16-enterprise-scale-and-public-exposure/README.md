@@ -318,9 +318,10 @@ log/pid removed after the run; no scratch database or fixture rows remain
 
 ### SCALE-3 — Partitioning, indexes, read/write split, PgBouncer
 
-Priority: P0 · Status: `[~]` — provisioned partitioning and hot-table storage
-landed 2026-11-17; the partition *conversions*, BRIN/composite index work,
-replica routing and PgBouncer are open. Audit:
+Priority: P0 · Status: `[~]` — provisioned partitioning, hot-table storage and
+the `gl_subledger_entries` partition conversion landed 2026-11-17; the other
+three conversions, BRIN/composite index work, replica routing and PgBouncer are
+open. Audit:
 [docs/database-optimization-audit-2026-11-17.md](../../docs/database-optimization-audit-2026-11-17.md).
 
 - [x] Provision monthly partitions for **both** ledger parents. They are
@@ -337,11 +338,32 @@ replica routing and PgBouncer are open. Audit:
       deferral: a monthly `gl_journals` child is referenced by the inherited FK
       on `gl_journal_lines`, so removal needs a rehearsed detach + archive, not
       a boot job.
-- [ ] Convert `gl_subledger_entries`, `stock_operations`, `serial_log` and
-      `sales_invoices` to RANGE partitioning by their document date. Do it as a
-      shadow table + backfill + swap per table (the 0003 pattern), never an
-      in-place rewrite of a billion rows. Composite primary keys must include
-      the partition key; registry tables preserve the existing external FKs.
+- [x] Convert `gl_subledger_entries` to RANGE partitioning by its document
+      date (`entry_date_ad`). **Done 2026-11-17** — migration `0034` stages the
+      rows, the CHECK/FOREIGN KEY/NOT NULL constraints and the canonical
+      indexes, drops the plain table and recreates it partitioned with
+      `PRIMARY KEY (id, entry_date_ad)`, then inserts the rows back through the
+      parent; a row-count mismatch raises and the runner's transaction leaves
+      the legacy table in place. The same month function the posting path
+      already called (`ensure_journal_month_partition`, which now also calls
+      `ensure_subledger_month_partition`) creates the child, and the
+      append-only guard is attached to the parent and every child. Verified on
+      the populated development database (231 rows → 231 across 14 month
+      children, DEFAULT empty), by `EXPLAIN` pruning a one-month total to a
+      single child, by a child-level UPDATE being refused, and by
+      `node scripts/verify_fresh_install.mjs` (schema.sql + migrations
+      identical to a booted install). Tests in `tests/journalPartitions.test.ts`.
+- [ ] Convert `stock_operations`, `serial_log` and `sales_invoices` to the same
+      shape. Do it as a shadow table + backfill + swap per table (the 0003/0032
+      pattern), never an in-place rewrite of a billion rows. Composite primary
+      keys must include the partition key, and each table keeps a globally
+      unique business key (`reference_number`, the serial number, the invoice
+      number) that a partitioned unique constraint cannot enforce without the
+      date — so these three need the `gl_journals_registry` treatment (a small
+      unpartitioned registry holding the unique key) before the swap, and the
+      `ON CONFLICT` write paths move to that registry. That design is the
+      reason this one is separate from the ledger conversion, not a missing
+      patch.
 - [ ] BRIN indexes on `created_at`, `journal_date_ad`, `entry_date_ad`,
       `operation_date_ad` (append-only, physically ordered); composite B-Tree
       `(branch_id, fiscal_year_id, <date> DESC, id DESC)` for the page reads.
