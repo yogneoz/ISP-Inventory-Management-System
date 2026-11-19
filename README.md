@@ -45,6 +45,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 - **Canonical URL Routing**: every workspace screen has a stable path (`/sales/invoices`, `/settings/users`, `/inventory/assets/assign`, …). Refresh, bookmark and share a screen directly, and use Browser Back/Forward; the path is only a request and the same RBAC guard still decides whether the screen may render. Older `?tab=<id>` links redirect in place, preserving the Users access filters.
 - **Real-Time Multi-User Sync with Targeted Refresh**: Server-Sent Events (SSE) broadcast every mutation tagged with the client-state domain it invalidates. Clients re-fetch **only that domain's slice** (`GET /api/bootstrap/local?key=...`) instead of re-downloading the whole bootstrap; unknown events fall back to a full atomic bootstrap resync.
 - **Automated PostgreSQL Setup**: Built-in automated shell and Node.js setup scripts (`npm run setup:pg`) that can install, configure PostgreSQL, migrate all **122 relational database tables**, and optionally seed a linked demo dataset.
+- **Pooled, warm write path with a Redis read-through (SCALE-3)**: boot opens all `PG_POOL_MAX` connections and pins the pool's `min`, so a first concurrent burst no longer pays TCP + SCRAM + session setup inside its measured window; behind PgBouncer in `pool_mode=transaction` the same writes measure **C=50: 373.0 ms cold vs 215.2 ms warm median, C=100: 708.2 ms vs 467.6 ms**, every burst fully committed and no response carrying a cache-refresh phase. Small catalog reads (`GET /api/locations`) are served from Redis through a version-keyed read-through with a code-enforced TTL (`CATALOG_CACHE_TTL_MS`, default 5 s) and a version bump after each committed write, so a repeat read costs **zero** PostgreSQL round trips while the row a write just committed is visible to the very next read on that worker. Without `REDIS_URL` the read goes straight to PostgreSQL. `npm run verify:catalog-roundtrips` counts the round trips at the pooler instead of asserting them, `npm run verify:redis-invalidation` proves the cross-worker path across two OS processes, and `npm run bench:write -- --arm before|after|both` prints both benchmark columns from the checked-in harness.
 - **Hardened HTTP Surface**:
   - **helmet security headers** on every response (CSP, nosniff, frame protection, cross-origin policies) — configured LAN-safe (no HSTS/`upgrade-insecure-requests` on plain HTTP; re-enable behind a TLS proxy).
   - **Authenticated SSE**: `/api/sync/stream` and `/api/sync/version` require the app's HMAC token via `Authorization: Bearer` header or `?token=` query parameter (EventSource cannot send headers; the client attaches the stored token automatically). Rejections happen before any stream handshake.
@@ -140,11 +141,20 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 
 ## 🚀 Complete Installation & Setup Guide
 
-### 📋 Prerequisites
-- **Node.js**: `v24.x` LTS recommended (v22.x also works) ([Download Node.js](https://nodejs.org/))
-- **npm**: `v10.x+` (comes bundled with Node.js)
-- **Git**: Installed and configured
-- **PostgreSQL** *(required)*: `v14+` (can be auto-installed via `npm run setup:pg`)
+### 📋 System Requirements
+
+| Component | Required | Notes |
+| :--- | :--- | :--- |
+| **Operating system** | Windows 10/11, macOS 13+, or Linux (Ubuntu 22.04+/Debian 12+) | Development runs on Windows and Linux; the production guide targets Ubuntu/Debian |
+| **Node.js** | `v24.x` LTS (minimum `v22.x`) | [nodejs.org](https://nodejs.org/); the server, build and tests all run on the same version |
+| **npm** | `v10+` | Bundled with Node.js; the lockfile is committed, use `npm ci` on CI/production |
+| **PostgreSQL** | `v14+` (tested on 18) | Required — there is no in-memory or file fallback. `npm run setup:pg` can install and bootstrap it |
+| **Redis** | `v5+` (tested on the current Windows port) | Optional, needed for more than one app instance: shared sessions, rate limits, locks, SSE fan-out, cross-worker invalidation and the catalog read-through |
+| **PgBouncer** | `1.24+` | Optional, `pool_mode=transaction` in front of PostgreSQL; the schema/seed job, warm pool, cache hydration and Redis subscriber all run through it unchanged |
+| **RAM / disk** | 2 GB+ free RAM, 2 GB+ free disk | The dev server, PostgreSQL and an optional Redis fit comfortably in 2 GB; the build needs ~1 GB transient |
+| **Network ports** | `3000` (app), `5432` (PostgreSQL), `6379` (Redis, optional), `6432`/`56440` (PgBouncer, optional) | Nothing else is required inbound; the app serves HTTP on `PORT` |
+
+**Git**: installed and configured (the setup scripts, backups and the verification suites are driven from the repo).
 
 ---
 
@@ -181,6 +191,17 @@ POSTGRES_PORT="5432"
 POSTGRES_DB="inventory_db"
 POSTGRES_USER="inventory_user"
 POSTGRES_PASSWORD="<YOUR_DB_PASSWORD>"
+
+# Connection pool (40 keeps ordinary reads moving behind long reports)
+PG_POOL_MAX=40
+PG_STATEMENT_TIMEOUT_MS=30000            # 0 disables; a runaway statement becomes a typed 503
+PG_WARM_POOL=1                          # 0 boots a deliberately cold pool (benchmark `before` arm)
+
+# Optional shared state (required for more than one app instance).
+# Without it the server keeps sessions, rate limits, locks and SSE fan-out in-process,
+# and catalog reads go straight to PostgreSQL instead of through the read-through cache.
+# REDIS_URL=redis://127.0.0.1:6379
+# CATALOG_CACHE_TTL_MS=5000             # staleness bound for catalog read-through entries
 
 # Security (AUTH_TOKEN_SECRET is REQUIRED in production — the server refuses to
 # start with a missing, template or <32-character value; dev/test fall back to an
@@ -227,6 +248,53 @@ npm run setup:pg -- --force
 > environment variables still take precedence over `.env`.
 
 The application requires PostgreSQL to be available. It does not use local file storage or an in-memory database fallback.
+
+---
+
+### Step 3b: Optional — Redis and PgBouncer (multi-instance or high-concurrency)
+
+The server runs on PostgreSQL alone. Add these two only when you need more than one app instance or the pooled
+write path; nothing in the schema, the boot job or the request path has to change.
+
+**Redis** — shared sessions, login rate-limit buckets, advisory locks, SSE fan-out, cross-worker cache
+invalidation and the small-catalog read-through:
+
+```bash
+# Windows: run the installed Redis service, or `redis-server` from the Redis port
+# Linux:  sudo apt install redis-server && sudo systemctl enable --now redis-server
+redis-cli ping                       # PONG
+```
+
+Then set `REDIS_URL=redis://127.0.0.1:6379` in `.env`. Boot logs
+`Shared state connected (Redis)`; without it the server logs the in-process fallback and stays single-instance
+correct.
+
+**PgBouncer** in `pool_mode=transaction` in front of PostgreSQL (as `DATABASE_URL`):
+
+```ini
+[databases]
+inventory_db = host=127.0.0.1 port=5432 dbname=inventory_db
+
+[pgbouncer]
+listen_addr = 127.0.0.1   ; pin the loopback address — `localhost` is not resolvable on Windows
+listen_port = 56440
+auth_type = scram-sha-256
+auth_file = C:/path/to/userlist.txt
+pool_mode = transaction
+default_pool_size = 25
+server_reset_query_always = 1   ; required: a client session SET must not leak to the next client
+```
+
+Point `DATABASE_URL` at the pooler, then prove it before trusting it:
+
+```bash
+npm run verify:pgbouncer              # 5/5 transaction-mode scenarios
+npm run verify:redis-invalidation     # two OS processes: a write on A refreshes B
+npm run verify:catalog-roundtrips     # counts PostgreSQL round trips at the pooler
+```
+
+Boot warms the pool (`Database pool warmed: 40 connection(s) ready.`) and raises its `min` to `PG_POOL_MAX`;
+`PG_WARM_POOL=0` disables that warm-up so the benchmark's cold `before` arm can be measured.
 
 ---
 
