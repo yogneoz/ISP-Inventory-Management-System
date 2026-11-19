@@ -31,6 +31,10 @@ export async function apiKeyAuth(req: any, res: any, next: any) {
   try {
     const verdict = await authenticateApiKey(token, req.ip ?? null);
     if (!verdict.ok) {
+      if (verdict.status === 429) {
+        const seconds = Math.max(1, Math.ceil((verdict.retryAfterMs ?? 1000) / 1000));
+        res.set('Retry-After', String(seconds));
+      }
       return res.status(verdict.status).json({ message: verdict.reason, code: verdict.code });
     }
     if (verdict.user.apiKeyReadOnly && !READ_METHODS.has(String(req.method || '').toUpperCase())) {

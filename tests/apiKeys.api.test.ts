@@ -30,9 +30,12 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import pg from 'pg';
 import dotenv from 'dotenv';
+import { createClient } from 'redis';
 import { createApp, registerAllRoutes } from '../server/src/app';
 import { issueAuthToken } from '../server/src/middleware/auth';
 import { setPermissionMatrix, setUsers } from '../server/src/state/runtimeState';
+import { MemorySharedStore, configureSharedStore, initializeSharedState } from '../server/src/state/sharedStore';
+import { API_KEY_RPM_NAMESPACE } from '../server/src/services/apiKeys.service';
 import { ensureReferenceData } from './fixtures/referenceData';
 
 dotenv.config();
@@ -50,6 +53,44 @@ try {
   pool = null;
 }
 const skipNoDb = !dbReachable && 'needs a reachable PostgreSQL (requirePostgres gate)';
+
+/**
+ * The shared RPM counter needs a real Redis. The bare local default keeps the
+ * suite useful on a developer machine; CI without Redis skips this one test
+ * rather than pretending a single process proves a multi-worker limit.
+ */
+const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+let redis: any = null;
+let redisReachable = false;
+try {
+  redis = createClient({ url: REDIS_URL });
+  redis.on('error', () => undefined);
+  await redis.connect();
+  await redis.ping();
+  redisReachable = true;
+} catch {
+  redisReachable = false;
+  if (redis?.isOpen) await redis.quit().catch(() => undefined);
+  redis = null;
+}
+const skipNoRedis = !redisReachable && 'needs a reachable Redis for the shared RPM counter';
+
+/** A complete app instance: its own Express app, middleware stack and port. */
+async function startInstance() {
+  const app = createApp();
+  registerAllRoutes(app);
+  const server = http.createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = (server.address() as any).port;
+  return {
+    port,
+    close: () =>
+      new Promise<void>((done) => {
+        (server as any).closeAllConnections?.();
+        server.close(() => done());
+      }),
+  };
+}
 
 const ADMIN = {
   id: 'apikey-admin', email: 'apikey-admin@example.com', name: 'API Key Admin',
@@ -94,19 +135,14 @@ describe('API keys — minting, scope, read-only, revocation, expiry, rotation, 
       'gl-view': { SUPER_ADMIN: true, ACCOUNTANT: true },
     } as any);
 
-    const app = createApp();
-    registerAllRoutes(app);
-    const server = http.createServer(app);
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-    port = (server.address() as any).port;
-    close = () => new Promise<void>((done) => {
-      (server as any).closeAllConnections?.();
-      server.close(() => done());
-    });
+    const instance = await startInstance();
+    port = instance.port;
+    close = instance.close;
   });
 
   after(async () => {
     if (close) await close();
+    if (redis?.isOpen) await redis.quit().catch(() => undefined);
     setUsers([]);
     setPermissionMatrix({});
     if (pool) {
@@ -334,5 +370,56 @@ describe('API keys — minting, scope, read-only, revocation, expiry, rotation, 
 
     const keysForDeniedName = await pool!.query(`SELECT count(*)::int AS hits FROM api_keys WHERE name = 'denied'`);
     assert.equal(keysForDeniedName.rows[0].hits, 0, 'the refused create wrote no row');
+  });
+
+  test('the per-key RPM cap is shared through Redis, across two app instances', { skip: skipNoRedis }, async () => {
+    // Boot this process's shared store onto Redis, as a clustered server does,
+    // and start a SECOND complete app instance: separate Express app, separate
+    // middleware stack, same Redis. Two in-process instances cannot by
+    // themselves prove cross-process sharing, so the decisive assertions are
+    // that the budget is a shared Redis sorted set and that deleting that set
+    // restores capacity — a per-process counter would fail both.
+    const sharedStore = await initializeSharedState({ REDIS_URL } as any);
+    assert.equal((await (await import('../server/src/state/sharedStore')).sharedStateMode()), 'redis');
+    const second = await startInstance();
+    const createdIds: string[] = [];
+    try {
+      const created = await createKey({ name: 'apikey-test rpm', operations: ['gl-view'], readOnly: true, rpmLimit: 2 });
+      assert.equal(created.status, 201, created.text);
+      createdIds.push(created.body.key.id);
+      const secret = created.body.secret;
+
+      const first = await request('GET', GATED_GET, { apiKey: secret });
+      const secondCall = await request('GET', GATED_GET, { apiKey: secret });
+      assert.equal(first.status, 200);
+      assert.equal(secondCall.status, 200);
+
+      const third = await request('GET', GATED_GET, { apiKey: secret });
+      assert.equal(third.status, 429, third.text);
+      assert.equal(third.body.code, 'API_KEY_RATE_LIMIT');
+      assert.ok(Number(third.headers.get('retry-after')) >= 1, 'the refusal tells the partner when to retry');
+
+      const otherInstance = await fetch(`http://127.0.0.1:${second.port}${GATED_GET}`, {
+        headers: { 'X-API-Key': secret },
+      });
+      assert.equal(otherInstance.status, 429, 'a second app instance is bound by the same budget');
+
+      const redisKey = `isp:rate:${API_KEY_RPM_NAMESPACE}:${created.body.key.id}`;
+      assert.equal(await redis.zCard(redisKey), 2, 'the counter is a shared Redis sorted set, at the cap');
+      assert.ok((await redis.pTTL(redisKey)) > 0, 'the bucket expires on its own');
+
+      // If the counter were local, deleting the Redis bucket would change
+      // nothing. Deleting it restores capacity, so Redis IS the decision.
+      await redis.del(redisKey);
+      const afterReset = await request('GET', GATED_GET, { apiKey: secret });
+      assert.equal(afterReset.status, 200, 'removing the shared bucket restores the budget');
+    } finally {
+      for (const id of createdIds) await redis.del(`isp:rate:${API_KEY_RPM_NAMESPACE}:${id}`).catch(() => undefined);
+      await second.close();
+      // Leave the process on the in-memory store and close the Redis client the
+      // test opened, or the open socket keeps the runner alive.
+      configureSharedStore(new MemorySharedStore());
+      await sharedStore.close().catch(() => undefined);
+    }
   });
 });

@@ -591,8 +591,9 @@ and branch/fiscal-year gates, with an administration UI and usage audit.
 **Status: done 2026-11-19.** Delivered without the two blockers this section
 named: the MFA gate was replaced (by decision) with the seeded `admin-api-keys`
 operation, held only by SUPER_ADMIN and HEAD_OFFICE_ADMIN, on top of the existing
-RBAC, branch and fiscal-year guards; the optional RPM cap is enforced in the
-server process. The implementation record, deviations and live HTTP evidence are
+RBAC, branch and fiscal-year guards; the optional RPM cap rides the shared Redis rate-limit
+store when `REDIS_URL` is set (a per-process fallback remains only for a
+single-worker install), so the budget holds across workers. The implementation record, deviations and live HTTP evidence are
 in [the Round 14 note](../2026-11-16-api-key-management/README.md#implementation-record--2026-11-19).
 
 Evidence summary: migration `0043_api_keys` applied at boot and mirrored in
@@ -603,8 +604,13 @@ it returned 200; a POST with the same read-only key returned 403
 key 401 `API_KEY_EXPIRED`; a revoked key 401 `API_KEY_REVOKED`; and PostgreSQL
 stores only the prefix and `sha256(secret)` — no plaintext anywhere in the row.
 
-The behaviour is now pinned by `tests/apiKeys.api.test.ts` (7 tests inside the
-2696-test suite): creation with a one-time secret and hash-only storage, a gated
+The optional per-key RPM cap now rides that same shared store: a second app 
+instance is refused by the same budget (429 with `Retry-After`), and deleting 
+the Redis bucket restores capacity — `tests/apiKeys.api.test.ts` asserts both, 
+and bypassing the Redis path fails it.
+
+The behaviour is now pinned by `tests/apiKeys.api.test.ts` (8 tests inside the
+2697-test suite): creation with a one-time secret and hash-only storage, a gated
 GET 200 vs an out-of-scope 403, the read-only 403, revoked and expired 401s,
 rotation's grace window, and the `admin-api-keys` requirement. Disabling the
 read-only or the revocation check makes that suite fail.
@@ -622,7 +628,6 @@ silently dropped checkbox.
 | Pre-aggregated stock and a closed-year trial-balance snapshot | A9 measured the trial balance at **3,607 ms** over 3.0M lines and refuted the 100 ms target, so this is new scale work with its own invalidation design, not a defect in what shipped. |
 | Queued writes | Needs a durable queue/worker with its own retry and idempotency design; outside this round's database/CI remit. |
 | A general MFA subsystem | Deliberately not built: the API-key surface is gated by the seeded `admin-api-keys` operation plus RBAC/branch/fiscal-year guards, and a real MFA factor belongs to the public-exposure work above. |
-| Shared (cross-worker) API-key RPM counter | The cap is enforced per server process and documented as such; a shared counter is Redis work, not a correctness gap in a single-worker deployment. |
 
 ## Gates
 

@@ -558,6 +558,18 @@ deleted after use):
 14 rotate                                       200 new secret; old key 200 in grace, new key 200
 ```
 
+### Shared RPM counter — 2026-11-19
+
+The per-key `rpmLimit` used to be counted in the server process. It now uses the
+shared rate-limit store (`server/src/state/sharedStore.ts` via
+`getSharedRateLimiter`), keyed `isp:rate:apikey-rpm:<key id>` as a sliding
+sorted set with its own expiry, so two workers admit one budget between them;
+`apiKeyAuth` answers 429 with `Retry-After` and fails closed with 503 if the
+store errors. Without `REDIS_URL` a single-worker install keeps the in-process
+fallback. `tests/apiKeys.api.test.ts` covers it with a second app instance and a
+direct look at the Redis bucket (deleting it restores capacity; bypassing the
+Redis path fails the test).
+
 ### Automated regression suite — 2026-11-19 (later same day)
 
 `tests/apiKeys.api.test.ts` now covers the whole path over the real Express app

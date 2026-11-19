@@ -19,6 +19,8 @@
  */
 import crypto from 'node:crypto';
 import { DEFAULT_PERMISSIONS_MATRIX } from '../../../client/src/utils/permissionMatrixData';
+import { getSharedRateLimiter } from '../state/sharedRateLimiter';
+import { isRedisSharedState } from '../state/sharedStore';
 import {
   ApiKeyRow,
   expireApiKeyRow,
@@ -332,19 +334,42 @@ export async function listPublicKeys(): Promise<ReturnType<typeof publicKeyView>
   return rows.map(publicKeyView);
 }
 
-/** Per-process sliding-minute counter for the optional per-key RPM cap. */
-const rpmBuckets = new Map<string, { minute: number; count: number }>();
+/** Sliding-minute namespace for the per-key cap in the shared rate-limit store. */
+export const API_KEY_RPM_NAMESPACE = 'apikey-rpm';
+export const API_KEY_RPM_WINDOW_MS = 60_000;
 
-function rpmAllows(key: ApiKeyRow): boolean {
-  if (!key.rpm_limit) return true;
-  const minute = Math.floor(Date.now() / 60_000);
-  const bucket = rpmBuckets.get(key.id);
-  if (!bucket || bucket.minute !== minute) {
-    rpmBuckets.set(key.id, { minute, count: 1 });
-    return true;
+/**
+ * Single-process fallback, used only when no shared store is configured (one
+ * worker). With Redis configured the cap is a shared sorted set, so two workers
+ * admit no more than one budget between them.
+ */
+const localRpmBuckets = new Map<string, Map<string, number>>();
+
+function localRpmVerdict(key: ApiKeyRow): { allowed: boolean; retryAfterMs: number } {
+  const max = key.rpm_limit as number;
+  const now = Date.now();
+  const bucket = localRpmBuckets.get(key.id) ?? new Map<string, number>();
+  for (const [member, at] of bucket) if (at <= now - API_KEY_RPM_WINDOW_MS) bucket.delete(member);
+  if (bucket.size >= max) {
+    const oldest = Math.min(...bucket.values());
+    return { allowed: false, retryAfterMs: Math.max(0, oldest + API_KEY_RPM_WINDOW_MS - now) };
   }
-  bucket.count += 1;
-  return bucket.count <= key.rpm_limit;
+  bucket.set(crypto.randomUUID(), now);
+  localRpmBuckets.set(key.id, bucket);
+  return { allowed: true, retryAfterMs: 0 };
+}
+
+/**
+ * The per-key RPM decision. Redis-backed when the process shares state with
+ * other workers; a Redis error is NOT swallowed here, so `apiKeyAuth` fails
+ * closed with 503 exactly as the auth limiter contract requires.
+ */
+export async function rpmVerdict(key: ApiKeyRow): Promise<{ allowed: boolean; retryAfterMs: number }> {
+  if (!key.rpm_limit) return { allowed: true, retryAfterMs: 0 };
+  if (!isRedisSharedState()) return localRpmVerdict(key);
+  const verdict = await getSharedRateLimiter({ max: key.rpm_limit, windowMs: API_KEY_RPM_WINDOW_MS })
+    .attempt(`${API_KEY_RPM_NAMESPACE}:${key.id}`);
+  return { allowed: verdict.allowed, retryAfterMs: verdict.retryAfterMs };
 }
 
 function ipAllowed(key: ApiKeyRow, ip: string | null): boolean {
@@ -367,7 +392,7 @@ function ipAllowed(key: ApiKeyRow, ip: string | null): boolean {
 
 export type ApiKeyAuthResult =
   | { ok: true; user: ApiKeyPrincipal; key: ApiKeyRow }
-  | { ok: false; status: number; reason: string; code: string };
+  | { ok: false; status: number; reason: string; code: string; retryAfterMs?: number };
 
 /**
  * Authenticate a raw `isp_live_…` token. Every failure is a 401 except a
@@ -389,8 +414,15 @@ export async function authenticateApiKey(rawToken: string, ip: string | null = n
   if (!ipAllowed(row, ip)) {
     return { ok: false, status: 403, reason: 'This address is not allowed for the API key.', code: 'API_KEY_CIDR' };
   }
-  if (!rpmAllows(row)) {
-    return { ok: false, status: 429, reason: 'API key rate limit exceeded.', code: 'API_KEY_RATE_LIMIT' };
+  const rpm = await rpmVerdict(row);
+  if (!rpm.allowed) {
+    return {
+      ok: false,
+      status: 429,
+      reason: 'API key rate limit exceeded.',
+      code: 'API_KEY_RATE_LIMIT',
+      retryAfterMs: rpm.retryAfterMs,
+    };
   }
 
   const user: ApiKeyPrincipal = {
