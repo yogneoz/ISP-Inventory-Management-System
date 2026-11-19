@@ -543,6 +543,12 @@ export const DEFAULT_GROUPS: PermissionGroup[] = [
         description: 'Manage Bikram Sambat (BS) fiscal calendars, year-end closings, and dates',
         permissions: DEFAULT_PERMISSIONS_MATRIX['admin-fiscal'],
       },
+      {
+        id: 'admin-api-keys',
+        operationName: 'API Key Management (Partner Integrations)',
+        description: 'Issue, rotate and revoke scoped API keys that another application uses to read or write data; view key usage, expiry and revocation history',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['admin-api-keys'],
+      },
     ],
   },
 ];
