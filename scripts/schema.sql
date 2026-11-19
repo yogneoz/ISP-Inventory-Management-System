@@ -6002,3 +6002,37 @@ CREATE TRIGGER trg_api_key_audit_logs_append_only
   BEFORE UPDATE OR DELETE ON api_key_audit_logs
   FOR EACH ROW EXECUTE FUNCTION api_key_audit_logs_append_only();
 
+-- Field capture (migration 0044): technician work orders.
+CREATE SEQUENCE IF NOT EXISTS field_work_order_no_seq;
+
+CREATE TABLE IF NOT EXISTS field_work_orders (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  work_order_no VARCHAR(40) NOT NULL UNIQUE,
+  branch_id VARCHAR(40) NOT NULL REFERENCES branches(id),
+  customer_id VARCHAR(40) NOT NULL REFERENCES customer_records(id),
+  kind VARCHAR(16) NOT NULL CHECK (kind IN ('INSTALL', 'SERVICE', 'DISCONNECT')),
+  status VARCHAR(16) NOT NULL DEFAULT 'OPEN'
+    CHECK (status IN ('OPEN', 'ASSIGNED', 'COMPLETED', 'CANCELLED')),
+  technician_id VARCHAR(40) REFERENCES employees(id),
+  technician_name VARCHAR(200),
+  scheduled_date_ad DATE NOT NULL,
+  ont_serial VARCHAR(64),
+  router_serial VARCHAR(64),
+  ip_address VARCHAR(64),
+  plan_name VARCHAR(120),
+  notes VARCHAR(1000) NOT NULL DEFAULT '',
+  completion_notes VARCHAR(1000),
+  completed_at TIMESTAMPTZ,
+  created_by VARCHAR(200) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT field_work_orders_completion_state
+    CHECK ((status = 'COMPLETED') = (completed_at IS NOT NULL)),
+  CONSTRAINT field_work_orders_assigned_needs_technician
+    CHECK (status <> 'ASSIGNED' OR technician_name IS NOT NULL)
+);
+
+CREATE INDEX IF NOT EXISTS idx_field_work_orders_branch_date
+  ON field_work_orders (branch_id, scheduled_date_ad DESC, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_field_work_orders_status
+  ON field_work_orders (status, scheduled_date_ad);

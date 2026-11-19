@@ -402,6 +402,10 @@ export const api = {
 
   // Sales Invoices & Returns
   getSalesInvoices: sales.getSalesInvoices,
+  getFieldWorkOrders: sales.getFieldWorkOrders,
+  createFieldWorkOrder: sales.createFieldWorkOrder,
+  assignFieldWorkOrder: sales.assignFieldWorkOrder,
+  completeFieldWorkOrder: sales.completeFieldWorkOrder,
   createSalesInvoice: sales.createSalesInvoice,
   getPurchaseReturns: sales.getPurchaseReturns,
   createPurchaseReturn: sales.createPurchaseReturn,

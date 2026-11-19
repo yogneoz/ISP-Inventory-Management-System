@@ -243,3 +243,24 @@ export async function exportCustomerLedger(
 ): Promise<CustomerLedgerResponse> {
   return getCustomerLedger(customerId, { ...params, all: true });
 }
+
+export async function getFieldWorkOrders(params: { branchId?: string; status?: string; customerId?: string } = {}): Promise<any[]> {
+  const query = new URLSearchParams();
+  if (params.branchId) query.set('branchId', params.branchId);
+  if (params.status) query.set('status', params.status);
+  if (params.customerId) query.set('customerId', params.customerId);
+  const suffix = query.toString();
+  return fetchJson(`/api/field-work-orders${suffix ? `?${suffix}` : ''}`);
+}
+
+export async function createFieldWorkOrder(input: Record<string, any>): Promise<any> {
+  return fetchJson('/api/field-work-orders', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export async function assignFieldWorkOrder(id: string, input: Record<string, any>): Promise<any> {
+  return fetchJson(`/api/field-work-orders/${id}/assign`, { method: 'PATCH', body: JSON.stringify(input) });
+}
+
+export async function completeFieldWorkOrder(id: string, input: Record<string, any>): Promise<any> {
+  return fetchJson(`/api/field-work-orders/${id}/complete`, { method: 'POST', body: JSON.stringify(input) });
+}

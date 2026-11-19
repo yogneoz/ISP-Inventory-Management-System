@@ -1438,6 +1438,13 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'inventory/ReorderStockTracking.tsx': [],
     'inventory/StockValuation.tsx': [],
     'inventory/SupplierWarrantyRegister.tsx': [],
+    'sales/FieldWorkOrders.tsx': [
+      'assignFieldWorkOrder',
+      'completeFieldWorkOrder',
+      'createFieldWorkOrder',
+      'getCustomers',
+      'getFieldWorkOrders',
+    ],
     'inventory/SellerWarrantyRegister.tsx': [],
     'inventory/warranty/WarrantyEditModal.tsx': ['updateWarrantyCoverage'],
     'inventory/warranty/WarrantyRegister.tsx': ['fetchSellerWarranties', 'fetchVendorWarranties', 'fetchWarrantyCursorPage'],

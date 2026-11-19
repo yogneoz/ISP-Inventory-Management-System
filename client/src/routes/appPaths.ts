@@ -86,6 +86,7 @@ export const APP_PATHS: Record<NavTab, string> = {
   customers: '/sales/customers',
   'sales-agents-areas': '/sales/agents-areas',
   'import-customers': '/sales/customers/import',
+  'field-work-orders': '/service/work-orders',
   'customer-devices': '/sales/customer-devices',
   'complete-serial-inventory': '/serial-register',
 

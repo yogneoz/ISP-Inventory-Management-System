@@ -42,6 +42,7 @@ export const TAB_PERMISSIONS: Record<string, string | string[]> = {
   branches: 'admin-branches',
   suppliers: 'suppliers-manage',
   'sales-agents-areas': 'customers-manage',
+  'field-work-orders': 'field-work-order',
   'import-stock': 'stock-import-export',
   'export-stock': 'stock-import-export',
   'stock-valuation': 'stock-valuation',

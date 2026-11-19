@@ -24,7 +24,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 - **Fiscal Year Closing & Lock Wizard**:
   - 5-step guided wizard for year-end inventory valuation, fixed asset depreciation posting, trial balance roll-forward, and IRD period locking.
   - Super Admin re-authentication and downloadable official IRD Audit Closing Certificate.
-- **Role-Based Access Control (RBAC)**: 12 roles × 69 operations permission matrix, editable in-app and persisted server-side in the `permission_matrix` table (with client-side caching). Finance & Accounting is split into micro-controls — chart, subledgers, dimensions, bill terms, payroll posting, cash close, opening balances, depreciation and asset reads each have their own grant. `admin-api-keys` — the API creator control — is held by Super Admin and Sub Super Admin only, and governs the partner API keys described in Round 14 (Part C of the current plan).
+- **Role-Based Access Control (RBAC)**: 12 roles × 70 operations permission matrix, editable in-app and persisted server-side in the `permission_matrix` table (with client-side caching). Finance & Accounting is split into micro-controls — chart, subledgers, dimensions, bill terms, payroll posting, cash close, opening balances, depreciation and asset reads each have their own grant. `admin-api-keys` — the API creator control — is held by Super Admin and Sub Super Admin only, and governs the partner API keys described in Round 14 (Part C of the current plan).
 - **Vendor Ledger & Payments**: Vendor payments sub-ledger with bank/cheque details, partial payments, payment reversal, and a full vendor ledger report with running balances.
 - **Stock Movement Ledger & Transaction Logs**: Complete audit trail for stock receipts, dispatches, issues, transfers, damage pullouts, and manual adjustments.
 - **Consumable & Fixed Asset Management**:
@@ -847,7 +847,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   passing its counter (2 PurchaseOrders, 2 PurchaseInvoices, 1
   SerialLogRegister, 11 StockOperations, 4 ReturnsRegister, 2 SalesInvoices).
   A newly added unwired mount fails.
-- **All 119 feature screens pinned** — a coverage table asserts every screen
+- **All 120 feature screens pinned** — a coverage table asserts every screen
   under `client/src/features` exists in `SCREEN_SURFACE_PINS` with its exact
   server-call surface (`api.*` methods **and** named `services/api` imports —
   a bare `api.*` scan misses a named helper), so a fetch added by any mechanism must be
@@ -916,7 +916,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 2699-test suite against a PostgreSQL 16 service container (zero DB skips;
+  full 2703-test suite against a PostgreSQL 16 service container (zero DB skips;
   the two unconditional skips are Windows-only real-signal checks, which CI runs,
   and the live-drain check runs under `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1` so its
   preconditions cannot silently skip it) →

@@ -128,6 +128,10 @@ const SupplierWarrantyRegister = React.lazy(() =>
     default: m.SupplierWarrantyRegister,
   }))
 );
+const FieldWorkOrders = React.lazy(() =>
+  import('./features/sales/FieldWorkOrders').then((m) => ({ default: m.FieldWorkOrders }))
+);
+
 const SellerWarrantyRegister = React.lazy(() =>
   import('./features/inventory/SellerWarrantyRegister').then((m) => ({
     default: m.SellerWarrantyRegister,
@@ -3226,6 +3230,14 @@ export default function App() {
     )),
     screenRoute('supplier-warranty', (
         <SupplierWarrantyRegister
+          selectedBranchId={selectedBranchId}
+          dateMode={dateMode}
+          currentUser={currentUser}
+          refreshKey={registerRefresh.customerDevices}
+        />
+    )),
+    screenRoute('field-work-orders', (
+        <FieldWorkOrders
           selectedBranchId={selectedBranchId}
           dateMode={dateMode}
           currentUser={currentUser}

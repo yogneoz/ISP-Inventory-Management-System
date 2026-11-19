@@ -19,6 +19,10 @@ is the plan, not a second source of truth.
 - [parked.md](parked.md) — decisions we are not acting on, with the trigger to
   reopen each one.
 - [done/](done/README.md) — completed rounds, kept for reference. Never delete.
+- **Field capture (2026-11-19) — first slice delivered**: technician work orders
+  (migration `0044`, `/api/field-work-orders`, the Field Work Orders screen at
+  `/service/work-orders`); offline capture, proof-of-work attachments and an
+  automatic follow-up into devices/invoices remain open.
 - **Round 15 is complete (2026-11-19)** — advisory hardening from the 2026-11-17
   database audit and the Sign-In investigation. A1–A10 and Part C (partner API
   keys) are delivered; Part B's remainder is deferred with stated reasons in the

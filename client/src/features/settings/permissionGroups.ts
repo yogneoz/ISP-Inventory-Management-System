@@ -279,6 +279,12 @@ export const DEFAULT_GROUPS: PermissionGroup[] = [
         permissions: DEFAULT_PERMISSIONS_MATRIX['warranty-edit'],
       },
       {
+        id: 'field-work-order',
+        operationName: 'Field Work Orders (Technician Visits)',
+        description: 'Raise, assign and close installation, service and disconnection visits, capturing the connection and equipment details recorded on site',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['field-work-order'],
+      },
+      {
         id: 'edit-device-serials',
         operationName: 'Edit Device Serial Numbers (Serial/PON/MAC)',
         description: 'Edit serial numbers, PON serials, and MAC addresses for customer devices with cascading updates to all source tables',

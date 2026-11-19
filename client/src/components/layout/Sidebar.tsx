@@ -172,6 +172,7 @@ export type NavTab =
   | 'fiscal-year-management'
   | 'fiscal-year-closing'
   | 'audit'
+  | 'field-work-orders'
   | 'supplier-warranty'
   | 'seller-warranty'
   | 'company-setup'
@@ -287,6 +288,7 @@ export const NAV_TABS: NavTab[] = [
   'fiscal-year-management',
   'fiscal-year-closing',
   'audit',
+  'field-work-orders',
   'supplier-warranty',
   'seller-warranty',
   'company-setup',
@@ -669,6 +671,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ? [{ id: 'sales-returns' as NavTab, label: 'Sales Returns Register', icon: Undo2, section: 'Registers' }]
       : []),
     { id: 'customer-devices' as NavTab, label: 'Customer Device Serials', icon: Smartphone, section: 'Registers' },
+    ...(isOperationAllowed('field-work-order', currentUser?.role)
+      ? [{ id: 'field-work-orders' as NavTab, label: 'Field Work Orders', icon: Wrench, section: 'Registers' }]
+      : []),
     ...(canViewWarranty
       ? [{ id: 'seller-warranty' as NavTab, label: 'Sellers Warranty', icon: ShieldAlert, section: 'Registers' }]
       : []),
