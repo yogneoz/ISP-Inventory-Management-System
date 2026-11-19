@@ -672,36 +672,51 @@ work is obsolete and the balance work is open.
       measured window, not a pool-size ceiling. Boot now warms the pool
       (`warmDatabasePool`, `Database pool warmed: 40 connection(s) ready.`) and
       raises the pool's `min` to that size, so `idleTimeoutMillis` cannot shrink
-      it back. Measured on a shared dev machine, five runs, medium of each run's
-      three bursts:
+      it back. Both columns below come from the checked-in harness
+      (`npm run bench:write -- --arm before|after|both`, with `--skip-b` for the
+      cold arm) against a server booted with `PG_WARM_POOL=0` on PgBouncer 1.26.1
+      (`pool_mode=transaction`, `server_reset_query_always=1`, 25 server
+      connections), measured 2026-11-18 on this dev machine, one run per arm:
 
-      | configuration | C=50 run medians (ms) | amortised | ratio | C=100 run medians (ms) | amortised | ratio |
-      |---|---|---|---|---|---|---|
-      | before, cold pool | 894.6 (one burst) | 17.9 | 0.9x | — | — | — |
-      | **PgBouncer transaction mode, warm pool** | **183.1** (137-291) | **3.7** (2.7-5.8) | **~2.5x** (1.4-5.0x) | **383.8** (241-505) | **3.8** (2.4-5.0) | **~3.0x** (2.6-3.8x) |
-      | direct PostgreSQL, warm pool (for contrast) | 233.7 | 4.7 | 3.2x | 384.3 | 3.8 | 4.0x |
+      | configuration | C=50 measured bursts (ms) | median | amortised | ratio | C=100 measured bursts (ms) | median | amortised | ratio |
+      |---|---|---|---|---|---|---|---|
+      | before - cold pool, no warm-up, one burst | 373.0 | **373.0** | 7.5 | 2.0x | 708.2 | **708.2** | 7.1 | 2.3x |
+      | **after - warm pooled, three bursts + median** | 203.5 / 215.2 / 219.2 | **215.2** | **4.3** | **3.5x** | 467.6 / 468.0 / 401.9 | **467.6** | **4.7** | **3.4x** |
 
-      Every burst committed in full (150/150 and 300/300 per run) and 0 responses
-      carried a cache-refresh phase (0 of 450 per C=50 run). The spread is the
-      machine, not the code: the same build produces 137-291 ms run to run while
-      the sequential baseline it is compared against moves with it. Nothing
-      needed a session-mode pool or a direct connection: the transaction-mode
-      boot ran the schema/seed job, the 40-client warm-up, the reference-cache
-      hydration and the Redis subscriber, and the writes committed through the
-      pooler. Two compatibility fixes came out of running against the installed
-      servers rather than a stand-in: the benchmark logs in once per run (a login
-      per phase tripped the Redis-backed auth limiter, 429), and `rateRevoke`
-      falls back to `ZREVRANGE` + `ZREM` when the server answers "unknown command"
-      to `ZPOPMAX` (Redis 5+ only; the installed Windows port is older).
+      Reproduce: boot the server against the pooler with `PG_WARM_POOL=0`, then
+      `BASE_URL=... C=50 npm run bench:write -- --arm before --skip-b` (cold, one
+      burst) and `--arm after` (warm, three bursts). `--arm both` prints the pair
+      from one run, but its before arm then follows Phase B, so the pool is no
+      longer cold. Every burst committed in full (50/50 and 100/100 cold;
+      150/150 and 300/300 warm) and 0 responses carried a cache-refresh phase.
+      The earlier five-run pooled sample on the same machine spans 137-291 ms at
+      C=50 and 241-505 ms at C=100, so the run-to-run spread on a busy host is
+      wider than the gap between the two arms; each arm's bursts are printed
+      whole rather than selected.
 
-      Every burst committed in full (150/150 and 300/300), and 0 of 450
-      responses carried a cache-refresh phase. Nothing needed a session-mode pool
-      or a direct connection: the transaction-mode boot ran the schema/seed job,
-      the 40-client pool warm-up, the reference-cache hydration and the Redis
-      subscriber, and the location writes committed through the pooler. That path is also proven against a real Redis server
-      across two processes: `npm run verify:redis-invalidation` (worker B
-      subscribes, worker A writes and publishes, B reloads from PostgreSQL and
-      sees the row).
+      **Catalog hot path (2026-11-18).** Round trips were counted at the pooler
+      itself (`SHOW STATS total_query_count` on the PgBouncer admin console)
+      around one write and the reads that follow it, not asserted from the code:
+      the collector is `npm run verify:catalog-roundtrips` (`scripts/verify_catalog_roundtrips.mjs`,
+      `POOLER_ADMIN_PORT` selects the admin port):
+
+      | step | PG round trips, Redis read-through | PG round trips, no Redis |
+      |---|---|---|
+      | `POST /api/locations` | 2 (upsert + the asynchronous audit insert) | 3 |
+      | `GET /api/locations` immediately after the write | 1 (invalidated: reload from PostgreSQL) | 1 |
+      | `GET /api/locations`, repeat | **0** (served from Redis) | 1 |
+      | `DELETE /api/locations/:id` | 2 (delete + audit insert) | 2 |
+
+      So one per-request round trip did remain: a catalog read ran a PostgreSQL
+      query on every request even though those rows change only on a master-data
+      write. It is now a Redis read-through
+      (`server/src/state/catalogCache.ts`) - a version key plus the payload,
+      `CATALOG_CACHE_TTL_MS` (default 5000 ms) as the enforced staleness bound, and
+      an `INCR` of the version after the write commits and before the response,
+      so the writing worker's own next read misses and every other worker sees
+      the new version at once. Nothing needed session mode or a direct
+      connection, and nothing was moved off the pooler: the only thing removed
+      from the read path is the query.
 
 Acceptance: a write's p95 is independent of catalog/document count on the
 fixture; ten concurrent writes take no longer than the serial equivalent (≥ 1×

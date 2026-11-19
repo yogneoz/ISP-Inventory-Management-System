@@ -537,7 +537,8 @@ docker run -d \
 | **API Smoke Test** *(server must be running)* | `npm run smoke` |
 | **Production Boot Timing** *(after `npm run build`; needs Chrome + demo DB)* | `npm run check:boot-timing` |
 | **Bootstrap Payload Measurement** *(server must be running)* | `npm run measure:bootstrap` |
-| **Write-Latency Benchmark** *(server must be running; `BASE_URL` and `C` select the target and concurrency, e.g. `BASE_URL=http://localhost:3100 C=50 npm run bench:write`)* | `npm run bench:write` |
+| **Write-Latency Benchmark** *(server must be running; `BASE_URL` and `C` select the target and concurrency; `--arm before\|after\|both` prints the cold-pool and warm-pool columns from one run, pairing `before` with a server booted `PG_WARM_POOL=0` and `--skip-b`, e.g. `BASE_URL=http://localhost:3100 C=50 npm run bench:write -- --arm both`)* | `npm run bench:write` |
+| **Catalog Round-Trip Proof** *(server running against a PgBouncer; counts PostgreSQL round trips at the pooler with `SHOW STATS`, `POOLER_ADMIN_PORT` selects the admin port)* | `npm run verify:catalog-roundtrips` |
 | **Full Reset & Verification Seed** | `npm run seed:verify` |
 | **PM2 Process Status** | `pm2 status` |
 | **View Server Logs** | `pm2 logs enterprise-erp` |
@@ -658,7 +659,14 @@ default. JSON responses above 1 KiB are gzip-compressed.
 For more than one application instance, put PgBouncer in front of PostgreSQL
 and keep the sum of instance pool sizes below the database's connection
 budget; for reporting-heavy loads, move the financial reports to a read
-replica. The customer CSV export (`all=1`) is deliberately an explicit,
+replica. `PG_WARM_POOL=0` boots a deliberately cold pool, which is what the
+benchmark's `before` arm measures against. Small catalog reads are a Redis
+read-through on the same configuration (`server/src/state/catalogCache.ts`): a
+version key plus the payload, `CATALOG_CACHE_TTL_MS` (default 5000 ms) as the
+enforced staleness bound, and an `INCR` of the version after a write commits and
+before the response — so the next read on the writing worker misses, and every
+other worker sees the new version at once. Without `REDIS_URL` the read goes
+straight to PostgreSQL. The customer CSV export (`all=1`) is deliberately an explicit,
 single-request path, not a login/bootstrap path.
 
 ### Warranty coverage endpoints
@@ -840,7 +848,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 2685-test suite against a PostgreSQL 16 service container (zero DB skips;
+  full 2689-test suite against a PostgreSQL 16 service container (zero DB skips;
   the two unconditional skips are Windows-only real-signal checks, which CI runs,
   and the live-drain check runs under `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1` so its
   preconditions cannot silently skip it) →

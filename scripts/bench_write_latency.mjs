@@ -30,6 +30,13 @@ const TAG = 'BENCH';
 const EMAIL = process.env.SMOKE_USER_EMAIL || 'superadmin@example.com';
 const PASSWORD = process.env.SMOKE_USER_PASSWORD || 'Demo@123';
 
+/** Read `--flag value` from the command line (used by `--arm`). */
+function argValue(flag) {
+  const index = process.argv.indexOf(flag);
+  return index === -1 ? null : process.argv[index + 1] ?? null;
+}
+
+
 // ---------------------------------------------------------------------------
 // Phase A — extract + time the CACHE_LOADS fan-out
 // ---------------------------------------------------------------------------
@@ -81,7 +88,7 @@ function phaseA(db) {
  * sequential cost of one write and then the wall clock of C concurrent writes,
  * which is the number that decides throughput.
  */
-async function phaseC(token) {
+async function phaseC(token, arm = 'after') {
   const C = Math.max(2, Number(process.env.C || 10));
   const make = (i) => req('POST', '/api/locations', {
     name: `${TAG} conc ${Date.now()}-${i}`,
@@ -90,9 +97,13 @@ async function phaseC(token) {
     address: TAG,
   }, token);
 
-  // Warm-up: one single write, then one full burst. Only a cold connection pool
-  // and cold JIT are taken out of the measurement, and every measured burst is
-  // printed below — the median is the reported number, not a selected one.
+  // `before` reproduces the pre-change protocol: no warm burst, one measured
+  // burst, so the first burst pays connection setup exactly as it did when this
+  // was 0.9x at C=50 (pair it with a server booted with PG_WARM_POOL=0).
+  // `after` warms first and reports three measured bursts; every burst is
+  // printed and the median is reported, not the best one.
+  const warmBurst = arm !== 'before';
+  const burstCount = warmBurst ? 3 : 1;
   await make('warm');
   const seq = [];
   for (let i = 0; i < 3; i++) {
@@ -101,13 +112,13 @@ async function phaseC(token) {
     if (r.status < 400) seq.push(performance.now() - t0);
   }
   const sequentialMs = median(seq);
-  await Promise.all(Array.from({ length: C }, (_, i) => make(`pre${i}`)));
+  if (warmBurst) await Promise.all(Array.from({ length: C }, (_, i) => make(`pre${i}`)));
 
   const bursts = [];
   let okCount = 0;
   let refreshCount = 0;
   const refreshMs = [];
-  for (let b = 0; b < 3; b++) {
+  for (let b = 0; b < burstCount; b++) {
     const startedAt = performance.now();
     const burst = await Promise.all(Array.from({ length: C }, (_, i) => make(`${b}-${i}`)));
     bursts.push(performance.now() - startedAt);
@@ -119,7 +130,7 @@ async function phaseC(token) {
       }
     }
   }
-  const attempts = C * 3;
+  const attempts = C * burstCount;
   const wallMs = median(bursts);
 
   console.log(`\nPhase C — ${C} concurrent writes (all against one process, 3 measured bursts)`);
@@ -132,7 +143,7 @@ async function phaseC(token) {
     console.log(`  refresh per response: median ${fmt(median(refreshMs))} ms, p95 ${fmt(pct(refreshMs, 95))} ms`);
   }
   console.log(`  queue-free equivalent (${C} × one sequential write): ${fmt(sequentialMs * C)} ms`);
-  return { sequentialMs, wallMs, okCount, attempts, C, bursts, refreshCount };
+  return { arm, sequentialMs, wallMs, okCount, attempts, C, bursts, refreshCount };
 }
 
 // ---------------------------------------------------------------------------
@@ -325,8 +336,19 @@ async function main() {
     throw new Error(`login failed (${login.status}) — start the server or fix credentials`);
   }
   const token = login.data.token;
-  const b = await phaseB(token);
-  const c = await phaseC(token);
+  // `--skip-b` matters for the `before` arm: Phase B's traffic would warm the
+  // pool, so the cold measurement has to skip it (and its cleanup list is empty).
+  const skipB = process.argv.includes('--skip-b');
+  const b = skipB ? { cleanup: [] } : await phaseB(token);
+  if (skipB) console.log('Phase B skipped (--skip-b): the pool stays cold for the measurement.');
+  const armArg = argValue('--arm') || 'after';
+  const arms = armArg === 'both' ? ['before', 'after'] : [armArg];
+  if (!arms.every((arm) => arm === 'before' || arm === 'after')) {
+    throw new Error(`--arm must be before, after or both (got ${armArg})`);
+  }
+  const measured = [];
+  for (const arm of arms) measured.push(await phaseC(token, arm));
+  const c = measured[measured.length - 1];
 
   if (db) {
     const dels = [
@@ -346,9 +368,9 @@ async function main() {
     console.log(`\nSlowest endpoint: ${slowest.name} — ${fmt(slowest.med)} ms total` +
       (slowest.refresh > 0 ? ` (refresh ${fmt(slowest.refresh)} ms = ${(100 * slowest.refresh / slowest.med).toFixed(0)}%)` : ''));
     if (a && a.fanout != null) console.log(`Full refresh fan-out standalone: ${fmt(a.fanout)} ms.`);
-    if (c) {
-      const speedup = c.sequentialMs > 0 ? (c.sequentialMs * c.C) / Math.max(1, c.wallMs) : NaN;
-      console.log(`${c.C} concurrent writes: ${fmt(c.wallMs)} ms wall (median of ${c.bursts.length}) vs ${fmt(c.sequentialMs * c.C)} ms queued one-pass-each (${Number.isFinite(speedup) ? speedup.toFixed(1) : 'n/a'}×), ${c.okCount}/${c.attempts} committed, ${c.refreshCount} cache-refresh phases.`);
+    for (const arm of measured) {
+      const speedup = arm.sequentialMs > 0 ? (arm.sequentialMs * arm.C) / Math.max(1, arm.wallMs) : NaN;
+      console.log(`${arm.C} concurrent writes [${arm.arm}]: ${fmt(arm.wallMs)} ms wall (median of ${arm.bursts.length}: ${arm.bursts.map(fmt).join(' / ')}) vs ${fmt(arm.sequentialMs * arm.C)} ms queued one-pass-each (${Number.isFinite(speedup) ? speedup.toFixed(1) : 'n/a'}×), ${arm.okCount}/${arm.attempts} committed, ${arm.refreshCount} cache-refresh phases.`);
     }
   }
   await db?.end().catch(() => {});

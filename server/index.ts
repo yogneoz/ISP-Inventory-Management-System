@@ -126,9 +126,13 @@ async function startServer() {
   // SCALE-3: move connection setup out of the first concurrent burst. Behind a
   // transaction-mode pooler the client connections are cheap, so a boot can
   // afford to hold the whole pool open.
+  // `PG_WARM_POOL=0` boots a deliberately cold pool. The benchmark's `before`
+  // arm needs that: it reproduces the pre-change behaviour (first burst pays
+  // connection setup) so both columns of the report come from the same harness.
   try {
-    const warmed = await warmDatabasePool();
+    const warmed = process.env.PG_WARM_POOL === '0' ? 0 : await warmDatabasePool();
     if (warmed > 0) console.log(`Database pool warmed: ${warmed} connection(s) ready.`);
+    else console.log('Database pool warm-up skipped (PG_WARM_POOL=0): cold-pool measurement arm.');
   } catch (err: any) {
     console.error('Database pool warm-up failed (the pool will connect on demand):', err?.message || err);
   }

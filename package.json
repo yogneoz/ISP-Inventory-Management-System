@@ -32,6 +32,7 @@
     "read-models:rebuild": "tsx scripts/read_models.ts rebuild",
     "verify:pgbouncer": "tsx scripts/verify_pgbouncer_pooling.ts",
     "verify:redis-invalidation": "tsx scripts/verify_redis_invalidation.ts",
+    "verify:catalog-roundtrips": "node scripts/verify_catalog_roundtrips.mjs",
     "check:bundle-budget": "node scripts/check_bundle_budget.mjs",
     "ci:local": "node scripts/ci_local.mjs",
     "check:boot-timing": "node scripts/check_boot_timing.mjs",

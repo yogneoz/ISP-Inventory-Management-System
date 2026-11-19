@@ -7,6 +7,7 @@
  */
 import type { Request, Response } from 'express';
 import { getPgConnected, pgPool, uomList, setUomList, withReplaced, withAppended, logAuditEvent, locationRecords, setLocationRecords, withPrepended, suppliers, setSuppliers, products, setProducts, branches, setInventoryStock, inventoryStock, categories, setCategories, productGroups, setProductGroups, broadcastChange, customerMasterRecords, customerDeviceRecords, setCustomerMasterRecords, withTransaction, companyProfile } from '../app';
+import { readCatalog, invalidateCatalog } from '../state/catalogCache';
 import { defaultVatRateFor } from '../utils/money';
 import { warrantyTermError } from '../../../shared/warrantyTerm';
 import { findAreaById, findSalesAgentById } from './salesMasters.controller';
@@ -246,9 +247,20 @@ export async function get_locations(req: any, res: Response): Promise<any> {
 const { branchId } = req.query;
   if (getPgConnected()) {
     try {
-      const { sql: q, params } = buildLocationSelectSql(branchId);
-      const r = await pgPool.query(q, params as any[]);
-      res.json(r.rows);
+      // SCALE-3: a catalog read is served from Redis, not PostgreSQL, on the
+      // pooled configuration. A write bumps the namespace version before it
+      // responds, so the writer's own next read misses; the TTL is the enforced
+      // staleness bound (`CATALOG_CACHE_TTL_MS`).
+      const { value } = await readCatalog(
+        'locations',
+        branchId ? String(branchId) : 'ALL',
+        async () => {
+          const { sql: q, params } = buildLocationSelectSql(branchId);
+          const r = await pgPool.query(q, params as any[]);
+          return r.rows;
+        }
+      );
+      res.json(value);
       return;
     } catch (err) {
       console.error('Error fetching locations from DB:', err);
@@ -281,6 +293,8 @@ try {
     if (getPgConnected()) {
       await pgPool.query(LOCATION_UPSERT_SQL, locationParams(newLoc));
     }
+    // The row is committed: make every cached catalog read miss before replying.
+    await invalidateCatalog('locations');
     logAuditEvent(req, 'CREATE_LOCATION', 'MASTER_DATA', `Created/updated location ${newLoc.name} (${newLoc.id})`, newLoc.branchId);
     res.status(201).json(newLoc);
   } catch (err: any) {
@@ -301,6 +315,7 @@ try {
     if (getPgConnected()) {
       await pgPool.query(LOCATION_DELETE_SQL, [id]);
     }
+    await invalidateCatalog('locations');
     logAuditEvent(req, 'DELETE_LOCATION', 'MASTER_DATA', `Deleted location ${loc?.name || id}`);
     res.json({ success: true });
   } catch (err: any) {
