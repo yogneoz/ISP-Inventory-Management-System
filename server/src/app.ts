@@ -54,6 +54,7 @@ import {
   authenticateUser, requireAuth, requirePostgres, enforceFiscalYearWriteAccess,
   requireRole, enforceOperationalPermissions, enforceBranchAccess, requirePermission, requirePermissionAny,
 } from './middleware';
+import { apiKeyAuth } from './middleware/apiKeyAuth';
 import { fetchFiscalYears, fetchOperationalData, fetchOpeningStock, parseSerialHistory } from './models/bootstrap.repo';
 import { errorHandler } from './errors/errorHandler';
 import { bumpStateVersionOnWrite } from './middleware/stateVersion';
@@ -295,6 +296,9 @@ export function createApp(): express.Express {
 
   // Global Backend Authentication Middleware for all API routes
   app.use('/api', authenticateUser);
+  // Partner API keys resolve to a synthetic principal before any auth check,
+  // so the RBAC, branch and fiscal-year guards below run on a key unchanged.
+  app.use('/api', apiKeyAuth);
 
   app.use('/api', (req, res, next) => {
     const publicRoutes = new Set([

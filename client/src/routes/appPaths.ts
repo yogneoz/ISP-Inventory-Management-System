@@ -145,6 +145,7 @@ export const APP_PATHS: Record<NavTab, string> = {
 
   users: '/settings/users',
   'login-locks': '/settings/login-locks',
+  'api-keys': '/settings/api-keys',
   permissions: '/settings/permissions',
   'user-permissions': '/settings/user-permissions',
   branches: '/settings/branches',

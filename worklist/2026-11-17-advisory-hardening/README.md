@@ -34,7 +34,7 @@ Before this round the tracker held three notes that were not closed:
 |---|---|---|
 | [Round 11 — cash receipts and funding](../2026-11-14-cash-receipts-and-funding/README.md) `[~]` | Partial customer receipts, voucher classes, non-trade funding (loans vs sales) | **Not superseded in content.** Product/domain work this round does not touch. Carried as Part B and still tracked here. |
 | [Round 13 — enterprise scale and public exposure](../2026-11-16-enterprise-scale-and-public-exposure/README.md) `[~]` | Partition conversions of four growth tables, replica URLs, PgBouncer audit, pre-aggregated stock, TLS/CORS/CSP/MFA, reverse proxy, HSTS, `TRUST_PROXY` | **Partially superseded.** Its partition/BRIN assumptions are corrected by measurement: its "BRIN on `created_at`, `journal_date_ad`, `entry_date_ad`" line is declined in the audit (§4) because those reads are partition- or page-bounded, and A1/A2/A4/A7 below replace its provisioning assumptions. The public-exposure half is untouched by this round and carries as Part B. |
-| [Round 14 — API keys and governance](../2026-11-16-api-key-management/README.md) `[ ]` | Scoped, expiring, revocable machine credentials | **Not superseded.** Blocked on Round 13's Redis state and MFA. Carried as Part C. |
+| [Round 14 — API keys and governance](../2026-11-16-api-key-management/README.md) `[x]` | Scoped, expiring, revocable machine credentials | **Delivered 2026-11-19** as Part C below, without the MFA gate (creation is gated on `admin-api-keys` instead); the RPM cap is per worker. |
 
 **Conclusion.** This round is superior *for the database, CI and operational
 layer*: it is measurement-backed, it closes defects in what the previous slice
@@ -560,8 +560,22 @@ Authoritative detail stays in those notes; this round owns their scheduling.
 ## Part C — carried from Round 14
 
 API keys: scoped, expiring, revocable credentials enforced by the existing RBAC
-and branch/fiscal-year gates, with an administration UI and usage audit. Blocked
-on the Redis state and MFA work in Part B.
+and branch/fiscal-year gates, with an administration UI and usage audit.
+
+**Status: done 2026-11-19.** Delivered without the two blockers this section
+named: the MFA gate was replaced (by decision) with the seeded `admin-api-keys`
+operation, held only by SUPER_ADMIN and HEAD_OFFICE_ADMIN, on top of the existing
+RBAC, branch and fiscal-year guards; the optional RPM cap is enforced in the
+server process. The implementation record, deviations and live HTTP evidence are
+in [the Round 14 note](../2026-11-16-api-key-management/README.md#implementation-record--2026-11-19).
+
+Evidence summary: migration `0043_api_keys` applied at boot and mirrored in
+`scripts/schema.sql`; a key minted in the **API Creator** screen returned the
+`isp_live_...` secret once; `GET /api/accounting/statements/trial-balance` with
+it returned 200; a POST with the same read-only key returned 403
+`API_KEY_READ_ONLY`; an out-of-scope key returned 403 `API_KEY_SCOPE`; an expired
+key 401 `API_KEY_EXPIRED`; a revoked key 401 `API_KEY_REVOKED`; and PostgreSQL
+stores only the prefix and `sha256(secret)` — no plaintext anywhere in the row.
 
 ## Gates
 
@@ -630,6 +644,14 @@ on the Redis state and MFA work in Part B.
   the element and the reason; `--self-test` **exit 0** with all six caught.
   `tests/inputReadiness.test.ts` (17). No app code changed — the real form does
   accept input.
+- 2026-11-19 — **Part C (Round 14 API keys) done**: additive migration
+  `0043_api_keys` (+ `schema.sql` parity), repository/service/middleware, the
+  `/api/admin/api-keys` management API and the lazy **API Creator** screen.
+  Verified live: the secret is returned once at creation, only the hash and
+  prefix are persisted, the gated GET returns 200, a read-only POST is refused
+  403 before RBAC, expired and revoked keys return 401, and rotation issues a new
+  secret while the old key keeps a 24h grace. `tsc` 0, five guard/permission
+  suites 32/32, bundle budget OK.
 - 2026-11-17 — **A10 dev-server follow-up**: the gate aborted against
   `--base-url http://localhost:3000` on Vite's own `WebSocket closed without
   opened.` (`/@vite/client:454`, vite 6.4.5 `client.mjs:442-456` — the HMR

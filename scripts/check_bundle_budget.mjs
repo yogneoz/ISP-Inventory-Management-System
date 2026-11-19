@@ -109,6 +109,13 @@ const ASSETS = path.join(DIST, 'assets');
 // the startup total measured 321.9 kB against its unchanged 322 kB gate. The
 // entry gate moves 22.125 -> 22.25 kB (126 B headroom) rather than shaving
 // required wiring; screen weight still belongs in lazy chunks.
+// 2026-11-19 (Round 14 Part C — API creator): measured entry 22,814 B (22.3
+// kB), 30 B over the 22.25 kB gate. The API creator screen is `React.lazy`
+// (its chunk is dynamic) and `findLazyScreenChunksInStartup` reports none, so
+// the growth is the required shell wiring: the sidebar item, canonical path,
+// tab gate and route entry. The entry gate moves 22.25 -> 22.375 kB (98 B
+// headroom); the startup total measured 324.4 kB against its unchanged 330 kB
+// gate.
 // 2026-11-17 (worklist A8 — CI truth): measured entry 22.2 kB, startup total
 // 324.1 kB against the unchanged 322 kB gate. The 2.1 kB is real screen weight,
 // not a lazy leak: `findLazyScreenChunksInStartup` reports none, and the chunks
@@ -120,7 +127,7 @@ const ASSETS = path.join(DIST, 'assets');
 // did not grow. A further breach still means the eager graph got bigger and
 // needs a look.
 const BUDGETS = {
-  entryGz: 22.25 * 1024, // entry chunk alone
+  entryGz: 22.375 * 1024, // entry chunk alone
   startupTotalGz: 330 * 1024, // entry + all statically-imported chunks
 };
 

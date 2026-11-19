@@ -778,6 +778,13 @@ export const api = {
   deletePermissionSet: admin.deletePermissionSet,
   saveUserPermissionSets: admin.saveUserPermissionSets,
 
+  // API creator (Round 14 Part C)
+  getApiKeys: admin.getApiKeys,
+  createApiKey: admin.createApiKey,
+  rotateApiKey: admin.rotateApiKey,
+  revokeApiKey: admin.revokeApiKey,
+  getApiKeyLogs: admin.getApiKeyLogs,
+
   // Server-side settings & user preferences (replaces browser localStorage)
   getSettings: settings.getSettings,
   saveAppSettings: settings.saveAppSettings,

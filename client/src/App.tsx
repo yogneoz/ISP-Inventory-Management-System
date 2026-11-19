@@ -320,6 +320,11 @@ import type { UserAccessFocusRequest } from './features/settings/UserPermissions
 const PermissionManagementLazy = React.lazy(() =>
   import('./features/settings/PermissionManagement').then((m) => ({ default: m.PermissionManagement }))
 );
+// The API creator is opened from Administration, never during boot: loading it
+// lazily keeps its forms out of the entry chunk the budget gate measures.
+const ApiKeysLazy = React.lazy(() =>
+  import('./features/settings/ApiKeys').then((m) => ({ default: m.ApiKeys }))
+);
 const UserPermissionsLazy = React.lazy(() =>
   import('./features/settings/UserPermissions').then((m) => ({ default: m.UserPermissions }))
 );
@@ -3297,6 +3302,9 @@ export default function App() {
         recordRoute={activeTab === 'users' ? recordRoute : null}
         onRecordRouteChange={handleRecordRouteChange}
       />
+    )),
+    screenRoute('api-keys', (
+      <ApiKeysLazy currentUser={currentUser} branches={branches} />
     )),
     screenRoute('login-locks', (
       <LoginLocks currentUser={currentUser} users={users} />

@@ -190,6 +190,13 @@ export function requireRole(...allowedRoles: string[]) {
 
 export function enforceOperationalPermissions(req: any, res: any, next: any) {
   if (req.method === 'GET' || req.path.startsWith('/auth/') || req.path.startsWith('/sync/')) return next();
+  // A partner API key is authorised by its operation scope, not by a screen
+  // role; its read_only switch already refused non-GET verbs before RBAC.
+  if ((req.user as any)?.apiKey) return next();
+  // The API creator is not a screen: it is gated on `admin-api-keys`, which the
+  // Sub Super Admin role holds, so the SUPER_ADMIN-only /admin rule must not
+  // shadow it.
+  if (req.path === '/admin/api-keys' || req.path.startsWith('/admin/api-keys/')) return next();
   const rules: Array<[string, string[]]> = [
     ['/admin/', ['SUPER_ADMIN']],
     ['/branches', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN']],
@@ -304,6 +311,21 @@ export function requirePermissionAny(...operationIds: string[]) {
       return res.status(401).json({ message: 'Unauthorized: Authentication required' });
     }
     const role = user.role;
+
+    // A partner API key carries its own operation list and never receives the
+    // Super Admin override: its scope IS the permission decision. The branch
+    // flags below still apply, so a restricted branch refuses the key too.
+    if ((user as any).apiKey) {
+      const keyOperations: string[] = (user as any).apiKeyOperations || [];
+      if (!operationIds.some((operationId) => keyOperations.includes(operationId))) {
+        return res.status(403).json({
+          message: `Forbidden: this API key is not scoped for operation '${operationIds.join("' or '")}'.`,
+          code: 'API_KEY_SCOPE',
+        });
+      }
+      req.user = user;
+      return next();
+    }
 
     // Branch-level procurement/warehouse-transfer restriction. Evaluate both
     // the source and destination branches so a shipment/transfer dispatched

@@ -44,7 +44,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 - **PDF Reporting**: one server-side pdfmake service renders sales invoices, purchase bills, the trial balance, profit and loss, the balance sheet and payroll payslips through permission-gated, branch-scoped print routes; the printed statements recurse through the same group → sub-group tree and print each level's subtotal. Fonts are vendored through `@fontsource/noto-sans` and `@fontsource/noto-sans-devanagari` (no ad-hoc downloads), registered at boot, and required: a missing file fails with its name instead of silently substituting a Latin-only font. Mixed-script text is split into Noto Sans and Noto Sans Devanagari runs, so a Devanagari customer or employee name is embedded as a real font subset with a Unicode map rather than dropped glyphs.
 - **Canonical URL Routing**: every workspace screen has a stable path (`/sales/invoices`, `/settings/users`, `/inventory/assets/assign`, …). Refresh, bookmark and share a screen directly, and use Browser Back/Forward; the path is only a request and the same RBAC guard still decides whether the screen may render. Older `?tab=<id>` links redirect in place, preserving the Users access filters.
 - **Real-Time Multi-User Sync with Targeted Refresh**: Server-Sent Events (SSE) broadcast every mutation tagged with the client-state domain it invalidates. Clients re-fetch **only that domain's slice** (`GET /api/bootstrap/local?key=...`) instead of re-downloading the whole bootstrap; unknown events fall back to a full atomic bootstrap resync.
-- **Automated PostgreSQL Setup**: Built-in automated shell and Node.js setup scripts (`npm run setup:pg`) that can install, configure PostgreSQL, migrate all **122 relational database tables**, and optionally seed a linked demo dataset.
+- **Automated PostgreSQL Setup**: Built-in automated shell and Node.js setup scripts (`npm run setup:pg`) that can install, configure PostgreSQL, migrate all **124 relational database tables**, and optionally seed a linked demo dataset.
 - **Pooled, warm write path with a Redis read-through (SCALE-3)**: boot opens all `PG_POOL_MAX` connections and pins the pool's `min`, so a first concurrent burst no longer pays TCP + SCRAM + session setup inside its measured window; behind PgBouncer in `pool_mode=transaction` the same writes measure **C=50: 373.0 ms cold vs 215.2 ms warm median, C=100: 708.2 ms vs 467.6 ms**, every burst fully committed and no response carrying a cache-refresh phase. Small catalog reads (`GET /api/locations`) are served from Redis through a version-keyed read-through with a code-enforced TTL (`CATALOG_CACHE_TTL_MS`, default 5 s) and a version bump after each committed write, so a repeat read costs **zero** PostgreSQL round trips while the row a write just committed is visible to the very next read on that worker. Without `REDIS_URL` the read goes straight to PostgreSQL. `npm run verify:catalog-roundtrips` counts the round trips at the pooler instead of asserting them, `npm run verify:redis-invalidation` proves the cross-worker path across two OS processes, and `npm run bench:write -- --arm before|after|both` prints both benchmark columns from the checked-in harness.
 - **Hardened HTTP Surface**:
   - **helmet security headers** on every response (CSP, nosniff, frame protection, cross-origin policies) — configured LAN-safe (no HSTS/`upgrade-insecure-requests` on plain HTTP; re-enable behind a TLS proxy).
@@ -99,7 +99,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 │       │                             #   pipeline incl. helmet, registerAllRoutes); re-exports
 │       │                             #   every historical symbol so imports stay stable
 │       ├── state/runtimeState.ts     # Shared runtime state as ESM live bindings + CACHE_LOADS
-│       ├── boot/dbBoot.ts            # Schema DDL sync (122 tables), seeding, permission matrix
+│       ├── boot/dbBoot.ts            # Schema DDL sync (124 tables), seeding, permission matrix
 │       ├── realtime/sse.ts           # sseClients + broadcastChange (SSE fan-out)
 │       ├── db/transactions.ts        # withTransaction / withConnection helpers
 │       ├── syncDomains.ts            # SSE event → client-domain mapping (targeted refresh)
@@ -121,7 +121,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 │                                     #   rateLimiter.ts, docNumber.ts, fiscalYear.ts)
 │
 ├── scripts/                          # Database Automation Scripts
-│   ├── schema.sql                    # Full PostgreSQL schema — 122 tables, idempotent, safe to re-run
+│   ├── schema.sql                    # Full PostgreSQL schema — 124 tables, idempotent, safe to re-run
 │   ├── setup_db.js                   # Node setup: wipe (BS calendar kept) + schema, then the dataset seeder
 │   ├── setup_postgres.sh             # Shell: auto-install & configure PostgreSQL (Linux/macOS/Windows)
 │   ├── seed/verificationDataset.ts   # The one dataset: 2 FYs, 4 branches, 80 customers, ledger targets
@@ -237,7 +237,7 @@ npm run setup:pg -- --force
 
 **What this script does:**
 1. Connects to PostgreSQL (falls back to the shell installer `setup_postgres.sh` on Linux/macOS if unreachable).
-2. Applies `scripts/schema.sql` — all **122 tables**, constraints, foreign keys, and indexes (fully idempotent, atomic).
+2. Applies `scripts/schema.sql` — all **124 tables**, constraints, foreign keys, and indexes (fully idempotent, atomic).
 3. Seeds fiscal years, the Bikram Sambat calendar (2078–2085 BS), UOMs, document-numbering configs, company profile, branches, and example user accounts.
 4. Seeds the linked demo dataset (products, stock, serial log, fixed assets, purchase orders/invoices, vendor payments) with `is_demo = TRUE`.
 5. Backfills `fiscal_year_id` on transactional rows from their AD dates.

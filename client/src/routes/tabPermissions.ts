@@ -111,6 +111,7 @@ export const TAB_PERMISSIONS: Record<string, string | string[]> = {
   'vat-register': 'vat-register',
   users: 'admin-users',
   'login-locks': 'admin-users',
+  'api-keys': 'admin-api-keys',
   audit: 'admin-audit',
   'fiscal-year-management': 'admin-fiscal',
   'fiscal-year-closing': 'admin-fiscal',

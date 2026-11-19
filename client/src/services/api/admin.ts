@@ -358,3 +358,77 @@ export async function deleteLocation(id: string): Promise<{ success: boolean }> 
     method: 'DELETE',
   });
 }
+
+// API creator (Round 14 Part C). The secret is returned only by createApiKey
+// and rotateApiKey; every other call sees prefix and metadata.
+export interface ApiKeyRecord {
+  id: string;
+  name: string;
+  description: string;
+  prefix: string;
+  operations: string[];
+  readOnly: boolean;
+  branchIds: string[];
+  rpmLimit: number | null;
+  cidrAllowlist: string[];
+  expiresAt: string | null;
+  isActive: boolean;
+  revokedAt: string | null;
+  createdBy: string;
+  rotatedFrom: string | null;
+  lastUsedAt: string | null;
+  lastUsedIp: string | null;
+  createdAt: string;
+  status: 'Active' | 'Expiring' | 'Expired' | 'Revoked';
+}
+
+export interface ApiKeyIssued {
+  key: ApiKeyRecord;
+  secret: string;
+  warning: string;
+}
+
+export interface ApiKeyAuditEntry {
+  id: number;
+  api_key_id: string;
+  action: 'CREATE' | 'ROTATE' | 'REVOKE';
+  actor: string;
+  actor_email: string | null;
+  ip: string | null;
+  detail: Record<string, unknown>;
+  created_at: string;
+}
+
+export async function getApiKeys(): Promise<ApiKeyRecord[]> {
+  return fetchJson('/api/admin/api-keys');
+}
+
+export async function createApiKey(input: {
+  name: string;
+  description?: string;
+  operations: string[];
+  readOnly: boolean;
+  branchIds?: string[];
+  expiresInDays?: number | null;
+  rpmLimit?: number | null;
+}): Promise<ApiKeyIssued> {
+  return fetchJson('/api/admin/api-keys', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function rotateApiKey(id: string, graceHours = 24): Promise<ApiKeyIssued> {
+  return fetchJson(`/api/admin/api-keys/${encodeURIComponent(id)}/rotate`, {
+    method: 'POST',
+    body: JSON.stringify({ graceHours }),
+  });
+}
+
+export async function revokeApiKey(id: string): Promise<{ key: ApiKeyRecord }> {
+  return fetchJson(`/api/admin/api-keys/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+export async function getApiKeyLogs(id: string, limit = 100): Promise<ApiKeyAuditEntry[]> {
+  return fetchJson(`/api/admin/api-keys/${encodeURIComponent(id)}/logs?limit=${limit}`);
+}

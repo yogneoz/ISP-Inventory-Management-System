@@ -120,6 +120,7 @@ export type NavTab =
   | 'suppliers'
   | 'users'
   | 'login-locks'
+  | 'api-keys'
   | 'import-customers'
   | 'permissions'
   | 'user-permissions'
@@ -234,6 +235,7 @@ export const NAV_TABS: NavTab[] = [
   'suppliers',
   'users',
   'login-locks',
+  'api-keys',
   'import-customers',
   'permissions',
   'user-permissions',
@@ -1055,7 +1057,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         badgeLinkId: 'login-locks' as NavTab,
       },
       // The throttle that guards sign-in lives beside the accounts it locks.
-      { id: 'login-locks' as NavTab, label: 'Login Locks & Sign-in Throttle', icon: Lock, section: 'Setup' }
+      { id: 'login-locks' as NavTab, label: 'Login Locks & Sign-in Throttle', icon: Lock, section: 'Setup' },
+      // Partner credentials live beside the accounts and sessions they compete with.
+      { id: 'api-keys' as NavTab, label: 'API Creator', icon: Lock, section: 'Setup' }
     );
   }
   if (isSuperAdmin) {

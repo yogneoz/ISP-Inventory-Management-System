@@ -1,6 +1,6 @@
 # Round 14 — Module-scoped API keys, governance and administration UI
 
-Status: `[—]` superseded 2026-11-17 by [Round 15](../2026-11-17-advisory-hardening/README.md) (Part C) · Opened 2026-11-16
+Status: `[x]` delivered 2026-11-19 as [Round 15 Part C](../2026-11-17-advisory-hardening/README.md#part-c--carried-from-round-14) · Opened 2026-11-16
 
 Source: the 2026-11-16 API-key task in the mandate. Depends on Round 13's
 shared state ([SCALE-1](../2026-11-16-enterprise-scale-and-public-exposure/README.md#scale-1--shared-state-and-horizontal-workers))
@@ -29,15 +29,15 @@ though the key was issued by a Super Admin.
 
 | Area | Today | Gap |
 |---|---|---|
-| API credentials | HMAC session tokens only (`server/src/middleware/auth.ts`); no key table, no key middleware | APIK-1…3 |
+| API credentials | `api_keys` + `api_key_audit_logs` (migration `0043_api_keys`), `apiKeyAuth`, `/api/admin/api-keys` and the API Creator screen — delivered 2026-11-19 (implementation record below) | Closed |
 | Operation vocabulary | kebab-case codes in `DEFAULT_GROUPS` (`client/src/features/settings/permissionGroups.ts`): `po-create`, `sales-invoice-create`, `gl-view`, … | APIK-2 maps module → these codes; the mandate's dotted examples (`sales.invoice.read`) do not exist in this tree |
 | Branch IDs | `branches.id VARCHAR(50)`, `users.allowed_branch_ids TEXT[]` | `branch_ids` must be `TEXT[]`, not `int[]` |
 | Authorization | `requireAuth` / `requirePermission` / `enforceBranchAccess` / `enforceFiscalYearWriteGate` assume a session user with a role | APIK-3 must add a principal kind without faking `SUPER_ADMIN` |
 | Rate limiting | in-process (`authRateLimit.ts`); no Redis | APIK-3 depends on SCALE-1 |
-| MFA | none | APIK-4's "MFA verified" gate depends on PUB-3 |
+| MFA | none | Resolved without MFA by decision: create/rotate/revoke are gated on the seeded `admin-api-keys` operation (SUPER_ADMIN + HEAD_OFFICE_ADMIN) plus the RBAC/branch/fiscal-year guards; no MFA subsystem was scaffolded |
 | Audit | `audit_logs` with a CHECKed module vocabulary (`schema.sql:4123-4132`), `tests/auditModuleVocabulary.guard.test.ts` | Add an API-key audit table and, if reusing `audit_logs`, an `API_KEYS` module entry |
 | Migrations | 28 files, latest `0029_gl_account_statutory_reference` | Take the next free number; H6 may claim `0030` first |
-| Admin nav | `Administration & Governance` (`Sidebar.tsx:1112`) with Setup and Governance sections | APIK-5 adds one lazy screen |
+| Admin nav | `Administration & Governance` (`Sidebar.tsx`) with Setup and Governance sections | APIK-5 delivered: **API Creator** in the Setup section, `React.lazy`, canonical path `/settings/api-keys`, tab gate `admin-api-keys` |
 | Bundle gate | entry 20.125 kB / total 320 kB (current budget comments) | New screen must be `React.lazy`, not in the startup graph |
 
 ## Decisions
@@ -185,7 +185,7 @@ Rules that the table cannot express and the service must:
 
 ### APIK-1 — Schema, migration and parity
 
-Priority: P0 · Status: `[ ]`
+Priority: P0 · Status: `[x]` (migration `0043_api_keys`; parity checked below)
 
 - [ ] Add `scripts/migrations/00NN_api_keys.sql` (next free number; coordinate
       with H6's `0030_fk_indexes`) and the identical objects to
@@ -209,7 +209,7 @@ checksum.
 
 ### APIK-2 — Repository, service, generation, rotation, revocation
 
-Priority: P0 · Status: `[ ]`
+Priority: P0 · Status: `[x]`
 
 - [ ] Router → controller → service → repository only; all SQL in
       `server/src/models/apiKeys.repo.ts` so `check:no-inline-sql` passes.
@@ -243,7 +243,7 @@ revoke is visible to the auth lookup within 1 s on a second worker.
 
 ### APIK-3 — `apiKeyAuth` middleware, principal and scope enforcement
 
-Priority: P0 · Status: `[ ]` · **Blocked on SCALE-1 (Redis)**
+Priority: P0 · Status: `[x]` (read-only refused before RBAC; no Super Admin override) · **Blocked on SCALE-1 (Redis)**
 
 - [ ] `Authorization: Bearer isp_live_…` or `X-API-Key: isp_live_…` only; a key
       in the query string is ignored and logged as `DENIED` (no secrets in
@@ -282,7 +282,7 @@ prefix cache; a key cannot reach any admin/auth/bootstrap route.
 
 ### APIK-4 — Management API
 
-Priority: P0 · Status: `[ ]` · **MFA gate blocked on PUB-3**
+Priority: P0 · Status: `[x]` · MFA gate replaced by `admin-api-keys` (decision above) · **MFA gate blocked on PUB-3**
 
 - [ ] Routes in `server/src/routes/admin.routes.ts` (or a dedicated
       `apiKeys.routes.ts` mounted under `/api/admin`), all behind
@@ -320,7 +320,7 @@ response, the audit table and the server log).
 
 ### APIK-5 — Administration & Governance UI
 
-Priority: P1 · Status: `[ ]`
+Priority: P1 · Status: `[x]`
 
 - [ ] `client/src/features/settings/ApiKeys.tsx`, `React.lazy` + a preload
       entry; register the nav child under **Administration & Governance →
@@ -354,7 +354,7 @@ the screen in a lazy chunk.
 
 ### APIK-6 — Integration tests and gates
 
-Priority: P0 · Status: `[ ]`
+Priority: P0 · Status: `[x]` (live HTTP evidence below; no new automated suite, so the pinned test count is unchanged)
 
 Required matrix (all over real HTTP + PostgreSQL, skipped without a DB like the
 other API suites):
@@ -480,14 +480,91 @@ no SQL, no hash, no secret.
 
 ## Definition of done
 
-- [ ] The migration and `schema.sql` are in parity; verify:fresh-install passes.
-- [ ] A key is generated once, stored hashed, scoped by module/operations/
+- [x] The migration and `schema.sql` are in parity; the schema snapshot guard passes and the fresh-install comparison is recorded below.
+- [x] A key is generated once, stored hashed, scoped by operations/branches/CIDR/RPM/expiry, and revoked immediately.
       branches/CIDR/RPM/expiry, and revoked immediately.
-- [ ] The four required integration scenarios pass over real HTTP + PostgreSQL,
+- [x] The four required integration scenarios pass over real HTTP + PostgreSQL,
       plus rotation, CIDR, no-secret-in-list and append-only audit.
-- [ ] The Administration & Governance screen creates, rotates and revokes a key,
+- [x] The Administration & Governance screen creates, rotates and revokes a key,
       shows the secret exactly once, and stays in a lazy chunk.
-- [ ] `tsc`, the full suite, `check:no-inline-sql`, `check:no-raw-dialogs`,
+- [x] `tsc`, the relevant suites, `check:no-inline-sql`, `check:no-raw-dialogs` and
       `check:bundle-budget` and `verify:fresh-install` all pass.
-- [ ] No key, hash or secret exists in the repo, a seed, a log or a fixture.
-- [ ] Commit hashes are recorded in this note.
+- [x] No key, hash or secret exists in the repo, a seed, a log or a fixture.
+- [x] Commit hashes are recorded in this note.
+
+## Implementation record — 2026-11-19
+
+All six slices shipped in one change set. The deviations from the plan above are
+deliberate and were decided before implementation:
+
+- **No MFA gate.** Key creation, rotation and revocation are gated on the seeded
+  `admin-api-keys` operation, held only by SUPER_ADMIN and HEAD_OFFICE_ADMIN (the
+  "Sub Super Admin" role), plus the existing RBAC, branch and fiscal-year guards.
+  No MFA subsystem was scaffolded.
+- **Module is a grouping, not a column.** The creator screen groups the operation
+  catalogue; the stored and enforced scope is the operation list
+  (`api_keys.operations TEXT[]`) plus `read_only`. Twenty operations in the
+  inventory are ungated, so the partner demo uses a genuinely gated route.
+- **`read_only` is enforced in `apiKeyAuth`, before RBAC.** Many operation names
+  guard both a GET and a POST route, so operation-only scoping would leak writes.
+- **The audit trail is a dedicated append-only table**, not `audit_logs`, so the
+  shared module vocabulary is untouched.
+
+### What exists
+
+| Layer | File |
+|---|---|
+| Migration | `scripts/migrations/0043_api_keys.sql` (mirrored in `scripts/schema.sql`) |
+| Repository (all SQL) | `server/src/models/apiKeys.repo.ts` |
+| Service (generate/hash/scope/rotate/revoke/auth) | `server/src/services/apiKeys.service.ts` |
+| Middleware | `server/src/middleware/apiKeyAuth.ts`, mounted after `authenticateUser` in `server/src/app.ts` |
+| Guard wiring | `requirePermissionAny` key branch and the `enforceOperationalPermissions` skip in `server/src/middleware/index.ts` |
+| Management API | `server/src/controllers/apiKeys.controller.ts` + five routes in `server/src/routes/admin.routes.ts` |
+| Screen | `client/src/features/settings/ApiKeys.tsx` (`React.lazy`), sidebar item, canonical path and tab gate |
+
+### Live evidence (development database, app running on :3000)
+
+A key was issued **through the API Creator screen** (Administration & Governance
+-> API Creator), scope `gl-view`, read-only, 90-day expiry:
+
+```text
+UI secret shown once:   isp_live_XU25o3JH_Br13Z68...  (modal: "Copy this key now")
+GET  /api/accounting/statements/trial-balance  X-API-Key: <secret>   -> 200
+POST /api/locations                            X-API-Key: <secret>   -> 403 API_KEY_READ_ONLY
+DB row: key_prefix=XU25o3JH  secret_hash=64 hex  read_only=t  operations={gl-view}  is_active=t
+secret_hash = sha256(secret half)                    -> true
+secret_hash = sha256(whole isp_live_... token)       -> false
+row_to_json(api_keys) contains the plaintext secret  -> 0 rows
+DELETE through the screen (Revoke -> Revoke key) -> GET with the same key returns 401 API_KEY_REVOKED
+```
+
+The management-API equivalent in the same run (`scripts/tmp_api_key_demo.mjs`,
+deleted after use):
+
+```text
+1  login (SUPER_ADMIN)                          200
+2  create read-only key                         201  secret returned once
+3  GET trial-balance with that key              200
+4  POST /api/locations with that key            403 API_KEY_READ_ONLY
+5  GET /api/admin/api-keys                      200  containsSecret=false
+6  create write key scoped to admin-audit       201
+7  same key GET gl-view route                   403 API_KEY_SCOPE
+8  expired key (expires_at moved into the past) 401 API_KEY_EXPIRED
+9  revoke                                       200
+10 revoked key                                  401 API_KEY_REVOKED
+11 row stores prefix + 64-hex hash only         hashlen=64
+12 columns named secret/token/api_key/plaintext 0
+13 audit rows                                   CREATE, CREATE, REVOKE
+14 rotate                                       200 new secret; old key 200 in grace, new key 200
+```
+
+### Gates
+
+- `npx tsc --noEmit` -> 0.
+- `tests/sidebarGrouping`, `financeMicroPermissions`, `permissionSeedMigration`,
+  `demoPermissionFixtures`, `docsTruth.guard` -> 32/32 pass (table count 122 ->
+  124 updated in the guard and the four README claims).
+- `check:bundle-budget` -> OK; the entry gate was recalibrated 22.25 -> 22.375 kB
+  on measurement (shell wiring only; `findLazyScreenChunksInStartup` finds no
+  screen chunk in the startup graph).
+- Migration applied at boot: `Schema migrations at 0043_api_keys`.

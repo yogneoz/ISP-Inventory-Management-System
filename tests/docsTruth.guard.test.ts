@@ -58,7 +58,7 @@ describe('docs truth — schema counts', () => {
     const actual = countTopLevelTables();
     // Pinned on purpose: a schema change must update README and this guard in
     // the same commit. Update the number here only after counting the new DDL.
-    assert.equal(actual, 122, 'schema.sql top-level table count moved; update README and this guard');
+    assert.equal(actual, 124, 'schema.sql top-level table count moved; update README and this guard');
 
     const readme = read('README.md');
     const claims: Array<{ pattern: RegExp; label: string }> = [

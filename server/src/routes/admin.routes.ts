@@ -10,6 +10,7 @@ import { requirePermission, requireRole } from '../app';
 import { performanceSnapshot } from '../observability/metrics';
 import { DAYS_OF_WEEK_EN_SERVER, DAYS_OF_WEEK_NP_SERVER, NEPALI_MONTHS_EN_SERVER, NEPALI_MONTHS_NP_SERVER, hydrateOperationalData, pgPool } from '../app';
 import type { Asset, Branch, DocumentNumberConfig } from '../../../client/src/types';
+import { get_apiKeys, post_apiKeys, post_rotateApiKey, delete_apiKey, get_apiKeyLogs } from '../controllers/apiKeys.controller';
 
 export function registerAdminRoutes(app: Express) {
 // Process-local capacity signal for operators. Aggregate only: no SQL bind
@@ -18,6 +19,20 @@ app.get('/api/admin/performance', requirePermission('admin-audit'), (_req, res) 
   res.set('Cache-Control', 'private, no-store');
   res.json(performanceSnapshot());
 });
+
+// API creator (Round 14 Part C). Gated on `admin-api-keys`, held by SUPER_ADMIN
+// and the Sub Super Admin role; every response is private/no-store and the
+// secret appears only in create/rotate responses.
+app.get('/api/admin/api-keys', requirePermission('admin-api-keys'), async (req, res, next) => { get_apiKeys(req as any, res as any).catch(next); });
+
+app.post('/api/admin/api-keys', requirePermission('admin-api-keys'), async (req, res, next) => { post_apiKeys(req as any, res as any).catch(next); });
+
+app.get('/api/admin/api-keys/:id/logs', requirePermission('admin-api-keys'), async (req, res, next) => { get_apiKeyLogs(req as any, res as any).catch(next); });
+
+app.post('/api/admin/api-keys/:id/rotate', requirePermission('admin-api-keys'), async (req, res, next) => { post_rotateApiKey(req as any, res as any).catch(next); });
+
+app.delete('/api/admin/api-keys/:id', requirePermission('admin-api-keys'), async (req, res, next) => { delete_apiKey(req as any, res as any).catch(next); });
+
 
 app.post('/api/admin/clear-demo-data', async (req, res, next) => { post_clearDemoData(req as any, res as any).catch(next); });
 
