@@ -19,11 +19,14 @@ is the plan, not a second source of truth.
 - [parked.md](parked.md) — decisions we are not acting on, with the trigger to
   reopen each one.
 - [done/](done/README.md) — completed rounds, kept for reference. Never delete.
-- **Round 15 is active** — advisory hardening from the 2026-11-17 database audit
-  and the Sign-In investigation. Rounds 11, 13 and 14 were terminated as active
-  plans on 2026-11-17 and carried into Round 15 as Parts B and C, so one plan is
-  active and nothing was dropped. Plan and slice list:
-  [2026-11-17-advisory-hardening/README.md](2026-11-17-advisory-hardening/README.md).
+- **Round 15 is complete (2026-11-19)** — advisory hardening from the 2026-11-17
+  database audit and the Sign-In investigation. A1–A10 and Part C (partner API
+  keys) are delivered; Part B's remainder is deferred with stated reasons in the
+  note. Rounds 11, 13 and 14 were terminated as active plans on 2026-11-17 and
+  carried in as Parts B and C. Plan, evidence and the deferred list:
+  [2026-11-17-advisory-hardening/README.md](2026-11-17-advisory-hardening/README.md)
+  (kept in place rather than moved to `done/` because the archived round notes
+  link to its Parts B and C).
 - **Round 11 — superseded 2026-11-17** (Round 15 Part B) — cash receipts, voucher classes and non-trade
   funding. Plan and slice list:
   [2026-11-14-cash-receipts-and-funding/README.md](2026-11-14-cash-receipts-and-funding/README.md).

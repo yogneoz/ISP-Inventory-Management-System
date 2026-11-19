@@ -1,6 +1,22 @@
 # Round 15 — Advisory hardening (measured gaps from the 2026-11-17 audit)
 
-Status: `[~]` in progress · Opened 2026-11-17 · Owner: main
+Status: `[x]` complete 2026-11-19 · Opened 2026-11-17 · Owner: main
+
+**Delivered:** A1–A10 (partition keeper, a CI dirty-`DEFAULT` alarm that proves
+itself, shared-bus reference-cache invalidation, comment-insensitive migration
+checksums with an immutability guard, the dirty-`DEFAULT` repair path, the
+storage-parameter drift guard, log-table partitions with an append-only audit
+trail, `npm run ci:local` CI truth, the scale measurement, and the
+input-readiness browser gate) and Part C (scoped, revocable partner API keys:
+migration `0043_api_keys`, `/api/admin/api-keys`, the lazy **API Creator**
+screen, pinned by `tests/apiKeys.api.test.ts`). **Deferred, accepted out of
+scope** with reasons in “Deferred — accepted out of scope” below: Round 11's own
+round-close gates, Round 13's public-exposure surface, the replica/PgBouncer
+decision, pre-aggregated stock and the closed-year snapshot, queued writes, and
+a general MFA subsystem. **Gates at close:** `npx tsc --noEmit` 0; full
+`npm test` 2696 tests / 2694 pass / 2 Windows-only skips / 0 fail, with the
+docs-count gate matching 2696; `verify:fresh-install` PASS; `check:bundle-budget`,
+`check:no-inline-sql` and `check:no-raw-dialogs` clean.
 
 Source: the 2026-11-17 database-optimisation audit
 ([doc](../../docs/database-optimization-audit-2026-11-17.md)) and the Sign-In
@@ -32,8 +48,8 @@ Before this round the tracker held three notes that were not closed:
 
 | Open note | What it owns | Verdict |
 |---|---|---|
-| [Round 11 — cash receipts and funding](../2026-11-14-cash-receipts-and-funding/README.md) `[~]` | Partial customer receipts, voucher classes, non-trade funding (loans vs sales) | **Not superseded in content.** Product/domain work this round does not touch. Carried as Part B and still tracked here. |
-| [Round 13 — enterprise scale and public exposure](../2026-11-16-enterprise-scale-and-public-exposure/README.md) `[~]` | Partition conversions of four growth tables, replica URLs, PgBouncer audit, pre-aggregated stock, TLS/CORS/CSP/MFA, reverse proxy, HSTS, `TRUST_PROXY` | **Partially superseded.** Its partition/BRIN assumptions are corrected by measurement: its "BRIN on `created_at`, `journal_date_ad`, `entry_date_ad`" line is declined in the audit (§4) because those reads are partition- or page-bounded, and A1/A2/A4/A7 below replace its provisioning assumptions. The public-exposure half is untouched by this round and carries as Part B. |
+| [Round 11 — cash receipts and funding](../2026-11-14-cash-receipts-and-funding/README.md) `[—]` | Partial customer receipts, voucher classes, non-trade funding (loans vs sales) | **Not superseded in content.** Product/domain work this round does not touch. Carried as Part B and still tracked here. |
+| [Round 13 — enterprise scale and public exposure](../2026-11-16-enterprise-scale-and-public-exposure/README.md) `[—]` | Partition conversions of four growth tables, replica URLs, PgBouncer audit, pre-aggregated stock, TLS/CORS/CSP/MFA, reverse proxy, HSTS, `TRUST_PROXY` | **Partially superseded.** Its partition/BRIN assumptions are corrected by measurement: its "BRIN on `created_at`, `journal_date_ad`, `entry_date_ad`" line is declined in the audit (§4) because those reads are partition- or page-bounded, and A1/A2/A4/A7 below replace its provisioning assumptions. The public-exposure half is untouched by this round and carries as Part B. |
 | [Round 14 — API keys and governance](../2026-11-16-api-key-management/README.md) `[x]` | Scoped, expiring, revocable machine credentials | **Delivered 2026-11-19** as Part C below, without the MFA gate (creation is gated on `admin-api-keys` instead); the RPM cap is per worker. |
 
 **Conclusion.** This round is superior *for the database, CI and operational
@@ -42,10 +58,11 @@ shipped, and it names failure modes the open notes do not. It is **not** a
 replacement for the product work in Rounds 11 and 14, nor for Round 13's public
 surface.
 
-Those three notes are therefore **terminated as active plans** — status `[—]`,
-superseded by this round — and their live slices are carried here as Parts B and
-C, by reference so the detail stays in one place. Nothing is dropped and one
-plan is active.
+Those three notes were therefore **terminated as active plans** — status `[—]`,
+superseded by this round — and their live slices were carried here as Parts B and
+C, by reference so the detail stays in one place. Part C is delivered; Part B's
+remainder is explicitly deferred with reasons at the end of this note. Nothing
+was dropped, and with this close-out no advisory plan is active.
 
 ## Part A — advisory slices (this round)
 
@@ -208,7 +225,10 @@ diff (the guard's decision function) and adds a `storage` category built from
 `pages_per_range` are now compared. `verify_fresh_install.mjs` imports the
 module instead of keeping a local copy and compares `storage`; a live run reports
 `✓ storage: identical (752 entries)` beside tables 131, columns 1,998,
-constraints 1,741, indexes 634, triggers 44 and exits 0.
+constraints 1,741, indexes 634, triggers 44 and exits 0 (measured on that day;
+migration `0043` has since added the API-key tables, so today's live run reports
+132 tables and larger column/index/trigger counts, still identical on both
+sides).
 `tests/schemaSnapshot.test.ts` is 5/5: a divergent table `fillfactor=80` and a
 divergent BRIN `pages_per_range=32` on an index both fail the diff, identical
 snapshots pass regardless of order, and the query plus the `diffCategory('storage', …)`
@@ -510,9 +530,15 @@ on Linux CI. No app code needed changing — the real Create Sales Invoice form
 accepts input on both paths. The gate remains outside `npm test` (it needs a
 browser and a seeded demo account).
 
-## Part B — carried from Rounds 11 and 13
+## Part B — carried from Rounds 11 and 13 (deferred)
 
-Authoritative detail stays in those notes; this round owns their scheduling.
+Authoritative detail stays in those notes; this round owned their scheduling.
+Everything this round could close inside the advisory scope was closed (partial
+receipts, the LEND-1 reversal path, and the partition conversions through
+migration `0039`). What remains is **deferred, accepted out of scope**, with the
+reasons recorded in “Deferred — accepted out of scope”: Round 11's own
+round-close gates, Round 13's public-exposure surface and the replica/PgBouncer
+decision, plus the scale items that need their own design.
 
 - Round 11 remainder — **partial customer receipts with allocations: done
   2026-11-17** (the Progress log records the three gaps a re-audit of the
@@ -582,6 +608,21 @@ The behaviour is now pinned by `tests/apiKeys.api.test.ts` (7 tests inside the
 GET 200 vs an out-of-scope 403, the read-only 403, revoked and expired 401s,
 rotation's grace window, and the `admin-api-keys` requirement. Disabling the
 read-only or the revocation check makes that suite fail.
+
+## Deferred — accepted out of scope
+
+Every item here is deliberately not done. Each has a reason, and none is a
+silently dropped checkbox.
+
+| Deferred item | Why it is out of this round's scope |
+|---|---|
+| Round 11's round-close gates | The remaining acceptance belongs to that product round's own close (marketing/counter workflows), not to an advisory-hardening slice; the parts this round could close (partial receipts, the LEND-1 reversal path) are delivered and logged above. |
+| Round 13's public-exposure surface — TLS, CORS, CSP, MFA, reverse proxy, HSTS, `TRUST_PROXY`, real client IP in the audit trail | These need a hosting/topology and certificate decision that a code-only change cannot make, and several change production behaviour behind a proxy. The audit's A-series could not observe or verify them locally, so they stay a deployment decision rather than a guess. |
+| Round 13's replica / PgBouncer decision (audit §1 row 2) | A capacity decision that depends on measured production load; the audit explicitly deferred it after measurement, and inventing a pool topology now would be unverified configuration. |
+| Pre-aggregated stock and a closed-year trial-balance snapshot | A9 measured the trial balance at **3,607 ms** over 3.0M lines and refuted the 100 ms target, so this is new scale work with its own invalidation design, not a defect in what shipped. |
+| Queued writes | Needs a durable queue/worker with its own retry and idempotency design; outside this round's database/CI remit. |
+| A general MFA subsystem | Deliberately not built: the API-key surface is gated by the seeded `admin-api-keys` operation plus RBAC/branch/fiscal-year guards, and a real MFA factor belongs to the public-exposure work above. |
+| Shared (cross-worker) API-key RPM counter | The cap is enforced per server process and documented as such; a shared counter is Redis work, not a correctness gap in a single-worker deployment. |
 
 ## Gates
 
@@ -795,3 +836,18 @@ read-only or the revocation check makes that suite fail.
   (23001), month child emptied then detached; `verify:fresh-install` PASS and the
   legacy-upgrade comparison PASS. Tests: `tests/salesInvoicePartitions.test.ts`
   (7).
+- 2026-11-19 — **Round 15 closed: complete.** The audit found no undelivered
+  Part A slice: every A1–A10 item has its code, test file and the evidence cited
+  in its section, and the files those sections name exist (`scripts/partition_alarm.sh`,
+  `.github/workflows/partition-alarm.yml`, the `partition-window` job in `ci.yml`,
+  `tests/journalPartitionKeeper`, `defaultPartitionRepair`,
+  `referenceCacheInvalidation`, `migrationChecksums`, `schemaSnapshot`,
+  `logTablePartitions`, `ciLocal`, `scaleFixtureGuards` and `inputReadiness`).
+  Part C is delivered and now covered by `tests/apiKeys.api.test.ts`. The tracker
+  rows now read `[—]` for Rounds 11 and 13, matching those notes' own status
+  lines, and Part B's remainder is listed as deferred with reasons. Stale
+  evidence was dated (A6's 131-table measurement predates migration `0043`).
+  Close-out gates: `npx tsc --noEmit` 0; full `npm test` **2696 tests / 2694
+  pass / 2 Windows-only skips / 0 fail**, docs-count gate matching 2696;
+  `verify:fresh-install` PASS; bundle budget and the static checks clean.
+
