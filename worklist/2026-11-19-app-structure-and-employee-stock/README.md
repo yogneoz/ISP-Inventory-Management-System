@@ -25,9 +25,15 @@ end.
    18/18, `tests/appRouteTree.test.ts` 12/12, `npm run build` 0,
    `check:bundle-budget` OK (entry 22.3/22.375 kB, startup 324.5/330 kB,
    84 dynamic chunks).
-2. **`[ ]` SSE + polling engine → `hooks/useSyncStream.ts`.** Move
-   `DOMAIN_STATE_KEYS`, the SSE lifecycle, burst debouncing and the 30 s
-   fallback poll; return `{ registerRefresh }`.
+2. **`[x]` SSE + polling engine → `hooks/useSyncStream.ts` (2026-11-19).**
+   `DOMAIN_STATE_KEYS`, the stream lifecycle, burst debouncing, gap polling and
+   the cache invalidations moved into the hook, which returns
+   `{ registerRefresh, bumpAll }`; App.tsx supplies the scope ref, the server
+   version ref, `refreshAllData`, `fetchSlice` and the calendar/logout
+   callbacks, and the root's own full refresh calls `bumpAll()`. The source pins
+   in `tests/registerRefreshDomains.test.ts` now read the hook, so the wiring
+   cannot drift. App.tsx 3,352 lines; verified `tsc` 0, route/SSE tests 75/75,
+   build 0, budget OK (325.9/330 kB startup).
 3. **`[ ]` URL/history sync → `hooks/useAppRouting.ts`.** `resolveInitialTab`,
    `popstate`, `urlHistoryModeRef`, `NAVIGATE_TAB_EVENT` and the permission
    redirect, returning `{ activeTab, recordRoute, handleSelectTab,

@@ -67,6 +67,10 @@ const readFeatureSource = (relPath: string) =>
   );
 
 /** App.tsx's source — where every register render site and its wiring lives. */
+/** The SSE engine now lives in a hook; pins must follow the code, not App.tsx. */
+const readSyncHookSource = () =>
+  fs.readFileSync(path.resolve(process.cwd(), 'client', 'src', 'hooks', 'useSyncStream.ts'), 'utf8');
+
 const readAppSource = () =>
   fs.readFileSync(path.resolve(process.cwd(), 'client', 'src', 'App.tsx'), 'utf8');
 
@@ -213,11 +217,14 @@ describe('SSE domain → register refresh mapping', () => {
     assert.ok(!app.includes("'transactionLogs'"), 'App.tsx must not target the retired transactionLogs bootstrap slice');
     // "Rebuild BS Calendar Days" runs under RECALC and regenerates the server's
     // day-by-day calendar rows, so the burst must also re-read the mirror.
+    const hook = readSyncHookSource();
     assert.match(
-      app,
-      /domains\.includes\('BS_CALENDAR'\)\s*\|\|\s*domains\.includes\('RECALC'\)[\s\S]{0,160}syncBsCalendarMirrorRef\.current\(\)/,
-      'a RECALC burst must re-read the BS calendar mirror'
+      hook,
+      /domains\.includes\('BS_CALENDAR'\)\s*\|\|\s*domains\.includes\('RECALC'\)[\s\S]{0,160}onBsCalendarChanged\(\)/,
+      'a RECALC burst must trigger the calendar refresh'
     );
+    assert.match(app, /onBsCalendarChanged: \(\) => \{[\s\S]{0,80}syncBsCalendarMirrorRef\.current\(\)/,
+      'the root callback re-reads its BS calendar mirror');
   });
 
   test('purchase document registers are refreshed only by procurement and shipment events', () => {
@@ -406,17 +413,15 @@ describe('SSE burst → full-bootstrap fallback (App.tsx SSE handler path)', () 
     // Source guard: the extracted logic must be the code App.tsx
     // actually runs, and refreshAllData must still bump the six
     // register counters (the fallback's only refresh path).
-    const appSource = fs.readFileSync(
-      path.resolve(process.cwd(), 'client', 'src', 'App.tsx'),
-      'utf8'
-    );
-    assert.match(appSource, /new SseDomainBurst\(\)/);
-    assert.match(appSource, /burst\.observe\(event\?\.domain\)/);
-    assert.match(appSource, /burst\.flush\(/);
+    const hookSource = readSyncHookSource();
+    assert.match(hookSource, /new SseDomainBurst\(\)/);
+    assert.match(hookSource, /burst\.observe\(event\?\.domain\)/);
+    assert.match(hookSource, /burst\.flush\(/);
     // Fallback branch of the debounced handler.
-    assert.match(appSource, /refreshAllDataRef\.current\(\);/);
+    assert.match(hookSource, /api\.refreshAllData\(\);/);
     // refreshAllData's register bump — the six-counter effect under test.
-    assert.match(appSource, /setRegisterRefresh\(bumpAllRegisterRefresh\)/);
+    assert.match(hookSource, /bumpAllRegisterRefresh\(prev\)/);
+    assert.match(readAppSource(), /bumpAll\(\);/, 'App must call the hook bump on a full refresh');
   });
 
   test('a BS_CALENDAR / RECALC burst broadcasts one app-wide calendar signal (DF-10)', () => {
@@ -427,9 +432,10 @@ describe('SSE burst → full-bootstrap fallback (App.tsx SSE handler path)', () 
     // App already re-read its own calendar mirror on these domains; the
     // broadcast is what lets mounted BS screens and the stock gate re-read
     // without a reload. Dropping it re-opens DF-10 (stale gate after seeding).
+    assert.match(readSyncHookSource(), /if \(domains\.includes\('BS_CALENDAR'\) \|\| domains\.includes\('RECALC'\)\) \{[\s\S]*?onBsCalendarChanged\(\);/);
     assert.match(
       appSource,
-      /if \(domains\.includes\('BS_CALENDAR'\) \|\| domains\.includes\('RECALC'\)\) \{[\s\S]*?syncBsCalendarMirrorRef\.current\(\);[\s\S]*?broadcastBsCalendarUpdated\(\);[\s\S]*?\}/
+      /onBsCalendarChanged: \(\) => \{[\s\S]*?syncBsCalendarMirrorRef\.current\(\);[\s\S]*?broadcastBsCalendarUpdated\(\);[\s\S]*?\}/
     );
 
     for (const screen of ['finance/BsCalendarUtility.tsx', 'finance/NepaliFiscalManagement.tsx']) {
@@ -913,13 +919,14 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
     assert.equal(domainsTouchSerialRegister([]), false);
 
     const app = readAppSource();
-    const invalidations = app.match(/invalidateSerialRegister\(\)/g) || [];
+    const hook = readSyncHookSource();
+    const invalidations = [...(app.match(/invalidateSerialRegister\(\)/g) || []), ...(hook.match(/invalidateSerialRegister\(\)/g) || [])];
     assert.ok(
       invalidations.length >= 2,
-      'App must invalidate the shared register from both the SSE burst and refreshAllData'
+      'the register must be invalidated from both the SSE burst and refreshAllData'
     );
     assert.match(
-      app,
+      hook,
       /domainsTouchSerialRegister\(domains\)[\s\S]{0,120}invalidateSerialRegister\(\)/,
       'the SSE handler must invalidate the cache for a serial_log-writing burst'
     );

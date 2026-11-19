@@ -24,7 +24,7 @@ import {
   DamageRecord,
   LocationRecord,
 } from './types';
-import { api, setAuthToken, setFiscalYearContext, setUserContext, setActiveBranchContext, subscribeToSyncStream, getSyncVersion, broadcastLogoutToOtherTabs, getAuthToken } from './services/api';
+import { api, setAuthToken, setFiscalYearContext, setUserContext, setActiveBranchContext, broadcastLogoutToOtherTabs, getAuthToken } from './services/api';
 import { seedBSYearCalendar, getBsCalendarCoverage, type BsCalendarCoverageStatus } from './utils/nepaliCalendar';
 import { NAVIGATE_TAB_EVENT } from './services/api/http';
 import {
@@ -38,14 +38,8 @@ import {
 import { AppShell } from './components/layout/AppShell';
 import { NavTab, NAV_TABS } from './components/layout/Sidebar';
 import { isOperationAllowed, resolveBranchSelection } from './utils/permissions';
+import { useSyncStream } from './hooks/useSyncStream';
 import { indexStockByProductBranch, stockRowAt } from './utils/stockIndex';
-import {
-  DOMAIN_REGISTER_KEYS,
-  bumpAllRegisterRefresh,
-  domainsTouchSerialRegister,
-  SseDomainBurst,
-  type RegisterRefreshKey,
-} from './utils/registerRefreshDomains';
 import { invalidateSerialRegister } from './services/serialRegisterCache';
 import {
   invalidateShipmentOverview,
@@ -1035,7 +1029,7 @@ export default function App() {
     // their server-paged data, so bump every counter to re-run
     // their current paged fetch. Done before the fetch so the
     // registers refresh even if the bootstrap call fails.
-    setRegisterRefresh(bumpAllRegisterRefresh);
+    bumpAll();
     // The shared serial-register cache is the other self-fetching surface:
     // a manual refresh must re-read it too, or the stock gates keep their
     // pre-refresh availability snapshot.
@@ -1217,88 +1211,6 @@ export default function App() {
     syncBsCalendarMirrorRef.current();
   }, []);
 
-  // ---------------------------------------------------------------------------
-  // Targeted real-time refresh: map SSE event domains to the single bootstrap
-  // slice they invalidate. A mutation anywhere used to trigger a full app-wide
-  // re-bootstrap; now a known domain re-fetches ONLY its slice (one small
-  // query), and anything unrecognized falls back to the full bootstrap so
-  // unknown server events can never leave the UI stale.
-  // ---------------------------------------------------------------------------
-  const DOMAIN_STATE_KEYS: Record<string, string[]> = {
-    // financialSummary is computed server-side from every domain below, so
-    // each mutation that moves inventory value, AP, VAT, damage or trading
-    // totals re-fetches the one aggregate slice (DF-05) instead of waiting
-    // for the next full bootstrap.
-    STOCK: ['stock', 'damageRecords', 'financialSummary'],
-    STOCK_OPERATIONS: ['stockOperations', 'stock', 'damageRecords', 'financialSummary'],
-    // Serial edits can rewrite customer_device_records.device_serial (the edit
-    // capture mirrors into the CPE table), so that paged register re-reads via
-    // its counter rather than a bootstrap slice (VOL-4b).
-    SERIALS: [],
-    // PROCUREMENT also covers purchase returns: posting one deducts
-    // stock, writes transaction-log rows and flips serial_log rows.
-    PROCUREMENT: ['purchaseOrders', 'purchaseInvoices', 'suppliers', 'purchaseReturns', 'stock', 'financialSummary'],
-    // Sales mutations deduct/restock stock, write transaction-log rows,
-    // route non-restockable returns into the damage register and flip
-    // serial_log rows (paged — covered by the register mapping below).
-    SALES: ['salesReturns', 'stock', 'damageRecords', 'financialSummary'],
-    // A receipt credits the destination's stock, flips serial_log rows (paged
-    // register mapping below) and writes TRANSFER_IN transaction_log rows, so
-    // the Stock Movement Ledger must re-read along with the transfer register.
-    // Shipments themselves are no longer a bootstrap slice (VOL-3): the SSE
-    // handler refreshes the bounded shipment overview explicitly below.
-    SHIPMENTS: ['stock', 'financialSummary'],
-    // VOL-4a: customers is no longer a bootstrap slice — the directory pages and
-    // the pickers search GET /api/customers directly, so a MASTER_DATA burst has
-    // no customer array to refresh.
-    // VOL-4b: customer devices are no longer a bootstrap slice either — the
-    // register pages and the warranty directory reads its own union, so the
-    // MASTER_DATA burst has no device array to refresh.
-    MASTER_DATA: ['branches', 'suppliers', 'locations', 'companyProfile', 'productGroups'],
-    CATEGORIES: ['categories'],
-    PRODUCTS: ['products', 'stock'],
-    FISCAL: ['fiscalYears', 'financialSummary'],
-    USERS: ['users'],
-    // The device register re-reads through registerRefresh.customerDevices
-    // (DOMAIN_REGISTER_KEYS); stock still moves on an assignment/exchange.
-    CUSTOMER_DEVICES: ['stock'],
-    // ASSET-1: fixed assets left the bootstrap — every asset consumer re-reads
-    // through registerRefresh.fixedAssets (DOMAIN_REGISTER_KEYS).
-    ASSETS: [],
-    APPROVALS: ['approvalRequests'],
-    // The admin recalculation jobs rebuild live stock and fixed assets, and the
-    // ledger backfill rewrites transaction_logs' before/after balances — the
-    // movement ledger must re-read or it keeps the placeholders it had at mount.
-    RECALC: ['stock', 'financialSummary'],
-    COMPANY_PROFILE: ['companyProfile'],
-    AUDIT: ['auditLogs'],
-    // Sync-audit improvements #2/#3: first-class slice domains so the
-    // saved permission matrix, company-wide settings and the live audit
-    // trail re-fetch ONLY their own slice instead of full bootstrapping.
-    PERMISSIONS: ['permissionsMatrix'],
-    SETTINGS: ['appSettings'],
-    // BS_CALENDAR has no bootstrap slice — its data is GET /api/bs-calendar/years,
-    // refreshed explicitly in the handler below. It is listed so a calendar event
-    // counts as a KNOWN domain (an unknown one forces a full bootstrap).
-    BS_CALENDAR: [],
-  };
-
-  // Paged-register refresh counters, bumped by the SSE handler below.
-  // The domain → register mapping lives in utils/registerRefreshDomains
-  // (imported above, shared with the tests so the wiring stays pinned).
-  const [registerRefresh, setRegisterRefresh] = useState<Record<RegisterRefreshKey, number>>({
-    serialLog: 0,
-    purchaseOrders: 0,
-    purchaseInvoices: 0,
-    consumableRegister: 0,
-    returnsRegister: 0,
-    salesInvoices: 0,
-    shipments: 0,
-    customerDevices: 0,
-    fixedAssets: 0,
-    transactionLog: 0,
-  });
-
   // Always-fresh scope for the SSE listener below (it must not re-subscribe
   // — and capture stale values — when only the fiscal year changes).
   const syncScopeRef = useRef({ branchId: selectedBranchId, fiscalYearId: selectedFiscalYearId || undefined });
@@ -1306,167 +1218,19 @@ export default function App() {
     syncScopeRef.current = { branchId: selectedBranchId, fiscalYearId: selectedFiscalYearId || undefined };
   }, [selectedBranchId, selectedFiscalYearId]);
 
-  // Real-time synchronization stream: listen for background changes from
-  // any user/branch. Reliability net (sync-audit improvements #1/#5):
-  //  - while the stream is down, poll /api/sync/version on an interval and
-  //    refresh everything once reconnected if the server moved on, and
-  //  - on reconnect (CONNECTED), refresh when the server's dataVersion is
-  //    newer than the last one this tab applied — mutations that happened
-  //    during the gap are never silently missed.
-  useEffect(() => {
-    let debounceTimer: any = null;
-    let versionPollTimer: any = null;
-    // Coalesces the burst's domains across the debounce window
-    // and resolves it to a targeted or full-bootstrap plan
-    // (see utils/registerRefreshDomains).
-    const burst = new SseDomainBurst();
-    const handleSyncEvent = (event: any) => {
-      // CONNECTED is the stream's handshake, not a mutation: it carries no
-      // domain (observing it would force a full bootstrap) and its
-      // dataVersion is a reconnect signal, handled below.
-      if (event?.type === 'CONNECTED') {
-        // Reconnect gap-fill (#1): a dataVersion newer than the last one
-        // this tab applied means mutations happened while the stream was
-        // down — re-bootstrap to catch up. On the FIRST connect after page
-        // load this ref already holds the bootstrap's version (or is
-        // undefined pre-bootstrap), so no redundant refresh fires.
-        if (
-          typeof event.dataVersion === 'number' &&
-          typeof serverDataVersionRef.current === 'number' &&
-          event.dataVersion > serverDataVersionRef.current
-        ) {
-          serverDataVersionRef.current = event.dataVersion;
-          refreshAllDataRef.current();
-        }
-        return;
-      }
-      // Track the latest server dataVersion so the instant pre-hydration on
-      // the next page load can refuse an outdated cached snapshot.
-      if (event && typeof event.dataVersion === 'number') {
-        serverDataVersionRef.current = event.dataVersion;
-      }
-      burst.observe(event?.domain);
-      // Debounce slightly to coalesce rapid bursts
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        const plan = burst.flush((d) => Boolean(DOMAIN_STATE_KEYS[d]));
-        if (plan.mode === 'targeted') {
-          const domains = plan.domains;
-          // A calendar seed/repair changes the AD<->BS mapping every screen
-          // converts with, so re-read the mirror immediately instead of waiting
-          // for the next mount. RECALC covers *Rebuild BS Calendar Days*, which
-          // regenerates the server's day-by-day lookup rows; the mirror is the
-          // client's copy of the same authority, so it is re-read too.
-          if (domains.includes('BS_CALENDAR') || domains.includes('RECALC')) {
-            syncBsCalendarMirrorRef.current();
-            // Gates and BS screens re-read the calendar from this signal; without
-            // it they only refreshed on tab re-activation (DF-10).
-            broadcastBsCalendarUpdated();
-          }
-          // Any serial_log writer makes the shared register snapshot stale
-          // for every open stock/dispatch gate, not just the paged register.
-          if (domainsTouchSerialRegister(domains)) invalidateSerialRegister();
-          // The same domains are the ones that write inventory_stock (serial
-          // edits aside, which cost one harmless extra read), so the
-          // all-branch stock snapshots the forms validate against are stale
-          // for every branch the operator could select, not just the header's.
-          if (domainsTouchSerialRegister(domains)) invalidateBranchStock();
-          // CPE flows and asset deployments/restocks create or close the rows
-          // the Device Exchange tab lists, and that list is its own cache.
-          if (domains.includes('CUSTOMER_DEVICES') || domains.includes('ASSETS')) {
-            invalidateExchangeDevices();
-          }
-          // Asset creation/deployment and the recalculation job change which
-          // units are assignable, so the picker's shared list re-reads.
-          if (domains.includes('ASSETS') || domains.includes('RECALC')) {
-            invalidateAvailableFixedAssets();
-          }
-          // Procurement and shipment events change the open-PO set and the
-          // unpaid-bill total the shell/dashboard/vendor-bill picker read.
-          if (domains.includes('PROCUREMENT') || domains.includes('SHIPMENTS')) {
-            invalidateProcurementPending();
-          }
-          // Shipments are served by their own bounded overview/register reads,
-          // not a bootstrap slice (VOL-3). Approval processing also moves a
-          // transfer's status (cancel requests), so it counts as a writer.
-          if (domains.includes('SHIPMENTS') || domains.includes('APPROVALS')) {
-            invalidateShipmentOverview();
-          }
-          // Bump any paged registers these domains mutate so they re-fetch
-          // their own current page (bootstrap slices alone don't cover them).
-          setRegisterRefresh((prev) => {
-            const next = { ...prev };
-            let changed = false;
-            for (const d of domains) {
-              for (const reg of DOMAIN_REGISTER_KEYS[d] || []) {
-                next[reg] = prev[reg] + 1;
-                changed = true;
-              }
-            }
-            return changed ? next : prev;
-          });
-          // Targeted: re-fetch only the affected bootstrap slice(s).
-          const { branchId, fiscalYearId } = syncScopeRef.current;
-          Promise.all(
-            domains
-              .flatMap((d) => DOMAIN_STATE_KEYS[d])
-              .filter((key, idx, all) => all.indexOf(key) === idx)
-              .map((key) => fetchBootstrapSlice(key, branchId, fiscalYearId))
-          ).catch(() => refreshAllDataRef.current());
-        } else {
-          // Unknown domain or mixed burst: full bootstrap (previous
-          // behavior). refreshAllData bumps every paged-register
-          // counter itself, so none of the self-fetching registers
-          // can stay stale.
-          refreshAllDataRef.current();
-        }
-      }, 250);
-    };
-
-    // Stream-gap polling (#1): while the SSE stream is down, poll the
-    // server's dataVersion every 30s. A version newer than the last one
-    // this tab applied means the UI is stale — full catch-up refresh.
-    const startVersionPolling = () => {
-      if (versionPollTimer || !currentUser) return;
-      versionPollTimer = setInterval(async () => {
-        try {
-          const serverVersion = await getSyncVersion();
-          if (
-            typeof serverVersion === 'number' &&
-            typeof serverDataVersionRef.current === 'number' &&
-            serverVersion > serverDataVersionRef.current
-          ) {
-            serverDataVersionRef.current = serverVersion;
-            refreshAllDataRef.current();
-          }
-        } catch (_err) {
-          // Server unreachable — the SSE backoff loop will keep trying.
-        }
-      }, 30000);
-    };
-    const stopVersionPolling = () => {
-      if (versionPollTimer) {
-        clearInterval(versionPollTimer);
-        versionPollTimer = null;
-      }
-    };
-
-    // Multi-tab relay (#6): another tab may have received the event first.
-    const onRelayedLogout = () => handleLogoutRef.current();
-    window.addEventListener('inventory_sync_logout', onRelayedLogout);
-
-    const unsubscribe = subscribeToSyncStream(handleSyncEvent, (connected) => {
-      if (connected) stopVersionPolling();
-      else if (currentUser) startVersionPolling();
-    });
-
-    return () => {
-      stopVersionPolling();
-      if (debounceTimer) clearTimeout(debounceTimer);
-      window.removeEventListener('inventory_sync_logout', onRelayedLogout);
-      unsubscribe();
-    };
-  }, [selectedBranchId, currentUser]);
+  const { registerRefresh, bumpAll } = useSyncStream({
+    branchId: selectedBranchId,
+    currentUser,
+    scopeRef: syncScopeRef,
+    serverDataVersionRef,
+    refreshAllData: () => refreshAllDataRef.current(),
+    fetchSlice: fetchBootstrapSlice,
+    onBsCalendarChanged: () => {
+      syncBsCalendarMirrorRef.current();
+      broadcastBsCalendarUpdated();
+    },
+    onLogout: () => handleLogoutRef.current(),
+  });
 
   // React to currentUser state changes & enforce branch/tab restrictions
   useEffect(() => {
