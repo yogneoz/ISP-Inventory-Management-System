@@ -39,6 +39,7 @@ import { AppShell } from './components/layout/AppShell';
 import { NavTab, NAV_TABS } from './components/layout/Sidebar';
 import { isOperationAllowed, resolveBranchSelection } from './utils/permissions';
 import { useSyncStream } from './hooks/useSyncStream';
+import { useBootstrapData } from './contexts/AppProviders';
 import { useAppRouting } from './hooks/useAppRouting';
 import { useInventoryActions } from './hooks/useInventoryActions';
 import { useProcurementActions } from './hooks/useProcurementActions';
@@ -547,34 +548,41 @@ export default function App() {
     });
   };
 
-  // App Data State
-  const [prepopulatedPOLines, setPrepopulatedPOLines] = useState<OrderFormLine[]>([]);
-  const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
-  const [branches, setBranches] = useState<Branch[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [stock, setStock] = useState<InventoryStock[]>([]);
-  // Sellable (IN_STOCK) serials for the Sell to Customer form's serial gate.
-  // serial_log is a paged ledger and was deliberately dropped from bootstrap,
-  // so this is one narrow status-filtered fetch per refresh instead of the
-  // whole register (StockOperations hosts its own mount-once copy).
-  const [inventorySerials, setInventorySerials] = useState<SerialLog[]>([]);
+  // App Data State is owned by BootstrapDataProvider; the root reads it here.
+  const {
+    companyProfile,
+    branches,
+    suppliers,
+    users,
+    products,
+    categories,
+    stock,
+    inventorySerials, setInventorySerials,
+    approvalRequests,
+    purchaseOrders,
+    purchaseInvoices,
+    purchaseReturns,
+    salesReturns,
+    stockOperations,
+    auditLogs,
+    damageRecords,
+    locations,
+    financialSummary,
+    postgresStatus, setPostgresStatus,
+    bootstrapBlocked, setBootstrapBlocked,
+    sliceState, setSliceState,
+    apply,
+  } = useBootstrapData();
   // DF-17: surfaced failures for the two App-owned reads whose errors used to
-  // be console-only — the cached-payload settings backfill and the
-  // sellable-serial list. Both have a Retry; the sellable list also clears on
-  // a branch change so the Sell-to-Customer form never sees another branch's
-  // units.
+  // be console-only — the cached-payload settings backfill and the sellable-
+  // serial list. Both have a Retry; the sellable list also clears on a branch
+  // change so the Sell-to-Customer form never sees another branch's units.
   const [sellableSerialsError, setSellableSerialsError] = useState('');
   const [sellableSerialsLoading, setSellableSerialsLoading] = useState(false);
   const [settingsBackfillError, setSettingsBackfillError] = useState('');
   const [settingsBackfillLoading, setSettingsBackfillLoading] = useState(false);
-  const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([]);
-  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
-  const [purchaseInvoices, setPurchaseInvoices] = useState<PurchaseInvoice[]>([]);
-  const [purchaseReturns, setPurchaseReturns] = useState<PurchaseReturn[]>([]);
-  const [salesReturns, setSalesReturns] = useState<SalesReturn[]>([]);
+  const [prepopulatedPOLines, setPrepopulatedPOLines] = useState<OrderFormLine[]>([]);
+  // Procurement's draft lines for the purchase-order form (UI state, not bootstrap data).
   // VOL-3: shipments left the bootstrap payload. The shell, dashboard KPI,
   // notification center and receive lanes share one bounded scoped snapshot
   // (exact counts + every in-flight row + a recent window); the transfer
@@ -584,38 +592,6 @@ export default function App() {
     () => mergeShipmentWindow(shipmentOverview.pending, shipmentOverview.recent),
     [shipmentOverview.pending, shipmentOverview.recent]
   );
-  const [stockOperations, setStockOperations] = useState<StockOperation[]>([]);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
-  const [damageRecords, setDamageRecords] = useState<DamageRecord[]>([]);
-  const [locations, setLocations] = useState<LocationRecord[]>([]);
-  const [financialSummary, setFinancialSummary] = useState<FinancialSummary>({
-    totalInventoryAssetValue: 0,
-    totalFixedAssetValue: 0,
-    totalAccountsPayable: 0,
-    totalSalesRevenue: 0,
-    totalCostOfGoodsSold: 0,
-    totalDamageLossValue: 0,
-    totalVatInputTax: 0,
-    currentFiscalYear: '2082/83',
-  });
-  const [postgresStatus, setPostgresStatus] = useState<{
-    isConnected: boolean;
-    /** False until a bootstrap attempt has actually established the state. */
-    statusKnown: boolean;
-    host: string;
-    port: number;
-    database: string;
-    user: string;
-    engine?: string;
-    errorDetails?: string;
-  }>({
-    isConnected: false,
-    statusKnown: false,
-    host: 'localhost',
-    port: 5432,
-    database: 'inventory_db',
-    user: 'inventory_user',
-  });
 
   const selectedFiscalYear = fiscalYears.find((fiscalYear) => fiscalYear.id === selectedFiscalYearId);
 
@@ -681,19 +657,11 @@ export default function App() {
   // DatabaseSetupBanner — which infers reachability from the very payload the
   // refusal blocked. Null while the last load succeeded, so fixing the cause
   // and retrying clears it without a reload.
-  const [bootstrapBlocked, setBootstrapBlocked] = useState<{
-    message: string;
-    status?: number;
-    /** Machine-readable cause from the server's body (see http.ts): a refused
-     *  bootstrap can name the screen that fixes it instead of only describing it. */
-    noCurrentFiscalYear?: boolean;
-  } | null>(null);
   /** Only a KNOWN failure shows the setup banner; a 503 also owns the notice. */
   const databaseUnavailable = postgresStatus.statusKnown && !postgresStatus.isConnected;
 
   // C1/C2 hydration bookkeeping: the per-slice status table and the request
   // gate that stamps every slice fetch with its view (branch|FY) and sequence.
-  const [sliceState, setSliceState] = useState<BootstrapSliceState>({});
   const sliceGateRef = useRef(new SliceRequestGate());
 
   // Hydrate state from recent cache for instant 0ms load speed.
@@ -709,31 +677,13 @@ export default function App() {
     data: any,
     options: { fromCache?: boolean; dataVersion?: number } = {}
   ) => {
-    if (data.branches) setBranches(data.branches);
-    if (data.products) setProducts(data.products);
-    if (data.stock) setStock(data.stock);
-    if (data.purchaseOrders) setPurchaseOrders(data.purchaseOrders);
-    if (data.purchaseInvoices) setPurchaseInvoices(data.purchaseInvoices);
-    if (data.purchaseReturns) setPurchaseReturns(data.purchaseReturns);
-    if (data.salesReturns) setSalesReturns(data.salesReturns);
-    if (data.stockOperations) setStockOperations(data.stockOperations);
+    // Slice replacement belongs to the provider: every key the payload
+    // actually carried is applied there, keys it did not carry are untouched.
+    apply(data);
+    // Not workspace slices: the scope list and the product-group behaviour map
+    // are owned by their contexts, so the root still hands them over.
     if (data.fiscalYears) setFiscalYears(data.fiscalYears);
-    if (data.auditLogs) setAuditLogs(data.auditLogs);
-    if (data.damageRecords) setDamageRecords(data.damageRecords);
-    if (data.locations) setLocations(data.locations);
-    if (data.financialSummary) setFinancialSummary(data.financialSummary);
-    if (data.suppliers) setSuppliers(data.suppliers);
-    if (data.users) setUsers(data.users as User[]);
-    if (data.approvalRequests) setApprovalRequests(data.approvalRequests);
-    if (data.categories) setCategories(data.categories);
-    // Product groups ride the login payload: the name → behaviour lookup must
-    // be authoritative before any sales/asset screen paints, so it is applied
-    // here rather than fetched lazily by each consumer.
     if (data.productGroups) setProductGroups(data.productGroups);
-    if (data.companyProfile) {
-      setCompanyProfile(data.companyProfile);
-      applyCurrencyConfig(data.companyProfile);
-    }
     // Cached payloads are display data, never proof of reachability: a
     // snapshot saved while the database was down must not paint "PostgreSQL
     // Offline" for the frames before the live bootstrap answers. Only a

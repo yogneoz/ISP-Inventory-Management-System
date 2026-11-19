@@ -1811,7 +1811,15 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       /set(PurchaseReturns|SalesReturns|AuditLogs)\(data\.\w+\s*\|\|\s*\[\]\)/,
       'a full bootstrap that omits a deferred key must not reset it to []'
     );
-    assert.match(app, /if \(data\.purchaseReturns\) setPurchaseReturns\(data\.purchaseReturns\)/);
+    // The slice replacement moved into the provider that owns the payload:
+    // apply() writes only the keys a payload actually carried, so a full
+    // bootstrap that omits a deferred key still never resets it to [].
+    const providers = fs.readFileSync(
+      path.resolve(process.cwd(), 'client', 'src', 'contexts', 'AppProviders.tsx'),
+      'utf8'
+    );
+    assert.match(providers, /purchaseReturns: setPurchaseReturns,/);
+    assert.match(providers, /if \(slice\) setters\[key\]\(slice\);/);
   });
 
   test('docs screen-count claims match reality — total, table and pinned-elsewhere', () => {

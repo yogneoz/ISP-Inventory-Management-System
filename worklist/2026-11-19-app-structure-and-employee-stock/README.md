@@ -123,10 +123,29 @@ end.
    OK (entry 22.5 / 23.375 kB, startup 329.6 / 330 kB, 92 startup chunks, 83
    dynamic chunks, `shared-domain-actions` kept). Nothing in step 4 changed.
 
-6. **`[ ]` Bootstrap state → context.** `BootstrapDataContext` for products,
+6. **`[~]` Bootstrap state → context.** `BootstrapDataContext` for products,
    stock, branches, suppliers, purchase orders, slice state and Postgres status,
    so screens stop taking 15 props each. This is last because it touches every
    screen and is the one with real regression surface.
+
+   **Landed (2026-11-19):** the state itself left the root. `BootstrapDataProvider`
+   and `useBootstrapData` live in `client/src/contexts/AppProviders.tsx` — one
+   module with the provider composition, so the startup graph gains no new
+   chunk — and own the 22 bootstrap slices, the Postgres reachability status, the
+   refused-bootstrap block and the per-slice status table. The provider's
+   `apply(payload)` replaces exactly the keys a payload carried (a full payload
+   still never resets a deferred slice), and the root keeps the fetch, the caches,
+   the SSE wiring and every side effect that is not plain slice replacement
+   (currency, permission matrix, settings, reachability only from a live
+   response). Measured after the move: entry 22.1 kB / 23.375 and startup 329.8 kB
+   / 330 — both budgets met with no constant raised.
+
+   **Remaining:** 71 components still take these slices as props from the route
+   table (`products={products}`, `stock={stock}`, …). The next pass converts them
+   to `useBootstrapData()` screen by screen, deleting the prop from the
+   component's interface and from App's JSX, and re-pointing whatever guard pins
+   that screen's prop shape. It is a separate commit per group because each
+   conversion needs its own prop-shape review.
 
 Guardrails: no behaviour change in steps 1–4; a new fetch must still be pinned in
 `tests/registerRefreshDomains.test.ts`; screen/route counts in the docs move with
