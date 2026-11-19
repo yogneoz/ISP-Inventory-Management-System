@@ -7,6 +7,8 @@ not what the label suggests: **Read** = only `GET` routes use the operation,
 **Write** = only mutating verbs, **Read-write** = both, **ungated** = no route uses it
 (the screen or action is not wired, or the guard is role-based instead).
 
+The API creator control `admin-api-keys` is granted by default to `SUPER_ADMIN` and `HEAD_OFFICE_ADMIN` (labelled **Sub Super Admin**) only.
+
 Roles in `DEFAULT_PERMISSIONS_MATRIX`: .
 
 ## Procurement & Purchasing
@@ -121,6 +123,7 @@ Roles in `DEFAULT_PERMISSIONS_MATRIX`: .
 | Branch Management & Branch Controls | `admin-branches` | DELETE /api/branches/:id, POST /api/branches, PUT /api/branches/:id | Write |
 | View Audit Trail & Transaction Logs | `admin-audit` | GET /api/admin/performance, GET /api/audit-trail | Read |
 | Nepali Fiscal Year Management | `admin-fiscal` | DELETE /api/fiscal-years/:id, GET /api/document-number-configs, PATCH /api/document-number-configs/:id, POST /api/document-number-configs, POST /api/document-number-configs/generate-next, POST /api/document-number-configs/reset-counter, POST /api/fiscal-years, PUT /api/document-number-configs | Read-write |
+| API Key Management (Partner Integrations) | `admin-api-keys` | — (creator screen not built yet; added in this pass) | ungated |
 
 ## Totals
 
@@ -129,5 +132,5 @@ Roles in `DEFAULT_PERMISSIONS_MATRIX`: .
 | Read | 7 |
 | Write | 30 |
 | Read-write | 12 |
-| ungated | 19 |
-| **all** | **68** |
+| ungated | 20 |
+| **all** | **69** |
