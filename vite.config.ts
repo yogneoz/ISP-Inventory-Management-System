@@ -63,6 +63,14 @@ export default defineConfig(() => {
             // FixedAssetRegister chunk, dragging a 40 kB finance screen into
             // every inventory screen's import graph). File-level chunks keep
             // each shared module a tiny parallel fetch.
+            // The domain action hooks are one logical unit: App imports every
+            // one of them, so per-file chunks only add per-chunk scaffolding to
+            // the startup graph. They share one chunk instead.
+            const actionHooksMatch = id.match(/[\/]src[\/]hooks[\/](?:actionDeps|use(?:Inventory|Procurement|Sales|Fiscal|Workflow)Actions)\.ts$/);
+            if (actionHooksMatch) {
+              return 'shared-domain-actions';
+            }
+
             const sharedMatch = id.match(/[\\/]src[\\/](components|utils|hooks|contexts)[\\/](.+)\.(?:ts|tsx)$/);
             if (sharedMatch) {
               return `shared-${sharedMatch[2].replace(/[\\/]/g, '-')}`;

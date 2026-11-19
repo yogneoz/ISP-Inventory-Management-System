@@ -65,9 +65,32 @@ end.
 4. **`[ ]` Route table by domain → `routes/routes/*.tsx`.** Split the
    `screenRoutes` array into inventory, sales/procurement, finance, people and
    settings builders over a shared props bundle; App.tsx only spreads them.
-5. **`[ ]` Mutation wrappers → domain action hooks.** `useInventoryActions`,
-   `useProcurementActions`, `useFiscalActions` over `refreshAllData`, or screens
-   call the api directly and trigger the context refresh.
+5. **`[x]` Mutation wrappers → domain action hooks (2026-11-19).** 42
+   wrappers moved out of App.tsx into five hooks plus their dependency type:
+   `hooks/actionDeps.ts` (`ActionDeps`: `refreshAllData`, `currentUser`,
+   `financialSummary`; `ProcurementActionDeps` adds `purchaseInvoices`),
+   `hooks/useInventoryActions.ts` (8 — products, stock levels, reorder levels,
+   assets), `hooks/useProcurementActions.ts` (18 — POs, purchase invoices, vendor
+   payments, purchase returns, shipments, stock operations),
+   `hooks/useSalesActions.ts` (6 — sales invoices, customer payments, sales
+   returns), `hooks/useFiscalActions.ts` (7 — fiscal year open/close/reopen,
+   opening stock, vendor roll-forward) and `hooks/useWorkflowActions.ts` (3 —
+   approval create/process/cancel). Bodies are the identical `api.*` calls plus
+   the same refresh; App.tsx destructures them where the handlers used to be and
+   only supplies the deps object. Session and navigation wrappers (login,
+   logout, profile switch/update, branch select, date mode, app settings, help
+   navigation, low-stock PO grouping) stayed in App because they own state the
+   shell must keep. `vite.config.ts` gives the six modules one
+   `shared-domain-actions` chunk instead of six startup chunks. App.tsx 3,182 →
+   2,873 lines (-309). Verified `tsc` 0, build 0, budget OK (entry 22.3 /
+   23.375 kB, startup 329.3 / 330 kB, 92 startup chunks, 83 dynamic chunks).
+   Full suite: 2,703 tests, 2,684 pass, 17 fail, 2 skipped — the same 17 fail on
+   the pre-step-5 tree (verified by stashing this change), so the move added no
+   failure; they are pre-existing drift from the field-work-orders migration
+   (schema/docs counts, branch-scope registry, BS-date pairing, repo-layer
+   scan) plus guards that were already stale before it. No test file was edited
+   in this step, so no assertion was loosened.
+
 6. **`[ ]` Bootstrap state → context.** `BootstrapDataContext` for products,
    stock, branches, suppliers, purchase orders, slice state and Postgres status,
    so screens stop taking 15 props each. This is last because it touches every

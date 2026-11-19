@@ -40,6 +40,11 @@ import { NavTab, NAV_TABS } from './components/layout/Sidebar';
 import { isOperationAllowed, resolveBranchSelection } from './utils/permissions';
 import { useSyncStream } from './hooks/useSyncStream';
 import { useAppRouting } from './hooks/useAppRouting';
+import { useInventoryActions } from './hooks/useInventoryActions';
+import { useProcurementActions } from './hooks/useProcurementActions';
+import { useSalesActions } from './hooks/useSalesActions';
+import { useFiscalActions } from './hooks/useFiscalActions';
+import { useWorkflowActions } from './hooks/useWorkflowActions';
 import { indexStockByProductBranch, stockRowAt } from './utils/stockIndex';
 import { invalidateSerialRegister } from './services/serialRegisterCache';
 import {
@@ -988,26 +993,60 @@ export default function App() {
   // and handleLogout below broadcasts this tab's sign-out to the others.
   const handleLogoutRef = useRef<() => void>(() => {});
 
-  const handleCreateApprovalRequest = async (
-    requestData: Omit<ApprovalRequest, 'id' | 'requestNumber' | 'status' | 'requestedAtAD' | 'requestedAtBS'>
-  ) => {
-    await api.createApprovalRequest(requestData);
-    await refreshAllData();
-  };
-
-  const handleProcessApprovalRequest = async (
-    id: string,
-    status: 'APPROVED' | 'REJECTED',
-    rejectionReason?: string
-  ) => {
-    await api.processApprovalRequest(id, status, currentUser, rejectionReason);
-    await refreshAllData();
-  };
-
-  const handleCancelApprovalRequest = async (id: string, reason?: string) => {
-    await api.cancelApprovalRequest(id, currentUser, reason);
-    await refreshAllData();
-  };
+  // Domain mutations live in hooks/actionDeps-backed action hooks; the root only
+  // passes the refresh and identity they stamp onto requests.
+  const {
+    handleCreateProduct,
+    handleUpdateProduct,
+    handleDeleteProduct,
+    handleUpdateStockLevel,
+    handleUpdateStockReorderLevel,
+    handleBulkUpdateStockReorderLevels,
+    handleCreateAsset,
+    handleUpdateAssetStatus,
+  } = useInventoryActions({ refreshAllData, currentUser, financialSummary });
+  const {
+    handleCreatePO,
+    handleUpdatePO,
+    handleUpdatePOStatus,
+    handleDeletePO,
+    handleCreateInvoice,
+    handleCreatePurchaseReturn,
+    handleCancelPurchaseReturn,
+    handleApprovePurchaseReturn,
+    handleDeleteInvoice,
+    handleRecordPayment,
+    handleReversePayment,
+    handleReverseInvoicePayments,
+    handleReceiveShipment,
+    handleCancelReceiveShipment,
+    handleFindShipment,
+    handleCreateOperation,
+    handleReceiveOperation,
+    handleReverseStockOperation,
+  } = useProcurementActions({ refreshAllData, currentUser, financialSummary, purchaseInvoices });
+  const {
+    handleCreateSalesInvoice,
+    handleRecordCustomerPayment,
+    handleCancelSalesInvoice,
+    handleCreateSalesReturn,
+    handleCancelSalesReturn,
+    handleApproveSalesReturn,
+  } = useSalesActions({ refreshAllData, currentUser, financialSummary });
+  const {
+    handleSetCurrentFiscalYear,
+    handleCreateFiscalYear,
+    handleDeleteFiscalYear,
+    handleCloseFiscalYear,
+    handleReopenFiscalYear,
+    handleInitializeFiscalYearOpeningStock,
+    handleRollForwardVendorOpenings,
+  } = useFiscalActions({ refreshAllData, currentUser, financialSummary });
+  const {
+    handleCreateApprovalRequest,
+    handleProcessApprovalRequest,
+    handleCancelApprovalRequest,
+  } = useWorkflowActions({ refreshAllData, currentUser, financialSummary });
 
   // Fetch data on initial mount and whenever branch/fiscal view changes.
   useEffect(() => {
@@ -1235,370 +1274,22 @@ export default function App() {
   };
 
   // Product Actions
-  const handleCreateProduct = async (prod: Omit<Product, 'id'>) => {
-    await api.createProduct(prod);
-    refreshAllData();
-  };
-
-  const handleUpdateProduct = async (id: string, prod: Partial<Product>) => {
-    await api.updateProduct(id, prod);
-    refreshAllData();
-  };
-
-  const handleDeleteProduct = async (id: string) => {
-    await api.deleteProduct(id);
-    refreshAllData();
-  };
-
   // Stock Actions
-  const handleUpdateStockLevel = async (
-    stockId: string,
-    newQty: number,
-    reason: string,
-    damagedQty?: number,
-    changeType?: string
-  ) => {
-    await api.updateStockLevel(stockId, newQty, reason, damagedQty, changeType);
-    refreshAllData();
-  };
-
-  const handleUpdateStockReorderLevel = async (
-    stockId: string,
-    minReorderLevel: number
-  ) => {
-    await api.updateStockReorderLevel(stockId, minReorderLevel);
-    refreshAllData();
-  };
-
-  const handleBulkUpdateStockReorderLevels = async (
-    updates: { stockId: string; minReorderLevel: number }[]
-  ) => {
-    await api.bulkUpdateStockReorderLevels(updates);
-    refreshAllData();
-  };
-
   // Asset Actions
-  const handleCreateAsset = async (
-    asset: Omit<Asset, 'id' | 'netBookValue' | 'accumulatedDepreciation'> & {
-      /** WTY-4: exact supplier warranty expiry captured with the asset. */
-      supplierWarrantyEndDateAD?: string;
-      /** WTY-5: false declares "no supplier warranty" for this asset. */
-      supplierWarrantyCovered?: boolean;
-    }
-  ) => {
-    await api.createAsset(asset);
-
-    // Stock-Out Integration: If asset has a productId associated, decrement branch inventory stock
-    if (asset.productId) {
-      await api.createStockOperation({
-        type: 'STOCK_OUT',
-        branchId: asset.branchId,
-        productId: asset.productId,
-        productName: asset.name,
-        quantityChanged: -1,
-        costPerUnit: asset.acquisitionCost,
-        totalValue: asset.acquisitionCost,
-        reason: `Fixed Asset Issued / Assigned: Tag ${asset.tagNumber} (${asset.name})`,
-        inspectorName: currentUser?.name || 'Asset Manager',
-        dateAD: asset.acquisitionDateAD,
-        dateBS: asset.acquisitionDateBS,
-        fiscalYear: financialSummary?.currentFiscalYear || '2081/82',
-        status: 'LOGGED',
-      });
-    }
-
-    refreshAllData();
-  };
-
-  const handleUpdateAssetStatus = async (id: string, updates: Asset['status'] | Partial<Asset>) => {
-    await api.updateAssetStatus(id, updates);
-    refreshAllData();
-  };
-
   // PO Actions
-  const handleCreatePO = async (
-    po: Omit<
-      PurchaseOrder,
-      'id' | 'poNumber' | 'subtotalAmount' | 'taxAmount' | 'totalAmount'
-    >
-  ) => {
-    await api.createPurchaseOrder(po);
-    refreshAllData();
-  };
-
-  const handleUpdatePO = async (poId: string, poData: Partial<PurchaseOrder>) => {
-    await api.updatePurchaseOrder(poId, poData);
-    refreshAllData();
-  };
-
-  const handleUpdatePOStatus = async (poId: string, status: string) => {
-    await api.updatePurchaseOrderStatus(poId, status);
-    refreshAllData();
-  };
-
-  const handleDeletePO = async (poId: string) => {
-    await api.deletePurchaseOrder(poId);
-    await refreshAllData();
-  };
-
   // Invoice Actions
-  const handleCreateInvoice = async (
-    inv: Omit<PurchaseInvoice, 'id' | 'invoiceNumber'>
-  ) => {
-    // The server registers every received serial in the serial register inside
-    // the invoice's own transaction (serial-register audit, Slice 1). The old
-    // client-side loop that wrote "Unassigned Stock" customer-device rows is
-    // gone: it was a SECOND writer of the same units, and its rows made stock
-    // operations validate against the customer table instead of the register.
-    await api.createPurchaseInvoice(inv);
-    refreshAllData();
-  };
-
-  const handleCreateSalesInvoice = async (
-    inv: Omit<SalesInvoice, 'id' | 'invoiceNumber'>
-  ) => {
-    await api.createSalesInvoice(inv);
-    refreshAllData();
-  };
-
-  const handleRecordCustomerPayment = async (
-    invoice: SalesInvoice,
-    amount: number,
-    paymentMethod: string,
-    settlementAccountId?: string,
-    wallet?: { providerCode: string; providerTransactionId: string; feeAmount: number }
-  ) => {
-    await api.createCustomerPayment({
-      invoiceId: invoice.id,
-      invoiceNumber: invoice.invoiceNumber,
-      customerId: invoice.customerId,
-      customerName: invoice.customerName,
-      branchId: invoice.branchId,
-      amount,
-      paymentMethod: paymentMethod as CustomerPayment['paymentMethod'],
-      settlementAccountId,
-      providerCode: wallet?.providerCode as CustomerPayment['providerCode'],
-      providerTransactionId: wallet?.providerTransactionId,
-      grossAmount: wallet ? amount : undefined,
-      feeAmount: wallet?.feeAmount,
-      netAmount: wallet ? amount - wallet.feeAmount : undefined,
-      paymentDateAD: new Date().toISOString().split('T')[0],
-    });
-    refreshAllData();
-  };
-
   // Voids a posted sales invoice. The server reverses it atomically (stock +
   // claimed serials + ledger) and refuses invoices that still carry payments
   // or credit notes; its message is surfaced by the screen.
-  const handleCancelSalesInvoice = async (id: string, reason?: string) => {
-    await api.cancelSalesInvoice(id, reason);
-    refreshAllData();
-  };
-
-  const handleCreatePurchaseReturn = async (payload: any) => {
-    const created = await api.createPurchaseReturn(payload);
-    refreshAllData();
-    return created;
-  };
-
-  const handleCancelPurchaseReturn = async (id: string, reason: string) => {
-    await api.cancelPurchaseReturn(id, reason);
-    refreshAllData();
-  };
-
-  const handleApprovePurchaseReturn = async (id: string) => {
-    await api.postPurchaseReturn(id);
-    refreshAllData();
-  };
-
-  const handleCreateSalesReturn = async (payload: any) => {
-    const created = await api.createSalesReturn(payload);
-    refreshAllData();
-    return created;
-  };
-
-  const handleCancelSalesReturn = async (id: string, reason: string) => {
-    await api.cancelSalesReturn(id, reason);
-    refreshAllData();
-  };
-
-  const handleApproveSalesReturn = async (id: string) => {
-    await api.postSalesReturn(id);
-    refreshAllData();
-  };
-
-  const handleDeleteInvoice = async (invoiceId: string) => {
-    await api.deletePurchaseInvoice(invoiceId);
-    await refreshAllData();
-  };
-
-  const handleRecordPayment = async (
-    id: string,
-    amount: number,
-    paymentMethod?: string,
-    details?: {
-      bankName?: string;
-      bankBranch?: string;
-      accountNumber?: string;
-      chequeNumber?: string;
-      transactionReference?: string;
-      settlementAccountId?: string;
-      paymentDateAD?: string;
-    }
-  ) => {
-    // One payment document, one atomic write: the server records the payment
-    // row, applies it to the invoice and posts the AP/cash journal together.
-    // Calling the balance-only /pay endpoint first would make that split
-    // non-atomic and post the same cash movement twice.
-    const linkedInv = purchaseInvoices.find((inv) => inv.id === id);
-    await api.createVendorPayment({
-      supplierId: linkedInv?.supplierId,
-      supplierName: linkedInv?.supplierName || '',
-      invoiceId: id,
-      invoiceNumber: linkedInv?.invoiceNumber,
-      amount,
-      paymentMethod: paymentMethod || 'CASH',
-      paymentDateAD: details?.paymentDateAD || new Date().toISOString().split('T')[0],
-      bankName: details?.bankName,
-      bankBranch: details?.bankBranch,
-      accountNumber: details?.accountNumber,
-      chequeNumber: details?.chequeNumber,
-      transactionReference: details?.transactionReference,
-      settlementAccountId: details?.settlementAccountId,
-    });
-    refreshAllData();
-  };
-
-  const handleReversePayment = async (paymentId: string, reason: string) => {
-    await api.reverseVendorPayment(paymentId, reason);
-    refreshAllData();
-  };
-
   // Reverse all posted payments on a fully paid invoice (restores it to UNPAID)
-  const handleReverseInvoicePayments = async (invoiceId: string, reason: string) => {
-    await api.reverseInvoicePayments(invoiceId, reason);
-    refreshAllData();
-  };
-
   // Shipment Actions
-  const handleReceiveShipment = async (
-    id: string,
-    verificationData?: {
-      receivedItems?: {
-        itemId: string;
-        quantityReceived: number;
-        receivedSerials?: { deviceSerial: string; ponSerial?: string }[];
-        itemDiscrepancyNotes?: string;
-      }[];
-      receivedByNotes?: string;
-    }
-  ) => {
-    await api.receiveShipment(id, verificationData);
-    refreshAllData();
-  };
-
-  const handleCancelReceiveShipment = async (id: string, reason?: string) => {
-    await api.cancelReceiveShipment(id, currentUser, reason);
-    refreshAllData();
-  };
-
   /** Resolve a manifest child path against the transfer register endpoint.
    *  The thin Shipments host and the receive panel stay server-call-free; the
    *  root owns this one bounded lookup for their deep links. */
-  const handleFindShipment = React.useCallback(
-    async (key: string, branchId?: string): Promise<Shipment | null> => {
-      try {
-        const page = await api.getShipmentPage({
-          branchId,
-          search: key,
-          page: 1,
-          pageSize: 25,
-        });
-        const wanted = key.toLowerCase();
-        return (
-          (page?.data || []).find((sh) =>
-            [sh.trackingCode, sh.id].some(
-              (value) => typeof value === 'string' && value.toLowerCase() === wanted
-            )
-          ) || null
-        );
-      } catch {
-        return null;
-      }
-    },
-    []
-  );
-
   // Stock Operations Actions
-  const handleCreateOperation = async (op: Partial<StockOperation>) => {
-    await api.createStockOperation(op);
-    refreshAllData();
-  };
-
-  const handleReceiveOperation = async (id: string) => {
-    await api.receiveStockOperation(id);
-    refreshAllData();
-  };
-
   // Reverse a damage record (Super Admin / Inventory Manager only) — restores
   // the units back to available stock and marks the record CANCELLED.
-  const handleReverseStockOperation = async (id: string, reason?: string) => {
-    await api.reverseStockOperation(id, reason, currentUser);
-    refreshAllData();
-  };
-
   // Fiscal Year Actions
-  const handleSetCurrentFiscalYear = async (id: string) => {
-    await api.setCurrentFiscalYear(id);
-    refreshAllData();
-  };
-
-  const handleCreateFiscalYear = async (input: {
-    code: string;
-    startDateAD: string;
-    endDateAD: string;
-    startDateBS: string;
-    endDateBS: string;
-  }) => {
-    const created = await api.createFiscalYear(input);
-    await refreshAllData();
-    return created;
-  };
-
-  const handleDeleteFiscalYear = async (id: string) => {
-    const result = await api.deleteFiscalYear(id);
-    await refreshAllData();
-    return result;
-  };
-
-  const handleCloseFiscalYear = async (
-    id: string,
-    credentials?: { adminEmail: string; adminPassword: string }
-  ) => {
-    await api.closeFiscalYear(id, credentials);
-    await refreshAllData();
-  };
-
-  const handleReopenFiscalYear = async (
-    id: string,
-    credentials?: { adminEmail: string; adminPassword: string }
-  ) => {
-    await api.reopenFiscalYear(id, credentials);
-    await refreshAllData();
-  };
-
-  const handleInitializeFiscalYearOpeningStock = async (id: string) => {
-    const result = await api.initializeFiscalYearOpeningStock(id);
-    await refreshAllData();
-    return result;
-  };
-
-  const handleRollForwardVendorOpenings = async (id: string) => {
-    const result = await api.rollForwardVendorOpenings(id);
-    await refreshAllData();
-    return result;
-  };
-
   const activeFy =
     resolveDefaultFiscalYear(fiscalYears)?.code || financialSummary.currentFiscalYear;
 
