@@ -322,11 +322,18 @@ describe('legacy ?tab= links and canonical URLs', () => {
 
   test('App writes paths, never the legacy parameter', () => {
     const app = read('client/src/App.tsx');
+    // The address-bar sync moved to hooks/useAppRouting; the pin follows the code.
+    const routing = read('client/src/hooks/useAppRouting.ts');
     const accessFilters = read('client/src/utils/accessFilterUrl.ts');
     assert.match(
-      app,
+      routing,
       /canonicalLocationUrl\(activeTab, recordRoute/,
-      'App must sync the address bar through the registry, record included'
+      'the routing hook must sync the address bar through the registry, record included'
+    );
+    assert.match(
+      routing,
+      /window\.history\.(pushState|replaceState)/,
+      'the hook must own the history write'
     );
     assert.match(app, /handleRecordRouteChange/, 'a screen must be able to open/close its record path');
     assert.doesNotMatch(app, /searchParams\.set\(TAB_URL_PARAM/, 'App must not write ?tab=');
