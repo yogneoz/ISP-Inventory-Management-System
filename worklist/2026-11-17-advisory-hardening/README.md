@@ -1,6 +1,6 @@
 # Round 15 — Advisory hardening (measured gaps from the 2026-11-17 audit)
 
-Status: `[x]` complete 2026-11-19 · Opened 2026-11-17 · Owner: main
+Status: `[x]` complete 2026-11-19 · Opened 2026-11-17 · Owner: main · Re-audited against the repository and closed 2026-11-19 (see [Closed](#closed--2026-11-19))
 
 **Delivered:** A1–A10 (partition keeper, a CI dirty-`DEFAULT` alarm that proves
 itself, shared-bus reference-cache invalidation, comment-insensitive migration
@@ -85,8 +85,9 @@ client so it needs no database.
 `journal-partitions` lock when Redis is present (one worker does the DDL, the
 rest return `skipped`), runs locally when it is not, and never throws into the
 timer. `dbBoot.ts` arms it once after the boot pass. `tests/journalPartitionKeeper.test.ts`
-is 5/5 with no database; replacing the single-worker branch with `skipped` fails
-4/5, restoring it passes. Not covered here: nothing calls the keeper in the CLI
+is 6/6 with no database — the five behaviours below plus the arming pin;
+replacing the single-worker branch with `skipped` fails 4/5, restoring it
+passes. Not covered here: nothing calls the keeper in the CLI
 path (not needed — the CLI runs its own pass), and the tick interval is untimed
 in CI because the test drives the tick directly.
 
@@ -225,10 +226,10 @@ diff (the guard's decision function) and adds a `storage` category built from
 `pages_per_range` are now compared. `verify_fresh_install.mjs` imports the
 module instead of keeping a local copy and compares `storage`; a live run reports
 `✓ storage: identical (752 entries)` beside tables 131, columns 1,998,
-constraints 1,741, indexes 634, triggers 44 and exits 0 (measured on that day;
-migration `0043` has since added the API-key tables, so today's live run reports
-132 tables and larger column/index/trigger counts, still identical on both
-sides).
+constraints 1,741, indexes 634, triggers 44 and exits 0 (measured on that day).
+Re-measured 2026-11-19, after the later migrations, the same run reports 172
+tables, 2,774 columns, 2,316 constraints, 999 indexes, **1,100 storage entries**
+and 122 triggers — identical on both sides, exit 0.
 `tests/schemaSnapshot.test.ts` is 5/5: a divergent table `fillfactor=80` and a
 divergent BRIN `pages_per_range=32` on an index both fail the diff, identical
 snapshots pass regardless of order, and the query plus the `diffCategory('storage', …)`
@@ -610,7 +611,7 @@ the Redis bucket restores capacity — `tests/apiKeys.api.test.ts` asserts both,
 and bypassing the Redis path fails it.
 
 The behaviour is now pinned by `tests/apiKeys.api.test.ts` (8 tests inside the
-2697-test suite): creation with a one-time secret and hash-only storage, a gated
+2698-test suite): creation with a one-time secret and hash-only storage, a gated
 GET 200 vs an out-of-scope 403, the read-only 403, revoked and expired 401s,
 rotation's grace window, and the `admin-api-keys` requirement. Disabling the
 read-only or the revocation check makes that suite fail.
@@ -868,3 +869,37 @@ silently dropped checkbox.
   is deleted; `tests/apikeyRpmProofScript.test.ts` pins that wiring. Suite 2698 /
   2696 pass / 2 skips / 0 fail.
 
+## Closed — 2026-11-19
+
+**Closed. Nothing in this note is open.** On 2026-11-19 the round was re-audited
+end to end against the repository rather than against its own text: every
+artifact each slice names was located, every test file those sections cite was
+re-run, and every command the note relies on was executed again. Results:
+
+| Item | Check actually run | Result |
+|---|---|---|
+| A1 | `tests/journalPartitionKeeper.test.ts` (keeper, leadership, single-worker fallback, failing month, arming) | **6/6** |
+| A2 | `bash scripts/partition_alarm.sh` on the live database, plus `PARTITION_ALARM_STALE_FROM=2026-11-17` (a window that *is* provisioned, i.e. the case where a broken alarm would look green); `partition-window` job present in `ci.yml` | healthy **exit 0**; control **exit 1** with `the alarm is not wired to the window`; job confirmed |
+| A3 | `tests/referenceCacheInvalidation.test.ts` | **6/6** |
+| A4 | `tests/migrationChecksums.test.ts` (comment-insensitive hash, statement edit rejected, both legacy conventions) | **7/7** |
+| A5 | `tests/defaultPartitionRepair.test.ts` (dirty DEFAULT → clean, plan moves nothing, rerun clean) | **4/4** |
+| A6 | `tests/schemaSnapshot.test.ts`; `node scripts/verify_fresh_install.mjs` | **5/5**; parity **PASS** (172 tables / 2,774 columns / 2,316 constraints / 999 indexes / 1,100 storage / 122 triggers, all identical, throwaway databases dropped) |
+| A7 | `tests/logTablePartitions.test.ts` (partitioned writes, DEFAULT, UPDATE/DELETE/child-DELETE refused, sanctioned purge, populated conversion) | **7/7** |
+| A8 | `tests/ciLocal.test.ts`; `check:bundle-budget`; `check:no-inline-sql`; `check:no-raw-dialogs` | **6/6**; startup **324.5 kB / 330 kB**, entry 22.3 / 22.375 kB, **OK**; no SQL literals in 50 controllers; no native dialogs in 292 client files |
+| A9 | `tests/scaleFixtureGuards.test.ts`, `tests/pageReadIndexes.test.ts` (the fixture/measurement scripts exist; the measured numbers stay in audit §4) | **5/5** and **5/5** |
+| A10 | `tests/inputReadiness.test.ts` (17) + `tests/browserPageErrors.test.ts` (7); `node scripts/check_boot_timing.mjs --base-url http://localhost:3000` against the live dev server | **17/17** and **7/7**; gate **exit 0** — `✔ Input readiness — page visible and focused; 10 interactive control(s) in <main>; typed … value changed`, splash 1,895 ms cold / 3,076 ms warm (budget 6,000 ms) |
+| Part C | `tests/apiKeys.api.test.ts`; `npm run verify:apikey-rpm`; `0043_api_keys` mirrored in `schema.sql` | **8/8**; cross-process proof **PASS** (worker B 429 + `Retry-After`, reverse direction 429, bucket deletion restores capacity) |
+| Round | `npx tsc --noEmit`; full `npm test`; docs-count gate | **0**; **2698 tests / 2696 pass / 2 Windows-only skips / 0 fail**; gate matching 2698 |
+
+Two statements were stale and were corrected rather than re-labelled: Part C
+still called the suite "2697" after the cross-process proof added the 2,698th
+test, and A1's test was described as 5 cases although the file also carries the
+arming pin (6). A6's "today's live run" parenthetical was replaced with the
+2026-11-19 numbers above, since migration `0043` and the later conversions moved
+tables 132 → 172 and storage entries 752 → 1,100.
+
+**Nothing here is silently deferred.** The six remaining items are the ones in
+“Deferred — accepted out of scope”, each with a stated reason; the API-key RPM
+limitation that was deferred at close is now delivered and proven across two OS
+processes. With this section the advisory round is closed: no Part A slice, no
+Part C item, and no advisory plan is open.
