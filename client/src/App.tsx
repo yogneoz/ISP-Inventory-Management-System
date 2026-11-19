@@ -66,55 +66,7 @@ import { PurchaseOrders, OrderFormLine } from './features/procurement/PurchaseOr
 // BUDGET-1 (2026-10-26): Branch Stock, Fixed Assets, the Customer Master
 // Directory, the Customer Devices register and the Serial Log moved here from
 // the eager graph — 33.8 kB gzip of registers that no first paint renders.
-const BranchStockTracking = React.lazy(() =>
-  import('./features/inventory/BranchStockTracking').then((m) => ({ default: m.BranchStockTracking }))
-);
-const FixedAssetRegister = React.lazy(() =>
-  import('./features/finance/FixedAssetRegister').then((m) => ({ default: m.FixedAssetRegister }))
-);
-const CustomersManagement = React.lazy(() =>
-  import('./features/sales/CustomersManagement').then((m) => ({ default: m.CustomersManagement }))
-);
-const CustomerMasterDirectory = React.lazy(() =>
-  import('./features/sales/CustomerMasterDirectory').then((m) => ({ default: m.CustomerMasterDirectory }))
-);
-const SalesAgentsAreasManagement = React.lazy(() =>
-  import('./features/sales/SalesAgentsAreasManagement').then((m) => ({ default: m.SalesAgentsAreasManagement }))
-);
-const SerialLogRegister = React.lazy(() =>
-  import('./features/inventory/SerialLogRegister').then((m) => ({ default: m.SerialLogRegister }))
-);
-const PurchaseInvoices = React.lazy(() =>
-  import('./features/procurement/PurchaseInvoices').then((m) => ({ default: m.PurchaseInvoices }))
-);
-const SalesInvoices = React.lazy(() =>
-  import('./features/sales/SalesInvoices').then((m) => ({ default: m.SalesInvoices }))
-);
-const ReturnsRegister = React.lazy(() =>
-  import('./features/sales/ReturnsRegister').then((m) => ({ default: m.ReturnsRegister }))
-);
-const Shipments = React.lazy(() =>
-  import('./features/procurement/Shipments').then((m) => ({ default: m.Shipments }))
-);
-const PhysicalStockAudit = React.lazy(() =>
-  import('./features/inventory/PhysicalStockAudit').then((m) => ({ default: m.PhysicalStockAudit }))
-);
-const DamagedStockTracking = React.lazy(() =>
-  import('./features/inventory/DamagedStockTracking').then((m) => ({ default: m.DamagedStockTracking }))
-);
-const ReorderStockTracking = React.lazy(() =>
-  import('./features/inventory/ReorderStockTracking').then((m) => ({ default: m.ReorderStockTracking }))
-);
-const StockValuation = React.lazy(() =>
-  import('./features/inventory/StockValuation').then((m) => ({ default: m.StockValuation }))
-);
-const StockMovementLedger = React.lazy(() =>
-  import('./features/inventory/StockMovementLedger').then((m) => ({ default: m.StockMovementLedger }))
-);
 // Asset Deployments register (assigned fixed assets incl. non-serialized items)
-const AssetDeployments = React.lazy(() =>
-  import('./features/inventory/AssetDeployments').then((m) => ({ default: m.AssetDeployments }))
-);
 // DEV-ONLY: StatCard design-review gallery (hidden dev-statcard tab).
 // Gated behind import.meta.env.DEV so the chunk is tree-shaken out of
 // production builds entirely; the sidebar entry is gated the same way.
@@ -123,193 +75,30 @@ const AssetDeployments = React.lazy(() =>
 const StatCardShowcase = import.meta.env?.DEV
   ? React.lazy(() => import('./features/dev/StatCardShowcase').then((m) => ({ default: m.StatCardShowcase })))
   : () => null;
-const SupplierWarrantyRegister = React.lazy(() =>
-  import('./features/inventory/SupplierWarrantyRegister').then((m) => ({
-    default: m.SupplierWarrantyRegister,
-  }))
-);
-const FieldWorkOrders = React.lazy(() =>
-  import('./features/sales/FieldWorkOrders').then((m) => ({ default: m.FieldWorkOrders }))
-);
 
-const SellerWarrantyRegister = React.lazy(() =>
-  import('./features/inventory/SellerWarrantyRegister').then((m) => ({
-    default: m.SellerWarrantyRegister,
-  }))
-);
-const CategoryManagement = React.lazy(() =>
-  import('./features/inventory/CategoryManagement').then((m) => ({ default: m.CategoryManagement }))
-);
-const ProductGroupManagement = React.lazy(() =>
-  import('./features/inventory/ProductGroupManagement').then((m) => ({ default: m.ProductGroupManagement }))
-);
-const UomManagement = React.lazy(() =>
-  import('./features/inventory/UomManagement').then((m) => ({ default: m.UomManagement }))
-);
-const ImportStock = React.lazy(() =>
-  import('./features/inventory/ImportStock').then((m) => ({ default: m.ImportStock }))
-);
-const ExportStock = React.lazy(() =>
-  import('./features/inventory/ExportStock').then((m) => ({ default: m.ExportStock }))
-);
-const TrialBalanceRegister = React.lazy(() =>
-  import('./features/finance/TrialBalanceRegister').then((m) => ({ default: m.TrialBalanceRegister }))
-);
-const BsLedgerSummaryRegister = React.lazy(() =>
-  import('./features/finance/BsLedgerSummaryRegister').then((m) => ({
-    default: m.BsLedgerSummaryRegister,
-  }))
-);
-const ProfitAndLossRegister = React.lazy(() =>
-  import('./features/finance/ProfitAndLossRegister').then((m) => ({ default: m.ProfitAndLossRegister }))
-);
-const BranchConsolidatedRegister = React.lazy(() =>
-  import('./features/finance/BranchConsolidatedRegister').then((m) => ({ default: m.BranchConsolidatedRegister }))
-);
-const BalanceSheetRegister = React.lazy(() =>
-  import('./features/finance/BalanceSheetRegister').then((m) => ({ default: m.BalanceSheetRegister }))
-);
-const CashFlowRegister = React.lazy(() =>
-  import('./features/finance/CashFlowRegister').then((m) => ({ default: m.CashFlowRegister }))
-);
-const CashBookRegister = React.lazy(() =>
-  import('./features/finance/CashBookRegister').then((m) => ({ default: m.CashBookRegister }))
-);
-const RecurringCloseRegister = React.lazy(() =>
-  import('./features/finance/RecurringCloseRegister').then((m) => ({
-    default: m.RecurringCloseRegister,
-  }))
-);
-const AgingRegister = React.lazy(() =>
-  import('./features/finance/AgingRegister').then((m) => ({ default: m.AgingRegister }))
-);
-const ChartOfAccountsRegister = React.lazy(() =>
-  import('./features/finance/ChartOfAccountsRegister').then((m) => ({ default: m.ChartOfAccountsRegister }))
-);
-const PostingRulesRegister = React.lazy(() =>
-  import('./features/finance/PostingRulesRegister').then((m) => ({ default: m.PostingRulesRegister }))
-);
-const JournalEntry = React.lazy(() =>
-  import('./features/finance/VoucherEntries').then((m) => ({ default: m.JournalEntry }))
-);
-const CashBankEntry = React.lazy(() =>
-  import('./features/finance/VoucherEntries').then((m) => ({ default: m.CashBankEntry }))
-);
-const PostedVouchers = React.lazy(() =>
-  import('./features/finance/PostedVouchers').then((m) => ({ default: m.PostedVouchers }))
-);
-const PayrollPostingsRegister = React.lazy(() =>
-  import('./features/finance/PayrollPostingsRegister').then((m) => ({
-    default: m.PayrollPostingsRegister,
-  }))
-);
-const SubledgersManagement = React.lazy(() =>
-  import('./features/finance/SubledgersManagement').then((m) => ({ default: m.SubledgersManagement }))
-);
-const LendersManagement = React.lazy(() =>
-  import('./features/finance/LendersManagement').then((m) => ({ default: m.LendersManagement }))
-);
-const BillTermsManagement = React.lazy(() =>
-  import('./features/finance/BillTermsManagement').then((m) => ({ default: m.BillTermsManagement }))
-);
-const CostCentersManagement = React.lazy(() =>
-  import('./features/finance/CostCentersManagement').then((m) => ({ default: m.CostCentersManagement }))
-);
-const EmployeeDirectory = React.lazy(() =>
-  import('./features/hr/EmployeeDirectory').then((m) => ({ default: m.EmployeeDirectory }))
-);
-const EmployeeSelfService = React.lazy(() => import('./features/hr/EmployeeSelfService'));
-const EmployeePayslips = React.lazy(() => import('./features/hr/EmployeePayslips'));
-const EmployeeLeave = React.lazy(() => import('./features/hr/EmployeeLeave'));
-const EmployeeAttendance = React.lazy(() => import('./features/hr/EmployeeAttendance'));
-const EmployeeDocuments = React.lazy(() => import('./features/hr/EmployeeDocuments'));
-const Recruitment = React.lazy(() => import('./features/hr/Recruitment'));
-const Performance = React.lazy(() => import('./features/hr/Performance'));
-const Lifecycle = React.lazy(() => import('./features/hr/Lifecycle'));
-const HrReports = React.lazy(() => import('./features/hr/HrReports'));
-const AttendanceLeave = React.lazy(() =>
-  import('./features/hr/AttendanceLeave').then((m) => ({ default: m.AttendanceLeave }))
-);
-const OrgMasters = React.lazy(() =>
-  import('./features/hr/OrgMasters').then((m) => ({ default: m.OrgMasters }))
-);
-const OrgChart = React.lazy(() =>
-  import('./features/hr/OrgChart').then((m) => ({ default: m.OrgChart }))
-);
-const Payroll = React.lazy(() =>
-  import('./features/hr/Payroll').then((m) => ({ default: m.Payroll }))
-);
-const NarrationTemplatesManagement = React.lazy(() =>
-  import('./features/finance/NarrationTemplatesManagement').then((m) => ({ default: m.NarrationTemplatesManagement }))
-);
-const DailyCashClose = React.lazy(() =>
-  import('./features/finance/DailyCashClose').then((m) => ({ default: m.DailyCashClose }))
-);
-const FinanceDashboard = React.lazy(() =>
-  import('./features/finance/FinanceDashboard').then((m) => ({ default: m.FinanceDashboard }))
-);
-const CompanyOverview = React.lazy(() =>
-  import('./features/dashboard/CompanyOverview').then((m) => ({ default: m.CompanyOverview }))
-);
-const VatRegister = React.lazy(() =>
-  import('./features/finance/VatRegister').then((m) => ({ default: m.VatRegister }))
-);
-const DepreciationRegister = React.lazy(() =>
-  import('./features/finance/DepreciationRegister').then((m) => ({ default: m.DepreciationRegister }))
-);
-const AuditTrailReports = React.lazy(() =>
-  import('./features/finance/AuditTrailReports').then((m) => ({ default: m.AuditTrailReports }))
-);
-const DocumentNumbering = React.lazy(() =>
-  import('./features/finance/DocumentNumbering').then((m) => ({ default: m.DocumentNumbering }))
-);
-const OpeningStockManager = React.lazy(() =>
-  import('./features/finance/OpeningStockManager').then((m) => ({ default: m.OpeningStockManager }))
-);
-const VendorOpeningBalances = React.lazy(() =>
-  import('./features/finance/VendorOpeningBalances').then((m) => ({ default: m.VendorOpeningBalances }))
-);
-const VendorLedger = React.lazy(() =>
-  import('./features/finance/VendorLedger').then((m) => ({ default: m.VendorLedger }))
-);
-const CustomerLedger = React.lazy(() =>
-  import('./features/finance/CustomerLedger').then((m) => ({ default: m.CustomerLedger }))
-);
-const EmployeeLedger = React.lazy(() =>
-  import('./features/finance/EmployeeLedger').then((m) => ({ default: m.EmployeeLedger }))
-);
-const FiscalYearClosingWizard = React.lazy(() =>
-  import('./features/finance/FiscalYearClosingWizard').then((m) => ({ default: m.FiscalYearClosingWizard }))
-);
-const LocationsManagement = React.lazy(() =>
-  import('./features/settings/LocationsManagement').then((m) => ({ default: m.LocationsManagement }))
-);
-const ImportCustomers = React.lazy(() =>
-  import('./features/sales/ImportCustomers').then((m) => ({ default: m.ImportCustomers }))
-);
-const ClearDemoDataView = React.lazy(() =>
-  import('./components/common/ClearDemoDataView').then((m) => ({ default: m.ClearDemoDataView }))
-);
-const DataRecalculationMaintenance = React.lazy(() =>
-  import('./features/settings/DataRecalculationMaintenance').then((m) => ({ default: m.DataRecalculationMaintenance }))
-);
 import { StockOperations } from './features/inventory/StockOperations';
 import { ReceiveInboundWarehouse } from './features/procurement/ReceiveInboundWarehouse';
+import {
+  BranchStockTracking, FixedAssetRegister, CustomersManagement, CustomerMasterDirectory, SalesAgentsAreasManagement, SerialLogRegister,
+  PurchaseInvoices, SalesInvoices, ReturnsRegister, Shipments, PhysicalStockAudit, DamagedStockTracking,
+  ReorderStockTracking, StockValuation, StockMovementLedger, AssetDeployments, SupplierWarrantyRegister, FieldWorkOrders,
+  SellerWarrantyRegister, CategoryManagement, ProductGroupManagement, UomManagement, ImportStock, ExportStock,
+  TrialBalanceRegister, BsLedgerSummaryRegister, ProfitAndLossRegister, BranchConsolidatedRegister, BalanceSheetRegister, CashFlowRegister,
+  CashBookRegister, RecurringCloseRegister, AgingRegister, ChartOfAccountsRegister, PostingRulesRegister, JournalEntry,
+  CashBankEntry, PostedVouchers, PayrollPostingsRegister, SubledgersManagement, LendersManagement, BillTermsManagement,
+  CostCentersManagement, EmployeeDirectory, EmployeeSelfService, EmployeePayslips, EmployeeLeave, EmployeeAttendance,
+  EmployeeDocuments, Recruitment, Performance, Lifecycle, HrReports, AttendanceLeave,
+  OrgMasters, OrgChart, Payroll, NarrationTemplatesManagement, DailyCashClose, FinanceDashboard,
+  CompanyOverview, VatRegister, DepreciationRegister, AuditTrailReports, DocumentNumbering, OpeningStockManager,
+  VendorOpeningBalances, VendorLedger, CustomerLedger, EmployeeLedger, FiscalYearClosingWizard, LocationsManagement,
+  ImportCustomers, ClearDemoDataView, DataRecalculationMaintenance, BsCalendarUtility, NepaliFiscalManagement, PermissionManagementLazy,
+  ApiKeysLazy, UserPermissionsLazy, ApprovalWorkflowCenter, HelpDocumentationLazy,
+} from './routes/lazyScreens';
 // exceljs (≈1 MB) is only needed for the BS calendar utility, so this
 // component is lazy: the vendor-excel chunk downloads on first visit.
-const BsCalendarUtility = React.lazy(() =>
-  import('./features/finance/BsCalendarUtility').then((m) => ({
-    default: m.BsCalendarUtility,
-  }))
-);
 // BS fiscal-year settings (unlock / carry-forward). Reachable from the Help
 // Center's "Unlock / Carry Forward Balances" step. The 'nepali-fiscal' tab
 // rendered BsCalendarUtility instead, so this screen was never reachable.
-const NepaliFiscalManagement = React.lazy(() =>
-  import('./features/finance/NepaliFiscalManagement').then((m) => ({
-    default: m.NepaliFiscalManagement,
-  }))
-);
 import { BranchesManagement } from './features/settings/BranchesManagement';
 import { CompanySetupManagement } from './features/settings/CompanySetupManagement';
 
@@ -321,23 +110,8 @@ import type { UserAccessFocusRequest } from './features/settings/UserPermissions
 // never during boot. Loading them lazily keeps ~2,200 lines out of the startup
 // chunk (the entry budget gate measures exactly this) while their preload
 // entries keep a deep link's splash covered.
-const PermissionManagementLazy = React.lazy(() =>
-  import('./features/settings/PermissionManagement').then((m) => ({ default: m.PermissionManagement }))
-);
 // The API creator is opened from Administration, never during boot: loading it
 // lazily keeps its forms out of the entry chunk the budget gate measures.
-const ApiKeysLazy = React.lazy(() =>
-  import('./features/settings/ApiKeys').then((m) => ({ default: m.ApiKeys }))
-);
-const UserPermissionsLazy = React.lazy(() =>
-  import('./features/settings/UserPermissions').then((m) => ({ default: m.UserPermissions }))
-);
-const ApprovalWorkflowCenter = React.lazy(() =>
-  import('./features/settings/ApprovalWorkflowCenter').then((m) => ({ default: m.ApprovalWorkflowCenter }))
-);
-const HelpDocumentationLazy = React.lazy(() =>
-  import('./components/common/HelpDocumentation').then((m) => ({ default: m.HelpDocumentation }))
-);
 import { DatabaseSetupBanner } from './components/common/DatabaseSetupBanner';
 import { BootstrapBlockedBanner } from './components/common/BootstrapBlockedBanner';
 import { setCurrencyConfig } from './utils/nprFormat';

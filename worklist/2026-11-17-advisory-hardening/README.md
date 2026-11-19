@@ -922,6 +922,12 @@ arming pin (6). A6's "today's live run" parenthetical was replaced with the
 2026-11-19 numbers above, since migration `0043` and the later conversions moved
 tables 132 → 172 and storage entries 752 → 1,100.
 
+**Later work is tracked elsewhere, not reopened here.** The App.tsx decomposition
+and per-employee stock custody are in
+[App structure and employee stock](../2026-11-19-app-structure-and-employee-stock/README.md);
+the field-capture remainder (offline capture, proof-of-work, follow-up posting)
+is in [Field capture](../2026-11-19-field-capture/README.md).
+
 **Nothing here is silently deferred.** Every remaining item is a row in
 “Deferred — accepted out of scope”, each carrying its status, its reason and the
 owner decision that would unblock it; the API-key RPM
