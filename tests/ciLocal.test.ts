@@ -6,7 +6,8 @@
  * it reports a green the workflow would not give. These tests pin the invariants
  * that can be checked without running the jobs:
  *
- *   1. it lists exactly the workflow's four jobs;
+ *   1. it lists the workflow's local jobs, and a workflow job it does not
+ *      cover must be a documented decision (not silently ignored);
  *   2. every command it would run is still a command in `.github/workflows/ci.yml`;
  *   3. job selection is strict — an unknown name fails instead of silently
  *      running everything or nothing;
@@ -18,6 +19,17 @@ import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 
 const WORKFLOW = readFileSync('.github/workflows/ci.yml', 'utf8');
+
+/**
+ * Workflow jobs the local runner deliberately does not reproduce, with the
+ * reason. `docs-count-gate` exists only to merge six shard summaries from the
+ * sharded test-suite matrix; locally the single `test-suite` run counts its own
+ * tests and runs the same docs gate, so a second job would test nothing new.
+ */
+const CI_ONLY_JOBS: Record<string, string> = {
+  'docs-count-gate':
+    'merges the six shard summaries; locally test-suite runs the same docs gate over one run',
+};
 
 function listOutput(): string {
   const run = spawnSync(process.execPath, ['scripts/ci_local.mjs', '--list'], { encoding: 'utf8' });
@@ -58,6 +70,22 @@ describe('local CI runner (A8)', () => {
     for (const job of ['static-checks', 'partition-window', 'build-and-boot-timing', 'test-suite']) {
       assert.match(WORKFLOW, new RegExp(`\\n  ${job}:`), `ci.yml declares the ${job} job`);
       assert.match(output, new RegExp(`^${job} \\(workflow: ${job}\\)`, 'm'));
+    }
+  });
+
+  test('a workflow job with no local counterpart must be a documented decision', () => {
+    const jobsSection = WORKFLOW.slice(WORKFLOW.indexOf('\njobs:'));
+    const workflowJobs = [...jobsSection.matchAll(/^  ([a-z][a-z-]*):$/gm)].map((match) => match[1]);
+    assert.ok(workflowJobs.length >= 5, `parsed ${workflowJobs.length} workflow jobs`);
+    const localJobs = listOutput()
+      .split('\n')
+      .filter((line) => /\(workflow: [a-z-]+\)/.test(line))
+      .map((line) => line.split(' ')[0]);
+    const uncovered = workflowJobs.filter((job) => !localJobs.includes(job) && !(job in CI_ONLY_JOBS));
+    assert.deepEqual(uncovered, [],
+      `workflow jobs with no local runner and no documented reason: ${uncovered.join(', ')}`);
+    for (const job of Object.keys(CI_ONLY_JOBS)) {
+      assert.ok(workflowJobs.includes(job), `${job} is still a workflow job (allowlist entry is stale)`);
     }
   });
 

@@ -14,8 +14,8 @@ scope** with reasons in “Deferred — accepted out of scope” below: Round 11
 round-close gates, Round 13's public-exposure surface, the replica/PgBouncer
 decision, pre-aggregated stock and the closed-year snapshot, queued writes, and
 a general MFA subsystem. **Gates at close:** `npx tsc --noEmit` 0; full
-`npm test` 2698 tests / 2696 pass / 2 Windows-only skips / 0 fail, with the
-docs-count gate matching 2698; `verify:fresh-install` PASS; `check:bundle-budget`,
+`npm test` 2699 tests / 2697 pass / 2 Windows-only skips / 0 fail, with the
+docs-count gate matching 2699; `verify:fresh-install` PASS; `check:bundle-budget`,
 `check:no-inline-sql` and `check:no-raw-dialogs` clean.
 
 Source: the 2026-11-17 database-optimisation audit
@@ -211,8 +211,12 @@ throwaway `inventory_repair_probe` built from `scripts/schema.sql`: dirty 1
 journal / 1 line → plan **exit 0**, nothing moved → `--apply` **exit 0** printing
 `DEFAULT after 0 journal / 0 line` with `journals_201908=1` and
 `lines_201908=1` → rerun **exit 0** ("nothing to repair"); database dropped.
-Not covered: an undated row (the repair refuses and says so) has no test, and the
-repair is not wired into boot — it is an operator command, like `--apply`.
+The undated-row refusal is a defensive guard, not an untested behaviour:
+`journal_date_ad` is `NOT NULL` on `gl_journals` and `gl_journal_lines`, so a row
+with no date cannot exist and the branch is unreachable by construction — it is
+kept for a schema that cannot produce the state, and asserting it would need a
+fabricated client, not a real one. The repair is not wired into boot: it is an
+operator command, like `--apply`.
 
 ### A6 — Storage-parameter drift guard `[x]`
 
@@ -327,9 +331,15 @@ negative control, on a throwaway database it creates and drops),
 budget) and `test-suite` (`scripts/run_tests.mjs`, i.e. the suite + docs gate).
 `--list`, `--only`, `--skip` and `--with-browser` are supported; an unknown job
 name or a run with every job skipped exits 2 instead of reporting a green.
-`tests/ciLocal.test.ts` is 6/6 and pins the runner to the workflow: every command
-it lists must still appear in `.github/workflows/ci.yml`, and it asserts the
-runner does not leak `NODE_ENV` from `.env`.
+`static-checks` runs `tsc`, `check:no-inline-sql`, `check:no-raw-dialogs`,
+`check:branch-predicates` and `npm audit --omit=dev`. The workflow has a fifth
+job, `docs-count-gate`, which exists only to merge the six shard summaries of the
+sharded test matrix; locally `test-suite` runs the same docs gate over its single
+run, so it is not duplicated. `tests/ciLocal.test.ts` is 7/7 and pins the runner
+to the workflow: every command it lists must still appear in
+`.github/workflows/ci.yml`, every workflow job must be either covered locally or
+named in a one-entry CI-only allowlist with its reason (so a sixth job cannot be
+ignored), and the runner must not leak `NODE_ENV` from `.env`.
 
 **The bundle budget was failing, and the runner found why.**
 `check:bundle-budget` measured startup 324.1 kB against the unchanged 322 kB
@@ -611,7 +621,7 @@ the Redis bucket restores capacity — `tests/apiKeys.api.test.ts` asserts both,
 and bypassing the Redis path fails it.
 
 The behaviour is now pinned by `tests/apiKeys.api.test.ts` (8 tests inside the
-2698-test suite): creation with a one-time secret and hash-only storage, a gated
+2699-test suite): creation with a one-time secret and hash-only storage, a gated
 GET 200 vs an out-of-scope 403, the read-only 403, revoked and expired 401s,
 rotation's grace window, and the `admin-api-keys` requirement. Disabling the
 read-only or the revocation check makes that suite fail.
@@ -621,14 +631,14 @@ read-only or the revocation check makes that suite fail.
 Every item here is deliberately not done. Each has a reason, and none is a
 silently dropped checkbox.
 
-| Deferred item | Why it is out of this round's scope |
-|---|---|
-| Round 11's round-close gates | The remaining acceptance belongs to that product round's own close (marketing/counter workflows), not to an advisory-hardening slice; the parts this round could close (partial receipts, the LEND-1 reversal path) are delivered and logged above. |
-| Round 13's public-exposure surface — TLS, CORS, CSP, MFA, reverse proxy, HSTS, `TRUST_PROXY`, real client IP in the audit trail | These need a hosting/topology and certificate decision that a code-only change cannot make, and several change production behaviour behind a proxy. The audit's A-series could not observe or verify them locally, so they stay a deployment decision rather than a guess. |
-| Round 13's replica / PgBouncer decision (audit §1 row 2) | A capacity decision that depends on measured production load; the audit explicitly deferred it after measurement, and inventing a pool topology now would be unverified configuration. |
-| Pre-aggregated stock and a closed-year trial-balance snapshot | A9 measured the trial balance at **3,607 ms** over 3.0M lines and refuted the 100 ms target, so this is new scale work with its own invalidation design, not a defect in what shipped. |
-| Queued writes | Needs a durable queue/worker with its own retry and idempotency design; outside this round's database/CI remit. |
-| A general MFA subsystem | Deliberately not built: the API-key surface is gated by the seeded `admin-api-keys` operation plus RBAC/branch/fiscal-year guards, and a real MFA factor belongs to the public-exposure work above. |
+| Deferred item | Status | Why it is out of this round's scope | Owner decision needed |
+|---|---|---|---|
+| Round 11's round-close gates | **Deferred** | The remaining acceptance belongs to that product round's own close (marketing/counter workflows), not to an advisory-hardening slice; the parts this round could close (partial receipts, the LEND-1 reversal path) are delivered and logged above. | Round 11 product owner: run that round's close acceptance |
+| Round 13's public-exposure surface — TLS, CORS, CSP, MFA, reverse proxy, HSTS, `TRUST_PROXY`, real client IP in the audit trail | **Deferred** | These need a hosting/topology and certificate decision that a code-only change cannot make, and several change production behaviour behind a proxy. The audit's A-series could not observe or verify them locally, so they stay a deployment decision rather than a guess. | Deployment owner (user): where TLS terminates and which proxy sits in front |
+| Round 13's replica / PgBouncer decision (audit §1 row 2) | **Deferred** | A capacity decision that depends on measured production load; the audit explicitly deferred it after measurement, and inventing a pool topology now would be unverified configuration. | Ops/capacity owner: production load figures and failover requirements |
+| Pre-aggregated stock and a closed-year trial-balance snapshot | **Deferred** | A9 measured the trial balance at **3,607 ms** over 3.0M lines and refuted the 100 ms target, so this is new scale work with its own invalidation design, not a defect in what shipped. | Engineering owner: schedule the design (the closed-period *correctness* guard is the separate item worth doing first) |
+| Queued writes | **Deferred** | Needs a durable queue/worker with its own retry and idempotency design; outside this round's database/CI remit. | Engineering owner: pick the queue and its delivery semantics |
+| A general MFA subsystem | **Deferred** | Deliberately not built: the API-key surface is gated by the seeded `admin-api-keys` operation plus RBAC/branch/fiscal-year guards, and a real MFA factor belongs to the public-exposure work above. | Security/product owner, after the hosting decision above |
 
 ## Gates
 
@@ -670,7 +680,8 @@ silently dropped checkbox.
 - 2026-11-17 — **A8 done**: `npm run ci:local` runs the four workflow jobs
   (static checks, partition window + negative control on a throwaway database,
   fresh-install/build/bundle budget, full suite + docs gate) with strict job
-  selection; `tests/ciLocal.test.ts` (6) pins its commands to `ci.yml`. The
+  selection; `tests/ciLocal.test.ts` (7) pins its commands to `ci.yml` and refuses to ignore
+a workflow job with no local counterpart. The
   startup budget was red at 324.1 kB and is recalibrated to 330 kB on
   measurement (no lazy leak; eager screen weight), and the runner strips
   `NODE_ENV` so a local build is production, not a development React bundle.
@@ -854,7 +865,7 @@ silently dropped checkbox.
   lines, and Part B's remainder is listed as deferred with reasons. Stale
   evidence was dated (A6's 131-table measurement predates migration `0043`).
   Close-out gates: `npx tsc --noEmit` 0; full `npm test` **2698 tests / 2696
-  pass / 2 Windows-only skips / 0 fail**, docs-count gate matching 2698;
+  pass / 2 Windows-only skips / 0 fail**, docs-count gate matching 2699;
   `verify:fresh-install` PASS; bundle budget and the static checks clean.
   Later the same day the last deferred API-key item was closed too: the per-key
   RPM cap moved from process memory to the shared Redis sliding window
@@ -868,6 +879,18 @@ silently dropped checkbox.
   (429 + `Retry-After`), and shows the reverse direction after the shared bucket
   is deleted; `tests/apikeyRpmProofScript.test.ts` pins that wiring. Suite 2698 /
   2696 pass / 2 skips / 0 fail.
+
+- 2026-11-19 — **close-out re-audit against the repository.** Every A1–A10 and
+  Part C item was re-checked against its code and test file rather than against
+  this note. One real gap surfaced in A8: `ci.yml` had grown a fifth job
+  (`docs-count-gate`, merging the sharded summaries) while the parity test still
+  hard-coded four jobs, so a new workflow job could be silently uncovered.
+  `tests/ciLocal.test.ts` now parses the workflow's job list and fails unless every
+  job is either run locally or named in a one-entry CI-only allowlist with its
+  reason (7/7). The deferred table also gained a status and an owner decision per
+  row, and A5's undated-row caveat was corrected: that branch is unreachable by
+  construction because the partition keys are `NOT NULL`. Suite 2699 / 2697 pass /
+  2 skips / 0 fail.
 
 ## Closed — 2026-11-19
 
@@ -885,11 +908,12 @@ re-run, and every command the note relies on was executed again. Results:
 | A5 | `tests/defaultPartitionRepair.test.ts` (dirty DEFAULT → clean, plan moves nothing, rerun clean) | **4/4** |
 | A6 | `tests/schemaSnapshot.test.ts`; `node scripts/verify_fresh_install.mjs` | **5/5**; parity **PASS** (172 tables / 2,774 columns / 2,316 constraints / 999 indexes / 1,100 storage / 122 triggers, all identical, throwaway databases dropped) |
 | A7 | `tests/logTablePartitions.test.ts` (partitioned writes, DEFAULT, UPDATE/DELETE/child-DELETE refused, sanctioned purge, populated conversion) | **7/7** |
-| A8 | `tests/ciLocal.test.ts`; `check:bundle-budget`; `check:no-inline-sql`; `check:no-raw-dialogs` | **6/6**; startup **324.5 kB / 330 kB**, entry 22.3 / 22.375 kB, **OK**; no SQL literals in 50 controllers; no native dialogs in 292 client files |
+| A8 | `tests/ciLocal.test.ts` (parity, strict selection, no `NODE_ENV` leak, and every workflow job either covered or CI-only with a reason); `check:bundle-budget`; `check:no-inline-sql`; `check:no-raw-dialogs`; `check:branch-predicates` | **7/7**; startup **324.5 kB / 330 kB**, entry 22.3 / 22.375 kB, **OK**; no SQL literals in 50 controllers; no native dialogs in 292 client files |
 | A9 | `tests/scaleFixtureGuards.test.ts`, `tests/pageReadIndexes.test.ts` (the fixture/measurement scripts exist; the measured numbers stay in audit §4) | **5/5** and **5/5** |
 | A10 | `tests/inputReadiness.test.ts` (17) + `tests/browserPageErrors.test.ts` (7); `node scripts/check_boot_timing.mjs --base-url http://localhost:3000` against the live dev server | **17/17** and **7/7**; gate **exit 0** — `✔ Input readiness — page visible and focused; 10 interactive control(s) in <main>; typed … value changed`, splash 1,895 ms cold / 3,076 ms warm (budget 6,000 ms) |
+| Part B | Round 11 partial receipts + LEND-1 reversal and the four Round 13 partition conversions: delivered and logged above; the remainder is the six deferred rows below | partial delivery, remainder **deferred with owner decision named** |
 | Part C | `tests/apiKeys.api.test.ts`; `npm run verify:apikey-rpm`; `0043_api_keys` mirrored in `schema.sql` | **8/8**; cross-process proof **PASS** (worker B 429 + `Retry-After`, reverse direction 429, bucket deletion restores capacity) |
-| Round | `npx tsc --noEmit`; full `npm test`; docs-count gate | **0**; **2698 tests / 2696 pass / 2 Windows-only skips / 0 fail**; gate matching 2698 |
+| Round | `npx tsc --noEmit`; full `npm test`; docs-count gate | **0**; **2699 tests / 2697 pass / 2 Windows-only skips / 0 fail**; gate matching 2699 |
 
 Two statements were stale and were corrected rather than re-labelled: Part C
 still called the suite "2697" after the cross-process proof added the 2,698th
@@ -898,8 +922,9 @@ arming pin (6). A6's "today's live run" parenthetical was replaced with the
 2026-11-19 numbers above, since migration `0043` and the later conversions moved
 tables 132 → 172 and storage entries 752 → 1,100.
 
-**Nothing here is silently deferred.** The six remaining items are the ones in
-“Deferred — accepted out of scope”, each with a stated reason; the API-key RPM
+**Nothing here is silently deferred.** Every remaining item is a row in
+“Deferred — accepted out of scope”, each carrying its status, its reason and the
+owner decision that would unblock it; the API-key RPM
 limitation that was deferred at close is now delivered and proven across two OS
 processes. With this section the advisory round is closed: no Part A slice, no
 Part C item, and no advisory plan is open.
