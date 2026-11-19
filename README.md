@@ -149,7 +149,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 | **Node.js** | `v24.x` LTS (minimum `v22.x`) | [nodejs.org](https://nodejs.org/); the server, build and tests all run on the same version |
 | **npm** | `v10+` | Bundled with Node.js; the lockfile is committed, use `npm ci` on CI/production |
 | **PostgreSQL** | `v14+` (tested on 18) | Required — there is no in-memory or file fallback. `npm run setup:pg` can install and bootstrap it |
-| **Redis** | `v5+` (tested on the current Windows port) | Optional, needed for more than one app instance: shared sessions, rate limits, locks, SSE fan-out, cross-worker invalidation and the catalog read-through |
+| **Redis** | `v5+` recommended | Optional, needed for more than one app instance: shared sessions, rate limits, locks, SSE fan-out, cross-worker invalidation and the catalog read-through. Older builds that lack `ZPOPMAX` still work — `rateRevoke` falls back to `ZREVRANGE` + `ZREM` |
 | **PgBouncer** | `1.24+` | Optional, `pool_mode=transaction` in front of PostgreSQL; the schema/seed job, warm pool, cache hydration and Redis subscriber all run through it unchanged |
 | **RAM / disk** | 2 GB+ free RAM, 2 GB+ free disk | The dev server, PostgreSQL and an optional Redis fit comfortably in 2 GB; the build needs ~1 GB transient |
 | **Network ports** | `3000` (app), `5432` (PostgreSQL), `6379` (Redis, optional), `6432`/`56440` (PgBouncer, optional) | Nothing else is required inbound; the app serves HTTP on `PORT` |
