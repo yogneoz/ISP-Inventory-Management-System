@@ -14,8 +14,8 @@ scope** with reasons in “Deferred — accepted out of scope” below: Round 11
 round-close gates, Round 13's public-exposure surface, the replica/PgBouncer
 decision, pre-aggregated stock and the closed-year snapshot, queued writes, and
 a general MFA subsystem. **Gates at close:** `npx tsc --noEmit` 0; full
-`npm test` 2697 tests / 2695 pass / 2 Windows-only skips / 0 fail, with the
-docs-count gate matching 2697; `verify:fresh-install` PASS; `check:bundle-budget`,
+`npm test` 2698 tests / 2696 pass / 2 Windows-only skips / 0 fail, with the
+docs-count gate matching 2698; `verify:fresh-install` PASS; `check:bundle-budget`,
 `check:no-inline-sql` and `check:no-raw-dialogs` clean.
 
 Source: the 2026-11-17 database-optimisation audit
@@ -852,8 +852,8 @@ silently dropped checkbox.
   rows now read `[—]` for Rounds 11 and 13, matching those notes' own status
   lines, and Part B's remainder is listed as deferred with reasons. Stale
   evidence was dated (A6's 131-table measurement predates migration `0043`).
-  Close-out gates: `npx tsc --noEmit` 0; full `npm test` **2697 tests / 2695
-  pass / 2 Windows-only skips / 0 fail**, docs-count gate matching 2697;
+  Close-out gates: `npx tsc --noEmit` 0; full `npm test` **2698 tests / 2696
+  pass / 2 Windows-only skips / 0 fail**, docs-count gate matching 2698;
   `verify:fresh-install` PASS; bundle budget and the static checks clean.
   Later the same day the last deferred API-key item was closed too: the per-key
   RPM cap moved from process memory to the shared Redis sliding window
@@ -862,4 +862,9 @@ silently dropped checkbox.
   local fallback. `tests/apiKeys.api.test.ts` grew to 8 tests (second app
   instance refused by the same budget; deleting the Redis bucket restores
   capacity), moving the pinned suite to 2697 / 2695 pass / 2 skips / 0 fail.
+  The cross-process guarantee is now proven, not inferred: `npm run verify:apikey-rpm`
+  boots worker B as a separate OS process, shows it refused by worker A's spend
+  (429 + `Retry-After`), and shows the reverse direction after the shared bucket
+  is deleted; `tests/apikeyRpmProofScript.test.ts` pins that wiring. Suite 2698 /
+  2696 pass / 2 skips / 0 fail.
 

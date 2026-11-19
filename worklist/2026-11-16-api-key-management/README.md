@@ -573,6 +573,20 @@ fallback. `tests/apiKeys.api.test.ts` covers it with a second app instance and a
 direct look at the Redis bucket (deleting it restores capacity; bypassing the
 Redis path fails the test).
 
+### Cross-process proof — 2026-11-19
+
+`npm run verify:apikey-rpm` (`scripts/verify_apikey_rpm.ts`) mirrors
+`verify:redis-invalidation`: the parent is worker A and spawns worker B as a
+separate `tsx` process, both serving the real app on their own ports against
+the same PostgreSQL and Redis. With `rpmLimit = 2` it records: A 200, A 200,
+B **429** with `Retry-After=59` (B is bound by A's spend), then deletes the
+shared bucket and records B 200, A 200 and A **429** (A is bound by B's spend
+too), finishing with `PASS — two OS processes share one API-key RPM budget
+through Redis`. Deleting the bucket is the control: a per-process counter would
+be unaffected by it. `tests/apikeyRpmProofScript.test.ts` pins the script, its
+npm wiring and both assertion directions so the proof cannot be weakened
+silently.
+
 ### Automated regression suite — 2026-11-19 (later same day)
 
 `tests/apiKeys.api.test.ts` now covers the whole path over the real Express app
@@ -616,7 +630,7 @@ now 12 hex characters and the test pins that the prefix is separator-safe.
   screen chunk in the startup graph).
 - Migration applied at boot: `Schema migrations at 0043_api_keys`.
 - Adding `tests/apiKeys.api.test.ts` moved the pinned suite size 2689 -> 2696
-  (2697 after the shared-RPM test) and
+  (2698 after the cross-process proof test) and
   the full `npm test` run then surfaced five stale pins the earlier delivery had
   left behind (they were never exercised because the suite was not re-run):
   `appPaths` screen count 108 -> 109, the missing `settings/ApiKeys.tsx` surface
