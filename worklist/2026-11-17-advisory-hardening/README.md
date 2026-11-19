@@ -577,6 +577,12 @@ it returned 200; a POST with the same read-only key returned 403
 key 401 `API_KEY_EXPIRED`; a revoked key 401 `API_KEY_REVOKED`; and PostgreSQL
 stores only the prefix and `sha256(secret)` — no plaintext anywhere in the row.
 
+The behaviour is now pinned by `tests/apiKeys.api.test.ts` (7 tests inside the
+2696-test suite): creation with a one-time secret and hash-only storage, a gated
+GET 200 vs an out-of-scope 403, the read-only 403, revoked and expired 401s,
+rotation's grace window, and the `admin-api-keys` requirement. Disabling the
+read-only or the revocation check makes that suite fail.
+
 ## Gates
 
 - `npx tsc --noEmit`, the slice's tests, `check:no-inline-sql`,

@@ -354,7 +354,7 @@ the screen in a lazy chunk.
 
 ### APIK-6 — Integration tests and gates
 
-Priority: P0 · Status: `[x]` (live HTTP evidence below; no new automated suite, so the pinned test count is unchanged)
+Priority: P0 · Status: `[x]` (automated suite `tests/apiKeys.api.test.ts`, 7 tests; live HTTP evidence below)
 
 Required matrix (all over real HTTP + PostgreSQL, skipped without a DB like the
 other API suites):
@@ -558,6 +558,38 @@ deleted after use):
 14 rotate                                       200 new secret; old key 200 in grace, new key 200
 ```
 
+### Automated regression suite — 2026-11-19 (later same day)
+
+`tests/apiKeys.api.test.ts` now covers the whole path over the real Express app
+and PostgreSQL, in the same shape as `tests/adminPerformance.api.test.ts`
+(`createApp()` + `registerAllRoutes` on an ephemeral port, `setUsers` +
+`setPermissionMatrix`, `ensureReferenceData`, skipped when no database is
+reachable). Seven tests:
+
+1. creation returns the plaintext once and the row holds only `sha256(secret)`
+   (with the plaintext absent from `row_to_json`), and no list response carries
+   the secret or a hash field;
+2. a `gl-view` key reads the gated trial balance (200), an `admin-audit` key is
+   refused 403 `API_KEY_SCOPE`, and a key minted by a Super Admin still has no
+   Super Admin override;
+3. a read-only key is refused on a non-GET with 403 `API_KEY_READ_ONLY` while
+   the same key still reads;
+4. revocation returns 401 `API_KEY_REVOKED` on the next request and the row
+   records `revoked_by`;
+5. an expired key returns 401 `API_KEY_EXPIRED` even though `is_active` is
+   still true;
+6. rotation issues a different secret, the old one serves its 24h grace and the
+   new one works immediately;
+7. list/create/rotate/revoke are refused for an account without
+   `admin-api-keys`, and the refused calls change no row.
+
+Proof the suite bites: with the read-only short-circuit and the revocation
+check temporarily disabled, the run failed 3/7 (read-only, revoked, expired);
+restored, it passes 7/7, three consecutive runs. The suite also caught a real
+defect the curl demo could not: `key_prefix` was base64url, so a random prefix
+containing the `_` separator made `splitToken` parse the wrong halves and the
+key answered 401 (rotation's grace-window assertion exposed it). Prefixes are
+now 12 hex characters and the test pins that the prefix is separator-safe.
 ### Gates
 
 - `npx tsc --noEmit` -> 0.
@@ -568,5 +600,12 @@ deleted after use):
   on measurement (shell wiring only; `findLazyScreenChunksInStartup` finds no
   screen chunk in the startup graph).
 - Migration applied at boot: `Schema migrations at 0043_api_keys`.
+- Adding `tests/apiKeys.api.test.ts` moved the pinned suite size 2689 -> 2696 and
+  the full `npm test` run then surfaced five stale pins the earlier delivery had
+  left behind (they were never exercised because the suite was not re-run):
+  `appPaths` screen count 108 -> 109, the missing `settings/ApiKeys.tsx` surface
+  pin, the docs screen tallies (118 -> 119 total, 107 -> 108 in the table) and
+  `schema.sql` table count 130 -> 132 in the drift and parity guards. All
+  reconciled in the same change; the second full run is green.
 +- Commit: `bea2c04` (25 files; migration, repository, service, middleware, controller,
   routes, screen, shell wiring, schema mirror, guard pins and these notes).

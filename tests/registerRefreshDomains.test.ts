@@ -1226,6 +1226,8 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     // Login Locks reads live limiter state (not a paged register) and releases
     // it on demand; the screen is its own sidebar route.
     'settings/LoginLocks.tsx': ['getRateLimitBlocks', 'releaseRateLimit'],
+    // The API creator reads the list and calls create/rotate/revoke/logs; each is a distinct api.* call site.
+    'settings/ApiKeys.tsx': ['createApiKey', 'getApiKeyLogs', 'getApiKeys', 'revokeApiKey', 'rotateApiKey'],
 
     // — HR Phase 2: employee, attendance/leave, org-master and payroll screens.
     //   AttendanceLeave and Payroll are whole-list mount/selection screens;

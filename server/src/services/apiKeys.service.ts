@@ -2,8 +2,11 @@
  * API-key service (Round 14 Part C).
  *
  * A key is `isp_live_<prefix>_<secret>`:
- *   - `prefix` is 6 random bytes, base64url — stored plaintext and indexed, so
- *     authentication is one row lookup;
+ *   - `prefix` is 6 random bytes encoded as 12 lowercase hex characters — stored
+ *     plaintext and indexed, so authentication is one row lookup. Hex, not
+ *     base64url: the prefix must never contain the `_` separator, or a token
+ *     whose random prefix happens to include one parses into the wrong halves
+ *     and is rejected as invalid (caught by tests/apiKeys.api.test.ts).
  *   - `secret` is 32 random bytes, base64url — NEVER stored; only
  *     `sha256(secret)` is, and comparison is constant-time.
  *
@@ -82,7 +85,7 @@ export function hashSecret(secret: string): string {
 }
 
 export function generateApiKeyParts(): { prefix: string; secret: string; token: string } {
-  const prefix = base64url(crypto.randomBytes(PREFIX_BYTES));
+  const prefix = crypto.randomBytes(PREFIX_BYTES).toString('hex');
   const secret = base64url(crypto.randomBytes(SECRET_BYTES));
   return { prefix, secret, token: `${API_KEY_TOKEN_PREFIX}${prefix}_${secret}` };
 }
@@ -98,6 +101,7 @@ export function hashesMatch(expectedHex: string, actualHex: string): boolean {
 export function splitToken(token: string): { prefix: string; secret: string } | null {
   if (!token.startsWith(API_KEY_TOKEN_PREFIX)) return null;
   const rest = token.slice(API_KEY_TOKEN_PREFIX.length);
+  // The prefix is hex (no separator character), so the first `_` is the split.
   const separator = rest.indexOf('_');
   if (separator <= 0 || separator === rest.length - 1) return null;
   const prefix = rest.slice(0, separator);
