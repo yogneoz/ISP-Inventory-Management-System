@@ -568,3 +568,5 @@ deleted after use):
   on measurement (shell wiring only; `findLazyScreenChunksInStartup` finds no
   screen chunk in the startup graph).
 - Migration applied at boot: `Schema migrations at 0043_api_keys`.
++- Commit: `bea2c04` (25 files; migration, repository, service, middleware, controller,
+  routes, screen, shell wiring, schema mirror, guard pins and these notes).
