@@ -121,7 +121,7 @@ const EXPECTED: Record<string, { sections: string[]; items: string[] }> = {
     sections: ['Forms', 'Registers'],
     items: [
       'create-sale', 'create-sales-return', 'device-exchange',
-      'sales-list', 'sales-returns', 'customer-devices', 'seller-warranty',
+      'sales-list', 'sales-returns', 'customer-devices', 'field-work-orders', 'seller-warranty',
     ],
   },
   logistics: {

@@ -73,8 +73,10 @@ describe('startup graph guard — lazy screens stay off the startup graph', () =
   });
 
   test('every real App.tsx lazy declaration classifies to a chunk prefix', () => {
-    const appSource = fs.readFileSync(path.resolve('client/src/App.tsx'), 'utf8');
-    const paths = lazyImportPaths(appSource);
+    const appSource = fs.readFileSync(path.resolve('client/src/routes/lazyScreens.ts'), 'utf8');
+    // lazyScreens sits beside the features, so its specifiers are '../features/…';
+    // normalise to the './features/…' form the chunk-prefix mapper speaks.
+    const paths = lazyImportPaths(appSource).map((p) => p.replace(/^\.\.\//, './'));
     assert.ok(paths.length > 0, 'expected App.tsx to declare lazy screens');
     for (const importPath of paths) {
       assert.ok(

@@ -295,7 +295,8 @@ describe('fixed assets are off the login payload', () => {
     assert.doesNotMatch(app, /const \[assets, setAssets\]/);
     assert.doesNotMatch(app, /if \(data\.assets\)/);
     assert.doesNotMatch(app, /\sassets=\{assets\}/);
-    assert.match(app, /fixedAssets: 0,/);
+    // The register counters moved to the sync hook with the slice map.
+    assert.match(read('client/src/hooks/useSyncStream.ts'), /fixedAssets: 0,/);
   });
 
   test('the asset screens read the paged / overview endpoints', () => {

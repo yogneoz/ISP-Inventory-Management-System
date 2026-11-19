@@ -91,6 +91,38 @@ end.
    scan) plus guards that were already stale before it. No test file was edited
    in this step, so no assertion was loosened.
 
+   **Suite cleanup (2026-11-19).** `env -u PORT npm test` is green: 2,703 tests,
+   2,701 pass, 0 fail, 2 Windows-only skips. What the pass fixed, at the root:
+
+   - **Restored the effective-permission resolution.** The step-3 routing
+     extraction had deleted `refreshEffectivePermissions`
+     (`api.getMyPermissions()` → `applyEffectivePermissions`, the
+     `inventory_permissions_updated` listener and `permissionsVersion` bump).
+     Per-user permission exceptions had stopped being applied; the block is
+     restored verbatim above the theme effect, and its guard is untouched.
+   - **Field work orders, fully propagated.** Migration
+     `0045_field_work_order_bs.sql` + `schema.sql` add
+     `field_work_orders.scheduled_date_bs`; the repo insert pairs it via
+     `resolveBsDateForLedgerSync`; `/field-work-orders` is now in
+     `BRANCH_SCOPED_RESOURCES`; the schema/docs counts moved to 133 tables
+     (schema.sql) and 125 top-level tables (README, four claims).
+   - **Stale expectations updated to the real current values** (not loosened):
+     route table 109 → 110 entries (two guards), permission matrix 69 → 70
+     operations, the sidebar Sales group's Registers list now includes
+     `field-work-orders`, and `screenPreload` gained its preloader.
+   - **Guards repointed to the code's new owners**, assertions unchanged:
+     `DOMAIN_STATE_KEYS`, the CPE/ASSETS invalidation and the `fixedAssets`
+     counter now read `hooks/useSyncStream.ts`; lazy declarations are read from
+     `routes/lazyScreens.ts` (screen preload + startup-graph classifier,
+     normalising `../` specifiers); the saved-tab key is asserted against
+     `utils/tabStorage.ts`, which `screenPreload` re-exports as the single
+     source.
+
+   The migration was applied to the local dev database (the schema-drift guard
+   compares live columns against `schema.sql`). Gates: `tsc` 0, build 0, budget
+   OK (entry 22.5 / 23.375 kB, startup 329.6 / 330 kB, 92 startup chunks, 83
+   dynamic chunks, `shared-domain-actions` kept). Nothing in step 4 changed.
+
 6. **`[ ]` Bootstrap state → context.** `BootstrapDataContext` for products,
    stock, branches, suppliers, purchase orders, slice state and Postgres status,
    so screens stop taking 15 props each. This is last because it touches every

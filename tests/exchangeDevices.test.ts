@@ -319,13 +319,15 @@ describe('EXCH-1 — the search reaches the server, page by page', () => {
 describe('DF-16 + EXCH-1 — wiring', () => {
   const app = read('client/src/App.tsx');
 
+  const sync = read('client/src/hooks/useSyncStream.ts');
+
   test('App invalidates on CPE/asset events and full refresh, and resets on sign-out', () => {
     assert.ok(
       app.includes('invalidateExchangeDevices'),
       'App must invalidate the shared exchange cache'
     );
     assert.ok(
-      app.includes("domains.includes('CUSTOMER_DEVICES') || domains.includes('ASSETS')"),
+      sync.includes("domains.includes('CUSTOMER_DEVICES') || domains.includes('ASSETS')"),
       'CPE flows and asset moves create/close the deployed-device rows'
     );
     assert.match(

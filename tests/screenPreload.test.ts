@@ -25,8 +25,11 @@ const read = (relativePath: string): string =>
 /** Tab ids whose route renders a component declared with React.lazy(). */
 function lazyTabsFromApp(): string[] {
   const app = read('client/src/App.tsx');
+  // The `React.lazy` declarations live in the route registry module, the
+  // table that renders them in App; the guard reads both.
+  const lazyScreens = read('client/src/routes/lazyScreens.ts');
   const lazyComponents = new Set(
-    [...app.matchAll(/const\s+(\w+)\s*=\s*React\.lazy\(/g)].map((match) => match[1])
+    [...lazyScreens.matchAll(/const\s+(\w+)\s*=\s*React\.lazy\(/g)].map((match) => match[1])
   );
   const starts = [...app.matchAll(/screenRoute\('([^']+)'/g)];
   const tabs: string[] = [];
@@ -105,7 +108,7 @@ describe('saved-tab screen preload', () => {
     assert.equal(ACTIVE_TAB_STORAGE_KEY, 'inventory_active_tab');
     assert.match(
       app,
-      /import \{ ACTIVE_TAB_STORAGE_KEY \} from '\.\/screenPreload'/,
+      /import \{ ACTIVE_TAB_STORAGE_KEY \} from '\.\/utils\/tabStorage'/,
       'App must share the storage key with the preloader'
     );
     assert.doesNotMatch(

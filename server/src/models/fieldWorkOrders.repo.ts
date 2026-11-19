@@ -6,6 +6,7 @@
  * a post-filter: a caller that may see one branch never reads another's rows.
  */
 import { pgPool } from '../../db';
+import { resolveBsDateForLedgerSync } from '../utils/bsDate';
 
 export interface FieldWorkOrderRow {
   id: string;
@@ -119,10 +120,10 @@ export async function insertFieldWorkOrder(input: {
      )
      INSERT INTO field_work_orders (
        work_order_no, branch_id, customer_id, kind, status, technician_id,
-       technician_name, scheduled_date_ad, ont_serial, router_serial, ip_address,
+       technician_name, scheduled_date_ad, scheduled_date_bs, ont_serial, router_serial, ip_address,
        plan_name, notes, created_by
      )
-     SELECT next_no.no, $1, $2, $3, $4, $5, $6, $7::date, $8, $9, $10, $11, $12, $13
+     SELECT next_no.no, $1, $2, $3, $4, $5, $6, $7::date, $8, $9, $10, $11, $12, $13, $14
        FROM next_no
      RETURNING id`,
     [
@@ -133,6 +134,7 @@ export async function insertFieldWorkOrder(input: {
       input.technicianId,
       input.technicianName,
       input.scheduledDateAd,
+      resolveBsDateForLedgerSync(input.scheduledDateAd),
       input.ontSerial,
       input.routerSerial,
       input.ipAddress,

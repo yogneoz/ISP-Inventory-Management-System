@@ -48,7 +48,7 @@ const SPLIT_AWAY = [
 describe('finance micro permissions', () => {
   test('the broad gl-manage grant is replaced by dedicated operations', () => {
     assert.equal(DEFAULT_PERMISSIONS_MATRIX['gl-manage'], undefined, 'gl-manage must not survive as a shadow gate');
-    assert.equal(Object.keys(DEFAULT_PERMISSIONS_MATRIX).length, 69, 'operation total');
+    assert.equal(Object.keys(DEFAULT_PERMISSIONS_MATRIX).length, 70, 'operation total');
     for (const operation of FINANCE_CONTROLS) {
       assert.ok(DEFAULT_PERMISSIONS_MATRIX[operation], `${operation} is missing from the matrix`);
       assert.deepEqual(

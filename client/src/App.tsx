@@ -394,6 +394,57 @@ export default function App() {
     persistPreference('activeTab', activeTab);
   }, [activeTab]);
 
+  /**
+   * The signed-in account's resolved operation set. Re-read on sign-in, profile
+   * switch, session restore and whenever the server matrix is republished (an
+   * SSE PERMISSIONS slice or a successful matrix save): a role change can move
+   * the base under an existing exception.
+   *
+   * A failed read clears the cache and falls back to the role matrix — the
+   * display fails closed, and the server still enforces the real answer.
+   */
+  const refreshEffectivePermissions = React.useCallback(async () => {
+    const user = currentUserRef.current;
+    if (!user) {
+      applyEffectivePermissions(null);
+      return;
+    }
+    try {
+      const resolved = await api.getMyPermissions();
+      // A slow response for a profile the user already left must never
+      // overwrite the new profile's resolved set.
+      if (currentUserRef.current?.id !== user.id) return;
+      applyEffectivePermissions(resolved.operations, resolved.role || user.role);
+    } catch {
+      if (currentUserRef.current?.id !== user.id) return;
+      applyEffectivePermissions(null);
+    } finally {
+      if (currentUserRef.current?.id === user.id) {
+        setPermissionsVersion((v) => v + 1);
+      }
+    }
+  }, []);
+  const refreshEffectivePermissionsRef = useRef(refreshEffectivePermissions);
+  refreshEffectivePermissionsRef.current = refreshEffectivePermissions;
+
+  useEffect(() => {
+    void refreshEffectivePermissions();
+  }, [currentUser?.id, refreshEffectivePermissions]);
+
+  useEffect(() => {
+    const handlePermissionsUpdated = () => {
+      // The matrix is server data: re-read it from the module cache that only
+      // applyServerMatrix() (bootstrap / successful PUT) is allowed to fill.
+      setPermissionsMatrix(getPermissionsMatrix());
+      setPermissionsVersion((v) => v + 1);
+      // The effective set is the matrix plus this account's exceptions; the
+      // matrix changing can change it, so resolve it again.
+      void refreshEffectivePermissionsRef.current();
+    };
+    window.addEventListener('inventory_permissions_updated', handlePermissionsUpdated);
+    return () => window.removeEventListener('inventory_permissions_updated', handlePermissionsUpdated);
+  }, []);
+
   // Theme: managed by DarkModeContext (adds/removes `dark` class on <html>)
   const { isDarkMode, toggleTheme: handleToggleTheme, applyServerTheme } = useDarkMode();
 

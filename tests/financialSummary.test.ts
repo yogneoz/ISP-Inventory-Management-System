@@ -126,11 +126,10 @@ describe('financialSummary — slice wiring', () => {
   });
 
   test('App re-fetches the summary for every domain that changes it', () => {
-    const app = read('client/src/App.tsx');
-    const block = app.slice(
-      app.indexOf('const DOMAIN_STATE_KEYS'),
-      app.indexOf('// Paged-register refresh counters')
-    );
+    // The SSE slice map moved to the sync hook; the guard follows it.
+    const sync = read('client/src/hooks/useSyncStream.ts');
+    const start = sync.indexOf('const DOMAIN_STATE_KEYS');
+    const block = sync.slice(start, sync.indexOf('};', start) + 2);
     assert.ok(block.length > 0, 'DOMAIN_STATE_KEYS must remain a single readable map');
     for (const domain of ['STOCK', 'STOCK_OPERATIONS', 'PROCUREMENT', 'SALES', 'SHIPMENTS', 'FISCAL', 'RECALC']) {
       const line = block.split('\n').find((l) => l.trim().startsWith(`${domain}:`));

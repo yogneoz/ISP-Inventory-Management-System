@@ -58,6 +58,7 @@ export const BRANCH_SCOPED_RESOURCES: readonly BranchScopedResource[] = [
   { prefix: '/customer-devices', table: 'customer_device_records', columns: ['branch_id'] },
   { prefix: '/serial-log', table: 'serial_log', columns: ['branch_id'] },
   { prefix: '/customers', table: 'customer_records', columns: ['branch_id'] },
+  { prefix: '/field-work-orders', table: 'field_work_orders', columns: ['branch_id'] },
   { prefix: '/sales-invoices', table: 'sales_invoices', columns: ['branch_id'] },
   { prefix: '/sales-returns', table: 'sales_returns', columns: ['branch_id'] },
   { prefix: '/purchase-returns', table: 'purchase_returns', columns: ['branch_id'] },

@@ -12,7 +12,8 @@
  * Management, Stock Operations, ...) need no entry because they are already in
  * the startup graph. tests/screenPreload.test.ts cross-checks the tabs.
  */
-export const ACTIVE_TAB_STORAGE_KEY = 'inventory_active_tab';
+// One source for the saved-tab key: the routing hook reads it through here too.
+export { ACTIVE_TAB_STORAGE_KEY } from './utils/tabStorage';
 
 export type ScreenModuleLoader = () => Promise<unknown>;
 
@@ -115,6 +116,7 @@ export const SCREEN_PRELOADERS: Readonly<Record<string, ScreenModuleLoader>> = {
   ...(import.meta.env?.DEV
     ? { 'dev-statcard': () => import('./features/dev/StatCardShowcase') }
     : {}),
+  'field-work-orders': () => import('./features/sales/FieldWorkOrders'),
 };
 
 /** Start the saved tab's chunk. Unknown/eager tabs resolve to undefined. */

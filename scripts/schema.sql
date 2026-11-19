@@ -6016,6 +6016,7 @@ CREATE TABLE IF NOT EXISTS field_work_orders (
   technician_id VARCHAR(40) REFERENCES employees(id),
   technician_name VARCHAR(200),
   scheduled_date_ad DATE NOT NULL,
+  scheduled_date_bs TEXT,
   ont_serial VARCHAR(64),
   router_serial VARCHAR(64),
   ip_address VARCHAR(64),
