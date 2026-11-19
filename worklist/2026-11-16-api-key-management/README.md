@@ -354,7 +354,7 @@ the screen in a lazy chunk.
 
 ### APIK-6 — Integration tests and gates
 
-Priority: P0 · Status: `[x]` (automated suite `tests/apiKeys.api.test.ts`, 7 tests; live HTTP evidence below)
+Priority: P0 · Status: `[x]` (automated suite `tests/apiKeys.api.test.ts`, 8 tests; live HTTP evidence below)
 
 Required matrix (all over real HTTP + PostgreSQL, skipped without a DB like the
 other API suites):
@@ -366,7 +366,10 @@ other API suites):
    `expires_at = now() - 1s` and `is_active = true` → `401` (expiry is checked,
    not just the flag).
 3. Exceeding `rate_limit_rpm` → `429` with `Retry-After`, and the next window
-   admits again; two workers share the same counter.
+   admits again; two workers share the same counter. (Automated: 429 +
+   `Retry-After`, a second app instance refused by the same budget, and the
+   shared Redis bucket's own TTL plus deleting it to restore capacity — the
+   suite does not sleep through the 60 s window.)
 4. `GET /api/admin/api-keys` → no `key_hash`, no `secret`, no `keyHash`
    (case-insensitive scan of the serialized body).
 5. Create returns the secret once; a second GET of the same key does not; the
@@ -482,7 +485,7 @@ no SQL, no hash, no secret.
 
 - [x] The migration and `schema.sql` are in parity; the schema snapshot guard passes and the fresh-install comparison is recorded below.
 - [x] A key is generated once, stored hashed, scoped by operations/branches/CIDR/RPM/expiry, and revoked immediately.
-      branches/CIDR/RPM/expiry, and revoked immediately.
+      (Module is a UI grouping over the operation catalogue, not a stored column: the enforcement unit is the operation.)
 - [x] The four required integration scenarios pass over real HTTP + PostgreSQL,
       plus rotation, CIDR, no-secret-in-list and append-only audit.
 - [x] The Administration & Governance screen creates, rotates and revokes a key,
@@ -612,7 +615,8 @@ now 12 hex characters and the test pins that the prefix is separator-safe.
   on measurement (shell wiring only; `findLazyScreenChunksInStartup` finds no
   screen chunk in the startup graph).
 - Migration applied at boot: `Schema migrations at 0043_api_keys`.
-- Adding `tests/apiKeys.api.test.ts` moved the pinned suite size 2689 -> 2696 and
+- Adding `tests/apiKeys.api.test.ts` moved the pinned suite size 2689 -> 2696
+  (2697 after the shared-RPM test) and
   the full `npm test` run then surfaced five stale pins the earlier delivery had
   left behind (they were never exercised because the suite was not re-run):
   `appPaths` screen count 108 -> 109, the missing `settings/ApiKeys.tsx` surface

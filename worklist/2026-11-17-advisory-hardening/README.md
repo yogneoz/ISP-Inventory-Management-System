@@ -14,8 +14,8 @@ scope** with reasons in “Deferred — accepted out of scope” below: Round 11
 round-close gates, Round 13's public-exposure surface, the replica/PgBouncer
 decision, pre-aggregated stock and the closed-year snapshot, queued writes, and
 a general MFA subsystem. **Gates at close:** `npx tsc --noEmit` 0; full
-`npm test` 2696 tests / 2694 pass / 2 Windows-only skips / 0 fail, with the
-docs-count gate matching 2696; `verify:fresh-install` PASS; `check:bundle-budget`,
+`npm test` 2697 tests / 2695 pass / 2 Windows-only skips / 0 fail, with the
+docs-count gate matching 2697; `verify:fresh-install` PASS; `check:bundle-budget`,
 `check:no-inline-sql` and `check:no-raw-dialogs` clean.
 
 Source: the 2026-11-17 database-optimisation audit
@@ -50,7 +50,7 @@ Before this round the tracker held three notes that were not closed:
 |---|---|---|
 | [Round 11 — cash receipts and funding](../2026-11-14-cash-receipts-and-funding/README.md) `[—]` | Partial customer receipts, voucher classes, non-trade funding (loans vs sales) | **Not superseded in content.** Product/domain work this round does not touch. Carried as Part B and still tracked here. |
 | [Round 13 — enterprise scale and public exposure](../2026-11-16-enterprise-scale-and-public-exposure/README.md) `[—]` | Partition conversions of four growth tables, replica URLs, PgBouncer audit, pre-aggregated stock, TLS/CORS/CSP/MFA, reverse proxy, HSTS, `TRUST_PROXY` | **Partially superseded.** Its partition/BRIN assumptions are corrected by measurement: its "BRIN on `created_at`, `journal_date_ad`, `entry_date_ad`" line is declined in the audit (§4) because those reads are partition- or page-bounded, and A1/A2/A4/A7 below replace its provisioning assumptions. The public-exposure half is untouched by this round and carries as Part B. |
-| [Round 14 — API keys and governance](../2026-11-16-api-key-management/README.md) `[x]` | Scoped, expiring, revocable machine credentials | **Delivered 2026-11-19** as Part C below, without the MFA gate (creation is gated on `admin-api-keys` instead); the RPM cap is per worker. |
+| [Round 14 — API keys and governance](../2026-11-16-api-key-management/README.md) `[x]` | Scoped, expiring, revocable machine credentials | **Delivered 2026-11-19** as Part C below, without the MFA gate (creation is gated on `admin-api-keys` instead); the RPM cap rides the shared Redis rate-limit store when `REDIS_URL` is set. |
 
 **Conclusion.** This round is superior *for the database, CI and operational
 layer*: it is measurement-backed, it closes defects in what the previous slice
@@ -852,7 +852,14 @@ silently dropped checkbox.
   rows now read `[—]` for Rounds 11 and 13, matching those notes' own status
   lines, and Part B's remainder is listed as deferred with reasons. Stale
   evidence was dated (A6's 131-table measurement predates migration `0043`).
-  Close-out gates: `npx tsc --noEmit` 0; full `npm test` **2696 tests / 2694
-  pass / 2 Windows-only skips / 0 fail**, docs-count gate matching 2696;
+  Close-out gates: `npx tsc --noEmit` 0; full `npm test` **2697 tests / 2695
+  pass / 2 Windows-only skips / 0 fail**, docs-count gate matching 2697;
   `verify:fresh-install` PASS; bundle budget and the static checks clean.
+  Later the same day the last deferred API-key item was closed too: the per-key
+  RPM cap moved from process memory to the shared Redis sliding window
+  (`isp:rate:apikey-rpm:<key id>`), with 429 + `Retry-After` and a fail-closed
+  503 if the store errors; a single-worker install without `REDIS_URL` keeps the
+  local fallback. `tests/apiKeys.api.test.ts` grew to 8 tests (second app
+  instance refused by the same budget; deleting the Redis bucket restores
+  capacity), moving the pinned suite to 2697 / 2695 pass / 2 skips / 0 fail.
 
