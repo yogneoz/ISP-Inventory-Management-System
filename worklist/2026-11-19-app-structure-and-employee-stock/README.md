@@ -34,10 +34,34 @@ end.
    in `tests/registerRefreshDomains.test.ts` now read the hook, so the wiring
    cannot drift. App.tsx 3,352 lines; verified `tsc` 0, route/SSE tests 75/75,
    build 0, budget OK (325.9/330 kB startup).
-3. **`[ ]` URL/history sync → `hooks/useAppRouting.ts`.** `resolveInitialTab`,
-   `popstate`, `urlHistoryModeRef`, `NAVIGATE_TAB_EVENT` and the permission
-   redirect, returning `{ activeTab, recordRoute, handleSelectTab,
-   handleRecordRouteChange }`.
+3. **`[x]` URL/history sync → `hooks/useAppRouting.ts` (2026-11-19).** Initial
+   path resolution, `activeTab`/`recordRoute` state with their refs, the
+   push/replace mode ref, `handleSelectTab`/`handleRecordRouteChange`, the
+   `popstate` handler, the layout-effect address-bar write and the
+   record-closes-on-tab-change effect moved out; App keeps the render plus the
+   two redirects (permission guard, preference hydration) that set
+   `urlHistoryModeRef` to `replace`. `tests/appPaths.test.ts` now pins the
+   address-bar sync and the history write in the hook. App.tsx 3,182 lines.
+   Verified `tsc` 0, route/SSE tests 75/75, build 0, budget OK (entry 23.1 /
+   23.375 kB, startup 328.4 / 330 kB, 83 dynamic chunks); the entry gate was
+   recalibrated with that measurement recorded in `scripts/check_bundle_budget.mjs`.
+   Commit `8cfe5f5`.
+
+   **Step 4 attempted and reverted (same day).** The split itself typechecked
+   (`tsc` 0) with the table composed from `routes/screenRoutes/{common,
+   inventory,salesProcurement,finance,people,settings}.tsx` over a shared props
+   bundle, but eight source-level guards across six test files still assert the
+   old inline shape (`const screenRoutes: AppRoute[] = [` in App.tsx, 109-entry
+   scan, lazy-declaration scan, `screenRoute(` line counting, the
+   `./screenPreload` storage-key import, posted-voucher/entry-form pins).
+   Repointing each pin needs its own read-and-verify pass, so per the working
+   rule the step was reverted rather than forced: `git checkout` of the touched
+   files and deletion of the new route modules, leaving the tree clean at
+   `8cfe5f5`. Blockers to clear first: 27 test files read App.tsx as the route
+   table source, so step 4 needs a shared test helper that reads the shell plus
+   the domain builders, and each of those guards re-run before anything else
+   moves.
+
 4. **`[ ]` Route table by domain → `routes/routes/*.tsx`.** Split the
    `screenRoutes` array into inventory, sales/procurement, finance, people and
    settings builders over a shared props bundle; App.tsx only spreads them.
