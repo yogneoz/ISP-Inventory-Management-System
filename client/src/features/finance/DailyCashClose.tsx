@@ -40,9 +40,9 @@ import {
   Unlock,
   Wallet,
 } from 'lucide-react';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface DailyCashCloseProps {
-  branches: Branch[];
   dateMode: 'BS' | 'AD';
   currentUser?: User | null;
 }
@@ -94,10 +94,11 @@ const TotalsRow: React.FC<{ totals: CashPositionTotals; label: string }> = ({ to
 );
 
 export const DailyCashClose: React.FC<DailyCashCloseProps> = ({
-  branches,
   dateMode,
   currentUser,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const allowed = isOperationAllowed('gl-view', currentUser?.role);
   const canClose = isOperationAllowed('gl-cash-close', currentUser?.role);
   const isVisible = useTabActive('cash-position') && allowed;

@@ -32,9 +32,9 @@ import { FilterCard } from '../../components/common/FilterCard';
 import { PageHeader } from '../../components/common/PageHeader';
 import { ModalPanel } from '../../components/common/ModalPanel';
 import StatCard from '../../components/common/StatCard';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface SerialLogRegisterProps {
-  branches: Branch[];
   selectedBranchId: string;
   currentUser?: User | null;
   /** Global calendar mode from the header toggle (BS Nepali picker / AD native picker). */
@@ -98,13 +98,14 @@ const STATUS_META: Record<string, { badge: string; icon: React.ReactNode }> = {
 const ALL_STATUSES = ['IN_STOCK', 'IN_TRANSIT', 'CUSTOMER_ASSIGNED', 'POP_LOCATION_ASSIGNED', 'DAMAGED', 'RETURNED', 'SOLD', 'RETURNED_TO_VENDOR', 'CONSUMED'];
 
 export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
-  branches = [],
   selectedBranchId,
   currentUser,
   dateMode = 'BS',
   onRefreshData,
   refreshKey = 0,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   const [filterBranch, setFilterBranch] = useState<string>('ALL');
   // Register date range (canonical AD values; DateField converts BS picks).

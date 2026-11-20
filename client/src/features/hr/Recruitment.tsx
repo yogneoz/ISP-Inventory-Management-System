@@ -38,10 +38,10 @@ import type {
 import type { Branch, User } from '../../types';
 import { formatMoney } from '../../utils/nprFormat';
 import { isOperationAllowed } from '../../utils/permissions';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface RecruitmentProps {
   currentUser: User | null;
-  branches: Branch[];
   selectedBranchId?: string;
 }
 
@@ -266,9 +266,10 @@ const emptyOfferForm = (
 
 export const Recruitment: React.FC<RecruitmentProps> = ({
   currentUser,
-  branches,
   selectedBranchId,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const activationKey = useActivationKey('hr-recruitment');
   const { confirm: confirmDialog, alert: alertDialog } = useDialog();
   const canView =

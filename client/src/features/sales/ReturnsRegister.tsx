@@ -49,19 +49,16 @@ import type { RecordRoute } from '../../routes/appPaths';
 import type {
   PurchaseInvoice, SalesInvoice, PurchaseReturn, SalesReturn, Product, Branch, CompanyProfile, User,
 } from '../../types';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 export type ReturnKind = 'PURCHASE' | 'SALES';
 
 interface ReturnsRegisterProps {
   kind: ReturnKind;
-  companyProfile?: CompanyProfile | null;
   currentUser?: User | null;
   /** Purchase invoices (kind=PURCHASE) to return against. The sales kind
    * searches its invoices through GET /api/sales-invoices instead. */
-  purchaseInvoices: PurchaseInvoice[];
   returns: (PurchaseReturn | SalesReturn)[];
-  products: Product[];
-  branches: Branch[];
   selectedBranchId: string;
   dateMode: 'BS' | 'AD';
   /** Sidebar menu that opened this page: opens the create form directly. */
@@ -125,10 +122,7 @@ interface RetLine {
 export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
   kind,
   currentUser,
-  purchaseInvoices,
   returns,
-  products,
-  branches,
   selectedBranchId,
   dateMode,
   autoOpenCreate = false,
@@ -139,6 +133,8 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
   recordRoute = null,
   onRecordRouteChange,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches, companyProfile, products, purchaseInvoices } = useBootstrapData();
   const { isDarkMode } = useDarkMode();
   const { confirm: confirmDialog, alert: alertDialog } = useDialog();
   const [internalTab, setInternalTab] = useState<'LIST' | 'CREATE' | 'VIEW'>(autoOpenCreate ? 'CREATE' : 'LIST');

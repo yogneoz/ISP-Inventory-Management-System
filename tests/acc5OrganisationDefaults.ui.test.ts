@@ -13,6 +13,7 @@ import { BranchesManagement } from '../client/src/features/settings/BranchesMana
 import type { Branch, CostCenter, User } from '../client/src/types';
 import { mountTree } from './harness/mount';
 import { installApiStubs } from './harness/appRouteTreeProbe';
+import { BootstrapDataProvider } from '../client/src/contexts/AppProviders';
 
 const admin = { id: 'u-1', name: 'Admin', role: 'SUPER_ADMIN', branchId: 'ALL' } as unknown as User;
 const branch = {
@@ -51,14 +52,13 @@ test('the branch edit panel filters centres to the branch and saves the default'
     createElement(
       DialogProvider,
       null,
-      createElement(BranchesManagement, {
-        branches: [branch],
+      createElement(BootstrapDataProvider, { initial: { branches: [branch] } }, createElement(BranchesManagement, {
         currentUser: admin,
         onUpdateBranch: async (id: string, patch: Partial<Branch>) => {
           captured.id = id;
           captured.patch = patch;
         },
-      })
+      }))
     )
   );
   try {

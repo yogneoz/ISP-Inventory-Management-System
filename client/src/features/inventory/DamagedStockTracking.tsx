@@ -42,13 +42,10 @@ import { PageHeader } from '../../components/common/PageHeader';
 import { indexStockByProductBranch, stockRowAt } from '../../utils/stockIndex';
 import { useDialog } from '../../components/common/DialogProvider';
 import { useDarkMode } from '../../contexts/DarkModeContext';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface DamagedStockTrackingProps {
   currentUser?: User | null;
-  products: Product[];
-  branches: Branch[];
-  stock: InventoryStock[];
-  damageRecords?: DamageRecord[];
   selectedBranchId: string;
   /** Global calendar mode from the header toggle (BS Nepali picker / AD native picker). */
   dateMode?: 'BS' | 'AD';
@@ -61,10 +58,6 @@ interface DamagedStockTrackingProps {
 
 export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
   currentUser,
-  products,
-  branches,
-  stock,
-  damageRecords = [],
   selectedBranchId,
   dateMode = 'BS',
   onUpdateStockLevel,
@@ -72,6 +65,8 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
   onReverseStockOperation,
   onNavigateTab,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches, damageRecords, products, stock } = useBootstrapData();
   const { isDarkMode } = useDarkMode();
   const { alert: alertDialog, prompt: promptDialog } = useDialog();
   // Modal State for adjusting local damaged count

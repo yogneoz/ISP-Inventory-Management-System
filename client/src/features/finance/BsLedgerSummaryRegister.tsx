@@ -19,6 +19,7 @@ import {
 } from '../../components/accounting/AccountingRegisterShell';
 import type { AccountingScreenProps } from '../../components/accounting/AccountingRegisterShell';
 import { money } from '../../components/accounting/statementFormat';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 const QUARTER_LABELS: Record<string, string> = {
   Q1: 'Q1 · Shrawan–Ashwin',
@@ -44,10 +45,11 @@ const SummaryCard: React.FC<{ label: string; value: string; hint?: string }> = (
 );
 
 export const BsLedgerSummaryRegister: React.FC<AccountingScreenProps> = ({
-  branches,
   dateMode,
   currentUser,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const scope = useAccountingScope(branches, currentUser);
   const [fromDate, setFromDate] = useState('');
   const [data, setData] = useState<BsLedgerSummaryResponse | null>(null);

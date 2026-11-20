@@ -24,9 +24,9 @@ import {
   hasGlobalBranchScope,
   isOperationAllowed,
 } from '../../utils/permissions';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface PayrollPostingsRegisterProps {
-  branches: Branch[];
   currentUser?: User | null;
 }
 
@@ -45,9 +45,10 @@ const statusBadgeClass = (status: string): string =>
     : 'border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-300';
 
 export const PayrollPostingsRegister: React.FC<PayrollPostingsRegisterProps> = ({
-  branches,
   currentUser,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const allowed = isOperationAllowed('gl-view', currentUser?.role);
   const canSeeAll = hasGlobalBranchScope(currentUser);
   const scopedBranches = useMemo(

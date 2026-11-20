@@ -29,12 +29,10 @@ import {
   indexStockByProductBranch,
   stockRowAt,
 } from '../../utils/stockIndex';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface ExportStockProps {
   currentUser?: User | null;
-  products: Product[];
-  branches: Branch[];
-  stock: InventoryStock[];
   selectedBranchId?: string;
   dateMode?: 'BS' | 'AD';
 }
@@ -43,12 +41,11 @@ export type ExportViewMode = 'SERIALIZED_DEVICES' | 'REORDER_LIST' | 'MASTER_STO
 
 export const ExportStock: React.FC<ExportStockProps> = ({
   currentUser,
-  products,
-  branches,
-  stock,
   selectedBranchId = 'ALL',
   dateMode = 'BS',
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches, products, stock } = useBootstrapData();
   const { alert: alertDialog } = useDialog();
   const [viewMode, setViewMode] = useState<ExportViewMode>('SERIALIZED_DEVICES');
   const [filterBranch, setFilterBranch] = useState<string>(selectedBranchId);

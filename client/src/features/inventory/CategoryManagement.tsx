@@ -9,16 +9,17 @@ import { FilterCard } from '../../components/common/FilterCard';
 import { ModalPanel } from '../../components/common/ModalPanel';
 import { PageHeader } from '../../components/common/PageHeader';
 import { LoadStateNotice } from '../../components/common/LoadStateNotice';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface CategoryManagementProps {
-  products: Product[];
   currentUser?: User | null;
 }
 
 export const CategoryManagement: React.FC<CategoryManagementProps> = ({
-  products,
   currentUser,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { products } = useBootstrapData();
   const { confirm: confirmDialog, alert: alertDialog } = useDialog();
   const canEdit = isOperationAllowed('category-manage', currentUser?.role);
   const [categories, setCategories] = useState<Category[]>([]);

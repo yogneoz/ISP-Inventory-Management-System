@@ -35,9 +35,9 @@ import { createLatestOnly } from '../../utils/latestOnly';
 import { exportToCSV, type CSVColumn } from '../../utils/exportUtils';
 import { formatMoney, formatNumber } from '../../utils/nprFormat';
 import { localTodayAD } from '../../utils/localDate';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface EmployeeLedgerProps {
-  branches: Branch[];
   dateMode: 'BS' | 'AD';
   /** Current fiscal-year start; the first load defaults From to this date. */
   fiscalYearStartAD?: string;
@@ -107,11 +107,12 @@ const EXPORT_COLUMNS: CSVColumn<ExportRow>[] = [
 ];
 
 export const EmployeeLedger: React.FC<EmployeeLedgerProps> = ({
-  branches,
   dateMode,
   fiscalYearStartAD,
   focusRequest,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
   const [selectedEmployeeLabel, setSelectedEmployeeLabel] = useState('');
   const [fromAD, setFromAD] = useState(() => fiscalYearStartAD || '');

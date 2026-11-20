@@ -19,6 +19,7 @@ import {
 import type { AccountingScreenProps } from '../../components/accounting/AccountingRegisterShell';
 import { ChartView } from '../../components/accounting/ChartView';
 import type { ChartState } from '../../components/accounting/ChartView';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 const EMPTY_CHART: ChartState = {
   groups: [],
@@ -30,10 +31,11 @@ const EMPTY_CHART: ChartState = {
 };
 
 export const ChartOfAccountsRegister: React.FC<AccountingScreenProps> = ({
-  branches,
   dateMode,
   currentUser,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const scope = useAccountingScope(branches, currentUser);
   const [chart, setChart] = useState<ChartState>(EMPTY_CHART);
   const [loaded, setLoaded] = useState(false);

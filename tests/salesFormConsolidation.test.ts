@@ -23,6 +23,7 @@ import { api } from '../client/src/services/api';
 import { warrantyEndFor } from '../client/src/utils/warrantyCapture';
 import { summarizeSalesWarranty } from '../client/src/utils/salesWarranty';
 import { localTodayAD } from '../client/src/utils/localDate';
+import { BootstrapDataProvider } from '../client/src/contexts/AppProviders';
 
 const root = process.cwd();
 const read = (rel: string) => fs.readFileSync(path.join(root, rel), 'utf8');
@@ -258,16 +259,13 @@ describe('sales form consolidation', () => {
         createElement(
           DialogProvider,
           null,
-          createElement(SalesInvoices, {
+          createElement(BootstrapDataProvider, { initial: { products, branches, stock } }, createElement(SalesInvoices, {
             currentUser: user,
-            products,
-            branches,
-            stock,
             selectedBranchId: 'b1',
             dateMode: 'AD',
             activeTab: 'sales-list',
             onCreateInvoice: async () => {},
-          } as any)
+          } as any))
         )
       )
     );
@@ -312,17 +310,13 @@ describe('sales form consolidation', () => {
         createElement(
           DialogProvider,
           null,
-          createElement(SalesInvoices, {
+          createElement(BootstrapDataProvider, { initial: { products, branches, stock, inventorySerials: serials } }, createElement(SalesInvoices, {
             currentUser: user,
-            products,
-            branches,
-            stock,
-            inventorySerials: serials,
             selectedBranchId: 'b1',
             dateMode: 'AD',
             activeTab: 'create-sale',
             onCreateInvoice: async () => {},
-          } as any)
+          } as any))
         )
       )
     );

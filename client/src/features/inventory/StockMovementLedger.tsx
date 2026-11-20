@@ -15,15 +15,10 @@ import { PageHeader } from '../../components/common/PageHeader';
 import { linkButton } from '../../components/common/styleConstants';
 import { api } from '../../services/api';
 import { indexStockByProductBranch, stockOnHandAt } from '../../utils/stockIndex';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface StockMovementLedgerProps {
-  products: Product[];
-  branches: Branch[];
-  stock: InventoryStock[];
-  damageRecords?: DamageRecord[];
-  stockOperations?: StockOperation[];
   shipments?: Shipment[];
-  purchaseOrders?: PurchaseOrder[];
   selectedBranchId: string;
   fiscalYearStartAD?: string;
   fiscalYearEndAD?: string;
@@ -33,19 +28,15 @@ interface StockMovementLedgerProps {
 }
 
 export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
-  products,
-  branches,
-  stock,
-  damageRecords = [],
-  stockOperations = [],
   shipments = [],
-  purchaseOrders = [],
   selectedBranchId,
   fiscalYearStartAD,
   fiscalYearEndAD,
   sseRefreshKey = 0,
   dateMode,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches, damageRecords, products, purchaseOrders, stock, stockOperations } = useBootstrapData();
   // STOCK-1: one index per stock array; the closing-balance matrix below reads
   // one quantity per (product, branch) pair instead of scanning per pair.
   const stockIndex = useMemo(() => indexStockByProductBranch(stock), [stock]);

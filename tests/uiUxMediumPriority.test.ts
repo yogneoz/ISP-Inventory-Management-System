@@ -26,6 +26,7 @@ import { PurchaseInvoiceForm } from '../client/src/features/procurement/Purchase
 import { PurchaseInvoices } from '../client/src/features/procurement/PurchaseInvoices';
 import { api } from '../client/src/services/api';
 import { formatDualDate } from '../client/src/utils/nepaliCalendar';
+import { BootstrapDataProvider } from '../client/src/contexts/AppProviders';
 
 const user = {
   id: 'u-medium',
@@ -354,11 +355,9 @@ describe('UIX-4 — one notification source for badge, drawer and Clear All', ()
       h(
         DarkModeProvider,
         null,
-        h(AppShell, {
-          companyProfile: null,
+        h(BootstrapDataProvider, { initial: { companyProfile: null, users: [user], branches, products: [product], stock, purchaseOrders: [purchaseOrder], purchaseInvoices: [], stockOperations: [], approvalRequests: [], suppliers: [] } }, h(AppShell, {
           currentUser: user,
           rootUser: null,
-          users: [user],
           onSwitchBackToRoot: async () => {},
           onSwitchProfile: async () => {},
           onUpdateProfile: async () => {},
@@ -367,7 +366,6 @@ describe('UIX-4 — one notification source for badge, drawer and Clear All', ()
           refreshAllData: () => {},
           permissionsVersion: 0,
           onToggleTheme: () => {},
-          branches,
           selectedBranchId: 'ALL',
           onSelectBranch: () => {},
           dateMode: 'AD',
@@ -380,21 +378,14 @@ describe('UIX-4 — one notification source for badge, drawer and Clear All', ()
           onSelectTab: () => {},
           searchQuery: '',
           onSearchChange: () => {},
-          products: [product],
-          stock,
-          purchaseOrders: [purchaseOrder],
-          purchaseInvoices: [],
           pendingPurchaseOrders: [purchaseOrder],
           unpaidBillCount: 0,
           shipments: [],
-          stockOperations: [],
-          approvalRequests: [],
-          suppliers: [],
           bsCalendarCoverage: null,
           bsCalendarSeedTab: 'bs-calendar',
           banners: null,
           children: h('main', null, 'workspace'),
-        } as any)
+        } as any))
       )
     );
 
@@ -553,15 +544,9 @@ describe('UIX-5 — purchase-bill actions stay reachable', () => {
       h(
         DialogProvider as any,
         null,
-        h(PurchaseInvoices, {
-          companyProfile: null,
+        h(BootstrapDataProvider, { initial: { companyProfile: null, products: [], branches, suppliers: [], stock: [], purchaseOrders: [] } }, h(PurchaseInvoices, {
           currentUser: user,
           invoices: [],
-          products: [],
-          branches,
-          suppliers: [],
-          stock: [],
-          purchaseOrders: [],
           selectedBranchId: 'ALL',
           fiscalYearStartAD: '2026-07-17',
           fiscalYearEndAD: '2027-07-16',
@@ -569,7 +554,7 @@ describe('UIX-5 — purchase-bill actions stay reachable', () => {
           onCreateInvoice: async () => {},
           onRecordPayment: async () => {},
           onDeleteInvoice: async () => {},
-        } as any)
+        } as any))
       )
     );
 

@@ -21,6 +21,7 @@ import React, { act, createElement } from 'react';
 import { mountTree, inAct } from './harness/mount';
 import { DarkModeProvider } from '../client/src/contexts/DarkModeContext';
 import { PhysicalStockAudit } from '../client/src/features/inventory/PhysicalStockAudit';
+import { BootstrapDataProvider } from '../client/src/contexts/AppProviders';
 
 const settle = async (ms = 0) => {
   await act(async () => {
@@ -69,11 +70,17 @@ const baseProps = {
 };
 
 function render(props: Record<string, unknown> = {}) {
+  // Step 6: the audit grid reads its workspace slices from the provider, so the
+  // fixture props become the provider's seed and only UI props reach the screen.
+  const merged = { ...baseProps, ...props } as any;
+  const { products, branches, stock, approvalRequests, ...screenProps } = merged;
   return mountTree(
     createElement(
       DarkModeProvider,
       null,
-      createElement(PhysicalStockAudit, { ...baseProps, ...props } as any)
+      createElement(BootstrapDataProvider, { initial: { products, branches, stock, approvalRequests } },
+        createElement(PhysicalStockAudit, screenProps as any)
+      )
     )
   );
 }

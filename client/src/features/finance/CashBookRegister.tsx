@@ -18,12 +18,14 @@ import { CashBookView } from '../../components/accounting/CashBookView';
 import { BankReconciliationPanel } from '../../components/accounting/BankReconciliationPanel';
 import { WalletReconciliationPanel } from '../../components/accounting/WalletReconciliationPanel';
 import { VoucherDetailDialog } from '../../components/accounting/VoucherDetailDialog';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 export const CashBookRegister: React.FC<AccountingScreenProps> = ({
-  branches,
   dateMode,
   currentUser,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const scope = useAccountingScope(branches, currentUser);
   const [data, setData] = useState<CashBookResponse | null>(null);
   const [loading, setLoading] = useState(false);

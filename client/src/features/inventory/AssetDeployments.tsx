@@ -10,12 +10,11 @@ import { exportToCSV } from '../../utils/exportUtils';
 import { getAllowedBranches } from '../../utils/permissions';
 import { useDialog } from '../../components/common/DialogProvider';
 import { api } from '../../services/api';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface AssetDeploymentsProps {
   /** ASSET-1: rows page through GET /api/fixed-assets/page?assigned=1. */
   refreshToken?: number;
-  branches: Branch[];
-  locations: LocationRecord[];
   currentUser?: User | null;
   dateMode: 'BS' | 'AD';
   /** Marks the asset unassigned (back to ACTIVE stock) — same payload as StockOperations' unassign flow. */
@@ -32,12 +31,12 @@ interface AssetDeploymentsProps {
  */
 export const AssetDeployments: React.FC<AssetDeploymentsProps> = ({
   refreshToken = 0,
-  branches,
-  locations,
   currentUser,
   dateMode,
   onUnassignAsset,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches, locations } = useBootstrapData();
   const { alert: alertDialog, confirm: confirmDialog, prompt: promptDialog } = useDialog();
   const [appliedSearch, setAppliedSearch] = useState('');
   // FilterCard owns the keystroke draft; an export clicked before the debounce

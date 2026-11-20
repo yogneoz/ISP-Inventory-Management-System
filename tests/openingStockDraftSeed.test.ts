@@ -19,6 +19,7 @@ import React, { act, createElement } from 'react';
 import { mountTree, inAct } from './harness/mount';
 import { OpeningStockManager } from '../client/src/features/finance/OpeningStockManager';
 import { api } from '../client/src/services/api';
+import { BootstrapDataProvider } from '../client/src/contexts/AppProviders';
 
 const branches = [{ id: 'br-a', code: 'BRA', name: 'Branch A', location: 'L' }] as any[];
 
@@ -110,12 +111,10 @@ describe('opening-stock draft seeding', () => {
       return { applied: rows.length, created: 0, message: 'saved' };
     };
     const tree = mountTree(
-      createElement(OpeningStockManager, {
+      createElement(BootstrapDataProvider, { initial: { branches, products } }, createElement(OpeningStockManager, {
         currentUser: user,
         fiscalYears,
-        branches,
-        products,
-      } as any)
+      } as any))
     );
     await settle();
     const inputs = [...tree.container.querySelectorAll('tbody input[type="number"]')] as HTMLInputElement[];

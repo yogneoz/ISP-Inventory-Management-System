@@ -10,9 +10,9 @@ import { api } from '../../services/api';
 import type { PartyControlAccount, PartyLedgerBalanceRow } from '../../services/api/accounting';
 import { requestTabNavigation } from '../../services/api/http';
 import { formatPartyBalance } from '../../utils/nprFormat';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface SuppliersManagementProps {
-  suppliers: Supplier[];
   currentUser?: User | null;
   onCreateSupplier?: (supplier: Omit<Supplier, 'id' | 'rating'>) => Promise<any>;
   onUpdateSupplier?: (id: string, supplier: Partial<Supplier>) => Promise<void>;
@@ -20,12 +20,13 @@ interface SuppliersManagementProps {
 }
 
 export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
-  suppliers,
   currentUser,
   onCreateSupplier,
   onUpdateSupplier,
   onDeleteSupplier,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { suppliers } = useBootstrapData();
   const { confirm: confirmDialog, alert: alertDialog } = useDialog();
   const canManageSuppliers = isOperationAllowed('suppliers-manage', currentUser?.role);
   const canViewLedger =

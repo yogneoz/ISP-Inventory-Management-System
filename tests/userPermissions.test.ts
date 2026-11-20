@@ -52,6 +52,7 @@ import {
   updateDraft,
   validateDrafts,
 } from '../client/src/utils/userPermissionDraft';
+import { BootstrapDataProvider } from '../client/src/contexts/AppProviders';
 
 const read = (relative: string) => fs.readFileSync(path.join(process.cwd(), relative), 'utf8');
 
@@ -219,7 +220,11 @@ describe('user permissions screen wiring', () => {
 
     const app = read('client/src/App.tsx');
     assert.match(app, /screenRoute\(\s*'user-permissions'/);
-    assert.match(app, /<UserPermissions[\s\S]*users=\{users\}/);
+    // Step 6: the users list reaches the screen through BootstrapDataProvider,
+    // not through App's JSX, so the guard follows the data to its new owner.
+    const screen = read('client/src/features/settings/UserPermissions.tsx');
+    assert.match(screen, /const \{[^}]*users[^}]*\} = useBootstrapData\(\)/);
+    assert.doesNotMatch(app, /<UserPermissions[\s\S]*users=\{users\}/);
   });
 
   test('the two access screens state their scope and link to each other', () => {
@@ -344,12 +349,10 @@ describe('user permissions editor render', () => {
     };
 
     const tree = mountTree(
-      h(DialogProvider, null, h(UserPermissions, {
+      h(DialogProvider, null, h(BootstrapDataProvider, { initial: { users: [manager], branches: [] } }, h(UserPermissions, {
         currentUser: superAdmin,
-        users: [manager],
-        branches: [],
         dateMode: 'AD',
-      }))
+      })))
     );
     try {
       await flush();
@@ -446,12 +449,10 @@ describe('user permissions editor render', () => {
     };
 
     const tree = mountTree(
-      h(DialogProvider, null, h(UserPermissions, {
+      h(DialogProvider, null, h(BootstrapDataProvider, { initial: { users: [manager], branches: [] } }, h(UserPermissions, {
         currentUser: superAdmin,
-        users: [manager],
-        branches: [],
         dateMode: 'AD',
-      }))
+      })))
     );
     try {
       await flush();
@@ -517,13 +518,11 @@ describe('user permissions editor render', () => {
     api.getPermissionSets = async () => [];
 
     const tree = mountTree(
-      h(DialogProvider, null, h(UserPermissions, {
+      h(DialogProvider, null, h(BootstrapDataProvider, { initial: { users: [manager, secondUser], branches: [] } }, h(UserPermissions, {
         currentUser: superAdmin,
-        users: [manager, secondUser],
-        branches: [],
         dateMode: 'AD',
         focusRequest: { userId: secondUser.id, requestId: 7, operationId: 'inv-pay' },
-      }))
+      })))
     );
     try {
       await flush();
@@ -548,13 +547,11 @@ describe('user permissions editor render', () => {
       assert.equal(tree.container.querySelector('[data-focused-operation="inv-pay"]'), null);
 
       tree.rerender(
-        h(DialogProvider, null, h(UserPermissions, {
+        h(DialogProvider, null, h(BootstrapDataProvider, { initial: { users: [manager, secondUser], branches: [] } }, h(UserPermissions, {
           currentUser: superAdmin,
-          users: [manager, secondUser],
-          branches: [],
           dateMode: 'AD',
           focusRequest: { userId: secondUser.id, requestId: 9, operationId: 'inv-pay' },
-        }))
+        })))
       );
       await flush();
       await flush();
@@ -567,13 +564,11 @@ describe('user permissions editor render', () => {
     }
 
     const missingTree = mountTree(
-      h(DialogProvider, null, h(UserPermissions, {
+      h(DialogProvider, null, h(BootstrapDataProvider, { initial: { users: [manager, secondUser], branches: [] } }, h(UserPermissions, {
         currentUser: superAdmin,
-        users: [manager, secondUser],
-        branches: [],
         dateMode: 'AD',
         focusRequest: { userId: 'deleted-user', requestId: 8 },
-      }))
+      })))
     );
     try {
       await flush();
@@ -624,14 +619,12 @@ describe('user permissions editor render', () => {
 
     let target = '';
     const tree = mountTree(
-      h(DialogProvider, null, h(UsersManagement, {
+      h(DialogProvider, null, h(BootstrapDataProvider, { initial: { users: [manager], branches: [] } }, h(UsersManagement, {
         currentUser: superAdmin,
-        users: [manager],
-        branches: [],
         onManageAccess: (userId) => {
           target = userId;
         },
-      }))
+      })))
     );
     try {
       await flush();
@@ -666,12 +659,10 @@ describe('user permissions editor render', () => {
 
     const headOfficeAdmin = { ...superAdmin, id: 'u-head', role: 'HEAD_OFFICE_ADMIN' } as User;
     const headOfficeTree = mountTree(
-      h(DialogProvider, null, h(UsersManagement, {
+      h(DialogProvider, null, h(BootstrapDataProvider, { initial: { users: [manager], branches: [] } }, h(UsersManagement, {
         currentUser: headOfficeAdmin,
-        users: [manager],
-        branches: [],
         onManageAccess: () => undefined,
-      }))
+      })))
     );
     try {
       assert.doesNotMatch(
@@ -684,12 +675,10 @@ describe('user permissions editor render', () => {
     }
 
     const superTargetTree = mountTree(
-      h(DialogProvider, null, h(UsersManagement, {
+      h(DialogProvider, null, h(BootstrapDataProvider, { initial: { users: [superAdmin], branches: [] } }, h(UsersManagement, {
         currentUser: superAdmin,
-        users: [superAdmin],
-        branches: [],
         onManageAccess: () => undefined,
-      }))
+      })))
     );
     try {
       await flush();
@@ -754,11 +743,9 @@ describe('user permissions editor render', () => {
     });
 
     const tree = mountTree(
-      h(DialogProvider, null, h(UsersManagement, {
+      h(DialogProvider, null, h(BootstrapDataProvider, { initial: { users: [manager, accountant], branches: [] } }, h(UsersManagement, {
         currentUser: superAdmin,
-        users: [manager, accountant],
-        branches: [],
-      }))
+      })))
     );
     try {
       await flush();
@@ -911,14 +898,12 @@ describe('user permissions editor render', () => {
     api.getUserPermissionOverrides = async () => response;
 
     const tree = mountTree(
-      h(DialogProvider, null, h(UsersManagement, {
+      h(DialogProvider, null, h(BootstrapDataProvider, { initial: { users: [modalUser], branches: [] } }, h(UsersManagement, {
         currentUser: superAdmin,
-        users: [modalUser],
-        branches: [],
         onManageAccess: (userId) => {
           target = userId;
         },
-      }))
+      })))
     );
     const findButton = (label: string) =>
       [...tree.container.querySelectorAll('button')].find((node) =>
@@ -970,12 +955,10 @@ describe('user permissions editor render', () => {
     };
 
     const tree = mountTree(
-      h(DialogProvider, null, h(UsersManagement, {
+      h(DialogProvider, null, h(BootstrapDataProvider, { initial: { users: [manager], branches: [] } }, h(UsersManagement, {
         currentUser: superAdmin,
-        users: [manager],
-        branches: [],
         onManageAccess: () => undefined,
-      }))
+      })))
     );
     try {
       await flush();
@@ -1116,12 +1099,10 @@ describe('user permissions editor render', () => {
     };
 
     const tree = mountTree(
-      h(DialogProvider, null, h(UserPermissions, {
+      h(DialogProvider, null, h(BootstrapDataProvider, { initial: { users: [frontDeskA, frontDeskB], branches: [] } }, h(UserPermissions, {
         currentUser: superAdmin,
-        users: [frontDeskA, frontDeskB],
-        branches: [],
         dateMode: 'AD',
-      }))
+      })))
     );
     try {
       await flush();

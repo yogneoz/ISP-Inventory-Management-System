@@ -32,13 +32,15 @@ import type {
 import type { StatementFormat } from '../../components/accounting/statementTFormat';
 import { priorBalanceSheetDate } from '../../utils/comparativePeriod';
 import { StatementGroupDrilldown } from '../../components/accounting/StatementGroupDrilldown';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 export const BalanceSheetRegister: React.FC<AccountingScreenProps> = ({
-  branches,
   dateMode,
   currentUser,
   fiscalYearStartAD,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const scope = useAccountingScope(branches, currentUser);
   const [data, setData] = useState<BalanceSheetResponse | null>(null);
   const [movement, setMovement] = useState<BalanceSheetMovementResponse | null>(null);

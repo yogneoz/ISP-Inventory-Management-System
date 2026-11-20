@@ -26,12 +26,9 @@ import { useServerPageClamp, TablePagination } from '../../components/common/Tab
 import { KeysetLoadMore } from '../../components/common/KeysetLoadMore';
 import { api } from '../../services/api';
 import { useKeysetPager } from '../../hooks/useKeysetPager';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
-interface AuditTrailReportsProps {
-  auditLogs: AuditLog[];
-  financialSummary: FinancialSummary;
-  products: Product[];
-  branches: Branch[];
+interface AuditTrailReportsProps {
   invoices: PurchaseInvoice[];
   selectedBranchId: string;
   fiscalYearStartAD?: string;
@@ -39,22 +36,18 @@ interface AuditTrailReportsProps {
   /** Bumped by App on every domain that writes transaction_logs. */
   sseRefreshKey?: number;
   dateMode: 'BS' | 'AD';
-  companyProfile?: CompanyProfile | null;
 }
 
-export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
-  auditLogs,
-  financialSummary,
-  products,
-  branches,
+export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
   invoices,
   selectedBranchId,
   fiscalYearStartAD,
   fiscalYearEndAD,
   sseRefreshKey = 0,
   dateMode,
-  companyProfile,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { auditLogs, branches, companyProfile, financialSummary, products } = useBootstrapData();
   const [subTab, setSubTab] = useState<
     'AUDIT_TRAIL' | 'STOCK_TRANSACTIONS'
   >('AUDIT_TRAIL');

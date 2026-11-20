@@ -22,10 +22,9 @@ import {
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { ModalPanel } from '../../components/common/ModalPanel';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface ApprovalWorkflowCenterProps {
-  approvalRequests: ApprovalRequest[];
-  branches: Branch[];
   currentUser?: User | null;
   dateMode: 'BS' | 'AD';
   onProcessApproval: (
@@ -38,14 +37,14 @@ interface ApprovalWorkflowCenterProps {
 }
 
 export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
-  approvalRequests = [],
-  branches = [],
   currentUser,
   dateMode,
   onProcessApproval,
   onCancelApproval,
   onNavigateToStockAudit,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { approvalRequests, branches } = useBootstrapData();
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   const [filterType, setFilterType] = useState<'ALL' | 'CUSTOMER_DEVICE_STATUS' | 'CANCEL_TRANSFER' | 'CANCEL_RECEIVE_TRANSFER' | 'STOCK_AUDIT_RECONCILIATION'>('ALL');
   const [filterBranchId, setFilterBranchId] = useState<string>('ALL');

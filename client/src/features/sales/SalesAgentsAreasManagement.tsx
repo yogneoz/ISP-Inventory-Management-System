@@ -15,9 +15,9 @@ import { PageHeader } from '../../components/common/PageHeader';
 import { api } from '../../services/api';
 import { isOperationAllowed } from '../../utils/permissions';
 import type { Area, Branch, SalesAgent, User } from '../../types';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface SalesAgentsAreasManagementProps {
-  branches?: Branch[];
   currentUser?: User | null;
 }
 
@@ -50,9 +50,10 @@ const codeFromName = (name: string): string =>
   name.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 30);
 
 export const SalesAgentsAreasManagement: React.FC<SalesAgentsAreasManagementProps> = ({
-  branches = [],
   currentUser,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const { confirm: confirmDialog, alert: alertDialog } = useDialog();
   const canManage = isOperationAllowed('customers-manage', currentUser?.role);
   const activationKey = useActivationKey('sales-agents-areas');

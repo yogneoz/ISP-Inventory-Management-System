@@ -17,6 +17,7 @@ import { FixedAssetRegister } from '../client/src/features/finance/FixedAssetReg
 import { api } from '../client/src/services/api';
 import { todayAd } from './fixtures/referenceData';
 import { warrantyEndFor } from '../client/src/utils/warrantyCapture';
+import { BootstrapDataProvider } from '../client/src/contexts/AppProviders';
 
 const user = {
   id: 'u-w4',
@@ -65,14 +66,13 @@ describe('fixed-asset supplier warranty field', () => {
       createElement(
         DialogProvider as any,
         null,
-        createElement(FixedAssetRegister, {
-          branches,
+        createElement(BootstrapDataProvider, { initial: { branches } }, createElement(FixedAssetRegister, {
           selectedBranchId: 'b1',
           dateMode: 'AD',
           currentUser: user,
           onCreateAsset: async () => {},
           onUpdateAssetStatus: async () => {},
-        } as any)
+        } as any))
       )
     );
     try {
@@ -111,14 +111,13 @@ describe('fixed-asset supplier warranty field', () => {
       createElement(
         DialogProvider as any,
         null,
-        createElement(FixedAssetRegister, {
-          branches,
+        createElement(BootstrapDataProvider, { initial: { branches } }, createElement(FixedAssetRegister, {
           selectedBranchId: 'b1',
           dateMode: 'AD',
           currentUser: user,
           onCreateAsset: async () => {},
           onUpdateAssetStatus: async () => {},
-        } as any)
+        } as any))
       )
     );
     try {

@@ -26,6 +26,7 @@ import { ModalPanel } from '../../components/common/ModalPanel';
 import { warrantyEndFieldError, warrantyEndFor } from '../../utils/warrantyCapture';
 import { getRowActivationProps, ROW_FOCUS_CLASS } from '../../utils/interactiveRow';
 import type { RecordRoute } from '../../routes/appPaths';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 const ZERO_TOTALS: FixedAssetTotals = { acquisitionCost: 0, accumulatedDepreciation: 0, netBookValue: 0 };
 
@@ -36,7 +37,6 @@ interface FixedAssetRegisterProps {
    * fixed-asset table. Asset events bump this token.
    */
   refreshToken?: number;
-  branches: Branch[];
   selectedBranchId: string;
   asOfDateAD?: string;
   dateMode: 'BS' | 'AD';
@@ -58,7 +58,6 @@ interface FixedAssetRegisterProps {
 
 export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
   refreshToken = 0,
-  branches,
   selectedBranchId,
   asOfDateAD,
   dateMode,
@@ -69,6 +68,8 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
   recordRoute = null,
   onRecordRouteChange,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const { alert: alertDialog } = useDialog();
   const canManageAssets = isOperationAllowed('assets-manage', currentUser?.role);
   const [search, setSearch] = useState('');

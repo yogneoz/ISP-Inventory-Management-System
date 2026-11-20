@@ -8,9 +8,9 @@ import { FilterCard } from '../../components/common/FilterCard';
 import { PageHeader } from '../../components/common/PageHeader';
 import { LoadStateNotice } from '../../components/common/LoadStateNotice';
 import { ModalPanel } from '../../components/common/ModalPanel';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface LocationsManagementProps {
-  branches: Branch[];
   currentUser?: User | null;
 }
 
@@ -32,9 +32,10 @@ export function defaultLocationBranchId(
 }
 
 export const LocationsManagement: React.FC<LocationsManagementProps> = ({
-  branches,
   currentUser,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const [locations, setLocations] = useState<LocationRecord[]>([]);
   const [loading, setLoading] = useState(true);
   // A failed read must not render as "no locations configured" (DF-11).

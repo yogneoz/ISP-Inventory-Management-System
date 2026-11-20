@@ -7,9 +7,9 @@ import { useClientPagination, TablePagination } from '../../components/common/Ta
 import { PageHeader } from '../../components/common/PageHeader';
 import { useDialog } from '../../components/common/DialogProvider';
 import { ModalPanel } from '../../components/common/ModalPanel';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface BranchesManagementProps {
-  branches: Branch[];
   currentUser?: User | null;
   onCreateBranch?: (branch: Omit<Branch, 'id'>) => Promise<void>;
   onUpdateBranch?: (id: string, branch: Partial<Branch>) => Promise<void>;
@@ -17,12 +17,13 @@ interface BranchesManagementProps {
 }
 
 export const BranchesManagement: React.FC<BranchesManagementProps> = ({
-  branches,
   currentUser,
   onCreateBranch,
   onUpdateBranch,
   onDeleteBranch,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const { confirm: confirmDialog } = useDialog();
   const canManageBranches = isOperationAllowed('admin-branches', currentUser?.role);
   const [search, setSearch] = useState('');

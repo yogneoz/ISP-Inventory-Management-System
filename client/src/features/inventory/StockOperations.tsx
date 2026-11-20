@@ -42,20 +42,16 @@ import { DeviceExchangePanel } from './stockops/DeviceExchangePanel';
 import { CreatePulloutPanel } from './stockops/CreatePulloutPanel';
 import { LabelDamagePanel } from './stockops/LabelDamagePanel';
 import { LogsPanel } from './stockops/LogsPanel';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface StockOperationsProps {
   operations: StockOperation[];
-  products: Product[];
-  branches: Branch[];
-  stock?: InventoryStock[];
   selectedBranchId: string;
   dateMode: 'BS' | 'AD';
   initialType?: string;
   autoOpenModal?: boolean;
   currentUser?: User | null;
   shipments?: Shipment[];
-  locations?: LocationRecord[];
-  approvalRequests?: ApprovalRequest[];
   onCreateOperation: (op: Partial<StockOperation>) => Promise<void>;
   onReceiveOperation?: (id: string) => Promise<void>;
   onCreateShipment?: (sh: Partial<Shipment>) => Promise<void>;
@@ -116,17 +112,12 @@ const isWarehouseOrHeadOffice = (b?: Branch | null): boolean =>
 
 export const StockOperations: React.FC<StockOperationsProps> = ({
   operations,
-  products,
-  branches,
-  stock = [],
   selectedBranchId,
   dateMode,
   initialType = 'PULLOUT',
   autoOpenModal = false,
   currentUser = null,
   shipments = [],
-  locations = [],
-  approvalRequests = [],
   onCreateOperation,
   onReceiveOperation,
   onCreateShipment,
@@ -143,6 +134,8 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   onRecordRouteChange,
   onFindShipment,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { approvalRequests, branches, locations, products, stock } = useBootstrapData();
   const { confirm: confirmDialog, prompt: promptDialog, alert: alertDialog } = useDialog();
 
   // The serial register (`serial_log`) is the authority for IN_STOCK units: the

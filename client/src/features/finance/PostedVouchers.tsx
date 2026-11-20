@@ -38,9 +38,9 @@ import {
   hasGlobalBranchScope,
   isOperationAllowed,
 } from '../../utils/permissions';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 export interface PostedVouchersProps {
-  branches: Branch[];
   currentUser?: User | null;
   /** App's transactionLog register counter: journal-writing mutations bump it. */
   sseRefreshKey?: number;
@@ -54,10 +54,11 @@ const errorBox =
   'flex items-start gap-2 rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-800 dark:border-rose-500/40 dark:bg-rose-950/30 dark:text-rose-300';
 
 export const PostedVouchers: React.FC<PostedVouchersProps> = ({
-  branches,
   currentUser,
   sseRefreshKey = 0,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const allowed = isOperationAllowed('gl-view', currentUser?.role);
   const canReverse = isOperationAllowed('gl-reverse', currentUser?.role);
   const canSeeAll = hasGlobalBranchScope(currentUser);

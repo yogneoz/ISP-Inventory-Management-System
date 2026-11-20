@@ -29,19 +29,13 @@ import { KeysetLoadMore } from '../../components/common/KeysetLoadMore';
 import { RegisterLoadError } from '../../components/common/RegisterLoadError';
 import { PurchaseOrderForm, type OrderFormLine } from './PurchaseOrderForm';
 import type { RecordRoute } from '../../routes/appPaths';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 // Re-exported for App.tsx, which seeds the dashboard's low-stock reorder flow.
 export type { OrderFormLine };
 
 interface PurchaseOrdersProps {
-  companyProfile?: CompanyProfile | null;
-  purchaseInvoices?: PurchaseInvoice[];
   currentUser?: User | null;
-  purchaseOrders: PurchaseOrder[];
-  products: Product[];
-  branches: Branch[];
-  stock: InventoryStock[];
-  suppliers?: Supplier[];
   selectedBranchId: string;
   dateMode: 'BS' | 'AD';
   /** Sidebar menu that opened this page: 'create-po' opens the inline create form, 'po-list' opens the register. */
@@ -67,14 +61,7 @@ interface PurchaseOrdersProps {
 }
 
 export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
-  companyProfile,
-  purchaseInvoices = [],
   currentUser,
-  purchaseOrders,
-  products,
-  branches,
-  stock,
-  suppliers = [],
   selectedBranchId,
   dateMode,
   activeTab = 'po-list',
@@ -89,6 +76,8 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
   onDeletePO,
   sseRefreshKey,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches, companyProfile, products, purchaseInvoices, purchaseOrders, stock, suppliers } = useBootstrapData();
   const { confirm: confirmDialog, alert: alertDialog } = useDialog();
   // Role-level gate: the inline create form is only reachable when the role may create POs
   const canCreatePoByRole = isOperationAllowed('po-create', currentUser?.role);

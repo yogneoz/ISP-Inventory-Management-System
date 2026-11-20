@@ -43,9 +43,9 @@ import { useDialog } from '../../components/common/DialogProvider';
 import { FilterCard } from '../../components/common/FilterCard';
 import { ModalPanel } from '../../components/common/ModalPanel';
 import StatCard from '../../components/common/StatCard';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface CustomerMasterDirectoryProps {
-  branches: Branch[];
   currentUser?: User | null;
   onNavigateToImport: () => void;
   onSelectTab?: (tab: string, searchQuery?: string) => void;
@@ -64,7 +64,6 @@ interface CustomerMasterDirectoryProps {
 }
 
 export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = ({
-  branches,
   currentUser,
   onNavigateToImport,
   onSelectTab,
@@ -74,6 +73,8 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
   recordRoute = null,
   onRecordRouteChange,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const { alert: alertDialog } = useDialog();
   const recordRouteChangeRef = useRef(onRecordRouteChange);
   recordRouteChangeRef.current = onRecordRouteChange;

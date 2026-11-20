@@ -28,6 +28,7 @@ import { ProductManagement } from '../client/src/features/inventory/ProductManag
 import { api } from '../client/src/services/api';
 import { setDefaultTaxRate } from '../client/src/utils/taxConfig';
 import { setProductGroups } from '../client/src/utils/productGroupBehavior';
+import { BootstrapDataProvider } from '../client/src/contexts/AppProviders';
 
 const user = {
   id: 'u-1',
@@ -106,16 +107,15 @@ describe('product modal is database-linked', () => {
       createElement(
         DialogProvider as any,
         null,
-        createElement(ProductManagement, {
+        createElement(BootstrapDataProvider, { initial: { stock: [] } }, createElement(ProductManagement, {
           currentUser: user,
-          stock: [],
           selectedBranchId: 'ALL',
           onCreateProduct: async () => {},
           onUpdateProduct: async () => {},
           onDeleteProduct: async () => {},
           searchQuery: '',
           mode: 'product-master',
-        } as any)
+        } as any))
       )
     );
     await settle();

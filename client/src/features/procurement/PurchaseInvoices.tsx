@@ -48,6 +48,7 @@ import { api } from '../../services/api';
 import { PurchaseInvoiceForm } from './PurchaseInvoiceForm';
 import type { RecordRoute } from '../../routes/appPaths';
 import type { SettlementAccount } from '../../services/api/accounting';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 /**
  * One-line date for the dense register. The full BS + AD pair stays in the
@@ -65,14 +66,8 @@ function CompactDate({ adDate, mode }: { adDate: string; mode: 'BS' | 'AD' }) {
 }
 
 interface PurchaseInvoicesProps {
-  companyProfile?: CompanyProfile | null;
   currentUser?: User | null;
   invoices: PurchaseInvoice[];
-  products: Product[];
-  branches: Branch[];
-  suppliers?: Supplier[];
-  stock: InventoryStock[];
-  purchaseOrders?: PurchaseOrder[];
   selectedBranchId: string;
   /** Header fiscal-year scope for the vendor-bill form's open-PO read. */
   fiscalYearStartAD?: string;
@@ -113,13 +108,8 @@ interface PurchaseInvoicesProps {
 
 
 export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
-  companyProfile,
   currentUser,
   invoices,
-  products,
-  branches,
-  suppliers = [],
-  purchaseOrders = [],
   selectedBranchId,
   fiscalYearStartAD,
   fiscalYearEndAD,
@@ -136,6 +126,8 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   onDeleteInvoice,
   sseRefreshKey,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches, companyProfile, products, purchaseOrders, stock, suppliers } = useBootstrapData();
   const { confirm: confirmDialog, prompt: promptDialog, alert: alertDialog } = useDialog();
   // Suppliers list strictly sourced from master supplier directory
   const availableSuppliers = suppliers && suppliers.length > 0 ? suppliers : [];

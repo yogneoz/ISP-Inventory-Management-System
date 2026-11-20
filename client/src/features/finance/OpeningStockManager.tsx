@@ -29,12 +29,11 @@ import {
   Product,
   User,
 } from '../../types';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface OpeningStockManagerProps {
   currentUser?: User | null;
-  fiscalYears: FiscalYear[];
-  branches: Branch[];
-  products: Product[];
+  fiscalYears: FiscalYear[];
   onRefreshData?: () => void;
   /** Globally selected fiscal year id (app-wide scope). */
   selectedFiscalYearId?: string;
@@ -59,13 +58,13 @@ type Draft = { quantityOnHand: string; damagedQty: string; unitCost: string };
  */
 export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
   currentUser,
-  fiscalYears,
-  branches,
-  products,
+  fiscalYears,
   onRefreshData,
   selectedFiscalYearId,
   onSelectFiscalYear,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches, products } = useBootstrapData();
   const role = currentUser?.role;
   const canView = isOperationAllowed('opening-stock-view', role);
   const canEditRole = isOperationAllowed('opening-stock-edit', role);

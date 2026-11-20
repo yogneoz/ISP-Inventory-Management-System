@@ -7,10 +7,9 @@ import { findProductGroup, getProductGroups } from '../../utils/productGroupBeha
 import { api } from '../../services/api';
 import { PageHeader } from '../../components/common/PageHeader';
 import { useDialog } from '../../components/common/DialogProvider';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface ImportStockProps {
-  branches: Branch[];
-  products: Product[];
   onCreateProduct: (prod: Omit<Product, 'id'>) => Promise<void>;
   /** Duplicate SKUs are UPDATED, not re-inserted (the preview promises this). */
   onUpdateProduct?: (id: string, prod: Partial<Product>) => Promise<void>;
@@ -36,12 +35,12 @@ interface ParsedImportRow {
 }
 
 export const ImportStock: React.FC<ImportStockProps> = ({
-  branches,
-  products,
   onCreateProduct,
   onUpdateProduct,
   onRefreshData,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches, products } = useBootstrapData();
   const { alert: alertDialog } = useDialog();
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [parsedRows, setParsedRows] = useState<ParsedImportRow[]>([]);

@@ -39,7 +39,6 @@ import { AppShell } from './components/layout/AppShell';
 import { NavTab, NAV_TABS } from './components/layout/Sidebar';
 import { isOperationAllowed, resolveBranchSelection } from './utils/permissions';
 import { useSyncStream } from './hooks/useSyncStream';
-import { useBootstrapData } from './contexts/AppProviders';
 import { useAppRouting } from './hooks/useAppRouting';
 import { useInventoryActions } from './hooks/useInventoryActions';
 import { useProcurementActions } from './hooks/useProcurementActions';
@@ -167,6 +166,7 @@ import { BootstrapSliceNotice } from './components/common/BootstrapSliceNotice';
 import { LoadStateNotice } from './components/common/LoadStateNotice';
 import { applyEffectivePermissions, applyServerMatrix, getPermissionsMatrix } from './utils/permissions';
 import { setExportCompanyProfile } from './utils/exportUtils';
+import { useBootstrapData } from './contexts/AppProviders';
 
 // Chooses the fiscal year to show by default: the year flagged current whose
 // AD range contains today's date (guards against multiple years being flagged
@@ -1357,7 +1357,6 @@ export default function App() {
             setLoginNotice(null);
             await handleLogin(email, pass);
           }}
-          branches={branches}
           notice={loginNotice || undefined}
           onSetupSuperAdmin={async (data) => {
             const res = await api.setupSuperAdmin(data);
@@ -1420,13 +1419,8 @@ export default function App() {
     screenRoute('company-overview', (
         <CompanyOverview
           currentUser={currentUser}
-          branches={branches}
-          products={products}
-          stock={stock}
-          financialSummary={financialSummary}
           pendingPurchaseOrders={procurementPending.pendingPurchaseOrders}
           unpaidInvoiceCount={procurementPending.unpaidInvoiceCount}
-          approvalRequests={approvalRequests}
           selectedBranchId={selectedBranchId}
           fiscalYearId={selectedFiscalYear?.id}
           fiscalYearStartAD={selectedFiscalYear?.startDateAD}
@@ -1441,12 +1435,7 @@ export default function App() {
     screenRoute('dashboard', (
       <Dashboard
         currentUser={currentUser}
-        products={products}
-        stock={stock}
-        branches={branches}
         pendingPurchaseOrders={procurementPending.pendingPurchaseOrders}
-        financialSummary={financialSummary}
-        categories={categories}
         selectedBranchId={selectedBranchId}
         fiscalYearId={selectedFiscalYear?.id}
         fiscalYearStartAD={selectedFiscalYear?.startDateAD}
@@ -1464,8 +1453,6 @@ export default function App() {
     )),
     screenRoute('approvals', (
         <ApprovalWorkflowCenter
-          approvalRequests={approvalRequests}
-          branches={branches}
           currentUser={currentUser}
           dateMode={dateMode}
           onProcessApproval={handleProcessApprovalRequest}
@@ -1481,7 +1468,6 @@ export default function App() {
     screenRoute('all-stock', (
       <ProductManagement
         currentUser={currentUser}
-        stock={stock}
         selectedBranchId={selectedBranchId}
         onCreateProduct={handleCreateProduct}
         onUpdateProduct={handleUpdateProduct}
@@ -1493,7 +1479,6 @@ export default function App() {
     screenRoute('product-master', (
       <ProductManagement
         currentUser={currentUser}
-        stock={stock}
         selectedBranchId={selectedBranchId}
         onCreateProduct={handleCreateProduct}
         onUpdateProduct={handleUpdateProduct}
@@ -1506,8 +1491,6 @@ export default function App() {
         <OpeningStockManager
           currentUser={currentUser}
           fiscalYears={fiscalYears}
-          branches={branches}
-          products={products}
           onRefreshData={refreshAllData}
           selectedFiscalYearId={selectedFiscalYearId}
           onSelectFiscalYear={setSelectedFiscalYearId}
@@ -1516,13 +1499,11 @@ export default function App() {
     screenRoute('category-management', (
         <CategoryManagement
           currentUser={currentUser}
-          products={products}
         />
     )),
     screenRoute('product-group-management', (
         <ProductGroupManagement
           currentUser={currentUser}
-          products={products}
         />
     )),
     screenRoute('uom-management', (
@@ -1532,8 +1513,6 @@ export default function App() {
     )),
     screenRoute('import-stock', (
         <ImportStock
-          branches={branches}
-          products={products}
           onCreateProduct={handleCreateProduct}
           onUpdateProduct={handleUpdateProduct}
           onRefreshData={refreshAllData}
@@ -1542,9 +1521,6 @@ export default function App() {
     screenRoute('export-stock', (
         <ExportStock
           currentUser={currentUser}
-          products={products}
-          branches={branches}
-          stock={stock}
           selectedBranchId={selectedBranchId}
           dateMode={dateMode}
         />
@@ -1552,9 +1528,6 @@ export default function App() {
     screenRoute('branch-stock', (
         <BranchStockTracking
           currentUser={currentUser}
-          products={products}
-          branches={branches}
-          stock={stock}
           selectedBranchId={selectedBranchId}
           onUpdateStockLevel={handleUpdateStockLevel}
         />
@@ -1562,9 +1535,6 @@ export default function App() {
     screenRoute('reorder-stock', (
         <ReorderStockTracking
           currentUser={currentUser}
-          products={products}
-          branches={branches}
-          stock={stock}
           selectedBranchId={selectedBranchId}
           onUpdateStockLevel={handleUpdateStockLevel}
           onUpdateStockReorderLevel={handleUpdateStockReorderLevel}
@@ -1576,10 +1546,6 @@ export default function App() {
     screenRoute('damaged-stock', (
         <DamagedStockTracking
           currentUser={currentUser}
-          products={products}
-          branches={branches}
-          stock={stock}
-          damageRecords={damageRecords}
           selectedBranchId={selectedBranchId}
           dateMode={dateMode}
           onUpdateStockLevel={handleUpdateStockLevel}
@@ -1590,22 +1556,13 @@ export default function App() {
     )),
     screenRoute('stock-valuation', (
         <StockValuation
-          products={products}
-          branches={branches}
-          stock={stock}
           selectedBranchId={selectedBranchId}
           dateMode={dateMode}
         />
     )),
     screenRoute('stock-ledger', (
         <StockMovementLedger
-          products={products}
-          branches={branches}
-          stock={stock}
-          damageRecords={damageRecords}
-          stockOperations={stockOperations}
           shipments={shipments}
-          purchaseOrders={purchaseOrders}
           selectedBranchId={selectedBranchId}
           fiscalYearStartAD={selectedFiscalYear?.startDateAD}
           fiscalYearEndAD={selectedFiscalYear?.endDateAD}
@@ -1616,12 +1573,8 @@ export default function App() {
     screenRoute('physical-stock-audit', (
         <PhysicalStockAudit
           currentUser={currentUser}
-          products={products}
-          branches={branches}
-          stock={stock}
           selectedBranchId={selectedBranchId}
           dateMode={dateMode}
-          approvalRequests={approvalRequests}
           onUpdateStockLevel={handleUpdateStockLevel}
           onReconcileStockAudit={async (payload) => {
             await api.reconcileStockAudit(payload);
@@ -1644,7 +1597,6 @@ export default function App() {
         <FixedAssetRegister
           currentUser={currentUser}
           refreshToken={registerRefresh.fixedAssets}
-          branches={branches}
           selectedBranchId={selectedBranchId}
           asOfDateAD={assetReportAsOfDateAD}
           dateMode={dateMode}
@@ -1659,7 +1611,6 @@ export default function App() {
     ), { enabled: Boolean(import.meta.env?.DEV) }),
     screenRoute('customers', (
         <CustomerMasterDirectory
-          branches={branches}
           currentUser={currentUser}
           refreshKey={registerRefresh.customerDevices}
           onCustomersChanged={refreshAllData}
@@ -1673,16 +1624,13 @@ export default function App() {
         />
     )),
     screenRoute('sales-agents-areas', (
-        <SalesAgentsAreasManagement branches={branches} currentUser={currentUser} />
+        <SalesAgentsAreasManagement currentUser={currentUser} />
     )),
     screenRoute('customer-devices', (
         <CustomersManagement
           currentUser={currentUser}
-          branches={branches}
-          products={products}
           selectedBranchId={selectedBranchId}
           dateMode={dateMode}
-          approvalRequests={approvalRequests}
           onCreateCustomerDevice={async (newRecord) => {
             await api.createCustomerDevice(newRecord);
             await refreshAllData();
@@ -1700,7 +1648,6 @@ export default function App() {
     )),
     screenRoute('complete-serial-inventory', (
         <SerialLogRegister
-          branches={branches}
           selectedBranchId={selectedBranchId}
           currentUser={currentUser}
           dateMode={dateMode}
@@ -1710,13 +1657,11 @@ export default function App() {
     )),
     screenRoute('locations', (
         <LocationsManagement
-          branches={branches}
           currentUser={currentUser}
         />
     )),
     screenRoute('import-customers', (
         <ImportCustomers
-          branches={branches}
           onImportCustomersSuccess={async (newCustomers) => {
             await api.bulkImportCustomers(newCustomers);
             await refreshAllData();
@@ -1725,14 +1670,7 @@ export default function App() {
     )),
     screenRoute('create-po', (
       <PurchaseOrders
-        companyProfile={companyProfile}
-        purchaseInvoices={purchaseInvoices}
         currentUser={currentUser}
-        purchaseOrders={purchaseOrders}
-        products={products}
-        branches={branches}
-        suppliers={suppliers}
-        stock={stock}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         activeTab="create-po"
@@ -1747,14 +1685,7 @@ export default function App() {
     )),
     screenRoute('po-list', (
       <PurchaseOrders
-        companyProfile={companyProfile}
-        purchaseInvoices={purchaseInvoices}
         currentUser={currentUser}
-        purchaseOrders={purchaseOrders}
-        products={products}
-        branches={branches}
-        suppliers={suppliers}
-        stock={stock}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         activeTab="po-list"
@@ -1771,14 +1702,8 @@ export default function App() {
     )),
     screenRoute('create-purchase', (
         <PurchaseInvoices
-          companyProfile={companyProfile}
           currentUser={currentUser}
           invoices={purchaseInvoices}
-          products={products}
-          branches={branches}
-          suppliers={suppliers}
-          stock={stock}
-          purchaseOrders={purchaseOrders}
           selectedBranchId={selectedBranchId}
           fiscalYearStartAD={selectedFiscalYear?.startDateAD}
           fiscalYearEndAD={selectedFiscalYear?.endDateAD}
@@ -1795,14 +1720,8 @@ export default function App() {
     )),
     screenRoute('purchase-list', (
         <PurchaseInvoices
-          companyProfile={companyProfile}
           currentUser={currentUser}
           invoices={purchaseInvoices}
-          products={products}
-          branches={branches}
-          suppliers={suppliers}
-          stock={stock}
-          purchaseOrders={purchaseOrders}
           selectedBranchId={selectedBranchId}
           fiscalYearStartAD={selectedFiscalYear?.startDateAD}
           fiscalYearEndAD={selectedFiscalYear?.endDateAD}
@@ -1821,12 +1740,7 @@ export default function App() {
     )),
     screenRoute('create-sale', (
         <SalesInvoices
-          companyProfile={companyProfile}
           currentUser={currentUser}
-          products={products}
-          branches={branches}
-          stock={stock}
-          inventorySerials={inventorySerials}
           inventorySerialsError={sellableSerialsError}
           inventorySerialsLoading={sellableSerialsLoading}
           onRetryInventorySerials={() => void loadSellableSerials(selectedBranchId)}
@@ -1842,12 +1756,7 @@ export default function App() {
     )),
     screenRoute('sales-list', (
         <SalesInvoices
-          companyProfile={companyProfile}
           currentUser={currentUser}
-          products={products}
-          branches={branches}
-          stock={stock}
-          inventorySerials={inventorySerials}
           inventorySerialsError={sellableSerialsError}
           inventorySerialsLoading={sellableSerialsLoading}
           onRetryInventorySerials={() => void loadSellableSerials(selectedBranchId)}
@@ -1866,12 +1775,8 @@ export default function App() {
     screenRoute('purchase-returns', (
         <ReturnsRegister
           kind="PURCHASE"
-          companyProfile={companyProfile}
           currentUser={currentUser}
-          purchaseInvoices={purchaseInvoices}
           returns={purchaseReturns}
-          products={products}
-          branches={branches}
           selectedBranchId={selectedBranchId}
           dateMode={dateMode}
           sseRefreshKey={registerRefresh.returnsRegister}
@@ -1885,12 +1790,8 @@ export default function App() {
     screenRoute('create-purchase-return', (
         <ReturnsRegister
           kind="PURCHASE"
-          companyProfile={companyProfile}
           currentUser={currentUser}
-          purchaseInvoices={purchaseInvoices}
           returns={purchaseReturns}
-          products={products}
-          branches={branches}
           selectedBranchId={selectedBranchId}
           dateMode={dateMode}
           autoOpenCreate
@@ -1903,12 +1804,8 @@ export default function App() {
     screenRoute('sales-returns', (
         <ReturnsRegister
           kind="SALES"
-          companyProfile={companyProfile}
           currentUser={currentUser}
-          purchaseInvoices={purchaseInvoices}
           returns={salesReturns}
-          products={products}
-          branches={branches}
           selectedBranchId={selectedBranchId}
           dateMode={dateMode}
           sseRefreshKey={registerRefresh.returnsRegister}
@@ -1922,12 +1819,8 @@ export default function App() {
     screenRoute('create-sales-return', (
         <ReturnsRegister
           kind="SALES"
-          companyProfile={companyProfile}
           currentUser={currentUser}
-          purchaseInvoices={purchaseInvoices}
           returns={salesReturns}
-          products={products}
-          branches={branches}
           selectedBranchId={selectedBranchId}
           dateMode={dateMode}
           autoOpenCreate
@@ -1941,10 +1834,6 @@ export default function App() {
         <Shipments
           currentUser={currentUser}
           activeTab="create-shipment"
-          products={products}
-          branches={branches}
-          stock={stock}
-          approvalRequests={approvalRequests}
           selectedBranchId={selectedBranchId}
           dateMode={dateMode}
           onCreateShipment={async (sh) => {
@@ -1962,17 +1851,12 @@ export default function App() {
       <StockOperations
         onRefreshData={refreshAllData}
         operations={stockOperations}
-        products={products}
-        branches={branches}
-        stock={stock}
-        locations={locations}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="CREATE_TRANSFER"
         autoOpenModal={false}
         currentUser={currentUser}
         shipments={shipments}
-        approvalRequests={approvalRequests}
         sseRefreshKey={registerRefresh.consumableRegister}
         onCreateOperation={handleCreateOperation}
         onReceiveOperation={handleReceiveOperation}
@@ -1993,10 +1877,6 @@ export default function App() {
         currentUser={currentUser}
         operations={stockOperations}
         shipments={shipments}
-        products={products}
-        branches={branches}
-        stock={stock}
-        approvalRequests={approvalRequests}
         dateMode={dateMode}
         onReceiveOperation={handleReceiveOperation}
         onReceiveShipment={handleReceiveShipment}
@@ -2007,17 +1887,12 @@ export default function App() {
       <StockOperations
         onRefreshData={refreshAllData}
         operations={stockOperations}
-        products={products}
-        branches={branches}
-        stock={stock}
-        locations={locations}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="RECEIVE_TRANSFER"
         autoOpenModal={false}
         currentUser={currentUser}
         shipments={shipments}
-        approvalRequests={approvalRequests}
         sseRefreshKey={registerRefresh.consumableRegister}
         onCreateOperation={handleCreateOperation}
         onReceiveOperation={handleReceiveOperation}
@@ -2040,10 +1915,6 @@ export default function App() {
         <Shipments
           currentUser={currentUser}
           activeTab={activeTab}
-          products={products}
-          branches={branches}
-          stock={stock}
-          approvalRequests={approvalRequests}
           selectedBranchId={selectedBranchId}
           dateMode={dateMode}
           onCreateShipment={async (sh) => {
@@ -2064,17 +1935,12 @@ export default function App() {
       <StockOperations
         onRefreshData={refreshAllData}
         operations={stockOperations}
-        products={products}
-        branches={branches}
-        stock={stock}
-        locations={locations}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="PULLOUT"
         autoOpenModal={false}
         currentUser={currentUser}
         shipments={shipments}
-        approvalRequests={approvalRequests}
         sseRefreshKey={registerRefresh.consumableRegister}
         onCreateOperation={handleCreateOperation}
         onReceiveOperation={handleReceiveOperation}
@@ -2094,17 +1960,12 @@ export default function App() {
       <StockOperations
         onRefreshData={refreshAllData}
         operations={stockOperations}
-        products={products}
-        branches={branches}
-        stock={stock}
-        locations={locations}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="DAMAGE"
         autoOpenModal={false}
         currentUser={currentUser}
         shipments={shipments}
-        approvalRequests={approvalRequests}
         sseRefreshKey={registerRefresh.consumableRegister}
         onCreateOperation={handleCreateOperation}
         onReceiveOperation={handleReceiveOperation}
@@ -2124,17 +1985,12 @@ export default function App() {
       <StockOperations
         onRefreshData={refreshAllData}
         operations={stockOperations}
-        products={products}
-        branches={branches}
-        stock={stock}
-        locations={locations}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="PULLOUT_REPORT"
         autoOpenModal={false}
         currentUser={currentUser}
         shipments={shipments}
-        approvalRequests={approvalRequests}
         sseRefreshKey={registerRefresh.consumableRegister}
         onCreateOperation={handleCreateOperation}
         onReceiveOperation={handleReceiveOperation}
@@ -2145,17 +2001,12 @@ export default function App() {
       <StockOperations
         onRefreshData={refreshAllData}
         operations={stockOperations}
-        products={products}
-        branches={branches}
-        stock={stock}
-        locations={locations}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="DAMAGE_REPORT"
         autoOpenModal={false}
         currentUser={currentUser}
         shipments={shipments}
-        approvalRequests={approvalRequests}
         sseRefreshKey={registerRefresh.consumableRegister}
         onCreateOperation={handleCreateOperation}
         onReverseOperation={handleReverseStockOperation}
@@ -2165,17 +2016,12 @@ export default function App() {
       <StockOperations
         onRefreshData={refreshAllData}
         operations={stockOperations}
-        products={products}
-        branches={branches}
-        stock={stock}
-        locations={locations}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="ASSIGN_ASSET"
         autoOpenModal={false}
         currentUser={currentUser}
         shipments={shipments}
-        approvalRequests={approvalRequests}
         sseRefreshKey={registerRefresh.consumableRegister}
         onCreateOperation={handleCreateOperation}
         onReceiveOperation={handleReceiveOperation}
@@ -2194,8 +2040,6 @@ export default function App() {
     screenRoute('asset-deployments', (
         <AssetDeployments
           refreshToken={registerRefresh.fixedAssets}
-          branches={branches}
-          locations={locations}
           currentUser={currentUser}
           dateMode={dateMode}
           onUnassignAsset={handleUpdateAssetStatus}
@@ -2205,17 +2049,12 @@ export default function App() {
       <StockOperations
         onRefreshData={refreshAllData}
         operations={stockOperations}
-        products={products}
-        branches={branches}
-        stock={stock}
-        locations={locations}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="CONSUMABLE_ISSUE"
         autoOpenModal={false}
         currentUser={currentUser}
         shipments={shipments}
-        approvalRequests={approvalRequests}
         sseRefreshKey={registerRefresh.consumableRegister}
         onCreateOperation={handleCreateOperation}
         onReceiveOperation={handleReceiveOperation}
@@ -2235,17 +2074,12 @@ export default function App() {
       <StockOperations
         onRefreshData={refreshAllData}
         operations={stockOperations}
-        products={products}
-        branches={branches}
-        stock={stock}
-        locations={locations}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="CONSUMABLES_REGISTER"
         autoOpenModal={false}
         currentUser={currentUser}
         shipments={shipments}
-        approvalRequests={approvalRequests}
         sseRefreshKey={registerRefresh.consumableRegister}
         onCreateOperation={handleCreateOperation}
         onReceiveOperation={handleReceiveOperation}
@@ -2269,17 +2103,12 @@ export default function App() {
       <StockOperations
         onRefreshData={refreshAllData}
         operations={stockOperations}
-        products={products}
-        branches={branches}
-        stock={stock}
-        locations={locations}
         selectedBranchId={selectedBranchId}
         dateMode={dateMode}
         initialType="DEVICE_EXCHANGE"
         autoOpenModal={false}
         currentUser={currentUser}
         shipments={shipments}
-        approvalRequests={approvalRequests}
         sseRefreshKey={registerRefresh.consumableRegister}
         onCreateOperation={handleCreateOperation}
         onReceiveOperation={handleReceiveOperation}
@@ -2322,7 +2151,6 @@ export default function App() {
     screenRoute('branches', (
       <BranchesManagement
         currentUser={currentUser}
-        branches={branches}
         onCreateBranch={async (b) => {
           await api.createBranch(b);
           refreshAllData();
@@ -2340,7 +2168,6 @@ export default function App() {
     screenRoute('suppliers', (
       <SuppliersManagement
         currentUser={currentUser}
-        suppliers={suppliers}
         onCreateSupplier={async (s) => {
           const created = await api.createSupplier(s);
           refreshAllData();
@@ -2359,8 +2186,6 @@ export default function App() {
     screenRoute('users', (
       <UsersManagement
         currentUser={currentUser}
-        users={users}
-        branches={branches}
         onCreateUser={async (u) => {
           await api.createUser(u);
           refreshAllData();
@@ -2383,10 +2208,10 @@ export default function App() {
       />
     )),
     screenRoute('api-keys', (
-      <ApiKeysLazy currentUser={currentUser} branches={branches} />
+      <ApiKeysLazy currentUser={currentUser} />
     )),
     screenRoute('login-locks', (
-      <LoginLocks currentUser={currentUser} users={users} />
+      <LoginLocks currentUser={currentUser} />
     )),
     screenRoute('permissions', (
         <PermissionManagementLazy
@@ -2401,8 +2226,6 @@ export default function App() {
     screenRoute('user-permissions',
         <UserPermissionsLazy
           currentUser={currentUser}
-          users={users}
-          branches={branches}
           dateMode={dateMode}
           focusRequest={userAccessFocus}
           onOpenRoleDefaults={() => setActiveTab('permissions')}
@@ -2411,7 +2234,6 @@ export default function App() {
     screenRoute('company-setup', (
       <CompanySetupManagement
         currentUser={currentUser}
-        companyProfile={companyProfile}
         initialProfile={companyProfile}
         onUpdateCompanyProfile={async (updatedProfile) => {
           await api.updateCompanyProfile(updatedProfile);
@@ -2456,65 +2278,61 @@ export default function App() {
         />
     )),
     screenRoute('accounting', (
-        <TrialBalanceRegister branches={branches} dateMode={dateMode} currentUser={currentUser} fiscalYearStartAD={selectedFiscalYear?.startDateAD} />
+        <TrialBalanceRegister dateMode={dateMode} currentUser={currentUser} fiscalYearStartAD={selectedFiscalYear?.startDateAD} />
     )),
     screenRoute('accounting-bs-summary', (
         <BsLedgerSummaryRegister
-          branches={branches}
           dateMode={dateMode}
           currentUser={currentUser}
         />
     )),
     screenRoute('accounting-profit-loss', (
-        <ProfitAndLossRegister branches={branches} dateMode={dateMode} currentUser={currentUser} fiscalYearStartAD={selectedFiscalYear?.startDateAD} />
+        <ProfitAndLossRegister dateMode={dateMode} currentUser={currentUser} fiscalYearStartAD={selectedFiscalYear?.startDateAD} />
     )),
     screenRoute('accounting-branch-consolidated', (
-        <BranchConsolidatedRegister branches={branches} dateMode={dateMode} currentUser={currentUser} fiscalYearStartAD={selectedFiscalYear?.startDateAD} />
+        <BranchConsolidatedRegister dateMode={dateMode} currentUser={currentUser} fiscalYearStartAD={selectedFiscalYear?.startDateAD} />
     )),
     screenRoute('accounting-balance-sheet', (
-        <BalanceSheetRegister branches={branches} dateMode={dateMode} currentUser={currentUser} fiscalYearStartAD={selectedFiscalYear?.startDateAD} />
+        <BalanceSheetRegister dateMode={dateMode} currentUser={currentUser} fiscalYearStartAD={selectedFiscalYear?.startDateAD} />
     )),
     screenRoute('accounting-cash-flow', (
-        <CashFlowRegister branches={branches} dateMode={dateMode} currentUser={currentUser} />
+        <CashFlowRegister dateMode={dateMode} currentUser={currentUser} />
     )),
     screenRoute('accounting-cash-book', (
-        <CashBookRegister branches={branches} dateMode={dateMode} currentUser={currentUser} />
+        <CashBookRegister dateMode={dateMode} currentUser={currentUser} />
     )),
     screenRoute('recurring-close', (
-        <RecurringCloseRegister branches={branches} currentUser={currentUser} />
+        <RecurringCloseRegister currentUser={currentUser} />
     )),
     screenRoute('accounting-aging', (
-        <AgingRegister branches={branches} dateMode={dateMode} currentUser={currentUser} />
+        <AgingRegister dateMode={dateMode} currentUser={currentUser} />
     )),
     screenRoute('journal-entry', (
-        <JournalEntry branches={branches} currentUser={currentUser} suppliers={suppliers} />
+        <JournalEntry currentUser={currentUser} />
     )),
     screenRoute('cash-bank-entry', (
-        <CashBankEntry branches={branches} currentUser={currentUser} suppliers={suppliers} />
+        <CashBankEntry currentUser={currentUser} />
     )),
     screenRoute('posted-vouchers', (
         <PostedVouchers
-          branches={branches}
           currentUser={currentUser}
           sseRefreshKey={registerRefresh.transactionLog}
         />
     )),
     screenRoute('finance-payroll-postings', (
-        <PayrollPostingsRegister branches={branches} currentUser={currentUser} />
+        <PayrollPostingsRegister currentUser={currentUser} />
     )),
     screenRoute('accounting-chart', (
-        <ChartOfAccountsRegister branches={branches} dateMode={dateMode} currentUser={currentUser} />
+        <ChartOfAccountsRegister dateMode={dateMode} currentUser={currentUser} />
     )),
     screenRoute('posting-rules', (
         <PostingRulesRegister
-          branches={branches}
           dateMode={dateMode}
           currentUser={currentUser}
         />
     )),
     screenRoute('subledgers', (
         <SubledgersManagement
-          branches={branches}
           currentUser={currentUser}
           fiscalYearStartAD={selectedFiscalYear?.startDateAD}
           fiscalYearEndAD={selectedFiscalYear?.endDateAD}
@@ -2522,20 +2340,17 @@ export default function App() {
     )),
     screenRoute('lenders', (
         <LendersManagement
-          branches={branches}
           currentUser={currentUser}
-          companyProfile={companyProfile}
         />
     )),
     screenRoute('bill-terms', (
         <BillTermsManagement currentUser={currentUser} />
     )),
     screenRoute('cost-centers', (
-        <CostCentersManagement branches={branches} currentUser={currentUser} />
+        <CostCentersManagement currentUser={currentUser} />
     )),
     screenRoute('employees', (
         <EmployeeDirectory
-          branches={branches}
           currentUser={currentUser}
           selectedBranchId={selectedBranchId}
         />
@@ -2557,13 +2372,12 @@ export default function App() {
     )),
     screenRoute('hr-attendance', (
         <AttendanceLeave
-          branches={branches}
           currentUser={currentUser}
           selectedBranchId={selectedBranchId}
         />
     )),
     screenRoute('hr-payroll', (
-        <Payroll currentUser={currentUser} fiscalYears={fiscalYears} branches={branches} />
+        <Payroll currentUser={currentUser} fiscalYears={fiscalYears} />
     )),
     screenRoute('hr-reports', (
         <HrReports currentUser={currentUser} />
@@ -2571,14 +2385,12 @@ export default function App() {
     screenRoute('hr-recruitment', (
         <Recruitment
           currentUser={currentUser}
-          branches={branches}
           selectedBranchId={selectedBranchId}
         />
     )),
     screenRoute('hr-performance', (
         <Performance
           currentUser={currentUser}
-          branches={branches}
           selectedBranchId={selectedBranchId}
         />
     )),
@@ -2595,11 +2407,10 @@ export default function App() {
         <NarrationTemplatesManagement currentUser={currentUser} />
     )),
     screenRoute('cash-position', (
-        <DailyCashClose branches={branches} dateMode={dateMode} currentUser={currentUser} />
+        <DailyCashClose dateMode={dateMode} currentUser={currentUser} />
     )),
     screenRoute('financial-statements', (
         <FinanceDashboard
-          branches={branches}
           dateMode={dateMode}
           currentUser={currentUser}
           fiscalYears={fiscalYears}
@@ -2610,8 +2421,6 @@ export default function App() {
     )),
     screenRoute('vendor-ledger', (
         <VendorLedger
-          suppliers={suppliers}
-          branches={branches}
           dateMode={dateMode}
           sseRefreshKey={registerRefresh.purchaseInvoices}
           focusRequest={ledgerPartyFocus?.tab === 'vendor-ledger' ? ledgerPartyFocus : null}
@@ -2619,7 +2428,6 @@ export default function App() {
     )),
     screenRoute('customer-ledger', (
         <CustomerLedger
-          branches={branches}
           dateMode={dateMode}
           sseRefreshKey={registerRefresh.salesInvoices}
           returnsRefreshKey={registerRefresh.returnsRegister}
@@ -2628,7 +2436,6 @@ export default function App() {
     )),
     screenRoute('employee-ledger', (
         <EmployeeLedger
-          branches={branches}
           dateMode={dateMode}
           fiscalYearStartAD={selectedFiscalYear?.startDateAD}
           focusRequest={ledgerPartyFocus?.tab === 'employee-ledger' ? ledgerPartyFocus : null}
@@ -2638,9 +2445,6 @@ export default function App() {
         <VendorOpeningBalances
           currentUser={currentUser}
           fiscalYears={fiscalYears}
-          branches={branches}
-          products={products}
-          suppliers={suppliers}
           onRefreshData={refreshAllData}
           selectedFiscalYearId={selectedFiscalYearId}
           onSelectFiscalYear={setSelectedFiscalYearId}
@@ -2650,32 +2454,24 @@ export default function App() {
         <VatRegister
           invoices={purchaseInvoices}
           dateMode={dateMode}
-          companyProfile={companyProfile}
         />
     )),
     screenRoute('depreciation-register', (
         <DepreciationRegister
           refreshToken={registerRefresh.fixedAssets}
-          branches={branches}
           selectedBranchId={selectedBranchId}
           asOfDateAD={assetReportAsOfDateAD}
           dateMode={dateMode}
-          companyProfile={companyProfile}
         />
     )),
     screenRoute('audit', (
         <AuditTrailReports
-          auditLogs={auditLogs}
-          financialSummary={financialSummary}
-          products={products}
-          branches={branches}
           invoices={purchaseInvoices}
           selectedBranchId={selectedBranchId}
           fiscalYearStartAD={selectedFiscalYear?.startDateAD}
           fiscalYearEndAD={selectedFiscalYear?.endDateAD}
           sseRefreshKey={registerRefresh.transactionLog}
           dateMode={dateMode}
-          companyProfile={companyProfile}
         />
     )),
     screenRoute('data-recalculation', (
@@ -2696,16 +2492,11 @@ export default function App() {
           onInitializeOpeningStock={handleInitializeFiscalYearOpeningStock}
           onRollForwardVendorOpenings={handleRollForwardVendorOpenings}
           dateMode={dateMode}
-          financialSummary={financialSummary}
-          products={products}
-          stock={stock}
           refreshToken={registerRefresh.fixedAssets}
           branchId={selectedBranchId}
           sseRefreshKey={registerRefresh.purchaseOrders + registerRefresh.purchaseInvoices}
-          approvalRequests={approvalRequests}
           currentUser={currentUser}
           onRefreshData={refreshAllData}
-          companyProfile={companyProfile}
           selectedFiscalYearId={selectedFiscalYearId}
           onSelectFiscalYear={setSelectedFiscalYearId}
           onNavigateTab={setActiveTab}
@@ -2736,10 +2527,8 @@ export default function App() {
 
   return (
     <AppShell
-      companyProfile={companyProfile}
       currentUser={currentUser}
       rootUser={rootUser}
-      users={users}
       onSwitchBackToRoot={handleSwitchBackToRoot}
       onSwitchProfile={handleSwitchProfile}
       onUpdateProfile={handleUpdateProfile}
@@ -2748,7 +2537,6 @@ export default function App() {
       refreshAllData={refreshAllData}
       permissionsVersion={permissionsVersion}
       onToggleTheme={handleToggleTheme}
-      branches={branches}
       selectedBranchId={selectedBranchId}
       onSelectBranch={handleSelectBranch}
       dateMode={dateMode}
@@ -2761,16 +2549,9 @@ export default function App() {
       onSelectTab={handleSelectTab}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
-      products={products}
-      stock={stock}
-      purchaseOrders={purchaseOrders}
-      purchaseInvoices={purchaseInvoices}
       pendingPurchaseOrders={procurementPending.pendingPurchaseOrders}
       unpaidBillCount={procurementPending.unpaidInvoiceCount}
       shipments={shipments}
-      stockOperations={stockOperations}
-      approvalRequests={approvalRequests}
-      suppliers={suppliers}
       bsCalendarCoverage={bsCalendarCoverage}
       bsCalendarSeedTab={bsCalendarSeedTab}
       banners={

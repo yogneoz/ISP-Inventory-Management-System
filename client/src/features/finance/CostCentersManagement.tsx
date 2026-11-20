@@ -15,9 +15,9 @@ import { PageHeader } from '../../components/common/PageHeader';
 import { api } from '../../services/api';
 import { isOperationAllowed } from '../../utils/permissions';
 import type { Branch, CostCenter, User } from '../../types';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface CostCentersManagementProps {
-  branches?: Branch[];
   currentUser?: User | null;
 }
 
@@ -46,9 +46,10 @@ const codeFromName = (name: string): string =>
     .slice(0, 30);
 
 export const CostCentersManagement: React.FC<CostCentersManagementProps> = ({
-  branches = [],
   currentUser,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const { confirm: confirmDialog, alert: alertDialog } = useDialog();
   const canManage = isOperationAllowed('gl-dimension-manage', currentUser?.role);
   const activationKey = useActivationKey('cost-centers');

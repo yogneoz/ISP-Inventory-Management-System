@@ -54,6 +54,7 @@ import { formatDualDate } from '../../utils/nepaliCalendar';
 import { getAllowedBranches } from '../../utils/permissions';
 import type { RecordRoute } from '../../routes/appPaths';
 import type { SettlementAccount } from '../../services/api/accounting';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 /** Human labels for the stored payment-method codes (the values stay the API enums). */
 const WALLET_PROVIDERS = [
@@ -229,13 +230,8 @@ export function buildSalesInvoiceExportRows(
 }
 
 interface SalesInvoicesProps {
-  companyProfile?: CompanyProfile | null;
   currentUser?: User | null;
-  products: Product[];
-  branches: Branch[];
-  stock: InventoryStock[];
   /** Sellable inventory serials (serial_log IN_STOCK) — the pre-post gate. */
-  inventorySerials?: SerialLog[];
   /** Failure reading that list (DF-17); '' once it succeeds. */
   inventorySerialsError?: string;
   inventorySerialsLoading?: boolean;
@@ -288,12 +284,7 @@ interface FormLine {
 }
 
 export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
-  companyProfile,
   currentUser,
-  products,
-  branches,
-  stock,
-  inventorySerials = [],
   inventorySerialsError = '',
   inventorySerialsLoading = false,
   onRetryInventorySerials,
@@ -308,6 +299,8 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
   onCancelInvoice,
   sseRefreshKey,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches, companyProfile, inventorySerials, products, stock } = useBootstrapData();
   const { isDarkMode } = useDarkMode();
   const { confirm: confirmDialog, alert: alertDialog } = useDialog();
   const [internalTab, setInternalTab] = useState<'LIST' | 'CREATE'>(

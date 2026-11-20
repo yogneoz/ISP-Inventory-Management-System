@@ -17,18 +17,19 @@ import {
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { StatCard } from '../../components/common/StatCard';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface VatRegisterProps {
   invoices: PurchaseInvoice[];
   dateMode: 'BS' | 'AD';
-  companyProfile?: CompanyProfile | null;
 }
 
 export const VatRegister: React.FC<VatRegisterProps> = ({
   invoices,
   dateMode,
-  companyProfile,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { companyProfile } = useBootstrapData();
   const [searchQuery, setSearchQuery] = useState('');
   // FilterCard owns the keystroke draft; an export clicked before the debounce
   // applies must use the text the operator can see, not the previous search.

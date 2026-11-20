@@ -48,10 +48,10 @@ import { EmployeeProfileDialog } from './EmployeeProfileDialog';
 import { EmployeeImportDialog } from './EmployeeImportDialog';
 import { EmployeeBranchTransfersDialog } from './EmployeeBranchTransfersDialog';
 import { EmployeeTransferDialog } from './EmployeeTransferDialog';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface EmployeeDirectoryProps {
   currentUser: User | null;
-  branches: Branch[];
   selectedBranchId?: string;
 }
 
@@ -65,9 +65,10 @@ const formatMoney = (value: string | number | null): string => {
 
 export const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({
   currentUser,
-  branches,
   selectedBranchId = 'ALL',
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const { confirm: confirmDialog, alert: alertDialog } = useDialog();
   const activationKey = useActivationKey('employees');
   const canManage =

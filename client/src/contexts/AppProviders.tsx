@@ -16,7 +16,7 @@ import { DarkModeProvider } from './DarkModeContext';
 import { SessionProvider } from './SessionContext';
 import { ScopeProvider } from './ScopeContext';
 import { DialogProvider } from '../components/common/DialogProvider';
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useRef, useState } from 'react';
 
 export const AppProviders: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <DarkModeProvider>
@@ -137,24 +137,31 @@ export interface BootstrapData {
 
 const BootstrapDataContext = createContext<BootstrapData | null>(null);
 
-export const BootstrapDataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+/**
+ * `initial` seeds the three slices a rendered test needs to reproduce a signed-in
+ * workspace (company profile, users, branches); the app itself never passes it.
+ */
+export const BootstrapDataProvider: React.FC<{
+  children?: React.ReactNode;
+  initial?: Partial<BootstrapData>;
+}> = ({ children, initial }) => {
   const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
   const [branches, setBranches] = useState<Branch[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [suppliers, setSuppliers] = useState([]);
   const [users, setUsers] = useState<User[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [stock, setStock] = useState<InventoryStock[]>([]);
+  const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [stock, setStock] = useState([]);
   const [inventorySerials, setInventorySerials] = useState<SerialLog[]>([]);
-  const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([]);
-  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
-  const [purchaseInvoices, setPurchaseInvoices] = useState<PurchaseInvoice[]>([]);
-  const [purchaseReturns, setPurchaseReturns] = useState<PurchaseReturn[]>([]);
-  const [salesReturns, setSalesReturns] = useState<SalesReturn[]>([]);
-  const [stockOperations, setStockOperations] = useState<StockOperation[]>([]);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
-  const [damageRecords, setDamageRecords] = useState<DamageRecord[]>([]);
-  const [locations, setLocations] = useState<LocationRecord[]>([]);
+  const [approvalRequests, setApprovalRequests] = useState([]);
+  const [purchaseOrders, setPurchaseOrders] = useState([]);
+  const [purchaseInvoices, setPurchaseInvoices] = useState([]);
+  const [purchaseReturns, setPurchaseReturns] = useState([]);
+  const [salesReturns, setSalesReturns] = useState([]);
+  const [stockOperations, setStockOperations] = useState([]);
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [damageRecords, setDamageRecords] = useState([]);
+  const [locations, setLocations] = useState([]);
   const [financialSummary, setFinancialSummary] = useState<FinancialSummary>(EMPTY_FINANCIAL_SUMMARY);
   const [postgresStatus, setPostgresStatus] = useState<PostgresStatus>({
     isConnected: false,
@@ -165,7 +172,7 @@ export const BootstrapDataProvider: React.FC<{ children: React.ReactNode }> = ({
     user: 'inventory_user',
   });
   const [bootstrapBlocked, setBootstrapBlocked] = useState<BootstrapBlock | null>(null);
-  const [sliceState, setSliceState] = useState<BootstrapSliceState>({});
+  const [sliceState, setSliceState] = useState({});
 
   const setters: Record<string, React.Dispatch<React.SetStateAction<any>>> = {
     companyProfile: setCompanyProfile,
@@ -193,6 +200,17 @@ export const BootstrapDataProvider: React.FC<{ children: React.ReactNode }> = ({
       if (slice) setters[key](slice);
     }
   };
+
+  // `initial` is the test-only snapshot: it lands before the first paint so a
+  // rendered screen sees the same slices App would have handed it.
+  const seeded = useRef(false);
+  if (!seeded.current) {
+    seeded.current = true;
+    if (initial) for (const key of Object.keys(setters)) {
+      const slice = (initial as Record<string, any>)[key];
+      if (slice) setters[key](slice);
+    }
+  }
 
   const value: BootstrapData = {
     companyProfile,

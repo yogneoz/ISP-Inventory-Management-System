@@ -27,6 +27,7 @@ import {
   settleUntil,
   smokeUser,
 } from './harness/appRouteTreeProbe';
+import { BootstrapDataProvider } from '../client/src/contexts/AppProviders';
 
 const branches = bootstrapFixture.branches as any;
 
@@ -170,11 +171,10 @@ test('the screen renders cycles, goals, feedback and summary counts and refetche
     createElement(
       DialogProvider,
       null,
-      createElement(Performance, {
+      createElement(BootstrapDataProvider, { initial: { branches } }, createElement(Performance, {
         currentUser: smokeUser,
-        branches,
         selectedBranchId: 'WH001',
-      })
+      }))
     )
   );
   try {
@@ -242,11 +242,10 @@ test('an empty branch scope renders an explicit empty state for cycles, goals an
     createElement(
       DialogProvider,
       null,
-      createElement(Performance, {
+      createElement(BootstrapDataProvider, { initial: { branches } }, createElement(Performance, {
         currentUser: smokeUser,
-        branches,
         selectedBranchId: 'WH001',
-      })
+      }))
     )
   );
   try {
@@ -297,11 +296,10 @@ test('a role without the HR read grant is refused without calling any endpoint',
     createElement(
       DialogProvider,
       null,
-      createElement(Performance, {
+      createElement(BootstrapDataProvider, { initial: { branches } }, createElement(Performance, {
         currentUser: frontDesk,
-        branches,
         selectedBranchId: 'WH001',
-      })
+      }))
     )
   );
   try {

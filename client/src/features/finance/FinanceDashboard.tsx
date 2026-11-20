@@ -62,6 +62,7 @@ import {
 } from '../../components/accounting/LedgerDrilldownDialog';
 import type { FiscalYear } from '../../types';
 import type { NavTab } from '../../components/layout/Sidebar';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface FinanceDashboardProps extends AccountingScreenProps {
   fiscalYears: FiscalYear[];
@@ -384,7 +385,6 @@ const AgingSide: React.FC<{
 };
 
 export const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
-  branches,
   dateMode,
   currentUser,
   fiscalYears,
@@ -392,6 +392,8 @@ export const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
   refreshToken = 0,
   onNavigateTab,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const scope = useAccountingScope(branches, currentUser);
   const activationKey = useActivationKey('financial-statements');
   const isActive = useTabActive('financial-statements') && scope.allowed;

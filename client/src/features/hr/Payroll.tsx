@@ -44,11 +44,11 @@ import type {
 } from '../../services/api';
 import type { Branch, FiscalYear, User } from '../../types';
 import { isOperationAllowed } from '../../utils/permissions';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface PayrollProps {
   currentUser: User | null;
   fiscalYears: FiscalYear[];
-  branches: Branch[];
 }
 
 interface SalaryForm {
@@ -133,7 +133,9 @@ const emptyConfigForm = (): StatutoryConfigForm => ({
   slabs: defaultSlabs(),
 });
 
-export const Payroll: React.FC<PayrollProps> = ({ currentUser, fiscalYears, branches }) => {
+export const Payroll: React.FC<PayrollProps> = ({ currentUser, fiscalYears,  }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const { alert: alertDialog, confirm: confirmDialog } = useDialog();
   const activationKey = useActivationKey('hr-payroll');
   const canManage =

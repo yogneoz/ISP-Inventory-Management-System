@@ -41,13 +41,12 @@ import type { Branch, CostCenter, Supplier, User } from '../../types';
 import { localTodayAD } from '../../utils/localDate';
 import { formatMoney } from '../../utils/nprFormat';
 import { getScopedBranches, isOperationAllowed } from '../../utils/permissions';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 type VoucherMode = 'JOURNAL' | 'CASH_BANK';
 
 export interface VoucherEntryProps {
-  branches: Branch[];
   currentUser?: User | null;
-  suppliers?: Supplier[];
 }
 
 interface VoucherLine {
@@ -127,10 +126,10 @@ const noticeBox =
 
 export const VoucherEntryScreen: React.FC<VoucherEntryProps & { mode: VoucherMode }> = ({
   mode,
-  branches,
   currentUser,
-  suppliers = [],
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches, suppliers } = useBootstrapData();
   const isCash = mode === 'CASH_BANK';
   const tabKey = isCash ? 'cash-bank-entry' : 'journal-entry';
   const activationKey = useActivationKey(tabKey);

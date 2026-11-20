@@ -28,6 +28,7 @@ import { GlobalSearchModal } from '../common/GlobalSearchModal';
 import { NotificationCenter } from '../common/NotificationCenter';
 import { ProfileSwitchModal } from '../common/ProfileSwitchModal';
 import { ToastHost } from '../common/ToastHost';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 /**
  * A2 — the application chrome owns its own UI state.
@@ -48,10 +49,8 @@ import { ToastHost } from '../common/ToastHost';
  */
 export interface AppShellProps {
   // Session & profile
-  companyProfile: CompanyProfile | null;
   currentUser: User;
   rootUser: User | null;
-  users: User[];
   onSwitchBackToRoot: () => Promise<void>;
   onSwitchProfile: (targetUserId: string) => Promise<void>;
   onUpdateProfile: (data: Partial<User> & { newPassword?: string }) => Promise<void>;
@@ -62,7 +61,6 @@ export interface AppShellProps {
   onToggleTheme: () => void;
 
   // View scope
-  branches: Branch[];
   selectedBranchId: string;
   onSelectBranch: (branchId: string) => void;
   dateMode: 'BS' | 'AD';
@@ -79,20 +77,11 @@ export interface AppShellProps {
   onSearchChange: (query: string) => void;
 
   // Data the chrome reads (badges, search modal, notifications, barcode labels)
-  products: Product[];
-  stock: InventoryStock[];
-  /** Full PO slice — the global search modal searches every document. */
-  purchaseOrders: PurchaseOrder[];
-  /** Full invoice slice — the global search modal searches every document. */
-  purchaseInvoices: PurchaseInvoice[];
   /** Scoped open POs for badges + the notification panel (KPI read). */
   pendingPurchaseOrders: PurchaseOrder[];
   /** Unpaid vendor-bill count for the sidebar badge (server-filtered). */
   unpaidBillCount: number;
   shipments: Shipment[];
-  stockOperations: StockOperation[];
-  approvalRequests: ApprovalRequest[];
-  suppliers: Supplier[];
   bsCalendarCoverage: BsCalendarCoverageStatus | null;
   bsCalendarSeedTab: NavTab;
 
@@ -258,10 +247,8 @@ export function AppShell(props: AppShellProps) {
   );
 
   const {
-    companyProfile,
     currentUser,
     rootUser,
-    users,
     onSwitchBackToRoot,
     onSwitchProfile,
     onUpdateProfile,
@@ -270,7 +257,6 @@ export function AppShell(props: AppShellProps) {
     refreshAllData,
     permissionsVersion,
     onToggleTheme,
-    branches,
     selectedBranchId,
     onSelectBranch,
     dateMode,
@@ -283,21 +269,16 @@ export function AppShell(props: AppShellProps) {
     onSelectTab,
     searchQuery,
     onSearchChange,
-    products,
-    stock,
-    purchaseOrders,
-    purchaseInvoices,
     pendingPurchaseOrders,
     unpaidBillCount,
     shipments,
-    stockOperations,
-    approvalRequests,
-    suppliers,
     bsCalendarCoverage,
     bsCalendarSeedTab,
     banners,
     children,
   } = props;
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { companyProfile, users, branches, products, stock, purchaseOrders, purchaseInvoices, stockOperations, approvalRequests, suppliers } = useBootstrapData();
 
   // UIX-12 — the header input and the global-search dialog share App's
   // `searchQuery`. Text typed there is a launcher draft until a result is

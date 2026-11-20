@@ -22,10 +22,9 @@ import { Supplier, Branch } from '../../types';
 import { api } from '../../services/api';
 import { createLatestOnly } from '../../utils/latestOnly';
 import { ArrowDownRight, ArrowUpRight, BookOpen, Building, SlidersHorizontal, Undo2, Wallet } from 'lucide-react';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface VendorLedgerProps {
-  suppliers: Supplier[];
-  branches: Branch[];
   dateMode: 'BS' | 'AD';
   /** A directory row asked this register to open on one supplier. */
   focusRequest?: { partyId: string; partyLabel?: string; token: number } | null;
@@ -40,12 +39,12 @@ interface VendorLedgerProps {
 }
 
 export const VendorLedger: React.FC<VendorLedgerProps> = ({
-  suppliers,
-  branches,
   dateMode,
   focusRequest,
   sseRefreshKey,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches, suppliers } = useBootstrapData();
   const [selectedSupplierId, setSelectedSupplierId] = useState<string>('');
   const [filters, setFilters] = useState<LedgerFilters>({ fromAd: '', toAd: '', branchId: 'ALL' });
   const [loading, setLoading] = useState(false);

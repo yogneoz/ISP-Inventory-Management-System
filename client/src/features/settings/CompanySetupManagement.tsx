@@ -19,9 +19,9 @@ import {
   Briefcase,
   Building,
 } from 'lucide-react';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface CompanySetupManagementProps {
-  companyProfile?: CompanyProfile | null;
   initialProfile?: CompanyProfile | null;
   onUpdateCompanyProfile?: (updated: CompanyProfile) => Promise<boolean | void>;
   onSave?: (updated: CompanyProfile) => Promise<boolean | void>;
@@ -80,12 +80,13 @@ const LOCALE_PRESETS = [
 ];
 
 export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
-  companyProfile,
   initialProfile,
   onUpdateCompanyProfile,
   onSave,
   currentUser,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { companyProfile } = useBootstrapData();
   const profile = companyProfile || initialProfile || DEFAULT_COMPANY_PROFILE;
   const canManage = isOperationAllowed('admin-branches', currentUser?.role);
 

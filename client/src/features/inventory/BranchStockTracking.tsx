@@ -17,23 +17,20 @@ import {
   stockDamagedAt,
   stockOnHandAt,
 } from '../../utils/stockIndex';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface BranchStockTrackingProps {
   currentUser?: User | null;
-  products: Product[];
-  branches: Branch[];
-  stock: InventoryStock[];
   selectedBranchId: string;
   onUpdateStockLevel?: (stockId: string, newQty: number, reason: string) => Promise<void>;
 }
 
 export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
   currentUser,
-  products,
-  branches,
-  stock,
   selectedBranchId,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches, products, stock } = useBootstrapData();
   const [showZeroStock, setShowZeroStock] = useState(false);
   const [localSearch, setLocalSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState('ALL');

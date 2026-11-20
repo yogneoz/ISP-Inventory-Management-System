@@ -41,13 +41,11 @@ import type {
   AccountingJournalLineInput,
   PostingDefaultsResponse,
 } from '../../services/api/accounting';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface VendorOpeningBalancesProps {
   currentUser?: User | null;
-  fiscalYears: FiscalYear[];
-  branches: Branch[];
-  products?: Product[];
-  suppliers?: Supplier[];
+  fiscalYears: FiscalYear[];
   onRefreshData?: () => void;
   /** Globally selected fiscal year id (app-wide scope). */
   selectedFiscalYearId?: string;
@@ -85,14 +83,13 @@ function newGlLine(): GlLineDraft {
  */
 export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
   currentUser,
-  fiscalYears,
-  branches,
-  products = [],
-  suppliers = [],
+  fiscalYears,
   onRefreshData,
   selectedFiscalYearId,
   onSelectFiscalYear,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches, products, suppliers } = useBootstrapData();
   const role = currentUser?.role;
   const canView = isOperationAllowed('opening-stock-view', role);
   const canEditRole = isOperationAllowed('opening-stock-edit', role);

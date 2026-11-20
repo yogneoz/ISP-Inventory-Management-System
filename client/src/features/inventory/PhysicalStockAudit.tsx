@@ -42,15 +42,12 @@ import {
   stockRowAt,
 } from '../../utils/stockIndex';
 import { mergeCountRows } from '../../utils/auditRowMerge';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface PhysicalStockAuditProps {
   currentUser: User | null;
-  products: Product[];
-  branches: Branch[];
-  stock: InventoryStock[];
   selectedBranchId: string;
   dateMode: 'BS' | 'AD';
-  approvalRequests?: ApprovalRequest[];
   onUpdateStockLevel?: (
     stockId: string,
     newQty: number,
@@ -105,12 +102,8 @@ export interface AuditRow {
 
 export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
   currentUser,
-  products = [],
-  branches = [],
-  stock = [],
   selectedBranchId,
   dateMode,
-  approvalRequests = [],
   onUpdateStockLevel,
   onReconcileStockAudit,
   onRequestApproval,
@@ -121,6 +114,8 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
   settingsUnknown = false,
   onCompanyWideBlindCountChange,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { approvalRequests, branches, products, stock } = useBootstrapData();
   const { isDarkMode } = useDarkMode();
 
   // STOCK-1: one O(rows) index per stock array. Every (product, branch) read

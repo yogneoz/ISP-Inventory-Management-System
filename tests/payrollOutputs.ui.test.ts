@@ -21,6 +21,7 @@ import {
   seedSession,
   settleUntil,
 } from './harness/appRouteTreeProbe';
+import { BootstrapDataProvider } from '../client/src/contexts/AppProviders';
 
 test('payroll adjustments are editable inputs and visible run snapshots', () => {
   const inputs = readFileSync('client/src/features/hr/AttendanceLeave.tsx', 'utf8');
@@ -177,7 +178,7 @@ test('Finance payroll postings renders the posted snapshot and refuses without g
   } as unknown as User;
   const branches = [{ id: 'WH001', code: 'WH001', name: 'Warehouse', active: true }] as unknown as Branch[];
   const refused = mountTree(
-    createElement(PayrollPostingsRegister, { branches, currentUser: branchManager })
+    createElement(BootstrapDataProvider, { initial: { branches } }, createElement(PayrollPostingsRegister, { currentUser: branchManager }))
   );
   try {
     assert.match(refused.container.textContent || '', /do not have permission to view accounting ledgers/);

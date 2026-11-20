@@ -12,6 +12,7 @@ import { api } from '../../services/api';
 import { isOperationAllowed } from '../../utils/permissions';
 import { PageHeader } from '../../components/common/PageHeader';
 import { publishLoginLockCount } from '../../utils/loginLockBadge';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 /**
  * Login Locks — the sign-in throttle, on its own screen.
@@ -34,10 +35,11 @@ interface LoginLockBlock {
 interface LoginLocksProps {
   currentUser: User | null;
   /** Bootstrap users, used to show the employee's name beside their email. */
-  users: User[];
 }
 
-export const LoginLocks: React.FC<LoginLocksProps> = ({ currentUser, users }) => {
+export const LoginLocks: React.FC<LoginLocksProps> = ({ currentUser,  }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { users } = useBootstrapData();
   const [blocks, setBlocks] = useState<LoginLockBlock[]>([]);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');

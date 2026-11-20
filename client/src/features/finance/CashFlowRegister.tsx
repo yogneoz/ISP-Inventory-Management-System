@@ -19,12 +19,14 @@ import type { AccountingScreenProps } from '../../components/accounting/Accounti
 import { CashFlowView } from '../../components/accounting/CashFlowView';
 import { CashFlowForecastView } from '../../components/accounting/CashFlowForecastView';
 import { CashFlowForecastSources } from '../../components/accounting/CashFlowForecastSources';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 export const CashFlowRegister: React.FC<AccountingScreenProps> = ({
-  branches,
   dateMode,
   currentUser,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const scope = useAccountingScope(branches, currentUser);
   const [fromDate, setFromDate] = useState('');
   const [data, setData] = useState<CashFlowResponse | null>(null);

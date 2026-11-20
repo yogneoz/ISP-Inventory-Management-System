@@ -47,6 +47,7 @@ import {
 import { TablePagination, useClientPagination } from '../../components/common/TablePagination';
 import { StatCard } from '../../components/common/StatCard';
 import { linkButton } from '../../components/common/styleConstants';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface FiscalYearClosingWizardProps {
   fiscalYears: FiscalYear[];
@@ -68,19 +69,14 @@ interface FiscalYearClosingWizardProps {
     id: string
   ) => Promise<{ targetFiscalYear: FiscalYear; recordsCreated: number; manualRowsPreserved?: number }>;
   dateMode: 'BS' | 'AD';
-  financialSummary: FinancialSummary;
-  products: Product[];
-  stock: InventoryStock[];
   /** ASSET-1: bumped by App when fixed assets change. */
   refreshToken?: number;
   /** Header branch whose purchase documents the diagnostics read. */
   branchId?: string;
   /** Bumped by App on procurement/shipment events and manual refreshes. */
   sseRefreshKey?: number;
-  approvalRequests?: ApprovalRequest[];
   currentUser: User | null;
   onRefreshData?: () => Promise<void>;
-  companyProfile?: CompanyProfile | null;
   /** Globally selected fiscal year id (app-wide scope). */
   selectedFiscalYearId?: string;
   /** Update the global fiscal-year view when the user changes it here. */
@@ -99,20 +95,17 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
   onInitializeOpeningStock,
   onRollForwardVendorOpenings,
   dateMode,
-  financialSummary,
-  products,
-  stock,
   refreshToken = 0,
   branchId,
   sseRefreshKey,
-  approvalRequests = [],
   currentUser,
   onRefreshData,
-  companyProfile,
   selectedFiscalYearId,
   onSelectFiscalYear,
   onNavigateTab,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { approvalRequests, companyProfile, financialSummary, products, stock } = useBootstrapData();
   const { confirm: confirmDialog } = useDialog();
   const defaultFiscalYear: FiscalYear | undefined = fiscalYears.find((fy) => fy.isCurrent) || fiscalYears[0];
   const [selectedFyId, setSelectedFyId] = useState<string>(defaultFiscalYear?.id || '');

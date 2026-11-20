@@ -42,6 +42,7 @@ import {
   type PostingRule,
   type PostingRuleLine,
 } from './postingRuleCatalog';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface RulesState {
   defaults: Record<string, PostingDefault>;
@@ -607,10 +608,11 @@ const AccountControlView: React.FC<{ state: RulesState; branchId: string }> = ({
 };
 
 export const PostingRulesRegister: React.FC<AccountingScreenProps> = ({
-  branches,
   dateMode,
   currentUser,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const scope = useAccountingScope(branches, currentUser);
   const activationKey = useActivationKey('posting-rules');
   const isVisible = useTabActive('posting-rules') && scope.allowed;

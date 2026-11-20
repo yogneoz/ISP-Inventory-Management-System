@@ -8,14 +8,11 @@ import { useDarkMode } from '../../contexts/DarkModeContext';
 import { useShipmentOverview } from '../../services/shipmentOverviewCache';
 import { ShipmentRegister } from './ShipmentRegister';
 import { CreateShipmentForm, type ShipmentFormLine } from './CreateShipmentForm';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface ShipmentsProps {
   currentUser?: User | null;
   activeTab?: string;
-  products: Product[];
-  branches: Branch[];
-  stock: InventoryStock[];
-  approvalRequests?: ApprovalRequest[];
   selectedBranchId: string;
   dateMode: 'BS' | 'AD';
   onCreateShipment: (
@@ -51,10 +48,6 @@ interface ShipmentsProps {
 export const Shipments: React.FC<ShipmentsProps> = ({
   currentUser,
   activeTab = 'shipment-list',
-  products,
-  branches,
-  stock,
-  approvalRequests = [],
   selectedBranchId,
   dateMode,
   onCreateShipment,
@@ -67,6 +60,8 @@ export const Shipments: React.FC<ShipmentsProps> = ({
   onRecordRouteChange,
   onFindShipment,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { approvalRequests, branches, products, stock } = useBootstrapData();
   const { isDarkMode } = useDarkMode();
   const [internalTab, setInternalTab] = useState<'REGISTER' | 'CREATE_SHIPMENT' | 'VIEW'>(
     activeTab === 'create-shipment' ? 'CREATE_SHIPMENT' : 'REGISTER'

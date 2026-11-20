@@ -60,16 +60,12 @@ import {
   companyOverviewCardOrderForRole,
   type CompanyOverviewCardId,
 } from '../../../../shared/companyOverview';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface CompanyOverviewProps {
   currentUser?: User | null;
-  branches: Branch[];
-  products: Product[];
-  stock: InventoryStock[];
-  financialSummary: FinancialSummary;
   pendingPurchaseOrders: PurchaseOrder[];
   unpaidInvoiceCount: number;
-  approvalRequests?: ApprovalRequest[];
   selectedBranchId: string;
   fiscalYearId?: string;
   fiscalYearStartAD?: string;
@@ -344,13 +340,8 @@ const BudgetMeter: React.FC<{ percent: number | null }> = ({ percent }) => {
 
 export const CompanyOverview: React.FC<CompanyOverviewProps> = ({
   currentUser,
-  branches,
-  products,
-  stock,
-  financialSummary,
   pendingPurchaseOrders,
   unpaidInvoiceCount,
-  approvalRequests = [],
   selectedBranchId,
   fiscalYearId,
   fiscalYearStartAD,
@@ -359,6 +350,8 @@ export const CompanyOverview: React.FC<CompanyOverviewProps> = ({
   onCardOrderSaved,
   onNavigateTab,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { approvalRequests, branches, financialSummary, products, stock } = useBootstrapData();
   const activationKey = useActivationKey('company-overview');
   const { confirm: confirmDialog } = useDialog();
   const [workforce, setWorkforce] = useState<HrWorkforceReport | null>(null);

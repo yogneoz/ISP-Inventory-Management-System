@@ -13,6 +13,7 @@ import { mountTree } from './harness/mount';
 import { Dashboard } from '../client/src/features/dashboard/Dashboard';
 import { api } from '../client/src/services/api';
 import { formatNPR } from '../client/src/utils/nprFormat';
+import { BootstrapDataProvider } from '../client/src/contexts/AppProviders';
 
 const user = {
   id: 'u-dashboard-budget',
@@ -131,14 +132,9 @@ describe('dashboard budget overspend alerts', () => {
 
     let navigatedTo = '';
     const tree = mountTree(
-      h(Dashboard, {
+      h(BootstrapDataProvider, { initial: { products: [], stock: [], branches, financialSummary: {} as any, categories: [] } }, h(Dashboard, {
         currentUser: user,
-        products: [],
-        stock: [],
-        branches,
         pendingPurchaseOrders: [],
-        financialSummary: {} as any,
-        categories: [],
         selectedBranchId: 'ALL',
         fiscalYearId: 'fy-dashboard',
         fiscalYearStartAD: '2026-07-17',
@@ -147,7 +143,7 @@ describe('dashboard budget overspend alerts', () => {
         onNavigateTab: (tab: string) => {
           navigatedTo = tab;
         },
-      } as any)
+      } as any))
     );
 
     try {

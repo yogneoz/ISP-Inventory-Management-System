@@ -42,6 +42,7 @@ import {
   type AccessFilterScope,
 } from '../../utils/accessFilterUrl';
 import type { RecordRoute } from '../../routes/appPaths';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 /** operation id → the same label the two permission screens use. */
 const OPERATION_NAMES: Record<string, string> = (() => {
@@ -98,8 +99,6 @@ function readInitialAccessFilters(): {
 
 interface UsersManagementProps {
   currentUser: User | null;
-  users: User[];
-  branches: Branch[];
   onCreateUser?: (user: Omit<User, 'id'> & { password?: string }) => Promise<void>;
   onUpdateUser?: (id: string, user: Partial<User> & { password?: string }) => Promise<void>;
   onResetPassword?: (userId: string, newPassword: string) => Promise<void>;
@@ -113,8 +112,6 @@ interface UsersManagementProps {
 
 export const UsersManagement: React.FC<UsersManagementProps> = ({
   currentUser,
-  users,
-  branches,
   onCreateUser,
   onUpdateUser,
   onResetPassword,
@@ -123,6 +120,8 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
   recordRoute = null,
   onRecordRouteChange,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches, users } = useBootstrapData();
   const { confirm: confirmDialog, alert: alertDialog } = useDialog();
   const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
   /**

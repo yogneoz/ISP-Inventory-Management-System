@@ -15,12 +15,14 @@ import {
 } from '../../components/accounting/AccountingRegisterShell';
 import type { AccountingScreenProps } from '../../components/accounting/AccountingRegisterShell';
 import { AgingView } from '../../components/accounting/AgingView';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 export const AgingRegister: React.FC<AccountingScreenProps> = ({
-  branches,
   dateMode,
   currentUser,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const scope = useAccountingScope(branches, currentUser);
   const [agingType, setAgingType] = useState<AgingType>('AR');
   const [data, setData] = useState<AgingResponse | null>(null);

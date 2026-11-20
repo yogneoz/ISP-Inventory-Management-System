@@ -4,9 +4,9 @@ import { UserPlus, Download, CheckCircle2, AlertCircle, ArrowRight, Check, Uploa
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { PageHeader } from '../../components/common/PageHeader';
 import { useDialog } from '../../components/common/DialogProvider';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface ImportCustomersProps {
-  branches: Branch[];
   onImportCustomersSuccess?: (newCustomers: CustomerRecord[]) => void;
 }
 
@@ -70,9 +70,10 @@ const createCsv = (rows: Record<string, string>[]): string => {
 };
 
 export const ImportCustomers: React.FC<ImportCustomersProps> = ({
-  branches,
   onImportCustomersSuccess,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const { alert: alertDialog } = useDialog();
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [parsedRows, setParsedRows] = useState<ParsedCustomerRow[]>([]);

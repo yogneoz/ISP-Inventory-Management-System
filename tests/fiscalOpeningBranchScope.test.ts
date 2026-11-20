@@ -27,6 +27,7 @@ import { OpeningStockManager } from '../client/src/features/finance/OpeningStock
 import { VendorOpeningBalances } from '../client/src/features/finance/VendorOpeningBalances';
 import { api } from '../client/src/services/api';
 import { getScopedBranches } from '../client/src/utils/permissions';
+import { BootstrapDataProvider } from '../client/src/contexts/AppProviders';
 
 const branches = [
   { id: 'br-a', code: 'BRA', name: 'Branch A', location: 'L' },
@@ -199,12 +200,10 @@ describe('fiscal opening registers — branch scope', () => {
     };
 
     const tree = mountTree(
-      createElement(OpeningStockManager, {
+      createElement(BootstrapDataProvider, { initial: { branches, products } }, createElement(OpeningStockManager, {
         currentUser: branchUser(),
         fiscalYears,
-        branches,
-        products,
-      } as any)
+      } as any))
     );
     try {
       await settle();
@@ -248,12 +247,10 @@ describe('fiscal opening registers — branch scope', () => {
     api.getFiscalYearOpeningStock = async () => openingPayload as any;
 
     const tree = mountTree(
-      createElement(OpeningStockManager, {
+      createElement(BootstrapDataProvider, { initial: { branches, products } }, createElement(OpeningStockManager, {
         currentUser: hqUser,
         fiscalYears,
-        branches,
-        products,
-      } as any)
+      } as any))
     );
     try {
       await settle();
@@ -308,12 +305,10 @@ describe('fiscal opening registers — branch scope', () => {
     };
 
     const tree = mountTree(
-      createElement(VendorOpeningBalances, {
+      createElement(BootstrapDataProvider, { initial: { branches, suppliers } }, createElement(VendorOpeningBalances, {
         currentUser: branchUser(),
         fiscalYears,
-        branches,
-        suppliers,
-      } as any)
+      } as any))
     );
     try {
       await settle();
@@ -416,12 +411,10 @@ describe('fiscal opening registers — branch scope', () => {
       }) as any;
 
     const tree = mountTree(
-      createElement(VendorOpeningBalances, {
+      createElement(BootstrapDataProvider, { initial: { branches, suppliers } }, createElement(VendorOpeningBalances, {
         currentUser: branchUser(),
         fiscalYears,
-        branches,
-        suppliers,
-      } as any)
+      } as any))
     );
     try {
       await settle();
@@ -489,11 +482,10 @@ describe('fiscal opening registers — branch scope', () => {
     };
 
     const tree = mountTree(
-      createElement(VendorOpeningBalances, {
+      createElement(BootstrapDataProvider, { initial: { branches } }, createElement(VendorOpeningBalances, {
         currentUser: accountantUser,
         fiscalYears,
-        branches,
-      } as any)
+      } as any))
     );
     try {
       await settle();
@@ -610,12 +602,10 @@ describe('fiscal opening registers — branch scope', () => {
     };
 
     const tree = mountTree(
-      createElement(VendorOpeningBalances, {
+      createElement(BootstrapDataProvider, { initial: { branches, products } }, createElement(VendorOpeningBalances, {
         currentUser: branchUser(),
         fiscalYears,
-        branches,
-        products,
-      } as any)
+      } as any))
     );
     try {
       await settle();
@@ -713,12 +703,10 @@ describe('fiscal opening registers — branch scope', () => {
     };
 
     const tree = mountTree(
-      createElement(VendorOpeningBalances, {
+      createElement(BootstrapDataProvider, { initial: { branches, suppliers } }, createElement(VendorOpeningBalances, {
         currentUser: superUser,
         fiscalYears,
-        branches,
-        suppliers,
-      } as any)
+      } as any))
     );
     try {
       await settle();
@@ -780,11 +768,10 @@ describe('fiscal opening registers — branch scope', () => {
     };
 
     const tree = mountTree(
-      createElement(VendorOpeningBalances, {
+      createElement(BootstrapDataProvider, { initial: { branches } }, createElement(VendorOpeningBalances, {
         currentUser: accountantUser,
         fiscalYears,
-        branches,
-      } as any)
+      } as any))
     );
     try {
       await settle();

@@ -32,9 +32,9 @@ import { inputClass, labelClass, btnPrimary, btnGhost } from '../../components/c
 import { formatMoney } from '../../utils/nprFormat';
 import { localTodayAD } from '../../utils/localDate';
 import { ArrowDownRight, ArrowUpRight, Banknote, BookOpen, Loader2, SlidersHorizontal, Undo2, Users, Wallet } from 'lucide-react';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface CustomerLedgerProps {
-  branches: Branch[];
   dateMode: 'BS' | 'AD';
   /** A directory row asked this register to open on one customer. */
   focusRequest?: { partyId: string; partyLabel?: string; token: number } | null;
@@ -55,12 +55,13 @@ interface CustomerLedgerProps {
 }
 
 export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
-  branches,
   dateMode,
   focusRequest,
   sseRefreshKey,
   returnsRefreshKey,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [selectedCustomerLabel, setSelectedCustomerLabel] = useState<string>('');
   const [filters, setFilters] = useState<LedgerFilters>({ fromAd: '', toAd: '', branchId: 'ALL' });

@@ -20,23 +20,20 @@ import {
   stockOnHandAt,
   stockRowAt,
 } from '../../utils/stockIndex';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface StockValuationProps {
-  products: Product[];
-  branches: Branch[];
-  stock: InventoryStock[];
   selectedBranchId: string;
   /** Global calendar mode from the header toggle (BS Nepali picker / AD native picker). */
   dateMode?: 'BS' | 'AD';
 }
 
 export const StockValuation: React.FC<StockValuationProps> = ({
-  products,
-  branches,
-  stock,
   selectedBranchId,
   dateMode = 'BS',
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches, products, stock } = useBootstrapData();
   const [activeBranchId, setActiveBranchId] = useState<string>(selectedBranchId);
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [stockStatusFilter, setStockStatusFilter] = useState<'ALL' | 'LOW' | 'NORMAL' | 'OUT_OF_STOCK'>('ALL');

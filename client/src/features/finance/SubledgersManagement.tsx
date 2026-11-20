@@ -44,9 +44,9 @@ import type {
   ChartHealth,
 } from '../../services/api/accounting';
 import { money } from '../../components/accounting/statementFormat';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface SubledgersManagementProps {
-  branches?: Branch[];
   currentUser?: User | null;
   /** Bounded default window for the book ledger read. */
   fiscalYearStartAD?: string;
@@ -94,11 +94,12 @@ const rowAction =
   'inline-flex min-h-[24px] items-center gap-1 rounded-md border border-slate-300 px-1.5 py-0.5 text-[10px] font-bold text-slate-600 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800';
 
 export const SubledgersManagement: React.FC<SubledgersManagementProps> = ({
-  branches = [],
   currentUser,
   fiscalYearStartAD = '',
   fiscalYearEndAD = '',
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const { confirm: confirmDialog, alert: alertDialog } = useDialog();
   const canManage = isOperationAllowed('gl-subledger-manage', currentUser?.role);
   const activationKey = useActivationKey('subledgers');

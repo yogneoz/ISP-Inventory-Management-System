@@ -26,27 +26,26 @@ import { KeysetLoadMore } from '../../components/common/KeysetLoadMore';
 import { RegisterLoadError } from '../../components/common/RegisterLoadError';
 import { useDialog } from '../../components/common/DialogProvider';
 import { getRowActivationProps, ROW_FOCUS_CLASS } from '../../utils/interactiveRow';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 const ZERO_TOTALS: FixedAssetTotals = { acquisitionCost: 0, accumulatedDepreciation: 0, netBookValue: 0 };
 
 interface DepreciationRegisterProps {
   /** ASSET-1: grouped summary + overview from the server; date-wise view paged. */
   refreshToken?: number;
-  branches: Branch[];
   selectedBranchId: string;
   asOfDateAD?: string;
   dateMode: 'BS' | 'AD';
-  companyProfile?: CompanyProfile | null;
 }
 
 export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
   refreshToken = 0,
-  branches,
   selectedBranchId,
   asOfDateAD,
   dateMode,
-  companyProfile,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches, companyProfile } = useBootstrapData();
   const { alert: alertDialog } = useDialog();
   const [activeTab, setActiveTab] = useState<'SUMMARY' | 'DATE_WISE'>('SUMMARY');
   const [searchQuery, setSearchQuery] = useState('');

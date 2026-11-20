@@ -71,11 +71,10 @@ import { isOperationAllowed } from '../../utils/permissions';
 import { printLenderTdsCertificate } from '../../utils/lenderTdsCertificate';
 import { TDS_REASON_LABEL, TDS_REFERENCE_REQUIRED } from '../../utils/tdsExemption';
 import { LenderTdsWorklist } from '../../components/accounting/LenderTdsWorklist';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface LendersManagementProps {
-  branches?: Branch[];
   currentUser?: User | null;
-  companyProfile?: CompanyProfile | null;
 }
 
 interface LenderForm {
@@ -223,10 +222,10 @@ function statusBadge(status: LoanStatus) {
 }
 
 export const LendersManagement: React.FC<LendersManagementProps> = ({
-  branches = [],
   currentUser,
-  companyProfile = null,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches, companyProfile } = useBootstrapData();
   const { confirm: confirmDialog, alert: alertDialog, prompt: promptDialog } = useDialog();
   const canManage = isOperationAllowed('gl-subledger-manage', currentUser?.role);
   const canPost = isOperationAllowed('gl-post', currentUser?.role);

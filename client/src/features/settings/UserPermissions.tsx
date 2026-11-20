@@ -53,6 +53,7 @@ import {
   ShieldCheck,
   UserCheck,
 } from 'lucide-react';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 export interface UserAccessFocusRequest {
   userId: string;
@@ -64,8 +65,6 @@ export interface UserAccessFocusRequest {
 
 export interface UserPermissionsProps {
   currentUser: User;
-  users: User[];
-  branches: Branch[];
   dateMode: 'BS' | 'AD';
   /** A request from the Users screen to open one person's access editor. */
   focusRequest?: UserAccessFocusRequest | null;
@@ -112,12 +111,12 @@ function branchLabel(user: User, branches: Branch[]): string {
 
 export const UserPermissions: React.FC<UserPermissionsProps> = ({
   currentUser,
-  users,
-  branches,
   dateMode,
   focusRequest,
   onOpenRoleDefaults,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches, users } = useBootstrapData();
   const { confirm: confirmDialog } = useDialog();
   const isSuperAdmin = currentUser.role === 'SUPER_ADMIN';
 

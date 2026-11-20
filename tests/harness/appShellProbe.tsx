@@ -12,6 +12,7 @@ import type { User } from '../../client/src/types';
 import { AppShell } from '../../client/src/components/layout/AppShell';
 import type { AppShellProps } from '../../client/src/components/layout/AppShell';
 import { DarkModeProvider } from '../../client/src/contexts/DarkModeContext';
+import { BootstrapDataProvider } from '../../client/src/contexts/AppProviders';
 
 export interface ShellHandles {
   /** How many times the stand-in tab tree's body ran. */
@@ -40,10 +41,8 @@ const asyncNoop = async () => undefined;
 
 function shellProps(handles: ShellHandles): Omit<AppShellProps, 'banners' | 'children'> {
   return {
-    companyProfile: null,
     currentUser: SUPER_ADMIN,
     rootUser: null,
-    users: [SUPER_ADMIN],
     onSwitchBackToRoot: asyncNoop,
     onSwitchProfile: asyncNoop,
     onUpdateProfile: asyncNoop,
@@ -52,7 +51,6 @@ function shellProps(handles: ShellHandles): Omit<AppShellProps, 'banners' | 'chi
     refreshAllData: noop,
     permissionsVersion: 0,
     onToggleTheme: noop,
-    branches: [],
     selectedBranchId: 'ALL',
     onSelectBranch: noop,
     dateMode: 'BS',
@@ -65,16 +63,9 @@ function shellProps(handles: ShellHandles): Omit<AppShellProps, 'banners' | 'chi
     onSelectTab: (tab) => handles.selectedTabs.push(tab),
     searchQuery: '',
     onSearchChange: noop,
-    products: [],
-    stock: [],
-    purchaseOrders: [],
-    purchaseInvoices: [],
     pendingPurchaseOrders: [],
     unpaidBillCount: 0,
     shipments: [],
-    stockOperations: [],
-    approvalRequests: [],
-    suppliers: [],
     bsCalendarCoverage: null,
     bsCalendarSeedTab: 'bs-calendar',
   };
@@ -92,12 +83,14 @@ export function ShellProbe({ handles }: { handles: ShellHandles }) {
   return h(
     DarkModeProvider,
     null,
-    h(AppShell, {
+    h(BootstrapDataProvider, {
+      initial: { companyProfile: null, users: [SUPER_ADMIN] },
+    }, h(AppShell, {
       ...shellProps(handles),
       banners: h('div', { 'data-banners': rows.length }),
       // The workspace element is built HERE (like App does), so AppShell's own
       // state changes can never rebuild it.
       children: h('main', { 'data-workspace': true }, h(TabTree, { rows, handles })),
-    })
+    }))
   );
 }

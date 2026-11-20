@@ -16,11 +16,11 @@ import {
   productGroupBadgeIcon,
   setProductGroups as setBehaviorCache,
 } from '../../utils/productGroupBehavior';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface ProductGroupManagementProps {
   currentUser?: User | null;
   /** Catalog rows, used for live product counts (the server also returns one). */
-  products?: Product[];
 }
 
 /**
@@ -38,8 +38,9 @@ interface ProductGroupManagementProps {
  */
 export const ProductGroupManagement: React.FC<ProductGroupManagementProps> = ({
   currentUser,
-  products = [],
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { products } = useBootstrapData();
   const { confirm: confirmDialog, alert: alertDialog } = useDialog();
   const canEdit = isOperationAllowed('product-group-manage', currentUser?.role);
 

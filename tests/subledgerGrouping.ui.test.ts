@@ -14,6 +14,7 @@ import { SubledgersManagement } from '../client/src/features/finance/SubledgersM
 import type { Branch, User } from '../client/src/types';
 import { mountTree } from './harness/mount';
 import { installApiStubs } from './harness/appRouteTreeProbe';
+import { BootstrapDataProvider } from '../client/src/contexts/AppProviders';
 
 const settle = async (rounds = 6): Promise<void> => {
   for (let i = 0; i < rounds; i += 1) {
@@ -76,7 +77,7 @@ test('subledgers render grouped, collapse across refresh and tolerate legacy hea
     createElement(
       DialogProvider,
       null,
-      createElement(SubledgersManagement, { branches, currentUser: user })
+      createElement(BootstrapDataProvider, { initial: { branches } }, createElement(SubledgersManagement, { currentUser: user }))
     )
   );
   try {

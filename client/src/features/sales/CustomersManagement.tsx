@@ -42,15 +42,13 @@ import {
   SERIAL_LOOKUP_FAILED_MESSAGE,
 } from '../../utils/serialRefusal';
 import { normalizeMacAddress } from '../../../../shared/macAddress';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface CustomersManagementProps {
-  branches: Branch[];
-  products: Product[];
   selectedBranchId: string;
   dateMode: 'BS' | 'AD';
   autoOpenModal?: boolean;
   currentUser?: User | null;
-  approvalRequests?: ApprovalRequest[];
   onCreateCustomerDevice: (record: Omit<CustomerDeviceRecord, 'id'>) => Promise<void>;
   onUpdateStatus: (id: string, status: CustomerDeviceRecord['status']) => Promise<void>;
   onExchangeSuccess?: () => Promise<void>;
@@ -68,13 +66,10 @@ interface CustomersManagementProps {
 }
 
 export const CustomersManagement: React.FC<CustomersManagementProps> = ({
-  branches = [],
-  products = [],
   selectedBranchId,
   dateMode,
   autoOpenModal = false,
   currentUser,
-  approvalRequests = [],
   onCreateCustomerDevice,
   onUpdateStatus,
   onExchangeSuccess,
@@ -83,6 +78,8 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
   onNavigateToMaster,
   sseRefreshKey = 0,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { approvalRequests, branches, products } = useBootstrapData();
   const { alert: alertDialog } = useDialog();
   const canManageCustomers = isOperationAllowed('customers-manage', currentUser?.role);
   const [searchQuery, setSearchQuery] = useState('');

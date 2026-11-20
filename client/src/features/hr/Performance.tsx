@@ -36,10 +36,10 @@ import type {
 } from '../../services/api';
 import type { Branch, User } from '../../types';
 import { isOperationAllowed } from '../../utils/permissions';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface PerformanceProps {
   currentUser: User | null;
-  branches: Branch[];
   selectedBranchId?: string;
 }
 
@@ -168,9 +168,10 @@ const emptyCycleForm = (branchId: string, status: Exclude<HrReviewCycleStatus, '
 
 export const Performance: React.FC<PerformanceProps> = ({
   currentUser,
-  branches,
   selectedBranchId,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const activationKey = useActivationKey('hr-performance');
   const { confirm: confirmDialog, alert: alertDialog } = useDialog();
   const canView =

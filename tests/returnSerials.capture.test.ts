@@ -42,6 +42,7 @@ import {
   seedReturnSerialSlots,
   type ReturnSerialSlot,
 } from '../client/src/utils/returnSerials';
+import { BootstrapDataProvider } from '../client/src/contexts/AppProviders';
 
 const read = (file: string) => fs.readFileSync(path.resolve(process.cwd(), file), 'utf8');
 
@@ -212,20 +213,17 @@ describe('the returns screen captures one serial row per unit', () => {
         createElement(
           DialogProvider,
           null,
-          createElement(ReturnsRegister, {
+          createElement(BootstrapDataProvider, { initial: { purchaseInvoices: [invoice], products, branches: [{ id: 'br-1', name: 'Branch One' }] as any } }, createElement(ReturnsRegister, {
             kind: 'PURCHASE',
             currentUser: { id: 'u-1', role: 'BRANCH_MANAGER', branchId: 'br-1' },
-            purchaseInvoices: [invoice],
             returns: [],
-            products,
-            branches: [{ id: 'br-1', name: 'Branch One' }],
             selectedBranchId: 'br-1',
             dateMode: 'AD',
             autoOpenCreate: true,
             onCreateReturn: async () => ({}),
             onCancelReturn: async () => {},
             onApproveReturn: async () => {},
-          } as any)
+          } as any))
         )
       )
     );

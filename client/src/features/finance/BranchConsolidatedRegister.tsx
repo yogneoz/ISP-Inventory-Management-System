@@ -30,6 +30,7 @@ import type {
 import { money } from '../../components/accounting/statementFormat';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { exportToCSV, type CSVColumn } from '../../utils/exportUtils';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 type ConsolidatedMatrix = BranchProfitAndLossMatrixResponse | BranchBalanceSheetMatrixResponse;
 
@@ -71,11 +72,12 @@ const reportSlug = (
 };
 
 export const BranchConsolidatedRegister: React.FC<AccountingScreenProps> = ({
-  branches,
   dateMode,
   currentUser,
   fiscalYearStartAD,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const scope = useAccountingScope(branches, currentUser);
   const [data, setData] = useState<ConsolidatedMatrix | null>(null);
   const [view, setView] = useState<BranchConsolidatedReportView>('PROFIT_AND_LOSS');

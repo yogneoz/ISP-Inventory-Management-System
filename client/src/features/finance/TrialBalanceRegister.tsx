@@ -26,12 +26,14 @@ import {
   TrialBalanceDrilldown,
   type TrialBalanceDrilldownTarget,
 } from '../../components/accounting/TrialBalanceDrilldown';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 export const TrialBalanceRegister: React.FC<AccountingScreenProps> = ({
-  branches,
   dateMode,
   currentUser,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const scope = useAccountingScope(branches, currentUser);
   const [data, setData] = useState<TrialBalanceResponse | null>(null);
   const [drilldown, setDrilldown] = useState<TrialBalanceDrilldownTarget | null>(null);

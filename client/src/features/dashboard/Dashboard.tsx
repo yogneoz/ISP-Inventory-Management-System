@@ -42,6 +42,7 @@ import {
   Tag,
   CalendarClock,
 } from 'lucide-react';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 const DashboardBudgetAlerts = React.lazy(() =>
   import('./DashboardBudgetAlerts').then((module) => ({ default: module.DashboardBudgetAlerts }))
@@ -49,13 +50,8 @@ const DashboardBudgetAlerts = React.lazy(() =>
 
 interface DashboardProps {
   currentUser?: User | null;
-  products: Product[];
-  stock: InventoryStock[];
-  branches: Branch[];
   /** Scoped open POs from the shared KPI read (statuses DRAFT→PURCHASED). */
   pendingPurchaseOrders: PurchaseOrder[];
-  financialSummary: FinancialSummary;
-  categories: Category[];
   selectedBranchId: string;
   fiscalYearId?: string;
   fiscalYearStartAD?: string;
@@ -77,12 +73,7 @@ interface DashboardProps {
 
 export const Dashboard: React.FC<DashboardProps> = ({
   currentUser,
-  products,
-  stock,
-  branches,
   pendingPurchaseOrders,
-  financialSummary,
-  categories,
   selectedBranchId,
   fiscalYearId,
   fiscalYearStartAD,
@@ -97,6 +88,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   bsCalendarCoverage = null,
   bsCalendarSeedTab = 'bs-calendar',
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches, categories, financialSummary, products, stock } = useBootstrapData();
   // The fixed-asset KPI is a finance read; the overview endpoint enforces the
   // same assets-view operation, so roles outside finance neither fetch nor
   // render the card.

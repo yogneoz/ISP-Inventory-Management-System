@@ -21,6 +21,7 @@ import { FiscalYearSelect } from '../client/src/components/common/FiscalYearSele
 import { WarrantyRegister } from '../client/src/features/inventory/warranty/WarrantyRegister';
 import { Dashboard } from '../client/src/features/dashboard/Dashboard';
 import { api } from '../client/src/services/api';
+import { BootstrapDataProvider } from '../client/src/contexts/AppProviders';
 
 const user = {
   id: 'u-low',
@@ -87,18 +88,13 @@ describe('UIX-10 — the low-stock hint cannot collide', () => {
 
   test('the hint row wraps with a gap and does not rely on justify-between', async () => {
     const tree = mountTree(
-      h(Dashboard, {
+      h(BootstrapDataProvider, { initial: { products: [], stock: [], branches, financialSummary: {} as any, categories: [] } }, h(Dashboard, {
         currentUser: user,
-        products: [],
-        stock: [],
-        branches,
         pendingPurchaseOrders: [],
-        financialSummary: {} as any,
-        categories: [],
         selectedBranchId: 'ALL',
         dateMode: 'AD',
         onNavigateTab: () => {},
-      } as any)
+      } as any))
     );
 
     try {
@@ -301,12 +297,22 @@ describe('UIX-12 — global search only keeps a picked query', () => {
 
   function SearchShell({ onSelectTab }: { onSelectTab: (tab: any) => void }) {
     const [query, setQuery] = useState('');
-    return h(AppShell, {
-      ...shellProps,
-      searchQuery: query,
-      onSearchChange: setQuery,
-      onSelectTab,
-    });
+    // Step 6: the shell reads its workspace slices from the provider, so the
+    // fixture's slices seed it and only UI props reach AppShell.
+    const {
+      companyProfile, users, branches: shellBranches, products, stock, purchaseOrders,
+      purchaseInvoices, stockOperations, approvalRequests, suppliers, ...ui
+    } = shellProps;
+    return h(
+      BootstrapDataProvider,
+      {
+        initial: {
+          companyProfile, users, branches: shellBranches, products, stock, purchaseOrders,
+          purchaseInvoices, stockOperations, approvalRequests, suppliers,
+        },
+      },
+      h(AppShell, { ...ui, searchQuery: query, onSearchChange: setQuery, onSelectTab })
+    );
   }
 
   test('closing without a pick restores the applied text; closing after a pick keeps it', async () => {

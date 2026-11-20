@@ -39,6 +39,7 @@ import {
   RefreshCw,
   ShieldCheck,
 } from 'lucide-react';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 const CODE39_MAP: Record<string, string> = {
   '0': '10100110110', '1': '11010010101', '2': '10110010101', '3': '11011001010', '4': '10100110101',
@@ -102,7 +103,6 @@ export const Code39BarcodeSVG: React.FC<{
 
 interface ProductManagementProps {
   currentUser?: User | null;
-  stock?: InventoryStock[];
   selectedBranchId?: string;
   onCreateProduct: (prod: Omit<Product, 'id'>) => Promise<void>;
   onUpdateProduct: (id: string, prod: Partial<Product>) => Promise<void>;
@@ -113,7 +113,6 @@ interface ProductManagementProps {
 
 export const ProductManagement: React.FC<ProductManagementProps> = ({
   currentUser,
-  stock = [],
   selectedBranchId = 'ALL',
   onCreateProduct,
   onUpdateProduct,
@@ -121,6 +120,8 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
   searchQuery,
   mode = 'product-master',
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { stock } = useBootstrapData();
   const { alert: alertDialog } = useDialog();
   const [filterCategory, setFilterCategory] = useState<string>('ALL');
   const [filterProductGroup, setFilterProductGroup] = useState<string>('ALL');

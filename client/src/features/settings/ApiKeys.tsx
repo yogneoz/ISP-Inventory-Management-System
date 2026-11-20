@@ -20,6 +20,7 @@ import { isOperationAllowed } from '../../utils/permissions';
 import { PageHeader } from '../../components/common/PageHeader';
 import { ModalPanel } from '../../components/common/ModalPanel';
 import { DEFAULT_GROUPS } from './permissionGroups';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 /**
  * API Creator — the screen a Super Admin or Sub Super Admin uses to give a
@@ -33,7 +34,6 @@ import { DEFAULT_GROUPS } from './permissionGroups';
  */
 interface ApiKeysProps {
   currentUser: User | null;
-  branches: Branch[];
 }
 
 interface CreateForm {
@@ -70,7 +70,9 @@ function formatDate(value: string | null): string {
   return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }
 
-export const ApiKeys: React.FC<ApiKeysProps> = ({ currentUser, branches }) => {
+export const ApiKeys: React.FC<ApiKeysProps> = ({ currentUser,  }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const canAdminister = isOperationAllowed('admin-api-keys', currentUser?.role);
   const [keys, setKeys] = useState<ApiKeyRecord[]>([]);
   const [busy, setBusy] = useState(true);

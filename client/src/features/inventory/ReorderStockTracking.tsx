@@ -25,12 +25,10 @@ import { FilterCard } from '../../components/common/FilterCard';
 import { PageHeader } from '../../components/common/PageHeader';
 import { useDialog } from '../../components/common/DialogProvider';
 import { indexStockByProductBranch, stockRowAt } from '../../utils/stockIndex';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface ReorderStockTrackingProps {
   currentUser?: User | null;
-  products: Product[];
-  branches: Branch[];
-  stock: InventoryStock[];
   selectedBranchId: string;
   onUpdateStockLevel?: (stockId: string, newQty: number, reason: string) => Promise<void>;
   onUpdateStockReorderLevel?: (stockId: string, minReorderLevel: number) => Promise<void>;
@@ -41,9 +39,6 @@ interface ReorderStockTrackingProps {
 
 export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
   currentUser,
-  products,
-  branches,
-  stock,
   selectedBranchId,
   onUpdateStockLevel,
   onUpdateStockReorderLevel,
@@ -51,6 +46,8 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
   onGroupLowStockPO,
   onNavigateTab,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches, products, stock } = useBootstrapData();
   const { alert: alertDialog } = useDialog();
   const [editingStock, setEditingStock] = useState<{
     stockItem: InventoryStock;

@@ -42,6 +42,7 @@ import type { Branch, User } from '../../types';
 import { localTodayAD } from '../../utils/localDate';
 import { formatMoney } from '../../utils/nprFormat';
 import { getScopedBranches, isOperationAllowed } from '../../utils/permissions';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 type Tab = 'templates' | 'close';
 type FormLine = {
@@ -95,14 +96,14 @@ const cellInput =
 const CLOSE_STATUSES: CloseTaskStatus[] = ['PENDING', 'IN_PROGRESS', 'DONE', 'NOT_APPLICABLE'];
 
 export interface RecurringCloseRegisterProps {
-  branches: Branch[];
   currentUser?: User | null;
 }
 
 export const RecurringCloseRegister: React.FC<RecurringCloseRegisterProps> = ({
-  branches,
   currentUser,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const activationKey = useActivationKey('recurring-close');
   const { confirm: confirmDialog } = useDialog();
   const canPost = isOperationAllowed('gl-post', currentUser?.role);

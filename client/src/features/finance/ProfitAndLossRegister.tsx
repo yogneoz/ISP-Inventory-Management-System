@@ -24,12 +24,14 @@ import {
 import type { StatementFormat } from '../../components/accounting/statementTFormat';
 import { precedingEqualWindow } from '../../utils/comparativePeriod';
 import { StatementGroupDrilldown } from '../../components/accounting/StatementGroupDrilldown';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 export const ProfitAndLossRegister: React.FC<AccountingScreenProps> = ({
-  branches,
   dateMode,
   currentUser,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const scope = useAccountingScope(branches, currentUser);
   const [data, setData] = useState<ProfitAndLossResponse | null>(null);
   const [openGroup, setOpenGroup] = useState<StatementGroupBlock | null>(null);

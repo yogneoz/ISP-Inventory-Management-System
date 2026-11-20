@@ -43,10 +43,10 @@ import type {
   HrShiftRecord,
 } from '../../services/api';
 import { isOperationAllowed } from '../../utils/permissions';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface AttendanceLeaveProps {
   currentUser: User | null;
-  branches: Branch[];
   selectedBranchId?: string;
 }
 
@@ -259,9 +259,10 @@ const labelClass = 'mb-1 block text-[10px] font-semibold uppercase tracking-wide
 
 export const AttendanceLeave: React.FC<AttendanceLeaveProps> = ({
   currentUser,
-  branches,
   selectedBranchId = 'ALL',
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { branches } = useBootstrapData();
   const { alert: alertDialog, confirm: confirmDialog } = useDialog();
   const activationKey = useActivationKey('hr-attendance');
 

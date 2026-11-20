@@ -24,15 +24,12 @@ import {
 import { formatNPR } from '../../utils/nprFormat';
 import { isOperationAllowed } from '../../utils/permissions';
 import { useDialog } from '../../components/common/DialogProvider';
+import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface ReceiveInboundWarehouseProps {
   currentUser: User | null;
   operations: StockOperation[];
   shipments: Shipment[];
-  products: Product[];
-  branches: Branch[];
-  stock: InventoryStock[];
-  approvalRequests?: ApprovalRequest[];
   dateMode?: 'AD' | 'BS';
   onReceiveOperation: (id: string) => Promise<void>;
   onReceiveShipment: (
@@ -54,15 +51,13 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
   currentUser,
   operations = [],
   shipments = [],
-  products = [],
-  branches = [],
-  stock = [],
-  approvalRequests = [],
   dateMode = 'AD',
   onReceiveOperation,
   onReceiveShipment,
   onCancelReceiveShipment,
 }) => {
+  // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
+  const { approvalRequests, branches, products, stock } = useBootstrapData();
   const { alert: alertDialog } = useDialog();
   const isWarehouseStaffOrAdmin =
     isOperationAllowed('wh-receive-pullouts', currentUser?.role) ||
