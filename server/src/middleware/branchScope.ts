@@ -178,6 +178,16 @@ export const BRANCH_SCOPE_EXEMPTIONS: readonly BranchScopeExemption[] = [
       'Pre-aggregated stock positions (SCALE-3 read model): one row per branch and product, maintained by the transaction-log trigger and read only through branch-scoped SQL (BRANCH_STOCK_BALANCES_SQL / BRANCH_STOCK_VALUE_SQL in readModels.repo). There is no row-id route and no client-supplied branch, so the by-id guard has nothing to address.',
   },
   {
+    table: 'gl_period_balances',
+    reason:
+      'Pre-aggregated GL period rollup (ACC read model): one row per branch, account and period, recomputed from the ledger by the 0047 triggers and read only through branch-scoped SQL (GL_PERIOD_BALANCES_SQL in readModels.repo, which pins branch_id = $1 from the session). There is no row-id route and no client-supplied branch, so the by-id guard has nothing to address.',
+  },
+  {
+    table: 'gl_party_period_balances',
+    reason:
+      'Pre-aggregated party period rollup (ACC read model): one row per branch, account, party and period, recomputed from the subledger by the 0047 triggers and read only through branch-scoped SQL (GL_PARTY_PERIOD_BALANCES_SQL in readModels.repo, which pins branch_id = $1 from the session). There is no row-id route and no client-supplied branch, so the by-id guard has nothing to address.',
+  },
+  {
     table: 'fiscal_year_opening_stock',
     reason:
       "Batch fiscal-year register (product × branch): the GET filters and the PUT refuses rows outside the actor's allowed branches in fiscal.routes.ts. The path id is the fiscal year, not a row id, so the by-id lookup does not apply.",

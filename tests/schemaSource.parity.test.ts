@@ -116,13 +116,13 @@ describe('dbBoot.ts ↔ scripts/schema.sql single-source-of-truth guard', () => 
     }
   });
 
-  test('schema.sql still declares all 135 tables (fresh-install completeness)', () => {
+  test('schema.sql still declares all 137 tables (fresh-install completeness)', () => {
     // Anchor to the line start so the prose comment that mentions
     // "CREATE TABLE IF NOT EXISTS does not alter…" is not counted as a table.
     const tables = new Set(
       (schemaSql.match(/^CREATE TABLE IF NOT EXISTS (\w+)/gm) || []).map((s) => s.replace('CREATE TABLE IF NOT EXISTS ', ''))
     );
-    assert.equal(tables.size, 135, `schema.sql should declare exactly 135 tables, found ${tables.size}`);
+    assert.equal(tables.size, 137, `schema.sql should declare exactly 137 tables, found ${tables.size}`);
   });
 
   test('serial_log carries the register-wide uniqueness (device serial + PON + MAC)', () => {
@@ -191,5 +191,58 @@ describe('dbBoot.ts ↔ scripts/schema.sql single-source-of-truth guard', () => 
     for (const value of ['PURCHASE_INVOICE_CANCELLED', 'PURCHASE_RETURN_CANCELLED', 'SALES_RETURN_CANCELLED', 'SALES_INVOICE_CANCELLED']) {
       assert.ok(first.has(value), `change_type CHECK must accept ${value}`);
     }
+  });
+
+  test('§31 of schema.sql is the 0047 migration body, verbatim', () => {
+    // §31 (accounting read models) exists twice on purpose: schema.sql is the
+    // one file dbBoot executes on every start and a fresh install builds from,
+    // while 0047 is the upgrade path an existing database takes. Both must
+    // build the SAME objects, or a fresh install and an upgraded install end up
+    // with different functions, triggers and indexes.
+    //
+    // The two headers differ deliberately — the mirror's prose names the
+    // migration it copies — so the comparison starts at the first statement and
+    // runs to the end of the file. §31 is deliberately the last section of
+    // schema.sql; a new section appended after it belongs after an end marker
+    // added here.
+    const migrationPath = path.join(ROOT, 'scripts/migrations/0047_gl_period_balances.sql');
+    const marker = 'CREATE TABLE IF NOT EXISTS gl_period_balances (';
+
+    /** From the marker to EOF, line endings normalised so LF/CRLF is not drift. */
+    const copiedBody = (file: string, text: string): string[] => {
+      const normalised = text.split('\r\n').join('\n');
+      const first = normalised.indexOf(marker);
+      assert.ok(first >= 0, `${file} no longer declares "${marker}" — §31 cannot be checked`);
+      assert.equal(
+        normalised.indexOf(marker, first + 1),
+        -1,
+        `${file} declares "${marker}" more than once — the guard cannot tell which copy it is comparing`
+      );
+      return normalised.slice(first).replace(/\s+$/, '').split('\n');
+    };
+
+    const fromMigration = copiedBody(migrationPath, fs.readFileSync(migrationPath, 'utf8'));
+    const fromSchema = copiedBody(SCHEMA_SQL_PATH, schemaSql);
+    assert.ok(
+      fromMigration.length > 100,
+      `the 0047 body parsed as ${fromMigration.length} lines — expected the whole read-model block`
+    );
+
+    const drift: string[] = [];
+    const longest = Math.max(fromSchema.length, fromMigration.length);
+    for (let i = 0; i < longest && drift.length < 5; i += 1) {
+      if (fromSchema[i] !== fromMigration[i]) {
+        drift.push(
+          `line ${i + 1}: schema.sql ${JSON.stringify(fromSchema[i] ?? '<end of file>')} ` +
+            `!= 0047 ${JSON.stringify(fromMigration[i] ?? '<end of file>')}`
+        );
+      }
+    }
+    assert.deepEqual(
+      drift,
+      [],
+      'scripts/schema.sql §31 has drifted from scripts/migrations/0047_gl_period_balances.sql. ' +
+        'Both copies must build the same objects: edit them together (or regenerate §31 from the migration).'
+    );
   });
 });

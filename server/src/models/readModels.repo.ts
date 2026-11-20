@@ -65,3 +65,67 @@ export const FISCAL_YEAR_BALANCES_REBUILD_SQL = `SELECT rebuild_fiscal_year_bala
 
 /** Queue a read-model write that could not be applied inline. */
 export const READ_MODEL_ENQUEUE_SQL = `SELECT enqueue_read_model_write($1, $2::jsonb, $3::jsonb, $4) AS id`;
+
+/**
+ * Period balances for one branch: opening, turnover and closing per account and
+ * period, maintained from `gl_journal_lines`. Signed, debit-positive — the same
+ * convention as `ACCOUNT_BALANCE_ROWS_SQL`. `$2` narrows to a fiscal year and
+ * `$3` to one account; both NULL reads the branch's whole history.
+ *
+ * Deliberately no LIMIT: the row set is the chart of accounts × periods, which
+ * the caller narrows with `$2`/`$3`, and a silent truncation would drop accounts
+ * from a trial balance without saying so.
+ */
+export const GL_PERIOD_BALANCES_SQL = `SELECT
+  account_id AS "accountId",
+  period_id AS "periodId",
+  period_key AS "periodKey",
+  fiscal_year_id AS "fiscalYearId",
+  period_start_ad AS "periodStartAd",
+  opening_balance::numeric AS "openingBalance",
+  period_debit::numeric AS "periodDebit",
+  period_credit::numeric AS "periodCredit",
+  closing_balance::numeric AS "closingBalance",
+  updated_at AS "updatedAt"
+FROM gl_period_balances
+WHERE branch_id = $1
+  AND ($2::varchar IS NULL OR fiscal_year_id = $2::varchar)
+  AND ($3::varchar IS NULL OR account_id = $3::varchar)
+  ORDER BY account_id ASC, period_start_ad ASC, period_id ASC`;
+
+/**
+ * Party balances for one branch: the AR/AP aging read. `$2` is the subledger
+ * type, `$3` one party and `$4` one period; NULL means every value at that
+ * position. Never a client-supplied branch — the caller passes its session scope.
+ * No LIMIT, for the same reason as `GL_PERIOD_BALANCES_SQL`.
+ *
+ * Rows are sparse per period: a party with no activity in a period has no row
+ * for it, and its balance is carried by its latest earlier row. An "as at
+ * period" read therefore joins each party's latest row at or before the period
+ * rather than filtering to the period alone.
+ */
+export const GL_PARTY_PERIOD_BALANCES_SQL = `SELECT
+  account_id AS "accountId",
+  subledger_type AS "subledgerType",
+  party_id AS "partyId",
+  period_id AS "periodId",
+  period_key AS "periodKey",
+  fiscal_year_id AS "fiscalYearId",
+  period_start_ad AS "periodStartAd",
+  opening_balance::numeric AS "openingBalance",
+  period_debit::numeric AS "periodDebit",
+  period_credit::numeric AS "periodCredit",
+  closing_balance::numeric AS "closingBalance",
+  updated_at AS "updatedAt"
+FROM gl_party_period_balances
+WHERE branch_id = $1
+  AND ($2::varchar IS NULL OR subledger_type = $2::varchar)
+  AND ($3::varchar IS NULL OR party_id = $3::varchar)
+  AND ($4::varchar IS NULL OR period_key = $4::varchar)
+  ORDER BY subledger_type ASC, party_id ASC, account_id ASC, period_start_ad ASC, period_id ASC`;
+
+/** Recompute every period balance from the ledger (branch × account × period). */
+export const GL_PERIOD_BALANCES_REBUILD_SQL = `SELECT rebuild_gl_period_balances() AS rows`;
+
+/** Recompute every party balance from the subledger (account × party × period). */
+export const GL_PARTY_PERIOD_BALANCES_REBUILD_SQL = `SELECT rebuild_gl_party_period_balances() AS rows`;

@@ -7,6 +7,8 @@
  *   npm run read-models:rebuild -- --stock
  *   npm run read-models:rebuild -- --fiscal-year fy-2082
  *   npm run read-models:rebuild -- --stock --verify   # exit 1 if a rebuild differs
+ *   npm run read-models:rebuild -- --period-balances --verify
+ *   npm run read-models:rebuild -- --party-balances --verify
  *
  * `--verify` is the demonstration that the incrementally maintained table and a
  * from-scratch rebuild agree: it snapshots the read model, rebuilds it, and
@@ -17,6 +19,8 @@ import 'dotenv/config';
 import pg from 'pg';
 import {
   FISCAL_YEAR_BALANCES_REBUILD_SQL,
+  GL_PARTY_PERIOD_BALANCES_REBUILD_SQL,
+  GL_PERIOD_BALANCES_REBUILD_SQL,
   READ_MODEL_FLUSH_SQL,
   READ_MODEL_PENDING_COUNT_SQL,
   READ_MODEL_PENDING_LIST_SQL,
@@ -54,6 +58,30 @@ async function fiscalYearSnapshot(client: pg.Client, fiscalYearId: string): Prom
   return result.rows;
 }
 
+async function periodBalancesSnapshot(client: pg.Client): Promise<Row[]> {
+  const result = await client.query(
+    `SELECT branch_id, account_id, period_id, period_key, fiscal_year_id, period_start_ad,
+            opening_balance::text AS opening_balance, period_debit::text AS period_debit,
+            period_credit::text AS period_credit, closing_balance::text AS closing_balance,
+            updated_at
+       FROM gl_period_balances
+      ORDER BY branch_id, account_id, period_start_ad, period_id`
+  );
+  return result.rows;
+}
+
+async function partyBalancesSnapshot(client: pg.Client): Promise<Row[]> {
+  const result = await client.query(
+    `SELECT branch_id, account_id, subledger_type, party_id, period_id, period_key, fiscal_year_id,
+            period_start_ad, opening_balance::text AS opening_balance,
+            period_debit::text AS period_debit, period_credit::text AS period_credit,
+            closing_balance::text AS closing_balance, updated_at
+       FROM gl_party_period_balances
+      ORDER BY branch_id, account_id, subledger_type, party_id, period_start_ad, period_id`
+  );
+  return result.rows;
+}
+
 async function closedFiscalYears(client: pg.Client): Promise<string[]> {
   const result = await client.query(
     `SELECT b.fiscal_year_id AS id
@@ -68,7 +96,14 @@ async function closedFiscalYears(client: pg.Client): Promise<string[]> {
 function differences(before: Row[], after: Row[]): string[] {
   const out: string[] = [];
   const key = (row: Row) =>
-    `${row.branch_id ?? row.fiscal_year_id}|${row.product_id ?? row.account_id}|${row.account_code ?? ''}`;
+    [
+      row.branch_id ?? row.fiscal_year_id,
+      row.account_id ?? row.product_id,
+      row.account_code ?? '',
+      row.period_id ?? '',
+      row.subledger_type ?? '',
+      row.party_id ?? '',
+    ].join('|');
   const index = new Map(after.map((row) => [key(row), row]));
   if (before.length !== after.length) out.push(`row count ${before.length} → ${after.length}`);
   for (const row of before) {
@@ -122,10 +157,17 @@ async function main(): Promise<void> {
 
     if (action === 'rebuild') {
       const fiscalYearArg = argValue('--fiscal-year');
-      const stockOnly = process.argv.includes('--stock');
+      const onlyStock = process.argv.includes('--stock');
+      const onlyPeriod = process.argv.includes('--period-balances');
+      const onlyParty = process.argv.includes('--party-balances');
+      const narrowed = onlyStock || onlyPeriod || onlyParty;
+      const wantStock = !narrowed || onlyStock;
+      const wantFiscalYear = !narrowed;
+      const wantPeriod = !narrowed || onlyPeriod;
+      const wantParty = !narrowed || onlyParty;
       const targets: Array<{ label: string; before: Row[]; rebuild: () => Promise<number>; after: () => Promise<Row[]> }> = [];
 
-      if (!fiscalYearArg) {
+      if (!fiscalYearArg && wantStock) {
         targets.push({
           label: 'branch_stock_balances',
           before: await stockSnapshot(client),
@@ -134,7 +176,7 @@ async function main(): Promise<void> {
         });
       }
 
-      if (!stockOnly) {
+      if (wantFiscalYear) {
         const years = fiscalYearArg ? [fiscalYearArg] : await closedFiscalYears(client);
         for (const year of years) {
           targets.push({
@@ -145,6 +187,26 @@ async function main(): Promise<void> {
             after: () => fiscalYearSnapshot(client, year),
           });
         }
+      }
+
+      if (wantPeriod) {
+        targets.push({
+          label: 'gl_period_balances',
+          before: await periodBalancesSnapshot(client),
+          rebuild: async () =>
+            Number((await client.query(GL_PERIOD_BALANCES_REBUILD_SQL)).rows[0].rows),
+          after: () => periodBalancesSnapshot(client),
+        });
+      }
+
+      if (wantParty) {
+        targets.push({
+          label: 'gl_party_period_balances',
+          before: await partyBalancesSnapshot(client),
+          rebuild: async () =>
+            Number((await client.query(GL_PARTY_PERIOD_BALANCES_REBUILD_SQL)).rows[0].rows),
+          after: () => partyBalancesSnapshot(client),
+        });
       }
 
       for (const target of targets) {
@@ -167,7 +229,7 @@ async function main(): Promise<void> {
     }
 
     console.error(
-      'read-models — usage: pending [--limit n] | flush [--limit n] | rebuild [--stock] [--fiscal-year id] [--verify]'
+      'read-models — usage: pending [--limit n] | flush [--limit n] | rebuild [--stock] [--fiscal-year id] [--period-balances] [--party-balances] [--verify]'
     );
     process.exitCode = 2;
   } finally {
