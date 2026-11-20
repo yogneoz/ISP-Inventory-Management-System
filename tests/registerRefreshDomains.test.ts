@@ -1517,6 +1517,16 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'inventory/stockops/PulloutBinsPanel.tsx': ['getStockOperations', 'reversePulloutOperation'],
     'inventory/stockops/ReceiveTransferPanel.tsx': ['cancelApprovalRequest', 'cancelShipment', 'createApprovalRequest'],
     'inventory/stockops/StockOperationsTabBar.tsx': [],
+    // Employee custody panel (My Stock / profile Equipment). It owns its read
+    // (holdings + the movement log for the person on screen), the product list
+    // for the movement form, and one write per movement; every write re-reads
+    // the panel itself instead of asking a host register to refresh.
+    'inventory/EmployeeStockPanel.tsx': [
+      'getEmployeeStockHoldings',
+      'getEmployeeStockMovements',
+      'getProducts',
+      'recordEmployeeStockMovement',
+    ],
   };
 
   // Pinned by the dedicated guard tests above instead — surface AND wiring.

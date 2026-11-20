@@ -225,6 +225,12 @@ export const DEFAULT_GROUPS: PermissionGroup[] = [
         description: 'Undo a logged consumable issue — returns the issued units to branch stock, marks the record CANCELLED and writes a reversal to the audit trail',
         permissions: DEFAULT_PERMISSIONS_MATRIX['consumable-issue-reverse'],
       },
+      {
+        id: 'employee-stock-view',
+        operationName: 'View Employee Stock Custody',
+        description: 'Read what each employee still holds — the My Stock panel and the Equipment section on an employee profile. Moving units in or out stays with the stock-issue and consumable controls.',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['employee-stock-view'],
+      },
     ],
   },
   {

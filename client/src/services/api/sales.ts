@@ -264,3 +264,72 @@ export async function assignFieldWorkOrder(id: string, input: Record<string, any
 export async function completeFieldWorkOrder(id: string, input: Record<string, any>): Promise<any> {
   return fetchJson(`/api/field-work-orders/${id}/complete`, { method: 'POST', body: JSON.stringify(input) });
 }
+
+// ---------------------------------------------------------------------------
+// Employee stock custody (the My Stock panel / employee profile Equipment)
+// ---------------------------------------------------------------------------
+
+export type EmployeeStockMovementType = 'ISSUE' | 'RETURN' | 'CONSUME' | 'TRANSFER' | 'LOSS';
+
+export interface EmployeeStockHolding {
+  employee_id: string;
+  employee_code: string;
+  employee_name: string;
+  product_id: string;
+  product_code: string;
+  product_name: string;
+  branch_id: string;
+  branch_name: string;
+  quantity: number;
+  updated_at: string;
+}
+
+export interface EmployeeStockMovement {
+  id: string;
+  employee_id: string;
+  employee_code: string;
+  employee_name: string;
+  product_id: string;
+  product_code: string;
+  product_name: string;
+  branch_id: string;
+  branch_name: string;
+  movement_type: EmployeeStockMovementType;
+  quantity: number;
+  work_order_id: string | null;
+  work_order_no: string | null;
+  reason: string | null;
+  actor: string;
+  created_at: string;
+}
+
+export interface EmployeeStockMovementInput {
+  employeeId: string;
+  productId: string;
+  quantity: number;
+  workOrderId?: string | null;
+  reason?: string | null;
+}
+
+export async function getEmployeeStockHoldings(
+  params: { employeeId?: string; productId?: string } = {}
+): Promise<EmployeeStockHolding[]> {
+  const query = new URLSearchParams();
+  if (params.employeeId) query.set('employeeId', params.employeeId);
+  if (params.productId) query.set('productId', params.productId);
+  const suffix = query.toString();
+  return fetchJson(`/api/employee-stock${suffix ? `?${suffix}` : ''}`);
+}
+
+export async function getEmployeeStockMovements(employeeId: string, limit = 100): Promise<EmployeeStockMovement[]> {
+  const query = new URLSearchParams({ employeeId, limit: String(limit) });
+  return fetchJson(`/api/employee-stock/movements?${query.toString()}`);
+}
+
+/** Issue, return, consume or write off units; the action names the endpoint. */
+export async function recordEmployeeStockMovement(
+  action: 'issue' | 'return' | 'consume' | 'loss',
+  input: EmployeeStockMovementInput
+): Promise<EmployeeStockMovement> {
+  return fetchJson(`/api/employee-stock/${action}`, { method: 'POST', body: JSON.stringify(input) });
+}

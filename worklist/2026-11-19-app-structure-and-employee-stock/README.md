@@ -131,7 +131,7 @@ end.
      `0045_field_work_order_bs.sql` + `schema.sql` add
      `field_work_orders.scheduled_date_bs`; the repo insert pairs it via
      `resolveBsDateForLedgerSync`; `/field-work-orders` is now in
-     `BRANCH_SCOPED_RESOURCES`; the schema/docs counts moved to 133 tables
+     `BRANCH_SCOPED_RESOURCES`; the schema/docs counts moved to 135 tables
      (schema.sql) and 125 top-level tables (README, four claims).
    - **Stale expectations updated to the real current values** (not loosened):
      route table 109 → 110 entries (two guards), permission matrix 69 → 70
@@ -189,9 +189,9 @@ end.
 
    **Not touched, deliberately:** step 4 landed separately (above) — the table
    lives in `routes/screenRoutes.tsx` and the guards read it there. Part B
-   (per-employee stock custody) is still unstarted: it is new
-   ledger/model/API/screen work, not part of the App decomposition, and needs
-   its own migration plan.
+   started after it: slice 1 (the custody ledger, API, My Stock panel and the
+   profile's Equipment section) is recorded under Part B below, and App.tsx was
+   not involved — the panel reads its own session state.
 
 Guardrails: no behaviour change in steps 1–4; a new fetch must still be pinned in
 `tests/registerRefreshDomains.test.ts`; screen/route counts in the docs move with
@@ -223,6 +223,74 @@ job is not a ledger, so offboarding cannot show what the employee still holds.
 - Tests: holding projection from movements, cannot go negative, branch/employee
   scope refusals, issue/consume/return round trip, loss refusal without a reason,
   offboarding blocked by a non-zero holding, and the profile read.
+
+**Landed — slice 1, the custody ledger end to end (2026-11-20).** Model, API,
+the My Stock panel and the profile's Equipment section are in production shape;
+the offboarding item, transfers and loss approval remain (listed below).
+
+- **Model.** `scripts/migrations/0046_employee_stock_custody.sql`, mirrored in
+  `scripts/schema.sql` (135 tables now). `employee_stock_movements` is
+  append-only — `ISSUE`/`RETURN`/`CONSUME`/`TRANSFER`/`LOSS`, `quantity > 0`, an
+  optional work-order link, the actor and the branch, plus a CHECK that a `LOSS`
+  carries a non-blank reason. `employee_stock_holdings` is the projection —
+  `(employee_id, product_id, branch_id, quantity)`, `quantity >= 0`, one row per
+  triple.
+- **Repository.** `server/src/models/employeeStock.repo.ts`. Issue takes the
+  units out of `inventory_stock` and raises the holding; return puts them back
+  (creating the stock row when the branch never held any); consume and loss
+  leave custody without returning stock. Every write runs in `withTransaction`,
+  appends the movement, then **rebuilds the holding from the movement sum** in
+  the same transaction — so the projection can never disagree with the log. A
+  shortfall on either side is a refusal (`INSUFFICIENT_BRANCH_STOCK`,
+  `INSUFFICIENT_HOLDING`), never a negative row, and a used-up holding drops out
+  instead of lingering at zero.
+- **API.** `GET /api/employee-stock` (+ `?employeeId=`, `?productId=`),
+  `GET /api/employee-stock/movements`, and
+  `POST /api/employee-stock/{issue,return,consume,loss}`. Reads are gated on the
+  new `employee-stock-view`; writes reuse the inventory controls they already
+  are — `stock-out` for issue and loss, `consumable-issue-reverse` for return and
+  consume. A branch account is pinned to its own branch (a foreign employee is
+  refused, not silently re-scoped); head office may name a branch and otherwise
+  defaults to the employee's own. Every response is `private, no-store`.
+- **Screens.** `client/src/features/inventory/EmployeeStockPanel.tsx`, mounted
+  twice: **My Stock** on People & HR → My Profile and **Equipment held** in the
+  employee profile dialog. It reads the signed-in role and its matrix itself
+  (`loadUserSession` + `isOperationAllowed`), so neither mount needed a new prop
+  through App, and no route/tab was added — App.tsx is untouched by Part B.
+  The movement picker only offers actions the caller may perform; the server
+  re-checks each one.
+- **Guards.** `tests/employeeStock.api.test.ts` — 6/6 over a real Express app and
+  real PostgreSQL: the issue/consume/return round trip with branch stock and
+  holdings moving together, the projection equalling the signed movement sum,
+  refusal (409) on both kinds of shortfall with no write, a loss refused without
+  a reason and applied with one, employee/product/quantity validation, and
+  permission + branch scope (a read grant cannot write; a branch account reads
+  an empty list and cannot write another branch's employee). The permission
+  matrix gained `employee-stock-view` (70 → 71 operations, seeded for
+  Super Admin, inventory/branch managers, head office, field technicians and
+  auditors; the Settings matrix UI lists it), and the schema/docs counts moved
+  to 135 tables / 2,709 tests.
+- **Measured and seen.** Entry 22.6 kB gz / 23.375, startup 316.2 kB / 330. On
+  the dev server: signed in, issued 2 ONU routers to EMP-001 through the API,
+  My Profile rendered “My stock — 1 item · 2 units”, the panel’s Return action
+  took one back (notice + newest-first movement log), the profile dialog showed
+  “Equipment held”, and the holdings list was empty after returning the rest
+  while the movements stayed in the log.
+
+**Still open in Part B:**
+- **Offboarding block.** The checklist still has no “return issued equipment”
+  item and completion does not consult the holdings. Needs a stock item/action
+  in `hrLifecycle` (the completion path in one transaction with the ledger read)
+  plus its guards; the ledger read is already a single query.
+- **Transfer.** `TRANSFER` exists in the movement CHECK but has no endpoint or
+  UI: moving custody between branches or people needs its own rule (which branch
+  the row leaves and enters) that the note does not state.
+- **Loss approval.** A loss records a mandatory reason on the movement. Whether
+  it must pass the workflow-approval queue before it writes off, and who may
+  approve it, is a policy decision the note does not make.
+- **Serial-level custody.** The ledger is quantity-based, matching the note’s
+  `(employee_id, product_id, branch_id, quantity)` model; a serial now lives on
+  the branch stock row, not with a person.
 
 **Why this order:** the field work order (done) is where a movement will attach,
 and the App.tsx split makes the new screens cheap to add (one route file entry, no

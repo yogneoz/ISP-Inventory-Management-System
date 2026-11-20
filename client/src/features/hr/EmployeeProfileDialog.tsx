@@ -28,6 +28,7 @@ import type {
 import { HR_BLOOD_GROUPS, HR_LOGIN_ROLES, HR_PROFILE_MAX_ROWS } from '../../services/api/hr';
 import { APP_ROLE_LABELS } from '../../utils/permissionMatrixData';
 import { EmployeeSelfServicePhotoDialog } from './EmployeeSelfServicePhotoDialog';
+import { EmployeeStockPanel } from '../inventory/EmployeeStockPanel';
 import type { CostCenter } from '../../types';
 
 const ORG_KIND_NOUN: Record<HrOrgMasterKind, string> = {
@@ -1458,6 +1459,15 @@ export const EmployeeProfileDialog: React.FC<EmployeeProfileDialogProps> = ({
                     ))}
                   </ol>
                 )}
+              </Section>
+            ) : null}
+
+            {employee ? (
+              <Section
+                title="Equipment held"
+                hint="Custody ledger for this employee: issue, return, consume or write off stock."
+              >
+                <EmployeeStockPanel employeeId={employee.id} employeeName={employee.name} />
               </Section>
             ) : null}
 

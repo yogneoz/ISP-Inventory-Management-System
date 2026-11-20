@@ -30,6 +30,7 @@ import { isOperationAllowed } from '../../utils/permissions';
 import { broadcastSelfPhotoChanged } from '../../utils/selfPhoto';
 import { patchStoredUser } from '../../utils/sessionCache';
 import { EmployeeSelfServicePhotoDialog } from './EmployeeSelfServicePhotoDialog';
+import { EmployeeStockPanel } from '../inventory/EmployeeStockPanel';
 
 interface EmployeeSelfServiceProps {
   currentUser?: User | null;
@@ -517,6 +518,13 @@ export const EmployeeSelfService: React.FC<EmployeeSelfServiceProps> = ({ curren
               returned; HR manages all other changes.
             </p>
           </section>
+
+          <EmployeeStockPanel
+            employeeId={profile.id}
+            employeeName={profile.name}
+            currentUser={currentUser}
+            self
+          />
 
           {photoOpen ? (
             <EmployeeSelfServicePhotoDialog

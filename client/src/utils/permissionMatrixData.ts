@@ -60,6 +60,10 @@ export const DEFAULT_PERMISSIONS_MATRIX: Record<string, Record<string, boolean>>
   'branch-asset-assign': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: false, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: false },
   'stock-out': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: true, ACCOUNTANT: false, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: true, FIELD_TECHNICIAN: true, AUDITOR: false },
   'consumable-issue-reverse': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: false },
+  // Custody reads: the technician's own van stock and the employee profile's
+  // Equipment section both read the same ledger. Moving units in or out stays
+  // on the two inventory controls above, so a read grant never implies a write.
+  'employee-stock-view': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: false, ACCOUNTANT: false, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: true, AUDITOR: true },
 
   'prod-view': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: true, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: true, FIELD_TECHNICIAN: true, AUDITOR: true },
   'prod-edit': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: false },

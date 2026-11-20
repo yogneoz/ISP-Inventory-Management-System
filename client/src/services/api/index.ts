@@ -59,6 +59,12 @@ export type {
   UserPermissionSetsResponse,
 } from './admin';
 export { safeParseHistory } from './inventory';
+export type {
+  EmployeeStockHolding,
+  EmployeeStockMovement,
+  EmployeeStockMovementInput,
+  EmployeeStockMovementType,
+} from './sales';
 export type { WarrantyRegisterQuery, WarrantyCorrectionInput } from './warranty';
 export type {
   WarrantyClaimQuery,
@@ -406,6 +412,11 @@ export const api = {
   createFieldWorkOrder: sales.createFieldWorkOrder,
   assignFieldWorkOrder: sales.assignFieldWorkOrder,
   completeFieldWorkOrder: sales.completeFieldWorkOrder,
+
+  // Employee stock custody (My Stock / employee profile Equipment)
+  getEmployeeStockHoldings: sales.getEmployeeStockHoldings,
+  getEmployeeStockMovements: sales.getEmployeeStockMovements,
+  recordEmployeeStockMovement: sales.recordEmployeeStockMovement,
   createSalesInvoice: sales.createSalesInvoice,
   getPurchaseReturns: sales.getPurchaseReturns,
   createPurchaseReturn: sales.createPurchaseReturn,

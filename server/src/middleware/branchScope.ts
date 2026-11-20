@@ -153,6 +153,16 @@ export const BRANCH_SCOPE_EXEMPTIONS: readonly BranchScopeExemption[] = [
       'Written by the guarded stock-operation/damage service and read through the branch-scoped bootstrap slice; there is no /damage-records/:id route.',
   },
   {
+    table: 'employee_stock_movements',
+    reason:
+      'Custody ledger rows have no by-id route: /api/employee-stock reads intersect the caller\'s allowed branches and its writes are pinned to the session branch (or, for head office, the employee\'s own) inside employeeStock.controller before the repository sees them. Movements are the append-only source the holdings row is rebuilt from.',
+  },
+  {
+    table: 'employee_stock_holdings',
+    reason:
+      'A holding is a projection of employee_stock_movements and is only ever read or rebuilt through /api/employee-stock, whose controller scopes reads by allowedBranchIds and writes by the session branch; there is no /employee-stock/:id route.',
+  },
+  {
     table: 'gl_recurring_templates',
     reason:
       'Branch-owned recurring templates are scoped in recurringClose.controller: the list filters by the caller branch, and detail/update/delete/run assert the template branch before acting. Generation posts through the branch-bound journal service.',
