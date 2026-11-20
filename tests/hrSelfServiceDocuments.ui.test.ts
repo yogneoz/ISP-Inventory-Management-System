@@ -8,6 +8,7 @@
  * and the no-permission refusal without a read.
  */
 import { test } from 'node:test';
+import { readScreenRoutes } from './harness/screenRouteSource';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
@@ -73,7 +74,7 @@ test('My Documents is route/nav/preload wired, read-only and gated by hr-self-se
   );
   assert.doesNotMatch(screen, /useDialog|text-\[9px\]/, 'no raw dialog or micro-label scale');
 
-  const app = readFileSync('client/src/App.tsx', 'utf8');
+  const app = readScreenRoutes();
   assert.match(app, /screenRoute\('hr-self-documents'/);
   assert.match(app, /EmployeeDocuments currentUser=\{currentUser\}/);
   const paths = readFileSync('client/src/routes/appPaths.ts', 'utf8');

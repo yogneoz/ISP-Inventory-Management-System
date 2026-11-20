@@ -7,6 +7,7 @@
  * register path and the absence of any clock/edit/approval action.
  */
 import { test } from 'node:test';
+import { readScreenRoutes } from './harness/screenRouteSource';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
@@ -92,7 +93,7 @@ test('My Attendance is route/nav/preload wired, read-only and gated by hr-self-s
   );
   assert.doesNotMatch(screen, /text-\[9px\]/, 'micro-labels must use the design-system scale');
 
-  const app = readFileSync('client/src/App.tsx', 'utf8');
+  const app = readScreenRoutes();
   assert.match(app, /screenRoute\('hr-self-attendance'/);
   assert.match(app, /EmployeeAttendance currentUser=\{currentUser\}/);
   const paths = readFileSync('client/src/routes/appPaths.ts', 'utf8');

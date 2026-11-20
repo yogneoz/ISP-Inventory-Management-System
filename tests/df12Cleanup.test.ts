@@ -18,6 +18,7 @@ import path from 'node:path';
 import { createElement, useState } from 'react';
 import { mountTree, inAct } from './harness/mount';
 import { useFilterPageReset } from '../client/src/utils/useFilterPageReset';
+import { readScreenRoutes } from './harness/screenRouteSource';
 
 const read = (relativePath: string): string =>
   fs.readFileSync(path.resolve(relativePath), 'utf8');
@@ -107,16 +108,17 @@ describe('DF-12 wiring', () => {
     const damaged = read('client/src/features/inventory/DamagedStockTracking.tsx');
     assert.ok(damaged.includes('onReverseStockOperation(op.id'), 'damage reversal must go through App');
 
-    const app = read('client/src/App.tsx');
+    // The render sites moved into the route table module with the table (A4).
+    const app = readScreenRoutes();
     assert.ok(
       app.includes('onReverseStockOperation={handleReverseStockOperation}'),
-      'App must hand the damage screen its refreshing reverse handler'
+      'the route table must hand the damage screen its refreshing reverse handler'
     );
     // Every StockOperations host (one per keep-mounted tab) gets the refresh
     // callback: adding a host later without it would silently regress to a
     // stale screen.
     const hosts = app.split('<StockOperations').slice(1);
-    assert.equal(hosts.length, 10, 'the App mounts 10 StockOperations hosts');
+    assert.equal(hosts.length, 10, 'the route table mounts 10 StockOperations hosts');
     hosts.forEach((block, i) => {
       const props = block.slice(0, block.indexOf('/>'));
       assert.ok(props.includes('onRefreshData={refreshAllData}'), `StockOperations host #${i + 1} must refresh`);

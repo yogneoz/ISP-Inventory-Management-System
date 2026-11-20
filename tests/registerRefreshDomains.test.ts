@@ -66,13 +66,20 @@ const readFeatureSource = (relPath: string) =>
     'utf8'
   );
 
-/** App.tsx's source — where every register render site and its wiring lives. */
+/** The root's source — the SSE wiring, caches and side effects still live there. */
+const readAppSource = () =>
+  fs.readFileSync(path.resolve(process.cwd(), 'client', 'src', 'App.tsx'), 'utf8');
+
+/**
+ * The route table's source — every register render site and its wiring, since
+ * A4 moved the table out of App.tsx into its own module.
+ */
+const readRouteTableSource = () =>
+  fs.readFileSync(path.resolve(process.cwd(), 'client', 'src', 'routes', 'screenRoutes.tsx'), 'utf8');
+
 /** The SSE engine now lives in a hook; pins must follow the code, not App.tsx. */
 const readSyncHookSource = () =>
   fs.readFileSync(path.resolve(process.cwd(), 'client', 'src', 'hooks', 'useSyncStream.ts'), 'utf8');
-
-const readAppSource = () =>
-  fs.readFileSync(path.resolve(process.cwd(), 'client', 'src', 'App.tsx'), 'utf8');
 
 /** Every distinct api.<method> referenced in a source file. */
 const apiCallsIn = (source: string) =>
@@ -84,7 +91,7 @@ const apiCallsIn = (source: string) =>
 const useEffectCount = (source: string) =>
   [...source.matchAll(/^\s*useEffect\(/gm)].length;
 
-/** Every JSX render site of `tag` in App.tsx, as a block of its props. */
+/** Every JSX render site of `tag` in the route table, as a block of its props. */
 const jsxBlocks = (appSource: string, tag: string) =>
   appSource.match(new RegExp(`<${tag}\\b[\\s\\S]*?/>`, 'g')) ?? [];
 
@@ -99,7 +106,7 @@ const assertNoRawFetch = (source: string, label: string) => {
 };
 
 /**
- * Every App.tsx render site of `tag` must pass `prop` exactly once — a newly
+ * Every route-table render site of `tag` must pass `prop` exactly once — a newly
  * added unwired mount (or a counter attached to the wrong component) fails
  * here. Counted per render site, not app-wide: since DF-14 a counter can
  * legitimately feed two different components (the purchase-invoice counter
@@ -107,11 +114,11 @@ const assertNoRawFetch = (source: string, label: string) => {
  * expression instead of a missing one.
  */
 const assertEveryRenderSiteWired = (tag: string, prop: RegExp) => {
-  const appSource = readAppSource();
+  const appSource = readRouteTableSource();
   const blocks = jsxBlocks(appSource, tag);
-  assert.ok(blocks.length > 0, `no <${tag} render sites found in App.tsx`);
+  assert.ok(blocks.length > 0, `no <${tag} render sites found in the route table`);
   for (const block of blocks) {
-    assert.match(block, prop, `a <${tag} render site in App.tsx is missing ${prop.source}`);
+    assert.match(block, prop, `a <${tag} render site in the route table is missing ${prop.source}`);
   }
   const propCount = blocks.reduce(
     (sum, block) => sum + [...block.matchAll(new RegExp(prop.source, 'g'))].length,
@@ -1770,7 +1777,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
   };
 
   test('each mount-refetch screen opts in to refetch-on-reactivation via useActivationKey', () => {
-    const appSource = readAppSource();
+    const appSource = readRouteTableSource();
     assert.deepEqual(
       Object.keys(MOUNT_REFETCH_ACTIVATION_TABS).sort(),
       [...MOUNT_REFETCH_SCREENS].sort(),
@@ -1791,7 +1798,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       for (const tabKey of tabKeys) {
         assert.ok(
           appSource.includes(`screenRoute('${tabKey}'`),
-          `App.tsx no longer declares a route '${tabKey}' in screenRoutes — client/src/features/${screen}'s useActivationKey argument must match the tab key it renders under, or the activation counter never ticks`
+          `the route table no longer declares '${tabKey}' in screenRoutes — client/src/features/${screen}'s useActivationKey argument must match the tab key it renders under, or the activation counter never ticks`
         );
       }
     }

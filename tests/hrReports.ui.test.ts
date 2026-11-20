@@ -8,6 +8,7 @@
  * route/nav/preload wiring and the payroll sections pinned.
  */
 import { test } from 'node:test';
+import { readScreenRoutes } from './harness/screenRouteSource';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
@@ -416,7 +417,7 @@ test('HR Reports is route/nav/preload wired and renders payroll and statutory re
   assert.match(screen, /SSF & TDS filing/);
   assert.doesNotMatch(screen, /useDialog|text-\[9px\]/, 'no raw dialog or micro-label scale');
 
-  const app = readFileSync('client/src/App.tsx', 'utf8');
+  const app = readScreenRoutes();
   assert.match(app, /screenRoute\('hr-reports'/);
   assert.match(app, /<HrReports currentUser=\{currentUser\} \/>/);
   const paths = readFileSync('client/src/routes/appPaths.ts', 'utf8');

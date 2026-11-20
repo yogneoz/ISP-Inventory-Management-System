@@ -245,6 +245,11 @@ export const ApiKeysLazy = React.lazy(() =>
 export const UserPermissionsLazy = React.lazy(() =>
   import('../features/settings/UserPermissions').then((m) => ({ default: m.UserPermissions }))
 );
+// Users is opened from Settings, never during boot: it is the largest settings
+// screen, so it belongs with its access-management siblings in the lazy graph.
+export const UsersManagementLazy = React.lazy(() =>
+  import('../features/settings/UsersManagement').then((m) => ({ default: m.UsersManagement }))
+);
 export const ApprovalWorkflowCenter = React.lazy(() =>
   import('../features/settings/ApprovalWorkflowCenter').then((m) => ({ default: m.ApprovalWorkflowCenter }))
 );

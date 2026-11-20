@@ -9,6 +9,7 @@
  * resurrect stale state.
  */
 import { test, describe } from 'node:test';
+import { readScreenRoutes, SCREEN_ROUTES_FILE } from './harness/screenRouteSource';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -209,7 +210,9 @@ describe('A1 wiring — the container actually memoises, and every tab is a memo
     // A4a moved the tab tree from inline <KeepMounted> blocks into the
     // screenRoutes table; the memo contract is unchanged, so the guard now
     // walks that table. AppRoutes passes each entry as KeepMounted's child.
-    const app = read('client/src/App.tsx')
+    // A4 moved the table to routes/screenRoutes.tsx; the memo contract is the
+    // same, so the walk follows the table to its module.
+    const app = read(SCREEN_ROUTES_FILE)
       .split('\n')
       .map((l) => l.replace(/\r$/, ''));
     const starts = app

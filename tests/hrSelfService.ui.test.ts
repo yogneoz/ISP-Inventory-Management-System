@@ -7,6 +7,7 @@
  * absence of any write control.
  */
 import { test } from 'node:test';
+import { readScreenRoutes } from './harness/screenRouteSource';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
@@ -69,7 +70,7 @@ test('My Profile is route/nav/preload wired, read-only and gated by hr-self-serv
     'the self-service screen must not expose a write action'
   );
 
-  const app = readFileSync('client/src/App.tsx', 'utf8');
+  const app = readScreenRoutes();
   assert.match(app, /screenRoute\('hr-self-service'/);
   assert.match(app, /EmployeeSelfService currentUser=\{currentUser\}/);
   const paths = readFileSync('client/src/routes/appPaths.ts', 'utf8');

@@ -12,22 +12,36 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { mountStubRoutes, stubRoutesElement } from './harness/appRoutesProbe';
 import { NAV_TABS } from '../client/src/components/layout/Sidebar';
+import { readScreenRoutes } from './harness/screenRouteSource';
 
 const read = (relative: string) => fs.readFileSync(path.join(process.cwd(), relative), 'utf8');
 
 test('A4: the tab tree is declared once, as a typed route table', () => {
+  // The table itself moved to routes/screenRoutes.tsx (A4 module move); the
+  // root must still compose it and render it through AppRoutes, so both files
+  // are read and every assertion keeps its subject.
   const app = read('client/src/App.tsx');
+  const table = readScreenRoutes();
 
   assert.doesNotMatch(app, /<KeepMountedRoot/, 'the root must not own the keep-mounted container');
   assert.doesNotMatch(app, /<KeepMounted\b/, 'the root must not wrap tabs itself');
-  assert.match(app, /const screenRoutes: AppRoute\[\] = \[/, 'App must declare the route table');
+  assert.match(
+    table,
+    /export function buildScreenRoutes\(props: ScreenRouteProps\): AppRoute\[\] \{/,
+    'the route table must be declared by its own module'
+  );
+  assert.match(
+    app,
+    /const screenRoutes: AppRoute\[\] = buildScreenRoutes\(routeProps\);/,
+    'App must build the route table through its module'
+  );
   assert.match(
     app,
     /<AppRoutes activeTab=\{activeTab\} routes=\{screenRoutes\} \/>/,
     'App must render the routes through AppRoutes'
   );
 
-  const keys = [...app.matchAll(/screenRoute\('([^']+)'/g)].map((match) => match[1]);
+  const keys = [...table.matchAll(/screenRoute\('([^']+)'/g)].map((match) => match[1]);
   assert.equal(keys.length, 110, 'every tab must be declared in the table');
   assert.equal(new Set(keys).size, keys.length, 'a tab must not be declared twice');
 

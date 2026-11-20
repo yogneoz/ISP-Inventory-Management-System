@@ -23,6 +23,7 @@
  *      that operation's saved role answer.
  */
 import { test, describe, afterEach, beforeEach } from 'node:test';
+import { readScreenRoutes } from './harness/screenRouteSource';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -218,8 +219,11 @@ describe('user permissions screen wiring', () => {
     assert.match(sidebar, /id: 'user-permissions' as NavTab/);
     assert.match(sidebar, /if \(isSuperAdmin\) \{\s*adminChildren\.push\([\s\S]*'user-permissions'/);
 
+    // The entry moved into the route table module (A4); App must still not
+    // hand the screen the users list itself.
+    const routes = readScreenRoutes();
     const app = read('client/src/App.tsx');
-    assert.match(app, /screenRoute\(\s*'user-permissions'/);
+    assert.match(routes, /screenRoute\(\s*'user-permissions'/);
     // Step 6: the users list reaches the screen through BootstrapDataProvider,
     // not through App's JSX, so the guard follows the data to its new owner.
     const screen = read('client/src/features/settings/UserPermissions.tsx');
@@ -241,7 +245,7 @@ describe('user permissions screen wiring', () => {
     assert.match(screen, /To add an extra permission/);
     assert.match(screen, /onOpenRoleDefaults/);
 
-    const app = read('client/src/App.tsx');
+    const app = readScreenRoutes();
     assert.match(app, /onOpenUserAccess=\{\(target\) => \{/);
     assert.match(app, /openUserAccess\(target\.userId, target\.operationId\)/);
     assert.match(app, /onOpenRoleDefaults=\{\(\) => setActiveTab\('permissions'\)\}/);

@@ -37,6 +37,7 @@ import {
   CUSTOMER_DEVICE_EXPORT_MAX,
 } from '../server/src/models/inventory.repo';
 import { ensureReferenceData } from './fixtures/referenceData';
+import { readScreenRoutes } from './harness/screenRouteSource';
 
 dotenv.config();
 
@@ -148,7 +149,7 @@ describe('VOL-4b — customer devices off the bootstrap', () => {
       'a screen is still handed the whole device table as a prop'
     );
     assert.ok(
-      /registerRefresh\.customerDevices/.test(app),
+      /registerRefresh\.customerDevices/.test(readScreenRoutes()),
       'the paged device registers must keep their SSE refresh counter'
     );
   });

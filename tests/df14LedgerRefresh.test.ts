@@ -24,16 +24,17 @@
  *   5. The DF-08 sequence guard and the activation trigger are still wired.
  */
 import { test } from 'node:test';
+import { readScreenRoutes } from './harness/screenRouteSource';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
 const read = (file: string) => fs.readFileSync(path.resolve(file), 'utf8');
 
-/** The JSX element for one screen in App.tsx, from its tag to its `/>`. */
+/** The JSX element for one screen in the route table, from its tag to its `/>`. */
 function appElement(appSource: string, tag: string): string {
   const match = appSource.match(new RegExp(`<${tag}\\b[\\s\\S]*?/>`));
-  assert.ok(match, `App.tsx no longer renders <${tag}>`);
+  assert.ok(match, `the route table no longer renders <${tag}>`);
   return match[0];
 }
 
@@ -94,7 +95,9 @@ test('DF-14: the customer ledger follows sales and return register events', () =
 });
 
 test('DF-14: App feeds each ledger the counters that actually move it', () => {
-  const app = read('client/src/App.tsx');
+  // The elements are built in the route table module (A4); the counters those
+  // elements receive are still the assertion.
+  const app = readScreenRoutes();
   const vendor = appElement(app, 'VendorLedger');
   const customer = appElement(app, 'CustomerLedger');
 

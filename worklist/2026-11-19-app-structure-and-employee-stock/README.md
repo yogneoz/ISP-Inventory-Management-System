@@ -62,9 +62,36 @@ end.
    the domain builders, and each of those guards re-run before anything else
    moves.
 
-4. **`[ ]` Route table by domain → `routes/routes/*.tsx`.** Split the
-   `screenRoutes` array into inventory, sales/procurement, finance, people and
-   settings builders over a shared props bundle; App.tsx only spreads them.
+4. **`[x]` Route table → `routes/screenRoutes.tsx` (2026-11-20).** The 110-tab
+   `screenRoutes` array left App.tsx and now lives in
+   `client/src/routes/screenRoutes.tsx`, exported as
+   `buildScreenRoutes(props: ScreenRouteProps): AppRoute[]`. App keeps the
+   `routeProps` tuple of data and callbacks and calls the builder, so the
+   elements are still built from the root's state — but the table itself, every
+   `screenRoute(key, element)` entry in render order plus its `enabled` gate,
+   is declared in the module. One module rather than the five domain builders
+   the line above planned: the guards pin one table per tab, and a boundary per
+   domain would have paid the same props plumbing five times.
+
+   **Guards repointed, none loosened.** A new `tests/harness/screenRouteSource.ts`
+   names the table module once; the test files that read App.tsx for the table
+   now read it through that helper. Assertions about App's own wiring
+   (`<AppRoutes … routes={screenRoutes} />`, App not handing a screen a users
+   list, `api.getMyPermissions`) still read App.tsx, so each guard keeps its
+   subject: the table guards check the same entries, elements, counters and
+   props, the App guards check the root still composes and renders them.
+   `appRouteRegistry` now proves both halves — the table is declared by its
+   module and the root builds its routes through it. Nothing deleted, skipped
+   or turned into a tautology.
+
+   **Budget.** The extraction costs ~0.5 kB gz (91 values cross the new module
+   boundary) and the startup ceiling is unchanged at 330 kB, so the same change
+   moves `UsersManagement` into the lazy graph — the largest settings screen,
+   opened from Settings, already sitting next to the lazily loaded
+   `permission-management`, `user-permissions` and `api-keys` screens — with its
+   `screenPreload` entry. Measured: entry 22.6 kB / 23.375, startup 316.0 kB /
+   330 (89 startup chunks, 84 on-demand), 14 kB below the previous startup
+   total. No ceiling raised.
 5. **`[x]` Mutation wrappers → domain action hooks (2026-11-19).** 42
    wrappers moved out of App.tsx into five hooks plus their dependency type:
    `hooks/actionDeps.ts` (`ActionDeps`: `refreshAllData`, `currentUser`,
@@ -160,11 +187,11 @@ end.
    the provider's `apply` and the three seedable slices). Suite: 2,703 tests
    (2,701 pass, 2 skipped).
 
-   **Not touched, deliberately:** step 4's route-table blocker stands exactly as
-   written above — the 27 test files that read App.tsx as the route table still
-   pin the inline shape, so the table stays where it is. Part B (per-employee stock
-   custody) is still unstarted: it is new ledger/model/API/screen work, not part of
-   the App decomposition, and needs its own migration plan.
+   **Not touched, deliberately:** step 4 landed separately (above) — the table
+   lives in `routes/screenRoutes.tsx` and the guards read it there. Part B
+   (per-employee stock custody) is still unstarted: it is new
+   ledger/model/API/screen work, not part of the App decomposition, and needs
+   its own migration plan.
 
 Guardrails: no behaviour change in steps 1–4; a new fetch must still be pinned in
 `tests/registerRefreshDomains.test.ts`; screen/route counts in the docs move with

@@ -6,6 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { readScreenRoutes } from './harness/screenRouteSource';
 import { createElement } from 'react';
 import type { Branch, User } from '../client/src/types';
 import type { HrPayrollPostingRow } from '../client/src/services/api/hr';
@@ -75,7 +76,8 @@ test('Finance payroll-postings register is read-only, gl-view gated and snapshot
     'the Finance postings register must not expose a payroll write action'
   );
 
-  const app = readFileSync('client/src/App.tsx', 'utf8');
+  // A4 moved the entry into the route table module; the pin follows the table.
+  const app = readScreenRoutes();
   assert.match(app, /screenRoute\('finance-payroll-postings'/);
   const paths = readFileSync('client/src/routes/appPaths.ts', 'utf8');
   assert.match(paths, /finance-payroll-postings': '\/finance\/payroll-postings'/);

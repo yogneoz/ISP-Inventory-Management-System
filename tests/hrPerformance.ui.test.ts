@@ -8,6 +8,7 @@
  * saved-tab wiring.
  */
 import { test } from 'node:test';
+import { readScreenRoutes } from './harness/screenRouteSource';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
@@ -128,7 +129,7 @@ test('performance is route, nav, path, permission and preload wired', () => {
   assert.match(screen, /createHrPerformanceFeedback/);
   assert.match(screen, /isOperationAllowed\('hr-employee-view'/);
 
-  const app = readFileSync('client/src/App.tsx', 'utf8');
+  const app = readScreenRoutes();
   assert.match(app, /screenRoute\('hr-performance'/);
   assert.match(app, /<Performance\s+currentUser=\{currentUser\}/);
   const paths = readFileSync('client/src/routes/appPaths.ts', 'utf8');

@@ -19,6 +19,7 @@
  *      gated by `warranty-view`.
  */
 import { test, describe, afterEach, beforeEach } from 'node:test';
+import { readScreenRoutes } from './harness/screenRouteSource';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -461,6 +462,7 @@ describe('retired warranty directory', () => {
       'WarrantyProducts.tsx is back — it invents a 12-month expiry and defaults to VALID'
     );
     assert.doesNotMatch(read('client/src/App.tsx'), /WarrantyProducts|warranty-products/);
+    assert.doesNotMatch(readScreenRoutes(), /WarrantyProducts|warranty-products/);
     assert.doesNotMatch(read('client/src/components/layout/Sidebar.tsx'), /View Warranty Products|warranty-products/);
     assert.doesNotMatch(read('server/src/routes/inventory.routes.ts'), /customer-devices\/warranty/);
     assert.doesNotMatch(read('server/src/controllers/inventory.controller.ts'), /get_customerDevicesWarranty/);
@@ -475,7 +477,7 @@ describe('retired warranty directory', () => {
     assert.match(sidebar, /label: 'Suppliers Warranty'/);
     assert.match(sidebar, /label: 'Sellers Warranty'/);
 
-    const routes = read('client/src/App.tsx');
+    const routes = readScreenRoutes();
     assert.match(routes, /screenRoute\('supplier-warranty'/);
     assert.match(routes, /screenRoute\('seller-warranty'/);
 

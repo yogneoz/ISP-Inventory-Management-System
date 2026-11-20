@@ -18,6 +18,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { readScreenRoutes } from './harness/screenRouteSource';
 
 const read = (file: string) => fs.readFileSync(path.resolve(file), 'utf8');
 const count = (source: string, needle: string) => source.split(needle).length - 1;
@@ -51,7 +52,9 @@ describe('DF-17 — settings backfill failure is visible and retryable', () => {
     assert.match(app, /error=\{settingsBackfillError\}/);
     assert.match(app, /onRetry=\{\(\) => void loadSettingsFromServer\(\)\}/);
     assert.ok(
-      app.includes('settingsUnknown={Boolean(settingsBackfillError) || settingsBackfillLoading}'),
+      readScreenRoutes().includes(
+        'settingsUnknown={Boolean(settingsBackfillError) || settingsBackfillLoading}'
+      ),
       'the audit screen must know the setting is unknown — failed OR not read yet'
     );
 
@@ -91,7 +94,7 @@ describe('DF-17 — sellable serials are branch-clean and retryable', () => {
       'a console line is not a user-visible failure state'
     );
     assert.equal(
-      count(app, 'inventorySerialsError={sellableSerialsError}'),
+      count(readScreenRoutes(), 'inventorySerialsError={sellableSerialsError}'),
       2,
       'both SalesInvoices render sites (create-sale and sales-list) must receive the state'
     );

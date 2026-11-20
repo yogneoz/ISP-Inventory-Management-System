@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { NAV_TABS, type NavTab } from '../client/src/components/layout/Sidebar';
+import { readScreenRoutes } from './harness/screenRouteSource';
 import {
   APP_PATHS,
   RECORD_SCREENS,
@@ -48,7 +49,9 @@ describe('canonical workspace paths', () => {
   });
 
   test('every route App renders is reachable by its canonical path', () => {
-    const app = read('client/src/App.tsx');
+    // A4's table now declares the entries in routes/screenRoutes.tsx; read where
+    // App gets its routes from, not the root that spreads them.
+    const app = readScreenRoutes();
     const routeKeys = [...app.matchAll(/screenRoute\('([^']+)'/g)].map((match) => match[1]);
     assert.equal(routeKeys.length, 110, 'the route table must still declare 110 screens');
     for (const key of routeKeys) {

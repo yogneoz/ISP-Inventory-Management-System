@@ -18,6 +18,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { readScreenRoutes } from './harness/screenRouteSource';
 import { defaultLocationBranchId } from '../client/src/features/settings/LocationsManagement';
 import type { Branch } from '../client/src/types';
 
@@ -46,9 +47,10 @@ describe('defaultLocationBranchId', () => {
 
 describe('Locations branch default — wiring', () => {
   test('App passes the signed-in user so the screen knows which branch is theirs', () => {
-    const app = read('client/src/App.tsx');
+    // The element is built by the route table module (A4), not the root.
+    const app = readScreenRoutes();
     const start = app.indexOf('<LocationsManagement');
-    assert.ok(start >= 0, 'App must render LocationsManagement');
+    assert.ok(start >= 0, 'the route table must render LocationsManagement');
     const block = app.slice(start, app.indexOf('/>', start));
     assert.match(block, /currentUser=\{currentUser\}/);
   });

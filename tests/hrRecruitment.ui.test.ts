@@ -7,6 +7,7 @@
  * and saved-tab preload wiring.
  */
 import { test } from 'node:test';
+import { readScreenRoutes } from './harness/screenRouteSource';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
@@ -203,7 +204,7 @@ test('recruitment is route, nav, path, permission and preload wired', () => {
   assert.match(screen, /uploadHrRecruitmentResume/);
   assert.match(screen, /isOperationAllowed\('hr-employee-view'/);
 
-  const app = readFileSync('client/src/App.tsx', 'utf8');
+  const app = readScreenRoutes();
   assert.match(app, /screenRoute\('hr-recruitment'/);
   assert.match(app, /<Recruitment\s+currentUser=\{currentUser\}/);
   const paths = readFileSync('client/src/routes/appPaths.ts', 'utf8');

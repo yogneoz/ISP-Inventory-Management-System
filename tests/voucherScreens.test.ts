@@ -11,6 +11,7 @@
  * back into the form or reintroduces a native dropdown.
  */
 import { describe, test } from 'node:test';
+import { readScreenRoutes } from './harness/screenRouteSource';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -95,7 +96,8 @@ describe('voucher entry and posted-voucher screens', () => {
     assert.match(register, /VoucherDetailDialog/);
     assert.match(register, /isOperationAllowed\('gl-reverse'/);
 
-    assert.match(source('client/src/App.tsx'), /screenRoute\('posted-vouchers'/);
+    // A4 moved the entries into the route table module.
+    assert.match(readScreenRoutes(), /screenRoute\('posted-vouchers'/);
     assert.match(
       source('client/src/routes/appPaths.ts'),
       /'posted-vouchers': '\/finance\/accounting\/posted-vouchers'/

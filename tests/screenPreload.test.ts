@@ -10,6 +10,7 @@
  * ordering: preload first, createRoot second.
  */
 import { test, describe } from 'node:test';
+import { readScreenRoutes } from './harness/screenRouteSource';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -24,9 +25,9 @@ const read = (relativePath: string): string =>
 
 /** Tab ids whose route renders a component declared with React.lazy(). */
 function lazyTabsFromApp(): string[] {
-  const app = read('client/src/App.tsx');
-  // The `React.lazy` declarations live in the route registry module, the
-  // table that renders them in App; the guard reads both.
+  // A4 moved the table to routes/screenRoutes.tsx; the `React.lazy`
+  // declarations live in the route registry module, so the guard reads both.
+  const app = readScreenRoutes();
   const lazyScreens = read('client/src/routes/lazyScreens.ts');
   const lazyComponents = new Set(
     [...lazyScreens.matchAll(/const\s+(\w+)\s*=\s*React\.lazy\(/g)].map((match) => match[1])
