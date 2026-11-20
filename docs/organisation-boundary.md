@@ -20,7 +20,7 @@ ACC-5 slice. It is a contract between modules, not a suggestion.
    (`hr-employee-manage` plus user administration).
 2. **Auth writes access, not the ledger.** A permission or role change changes
    which endpoints a user may call. It cannot rewrite posted journals, payroll
-   lines or subledger rows; the ACC-7 immutability trigger refuses posted-ledger
+   lines or subledger rows; the ACC-1b immutability trigger refuses posted-ledger
    mutation on every application connection.
 3. **Accounting owns posting roles and control accounts.** Employee and branch
    defaults only select analysis dimensions (branch, cost centre). They never

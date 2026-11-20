@@ -64,7 +64,7 @@ if (shard) suiteArgs.push(`--test-shard=${shard}`);
 suiteArgs.push('tests/*.test.ts');
 
 /**
- * Fixture cleanup deletes the test's own posted journals. The ACC-7 trigger
+ * Fixture cleanup deletes the test's own posted journals. The ACC-1b trigger
  * correctly refuses that on an application connection, so the test runner gives
  * only this child process a session-local bypass through the PostgreSQL
  * `options` startup parameter. Production and ordinary dev connections never

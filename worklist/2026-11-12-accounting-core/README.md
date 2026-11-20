@@ -81,7 +81,7 @@ Specific corrections to the original explanation:
 These rules are part of the target model. A slice that violates one is not done,
 even if its happy-path tests pass.
 
-### R1 — Posted ledgers are append-only (ACC-1, ACC-7)
+### R1 — Posted ledgers are append-only (ACC-1, ACC-1b)
 
 `gl_journals`, `gl_journal_lines` and `gl_subledger_entries` are immutable once
 posted. No runtime code may `UPDATE` or `DELETE` them. A correction is a new,
@@ -91,7 +91,7 @@ original period. The original row remains visible for the audit trail.
 
 ACC-1 removes the remaining runtime rewrite paths (party-book reassignment and
 the unused `JOURNAL_MARK_REVERSED_SQL`) and adds a source guard that fails when a
-new mutation statement appears. ACC-7 adds the database trigger that refuses
+new mutation statement appears. ACC-1b adds the database trigger that refuses
 `UPDATE`/`DELETE` on posted rows even for a direct SQL client. Test fixtures
 opt in only through a session-local `inventory.allow_ledger_purge=on` startup
 option injected by `scripts/run_tests.mjs`; application and dev connections
@@ -277,6 +277,13 @@ round index; it is not a substitute for the slice’s acceptance checklist.
 
 Priority: P0 · Depends on: none · Blocks: ACC-4 reporting
 
+**ACC-1b** is this slice's database half (rule R1): the trigger on
+`gl_journals`, `gl_journal_lines` and `gl_subledger_entries` that refuses
+`UPDATE`/`DELETE` on posted rows for any client, with the session-local
+`inventory.allow_ledger_purge` bypass for schema maintenance and test fixtures.
+It is tracked under ACC-1 so `ACC-7` keeps its single meaning — the migration,
+demo-data and rollout slice.
+
 - [x] Add a shared party-ledger read over `gl_subledger_entries` + `gl_journals`
       + `gl_journal_lines`, with `party_id`, `subledger_id`, branch and date
       filters.
@@ -293,7 +300,7 @@ Priority: P0 · Depends on: none · Blocks: ACC-4 reporting
 - [x] Add a regression test that posts an opening balance, a manual journal, an
       invoice, a receipt and an unapplied advance, then proves the party ledger,
       subledger and control agree.
-- [x] Add the ACC-7 database immutability trigger on journals, lines and
+- [x] Add the ACC-1b database immutability trigger on journals, lines and
       subledger rows, with a test-only maintenance bypass.
 
 Acceptance: for the same customer/supplier, branch and date window, the party
@@ -579,10 +586,10 @@ Before a slice is marked done:
       account-level control tie-out; the silent customer cache fallback is gone.
 - `[x]` R1 application layer: removed the runtime journal-reversal marker and
       subledger party reassignment; party books attribute posted rows at read
-      time. The DB trigger is the remaining ACC-7 item.
+      time. The DB trigger is the remaining ACC-1b item.
 - `[x]` ACC-1 verified against PostgreSQL: 38/38 targeted tests pass, including
       the new opening + manual + invoice + receipt + unapplied-advance tie-out.
-- `[x]` ACC-7 ledger immutability trigger installed in `scripts/schema.sql`;
+- `[x]` ACC-1b ledger immutability trigger installed in `scripts/schema.sql`;
       re-applying the schema is idempotent with the trigger present.
 - `[x]` ACC-2 implementation: migration `0010_cash_bank_wallet_custody`,
       branch-owned/shared custody accounts, `WALLET` provider metadata, cash-only
