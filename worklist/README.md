@@ -32,6 +32,11 @@ is the plan, not a second source of truth.
   (migration `0044`, `/api/field-work-orders`, the Field Work Orders screen at
   `/service/work-orders`); offline capture, proof-of-work attachments and an
   automatic follow-up into devices/invoices remain open.
+- **Subscription billing (2026-11-20) — plan opened, no code.** Plan versions,
+  service accounts and lifecycle events, idempotent billing runs, subscription
+  invoices numbered through `document_identity_registry`, deferred revenue and
+  dunning, plus the read models it needs. Plan:
+  [2026-11-20-subscription-billing/README.md](2026-11-20-subscription-billing/README.md).
 - **Round 15 is complete (2026-11-19)** — advisory hardening from the 2026-11-17
   database audit and the Sign-In investigation. A1–A10 and Part C (partner API
   keys) are delivered; Part B's remainder is deferred with stated reasons in the
