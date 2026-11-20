@@ -140,6 +140,7 @@ const detail: HrLifecycleChecklistDetail = {
     role: 'FRONT_DESK',
   },
   items,
+  custody: null,
   availableAssets: [
     {
       id: 'hr-life-asset-ui-2',
@@ -294,6 +295,88 @@ test('the screen renders summaries, generated asset/account items, completion co
     assert.ok(create);
     inAct(() => create!.click());
     assert.match(tree.container.textContent || '', /New lifecycle checklist/);
+  } finally {
+    tree.unmount();
+    restore();
+  }
+});
+
+test('the offboarding custody item is derived from the holdings and cannot be completed by hand', async () => {
+  const withCustody: HrLifecycleChecklistDetail = {
+    ...detail,
+    custody: {
+      items: 1,
+      units: 2,
+      products: [
+        { product_id: 'prd-onu', product_code: 'ONU-100', product_name: 'ONU Router 1-Port GPON', quantity: 2 },
+      ],
+    },
+  };
+  const restore = installApiStubs({
+    getHrLifecycleChecklists: async () => [checklist],
+    getHrLifecycleChecklist: async () => withCustody,
+    getEmployees: async () => employees,
+  });
+  const tree = mountTree(
+    createElement(
+      DialogProvider,
+      null,
+      createElement(Lifecycle, { user: smokeUser, branchId: 'WH001' })
+    )
+  );
+  try {
+    assert.ok(
+      await settleUntil(() => (tree.container.textContent || '').includes('Return issued stock equipment')),
+      'the derived custody item must render on an offboarding checklist'
+    );
+    const text = tree.container.textContent || '';
+    assert.match(text, /ONU Router 1-Port GPON × 2/, 'it names the products and quantities held');
+    assert.match(text, /Outstanding/);
+    assert.match(text, /cannot be checked off by hand/);
+    assert.match(text, /still issued/);
+    assert.ok(
+      tree.container.querySelector('[data-testid="lifecycle-custody-block"]'),
+      'the block banner must be shown while units remain'
+    );
+    assert.ok(
+      tree.container.querySelector('[data-testid="lifecycle-custody-item"]'),
+      'the custody item must be a row in the checklist table'
+    );
+    const custodyRow = tree.container.querySelector('[data-testid="lifecycle-custody-item"]') as HTMLElement;
+    const custodyButtons = [...custodyRow.querySelectorAll('button')];
+    assert.equal(custodyButtons.length, 0, 'the custody item offers no complete action');
+  } finally {
+    tree.unmount();
+    restore();
+  }
+});
+
+test('a returned custody item reads as satisfied and the banner is gone', async () => {
+  const settled: HrLifecycleChecklistDetail = {
+    ...detail,
+    custody: { items: 0, units: 0, products: [] },
+  };
+  const restore = installApiStubs({
+    getHrLifecycleChecklists: async () => [checklist],
+    getHrLifecycleChecklist: async () => settled,
+    getEmployees: async () => employees,
+  });
+  const tree = mountTree(
+    createElement(
+      DialogProvider,
+      null,
+      createElement(Lifecycle, { user: smokeUser, branchId: 'WH001' })
+    )
+  );
+  try {
+    assert.ok(
+      await settleUntil(() => (tree.container.textContent || '').includes('Nothing is issued to this employee')),
+      'the satisfied custody item must render'
+    );
+    const text = tree.container.textContent || '';
+    assert.match(text, /Satisfied/);
+    assert.doesNotMatch(text, /still issued/);
+    assert.equal(tree.container.querySelector('[data-testid="lifecycle-custody-block"]'), null);
   } finally {
     tree.unmount();
     restore();

@@ -277,11 +277,49 @@ the offboarding item, transfers and loss approval remain (listed below).
   “Equipment held”, and the holdings list was empty after returning the rest
   while the movements stayed in the log.
 
+**Landed — slice 2, offboarding cannot be left dangling (2026-11-20).**
+
+- **The custody item is derived, never stored.** `readEmployeeStockCustody`
+  (`employeeStock.repo.ts`) returns the live holdings for one employee — count,
+  units and the product rows. The lifecycle detail read attaches it as
+  `custody` for `OFFBOARDING` checklists only, so the screen shows
+  "Return issued stock equipment" with the products and quantities and the
+  outstanding/satisfied state. Nothing is written to the checklist: there is no
+  second copy to check off, so the screen cannot claim a return the ledger does
+  not support.
+- **Completion is the authority.** `post_hrLifecycleComplete` re-reads the
+  holdings **inside the same transaction as the completion write**, with
+  `FOR UPDATE OF h` on the holding rows, so a concurrent return either lands
+  first (completion sees zero) or waits. When anything is held it throws the
+  project's typed 409 — `EMPLOYEE_STOCK_HELD`, with the units/products in the
+  message — and the throw rolls the whole transaction back: no status change,
+  no completion stamp, no audit row, holdings untouched. With nothing held the
+  path is exactly what it was before.
+- **Screens.** The offboarding detail renders the derived row in the items
+  table (no Complete button — it cannot be checked off by hand) plus a rose
+  banner naming the units while they remain; when the ledger is clear the row
+  reads "Satisfied" and the banner is gone. The existing complete action is
+  left enabled so the typed refusal is shown, not hidden behind a disabled
+  button.
+- **Guards.** `tests/hrOffboardingCustody.api.test.ts` — 4/4 over real HTTP and
+  PostgreSQL: derived custody on create (1 item / 2 units / product row), the
+  409 `EMPLOYEE_STOCK_HELD` with the checklist still OPEN and `completed_at`
+  null and the custody rows unchanged, a foreign branch refused (403 on read
+  and completion), and the round trip — return the units through
+  `/api/employee-stock/return`, the derived item reads satisfied, and the same
+  completion succeeds with the stamp and actor written. `tests/hrLifecycle.ui.test.ts`
+  gained two direct-mount guards (the row/banner and no complete action; the
+  satisfied state without a banner).
+- **Seen on the dev app.** Signed in as Super Admin, issued 3 ONU routers to
+  EMP-003 through the API, opened People & HR → Onboarding: the checklist showed
+  "Return issued stock equipment — ONU Router Dual-Band GPON × 3 / Outstanding"
+  and the "3 units … still issued" banner, and **Complete checklist** answered
+  with the typed refusal on screen. Returning the units from the employee
+  profile's Equipment held panel dropped the item to "0 items · 0 units", and the
+  same Complete action then closed the checklist (`COMPLETED`, stamped by the
+  signed-in account).
+
 **Still open in Part B:**
-- **Offboarding block.** The checklist still has no “return issued equipment”
-  item and completion does not consult the holdings. Needs a stock item/action
-  in `hrLifecycle` (the completion path in one transaction with the ledger read)
-  plus its guards; the ledger read is already a single query.
 - **Transfer.** `TRANSFER` exists in the movement CHECK but has no endpoint or
   UI: moving custody between branches or people needs its own rule (which branch
   the row leaves and enters) that the note does not state.

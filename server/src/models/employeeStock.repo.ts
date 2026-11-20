@@ -128,6 +128,58 @@ export async function listEmployeeStockMovements(options: {
   return result.rows;
 }
 
+export interface EmployeeStockCustodyProduct {
+  product_id: string;
+  product_code: string;
+  product_name: string;
+  quantity: number;
+}
+
+export interface EmployeeStockCustody {
+  /** Distinct products with a non-zero holding. */
+  items: number;
+  /** Total units across those holdings. */
+  units: number;
+  products: EmployeeStockCustodyProduct[];
+}
+
+/**
+ * The live holdings of one employee — what the offboarding checklist shows and
+ * what its completion refuses on.
+ *
+ * Passing a transaction client reads (and optionally locks) inside the caller's
+ * transaction, so the completion check sees exactly the rows a concurrent
+ * return would have to touch. There is no stored copy of this summary: the
+ * holdings table is the only source, so a cached checklist cannot disagree
+ * with the completion read for longer than one request.
+ */
+export async function readEmployeeStockCustody(
+  employeeId: string,
+  options: { client?: any; forUpdate?: boolean } = {}
+): Promise<EmployeeStockCustody> {
+  const runner = options.client || pgPool;
+  const result = await runner.query(
+    `SELECT h.product_id, p.sku AS product_code, p.name AS product_name, h.quantity
+       FROM employee_stock_holdings h
+       JOIN products p ON p.id = h.product_id
+      WHERE h.employee_id = $1 AND h.quantity > 0
+      ORDER BY p.name ASC
+      ${options.forUpdate ? 'FOR UPDATE OF h' : ''}`,
+    [employeeId]
+  );
+  const products: EmployeeStockCustodyProduct[] = result.rows.map((row: any) => ({
+    product_id: row.product_id,
+    product_code: row.product_code,
+    product_name: row.product_name,
+    quantity: Number(row.quantity),
+  }));
+  return {
+    items: products.length,
+    units: products.reduce((sum, row) => sum + row.quantity, 0),
+    products,
+  };
+}
+
 /** The branch an employee belongs to — the default custody branch of a write. */
 export async function employeeBranchId(employeeId: string): Promise<string | null> {
   const result = await pgPool.query('SELECT branch_id FROM employees WHERE id = $1', [employeeId]);

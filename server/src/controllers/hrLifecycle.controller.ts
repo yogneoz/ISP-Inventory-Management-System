@@ -26,6 +26,7 @@ import { logAuditEvent } from '../services/audit.service';
 import { getUserFromReq } from '../middleware/auth';
 import { allowedBranchScope } from '../middleware/branchScope';
 import { ApiError } from '../errors/ApiError';
+import { readEmployeeStockCustody } from '../models/employeeStock.repo';
 import { isAccountingDate, isUniqueViolation } from '../services/accounting.service';
 import { resolveBsDateForLedger } from '../utils/bsDate';
 import {
@@ -242,8 +243,15 @@ async function buildDetail(id: string): Promise<any> {
         : (await pgPool.query(HR_LIFECYCLE_ASSIGNED_ASSETS_SQL, [String(checklist.employeeId)])).rows;
     availableAssets = rows.filter((asset: any) => !used.has(asset.id));
   }
+  // Custody is derived from the live holdings on every read: an offboarding
+  // checklist cannot cache a "returned" answer the ledger does not support.
+  const custody =
+    checklist.checklistType === 'OFFBOARDING'
+      ? await readEmployeeStockCustody(String(checklist.employeeId))
+      : null;
   return {
     ...checklist,
+    custody,
     account: checklist.userId
       ? {
           userId: checklist.userId,
@@ -548,6 +556,26 @@ export async function post_hrLifecycleComplete(req: any, res: Response): Promise
         409,
         `${pending} required item${pending === 1 ? ' is' : 's are'} still pending.`
       );
+    }
+    // Completion is the authority on custody: this read runs in the same
+    // transaction as the completion write and locks the holding rows, so a
+    // concurrent return either lands before it (completion sees zero) or waits.
+    // Nothing is written when it refuses — the throw rolls the whole
+    // transaction back.
+    if (header.checklistType === 'OFFBOARDING') {
+      const custody = await readEmployeeStockCustody(String(header.employeeId), {
+        client,
+        forUpdate: true,
+      });
+      if (custody.units > 0) {
+        throw new ApiError(
+          409,
+          `${custody.units} unit${custody.units === 1 ? '' : 's'} across ${custody.items} ` +
+            `product${custody.items === 1 ? '' : 's'} ${custody.units === 1 ? 'is' : 'are'} still issued to this ` +
+            'employee. Return the equipment from My Stock (or the employee profile) before completing offboarding.',
+          { code: 'EMPLOYEE_STOCK_HELD' }
+        );
+      }
     }
     const updated = await client.query(HR_LIFECYCLE_COMPLETE_SQL, [id, actorOf(req)]);
     if (updated.rowCount === 0) {

@@ -660,6 +660,23 @@ export const Lifecycle: React.FC<LifecycleProps> = ({
                 Open the checklist before completing items.
               </div>
             )}
+            {detail.checklistType === 'OFFBOARDING' &&
+              detail.custody &&
+              detail.custody.units > 0 &&
+              detail.status !== 'COMPLETED' && (
+                <div
+                  className="mt-3 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] text-rose-700 dark:border-rose-500/40 dark:bg-rose-950/30 dark:text-rose-300"
+                  data-testid="lifecycle-custody-block"
+                >
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    {detail.custody.units} unit{detail.custody.units === 1 ? '' : 's'} across{' '}
+                    {detail.custody.items} product{detail.custody.items === 1 ? '' : 's'} are still issued.
+                    Completing offboarding is refused until they are returned from My Stock or the
+                    employee profile.
+                  </span>
+                </div>
+              )}
           </section>
 
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
@@ -687,6 +704,47 @@ export const Lifecycle: React.FC<LifecycleProps> = ({
                     </tr>
                   </thead>
                   <tbody>
+                    {detail.checklistType === 'OFFBOARDING' && detail.custody ? (
+                      <tr className={tableRow} data-testid="lifecycle-custody-item">
+                        <td className="px-1 py-2">
+                          <p className="font-medium text-slate-700 dark:text-slate-200">
+                            Return issued stock equipment
+                          </p>
+                          <p className="text-[10px] text-slate-400">
+                            {detail.custody.units === 0
+                              ? 'Nothing is issued to this employee.'
+                              : detail.custody.products
+                                  .map((row) => `${row.product_name} × ${row.quantity}`)
+                                  .join(', ')}
+                          </p>
+                          <p className="text-[10px] text-slate-400">
+                            Derived from the custody ledger; return it from My Stock or the employee
+                            profile. This item cannot be checked off by hand.
+                          </p>
+                        </td>
+                        <td className="px-1 py-2 text-slate-600 dark:text-slate-300">Other</td>
+                        <td className="px-1 py-2 text-slate-600 dark:text-slate-300">Custody ledger</td>
+                        <td className="px-1 py-2">
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                              detail.custody.units === 0
+                                ? statusTone.OPEN
+                                : 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'
+                            }`}
+                          >
+                            {detail.custody.units === 0 ? (
+                              <CheckCircle2 className="h-3 w-3" />
+                            ) : (
+                              <Circle className="h-3 w-3" />
+                            )}
+                            {detail.custody.units === 0 ? 'Satisfied' : 'Outstanding'}
+                          </span>
+                        </td>
+                        <td className="px-1 py-2 text-right text-[10px] text-slate-400">
+                          {detail.custody.units === 0 ? '' : 'Return in My Stock'}
+                        </td>
+                      </tr>
+                    ) : null}
                     {detail.items.length === 0 ? (
                       <EmptyRow
                         colSpan={5}

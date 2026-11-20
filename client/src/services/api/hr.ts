@@ -3000,10 +3000,26 @@ export interface HrLifecycleChecklistRecord {
   pendingAssetCount: number;
 }
 
+export interface HrLifecycleCustodyProduct {
+  product_id: string;
+  product_code: string;
+  product_name: string;
+  quantity: number;
+}
+
+/** Live issued-stock custody for the employee on an offboarding checklist. */
+export interface HrLifecycleCustody {
+  items: number;
+  units: number;
+  products: HrLifecycleCustodyProduct[];
+}
+
 export interface HrLifecycleChecklistDetail extends HrLifecycleChecklistRecord {
   account: HrLifecycleAccount | null;
   items: HrLifecycleChecklistItem[];
   availableAssets: HrLifecycleAsset[];
+  /** Derived from `employee_stock_holdings` on every read; null for onboarding. */
+  custody: HrLifecycleCustody | null;
 }
 
 export interface HrLifecycleChecklistInput {
