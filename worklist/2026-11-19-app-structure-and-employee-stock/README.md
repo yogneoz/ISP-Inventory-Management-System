@@ -1,6 +1,21 @@
 # App structure and employee stock custody (2026-11-19)
 
-Status: `[ ]` in progress · Opened 2026-11-19 · Owner: main
+Status: `[x]` complete (2026-11-20) · Opened 2026-11-19 · Owner: main
+
+**Delivery.** All six Part A steps landed, each as its own commit with `tsc`, the
+route tests and the bundle budget run after it: lazy declarations (`lazyScreens`),
+the SSE/polling engine (`useSyncStream`), URL/history sync (`useAppRouting`), the
+route table (`routes/screenRoutes.tsx`, `06134e4`), the 42 mutation wrappers
+(five domain hooks) and the bootstrap slices behind `BootstrapDataProvider`. Part
+B landed in two slices: the custody ledger, API, My Stock panel and profile
+Equipment section (`399d15e`), then the offboarding custody item and the
+transactional `EMPLOYEE_STOCK_HELD` refusal (`557a1b5`). No guard was deleted,
+skipped or loosened, and no bundle ceiling was raised (entry 22.6 / 23.375 kB,
+startup 316.2 / 330 kB). At close: `npx tsc --noEmit` 0, `env -u PORT npm test`
+2,715 tests / 2,713 pass / 2 Windows-only skips / 0 fail, `npm run build` 0,
+`check:bundle-budget` OK. The three Part B items this note does not decide —
+transfer, loss approval and serial-level custody — are parked with their reopen
+triggers in [parked.md](../parked.md), not left as open work here.
 
 Two workstreams that touch the same seams, done in small verified steps rather
 than one refactor commit. The advisory round is closed
@@ -319,10 +334,15 @@ the offboarding item, transfers and loss approval remain (listed below).
   same Complete action then closed the checklist (`COMPLETED`, stamped by the
   signed-in account).
 
-**Still open in Part B:**
+**Deferred from Part B, with the decision each one needs (2026-11-20).** These
+are not unfinished code: each is a rule the model above does not state, so
+building one would mean inventing the policy. They are recorded in
+[parked.md](../parked.md) with the trigger that reopens each, and the note is
+closed without them.
 - **Transfer.** `TRANSFER` exists in the movement CHECK but has no endpoint or
   UI: moving custody between branches or people needs its own rule (which branch
-  the row leaves and enters) that the note does not state.
+  the row leaves and enters, and whether the units return to branch stock or
+  move person-to-person) that the note does not state.
 - **Loss approval.** A loss records a mandatory reason on the movement. Whether
   it must pass the workflow-approval queue before it writes off, and who may
   approve it, is a policy decision the note does not make.

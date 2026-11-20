@@ -5,8 +5,10 @@ re-reviewed 2026-10-27 at the Round 3, Round 4, Round 5, Round 6 and Round 7
 closes: every trigger below is still unmet. Rounds 3–4's payload work removed
 arrays rather than changing an owner, Round 5's index work removed client-side
 scans, Rounds 6–7 removed dead server reads (a route, then a bootstrap slice),
-and no new root cost was measured. These are deliberate “not now”, not forgotten work.
-Do not reopen one without its trigger; add the new evidence here first.
+and no new root cost was measured. Re-reviewed 2026-11-20 at the app-structure and
+employee-stock close, which added the three custody rows below. These are
+deliberate “not now”, not forgotten work. Do not reopen one without its trigger;
+add the new evidence here first.
 
 Permanent detail: [architecture-backlog.md](../docs/architecture-backlog.md),
 [SESSION_NOTES.md](../SESSION_NOTES.md), [serial-register-audit.md](../docs/serial-register-audit.md).
@@ -19,6 +21,9 @@ Permanent detail: [architecture-backlog.md](../docs/architecture-backlog.md),
 | **B4** | Full JSONB normalization | **Parked** | A product decision that item-level joins/writes are required. B1/B2/B3 have not demanded it. |
 | **C4** | One hydration entry point (`hydrate()`/`refresh()`) | **Parked** | A second `bootstrap/local` caller appears, or a screen bypasses the slice gate. |
 | **SN-1** | Split `SESSION_NOTES.md` by year under `docs/session-notes/` | **Done** (2026-10-27, Round 3 close) — see [docs/session-notes/](../docs/session-notes/README.md) | — executed; the root keeps only the current state and index |
+| **CUST-TRANSFER** | Moving employee stock custody between people or branches (`TRANSFER` is in the movement CHECK but has no endpoint or UI) | **Parked** (2026-11-20, [employee stock custody](2026-11-19-app-structure-and-employee-stock/README.md) closed without it) | A stated rule for what a transfer moves: which branch the custody row leaves and enters, and whether the units go back to branch stock or straight person-to-person. Needs the policy first, not the endpoint. |
+| **CUST-LOSS** | Whether a write-off loss must pass the workflow-approval queue, and who may approve it | **Parked** — the mandatory reason is enforced today (movement CHECK), the approval gate is not | Someone decides the queue and the approver. Without that, an approval step would invent its own rule. |
+| **CUST-SERIAL** | Serial-level custody (a specific device following a person, not a quantity) | **Parked** — the ledger is quantity-based by design, matching `(employee_id, product_id, branch_id, quantity)` | A requirement to trace one device to one person — a warranty/RMA claim on a unit in a technician's van, or an audit that names serials. Would move custody off the branch `inventory_stock` serial row. |
 | **STOCK-2** | A paged `inventory_stock` read (+ a stock overview endpoint for the shell badge and notifications) | **NO-GO today, GO-on-evidence** (2026-10-27, [STOCK-2](done/2026-10-27-round-5/STOCK-2.md)) | A real login's `stock` slice measures **≥ 1 MiB gzip** in the target deployment, or an ALL-scope catalogue well past ~5,000 products makes the client-side filter the bottleneck. Re-measure the row width first — the band is ≈ 143–164 B raw / 15–27 B gzip per row, and the demo DB cannot answer it. |
 
 ## Why STOCK-2 is a conditional NO-GO

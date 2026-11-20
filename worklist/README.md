@@ -19,10 +19,15 @@ is the plan, not a second source of truth.
 - [parked.md](parked.md) — decisions we are not acting on, with the trigger to
   reopen each one.
 - [done/](done/README.md) — completed rounds, kept for reference. Never delete.
-- **App structure + employee stock (2026-11-19) — in progress**: App.tsx lazy
-  screens moved to `client/src/routes/lazyScreens.ts` (step 1 of 6); the SSE,
-  routing, route-table and bootstrap-state splits follow, then per-employee stock
-  custody (holdings + append-only movements) for the Fiber Team.
+- **App structure + employee stock is complete (2026-11-20)** — all six App.tsx
+  splits (lazy screens, the SSE/polling engine, URL sync, the route table, the 42
+  mutation wrappers, bootstrap state behind `BootstrapDataProvider`) and both
+  per-employee stock custody slices (the holdings/movements ledger with its API
+  and panels, then offboarding refusing completion while stock is held). Its
+  three undecided Part B items — transfer, loss approval, serial-level custody —
+  are parked with triggers in [parked.md](parked.md). Kept in place rather than
+  moved to `done/` because the Round 15 note links to it:
+  [2026-11-19-app-structure-and-employee-stock/README.md](2026-11-19-app-structure-and-employee-stock/README.md).
 - **Field capture (2026-11-19) — first slice delivered**: technician work orders
   (migration `0044`, `/api/field-work-orders`, the Field Work Orders screen at
   `/service/work-orders`); offline capture, proof-of-work attachments and an
