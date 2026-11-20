@@ -145,9 +145,9 @@ end.
    aliases, and `UsersManagement`) now read `useBootstrapData()` themselves; their
    interfaces no longer declare the slices. `AccountingScreenProps` lost `branches`
    the same way, so the accounting registers read it from the provider too.
-   `BootstrapDataProvider` takes an optional `initial` for company profile, users
-   and branches, which is how the screen tests that used to pass those props now
-   seed the provider instead.
+   `BootstrapDataProvider` takes an optional `initial` seeding any of its slices,
+   which is how the screen tests that used to pass those props now seed the
+   provider instead.
 
    **Guards.** One guard pinned the old threading and was repointed to the new
    owner with its assertion kept: `tests/userPermissions.test.ts` now proves the
