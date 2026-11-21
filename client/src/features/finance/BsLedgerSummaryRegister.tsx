@@ -51,7 +51,6 @@ export const BsLedgerSummaryRegister: React.FC<AccountingScreenProps> = ({
   // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
   const { branches } = useBootstrapData();
   const scope = useAccountingScope(branches, currentUser);
-  const [fromDate, setFromDate] = useState('');
   const [data, setData] = useState<BsLedgerSummaryResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -66,7 +65,7 @@ export const BsLedgerSummaryRegister: React.FC<AccountingScreenProps> = ({
     setError('');
     void api.getBsLedgerSummary({
       branchId: scope.branchId === 'ALL' ? undefined : scope.branchId,
-      from: fromDate || undefined,
+      from: scope.fromDate || undefined,
       to: scope.asOfDate,
     })
       .then((next) => {
@@ -84,7 +83,7 @@ export const BsLedgerSummaryRegister: React.FC<AccountingScreenProps> = ({
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isVisible, scope.branchId, scope.asOfDate, fromDate, activationKey, reloadKey]);
+  }, [isVisible, scope.branchId, scope.asOfDate, scope.fromDate, activationKey, reloadKey]);
 
   const fiscalYears = useMemo(() => {
     const map = new Map<string, { fiscalYear: string; months: BsLedgerMonth[] }>();
@@ -107,7 +106,6 @@ export const BsLedgerSummaryRegister: React.FC<AccountingScreenProps> = ({
       registerName="BS ledger summary"
       scope={scope}
       dateMode={dateMode}
-      periodStart={{ value: fromDate, onChange: setFromDate }}
       loading={loading}
       error={error}
       onRefresh={() => setReloadKey((key) => key + 1)}

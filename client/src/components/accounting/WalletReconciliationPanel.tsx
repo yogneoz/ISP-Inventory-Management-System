@@ -8,7 +8,7 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Link2, RefreshCw, Upload, Wallet } from 'lucide-react';
-import { StatCard } from '../common/StatCard';
+import { KpiStrip, KPI_TONE_TEXT } from '../common/KpiStrip';
 import { useActivationKey, useTabActive } from '../common/KeepMounted';
 import { api } from '../../services/api';
 import type {
@@ -299,22 +299,24 @@ export const WalletReconciliationPanel: React.FC<WalletReconciliationPanelProps>
 
       {data?.account && (
         <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatCard label="CLEARING BALANCE" value={money(data.summary.ledgerClosing)} tone="indigo" hint="Posted wallet-ledger balance" />
-            <StatCard label="UNSETTLED GROSS" value={money(data.summary.unsettledGross)} tone="amber" hint="Gross receipts less every posted settlement" />
-            <StatCard
-              label="DIFFERENCE"
-              value={money(data.summary.difference)}
-              tone={data.summary.reconciled ? 'emerald' : 'rose'}
-              hint="Clearing balance minus unsettled gross"
-            />
-            <StatCard
-              label="UNMATCHED PROVIDER"
-              value={String(data.statement.unmatchedCount)}
-              tone={data.statement.unmatchedCount ? 'rose' : 'emerald'}
-              hint={`${money(data.statement.unmatchedAmount)} net still unmatched`}
-            />
-          </div>
+          <KpiStrip
+            items={[
+              { label: 'CLEARING BALANCE', value: money(data.summary.ledgerClosing), tone: KPI_TONE_TEXT.indigo, hint: 'Posted wallet-ledger balance' },
+              { label: 'UNSETTLED GROSS', value: money(data.summary.unsettledGross), tone: KPI_TONE_TEXT.amber, hint: 'Gross receipts less every posted settlement' },
+              {
+                label: 'DIFFERENCE',
+                value: money(data.summary.difference),
+                tone: KPI_TONE_TEXT[data.summary.reconciled ? 'emerald' : 'rose'],
+                hint: 'Clearing balance minus unsettled gross',
+              },
+              {
+                label: 'UNMATCHED PROVIDER',
+                value: String(data.statement.unmatchedCount),
+                tone: KPI_TONE_TEXT[data.statement.unmatchedCount ? 'rose' : 'emerald'],
+                hint: `${money(data.statement.unmatchedAmount)} net still unmatched`,
+              },
+            ]}
+          />
 
           <div className="grid grid-cols-2 gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] dark:border-slate-800 dark:bg-slate-900/40 lg:grid-cols-5">
             <div><span className="block text-slate-400">Gross receipts</span><span className="font-mono font-bold">{money(data.summary.grossReceipts)}</span></div>

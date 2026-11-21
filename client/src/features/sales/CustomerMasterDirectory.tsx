@@ -42,7 +42,7 @@ import { useKeysetPager } from '../../hooks/useKeysetPager';
 import { useDialog } from '../../components/common/DialogProvider';
 import { FilterCard } from '../../components/common/FilterCard';
 import { ModalPanel } from '../../components/common/ModalPanel';
-import StatCard from '../../components/common/StatCard';
+import { KpiStrip } from '../../components/common/KpiStrip';
 import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface CustomerMasterDirectoryProps {
@@ -311,9 +311,6 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
 
   // Cursor read: every request after the first sends the signed nextCursor,
   // so inserts committed while an operator pages cannot shift the window.
-  const [customersTotalItems, setCustomersTotalItems] = useState(0);
-  const [customersActiveItems, setCustomersActiveItems] = useState(0);
-  const [customersTotalCredit, setCustomersTotalCredit] = useState(0);
   const [customersRefreshKey, setCustomersRefreshKey] = useState(0);
   const [partyBalances, setPartyBalances] = useState<Record<string, PartyLedgerBalanceRow>>({});
   const [receivableControl, setReceivableControl] = useState<PartyControlAccount | null>(null);
@@ -341,12 +338,13 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
   const customersPager = useKeysetPager({
     fetchPage: fetchCustomersPage,
     resetKey: [selectedBranchFilter, searchQuery, statusFilter, customersRefreshKey, sseRefreshKey].join('\u0000'),
-    onPage: (page) => {
-      setCustomersTotalItems(page.meta?.totalItems ?? 0);
-      setCustomersActiveItems(page.meta?.activeItems ?? 0);
-      setCustomersTotalCredit(page.meta?.totalCreditLimit ?? 0);
-    },
   });
+  // Directory KPIs for the CURRENT query: they ride on the page's `meta`, which
+  // the pager clears when the filter changes, so a previous filter's counts can
+  // never be shown over these rows.
+  const customersTotalItems = customersPager.meta?.totalItems ?? 0;
+  const customersActiveItems = customersPager.meta?.activeItems ?? 0;
+  const customersTotalCredit = customersPager.meta?.totalCreditLimit ?? 0;
   const customersRows = customersPager.rows;
   const customersLoadError = customersPager.error;
   const customersLoading = customersPager.loading;
@@ -613,7 +611,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
               <button
                 onClick={() => { void handleExportCSV(); }}
                 disabled={isExporting}
-                className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-xl border transition-colors cursor-pointer border-slate-300 bg-slate-50 hover:bg-slate-200 text-slate-700 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200`}
+                className={`flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-slate-50 hover:bg-slate-200 text-slate-700 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200`}
               >
                 {isExporting
                   ? <Loader2 className="h-4 w-4 animate-spin text-emerald-600" />
@@ -625,7 +623,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
             {canExportImport && (
               <button
                 onClick={onNavigateToImport}
-                className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-xl border transition-colors cursor-pointer border-slate-300 bg-slate-50 hover:bg-slate-200 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200`}
+                className={`flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-slate-50 hover:bg-slate-200 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200`}
               >
                 <Upload className="h-4 w-4 text-indigo-600" />
                 <span>Import CSV</span>
@@ -635,7 +633,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
             {canAddCustomer && (
               <button
                 onClick={handleOpenAddModal}
-                className="flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-all cursor-pointer"
+                className="flex h-8 items-center gap-1.5 rounded-lg bg-indigo-600 px-2.5 text-xs font-semibold text-white shadow-sm transition-all hover:bg-indigo-700 cursor-pointer"
               >
                 <Plus className="h-4 w-4" />
                 <span>Add Customer Record</span>
@@ -645,32 +643,20 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
         </div>
 
 
-        {/* Quick Summary Cards — shared compact StatCard component */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/80">
-          <StatCard
-            label="Total Registered Customers"
-            value={`${customersTotalItems} Accounts`}
-            tone="slate"
-          />
-
-          <StatCard
-            label="Active Status Accounts"
-            value={`${customersActiveItems} Active`}
-            tone="emerald"
-          />
-
-          <StatCard
-            label="Tracked Device Serials"
-            value={trackedDeviceTotal === null ? '—' : `${trackedDeviceTotal} Hardware Devices`}
-            tone="indigo"
-          />
-
-          <StatCard
-            label="Total Credit Capacity"
-            value={formatNPR(customersTotalCredit)}
-            tone="amber"
-          />
-        </div>
+        {/* Quick summary — one inline bar. */}
+        <KpiStrip
+          className="mt-3"
+          items={[
+            { label: 'Total Registered Customers', value: `${customersTotalItems} Accounts` },
+            { label: 'Active Status Accounts', value: `${customersActiveItems} Active`, tone: 'text-emerald-500 dark:text-emerald-400' },
+            {
+              label: 'Tracked Device Serials',
+              value: trackedDeviceTotal === null ? '—' : `${trackedDeviceTotal} Hardware Devices`,
+              tone: 'text-indigo-500 dark:text-indigo-400',
+            },
+            { label: 'Total Credit Capacity', value: formatNPR(customersTotalCredit), tone: 'text-amber-500 dark:text-amber-400' },
+          ]}
+        />
       </div>
 
       {/* Filter and Search Bar */}

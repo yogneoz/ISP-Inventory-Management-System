@@ -13,7 +13,7 @@ import {
   Stethoscope,
   Trash2,
 } from 'lucide-react';
-import { StatCard } from '../common/StatCard';
+import { KpiStrip, KPI_TONE_TEXT } from '../common/KpiStrip';
 import { useDialog } from '../common/DialogProvider';
 import { api } from '../../services/api';
 import type {
@@ -527,17 +527,19 @@ export const ChartView: React.FC<{
           {actionError}
         </div>
       )}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="ACCOUNT GROUPS" value={String(state.groups.length)} tone="indigo" hint="Top-level and sub-groups" />
-        <StatCard label="LEDGER ACCOUNTS" value={String(state.accounts.length)} tone="emerald" hint="Active and retired entries" />
-        <StatCard label="POSTING DEFAULTS" value={String(defaultRoles.length)} tone="amber" hint="Roles the posting services rely on" />
-        <StatCard
-          label="CONTROL ACCOUNTS"
-          value={String(state.accounts.filter((account) => account.isControl).length)}
-          tone="rose"
-          hint="Party and branch subledgers"
-        />
-      </div>
+      <KpiStrip
+        items={[
+          { label: 'ACCOUNT GROUPS', value: String(state.groups.length), tone: KPI_TONE_TEXT.indigo, hint: 'Top-level and sub-groups' },
+          { label: 'LEDGER ACCOUNTS', value: String(state.accounts.length), tone: KPI_TONE_TEXT.emerald, hint: 'Active and retired entries' },
+          { label: 'POSTING DEFAULTS', value: String(defaultRoles.length), tone: KPI_TONE_TEXT.amber, hint: 'Roles the posting services rely on' },
+          {
+            label: 'CONTROL ACCOUNTS',
+            value: String(state.accounts.filter((account) => account.isControl).length),
+            tone: KPI_TONE_TEXT.rose,
+            hint: 'Party and branch subledgers',
+          },
+        ]}
+      />
 
       <div
         role="tablist"
@@ -804,32 +806,34 @@ export const ChartView: React.FC<{
 
       {tab === 'health' && (
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatCard
-              label="MISSING POSTING ROLES"
-              value={String(health?.missingPostingRoles.length ?? 0)}
-              tone={(health?.missingPostingRoles.length ?? 0) > 0 ? 'rose' : 'emerald'}
-              hint="Roles no active ledger holds"
-            />
-            <StatCard
-              label="CONTROLS WITHOUT BOOK"
-              value={String(health?.controlAccountsWithoutSubledger.length ?? 0)}
-              tone={(health?.controlAccountsWithoutSubledger.length ?? 0) > 0 ? 'rose' : 'emerald'}
-              hint="Control ledgers with no active book"
-            />
-            <StatCard
-              label="RETIRED LEDGERS WITH ROLE"
-              value={String(health?.inactiveAccountsHoldingRole.length ?? 0)}
-              tone={(health?.inactiveAccountsHoldingRole.length ?? 0) > 0 ? 'rose' : 'emerald'}
-              hint="Inactive accounts that still claim a posting role"
-            />
-            <StatCard
-              label="UNLINKED SUBLEDGER ROWS"
-              value={unlinkedAvailable ? String(health?.unlinkedSubledgerRows.count ?? 0) : '—'}
-              tone={unlinkedAvailable && (health?.unlinkedSubledgerRows.count ?? 0) > 0 ? 'amber' : 'emerald'}
-              hint={unlinkedAvailable ? 'Posted party rows with no book' : 'Not reported by this server'}
-            />
-          </div>
+          <KpiStrip
+            items={[
+              {
+                label: 'MISSING POSTING ROLES',
+                value: String(health?.missingPostingRoles.length ?? 0),
+                tone: KPI_TONE_TEXT[(health?.missingPostingRoles.length ?? 0) > 0 ? 'rose' : 'emerald'],
+                hint: 'Roles no active ledger holds',
+              },
+              {
+                label: 'CONTROLS WITHOUT BOOK',
+                value: String(health?.controlAccountsWithoutSubledger.length ?? 0),
+                tone: KPI_TONE_TEXT[(health?.controlAccountsWithoutSubledger.length ?? 0) > 0 ? 'rose' : 'emerald'],
+                hint: 'Control ledgers with no active book',
+              },
+              {
+                label: 'RETIRED LEDGERS WITH ROLE',
+                value: String(health?.inactiveAccountsHoldingRole.length ?? 0),
+                tone: KPI_TONE_TEXT[(health?.inactiveAccountsHoldingRole.length ?? 0) > 0 ? 'rose' : 'emerald'],
+                hint: 'Inactive accounts that still claim a posting role',
+              },
+              {
+                label: 'UNLINKED SUBLEDGER ROWS',
+                value: unlinkedAvailable ? String(health?.unlinkedSubledgerRows.count ?? 0) : '—',
+                tone: KPI_TONE_TEXT[unlinkedAvailable && (health?.unlinkedSubledgerRows.count ?? 0) > 0 ? 'amber' : 'emerald'],
+                hint: unlinkedAvailable ? 'Posted party rows with no book' : 'Not reported by this server',
+              },
+            ]}
+          />
 
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">

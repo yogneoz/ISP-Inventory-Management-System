@@ -45,7 +45,7 @@ import {
   TrendingDown,
 } from 'lucide-react';
 import { TablePagination, useClientPagination } from '../../components/common/TablePagination';
-import { StatCard } from '../../components/common/StatCard';
+import { KpiStrip } from '../../components/common/KpiStrip';
 import { linkButton } from '../../components/common/styleConstants';
 import { useBootstrapData } from '../../contexts/AppProviders';
 
@@ -976,29 +976,31 @@ filing. Consult a professional accountant for IRD submission.
               </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <StatCard
-                label="Closing Inventory Stock Value"
-                icon={<Package className="h-4 w-4" />}
-                tone="indigo"
-                value={`NPR ${Math.round(Number(closingMetrics.inventoryValue) || 0).toLocaleString()}`}
-                hint="Evaluated at FIFO Cost Price"
-              />
-              <StatCard
-                label="Gross Fixed Asset Acquisition"
-                icon={<Landmark className="h-4 w-4" />}
-                tone="slate"
-                value={`NPR ${Math.round(Number(closingMetrics.fixedAssetValue) || 0).toLocaleString()}`}
-                hint={`${(assetOverview.overview?.total ?? 0).toLocaleString('en-IN')} Active Hardware Items`}
-              />
-              <StatCard
-                label="Calculated Year Depreciation"
-                icon={<TrendingDown className="h-4 w-4" />}
-                tone="amber"
-                value={`NPR ${Math.round(Number(closingMetrics.annualDepreciation) || 0).toLocaleString()}`}
-                hint="Income Tax Act Rates Applied"
-              />
-            </div>
+            <KpiStrip
+              items={[
+                {
+                  label: 'Closing Inventory Stock Value',
+                  icon: <Package className="h-3.5 w-3.5" />,
+                  tone: 'text-indigo-500 dark:text-indigo-400',
+                  value: `NPR ${Math.round(Number(closingMetrics.inventoryValue) || 0).toLocaleString()}`,
+                  hint: 'Evaluated at FIFO Cost Price',
+                },
+                {
+                  label: 'Gross Fixed Asset Acquisition',
+                  icon: <Landmark className="h-3.5 w-3.5" />,
+                  tone: 'text-slate-500 dark:text-slate-400',
+                  value: `NPR ${Math.round(Number(closingMetrics.fixedAssetValue) || 0).toLocaleString()}`,
+                  hint: `${(assetOverview.overview?.total ?? 0).toLocaleString('en-IN')} Active Hardware Items`,
+                },
+                {
+                  label: 'Calculated Year Depreciation',
+                  icon: <TrendingDown className="h-3.5 w-3.5" />,
+                  tone: 'text-amber-500 dark:text-amber-400',
+                  value: `NPR ${Math.round(Number(closingMetrics.annualDepreciation) || 0).toLocaleString()}`,
+                  hint: 'Income Tax Act Rates Applied',
+                },
+              ]}
+            />
           </div>
         )}
 

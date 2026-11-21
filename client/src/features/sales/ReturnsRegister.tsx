@@ -21,6 +21,7 @@ import {
   Barcode,
 } from 'lucide-react';
 import { normalizeMacAddress } from '../../../../shared/macAddress';
+import { PeriodRangeField, usePeriodRangeFilter } from '../../components/common/PeriodRangeField';
 import {
   duplicateSerialSlotIndex,
   findInvoiceSerialUnit,
@@ -161,8 +162,8 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
   );
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [query, setQuery] = useState('');
-  const [dateFromAD, setDateFromAD] = useState('');
-  const [dateToAD, setDateToAD] = useState('');
+  // One period field: the list reads only when Query applies the draft.
+  const returnRange = usePeriodRangeFilter({ from: '', to: '' });
 
   const isPurchase = kind === 'PURCHASE';
   const docNumberLabel = isPurchase ? 'Debit Note (DN-…)' : 'Credit Note (CN-…)';
@@ -176,8 +177,8 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
         branchId: branchFilter !== 'ALL' ? branchFilter : undefined,
         status: statusFilter !== 'ALL' ? statusFilter : undefined,
         query: query.trim() || undefined,
-        dateFromAD: dateFromAD || undefined,
-        dateToAD: dateToAD || undefined,
+        dateFromAD: returnRange.from || undefined,
+        dateToAD: returnRange.to || undefined,
         cursor,
         limit: 25,
       };
@@ -194,12 +195,12 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
       nextCursor: envelope.nextCursor ?? null,
       hasMore: Boolean(envelope.hasMore),
     };
-  }, [branchFilter, statusFilter, query, dateFromAD, dateToAD, isPurchase]);
+  }, [branchFilter, statusFilter, query, returnRange.from, returnRange.to, isPurchase]);
 
   const retPager = useKeysetPager({
     fetchPage: fetchRetPage,
     resetKey: [
-      branchFilter, statusFilter, query, dateFromAD, dateToAD, isPurchase,
+      branchFilter, statusFilter, query, returnRange.from, returnRange.to, isPurchase,
       retRefreshKey, sseRefreshKey ?? 0,
     ].join('\u0000'),
   });
@@ -547,8 +548,8 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
     let list = returns as any[];
     if (branchFilter !== 'ALL') list = list.filter((r) => r.branchId === branchFilter);
     if (statusFilter !== 'ALL') list = list.filter((r) => r.status === statusFilter);
-    if (dateFromAD) list = list.filter((r) => (r.returnDateAD || '') >= dateFromAD);
-    if (dateToAD) list = list.filter((r) => (r.returnDateAD || '') <= dateToAD);
+    if (returnRange.from) list = list.filter((r) => (r.returnDateAD || '') >= returnRange.from);
+    if (returnRange.to) list = list.filter((r) => (r.returnDateAD || '') <= returnRange.to);
     if (query.trim()) {
       const q = query.trim().toLowerCase();
       list = list.filter((r) =>
@@ -558,7 +559,7 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
       );
     }
     return list;
-  }, [returns, branchFilter, statusFilter, query, isPurchase, dateFromAD, dateToAD]);
+  }, [returns, branchFilter, statusFilter, query, isPurchase, returnRange.from, returnRange.to]);
 
   // Rows on screen: the cursor pages, or (on a non-scope fetch failure) the
   // client-side filtered prop array so the register degrades instead of
@@ -954,10 +955,9 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
               setBranchFilter(selectedBranchId && selectedBranchId !== 'ALL' ? selectedBranchId : branches[0]?.id || 'ALL');
               setStatusFilter('ALL');
               setQuery('');
-              setDateFromAD('');
-              setDateToAD('');
+              returnRange.reset();
             }}
-            hasActiveFilters={branchFilter !== (selectedBranchId || '') || statusFilter !== 'ALL' || !!query || !!dateFromAD || !!dateToAD}
+            hasActiveFilters={branchFilter !== (selectedBranchId || '') || statusFilter !== 'ALL' || !!query || !!returnRange.from || !!returnRange.to}
             filterChildren={
               <div className="flex flex-wrap gap-3">
                 <div className="w-48">
@@ -976,13 +976,21 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
                     <option value="CANCELLED">CANCELLED</option>
                   </select>
                 </div>
-                <div className="w-40">
-                  <label className={labelClass}>Return Date From</label>
-                  <input type="date" className={inputClass} value={dateFromAD} max={dateToAD || undefined} onChange={(e) => setDateFromAD(e.target.value)} />
-                </div>
-                <div className="w-40">
-                  <label className={labelClass}>Return Date To</label>
-                  <input type="date" className={inputClass} value={dateToAD} min={dateFromAD || undefined} onChange={(e) => setDateToAD(e.target.value)} />
+                <div className="min-w-fit">
+                  <PeriodRangeField
+                    label="Return date"
+                    startAriaLabel="Return date from"
+                    endAriaLabel="Return date to"
+                    requireEnd={false}
+                    from={returnRange.draft.from}
+                    to={returnRange.draft.to}
+                    onChange={(next) => {
+                      returnRange.setFrom(next.from);
+                      returnRange.setTo(next.to);
+                    }}
+                    onApply={returnRange.apply}
+                    pending={returnRange.pending}
+                  />
                 </div>
               </div>
             }

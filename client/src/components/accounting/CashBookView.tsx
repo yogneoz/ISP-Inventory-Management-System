@@ -1,5 +1,5 @@
 import React from 'react';
-import { StatCard } from '../common/StatCard';
+import { KpiStrip } from '../common/KpiStrip';
 import type { CashBookResponse } from '../../services/api/accounting';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { money } from './statementFormat';
@@ -14,17 +14,19 @@ export const CashBookView: React.FC<{
   const label = data.book === 'BANK' ? 'bank' : data.book === 'WALLET' ? 'wallet clearing' : 'cash';
   return (
   <div className="space-y-4">
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-      <StatCard label="OPENING BALANCE" value={money(data.opening)} tone="indigo" hint="Before the period start" />
-      <StatCard label="RECEIPTS" value={money(data.receipts)} tone="emerald" hint={companyBook ? 'Company-wide debits' : 'Branch debits to cash'} />
-      <StatCard label="PAYMENTS" value={money(data.payments)} tone="rose" hint={companyBook ? 'Company-wide credits' : 'Branch credits to cash'} />
-      <StatCard
-        label="CLOSING BALANCE"
-        value={money(data.closing)}
-        tone="amber"
-        hint={companyBook ? 'Company balance per account' : 'Branch till closing'}
-      />
-    </div>
+    <KpiStrip
+      items={[
+        { label: 'OPENING BALANCE', value: money(data.opening), tone: 'text-indigo-500 dark:text-indigo-400', hint: 'Before the period start' },
+        { label: 'RECEIPTS', value: money(data.receipts), tone: 'text-emerald-500 dark:text-emerald-400', hint: companyBook ? 'Company-wide debits' : 'Branch debits to cash' },
+        { label: 'PAYMENTS', value: money(data.payments), tone: 'text-rose-500 dark:text-rose-400', hint: companyBook ? 'Company-wide credits' : 'Branch credits to cash' },
+        {
+          label: 'CLOSING BALANCE',
+          value: money(data.closing),
+          tone: 'text-amber-500 dark:text-amber-400',
+          hint: companyBook ? 'Company balance per account' : 'Branch till closing',
+        },
+      ]}
+    />
     {companyBook && (
       <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-[11px] font-medium text-indigo-800 dark:border-indigo-500/40 dark:bg-indigo-950/30 dark:text-indigo-300">
         Company {label} balance {money(data.closing)} · selected-branch movement{' '}

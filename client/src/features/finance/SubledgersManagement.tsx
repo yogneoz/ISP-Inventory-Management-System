@@ -26,8 +26,9 @@ import {
   Trash2,
 } from 'lucide-react';
 import { PageHeader } from '../../components/common/PageHeader';
-import { StatCard } from '../../components/common/StatCard';
+import { KpiStrip, KPI_TONE_TEXT } from '../../components/common/KpiStrip';
 import { KeysetLoadMore } from '../../components/common/KeysetLoadMore';
+import { StatementLoadingPlaceholder } from '../../components/common/StatementLoadingPlaceholder';
 import { ModalPanel } from '../../components/common/ModalPanel';
 import { useDialog } from '../../components/common/DialogProvider';
 import { useActivationKey } from '../../components/common/KeepMounted';
@@ -128,7 +129,6 @@ export const SubledgersManagement: React.FC<SubledgersManagementProps> = ({
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
   const [ledgerBook, setLedgerBook] = useState<AccountingSubledger | null>(null);
-  const [ledger, setLedger] = useState<AccountingSubledgerLedger | null>(null);
   const [ledgerFrom, setLedgerFrom] = useState('');
   const [ledgerTo, setLedgerTo] = useState('');
   const [ledgerRefreshKey, setLedgerRefreshKey] = useState(0);
@@ -352,11 +352,13 @@ export const SubledgersManagement: React.FC<SubledgersManagementProps> = ({
     fetchPage: fetchLedgerPage,
     resetKey: [ledgerBook?.id || '', ledgerFrom, ledgerTo, branchId, ledgerRefreshKey].join('\u0000'),
     enabled: Boolean(ledgerBook),
-    onPage: (page) => {
-      const base = page.meta;
-      if (base) setLedger({ ...base, entries: [] });
-    },
   });
+  // The ledger header (account, parties, control totals) is the page's `meta`
+  // for the CURRENT query, cleared when the book or filters change — a previous
+  // selection's figures can never head the rows now on screen.
+  const ledger: AccountingSubledgerLedger | null = ledgerPager.meta
+    ? { ...ledgerPager.meta, entries: [] }
+    : null;
   const ledgerEntries = ledgerPager.rows;
   const ledgerLoading = ledgerPager.loading || ledgerPager.loadingMore;
   const ledgerError = ledgerPager.error;
@@ -368,7 +370,6 @@ export const SubledgersManagement: React.FC<SubledgersManagementProps> = ({
 
   const openLedger = (book: AccountingSubledger) => {
     setLedgerBook(book);
-    setLedger(null);
     setLedgerFrom(fiscalYearStartAD || '');
     setLedgerTo(fiscalYearEndAD || '');
     setLedgerRefreshKey((key) => key + 1);
@@ -495,22 +496,24 @@ export const SubledgersManagement: React.FC<SubledgersManagementProps> = ({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="SUBLEDGER BOOKS" value={String(subledgers.length)} tone="indigo" hint="General + unlimited party books" />
-        <StatCard label="CONTROL ACCOUNTS" value={String(controlAccounts.length)} tone="amber" hint="Ledgers owning party detail" />
-        <StatCard
-          label="TIE-OUT"
-          value={differences === 0 ? 'Reconciled' : `${differences} difference(s)`}
-          tone={differences === 0 ? 'emerald' : 'rose'}
-          hint="GL versus posted subledger rows"
-        />
-        <StatCard
-          label="UNASSIGNED"
-          value={String(unassignedControls)}
-          tone={unassignedControls === 0 ? 'emerald' : 'rose'}
-          hint="Control accounts with no book"
-        />
-      </div>
+      <KpiStrip
+        items={[
+          { label: 'SUBLEDGER BOOKS', value: String(subledgers.length), tone: KPI_TONE_TEXT.indigo, hint: 'General + unlimited party books' },
+          { label: 'CONTROL ACCOUNTS', value: String(controlAccounts.length), tone: KPI_TONE_TEXT.amber, hint: 'Ledgers owning party detail' },
+          {
+            label: 'TIE-OUT',
+            value: differences === 0 ? 'Reconciled' : `${differences} difference(s)`,
+            tone: KPI_TONE_TEXT[differences === 0 ? 'emerald' : 'rose'],
+            hint: 'GL versus posted subledger rows',
+          },
+          {
+            label: 'UNASSIGNED',
+            value: String(unassignedControls),
+            tone: KPI_TONE_TEXT[unassignedControls === 0 ? 'emerald' : 'rose'],
+            hint: 'Control accounts with no book',
+          },
+        ]}
+      />
 
       {loadError && (
         <div role="alert" className={errorClass}>
@@ -879,6 +882,14 @@ export const SubledgersManagement: React.FC<SubledgersManagementProps> = ({
             </div>
 
             {ledgerError && <div className={`mt-2 ${errorClass}`}>{ledgerError}</div>}
+
+            {/* Same contract as LedgerView's placeholder (this block is not
+                rendered through it): `!ledger` keeps it off a statement that is
+                on screen, `!ledgerError` keeps a failed read from showing a
+                spinner beside its own error. */}
+            {ledgerLoading && !ledger && !ledgerError && (
+              <StatementLoadingPlaceholder label="subledger" className="mt-3" />
+            )}
 
             {ledger && (
               <div className="mt-3 space-y-3">

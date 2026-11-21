@@ -3,7 +3,7 @@ import { useActivationKey } from '../../components/common/KeepMounted';
 import { Branch, LocationRecord, User } from '../../types';
 import { MapPin, Plus, Building2, Server, Globe, ExternalLink, Check, Copy, Navigation } from 'lucide-react';
 import { api } from '../../services/api';
-import StatCard from '../../components/common/StatCard';
+import { KpiStrip } from '../../components/common/KpiStrip';
 import { FilterCard } from '../../components/common/FilterCard';
 import { PageHeader } from '../../components/common/PageHeader';
 import { LoadStateNotice } from '../../components/common/LoadStateNotice';
@@ -170,33 +170,35 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
         }
       />
 
-      {/* KPI Cards — shared compact StatCard component */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 flex-none">
-        <StatCard
-          label="Total Network Sites"
-          value={loadError ? '—' : `${locations.length} Sites`}
-          icon={<Globe className="h-4 w-4" />}
-          tone="indigo"
-        />
-        <StatCard
-          label="POP Server Rooms"
-          value={loadError ? '—' : `${locations.filter((l) => l.type === 'POP_SERVER_ROOM').length} Rooms`}
-          icon={<Server className="h-4 w-4" />}
-          tone="violet"
-        />
-        <StatCard
-          label="Fiber Route Nodes"
-          value={loadError ? '—' : `${locations.filter((l) => l.type === 'FIBER_NETWORK_NODE').length} Nodes`}
-          icon={<Navigation className="h-4 w-4" />}
-          tone="sky"
-        />
-        <StatCard
-          label="Assigned Equipment"
-          value={loadError ? '—' : `${locations.reduce((sum, l) => sum + (l.activeAssetsCount || 0), 0)} Units`}
-          icon={<Building2 className="h-4 w-4" />}
-          tone="emerald"
-        />
-      </div>
+      {/* Site figures — one inline bar. */}
+      <KpiStrip
+        items={[
+          {
+            label: 'Total Network Sites',
+            value: loadError ? '—' : `${locations.length} Sites`,
+            icon: <Globe className="h-3.5 w-3.5" />,
+            tone: 'text-indigo-500 dark:text-indigo-400',
+          },
+          {
+            label: 'POP Server Rooms',
+            value: loadError ? '—' : `${locations.filter((l) => l.type === 'POP_SERVER_ROOM').length} Rooms`,
+            icon: <Server className="h-3.5 w-3.5" />,
+            tone: 'text-violet-500 dark:text-violet-400',
+          },
+          {
+            label: 'Fiber Route Nodes',
+            value: loadError ? '—' : `${locations.filter((l) => l.type === 'FIBER_NETWORK_NODE').length} Nodes`,
+            icon: <Navigation className="h-3.5 w-3.5" />,
+            tone: 'text-sky-500 dark:text-sky-400',
+          },
+          {
+            label: 'Assigned Equipment',
+            value: loadError ? '—' : `${locations.reduce((sum, l) => sum + (l.activeAssetsCount || 0), 0)} Units`,
+            icon: <Building2 className="h-3.5 w-3.5" />,
+            tone: 'text-emerald-500 dark:text-emerald-400',
+          },
+        ]}
+      />
 
       {/* Filter Toolbar — shared FilterCard for register consistency. */}
       <FilterCard

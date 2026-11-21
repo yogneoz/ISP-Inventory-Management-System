@@ -21,7 +21,7 @@ import {
 import { useActivationKey, useTabActive } from '../../components/common/KeepMounted';
 import { PageHeader } from '../../components/common/PageHeader';
 import { SearchPicker } from '../../components/common/SearchPicker';
-import { StatCard } from '../../components/common/StatCard';
+import { KpiStrip } from '../../components/common/KpiStrip';
 import { inputClass, labelClass } from '../../components/common/styleConstants';
 import { api } from '../../services/api';
 import type {
@@ -498,32 +498,34 @@ export const EmployeeLedger: React.FC<EmployeeLedgerProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatCard
-              label="Opening payable"
-              value={formatMoney(openingPayable)}
-              tone="rose"
-              hint={`Advance / loan ${formatMoney(openingAdvance)}`}
-            />
-            <StatCard
-              label="Period debit"
-              value={formatMoney(ledger.totals.debit)}
-              tone="emerald"
-              hint="Payments and recoveries"
-            />
-            <StatCard
-              label="Period credit"
-              value={formatMoney(ledger.totals.credit)}
-              tone="rose"
-              hint="Salary, TDS, SSF, advance and loan charges"
-            />
-            <StatCard
-              label="Closing payable"
-              value={formatMoney(closingPayable)}
-              tone="rose"
-              hint={`Advance / loan ${formatMoney(closingAdvance)}`}
-            />
-          </div>
+          <KpiStrip
+            items={[
+              {
+                label: 'Opening payable',
+                value: formatMoney(openingPayable),
+                tone: 'text-rose-500 dark:text-rose-400',
+                hint: `Advance / loan ${formatMoney(openingAdvance)}`,
+              },
+              {
+                label: 'Period debit',
+                value: formatMoney(ledger.totals.debit),
+                tone: 'text-emerald-500 dark:text-emerald-400',
+                hint: 'Payments and recoveries',
+              },
+              {
+                label: 'Period credit',
+                value: formatMoney(ledger.totals.credit),
+                tone: 'text-rose-500 dark:text-rose-400',
+                hint: 'Salary, TDS, SSF, advance and loan charges',
+              },
+              {
+                label: 'Closing payable',
+                value: formatMoney(closingPayable),
+                tone: 'text-rose-500 dark:text-rose-400',
+                hint: `Advance / loan ${formatMoney(closingAdvance)}`,
+              },
+            ]}
+          />
 
           {ledger.unlinkedCount > 0 && (
             <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">

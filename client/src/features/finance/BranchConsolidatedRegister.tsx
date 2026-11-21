@@ -78,21 +78,18 @@ export const BranchConsolidatedRegister: React.FC<AccountingScreenProps> = ({
 }) => {
   // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
   const { branches } = useBootstrapData();
-  const scope = useAccountingScope(branches, currentUser);
+  // The consolidated statements open at the fiscal-year start; the shared
+  // period field carries it and Query applies any change.
+  const scope = useAccountingScope(branches, currentUser, { defaultFrom: fiscalYearStartAD });
   const [data, setData] = useState<ConsolidatedMatrix | null>(null);
   const [view, setView] = useState<BranchConsolidatedReportView>('PROFIT_AND_LOSS');
   const [balanceView, setBalanceView] = useState<BalanceSheetReportView>('CLOSING');
-  const [periodStart, setPeriodStart] = useState(fiscalYearStartAD || '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
   const activationKey = useActivationKey('accounting-branch-consolidated');
   const isVisible = useTabActive('accounting-branch-consolidated') && scope.allowed;
   const statementKind = view === 'BALANCE_SHEET' ? 'BALANCE_SHEET' : 'PROFIT_AND_LOSS';
-
-  useEffect(() => {
-    setPeriodStart((current) => current || fiscalYearStartAD || '');
-  }, [fiscalYearStartAD]);
 
   useEffect(() => {
     if (!isVisible) return;
@@ -105,11 +102,11 @@ export const BranchConsolidatedRegister: React.FC<AccountingScreenProps> = ({
         ? api.getBranchBalanceSheetMatrix({
             to: scope.asOfDate,
             view: balanceView,
-            ...(balanceView === 'MOVEMENT' && periodStart ? { from: periodStart } : {}),
+            ...(balanceView === 'MOVEMENT' && scope.fromDate ? { from: scope.fromDate } : {}),
           })
         : api.getBranchProfitAndLossMatrix({
             to: scope.asOfDate,
-            ...(periodStart ? { from: periodStart } : {}),
+            ...(scope.fromDate ? { from: scope.fromDate } : {}),
           });
     void request
       .then((next) => {
@@ -130,7 +127,7 @@ export const BranchConsolidatedRegister: React.FC<AccountingScreenProps> = ({
   }, [
     isVisible,
     scope.asOfDate,
-    periodStart,
+    scope.fromDate,
     activationKey,
     reloadKey,
     statementKind,
@@ -217,11 +214,6 @@ export const BranchConsolidatedRegister: React.FC<AccountingScreenProps> = ({
       registerName="branch-consolidated statement"
       scope={scope}
       dateMode={dateMode}
-      periodStart={
-        isBalanceSheet && balanceView === 'CLOSING'
-          ? undefined
-          : { value: periodStart, onChange: setPeriodStart }
-      }
       hideBranchSelector
       scopeNote={
         <>

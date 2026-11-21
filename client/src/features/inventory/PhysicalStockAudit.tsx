@@ -26,9 +26,10 @@ import {
   TrendingDown,
   TrendingUp,
 } from 'lucide-react';
-import { StatCard } from '../../components/common/StatCard';
+import { KpiStrip, KPI_TONE_TEXT } from '../../components/common/KpiStrip';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { DateField } from '../../components/DateField';
+import { PeriodRangeField, usePeriodRangeFilter } from '../../components/common/PeriodRangeField';
 import { FilterCard } from '../../components/common/FilterCard';
 import { TablePagination } from '../../components/common/TablePagination';
 import { ModalPanel } from '../../components/common/ModalPanel';
@@ -168,8 +169,11 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
   // Audit-submission date range (canonical AD values; DateField converts BS
   // picks). Narrows pending/approved audit submissions in the consolidated
   // matrix by requestedAtAD / processedAtAD; an empty bound is open-ended.
-  const [auditDateFromAD, setAuditDateFromAD] = useState('');
-  const [auditDateToAD, setAuditDateToAD] = useState('');
+  // One audit-date field: the matrix narrows to the applied range only, so a
+  // date edit changes nothing until Query applies it.
+  const auditRange = usePeriodRangeFilter({ from: '', to: '' });
+  const auditDateFromAD = auditRange.from;
+  const auditDateToAD = auditRange.to;
   const auditDateInRange = (ad?: string) => {
     const day = String(ad || '').split('T')[0];
     if (!day) return false;
@@ -1236,7 +1240,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                     );
                     setTimeout(() => setToastMessage(null), 4000);
                   }}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black transition-all border disabled:cursor-not-allowed disabled:opacity-60 ${isCompanyWideBlindCount ? 'bg-purple-600 text-white border-purple-500 shadow-md ring-2 ring-purple-400/40' : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-slate-700'} ${settingsUnknown ? '' : 'cursor-pointer'}`}
+                  className={`flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-black transition-all border disabled:cursor-not-allowed disabled:opacity-60 ${isCompanyWideBlindCount ? 'bg-purple-600 text-white border-purple-500 shadow-md ring-2 ring-purple-400/40' : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-slate-700'} ${settingsUnknown ? '' : 'cursor-pointer'}`}
                   title={
                     settingsUnknown
                       ? 'Company settings could not be loaded — use Retry on the settings notice above before changing this mode.'
@@ -1272,7 +1276,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                   }
                   setTimeout(() => setToastMessage(null), 4000);
                 }}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+                className={`flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-bold transition-all border ${
                   !canToggleBlindCount || isCompanyWideBlindCount
                     ? isDarkMode ? 'opacity-70 cursor-not-allowed bg-slate-800/60 text-slate-400 border-slate-800' : 'opacity-70 cursor-not-allowed bg-slate-100 text-slate-500 border-slate-200'
                     : isBlindAuditMode
@@ -1302,7 +1306,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               <button
                 type="button"
                 onClick={() => setShowConsolidatedModal(true)}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-bold transition-colors cursor-pointer border-indigo-200 bg-indigo-50/70 hover:bg-indigo-100 text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/60 dark:text-indigo-300`}
+                className={`flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-bold transition-colors cursor-pointer border-indigo-200 bg-indigo-50/70 hover:bg-indigo-100 text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/60 dark:text-indigo-300`}
                 title="Open Consolidated Multi-Branch Stock Audit Report"
               >
                 <TableProperties className={`h-4 w-4 text-indigo-600 dark:text-indigo-400`} />
@@ -1313,7 +1317,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               <button
                 type="button"
                 onClick={handleExportBranchCSV}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold transition-colors cursor-pointer border-slate-300 hover:bg-slate-200 text-slate-700 dark:border-slate-700 dark:hover:bg-slate-800 dark:text-slate-300`}
+                className={`flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition-colors cursor-pointer border-slate-300 hover:bg-slate-200 text-slate-700 dark:border-slate-700 dark:hover:bg-slate-800 dark:text-slate-300`}
                 title="Download Branch Audit CSV Report"
               >
                 <FileSpreadsheet className={`h-4 w-4 text-emerald-500 dark:text-emerald-400`} />
@@ -1327,7 +1331,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                   id="btn-submit-stock-audit-approval"
                   onClick={() => setShowApprovalModal(true)}
                   disabled={stats.discrepancyCount === 0 || isTableLocked}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-extrabold text-white shadow-md transition-all cursor-pointer stats.discrepancyCount > ${0 && !isTableLocked ? 'bg-gradient-to-r from-indigo-600 via-indigo-700 to-indigo-800 hover:from-indigo-500 hover:to-indigo-600 ring-2 ring-indigo-500/20 active:scale-95' : 'bg-slate-400 text-slate-200 cursor-not-allowed opacity-60 dark:bg-slate-800 dark:text-slate-200 dark:cursor-not-allowed dark:opacity-60'}`}
+                  className={`flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-extrabold text-white shadow-md transition-all cursor-pointer stats.discrepancyCount > ${0 && !isTableLocked ? 'bg-gradient-to-r from-indigo-600 via-indigo-700 to-indigo-800 hover:from-indigo-500 hover:to-indigo-600 ring-2 ring-indigo-500/20 active:scale-95' : 'bg-slate-400 text-slate-200 cursor-not-allowed opacity-60 dark:bg-slate-800 dark:text-slate-200 dark:cursor-not-allowed dark:opacity-60'}`}
                   title={
                     stats.discrepancyCount === 0
                       ? 'No stock count discrepancies to submit'
@@ -1359,61 +1363,62 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
             </div>
           </div>
 
-      {/* METRICS SUMMARY CARDS — shared compact StatCard component. The
-          variance cards are clickable drill-downs: Shortage filters the audit
-          table to negative variances, Excess to positive variances, Discrepancy
-          to any non-zero variance, and clicking the active card again (or Total
-          Audit SKUs) resets to all rows. */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        <StatCard
-          label="Total Audit SKUs"
-          icon={<ClipboardCheck className="h-4 w-4" />}
-          tone="slate"
-          value={stats.totalItems}
-          hint={`Counted: ${stats.countedItems} / ${stats.totalItems}`}
-          onClick={() => setFilterVariance('ALL')}
-          title="Show all stock rows"
-        />
-        <StatCard
-          label="Book System Qty"
-          icon={<TableProperties className="h-4 w-4" />}
-          tone="slate"
-          value={(stats.totalBookQty ?? 0).toLocaleString()}
-          hint={`Physical: ${(stats.totalCountedQty ?? 0).toLocaleString()}`}
-        />
-        <StatCard
-          label="Shortage (-)"
-          icon={<TrendingDown className="h-4 w-4" />}
-          tone="rose"
-          value={`-${(stats.shortageQty ?? 0).toLocaleString()}`}
-          hint={`-NPR ${(stats.shortageValue ?? 0).toLocaleString()} · show only losses`}
-          active={filterVariance === 'SHORTAGE'}
-          onClick={() => setFilterVariance(filterVariance === 'SHORTAGE' ? 'ALL' : 'SHORTAGE')}
-          title="Filter table: only negative variances (click again to clear)"
-        />
-        <StatCard
-          label="Excess / Surplus (+)"
-          icon={<TrendingUp className="h-4 w-4" />}
-          tone="emerald"
-          value={`+${(stats.excessQty ?? 0).toLocaleString()}`}
-          hint={`+NPR ${(stats.excessValue ?? 0).toLocaleString()} · show only gains`}
-          active={filterVariance === 'EXCESS'}
-          onClick={() => setFilterVariance(filterVariance === 'EXCESS' ? 'ALL' : 'EXCESS')}
-          title="Filter table: only positive variances (click again to clear)"
-        />
-        <StatCard
-          label="Net Value Impact"
-          icon={<ArrowRight className="h-4 w-4" />}
-          tone={
-            stats.netValueVariance < 0 ? 'rose' : stats.netValueVariance > 0 ? 'emerald' : 'slate'
-          }
-          value={`${stats.netValueVariance >= 0 ? '+' : ''}NPR ${(stats.netValueVariance ?? 0).toLocaleString()}`}
-          hint={`Discrepancies: ${stats.discrepancyCount} items`}
-          active={filterVariance === 'DISCREPANCY'}
-          onClick={() => setFilterVariance(filterVariance === 'DISCREPANCY' ? 'ALL' : 'DISCREPANCY')}
-          title="Filter table: only rows with any variance (click again to clear)"
-        />
-      </div>
+      {/* Variance summary — one inline bar. The variance figures stay clickable
+          drill-downs: Shortage filters the audit table to negative variances,
+          Excess to positive variances, Net Value to any non-zero variance, and
+          clicking the active figure again (or Total Audit SKUs) resets. */}
+      <KpiStrip
+        items={[
+          {
+            label: 'Total Audit SKUs',
+            icon: <ClipboardCheck className="h-3.5 w-3.5" />,
+            tone: KPI_TONE_TEXT.slate,
+            value: stats.totalItems,
+            hint: `Counted: ${stats.countedItems} / ${stats.totalItems}`,
+            onClick: () => setFilterVariance('ALL'),
+            title: 'Show all stock rows',
+          },
+          {
+            label: 'Book System Qty',
+            icon: <TableProperties className="h-3.5 w-3.5" />,
+            tone: KPI_TONE_TEXT.slate,
+            value: (stats.totalBookQty ?? 0).toLocaleString(),
+            hint: `Physical: ${(stats.totalCountedQty ?? 0).toLocaleString()}`,
+          },
+          {
+            label: 'Shortage (-)',
+            icon: <TrendingDown className="h-3.5 w-3.5" />,
+            tone: KPI_TONE_TEXT.rose,
+            value: `-${(stats.shortageQty ?? 0).toLocaleString()}`,
+            hint: `-NPR ${(stats.shortageValue ?? 0).toLocaleString()} · show only losses`,
+            active: filterVariance === 'SHORTAGE',
+            onClick: () => setFilterVariance(filterVariance === 'SHORTAGE' ? 'ALL' : 'SHORTAGE'),
+            title: 'Filter table: only negative variances (click again to clear)',
+          },
+          {
+            label: 'Excess / Surplus (+)',
+            icon: <TrendingUp className="h-3.5 w-3.5" />,
+            tone: KPI_TONE_TEXT.emerald,
+            value: `+${(stats.excessQty ?? 0).toLocaleString()}`,
+            hint: `+NPR ${(stats.excessValue ?? 0).toLocaleString()} · show only gains`,
+            active: filterVariance === 'EXCESS',
+            onClick: () => setFilterVariance(filterVariance === 'EXCESS' ? 'ALL' : 'EXCESS'),
+            title: 'Filter table: only positive variances (click again to clear)',
+          },
+          {
+            label: 'Net Value Impact',
+            icon: <ArrowRight className="h-3.5 w-3.5" />,
+            tone: KPI_TONE_TEXT[
+              stats.netValueVariance < 0 ? 'rose' : stats.netValueVariance > 0 ? 'emerald' : 'slate'
+            ],
+            value: `${stats.netValueVariance >= 0 ? '+' : ''}NPR ${(stats.netValueVariance ?? 0).toLocaleString()}`,
+            hint: `Discrepancies: ${stats.discrepancyCount} items`,
+            active: filterVariance === 'DISCREPANCY',
+            onClick: () => setFilterVariance(filterVariance === 'DISCREPANCY' ? 'ALL' : 'DISCREPANCY'),
+            title: 'Filter table: only rows with any variance (click again to clear)',
+          },
+        ]}
+      />
 
       {/* BLIND AUDIT ACTIVE BANNER & UNSEAL ACTION */}
       {isEffectiveBlindAudit && (
@@ -1845,8 +1850,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
             onClearAll={() => {
               setSearchQuery('');
               setSelectedCategory('ALL');
-              setAuditDateFromAD('');
-              setAuditDateToAD('');
+              auditRange.reset();
             }}
             filterChildren={
               <>
@@ -1863,31 +1867,21 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                     ))}
                   </select>
                 </div>
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Audit Submitted From</label>
-                  <div className="w-40">
-                    <DateField
-                      mode={dateMode}
-                      value={auditDateFromAD}
-                      onChange={setAuditDateFromAD}
-                      compact
-                      showHint={false}
-                      max={auditDateToAD || undefined}
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Audit Submitted To</label>
-                  <div className="w-40">
-                    <DateField
-                      mode={dateMode}
-                      value={auditDateToAD}
-                      onChange={setAuditDateToAD}
-                      compact
-                      showHint={false}
-                      min={auditDateFromAD || undefined}
-                    />
-                  </div>
+                <div className="min-w-fit">
+                  <PeriodRangeField
+                    label="Audit submitted"
+                    startAriaLabel="Audit submitted from"
+                    endAriaLabel="Audit submitted to"
+                    requireEnd={false}
+                    from={auditRange.draft.from}
+                    to={auditRange.draft.to}
+                    onChange={(next) => {
+                      auditRange.setFrom(next.from);
+                      auditRange.setTo(next.to);
+                    }}
+                    onApply={auditRange.apply}
+                    pending={auditRange.pending}
+                  />
                 </div>
               </>
             }
@@ -2031,30 +2025,32 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               </span>
             </div>
 
-            {/* Audit Summary Grid — shared StatCard component */}
-            <div className="grid grid-cols-3 gap-3">
-              <StatCard
-                label="Total Audited"
-                icon={<ClipboardCheck className="h-4 w-4" />}
-                tone="slate"
-                value={`${stats.totalItems} SKUs`}
-                hint={`Discrepancies: ${stats.discrepancyCount}`}
-              />
-              <StatCard
-                label="Shortages (-)"
-                icon={<TrendingDown className="h-4 w-4" />}
-                tone="rose"
-                value={`-${(stats.shortageQty ?? 0)} Units`}
-                hint={`-NPR ${(stats.shortageValue ?? 0).toLocaleString()}`}
-              />
-              <StatCard
-                label="Excess (+)"
-                icon={<TrendingUp className="h-4 w-4" />}
-                tone="emerald"
-                value={`+${(stats.excessQty ?? 0)} Units`}
-                hint={`+NPR ${(stats.excessValue ?? 0).toLocaleString()}`}
-              />
-            </div>
+            {/* Audit summary — inline bar. */}
+            <KpiStrip
+              items={[
+                {
+                  label: 'Total Audited',
+                  icon: <ClipboardCheck className="h-3.5 w-3.5" />,
+                  tone: KPI_TONE_TEXT.slate,
+                  value: `${stats.totalItems} SKUs`,
+                  hint: `Discrepancies: ${stats.discrepancyCount}`,
+                },
+                {
+                  label: 'Shortages (-)',
+                  icon: <TrendingDown className="h-3.5 w-3.5" />,
+                  tone: KPI_TONE_TEXT.rose,
+                  value: `-${(stats.shortageQty ?? 0)} Units`,
+                  hint: `-NPR ${(stats.shortageValue ?? 0).toLocaleString()}`,
+                },
+                {
+                  label: 'Excess (+)',
+                  icon: <TrendingUp className="h-3.5 w-3.5" />,
+                  tone: KPI_TONE_TEXT.emerald,
+                  value: `+${(stats.excessQty ?? 0)} Units`,
+                  hint: `+NPR ${(stats.excessValue ?? 0).toLocaleString()}`,
+                },
+              ]}
+            />
 
             {/* Discrepancy Breakdown Table */}
             <div className={`rounded-2xl max-h-48 overflow-x-auto overflow-y-auto border-slate-200 dark:border-slate-800`}>
@@ -2393,33 +2389,37 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               </div>
             </div>
 
-            {/* Consolidated High-level Metrics — shared StatCard component */}
-            <div className="p-4 border-b grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0 bg-slate-50 border-slate-200 dark:bg-slate-800/40 dark:border-slate-800">
-              <StatCard
-                label="Company Book Stock"
-                icon={<TableProperties className="h-4 w-4" />}
-                tone="slate"
-                value={`${(consolidatedSummary.totalBook ?? 0).toLocaleString()} Units`}
-              />
-              <StatCard
-                label="Physical Counted Stock"
-                icon={<ClipboardCheck className="h-4 w-4" />}
-                tone="indigo"
-                value={`${(consolidatedSummary.totalCounted ?? 0).toLocaleString()} Units`}
-              />
-              <StatCard
-                label="Consolidated Shortage"
-                icon={<TrendingDown className="h-4 w-4" />}
-                tone="rose"
-                value={`-${(consolidatedSummary.totalShortage ?? 0).toLocaleString()} Units`}
-                hint={`-NPR ${(consolidatedSummary.totalShortageVal ?? 0).toLocaleString()}`}
-              />
-              <StatCard
-                label="Consolidated Excess"
-                icon={<TrendingUp className="h-4 w-4" />}
-                tone="emerald"
-                value={`+${(consolidatedSummary.totalExcess ?? 0).toLocaleString()} Units`}
-                hint={`+NPR ${(consolidatedSummary.totalExcessVal ?? 0).toLocaleString()}`}
+            {/* Consolidated figures — inline bar inside the modal. */}
+            <div className="shrink-0 border-b border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-800/40">
+              <KpiStrip
+                items={[
+                  {
+                    label: 'Company Book Stock',
+                    icon: <TableProperties className="h-3.5 w-3.5" />,
+                    tone: KPI_TONE_TEXT.slate,
+                    value: `${(consolidatedSummary.totalBook ?? 0).toLocaleString()} Units`,
+                  },
+                  {
+                    label: 'Physical Counted Stock',
+                    icon: <ClipboardCheck className="h-3.5 w-3.5" />,
+                    tone: KPI_TONE_TEXT.indigo,
+                    value: `${(consolidatedSummary.totalCounted ?? 0).toLocaleString()} Units`,
+                  },
+                  {
+                    label: 'Consolidated Shortage',
+                    icon: <TrendingDown className="h-3.5 w-3.5" />,
+                    tone: KPI_TONE_TEXT.rose,
+                    value: `-${(consolidatedSummary.totalShortage ?? 0).toLocaleString()} Units`,
+                    hint: `-NPR ${(consolidatedSummary.totalShortageVal ?? 0).toLocaleString()}`,
+                  },
+                  {
+                    label: 'Consolidated Excess',
+                    icon: <TrendingUp className="h-3.5 w-3.5" />,
+                    tone: KPI_TONE_TEXT.emerald,
+                    value: `+${(consolidatedSummary.totalExcess ?? 0).toLocaleString()} Units`,
+                    hint: `+NPR ${(consolidatedSummary.totalExcessVal ?? 0).toLocaleString()}`,
+                  },
+                ]}
               />
             </div>
 

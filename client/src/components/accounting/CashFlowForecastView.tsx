@@ -17,7 +17,7 @@ import {
   TrendingUp,
   Wallet,
 } from 'lucide-react';
-import { StatCard } from '../common/StatCard';
+import { KpiStrip, KPI_TONE_TEXT } from '../common/KpiStrip';
 import type { CashFlowForecastResponse } from '../../services/api/accounting';
 import { money } from './statementFormat';
 
@@ -165,43 +165,45 @@ export const CashFlowForecastView: React.FC<CashFlowForecastViewProps> = ({
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-            <StatCard
-              label="OPENING CASH"
-              value={money(data.openingCash)}
-              tone="slate"
-              hint={`Posted cash/bank at ${data.asOf}`}
-              icon={<Wallet className="h-4 w-4" />}
-            />
-            <StatCard
-              label="EXPECTED IN"
-              value={money(data.totalInflows)}
-              tone="emerald"
-              hint="AR due in the horizon, net of credits"
-              icon={<TrendingUp className="h-4 w-4" />}
-            />
-            <StatCard
-              label="EXPECTED OUT"
-              value={money(data.totalOutflows)}
-              tone="rose"
-              hint="AP due in the horizon, net of credits"
-              icon={<TrendingDown className="h-4 w-4" />}
-            />
-            <StatCard
-              label="NET CASH FLOW"
-              value={money(data.netCashFlow)}
-              tone={data.netCashFlow >= 0 ? 'indigo' : 'rose'}
-              hint="Expected receipts less payments"
-              icon={<CalendarRange className="h-4 w-4" />}
-            />
-            <StatCard
-              label="CLOSING CASH"
-              value={money(data.closingCash)}
-              tone="amber"
-              hint={`After ${data.weeks} weeks`}
-              icon={<CheckCircle2 className="h-4 w-4" />}
-            />
-          </div>
+          <KpiStrip
+            items={[
+              {
+                label: 'OPENING CASH',
+                value: money(data.openingCash),
+                tone: KPI_TONE_TEXT.slate,
+                hint: `Posted cash/bank at ${data.asOf}`,
+                icon: <Wallet className="h-3.5 w-3.5" />,
+              },
+              {
+                label: 'EXPECTED IN',
+                value: money(data.totalInflows),
+                tone: KPI_TONE_TEXT.emerald,
+                hint: 'AR due in the horizon, net of credits',
+                icon: <TrendingUp className="h-3.5 w-3.5" />,
+              },
+              {
+                label: 'EXPECTED OUT',
+                value: money(data.totalOutflows),
+                tone: KPI_TONE_TEXT.rose,
+                hint: 'AP due in the horizon, net of credits',
+                icon: <TrendingDown className="h-3.5 w-3.5" />,
+              },
+              {
+                label: 'NET CASH FLOW',
+                value: money(data.netCashFlow),
+                tone: KPI_TONE_TEXT[data.netCashFlow >= 0 ? 'indigo' : 'rose'],
+                hint: 'Expected receipts less payments',
+                icon: <CalendarRange className="h-3.5 w-3.5" />,
+              },
+              {
+                label: 'CLOSING CASH',
+                value: money(data.closingCash),
+                tone: KPI_TONE_TEXT.amber,
+                hint: `After ${data.weeks} weeks`,
+                icon: <CheckCircle2 className="h-3.5 w-3.5" />,
+              },
+            ]}
+          />
 
           <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
             <table className="w-full min-w-[680px] text-left text-xs">

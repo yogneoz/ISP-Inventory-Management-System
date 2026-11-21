@@ -41,14 +41,16 @@ export const BalanceSheetRegister: React.FC<AccountingScreenProps> = ({
 }) => {
   // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
   const { branches } = useBootstrapData();
-  const scope = useAccountingScope(branches, currentUser);
+  // The fiscal-year start is the natural opening point for the movement view,
+  // so the shared period field starts there; the operator can change it and
+  // must press Query before the figures move.
+  const scope = useAccountingScope(branches, currentUser, { defaultFrom: fiscalYearStartAD });
   const [data, setData] = useState<BalanceSheetResponse | null>(null);
   const [movement, setMovement] = useState<BalanceSheetMovementResponse | null>(null);
   const [openGroup, setOpenGroup] = useState<StatementGroupBlock | null>(null);
   const [view, setView] = useState<BalanceSheetReportView>('CLOSING');
   const [format, setFormat] = useState<StatementFormat>('NORMAL');
   const [comparative, setComparative] = useState(false);
-  const [periodStart, setPeriodStart] = useState(fiscalYearStartAD || '');
   const [prior, setPrior] = useState<BalanceSheetResponse | null>(null);
   const [priorLoading, setPriorLoading] = useState(false);
   const [priorError, setPriorError] = useState('');
@@ -59,12 +61,6 @@ export const BalanceSheetRegister: React.FC<AccountingScreenProps> = ({
   const [reloadKey, setReloadKey] = useState(0);
   const activationKey = useActivationKey('accounting-balance-sheet');
   const isVisible = useTabActive('accounting-balance-sheet') && scope.allowed;
-
-  // The fiscal-year start is the natural default opening point for a movement
-  // view. Do not overwrite a start the user has explicitly changed or cleared.
-  useEffect(() => {
-    setPeriodStart((current) => current || fiscalYearStartAD || '');
-  }, [fiscalYearStartAD]);
 
   useEffect(() => {
     if (!isVisible) return;
@@ -98,7 +94,7 @@ export const BalanceSheetRegister: React.FC<AccountingScreenProps> = ({
     void api.getBalanceSheetMovement({
       branchId: scope.query.branchId,
       to: scope.asOfDate,
-      ...(periodStart ? { from: periodStart } : {}),
+      ...(scope.fromDate ? { from: scope.fromDate } : {}),
     })
       .then((next) => {
         if (live) setMovement(next);
@@ -115,7 +111,7 @@ export const BalanceSheetRegister: React.FC<AccountingScreenProps> = ({
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isVisible, view, scope.branchId, scope.asOfDate, periodStart, activationKey, reloadKey]);
+  }, [isVisible, view, scope.branchId, scope.asOfDate, scope.fromDate, activationKey, reloadKey]);
 
   const priorAsOf = data ? priorBalanceSheetDate(fiscalYearStartAD, data.asOf) : null;
 
@@ -157,7 +153,7 @@ export const BalanceSheetRegister: React.FC<AccountingScreenProps> = ({
   // it cannot be compared with figures from a different view.
   useEffect(() => {
     setOpenGroup(null);
-  }, [data, format, comparative, view, periodStart]);
+  }, [data, format, comparative, view, scope.fromDate]);
 
   const activeLoading = view === 'MOVEMENT' ? movementLoading : loading;
   const activeError = view === 'MOVEMENT' ? movementError : error;
@@ -174,9 +170,6 @@ export const BalanceSheetRegister: React.FC<AccountingScreenProps> = ({
       registerName={view === 'MOVEMENT' ? 'balance-sheet movement' : 'balance sheet'}
       scope={scope}
       dateMode={dateMode}
-      periodStart={
-        view === 'MOVEMENT' ? { value: periodStart, onChange: setPeriodStart } : undefined
-      }
       loading={activeLoading}
       error={activeError}
       headerActions={

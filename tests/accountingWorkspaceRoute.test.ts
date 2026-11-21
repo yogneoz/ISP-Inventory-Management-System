@@ -1713,15 +1713,20 @@ test('P&L comparative mode works in normal, T-format and trading views', async (
     assert.doesNotMatch(text(tree.container), /Trading account — T format/);
     assert.match(text(tree.container), /Comparative trading account/);
 
-    const asOf = tree.container.querySelector('[aria-label="Accounting as of date"]') as HTMLInputElement;
+    const asOf = tree.container.querySelector('[aria-label="Accounting period end"]') as HTMLInputElement;
     setInputValue(asOf, '2026-11-03');
+    assert.ok(
+      !calls.some((call) => call.to === '2026-11-03'),
+      'choosing a date must not query on its own — the Query button applies the range'
+    );
+    inAct(() => buttonByText(tree.container, 'Query').click());
     assert.ok(
       await settleUntil(
         () =>
           calls.some((call) => call.to === '2026-11-03') &&
           calls.some((call) => call.from === '2026-03-29')
       ),
-      'changing the current period must refetch the current statement and its new prior window'
+      'applying the current period must refetch the current statement and its new prior window'
     );
   } finally {
     tree.unmount();
@@ -1980,7 +1985,7 @@ test('balance sheet movement view loads its additive endpoint with a period star
     assert.equal(start.value, '2026-07-17', 'the fiscal-year start is the default opening point');
     assert.deepEqual(calls[0], {
       branchId: undefined,
-      to: (tree.container.querySelector('input[aria-label="Accounting as of date"]') as HTMLInputElement).value,
+      to: (tree.container.querySelector('input[aria-label="Accounting period end"]') as HTMLInputElement).value,
       from: '2026-07-17',
     });
   } finally {
@@ -2023,7 +2028,7 @@ test('branch-consolidated register renders every branch column, the total and th
     assert.ok(start, 'the consolidated screen must expose a period start');
     assert.equal(start.value, '2026-07-17');
     assert.deepEqual(calls[0], {
-      to: (tree.container.querySelector('input[aria-label="Accounting as of date"]') as HTMLInputElement).value,
+      to: (tree.container.querySelector('input[aria-label="Accounting period end"]') as HTMLInputElement).value,
       from: '2026-07-17',
     });
 
@@ -2071,13 +2076,12 @@ test('branch-consolidated balance sheet switches closing and movement and expose
     );
     assert.match(text(tree.container), /Total assets/);
     assert.match(text(tree.container), /Closing/);
-    assert.equal(
-      tree.container.querySelector('input[aria-label="Accounting period start"]'),
-      null,
-      'the closing balance sheet does not take a period start'
+    assert.ok(
+      !('from' in calls[0]),
+      'the closing balance sheet shows the period field but sends no period start'
     );
     assert.deepEqual(calls[0], {
-      to: (tree.container.querySelector('input[aria-label="Accounting as of date"]') as HTMLInputElement).value,
+      to: (tree.container.querySelector('input[aria-label="Accounting period end"]') as HTMLInputElement).value,
       view: 'CLOSING',
     });
 
@@ -2087,7 +2091,7 @@ test('branch-consolidated balance sheet switches closing and movement and expose
       'the movement selector must request the movement matrix'
     );
     assert.deepEqual(calls[1], {
-      to: (tree.container.querySelector('input[aria-label="Accounting as of date"]') as HTMLInputElement).value,
+      to: (tree.container.querySelector('input[aria-label="Accounting period end"]') as HTMLInputElement).value,
       view: 'MOVEMENT',
       from: '2026-07-17',
     });
@@ -2251,8 +2255,13 @@ test('cash flow register renders sections, forecast and sends the period start',
     assert.ok(fromInput, 'the cash flow register must offer a period start');
     setInputValue(fromInput, '2026-07-01');
     assert.ok(
+      !calls.some((call) => call.from === '2026-07-01'),
+      'a period start on its own must not query — Query applies it'
+    );
+    inAct(() => buttonByText(tree.container, 'Query').click());
+    assert.ok(
       await settleUntil(() => calls.some((call) => call.from === '2026-07-01')),
-      'the period start must reach the cash flow endpoint'
+      'the applied period start must reach the cash flow endpoint'
     );
     assert.equal(window.location.pathname, '/finance/accounting/cash-flow');
   } finally {
@@ -2640,14 +2649,19 @@ test('accounting register: switching branch and as-of date refetches the new sco
     });
     assert.ok(await settleUntil(() => calls.some((call) => call.branchId === 'BRH01')));
 
-    const dateInput = tree.container.querySelector('input[aria-label="Accounting as of date"]') as HTMLInputElement | null;
-    assert.ok(dateInput, 'the register must offer an as-of date');
+    const dateInput = tree.container.querySelector('input[aria-label="Accounting period end"]') as HTMLInputElement | null;
+    assert.ok(dateInput, 'the register must offer a period end');
     const setInput = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!;
     inAct(() => {
       setInput.call(dateInput, '2026-10-15');
       dateInput.dispatchEvent(new window.Event('input', { bubbles: true }));
       dateInput.dispatchEvent(new window.Event('change', { bubbles: true }));
     });
+    assert.ok(
+      !calls.some((call) => call.to === '2026-10-15'),
+      'picking a date must not refetch until Query is pressed'
+    );
+    inAct(() => buttonByText(tree.container, 'Query').click());
 
     const scoped = await settleUntil(() =>
       calls.some((call) => call.branchId === 'BRH01' && call.to === '2026-10-15')

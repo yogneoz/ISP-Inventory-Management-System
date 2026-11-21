@@ -3,13 +3,13 @@ import { TransactionLog, Product, Branch, InventoryStock, StockOperation, Shipme
 import { exportToCSV } from '../../utils/exportUtils';
 import { formatNPR } from '../../utils/nprFormat';
 import { formatDualDate, formatBSDate } from '../../utils/nepaliCalendar';
-import { DateField } from '../../components/DateField';
+import { PeriodRangeField, usePeriodRangeFilter } from '../../components/common/PeriodRangeField';
 import {
   BookOpen,
   Download
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
-import StatCard from '../../components/common/StatCard';
+import { KpiStrip } from '../../components/common/KpiStrip';
 import { FilterCard } from '../../components/common/FilterCard';
 import { PageHeader } from '../../components/common/PageHeader';
 import { linkButton } from '../../components/common/styleConstants';
@@ -75,8 +75,11 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
       });
     return () => { alive = false; };
   }, [activeBranchId, fiscalYearStartAD, fiscalYearEndAD, sseRefreshKey, logsRetryKey]);
-  const [startDateAD, setStartDateAD] = useState<string>('');
-  const [endDateAD, setEndDateAD] = useState<string>('');
+  // One period field: `startDateAD`/`endDateAD` are the applied range every
+  // filter below reads; choosing dates only edits a draft until Query applies it.
+  const ledgerRange = usePeriodRangeFilter({ from: '', to: '' });
+  const startDateAD = ledgerRange.from;
+  const endDateAD = ledgerRange.to;
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
   // FilterCard owns the keystroke draft; an export clicked before the debounce
@@ -194,29 +197,26 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
   // Date Presets
   const applyPreset = (preset: 'THIS_MONTH' | 'LAST_30_DAYS' | 'THIS_YEAR' | 'ALL_TIME') => {
     const today = new Date();
-    if (preset === 'ALL_TIME') {
-      setStartDateAD('');
-      setEndDateAD('');
-      return;
-    }
+    const iso = (date: Date) => date.toISOString().split('T')[0];
+    // A preset is an explicit choice, so it applies at once rather than waiting
+    // for Query like a typed date does.
+    if (preset === 'ALL_TIME') return ledgerRange.applyNow({ from: '', to: '' });
     if (preset === 'THIS_MONTH') {
-      const first = new Date(today.getFullYear(), today.getMonth(), 1);
-      setStartDateAD(first.toISOString().split('T')[0]);
-      setEndDateAD(today.toISOString().split('T')[0]);
-      return;
+      return ledgerRange.applyNow({
+        from: iso(new Date(today.getFullYear(), today.getMonth(), 1)),
+        to: iso(today),
+      });
     }
     if (preset === 'LAST_30_DAYS') {
-      const past30 = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
-      setStartDateAD(past30.toISOString().split('T')[0]);
-      setEndDateAD(today.toISOString().split('T')[0]);
-      return;
+      return ledgerRange.applyNow({
+        from: iso(new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000)),
+        to: iso(today),
+      });
     }
-    if (preset === 'THIS_YEAR') {
-      const startYear = new Date(today.getFullYear(), 0, 1);
-      setStartDateAD(startYear.toISOString().split('T')[0]);
-      setEndDateAD(today.toISOString().split('T')[0]);
-      return;
-    }
+    return ledgerRange.applyNow({
+      from: iso(new Date(today.getFullYear(), 0, 1)),
+      to: iso(today),
+    });
   };
 
   // Filter logs based on branch, date, search. Kept as a function of the term so
@@ -505,40 +505,36 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
           )
         }
       />
-      {/* KPI Cards Banner — shared compact StatCard component */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
-        <StatCard
-          label="Opening Value"
-          value={formatNPR(totalOpeningVal ?? 0)}
-          hint={`${totalOpeningQty} Units`}
-          tone="slate"
-        />
-        <StatCard
-          label="Inbound Received"
-          value={`+${formatNPR(totalReceivedVal ?? 0)}`}
-          hint={`+${totalReceivedQty} Units`}
-          tone="emerald"
-        />
-        <StatCard
-          label="Outbound Delivered"
-          value={`-${formatNPR(totalDeliveredVal ?? 0)}`}
-          hint={`-${totalDeliveredQty} Units`}
-          tone="sky"
-        />
-        <StatCard
-          label="Damaged Loss"
-          value={`-${formatNPR(totalDamagedVal ?? 0)}`}
-          hint={`-${totalDamagedQty} Units`}
-          tone="rose"
-        />
-        <StatCard
-          className="col-span-2 sm:col-span-1"
-          label="Closing Value"
-          value={formatNPR(totalClosingVal ?? 0)}
-          hint={`${totalClosingQty} Units`}
-          tone="indigo"
-        />
-      </div>
+      {/* Movement figures — one inline bar instead of a five-card band. */}
+      <KpiStrip
+        items={[
+          { label: 'Opening Value', value: formatNPR(totalOpeningVal ?? 0), hint: `${totalOpeningQty} Units` },
+          {
+            label: 'Inbound Received',
+            value: `+${formatNPR(totalReceivedVal ?? 0)}`,
+            hint: `+${totalReceivedQty} Units`,
+            tone: 'text-emerald-500 dark:text-emerald-400',
+          },
+          {
+            label: 'Outbound Delivered',
+            value: `-${formatNPR(totalDeliveredVal ?? 0)}`,
+            hint: `-${totalDeliveredQty} Units`,
+            tone: 'text-sky-500 dark:text-sky-400',
+          },
+          {
+            label: 'Damaged Loss',
+            value: `-${formatNPR(totalDamagedVal ?? 0)}`,
+            hint: `-${totalDamagedQty} Units`,
+            tone: 'text-rose-500 dark:text-rose-400',
+          },
+          {
+            label: 'Closing Value',
+            value: formatNPR(totalClosingVal ?? 0),
+            hint: `${totalClosingQty} Units`,
+            tone: 'text-indigo-500 dark:text-indigo-400',
+          },
+        ]}
+      />
 
       {/* Date Filter & Control Bar — shared FilterCard for consistency with
           every other register screen. Presets + subview switcher ride in the
@@ -556,8 +552,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
           setSearchQuery('');
           setActiveBranchId('ALL');
           setSelectedCategory('ALL');
-          setStartDateAD('');
-          setEndDateAD('');
+          ledgerRange.reset();
         }}
         rightChildren={
           <div className="flex items-center gap-1.5 text-[11px]">
@@ -595,38 +590,28 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
         }
         filterChildren={
           <>
-            <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">From Date</label>
-              <div className="w-40">
-                <DateField
-                  mode={dateMode}
-                  value={startDateAD}
-                  onChange={setStartDateAD}
-                  compact
-                  showHint={false}
-                  max={endDateAD || undefined}
-                />
-              </div>
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">To Date</label>
-              <div className="w-40">
-                <DateField
-                  mode={dateMode}
-                  value={endDateAD}
-                  onChange={setEndDateAD}
-                  compact
-                  showHint={false}
-                  min={startDateAD || undefined}
-                />
-              </div>
+            <div className="min-w-fit">
+              <PeriodRangeField
+                label="Movement date"
+                startAriaLabel="Movement date from"
+                endAriaLabel="Movement date to"
+                requireEnd={false}
+                from={ledgerRange.draft.from}
+                to={ledgerRange.draft.to}
+                onChange={(next) => {
+                  ledgerRange.setFrom(next.from);
+                  ledgerRange.setTo(next.to);
+                }}
+                onApply={ledgerRange.apply}
+                pending={ledgerRange.pending}
+              />
             </div>
             <div>
               <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Branch Location</label>
               <select
                 value={activeBranchId}
                 onChange={(e) => setActiveBranchId(e.target.value)}
-                className="w-44 px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white cursor-pointer"
+                className="h-8 w-40 rounded-lg border border-slate-300 bg-white px-2.5 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white cursor-pointer"
               >
                 <option value="ALL">All Branch Locations</option>
                 {branches.map((b) => (
@@ -641,7 +626,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
               <select
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
-                className="w-40 px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white cursor-pointer"
+                className="h-8 w-36 rounded-lg border border-slate-300 bg-white px-2.5 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white cursor-pointer"
               >
                 <option value="ALL">All Categories</option>
                 {categories.map((cat) => (

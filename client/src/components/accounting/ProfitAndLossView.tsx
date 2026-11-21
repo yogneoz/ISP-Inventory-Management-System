@@ -1,5 +1,5 @@
 import React from 'react';
-import { StatCard } from '../common/StatCard';
+import { KpiStrip, KPI_TONE_TEXT } from '../common/KpiStrip';
 import type { ProfitAndLossResponse, StatementGroupBlock } from '../../services/api/accounting';
 import { SectionBody } from './StatementPrimitives';
 import { TAccountView } from './TAccountView';
@@ -62,12 +62,19 @@ export const ProfitAndLossView: React.FC<{
   return (
     <div className="space-y-4">
       {comparison}
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-      <StatCard label="TOTAL INCOME" value={money(data.totalIncome)} tone="emerald" hint="Revenue and other income" />
-      <StatCard label="COST OF SALES" value={money(data.costOfSales)} tone="rose" hint="Inventory consumed by sales" />
-      <StatCard label="OPERATING EXPENSES" value={money(data.operatingExpense)} tone="amber" hint="Period operating costs" />
-      <StatCard label="NET PROFIT" value={money(data.netProfit)} tone={data.netProfit >= 0 ? 'indigo' : 'rose'} hint="Income less all expenses" />
-    </div>
+    <KpiStrip
+      items={[
+        { label: 'TOTAL INCOME', value: money(data.totalIncome), tone: KPI_TONE_TEXT.emerald, hint: 'Revenue and other income' },
+        { label: 'COST OF SALES', value: money(data.costOfSales), tone: KPI_TONE_TEXT.rose, hint: 'Inventory consumed by sales' },
+        { label: 'OPERATING EXPENSES', value: money(data.operatingExpense), tone: KPI_TONE_TEXT.amber, hint: 'Period operating costs' },
+        {
+          label: 'NET PROFIT',
+          value: money(data.netProfit),
+          tone: KPI_TONE_TEXT[data.netProfit >= 0 ? 'indigo' : 'rose'],
+          hint: 'Income less all expenses',
+        },
+      ]}
+    />
 
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
       <div className="border-b border-slate-200 px-3 py-2 dark:border-slate-800">

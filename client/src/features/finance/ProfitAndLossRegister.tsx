@@ -52,7 +52,7 @@ export const ProfitAndLossRegister: React.FC<AccountingScreenProps> = ({
     let live = true;
     setLoading(true);
     setError('');
-    void api.getProfitAndLoss(scope.query)
+    void api.getProfitAndLoss(scope.rangeQuery)
       .then((next) => {
         if (live) setData(next);
       })
@@ -68,7 +68,7 @@ export const ProfitAndLossRegister: React.FC<AccountingScreenProps> = ({
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isVisible, scope.branchId, scope.asOfDate, activationKey, reloadKey]);
+  }, [isVisible, scope.branchId, scope.asOfDate, scope.fromDate, activationKey, reloadKey]);
 
   useEffect(() => {
     if (!comparative || !data) {

@@ -320,9 +320,20 @@ describe('warranty registers', () => {
       changeSelect(tree.container.querySelector('select[aria-label="Warranty type"]') as HTMLSelectElement, 'SOLD_PRODUCT');
       await settle();
 
-      const from = tree.container.querySelector('#warranty-filter-from') as HTMLInputElement | null;
+      const from = tree.container.querySelector(
+        'input[aria-label="Warranty start from"]'
+      ) as HTMLInputElement | null;
       assert.ok(from, 'the start-date range must be filterable');
+      const before = sellerCalls.length;
       setInput(from!, '2026-01-01');
+      await settle();
+      assert.equal(sellerCalls.length, before, 'picking a start date must wait for Query');
+
+      const range = tree.container.querySelector(
+        '[role="group"][aria-label="Warranty start date range"]'
+      ) as HTMLElement;
+      assert.ok(range, 'the start range must be one labelled group');
+      inAct(() => button(range, /Query/)!.click());
       await settle();
 
       const last = sellerCalls[sellerCalls.length - 1];

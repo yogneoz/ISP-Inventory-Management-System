@@ -4,12 +4,15 @@ import {
   ConsumableIssueItem,
   StockOperation,
 } from '../../../types';
-import { KeysetLoadMore } from '../../../components/common/KeysetLoadMore';
+import { KeysetPagerFooter } from '../../../components/common/KeysetPagerFooter';
 import { useKeysetPager } from '../../../hooks/useKeysetPager';
+import { useKeysetPageView } from '../../../hooks/useKeysetPageView';
 import { DateField } from '../../../components/DateField';
+import { PeriodRangeField, usePeriodRangeFilter } from '../../../components/common/PeriodRangeField';
 import { FilterCard } from '../../../components/common/FilterCard';
 import { RegisterLoadError } from '../../../components/common/RegisterLoadError';
 import { formatNPR } from '../../../utils/nprFormat';
+import { sumStatusCounts } from '../../../utils/statusCounts';
 import { exportToCSV } from '../../../utils/exportUtils';
 import { isOperationAllowed } from '../../../utils/permissions';
 import { api } from '../../../services/api';
@@ -39,10 +42,12 @@ export const ConsumablesRegisterPanel: React.FC = () => {
     selectedBranchId && selectedBranchId !== 'ALL' ? selectedBranchId : branches[0]?.id || 'ALL'
   );
   const [consumableRegisterStatus, setConsumableRegisterStatus] = useState('ALL');
-  const [consumableRegisterDateFrom, setConsumableRegisterDateFrom] = useState('');
-  const [consumableRegisterDateTo, setConsumableRegisterDateTo] = useState('');
+  // One issue-date field: the register reads the applied range only, so a date
+  // edit changes nothing until Query applies it.
+  const issueRange = usePeriodRangeFilter({ from: '', to: '' });
+  const consumableRegisterDateFrom = issueRange.from;
+  const consumableRegisterDateTo = issueRange.to;
   const [consumableRegisterExpandedId, setConsumableRegisterExpandedId] = useState<string | null>(null);
-  const [consumableRegisterTotal, setConsumableRegisterTotal] = useState(0);
 
   // Reverse a logged consumable issue (guarded by 'consumable-issue-reverse').
   // Returns the issued units to branch stock and marks the record CANCELLED.
@@ -148,19 +153,26 @@ export const ConsumablesRegisterPanel: React.FC = () => {
       consumableRegisterDateTo,
       sseRefreshKey ?? 0,
     ].join('\u0000'),
-    onPage: (page) => {
-      const counts = page.meta?.statusCounts || {};
-      setConsumableRegisterTotal(Object.values(counts).reduce((sum, count) => sum + Number(count || 0), 0));
-    },
   });
+  // The record chip is the filtered total of the CURRENT query: the per-status
+  // counts the server computed with the same filter fragment as this page. They
+  // ride on the pager's `meta`, which is cleared the moment the filter changes,
+  // so a previous filter's total can never stand in for this one.
+  const consumableRegisterTotal = sumStatusCounts(consumablePager.meta?.statusCounts);
+  // Numbered view over the cursor walk (the SerialLogRegister pattern): the
+  // table renders one cursor page, and pages already fetched stay numbered so
+  // going back costs no request. Forward is one cursor page at a time.
+  const consumableView = useKeysetPageView(consumablePager);
   const consumableRegisterLoading = consumablePager.loading;
   const consumableRegisterError = consumablePager.error;
 
   // A failed fallback keeps the previous props alive, but a SCOPE_REQUIRED
   // refusal must stay visible rather than being masked by that stale copy.
+  // The fallback is a client-filtered props array, not cursor pages, so it is
+  // shown whole and gets no numbered footer.
   const consumableRegisterOps = consumableRegisterError && !consumablePager.scopeError
     ? consumableRegisterFallbackOps
-    : consumablePager.rows;
+    : consumableView.pageRows;
   const consumableRegisterCount = consumableRegisterError && !consumablePager.scopeError
     ? consumableRegisterFallbackOps.length
     : consumableRegisterTotal;
@@ -192,8 +204,7 @@ export const ConsumablesRegisterPanel: React.FC = () => {
                 setConsumableRegisterQuery('');
                 setConsumableRegisterBranch('ALL');
                 setConsumableRegisterStatus('ALL');
-                setConsumableRegisterDateFrom('');
-                setConsumableRegisterDateTo('');
+                issueRange.reset();
               }}
               filterChildren={
                 <>
@@ -222,31 +233,21 @@ export const ConsumablesRegisterPanel: React.FC = () => {
                       <option value="CANCELLED">Reversed</option>
                     </select>
                   </div>
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Issue Date From</label>
-                    <div className="w-40">
-                      <DateField
-                        mode={dateMode}
-                        value={consumableRegisterDateFrom}
-                        onChange={setConsumableRegisterDateFrom}
-                        compact
-                        showHint={false}
-                        max={consumableRegisterDateTo || undefined}
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Issue Date To</label>
-                    <div className="w-40">
-                      <DateField
-                        mode={dateMode}
-                        value={consumableRegisterDateTo}
-                        onChange={setConsumableRegisterDateTo}
-                        compact
-                        showHint={false}
-                        min={consumableRegisterDateFrom || undefined}
-                      />
-                    </div>
+                  <div className="min-w-fit">
+                    <PeriodRangeField
+                      label="Issue date"
+                      startAriaLabel="Issue date from"
+                      endAriaLabel="Issue date to"
+                      requireEnd={false}
+                      from={issueRange.draft.from}
+                      to={issueRange.draft.to}
+                      onChange={(next) => {
+                        issueRange.setFrom(next.from);
+                        issueRange.setTo(next.to);
+                      }}
+                      onApply={issueRange.apply}
+                      pending={issueRange.pending}
+                    />
                   </div>
                 </>
               }
@@ -469,11 +470,11 @@ export const ConsumablesRegisterPanel: React.FC = () => {
             </div>
           )}
 
-          <KeysetLoadMore
-            loaded={consumableRegisterOps.length}
+          <KeysetPagerFooter
+            view={consumableView}
+            totalRows={consumableRegisterTotal || undefined}
             hasMore={consumablePager.hasMore}
-            loadingMore={consumablePager.loadingMore}
-            onLoadMore={consumablePager.loadMore}
+            loading={consumablePager.loadingMore}
             scopeError={consumablePager.scopeError ? consumablePager.error : ''}
           />
         </div>

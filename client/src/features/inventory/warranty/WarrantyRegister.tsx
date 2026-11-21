@@ -34,6 +34,7 @@ import { FilterCard } from '../../../components/common/FilterCard';
 import { LoadStateNotice } from '../../../components/common/LoadStateNotice';
 import { PageHeader } from '../../../components/common/PageHeader';
 import { DateField } from '../../../components/DateField';
+import { PeriodRangeField, usePeriodRangeFilter } from '../../../components/common/PeriodRangeField';
 import { WarrantyEditModal } from './WarrantyEditModal';
 import { WarrantyClaimsPanel } from '../../../components/inventory/warranty/WarrantyClaimsPanel';
 import { WarrantyRecoveryPanel } from '../../../components/inventory/warranty/WarrantyRecoveryPanel';
@@ -114,11 +115,13 @@ export const WarrantyRegister: React.FC<WarrantyRegisterProps> = ({
   const searchDraftRef = useRef<string | null>(null);
   const [status, setStatus] = useState('ALL');
   const [category, setCategory] = useState('ALL');
-  const [startFrom, setStartFrom] = useState('');
-  const [startTo, setStartTo] = useState('');
+  // One warranty-start field: the list reads the applied range only, so a date
+  // edit changes nothing until Query applies it.
+  const startRange = usePeriodRangeFilter({ from: '', to: '' });
+  const startFrom = startRange.from;
+  const startTo = startRange.to;
 
-  const [totalItems, setTotalItems] = useState(0);
-  const [counts, setCounts] = useState(EMPTY_COUNTS);
+
   const [retryKey, setRetryKey] = useState(0);
   const [editing, setEditing] = useState<WarrantyCoverageRow | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -144,6 +147,8 @@ export const WarrantyRegister: React.FC<WarrantyRegisterProps> = ({
     WarrantyCoverageRow,
     { totalItems?: number; counts?: typeof EMPTY_COUNTS }
   >({
+    // The page's aggregates travel as `meta`, which the pager clears whenever
+    // the query changes.
     fetchPage: (cursor) =>
       api.fetchWarrantyCursorPage(
         {
@@ -157,7 +162,12 @@ export const WarrantyRegister: React.FC<WarrantyRegisterProps> = ({
         cursor,
         15,
         isVendor ? 'VENDOR' : 'SELLER'
-      ),
+      ).then((page) => ({
+        items: page.items,
+        nextCursor: page.nextCursor,
+        hasMore: page.hasMore,
+        meta: { totalItems: Number(page.totalItems) || 0, counts: page.counts || EMPTY_COUNTS },
+      })),
     resetKey: [
       coverageType,
       selectedBranchId,
@@ -170,11 +180,11 @@ export const WarrantyRegister: React.FC<WarrantyRegisterProps> = ({
       retryKey,
     ].join('|'),
     enabled: view === 'COVERAGE',
-    onPage: (page: any) => {
-      setTotalItems(Number(page.totalItems) || 0);
-      setCounts(page.counts || EMPTY_COUNTS);
-    },
   });
+  // Coverage totals and counts for the CURRENT query, from the page's `meta`
+  // (cleared when the filter changes) — never a previous filter's figures.
+  const totalItems = pager.meta?.totalItems || 0;
+  const counts = pager.meta?.counts || EMPTY_COUNTS;
   const { rows, loading, error: loadError, scopeError, loadingMore, hasMore, loadMore } = pager;
 
   const filtersActive =
@@ -366,8 +376,7 @@ export const WarrantyRegister: React.FC<WarrantyRegisterProps> = ({
           setSearchQuery('');
           setStatus('ALL');
           setCategory('ALL');
-          setStartFrom('');
-          setStartTo('');
+          startRange.reset();
         }}
         filterChildren={
           <>
@@ -413,43 +422,21 @@ export const WarrantyRegister: React.FC<WarrantyRegisterProps> = ({
               aria-label="Warranty start date range"
               className="flex items-end gap-2"
             >
-              <div>
-                <label
-                  htmlFor="warranty-filter-from"
-                  className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1"
-                >
-                  Start from
-                </label>
-                <div className="w-40">
-                  <DateField
-                    id="warranty-filter-from"
-                    mode={dateMode}
-                    value={startFrom}
-                    onChange={setStartFrom}
-                    compact
-                    showHint={false}
-                    max={startTo || undefined}
-                  />
-                </div>
-              </div>
-              <div>
-                <label
-                  htmlFor="warranty-filter-to"
-                  className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1"
-                >
-                  Start to
-                </label>
-                <div className="w-40">
-                  <DateField
-                    id="warranty-filter-to"
-                    mode={dateMode}
-                    value={startTo}
-                    onChange={setStartTo}
-                    compact
-                    showHint={false}
-                    min={startFrom || undefined}
-                  />
-                </div>
+              <div className="min-w-fit">
+                <PeriodRangeField
+                  label="Warranty start"
+                  startAriaLabel="Warranty start from"
+                  endAriaLabel="Warranty start to"
+                  requireEnd={false}
+                  from={startRange.draft.from}
+                  to={startRange.draft.to}
+                  onChange={(next) => {
+                    startRange.setFrom(next.from);
+                    startRange.setTo(next.to);
+                  }}
+                  onApply={startRange.apply}
+                  pending={startRange.pending}
+                />
               </div>
             </div>
           </>

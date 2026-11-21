@@ -4,8 +4,9 @@ import { formatDualDate } from '../../utils/nepaliCalendar';
 import { isOperationAllowed } from '../../utils/permissions';
 import { exportToCSV } from '../../utils/exportUtils';
 import { buildSerialLogExportRows, serialLogExportColumns } from '../../utils/serialLogExport';
+import { sumStatusCounts } from '../../utils/statusCounts';
 import { api } from '../../services/api';
-import { DateField } from '../../components/DateField';
+import { PeriodRangeField, usePeriodRangeFilter } from '../../components/common/PeriodRangeField';
 import {
   Download,
   Barcode,
@@ -26,12 +27,13 @@ import {
   X,
   Info,
 } from 'lucide-react';
-import { KeysetLoadMore } from '../../components/common/KeysetLoadMore';
+import { KeysetPagerFooter } from '../../components/common/KeysetPagerFooter';
 import { useKeysetPager } from '../../hooks/useKeysetPager';
+import { useKeysetPageView } from '../../hooks/useKeysetPageView';
 import { FilterCard } from '../../components/common/FilterCard';
 import { PageHeader } from '../../components/common/PageHeader';
 import { ModalPanel } from '../../components/common/ModalPanel';
-import StatCard from '../../components/common/StatCard';
+import { KpiStrip, KPI_TONE_TEXT } from '../../components/common/KpiStrip';
 import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface SerialLogRegisterProps {
@@ -97,6 +99,9 @@ const STATUS_META: Record<string, { badge: string; icon: React.ReactNode }> = {
 // every status view except ALL).
 const ALL_STATUSES = ['IN_STOCK', 'IN_TRANSIT', 'CUSTOMER_ASSIGNED', 'POP_LOCATION_ASSIGNED', 'DAMAGED', 'RETURNED', 'SOLD', 'RETURNED_TO_VENDOR', 'CONSUMED'];
 
+/** Stable empty counts before the first page lands (and across filter changes). */
+const EMPTY_STATUS_COUNTS: Record<string, number> = {};
+
 export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
   selectedBranchId,
   currentUser,
@@ -111,16 +116,14 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
   // Register date range (canonical AD values; DateField converts BS picks).
   // Applied server-side against the latest-activity day (updated_at falling
   // back to created_at); an empty bound is open-ended.
-  const [dateFromAD, setDateFromAD] = useState('');
-  const [dateToAD, setDateToAD] = useState('');
+  // One period field: the register reads only when Query applies the draft.
+  const activityRange = usePeriodRangeFilter({ from: '', to: '' });
   // Applied (debounced) search text — the server filters on this, not the
   // keystroke-level draft the FilterCard holds.
   const [appliedSearch, setAppliedSearch] = useState('');
   // FilterCard owns the keystroke draft; an export clicked before the debounce
   // applies must use the text the operator can see, not the previous search.
   const searchDraftRef = useRef<string | null>(null);
-  const [totalItems, setTotalItems] = useState(0);
-  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingRow, setEditingRow] = useState<DisplayLog | null>(null);
   const [editForm, setEditForm] = useState({ deviceSerial: '', ponSerial: '', macAddress: '' });
@@ -144,8 +147,8 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
       branchId: scopeBranch,
       status: filterStatus,
       query: appliedSearch,
-      dateFromAD: dateFromAD || undefined,
-      dateToAD: dateToAD || undefined,
+      dateFromAD: activityRange.from || undefined,
+      dateToAD: activityRange.to || undefined,
       cursor,
       limit: 20,
     }) as { data?: SerialLog[]; items?: SerialLog[]; nextCursor?: string | null; hasMore?: boolean; statusCounts?: Record<string, number> };
@@ -158,17 +161,22 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
       hasMore: Boolean(envelope.hasMore),
       meta: { statusCounts: envelope.statusCounts || {} },
     };
-  }, [appliedSearch, branches, dateFromAD, dateToAD, filterStatus, scopeBranch]);
+  }, [appliedSearch, branches, activityRange.from, activityRange.to, filterStatus, scopeBranch]);
 
   const serialPager = useKeysetPager({
     fetchPage: fetchSerialPage,
-    resetKey: [scopeBranch, filterStatus, appliedSearch, dateFromAD, dateToAD, refreshKey].join('\u0000'),
-    onPage: (page) => {
-      const counts = page.meta?.statusCounts || {};
-      setStatusCounts(counts);
-      setTotalItems(Object.values(counts).reduce((sum, count) => sum + Number(count || 0), 0));
-    },
+    resetKey: [scopeBranch, filterStatus, appliedSearch, activityRange.from, activityRange.to, refreshKey].join('\u0000'),
   });
+  // The KPI counts and the footer's "of N" are the per-status counts the server
+  // computed with the SAME filter fragment as this page (branch + status +
+  // search + activity dates), so the total describes exactly the population
+  // being paged. `meta` is cleared the moment the filter changes, so a previous
+  // query's total can never stand in for this one and overstate the register.
+  const statusCounts = serialPager.meta?.statusCounts || EMPTY_STATUS_COUNTS;
+  const totalItems = sumStatusCounts(statusCounts);
+  // Numbered view over the cursor walk: one page on screen, the pages already
+  // fetched cached so going back costs no request.
+  const serialPageView = useKeysetPageView(serialPager);
   const rows = serialPager.rows;
   const loading = serialPager.loading;
   const loadError = serialPager.error;
@@ -177,6 +185,7 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
   // guarantee; rows arrive already sorted newest-first.
   const register = rows;
   const filtered = rows;
+  const pageRows = serialPageView.pageRows;
 
 
   const handleExportCSV = async () => {
@@ -187,8 +196,8 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
         branchId: scopeBranch,
         status: filterStatus,
         query: searchDraftRef.current ?? appliedSearch,
-        dateFromAD: dateFromAD || undefined,
-        dateToAD: dateToAD || undefined,
+        dateFromAD: activityRange.from || undefined,
+        dateToAD: activityRange.to || undefined,
         all: true,
       }) as { data: SerialLog[] };
       exportRows = (envelope.data || []).map((row) => ({
@@ -473,11 +482,9 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
         }
       />
 
-      {/* Status count cards — shared compact StatCard component. Also fixes
-          the previous dynamic text-${color} classes, which Tailwind could
-          never compile. */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-9 gap-2">
-        {([
+      {/* Status counts — one inline bar instead of a nine-card band. */}
+      <KpiStrip
+        items={([
           { key: 'IN_STOCK', label: 'In Stock', tone: 'emerald' },
           { key: 'IN_TRANSIT', label: 'In Transit', tone: 'sky' },
           { key: 'CUSTOMER_ASSIGNED', label: 'Customer', tone: 'violet' },
@@ -487,15 +494,12 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
           { key: 'SOLD', label: 'Sold', tone: 'slate' },
           { key: 'RETURNED_TO_VENDOR', label: 'To Vendor', tone: 'slate' },
           { key: 'CONSUMED', label: 'Consumed', tone: 'amber' },
-        ] as const).map((stat) => (
-          <StatCard
-            key={stat.key}
-            label={stat.label}
-            value={statusCounts[stat.key] || 0}
-            tone={stat.tone}
-          />
-        ))}
-      </div>
+        ] as const).map((stat) => ({
+          label: stat.label,
+          value: statusCounts[stat.key] || 0,
+          tone: KPI_TONE_TEXT[stat.tone],
+        }))}
+      />
 
       {/* Search & Filter Card — shared inline card */}
       <FilterCard
@@ -504,14 +508,13 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
         onSearchApply={setAppliedSearch}
         onSearchDraftChange={(draft) => { searchDraftRef.current = draft; }}
         hasActiveFilters={
-          Boolean(appliedSearch) || filterBranch !== 'ALL' || filterStatus !== 'ALL' || Boolean(dateFromAD) || Boolean(dateToAD)
+          Boolean(appliedSearch) || filterBranch !== 'ALL' || filterStatus !== 'ALL' || Boolean(activityRange.from) || Boolean(activityRange.to)
         }
         onClearAll={() => {
           setAppliedSearch('');
           setFilterBranch('ALL');
           setFilterStatus('ALL');
-          setDateFromAD('');
-          setDateToAD('');
+          activityRange.reset();
         }}
         filterChildren={
           <>
@@ -543,31 +546,21 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
                 ))}
               </select>
             </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Activity From</label>
-              <div className="w-40">
-                <DateField
-                  mode={dateMode}
-                  value={dateFromAD}
-                  onChange={setDateFromAD}
-                  compact
-                  showHint={false}
-                  max={dateToAD || undefined}
-                />
-              </div>
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Activity To</label>
-              <div className="w-40">
-                <DateField
-                  mode={dateMode}
-                  value={dateToAD}
-                  onChange={setDateToAD}
-                  compact
-                  showHint={false}
-                  min={dateFromAD || undefined}
-                />
-              </div>
+            <div className="min-w-fit">
+              <PeriodRangeField
+                label="Activity"
+                startAriaLabel="Activity from"
+                endAriaLabel="Activity to"
+                requireEnd={false}
+                from={activityRange.draft.from}
+                to={activityRange.draft.to}
+                onChange={(next) => {
+                  activityRange.setFrom(next.from);
+                  activityRange.setTo(next.to);
+                }}
+                onApply={activityRange.apply}
+                pending={activityRange.pending}
+              />
             </div>
           </>
         }
@@ -604,7 +597,7 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
                   </td>
                 </tr>
               ) : (
-                rows.map((device) => {
+                pageRows.map((device) => {
                   const meta = STATUS_META[device.status] || STATUS_META.IN_STOCK;
                   const isOpen = expandedId === device.id;
                   return (
@@ -1008,11 +1001,11 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
         </div>
       )}
 
-      <KeysetLoadMore
-        loaded={rows.length}
+      <KeysetPagerFooter
+        view={serialPageView}
+        totalRows={totalItems || undefined}
         hasMore={serialPager.hasMore}
-        loadingMore={serialPager.loadingMore}
-        onLoadMore={serialPager.loadMore}
+        loading={serialPager.loadingMore}
         scopeError={serialPager.scopeError ? serialPager.error : ''}
       />
     </div>

@@ -1,6 +1,5 @@
 import React from 'react';
 import { ChevronRight } from 'lucide-react';
-import { StatCard } from '../common/StatCard';
 import type {
   ControlAgreement,
   TrialBalanceAccount,
@@ -130,7 +129,7 @@ export const TrialBalanceView: React.FC<{
     : data.accounts.map((account) => toRow(account, 0, onOpenAccount));
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {comparative && (
         <ComparativePanel
           title="Comparative trial balance"
@@ -143,14 +142,7 @@ export const TrialBalanceView: React.FC<{
         />
       )}
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="OPENING DEBIT / CREDIT" value={`${money(data.totals.openingDebit)} / ${money(data.totals.openingCredit)}`} tone="indigo" hint="Balance brought forward" />
-        <StatCard label="PERIOD DEBIT" value={money(data.totals.periodDebit)} tone="emerald" hint="Posted debits in the period" />
-        <StatCard label="PERIOD CREDIT" value={money(data.totals.periodCredit)} tone="rose" hint="Posted credits in the period" />
-        <StatCard label="CLOSING DEBIT / CREDIT" value={`${money(data.totals.closingDebit)} / ${money(data.totals.closingCredit)}`} tone="amber" hint="Balance carried forward" />
-      </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-900/40">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 dark:border-slate-800 dark:bg-slate-900/40">
         <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
           Debits must equal credits in every column.{' '}
           {detail === 'GROUP_TOTALS'
@@ -160,7 +152,7 @@ export const TrialBalanceView: React.FC<{
         <StatusPill ok={data.balanced} okLabel="Debits = Credits" badLabel="Out of balance" />
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="border-b border-slate-200 bg-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-700 dark:border-slate-700 dark:bg-slate-800/90 dark:text-slate-300">

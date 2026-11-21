@@ -21,6 +21,7 @@ import {
   Printer,
 } from 'lucide-react';
 import { PageHeader } from '../../components/common/PageHeader';
+import { PeriodRangeField, usePeriodRangeFilter } from '../../components/common/PeriodRangeField';
 import { formCardClass } from '../../components/common/FormCard';
 import { LoadStateNotice } from '../../components/common/LoadStateNotice';
 import { CustomerPicker } from '../../components/common/CustomerPicker';
@@ -354,8 +355,8 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
     'ALL';
   const [branchFilter, setBranchFilter] = useState(defaultBranchFilter);
   const [query, setQuery] = useState('');
-  const [dateFromAD, setDateFromAD] = useState('');
-  const [dateToAD, setDateToAD] = useState('');
+  // One period field: the list reads only when Query applies the draft.
+  const invoiceRange = usePeriodRangeFilter({ from: '', to: '' });
   // FilterCard owns the keystroke draft; an export clicked before the debounce
   // applies must use the text the operator can see, not the previous search.
   const searchDraftRef = useRef<string | null>(null);
@@ -389,8 +390,8 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
     const envelope = (await api.getSalesInvoices({
       branchId: branchFilter !== 'ALL' ? branchFilter : undefined,
       query: query.trim() || undefined,
-      dateFromAD: dateFromAD || undefined,
-      dateToAD: dateToAD || undefined,
+      dateFromAD: invoiceRange.from || undefined,
+      dateToAD: invoiceRange.to || undefined,
       cursor,
       limit: 25,
     })) as SalesInvoice[] | { items?: SalesInvoice[]; data: SalesInvoice[]; nextCursor?: string | null; hasMore?: boolean };
@@ -402,11 +403,11 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
       nextCursor: envelope.nextCursor ?? null,
       hasMore: Boolean(envelope.hasMore),
     };
-  }, [branchFilter, query, dateFromAD, dateToAD]);
+  }, [branchFilter, query, invoiceRange.from, invoiceRange.to]);
 
   const siPager = useKeysetPager({
     fetchPage: fetchSiPage,
-    resetKey: [branchFilter, query, dateFromAD, dateToAD, siRefreshKey, sseRefreshKey].join('\u0000'),
+    resetKey: [branchFilter, query, invoiceRange.from, invoiceRange.to, siRefreshKey, sseRefreshKey].join('\u0000'),
   });
   const siRows = siPager.rows;
   const siLoading = siPager.loading;
@@ -1027,8 +1028,8 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
         const envelope = (await api.getSalesInvoices({
           branchId: branchFilter !== 'ALL' ? branchFilter : undefined,
           query: (searchDraftRef.current ?? query).trim() || undefined,
-          dateFromAD: dateFromAD || undefined,
-          dateToAD: dateToAD || undefined,
+          dateFromAD: invoiceRange.from || undefined,
+          dateToAD: invoiceRange.to || undefined,
           all: true,
         })) as SalesInvoice[] | { data: SalesInvoice[] };
         exported = Array.isArray(envelope) ? envelope : envelope.data || [];
@@ -1577,8 +1578,8 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
             searchValue={query}
             onSearchApply={setQuery}
             onSearchDraftChange={(draft) => { searchDraftRef.current = draft; }}
-            onClearAll={() => { setBranchFilter(defaultBranchFilter); setQuery(''); setDateFromAD(''); setDateToAD(''); }}
-            hasActiveFilters={branchFilter !== defaultBranchFilter || !!query || !!dateFromAD || !!dateToAD}
+            onClearAll={() => { setBranchFilter(defaultBranchFilter); setQuery(''); invoiceRange.reset(); }}
+            hasActiveFilters={branchFilter !== defaultBranchFilter || !!query || !!invoiceRange.from || !!invoiceRange.to}
             filterChildren={
               <>
                 <div className="w-56">
@@ -1588,13 +1589,21 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
                     {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
                   </select>
                 </div>
-                <div className="w-40">
-                  <label className={labelClass}>From (AD)</label>
-                  <input type="date" className={inputClass} value={dateFromAD} max={dateToAD || undefined} onChange={(e) => setDateFromAD(e.target.value)} />
-                </div>
-                <div className="w-40">
-                  <label className={labelClass}>To (AD)</label>
-                  <input type="date" className={inputClass} value={dateToAD} min={dateFromAD || undefined} onChange={(e) => setDateToAD(e.target.value)} />
+                <div className="min-w-fit">
+                  <PeriodRangeField
+                    label="Invoice date"
+                    startAriaLabel="Sales invoice date from"
+                    endAriaLabel="Sales invoice date to"
+                    requireEnd={false}
+                    from={invoiceRange.draft.from}
+                    to={invoiceRange.draft.to}
+                    onChange={(next) => {
+                      invoiceRange.setFrom(next.from);
+                      invoiceRange.setTo(next.to);
+                    }}
+                    onApply={invoiceRange.apply}
+                    pending={invoiceRange.pending}
+                  />
                 </div>
               </>
             }

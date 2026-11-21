@@ -188,7 +188,7 @@ describe('UIX-11 — the warranty start range is one filter group', () => {
     api.fetchWarrantyCursorPage = originalCursor;
   });
 
-  test('both date fields and labels share one wrapping group', async () => {
+  test('both ends of the range sit in one labelled group with a single Query', async () => {
     const tree = mountTree(
       h(WarrantyRegister, {
         coverageType: 'VENDOR',
@@ -206,21 +206,25 @@ describe('UIX-11 — the warranty start range is one filter group', () => {
       assert.ok(group, 'the range must be a single labelled group');
       assert.match(group!.className, /\bflex\b/);
 
-      const from = group!.querySelector('#warranty-filter-from') as HTMLElement | null;
-      const to = group!.querySelector('#warranty-filter-to') as HTMLElement | null;
+      const from = group!.querySelector('input[aria-label="Warranty start from"]') as HTMLElement | null;
+      const to = group!.querySelector('input[aria-label="Warranty start to"]') as HTMLElement | null;
       assert.ok(from && to, 'both ends of the range must sit inside the group');
       assert.ok(
-        group!.querySelector('label[for="warranty-filter-from"]'),
-        'the start input must have its own bound label'
+        (from as HTMLInputElement).getAttribute('aria-label'),
+        'the start input must carry its own accessible name'
       );
       assert.ok(
-        group!.querySelector('label[for="warranty-filter-to"]'),
-        'the end input must have its own bound label'
+        (to as HTMLInputElement).getAttribute('aria-label'),
+        'the end input must carry its own accessible name'
       );
       assert.ok(
         from!.compareDocumentPosition(to!) & window.Node.DOCUMENT_POSITION_FOLLOWING,
         'the range must render start then end, adjacent in one unit'
       );
+      const query = [...group!.querySelectorAll('button')].filter((node) =>
+        (node.textContent || '').includes('Query')
+      );
+      assert.equal(query.length, 1, 'the group must offer exactly one Query, not one per end');
     } finally {
       tree.unmount();
     }

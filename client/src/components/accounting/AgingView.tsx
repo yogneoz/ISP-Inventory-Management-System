@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { StatCard } from '../common/StatCard';
+import { KpiStrip, KPI_TONE_TEXT } from '../common/KpiStrip';
 import type { AgingBucketKey, AgingResponse, AgingType } from '../../services/api/accounting';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { StatusPill } from './StatementPrimitives';
@@ -64,32 +64,34 @@ export const AgingView: React.FC<{
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard
-          label="OPEN ITEMS"
-          value={money(data.totals.grossTotal)}
-          tone="indigo"
-          hint={`${data.parties.length} part${data.parties.length === 1 ? 'y' : 'ies'} with an open item`}
-        />
-        <StatCard
-          label="UNAPPLIED CREDITS"
-          value={money(data.totals.unappliedCredit)}
-          tone="amber"
-          hint="Receipts/payments not yet matched to a charge"
-        />
-        <StatCard
-          label={outstandingLabel}
-          value={money(data.totals.total)}
-          tone={type === 'AR' ? 'emerald' : 'rose'}
-          hint="Open items less unapplied credits"
-        />
-        <StatCard
-          label="CONTROL BALANCE"
-          value={money(data.totals.controlBalance)}
-          tone="indigo"
-          hint={`${data.account.postingRole} · GL side for the same branch and date`}
-        />
-      </div>
+      <KpiStrip
+        items={[
+          {
+            label: 'OPEN ITEMS',
+            value: money(data.totals.grossTotal),
+            tone: KPI_TONE_TEXT.indigo,
+            hint: `${data.parties.length} part${data.parties.length === 1 ? 'y' : 'ies'} with an open item`,
+          },
+          {
+            label: 'UNAPPLIED CREDITS',
+            value: money(data.totals.unappliedCredit),
+            tone: KPI_TONE_TEXT.amber,
+            hint: 'Receipts/payments not yet matched to a charge',
+          },
+          {
+            label: outstandingLabel,
+            value: money(data.totals.total),
+            tone: KPI_TONE_TEXT[type === 'AR' ? 'emerald' : 'rose'],
+            hint: 'Open items less unapplied credits',
+          },
+          {
+            label: 'CONTROL BALANCE',
+            value: money(data.totals.controlBalance),
+            tone: KPI_TONE_TEXT.indigo,
+            hint: `${data.account.postingRole} · GL side for the same branch and date`,
+          },
+        ]}
+      />
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3 py-2 dark:border-slate-800">

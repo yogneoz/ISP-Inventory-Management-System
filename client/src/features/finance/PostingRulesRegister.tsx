@@ -17,7 +17,7 @@ import {
   Layers,
   ShieldCheck,
 } from 'lucide-react';
-import { StatCard } from '../../components/common/StatCard';
+import { KpiStrip, KPI_TONE_TEXT } from '../../components/common/KpiStrip';
 import { useActivationKey, useTabActive } from '../../components/common/KeepMounted';
 import { api } from '../../services/api';
 import { normalizeChartHealth } from '../../utils/chartHealth';
@@ -385,32 +385,34 @@ const AccountControlView: React.FC<{ state: RulesState; branchId: string }> = ({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard
-          label="CONTROL ACCOUNTS"
-          value={String(controls.length)}
-          tone="indigo"
-          hint="Summary ledgers with party or branch detail"
-        />
-        <StatCard
-          label="CONTROL BOOKS"
-          value={String(state.subledgers.length)}
-          tone="emerald"
-          hint={`${controls.filter((account) => (booksByAccount.get(account.id)?.length ?? 0) > 0).length} of ${controls.length} controls have a book`}
-        />
-        <StatCard
-          label="RECONCILED"
-          value={`${reconciled}/${controls.length}`}
-          tone={controls.length > 0 && reconciled === controls.length ? 'emerald' : 'amber'}
-          hint={`Scope: ${branchId === 'ALL' ? 'all branches' : branchId}`}
-        />
-        <StatCard
-          label="SETUP EXCEPTIONS"
-          value={String(healthIssues)}
-          tone={healthIssues === 0 ? 'emerald' : 'rose'}
-          hint="Missing roles, missing books, retired roles and unlinked rows"
-        />
-      </div>
+      <KpiStrip
+        items={[
+          {
+            label: 'CONTROL ACCOUNTS',
+            value: String(controls.length),
+            tone: KPI_TONE_TEXT.indigo,
+            hint: 'Summary ledgers with party or branch detail',
+          },
+          {
+            label: 'CONTROL BOOKS',
+            value: String(state.subledgers.length),
+            tone: KPI_TONE_TEXT.emerald,
+            hint: `${controls.filter((account) => (booksByAccount.get(account.id)?.length ?? 0) > 0).length} of ${controls.length} controls have a book`,
+          },
+          {
+            label: 'RECONCILED',
+            value: `${reconciled}/${controls.length}`,
+            tone: KPI_TONE_TEXT[controls.length > 0 && reconciled === controls.length ? 'emerald' : 'amber'],
+            hint: `Scope: ${branchId === 'ALL' ? 'all branches' : branchId}`,
+          },
+          {
+            label: 'SETUP EXCEPTIONS',
+            value: String(healthIssues),
+            tone: KPI_TONE_TEXT[healthIssues === 0 ? 'emerald' : 'rose'],
+            hint: 'Missing roles, missing books, retired roles and unlinked rows',
+          },
+        ]}
+      />
 
       <div className={`${panel} overflow-hidden`}>
         <div className={panelHeader}>
@@ -769,32 +771,34 @@ export const PostingRulesRegister: React.FC<AccountingScreenProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatCard
-              label="ROLE COVERAGE"
-              value={`${mappedRoleCount}/${catalogRoles}`}
-              tone={mappedRoleCount === catalogRoles ? 'emerald' : 'rose'}
-              hint="Posting roles used by these rules that resolve to an active ledger"
-            />
-            <StatCard
-              label="RULES READY"
-              value={`${readyRules}/${POSTING_RULES.length}`}
-              tone={readyRules === POSTING_RULES.length ? 'emerald' : 'amber'}
-              hint="Document rules whose required roles are all mapped"
-            />
-            <StatCard
-              label="CONTROL ACCOUNTS"
-              value={String(controls.length)}
-              tone="indigo"
-              hint={`${reconciled} reconciled in this branch scope`}
-            />
-            <StatCard
-              label="SUBLEDGER BOOKS"
-              value={String(state.subledgers.length)}
-              tone="emerald"
-              hint="General and party books behind the control accounts"
-            />
-          </div>
+          <KpiStrip
+            items={[
+              {
+                label: 'ROLE COVERAGE',
+                value: `${mappedRoleCount}/${catalogRoles}`,
+                tone: KPI_TONE_TEXT[mappedRoleCount === catalogRoles ? 'emerald' : 'rose'],
+                hint: 'Posting roles used by these rules that resolve to an active ledger',
+              },
+              {
+                label: 'RULES READY',
+                value: `${readyRules}/${POSTING_RULES.length}`,
+                tone: KPI_TONE_TEXT[readyRules === POSTING_RULES.length ? 'emerald' : 'amber'],
+                hint: 'Document rules whose required roles are all mapped',
+              },
+              {
+                label: 'CONTROL ACCOUNTS',
+                value: String(controls.length),
+                tone: KPI_TONE_TEXT.indigo,
+                hint: `${reconciled} reconciled in this branch scope`,
+              },
+              {
+                label: 'SUBLEDGER BOOKS',
+                value: String(state.subledgers.length),
+                tone: KPI_TONE_TEXT.emerald,
+                hint: 'General and party books behind the control accounts',
+              },
+            ]}
+          />
 
           <div
             role="tablist"

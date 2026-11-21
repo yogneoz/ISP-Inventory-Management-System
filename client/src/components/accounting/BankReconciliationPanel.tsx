@@ -15,7 +15,7 @@ import {
   Unlock,
   Upload,
 } from 'lucide-react';
-import { StatCard } from '../common/StatCard';
+import { KpiStrip, KPI_TONE_TEXT } from '../common/KpiStrip';
 import { useActivationKey, useTabActive } from '../common/KeepMounted';
 import { api } from '../../services/api';
 import type {
@@ -350,22 +350,24 @@ export const BankReconciliationPanel: React.FC<BankReconciliationPanelProps> = (
 
       {data?.account && (
         <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatCard label="BOOK CLOSING" value={money(data.book.closingBalance)} tone="indigo" hint="Posted bank-ledger balance at period end" />
-            <StatCard label="STATEMENT CLOSING" value={money(data.statement.closingBalance)} tone="amber" hint="Entered statement closing balance" />
-            <StatCard
-              label="DIFFERENCE"
-              value={money(data.difference)}
-              tone={data.reconciled ? 'emerald' : 'rose'}
-              hint="Statement closing minus book closing"
-            />
-            <StatCard
-              label="UNMATCHED"
-              value={String(data.statement.unmatchedCount)}
-              tone={data.statement.unmatchedCount ? 'rose' : 'emerald'}
-              hint={`${money(data.statement.unmatchedAmount)} statement value still unmatched`}
-            />
-          </div>
+          <KpiStrip
+            items={[
+              { label: 'BOOK CLOSING', value: money(data.book.closingBalance), tone: KPI_TONE_TEXT.indigo, hint: 'Posted bank-ledger balance at period end' },
+              { label: 'STATEMENT CLOSING', value: money(data.statement.closingBalance), tone: KPI_TONE_TEXT.amber, hint: 'Entered statement closing balance' },
+              {
+                label: 'DIFFERENCE',
+                value: money(data.difference),
+                tone: KPI_TONE_TEXT[data.reconciled ? 'emerald' : 'rose'],
+                hint: 'Statement closing minus book closing',
+              },
+              {
+                label: 'UNMATCHED',
+                value: String(data.statement.unmatchedCount),
+                tone: KPI_TONE_TEXT[data.statement.unmatchedCount ? 'rose' : 'emerald'],
+                hint: `${money(data.statement.unmatchedAmount)} statement value still unmatched`,
+              },
+            ]}
+          />
 
           <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-800 dark:bg-slate-900/40">
             <span

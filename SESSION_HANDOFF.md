@@ -63,7 +63,7 @@ Counts that must move together when schema/tests/permissions change:
 `tests/schema.drift.guard.test.ts` and `tests/schemaSource.parity.test.ts`
 (137 tables), `tests/docsTruth.guard.test.ts` (129 top-level, quoted in
 `README.md`), `tests/financeMicroPermissions.test.ts` (71 operations),
-`tests/docsCounts.guard.test.ts` (2,728 tests, quoted in README, handoff and
+`tests/docsCounts.guard.test.ts` (2,732 tests, quoted in README, handoff and
 SESSION_NOTES), `tests/registerRefreshDomains.test.ts` (`SCREEN_SURFACE_PINS`
 for any new screen, 121 screens in the docs).
 

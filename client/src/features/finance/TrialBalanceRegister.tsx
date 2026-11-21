@@ -53,7 +53,7 @@ export const TrialBalanceRegister: React.FC<AccountingScreenProps> = ({
     let live = true;
     setLoading(true);
     setError('');
-    void api.getTrialBalance(scope.query)
+    void api.getTrialBalance(scope.rangeQuery)
       .then((next) => {
         if (live) setData(next);
       })
@@ -69,7 +69,7 @@ export const TrialBalanceRegister: React.FC<AccountingScreenProps> = ({
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isVisible, scope.branchId, scope.asOfDate, activationKey, reloadKey]);
+  }, [isVisible, scope.branchId, scope.asOfDate, scope.fromDate, activationKey, reloadKey]);
 
   useEffect(() => {
     if (!comparative || !data) {

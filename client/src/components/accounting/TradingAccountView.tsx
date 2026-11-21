@@ -1,5 +1,5 @@
 import React from 'react';
-import { StatCard } from '../common/StatCard';
+import { KpiStrip, KPI_TONE_TEXT } from '../common/KpiStrip';
 import type { ProfitAndLossResponse, StatementGroupBlock } from '../../services/api/accounting';
 import { SectionBody } from './StatementPrimitives';
 import { TAccountView } from './TAccountView';
@@ -72,16 +72,18 @@ export const TradingAccountView: React.FC<{
   return (
     <div className="space-y-4">
       {comparison}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <StatCard label="REVENUE" value={money(data.revenue)} tone="emerald" hint="Trading income for the period" />
-        <StatCard label="COST OF SALES" value={money(data.costOfSales)} tone="rose" hint="Inventory consumed by sales" />
-        <StatCard
-          label="GROSS PROFIT"
-          value={money(data.grossProfit)}
-          tone={data.grossProfit >= 0 ? 'indigo' : 'rose'}
-          hint="Revenue less cost of sales"
-        />
-      </div>
+      <KpiStrip
+        items={[
+          { label: 'REVENUE', value: money(data.revenue), tone: KPI_TONE_TEXT.emerald, hint: 'Trading income for the period' },
+          { label: 'COST OF SALES', value: money(data.costOfSales), tone: KPI_TONE_TEXT.rose, hint: 'Inventory consumed by sales' },
+          {
+            label: 'GROSS PROFIT',
+            value: money(data.grossProfit),
+            tone: KPI_TONE_TEXT[data.grossProfit >= 0 ? 'indigo' : 'rose'],
+            hint: 'Revenue less cost of sales',
+          },
+        ]}
+      />
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
         <div className="border-b border-slate-200 px-3 py-2 dark:border-slate-800">

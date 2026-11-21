@@ -22,7 +22,9 @@
  */
 import React from 'react';
 import { Search, Download, RefreshCw, Wallet, Loader2 } from 'lucide-react';
-import StatCard, { StatCardTone } from './StatCard';
+import { StatCardTone } from './StatCard';
+import { StatementLoadingPlaceholder } from './StatementLoadingPlaceholder';
+import { KpiStrip, KPI_TONE_TEXT } from './KpiStrip';
 import { formatNumber } from '../../utils/nprFormat';
 import { exportToCSV, CSVColumn } from '../../utils/exportUtils';
 import type { Branch } from '../../types';
@@ -411,12 +413,15 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
       {/* Ledger summary + table */}
       {data && (
         <>
-          {/* Summary cards — shared compact StatCard component */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {scoreCards(data).map((card) => (
-              <StatCard key={card.label} label={card.label} value={formatNumber(card.value)} tone={card.tone} />
-            ))}
-          </div>
+          {/* Summary figures — one inline bar, so the ledger table keeps the
+              vertical space the old four-card row used to claim. */}
+          <KpiStrip
+            items={scoreCards(data).map((card) => ({
+              label: card.label,
+              value: formatNumber(card.value),
+              tone: KPI_TONE_TEXT[card.tone],
+            }))}
+          />
 
           {data.tieOut && (
             <div className="flex flex-col gap-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-4 py-3 text-xs text-slate-600 dark:text-slate-300 md:flex-row md:items-center md:justify-between">
@@ -517,7 +522,10 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
         </>
       )}
 
-      {emptyPrompt && !data && !error && (
+      {/* `!data` keeps the placeholder off a statement that is on screen;
+          `!error` keeps a failed read from showing a spinner beside its error. */}
+      {loading && !data && !error && <StatementLoadingPlaceholder label="statement" />}
+      {emptyPrompt && !data && !error && !loading && (
         <div className="flex flex-col items-center justify-center py-16 text-slate-400 dark:text-slate-500">
           <Wallet className="h-12 w-12 mb-3 opacity-40" />
           <p>{emptyPrompt}</p>

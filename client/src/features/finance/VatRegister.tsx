@@ -16,7 +16,7 @@ import {
   Percent,
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
-import { StatCard } from '../../components/common/StatCard';
+import { KpiStrip } from '../../components/common/KpiStrip';
 import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface VatRegisterProps {
@@ -131,30 +131,32 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
         }
       />
 
-      {/* Summary KPI Cards — shared compact StatCard component */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <StatCard
-          label="TOTAL TAXABLE PURCHASE"
-          icon={<DollarSign className="h-4 w-4" />}
-          tone="emerald"
-          value={formatNPR(totalTaxableAmount)}
-          hint={`Subtotal before ${getDefaultTaxRate()}% VAT calculation`}
-        />
-        <StatCard
-          label={`${getDefaultTaxRate()}% INPUT VAT CREDIT`}
-          icon={<Percent className="h-4 w-4" />}
-          tone="indigo"
-          value={formatNPR(totalVatAmount)}
-          hint="Claimable Input Tax Credit from Purchase Invoices"
-        />
-        <StatCard
-          label="GROSS INVOICE VALUE"
-          icon={<FileSpreadsheet className="h-4 w-4" />}
-          tone="amber"
-          value={formatNPR(totalGrandAmount)}
-          hint={`Total Purchase Cost including VAT (${filteredInvoices.length} Invoices)`}
-        />
-      </div>
+      {/* Summary figures — one inline bar. */}
+      <KpiStrip
+        items={[
+          {
+            label: 'TOTAL TAXABLE PURCHASE',
+            icon: <DollarSign className="h-3.5 w-3.5" />,
+            tone: 'text-emerald-500 dark:text-emerald-400',
+            value: formatNPR(totalTaxableAmount),
+            hint: `Subtotal before ${getDefaultTaxRate()}% VAT calculation`,
+          },
+          {
+            label: `${getDefaultTaxRate()}% INPUT VAT CREDIT`,
+            icon: <Percent className="h-3.5 w-3.5" />,
+            tone: 'text-indigo-500 dark:text-indigo-400',
+            value: formatNPR(totalVatAmount),
+            hint: 'Claimable Input Tax Credit from Purchase Invoices',
+          },
+          {
+            label: 'GROSS INVOICE VALUE',
+            icon: <FileSpreadsheet className="h-3.5 w-3.5" />,
+            tone: 'text-amber-500 dark:text-amber-400',
+            value: formatNPR(totalGrandAmount),
+            hint: `Total Purchase Cost including VAT (${filteredInvoices.length} Invoices)`,
+          },
+        ]}
+      />
 
       {/* Filter and Search Bar — shared FilterCard for register consistency. */}
       <FilterCard

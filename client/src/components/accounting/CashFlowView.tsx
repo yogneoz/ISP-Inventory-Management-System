@@ -1,5 +1,5 @@
 import React from 'react';
-import { StatCard } from '../common/StatCard';
+import { KpiStrip, KPI_TONE_TEXT } from '../common/KpiStrip';
 import type { CashFlowResponse } from '../../services/api/accounting';
 import { StatusPill } from './StatementPrimitives';
 import { money } from './statementFormat';
@@ -20,12 +20,14 @@ export const CashFlowView: React.FC<{ data: CashFlowResponse }> = ({ data }) => 
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="OPENING CASH" value={money(data.openingCash)} tone="slate" hint="Before the period" />
-        <StatCard label="OPERATING CASH" value={money(operating)} tone={operating >= 0 ? 'emerald' : 'rose'} hint="Trading and working capital" />
-        <StatCard label="NET CASH FLOW" value={money(data.netCashFlow)} tone={data.netCashFlow >= 0 ? 'indigo' : 'rose'} hint="Receipts less payments" />
-        <StatCard label="CLOSING CASH" value={money(data.closingCash)} tone="amber" hint="Per the cash book" />
-      </div>
+      <KpiStrip
+        items={[
+          { label: 'OPENING CASH', value: money(data.openingCash), tone: KPI_TONE_TEXT.slate, hint: 'Before the period' },
+          { label: 'OPERATING CASH', value: money(operating), tone: KPI_TONE_TEXT[operating >= 0 ? 'emerald' : 'rose'], hint: 'Trading and working capital' },
+          { label: 'NET CASH FLOW', value: money(data.netCashFlow), tone: KPI_TONE_TEXT[data.netCashFlow >= 0 ? 'indigo' : 'rose'], hint: 'Receipts less payments' },
+          { label: 'CLOSING CASH', value: money(data.closingCash), tone: KPI_TONE_TEXT.amber, hint: 'Per the cash book' },
+        ]}
+      />
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
         <div className="border-b border-slate-200 px-3 py-2 dark:border-slate-800">

@@ -9,16 +9,37 @@ import {
   hasGlobalBranchScope,
   isOperationAllowed,
 } from '../../utils/permissions';
+import {
+  PeriodRangeField,
+  usePeriodRangeFilter,
+  type PeriodRange,
+} from '../common/PeriodRangeField';
 
 export interface AccountingScope {
   allowed: boolean;
   canSeeAllBranches: boolean;
   scopedBranches: Branch[];
+  /** The branch the figures on screen were read for. */
   branchId: string;
   setBranchId: (id: string) => void;
+  /**
+   * The period the figures on screen were read for. `fromDate` is empty for a
+   * from-inception read; `asOfDate` is the range end.
+   */
   asOfDate: string;
-  setAsOfDate: (date: string) => void;
+  fromDate: string;
+  /** The range being edited. Choosing dates never loads anything by itself. */
+  draft: PeriodRange;
+  setDraftFrom: (date: string) => void;
+  setDraftTo: (date: string) => void;
+  /** Adopt the draft range: the only path from a date edit to a request. */
+  applyPeriod: () => void;
+  /** The draft differs from the range the screen shows. */
+  periodPending: boolean;
+  /** Applied query for reads that take only an as-of date. */
   query: { branchId?: string; to: string };
+  /** Applied query for reads that take an optional period start. */
+  rangeQuery: { branchId?: string; from?: string; to: string };
 }
 
 export interface AccountingScreenProps {
@@ -29,15 +50,16 @@ export interface AccountingScreenProps {
 }
 
 /**
- * Branch/as-of scope for one accounting register. Every register used to share
- * the Accounting Workspace selector; now each register owns the same scope with
- * the same repair rule (a stale or out-of-scope branch falls back to the first
- * branch the account may read).
+ * Branch/period scope for one accounting register. Branch changes apply at
+ * once; a date change waits for `applyPeriod`, so the screens that render the
+ * range cannot fetch a half-selected one.
  */
 export function useAccountingScope(
   branches: Branch[],
-  currentUser?: User | null
+  currentUser?: User | null,
+  options: { defaultFrom?: string } = {}
 ): AccountingScope {
+  const defaultFrom = options.defaultFrom || '';
   const scopedBranches = useMemo(
     () => getScopedBranches(currentUser, branches),
     [branches, currentUser]
@@ -48,7 +70,10 @@ export function useAccountingScope(
     if (currentUser?.branchId && currentUser.branchId !== 'ALL') return currentUser.branchId;
     return scopedBranches[0]?.id || '';
   });
-  const [asOfDate, setAsOfDate] = useState(localTodayAD());
+  const range = usePeriodRangeFilter(
+    { from: defaultFrom, to: localTodayAD() },
+    { requireEnd: true }
+  );
 
   useEffect(() => {
     const allowed = canSeeAllBranches
@@ -57,9 +82,24 @@ export function useAccountingScope(
     if (!allowed.includes(branchId)) setBranchId(allowed[0] || '');
   }, [branchId, canSeeAllBranches, scopedBranches]);
 
+  // The fiscal-year start arrives with the bootstrap payload. Seed it as the
+  // opening point when the caller asks for one, without overwriting a range the
+  // operator has already chosen or cleared.
+  useEffect(() => {
+    if (defaultFrom) range.seedFrom(defaultFrom);
+  }, [defaultFrom, range.seedFrom]);
+
   const query = useMemo(
-    () => ({ branchId: branchId === 'ALL' ? undefined : branchId, to: asOfDate }),
-    [branchId, asOfDate]
+    () => ({ branchId: branchId === 'ALL' ? undefined : branchId, to: range.to }),
+    [branchId, range.to]
+  );
+  const rangeQuery = useMemo(
+    () => ({
+      branchId: branchId === 'ALL' ? undefined : branchId,
+      ...(range.from ? { from: range.from } : {}),
+      to: range.to,
+    }),
+    [branchId, range.from, range.to]
   );
 
   return {
@@ -68,35 +108,44 @@ export function useAccountingScope(
     scopedBranches,
     branchId,
     setBranchId,
-    asOfDate,
-    setAsOfDate,
+    asOfDate: range.to,
+    fromDate: range.from,
+    draft: range.draft,
+    setDraftFrom: range.setFrom,
+    setDraftTo: range.setTo,
+    applyPeriod: range.apply,
+    periodPending: range.pending,
     query,
+    rangeQuery,
   };
 }
 
 export const RegisterEmpty: React.FC<{ message: string }> = ({ message }) => (
-  <div className="rounded-2xl border border-slate-200 bg-white px-4 py-8 text-center text-xs text-slate-400 dark:border-slate-800 dark:bg-slate-900/40">
+  <div className="rounded-xl border border-slate-200 bg-white px-4 py-6 text-center text-xs text-slate-400 dark:border-slate-800 dark:bg-slate-900/40">
     {message}
   </div>
 );
 
 /**
  * Page chrome shared by the accounting registers: permission refusal, header
- * with refresh, branch/as-of selector, error/loading banners and the body.
+ * with refresh, one branch + period filter, and the body.
+ *
+ * The filter row and the status row keep a fixed height whether a request is
+ * running, finished or failed. Nothing is inserted above the body while
+ * loading, so refreshing a register never pushes its figures down, and the body
+ * keeps a minimum height so the first load does not collapse the page.
  */
 export const AccountingRegisterShell: React.FC<{
   title: string;
   description: string;
   icon: React.ReactNode;
-  /** Lower-case register name used in the loading banner. */
+  /** Lower-case register name used in the loading line. */
   registerName: string;
   scope: AccountingScope;
   dateMode: 'BS' | 'AD';
-  /** Optional period start for flow statements such as cash flow. */
-  periodStart?: { value: string; onChange: (value: string) => void };
   /** Consolidated screens show every branch as a table column. */
   hideBranchSelector?: boolean;
-  /** Replaces the default showing-branch/as-of sentence. */
+  /** Replaces the default showing-branch/period sentence. */
   scopeNote?: React.ReactNode;
   /** Optional screen-specific actions rendered beside Refresh. */
   headerActions?: React.ReactNode;
@@ -114,7 +163,6 @@ export const AccountingRegisterShell: React.FC<{
   registerName,
   scope,
   dateMode,
-  periodStart,
   hideBranchSelector = false,
   scopeNote,
   headerActions,
@@ -125,15 +173,29 @@ export const AccountingRegisterShell: React.FC<{
   onRetry,
   children,
 }) => {
-  const { allowed, canSeeAllBranches, scopedBranches, branchId, setBranchId, asOfDate, setAsOfDate } =
-    scope;
-  const scopeFieldCount = (hideBranchSelector ? 0 : 1) + 1 + (periodStart ? 1 : 0) + 1;
-  const scopeGridClass =
-    scopeFieldCount >= 4 ? 'md:grid-cols-4' : scopeFieldCount === 3 ? 'md:grid-cols-3' : 'md:grid-cols-2';
+  const {
+    allowed,
+    canSeeAllBranches,
+    scopedBranches,
+    branchId,
+    setBranchId,
+    asOfDate,
+    fromDate,
+    draft,
+    setDraftFrom,
+    setDraftTo,
+    applyPeriod,
+    periodPending,
+  } = scope;
+
+  const branchLabel =
+    branchId === 'ALL'
+      ? 'all branches (company level)'
+      : scopedBranches.find((branch) => branch.id === branchId)?.name || branchId;
 
   if (!allowed) {
     return (
-      <div className="space-y-5">
+      <div className="space-y-4">
         <PageHeader title={title} description={description} icon={icon} />
         <div
           role="alert"
@@ -153,7 +215,7 @@ export const AccountingRegisterShell: React.FC<{
   }
 
   return (
-    <div className={`space-y-5 ${printable ? 'printable-document' : ''}`}>
+    <div className={`space-y-3 ${printable ? 'printable-document' : ''}`}>
       <PageHeader
         title={title}
         description={description}
@@ -165,7 +227,7 @@ export const AccountingRegisterShell: React.FC<{
               type="button"
               onClick={onRefresh}
               disabled={loading}
-              className="flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-200 disabled:opacity-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+              className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-200 disabled:opacity-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
             >
               <RefreshCw className={`h-3.5 w-3.5 text-slate-400 ${loading ? 'animate-spin' : ''}`} />
               Refresh
@@ -174,86 +236,95 @@ export const AccountingRegisterShell: React.FC<{
         }
       />
 
-      <div className={`grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900/40 ${printable ? 'print:hidden' : ''} ${scopeGridClass}`}>
-        {!hideBranchSelector && (
-          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400">
-            Branch
-            <select
-              aria-label="Accounting branch"
-              value={branchId}
-              onChange={(event) => setBranchId(event.target.value)}
-              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
-            >
-              {canSeeAllBranches && (
-                <option value="ALL">All Branches (company level)</option>
-              )}
-              {scopedBranches.map((branch) => (
-                <option key={branch.id} value={branch.id}>
-                  {branch.code} · {branch.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400">
-          As of (AD)
-          <input
-            aria-label="Accounting as of date"
-            type="date"
-            value={asOfDate}
-            onChange={(event) => setAsOfDate(event.target.value)}
-            className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
-          />
-        </label>
-        {periodStart && (
-          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400">
-            From (AD) — optional
-            <input
-              aria-label="Accounting period start"
-              type="date"
-              max={asOfDate}
-              value={periodStart.value}
-              onChange={(event) => periodStart.onChange(event.target.value)}
-              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+      <div
+        className={`rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-800 dark:bg-slate-900/40 ${printable ? 'print:hidden' : ''}`}
+      >
+        <div className="flex flex-col gap-2 md:flex-row md:items-end">
+          {!hideBranchSelector && (
+            <label className="block w-full text-xs font-semibold text-slate-500 md:w-64 dark:text-slate-400">
+              Branch
+              <select
+                aria-label="Accounting branch"
+                value={branchId}
+                onChange={(event) => setBranchId(event.target.value)}
+                className="mt-1 h-8 w-full rounded-lg border border-slate-300 bg-white px-2 text-xs text-slate-800 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+              >
+                {canSeeAllBranches && <option value="ALL">All Branches (company level)</option>}
+                {scopedBranches.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.code} · {branch.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <div className="min-w-0 flex-1 md:max-w-md">
+            <PeriodRangeField
+              from={draft.from}
+              to={draft.to}
+              onChange={(next) => {
+                setDraftFrom(next.from);
+                setDraftTo(next.to);
+              }}
+              onApply={applyPeriod}
+              pending={periodPending}
             />
-          </label>
-        )}
-        <div className="flex items-end">
-          <p className="rounded-lg bg-slate-50 px-3 py-2 text-[11px] leading-snug text-slate-500 dark:bg-slate-800/50 dark:text-slate-400">
-            {scopeNote || (
-              <>
-                Showing {branchId === 'ALL' ? 'all branches (company level)' : scopedBranches.find((branch) => branch.id === branchId)?.name || branchId} as of{' '}
-                <span className="font-semibold text-slate-700 dark:text-slate-200">{formatDualDate(asOfDate, dateMode)}</span>.
-              </>
-            )}
-          </p>
+          </div>
         </div>
       </div>
 
-      {error && (
-        <div role="alert" className={`${printable ? 'print:hidden' : ''} flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-800 dark:border-rose-500/40 dark:bg-rose-950/30 dark:text-rose-300`}>
-          <span className="flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 shrink-0" />
-            {error}
-          </span>
-          <button
-            type="button"
-            onClick={onRetry}
-            className="rounded-lg border border-rose-300 px-2 py-1 font-bold hover:bg-rose-100 dark:border-rose-500/40 dark:hover:bg-rose-900/40"
-          >
-            Retry
-          </button>
-        </div>
-      )}
+      <div
+        role="status"
+        aria-live="polite"
+        className={`flex h-8 items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-[11px] text-slate-500 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400 ${printable ? 'print:hidden' : ''}`}
+      >
+        <span className="truncate">
+          {scopeNote || (
+            <>
+              Showing {branchLabel}{' '}
+              {fromDate ? (
+                <>
+                  from{' '}
+                  <span className="font-semibold text-slate-700 dark:text-slate-200">
+                    {formatDualDate(fromDate, dateMode)}
+                  </span>{' '}
+                  to{' '}
+                </>
+              ) : (
+                <>as of </>
+              )}
+              <span className="font-semibold text-slate-700 dark:text-slate-200">
+                {formatDualDate(asOfDate, dateMode)}
+              </span>
+              .
+            </>
+          )}
+        </span>
+        <span className="flex shrink-0 items-center gap-2">
+          {error ? (
+            <>
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-rose-500" aria-hidden />
+              <span className="max-w-[26rem] truncate text-rose-700 dark:text-rose-300" title={error}>
+                {error}
+              </span>
+              <button
+                type="button"
+                onClick={onRetry}
+                className="rounded-md border border-rose-300 px-1.5 py-0.5 text-[11px] font-bold text-rose-700 hover:bg-rose-100 dark:border-rose-500/40 dark:text-rose-300 dark:hover:bg-rose-900/40"
+              >
+                Retry
+              </button>
+            </>
+          ) : loading ? (
+            <>
+              <RefreshCw className="h-3.5 w-3.5 animate-spin" aria-hidden />
+              Loading {registerName}…
+            </>
+          ) : null}
+        </span>
+      </div>
 
-      {loading && !error && (
-        <div role="status" className={`${printable ? 'print:hidden' : ''} flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-medium text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400`}>
-          <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-          Loading {registerName}…
-        </div>
-      )}
-
-      {children}
+      <div className={`min-h-[16rem] ${printable ? 'print:min-h-0' : ''}`}>{children}</div>
     </div>
   );
 };

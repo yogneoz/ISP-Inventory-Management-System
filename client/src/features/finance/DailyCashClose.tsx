@@ -16,7 +16,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useActivationKey, useTabActive } from '../../components/common/KeepMounted';
 import { PageHeader } from '../../components/common/PageHeader';
-import { StatCard } from '../../components/common/StatCard';
+import { KpiStrip } from '../../components/common/KpiStrip';
 import { api } from '../../services/api';
 import type {
   CashCloseBranch,
@@ -336,38 +336,42 @@ export const DailyCashClose: React.FC<DailyCashCloseProps> = ({
 
       {!loading && !error && totals && (
         <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatCard
-              label="CASH IN"
-              value={money(totals.cashIn)}
-              tone="emerald"
-              hint="Debits to branch cash on the day"
-            />
-            <StatCard
-              label="CASH OUT"
-              value={money(totals.cashOut)}
-              tone="rose"
-              hint="Credits to branch cash on the day"
-            />
-            <StatCard
-              label={branchId === 'ALL' ? 'COMPANY CLOSING CASH' : 'EXPECTED CLOSING'}
-              value={money(totals.expectedClosing)}
-              tone="indigo"
-              hint="Posted lines through the day; ties to the cash book"
-            />
-            <StatCard
-              label={branchId === 'ALL' ? 'BRANCHES CLOSED' : 'COUNTED / VARIANCE'}
-              value={
-                branchId === 'ALL'
-                  ? `${totals.closedBranches}/${totals.closedBranches + totals.openBranches}`
-                  : branch?.status === 'CLOSED'
-                    ? `${money(branch.countedClosing)} / ${money(branch.variance)}`
-                    : 'Not closed'
-              }
-              tone={branchId === 'ALL' || branch?.status === 'CLOSED' ? 'amber' : 'slate'}
-              hint={branchId === 'ALL' ? 'Branches with a counted close' : 'Counted cash and counted − expected'}
-            />
-          </div>
+          <KpiStrip
+            items={[
+              {
+                label: 'CASH IN',
+                value: money(totals.cashIn),
+                tone: 'text-emerald-500 dark:text-emerald-400',
+                hint: 'Debits to branch cash on the day',
+              },
+              {
+                label: 'CASH OUT',
+                value: money(totals.cashOut),
+                tone: 'text-rose-500 dark:text-rose-400',
+                hint: 'Credits to branch cash on the day',
+              },
+              {
+                label: branchId === 'ALL' ? 'COMPANY CLOSING CASH' : 'EXPECTED CLOSING',
+                value: money(totals.expectedClosing),
+                tone: 'text-indigo-500 dark:text-indigo-400',
+                hint: 'Posted lines through the day; ties to the cash book',
+              },
+              {
+                label: branchId === 'ALL' ? 'BRANCHES CLOSED' : 'COUNTED / VARIANCE',
+                value:
+                  branchId === 'ALL'
+                    ? `${totals.closedBranches}/${totals.closedBranches + totals.openBranches}`
+                    : branch?.status === 'CLOSED'
+                      ? `${money(branch.countedClosing)} / ${money(branch.variance)}`
+                      : 'Not closed',
+                tone:
+                  branchId === 'ALL' || branch?.status === 'CLOSED'
+                    ? 'text-amber-500 dark:text-amber-400'
+                    : 'text-slate-500 dark:text-slate-400',
+                hint: branchId === 'ALL' ? 'Branches with a counted close' : 'Counted cash and counted − expected',
+              },
+            ]}
+          />
 
           {branch && (
             <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">

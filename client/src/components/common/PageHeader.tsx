@@ -56,8 +56,15 @@ export function PageHeader({
         )}
       </div>
 
+      {/* Compact action row: every screen's header buttons are forced onto the
+          shared 32 px / rounded-lg scale from here, so a screen that still
+          ships the older `py-2 rounded-xl` button cannot render taller than
+          its neighbours. `!` is deliberate — the variants must win over the
+          per-button height/padding/radius the screens already declare. */}
       {actions != null && (
-        <div className={`shrink-0 flex flex-wrap items-center gap-2 ${actionsClassName}`}>
+        <div
+          className={`shrink-0 flex flex-wrap items-center gap-2 [&>button]:!h-8 [&>button]:!rounded-lg [&>button]:!px-2.5 [&>button]:!py-0 [&>button]:!text-xs ${actionsClassName}`}
+        >
           {actions}
         </div>
       )}

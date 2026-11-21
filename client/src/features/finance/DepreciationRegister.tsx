@@ -20,7 +20,7 @@ import {
   Layers,
   FileText,
 } from 'lucide-react';
-import { StatCard } from '../../components/common/StatCard';
+import { KpiStrip } from '../../components/common/KpiStrip';
 import { useKeysetPager } from '../../hooks/useKeysetPager';
 import { KeysetLoadMore } from '../../components/common/KeysetLoadMore';
 import { RegisterLoadError } from '../../components/common/RegisterLoadError';
@@ -61,7 +61,6 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
   const [categories, setCategories] = useState<string[]>([]);
   const [totals, setTotals] = useState<FixedAssetTotals>(ZERO_TOTALS);
   const [overviewTotal, setOverviewTotal] = useState(0);
-  const [totalItems, setTotalItems] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [retryToken, setRetryToken] = useState(0);
@@ -76,12 +75,17 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
   } as const;
 
   const pager = useKeysetPager<Asset, { totalItems?: number }>({
-    fetchPage: (cursor) => api.getFixedAssetCursorPage(scopedParams, cursor, 15),
+    // The page's aggregate travels as `meta`, which the pager clears whenever
+    // the query changes.
+    fetchPage: (cursor) =>
+      api.getFixedAssetCursorPage(scopedParams, cursor, 15).then((page) => ({ ...page, meta: page })),
     resetKey: [selectedBranchId, searchQuery, categoryFilter, asOfDateAD, activeTab, refreshToken, retryToken].join('|'),
     enabled: activeTab === 'DATE_WISE',
-    onPage: (page: any) => setTotalItems(Number(page.totalItems) || 0),
   });
   const { rows, scopeError, loadingMore, hasMore, loadMore } = pager;
+  // Lots for the CURRENT query, from the page's `meta` (cleared on a filter
+  // change) — never a previous filter's total.
+  const totalItems = Number(pager.meta?.totalItems) || 0;
   const registerError = loadError || pager.error;
   const registerLoading = loading || pager.loading;
 
@@ -294,30 +298,32 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
         </button>
       </div>
 
-      {/* Summary KPI Cards — shared compact StatCard component */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <StatCard
-          label="GROSS ACQUISITION COST"
-          icon={<Landmark className="h-4 w-4" />}
-          tone="emerald"
-          value={formatNPRPrecise(totalCost)}
-          hint={`Total capital expenditure across ${overviewTotal} purchase lots`}
-        />
-        <StatCard
-          label="TOTAL ACCUMULATED DEPRECIATION"
-          icon={<TrendingDown className="h-4 w-4" />}
-          tone="rose"
-          value={formatNPRPrecise(totalAccumDep)}
-          hint="Cumulative depreciation write-offs to date"
-        />
-        <StatCard
-          label="NET BOOK VALUE (NBV)"
-          icon={<Calculator className="h-4 w-4" />}
-          tone="indigo"
-          value={formatNPRPrecise(totalNBV)}
-          hint="Carrying value on corporate balance sheet"
-        />
-      </div>
+      {/* Summary figures — one inline bar. */}
+      <KpiStrip
+        items={[
+          {
+            label: 'GROSS ACQUISITION COST',
+            icon: <Landmark className="h-3.5 w-3.5" />,
+            tone: 'text-emerald-500 dark:text-emerald-400',
+            value: formatNPRPrecise(totalCost),
+            hint: `Total capital expenditure across ${overviewTotal} purchase lots`,
+          },
+          {
+            label: 'TOTAL ACCUMULATED DEPRECIATION',
+            icon: <TrendingDown className="h-3.5 w-3.5" />,
+            tone: 'text-rose-500 dark:text-rose-400',
+            value: formatNPRPrecise(totalAccumDep),
+            hint: 'Cumulative depreciation write-offs to date',
+          },
+          {
+            label: 'NET BOOK VALUE (NBV)',
+            icon: <Calculator className="h-3.5 w-3.5" />,
+            tone: 'text-indigo-500 dark:text-indigo-400',
+            value: formatNPRPrecise(totalNBV),
+            hint: 'Carrying value on corporate balance sheet',
+          },
+        ]}
+      />
 
       {/* Filter and Search Bar — shared FilterCard for register consistency. */}
       <FilterCard

@@ -104,13 +104,13 @@ export function FilterCard({
   };
 
   return (
-    <div className={`rounded-2xl border shadow-xs p-3 bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
-      <div className="flex flex-wrap items-end gap-2.5">
+    <div className={`rounded-xl border shadow-xs p-2.5 bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
+      <div className="flex flex-wrap items-end gap-2">
         {/* Compact search box — does not stretch to page width. */}
         <div>
           <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Search</label>
-          <div className="relative w-64 sm:w-72">
-            <Search className="h-4 w-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <div className="relative w-56 sm:w-64">
+            <Search className="h-3.5 w-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
               value={draft}
@@ -122,7 +122,7 @@ export function FilterCard({
                 }
               }}
               placeholder={searchPlaceholder}
-              className={`w-full rounded-xl border py-2 pl-9 pr-8 text-xs bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/40`}
+              className={`h-8 w-full rounded-lg border pl-8 pr-8 text-xs bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/40`}
             />
             {draft && (
               <button
@@ -146,7 +146,7 @@ export function FilterCard({
             type="button"
             onClick={onClearAll}
             title="Clear all filters"
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-bold cursor-pointer border-rose-300 text-rose-600 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-400 dark:hover:bg-rose-950/30"
+            className="flex h-8 items-center gap-1.5 px-2.5 rounded-lg border text-xs font-bold cursor-pointer border-rose-300 text-rose-600 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-400 dark:hover:bg-rose-950/30"
           >
             <RotateCcw className="h-3.5 w-3.5" />
             <span>Clear</span>

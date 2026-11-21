@@ -4,7 +4,7 @@ import { formatDualDate, convertADToBS, formatBSDate } from '../../utils/nepaliC
 import { warrantyStatusLabel } from '../../../../shared/warrantyTerm';
 import { isOperationAllowed, getAllowedBranches } from '../../utils/permissions';
 import { exportToCSV } from '../../utils/exportUtils';
-import StatCard from '../../components/common/StatCard';
+import { KpiStrip } from '../../components/common/KpiStrip';
 import { LoadStateNotice } from '../../components/common/LoadStateNotice';
 import { PageHeader } from '../../components/common/PageHeader';
 import {
@@ -677,29 +677,27 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
         />
       )}
 
-      {/* Overview Stat Cards — shared compact StatCard component */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <StatCard
-          label="Total Tracked Serials"
-          value={deviceTotal === null ? '—' : `${deviceTotal} Devices`}
-          tone="slate"
-        />
-        <StatCard
-          label="Rental Products (CPE)"
-          value={deviceCounts === null ? '—' : `${rentalCount} Rental`}
-          tone="sky"
-        />
-        <StatCard
-          label="Sold Products (Customer)"
-          value={deviceCounts === null ? '—' : `${soldCount} Sold`}
-          tone="violet"
-        />
-        <StatCard
-          label="Router Collected (Restocked)"
-          value={deviceCounts === null ? '—' : `${routerCollectedCount} Collected`}
-          tone="rose"
-        />
-      </div>
+      {/* Overview figures — one inline bar. */}
+      <KpiStrip
+        items={[
+          { label: 'Total Tracked Serials', value: deviceTotal === null ? '—' : `${deviceTotal} Devices` },
+          {
+            label: 'Rental Products (CPE)',
+            value: deviceCounts === null ? '—' : `${rentalCount} Rental`,
+            tone: 'text-sky-500 dark:text-sky-400',
+          },
+          {
+            label: 'Sold Products (Customer)',
+            value: deviceCounts === null ? '—' : `${soldCount} Sold`,
+            tone: 'text-violet-500 dark:text-violet-400',
+          },
+          {
+            label: 'Router Collected (Restocked)',
+            value: deviceCounts === null ? '—' : `${routerCollectedCount} Collected`,
+            tone: 'text-rose-500 dark:text-rose-400',
+          },
+        ]}
+      />
 
       {/* Search & Filter Bar */}
       <div className={`p-3 rounded-2xl border shadow-xs flex flex-col md:flex-row md:items-center justify-start gap-3 bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>

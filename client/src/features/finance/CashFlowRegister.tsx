@@ -28,7 +28,6 @@ export const CashFlowRegister: React.FC<AccountingScreenProps> = ({
   // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
   const { branches } = useBootstrapData();
   const scope = useAccountingScope(branches, currentUser);
-  const [fromDate, setFromDate] = useState('');
   const [data, setData] = useState<CashFlowResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -49,8 +48,7 @@ export const CashFlowRegister: React.FC<AccountingScreenProps> = ({
     let live = true;
     setLoading(true);
     setError('');
-    const query = fromDate ? { ...scope.query, from: fromDate } : scope.query;
-    void api.getCashFlow(query)
+    void api.getCashFlow(scope.rangeQuery)
       .then((next) => {
         if (live) setData(next);
       })
@@ -66,7 +64,7 @@ export const CashFlowRegister: React.FC<AccountingScreenProps> = ({
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isVisible, scope.branchId, scope.asOfDate, fromDate, activationKey, reloadKey]);
+  }, [isVisible, scope.branchId, scope.asOfDate, scope.fromDate, activationKey, reloadKey]);
 
   useEffect(() => {
     if (!isVisible) return;
@@ -142,8 +140,7 @@ export const CashFlowRegister: React.FC<AccountingScreenProps> = ({
     setPrinting(true);
     setPrintError('');
     try {
-      const query = fromDate ? { ...scope.query, from: fromDate } : scope.query;
-      const blob = await api.getCashFlowPdf(query);
+      const blob = await api.getCashFlowPdf(scope.rangeQuery);
       if (typeof URL.createObjectURL !== 'function') {
         throw new Error('This browser cannot open the cash-flow PDF.');
       }
@@ -170,7 +167,6 @@ export const CashFlowRegister: React.FC<AccountingScreenProps> = ({
       registerName="cash flow"
       scope={scope}
       dateMode={dateMode}
-      periodStart={{ value: fromDate, onChange: setFromDate }}
       loading={loading}
       error={error}
       onRefresh={() => setReloadKey((key) => key + 1)}

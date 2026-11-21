@@ -4,7 +4,7 @@ import { NavTab } from '../../components/layout/Sidebar';
 import { isOperationAllowed } from '../../utils/permissions';
 import { exportToCSV } from '../../utils/exportUtils';
 import { formatNPR } from '../../utils/nprFormat';
-import StatCard from '../../components/common/StatCard';
+import { KpiStrip } from '../../components/common/KpiStrip';
 import {
   AlertTriangle,
   Building2,
@@ -349,30 +349,32 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
         }
       />
 
-      {/* KPI Cards Banner — shared compact StatCard component */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <StatCard
-          label="Low Stock Branch Items"
-          value={`${lowStockSKUCount} SKUs Below Min`}
-          hint="At or below branch specific threshold"
-          icon={<AlertTriangle className="h-4 w-4" />}
-          tone="rose"
-        />
-        <StatCard
-          label="Total Required Stock (Deficit)"
-          value={`${Math.round(grandTotalDeficitUnits ?? 0).toLocaleString('en-IN')} Units`}
-          hint="Calculated against branch minimum levels"
-          icon={<ShoppingCart className="h-4 w-4" />}
-          tone="indigo"
-        />
-        <StatCard
-          label="Est. Reorder Budget"
-          value={formatNPR(grandTotalReorderCost ?? 0)}
-          hint="Procurement cost to achieve min levels"
-          icon={<RefreshCw className="h-4 w-4" />}
-          tone="amber"
-        />
-      </div>
+      {/* Reorder figures — one inline bar instead of a three-card band. */}
+      <KpiStrip
+        items={[
+          {
+            label: 'Low Stock Branch Items',
+            value: `${lowStockSKUCount} SKUs Below Min`,
+            hint: 'At or below branch specific threshold',
+            icon: <AlertTriangle className="h-3.5 w-3.5" />,
+            tone: 'text-rose-500 dark:text-rose-400',
+          },
+          {
+            label: 'Total Required Stock (Deficit)',
+            value: `${Math.round(grandTotalDeficitUnits ?? 0).toLocaleString('en-IN')} Units`,
+            hint: 'Calculated against branch minimum levels',
+            icon: <ShoppingCart className="h-3.5 w-3.5" />,
+            tone: 'text-indigo-500 dark:text-indigo-400',
+          },
+          {
+            label: 'Est. Reorder Budget',
+            value: formatNPR(grandTotalReorderCost ?? 0),
+            hint: 'Procurement cost to achieve min levels',
+            icon: <RefreshCw className="h-3.5 w-3.5" />,
+            tone: 'text-amber-500 dark:text-amber-400',
+          },
+        ]}
+      />
 
       {/* Filter and Search controls — shared FilterCard for register consistency. */}
       <FilterCard

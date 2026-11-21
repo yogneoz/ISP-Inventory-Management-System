@@ -10,8 +10,9 @@ import {
   ArrowUpRight
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
-import { StatCard, StatCardGrid } from '../../components/common/StatCard';
+import { KpiStrip } from '../../components/common/KpiStrip';
 import { DateField } from '../../components/DateField';
+import { PeriodRangeField, usePeriodRangeFilter } from '../../components/common/PeriodRangeField';
 import { FilterCard } from '../../components/common/FilterCard';
 import { PageHeader } from '../../components/common/PageHeader';
 import {
@@ -44,8 +45,11 @@ export const StockValuation: React.FC<StockValuationProps> = ({
   // Stock-activity date range (canonical AD values; DateField converts BS
   // picks). Narrows rows by the latest stock movement date (lastUpdated);
   // an empty bound is open-ended.
-  const [activityFromAD, setActivityFromAD] = useState('');
-  const [activityToAD, setActivityToAD] = useState('');
+  // One activity field: the filters below read the applied range, so a date
+  // edit changes nothing until Query applies it.
+  const activityRange = usePeriodRangeFilter({ from: '', to: '' });
+  const activityFromAD = activityRange.from;
+  const activityToAD = activityRange.to;
   const [subView, setSubView] = useState<'ITEMIZED' | 'CATEGORY' | 'BRANCH'>('ITEMIZED');
 
   React.useEffect(() => {
@@ -242,52 +246,48 @@ export const StockValuation: React.FC<StockValuationProps> = ({
         }
       />
 
-      {/* Financial KPI Cards — shared compact StatCard component. The
-          Potential Gross Profit card is clickable: it applies a "profitable"
-          filter focus by switching to the itemized view where margin columns
-          live; the others jump straight to the relevant sub-view. */}
-      <StatCardGrid>
-        <StatCard
-          label="Total Inventory Cost Value"
-          icon={<Coins className="h-4 w-4" />}
-          tone="indigo"
-          value={formatNPRInteger(grandCostValuation)}
-          hint={`At purchase cost across ${(grandTotalUnits ?? 0).toLocaleString('en-IN')} units`}
-          onClick={() => setSubView('ITEMIZED')}
-          title="Show itemized stock table"
-        />
-        <StatCard
-          label="Estimated Retail Value"
-          icon={<TrendingUp className="h-4 w-4" />}
-          tone="sky"
-          value={formatNPRInteger(grandRetailValuation)}
-          hint="At selling price market value"
-          onClick={() => setSubView('ITEMIZED')}
-          title="Show itemized stock table"
-        />
-        <StatCard
-          label="Potential Gross Profit"
-          icon={<ArrowUpRight className="h-4 w-4" />}
-          tone="emerald"
-          value={formatNPRInteger(grandPotentialMargin)}
-          hint={
-            <>
-              <span className="font-bold text-emerald-500 font-mono">{grandMarginPercent.toFixed(1)}%</span> average margin
-            </>
-          }
-          onClick={() => setSubView('ITEMIZED')}
-          title="Show itemized stock table"
-        />
-        <StatCard
-          label="Damaged Stock Loss Value"
-          icon={<AlertTriangle className="h-4 w-4" />}
-          tone="rose"
-          value={formatNPRInteger(grandDamagedLoss)}
-          hint="Unusable damaged stock write-off"
-          onClick={() => setSubView('ITEMIZED')}
-          title="Show itemized stock table"
-        />
-      </StatCardGrid>
+      {/* Financial figures — one inline bar; every figure opens the itemized
+          sub-view where the margin columns live. */}
+      <KpiStrip
+        items={[
+          {
+            label: 'Total Inventory Cost Value',
+            icon: <Coins className="h-3.5 w-3.5" />,
+            tone: 'text-indigo-500 dark:text-indigo-400',
+            value: formatNPRInteger(grandCostValuation),
+            hint: `At purchase cost across ${(grandTotalUnits ?? 0).toLocaleString('en-IN')} units`,
+            onClick: () => setSubView('ITEMIZED'),
+            title: 'Show itemized stock table',
+          },
+          {
+            label: 'Estimated Retail Value',
+            icon: <TrendingUp className="h-3.5 w-3.5" />,
+            tone: 'text-sky-500 dark:text-sky-400',
+            value: formatNPRInteger(grandRetailValuation),
+            hint: 'At selling price market value',
+            onClick: () => setSubView('ITEMIZED'),
+            title: 'Show itemized stock table',
+          },
+          {
+            label: 'Potential Gross Profit',
+            icon: <ArrowUpRight className="h-3.5 w-3.5" />,
+            tone: 'text-emerald-500 dark:text-emerald-400',
+            value: formatNPRInteger(grandPotentialMargin),
+            hint: `${grandMarginPercent.toFixed(1)}% average margin`,
+            onClick: () => setSubView('ITEMIZED'),
+            title: 'Show itemized stock table',
+          },
+          {
+            label: 'Damaged Stock Loss Value',
+            icon: <AlertTriangle className="h-3.5 w-3.5" />,
+            tone: 'text-rose-500 dark:text-rose-400',
+            value: formatNPRInteger(grandDamagedLoss),
+            hint: 'Unusable damaged stock write-off',
+            onClick: () => setSubView('ITEMIZED'),
+            title: 'Show itemized stock table',
+          },
+        ]}
+      />
 
       {/* Controls & Sub-view Switcher — view tabs on their own row, with the
           shared search/filter card below, so the bar never balloons in height
@@ -332,8 +332,7 @@ export const StockValuation: React.FC<StockValuationProps> = ({
               setActiveBranchId('ALL');
               setSelectedCategory('ALL');
               setStockStatusFilter('ALL');
-              setActivityFromAD('');
-              setActivityToAD('');
+              activityRange.reset();
             }}
             filterChildren={
               <>
@@ -380,31 +379,21 @@ export const StockValuation: React.FC<StockValuationProps> = ({
                     <option value="OUT_OF_STOCK">Out of Stock</option>
                   </select>
                 </div>
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Activity From</label>
-                  <div className="w-40">
-                    <DateField
-                      mode={dateMode}
-                      value={activityFromAD}
-                      onChange={setActivityFromAD}
-                      compact
-                      showHint={false}
-                      max={activityToAD || undefined}
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Activity To</label>
-                  <div className="w-40">
-                    <DateField
-                      mode={dateMode}
-                      value={activityToAD}
-                      onChange={setActivityToAD}
-                      compact
-                      showHint={false}
-                      min={activityFromAD || undefined}
-                    />
-                  </div>
+                <div className="min-w-fit">
+                  <PeriodRangeField
+                    label="Activity"
+                    startAriaLabel="Activity from"
+                    endAriaLabel="Activity to"
+                    requireEnd={false}
+                    from={activityRange.draft.from}
+                    to={activityRange.draft.to}
+                    onChange={(next) => {
+                      activityRange.setFrom(next.from);
+                      activityRange.setTo(next.to);
+                    }}
+                    onApply={activityRange.apply}
+                    pending={activityRange.pending}
+                  />
                 </div>
               </>
             }

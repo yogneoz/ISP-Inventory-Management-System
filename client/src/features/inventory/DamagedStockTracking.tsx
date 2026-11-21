@@ -10,8 +10,8 @@ import { useActivationKey } from '../../components/common/KeepMounted';
 import { useBsCalendarGate } from '../../utils/bsCalendarGate';
 import { localTodayAD } from '../../utils/localDate';
 import { parseLineQuantity } from '../../utils/lineQuantity';
-import StatCard from '../../components/common/StatCard';
 import { DateField } from '../../components/DateField';
+import { PeriodRangeField, usePeriodRangeFilter } from '../../components/common/PeriodRangeField';
 import { ModalPanel } from '../../components/common/ModalPanel';
 import {
   AlertTriangle,
@@ -207,8 +207,11 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
   // Report date range (canonical AD values; DateField converts BS picks). A
   // range narrows the damage records counted in the matrix by damageDateAD;
   // an empty bound is open-ended.
-  const [reportDateFromAD, setReportDateFromAD] = useState('');
-  const [reportDateToAD, setReportDateToAD] = useState('');
+  // One damage-date field: the report narrows to the applied range only, so a
+  // date edit changes nothing until Query applies it.
+  const damageRange = usePeriodRangeFilter({ from: '', to: '' });
+  const reportDateFromAD = damageRange.from;
+  const reportDateToAD = damageRange.to;
   const hasDateRange = Boolean(reportDateFromAD || reportDateToAD);
 
   const categories = Array.from(new Set(products.map((p) => p.category)));
@@ -543,32 +546,31 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
             <button
               type="button"
               onClick={handleExportDamagedStockReport}
-              className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold border cursor-pointer shadow-xs transition-all text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-300 dark:text-emerald-300 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 dark:border-emerald-700/60"
+              className="flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-bold border cursor-pointer shadow-xs transition-all text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-300 dark:text-emerald-300 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 dark:border-emerald-700/60"
               title="Export full Damaged Stock Matrix & Financial Loss with uniform BS Date (YYYY-MM-DD)"
             >
-              <Download className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-              <FileSpreadsheet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              <Download className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
               <span>Export Damage CSV (BS Date)</span>
             </button>
 
             <button
               onClick={() => setShowWriteOffGuide(!showWriteOffGuide)}
-              className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold border transition-all cursor-pointer bg-white text-slate-700 border-slate-200 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-slate-700"
+              className="flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold border transition-all cursor-pointer bg-white text-slate-700 border-slate-200 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-slate-700"
             >
-              <HelpCircle className="h-4 w-4 text-indigo-500 dark:text-indigo-400" />
+              <HelpCircle className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
               <span>Corporate Write-Off Guide</span>
             </button>
 
             <button
               onClick={handleTopDisposalClick}
               title={canDispose ? "Dispose & Write-Off Damaged Stock" : "Restricted: Requires Inventory Manager or Super Admin role"}
-              className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-white shadow-md transition-all cursor-pointer ${
+              className={`flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-bold text-white shadow-md transition-all cursor-pointer ${
                 canDispose
                   ? 'bg-rose-600 hover:bg-rose-500'
                   : 'bg-slate-500 dark:bg-slate-700 hover:bg-slate-600 opacity-80'
               }`}
             >
-              <Flame className="h-4 w-4" />
+              <Flame className="h-3.5 w-3.5" />
               <span>Dispose & Write-Off Stock</span>
               {!canDispose && <Lock className="h-3 w-3 ml-0.5 text-amber-200" />}
             </button>
@@ -577,17 +579,17 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
               <>
                 <button
                   onClick={() => onNavigateTab('damage')}
-                  className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold border transition-all cursor-pointer bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800/60 dark:hover:bg-amber-900/60"
+                  className="flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold border transition-all cursor-pointer bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800/60 dark:hover:bg-amber-900/60"
                 >
-                  <AlertOctagon className="h-4 w-4 text-amber-500" />
+                  <AlertOctagon className="h-3.5 w-3.5 text-amber-500" />
                   <span>Tag Damaged Stock</span>
                 </button>
 
                 <button
                   onClick={() => onNavigateTab('pullout')}
-                  className="flex items-center gap-1.5 rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 shadow-md transition-all cursor-pointer"
+                  className="flex h-8 items-center gap-1.5 rounded-lg bg-indigo-600 px-2.5 text-xs font-semibold text-white hover:bg-indigo-500 shadow-md transition-all cursor-pointer"
                 >
-                  <Truck className="h-4 w-4" />
+                  <Truck className="h-3.5 w-3.5" />
                   <span>Dispatch Pullout HQ</span>
                 </button>
               </>
@@ -665,29 +667,41 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
         </div>
       )}
 
-      {/* KPI Summary Banner — shared compact StatCard component */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <StatCard
-          label="Total Damaged Units"
-          value={`${(grandTotalDamagedUnits ?? 0).toLocaleString('en-IN')} Pcs`}
-          hint="Across all filtered branch stores"
-          icon={<AlertTriangle className="h-4 w-4" />}
-          tone="amber"
-        />
-        <StatCard
-          label="Total Damaged Valuation"
-          value={formatNPR(grandTotalLossValuation ?? 0)}
-          hint="Estimated gross cost inventory impairment"
-          icon={<DollarSign className="h-4 w-4" />}
-          tone="rose"
-        />
-        <StatCard
-          label="Affected Products"
-          value={`${affectedSKUsCount} SKUs`}
-          hint="Items requiring quality action or disposal"
-          icon={<Layers className="h-4 w-4" />}
-          tone="indigo"
-        />
+      {/* KPI strip — one inline bar like the Organizational Chart, so the
+          figures cost ~34 px instead of a three-card row. */}
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] text-slate-600 dark:border-slate-800 dark:bg-[#12161f] dark:text-slate-400">
+        {[
+          {
+            label: 'Total Damaged Units',
+            value: `${(grandTotalDamagedUnits ?? 0).toLocaleString('en-IN')} Pcs`,
+            hint: 'Across all filtered branch stores',
+            icon: AlertTriangle,
+            tone: 'text-amber-500 dark:text-amber-400',
+          },
+          {
+            label: 'Total Damaged Valuation',
+            value: formatNPR(grandTotalLossValuation ?? 0),
+            hint: 'Estimated gross cost inventory impairment',
+            icon: DollarSign,
+            tone: 'text-rose-500 dark:text-rose-400',
+          },
+          {
+            label: 'Affected Products',
+            value: `${affectedSKUsCount} SKUs`,
+            hint: 'Items requiring quality action or disposal',
+            icon: Layers,
+            tone: 'text-indigo-500 dark:text-indigo-400',
+          },
+        ].map((kpi) => {
+          const Icon = kpi.icon;
+          return (
+            <span key={kpi.label} className="inline-flex items-center gap-1.5" title={`${kpi.label}: ${kpi.hint}`}>
+              <Icon className={`h-3.5 w-3.5 ${kpi.tone}`} aria-hidden />
+              <b className="font-mono text-xs text-slate-900 dark:text-white">{kpi.value}</b>
+              <span>{kpi.label}</span>
+            </span>
+          );
+        })}
       </div>
 
       {/* Filter & Search Card — shared inline card */}
@@ -702,8 +716,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
         onClearAll={() => {
           setLocalSearch('');
           setFilterCategory('ALL');
-          setReportDateFromAD('');
-          setReportDateToAD('');
+          damageRange.reset();
           setShowZeroDamaged(false);
         }}
         filterChildren={
@@ -713,7 +726,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
               <select
                 value={filterCategory}
                 onChange={(e) => setFilterCategory(e.target.value)}
-                className={`w-44 px-3 py-2 text-xs rounded-xl border bg-white border-slate-300 text-slate-700 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200 cursor-pointer`}
+                className={`h-8 w-40 rounded-lg border bg-white px-2.5 text-xs text-slate-700 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200 cursor-pointer`}
               >
                 <option value="ALL">All Categories ({categories.length})</option>
                 {categories.map((c) => (
@@ -723,31 +736,21 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                 ))}
               </select>
             </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Damage From</label>
-              <div className="w-40">
-                <DateField
-                  mode={dateMode}
-                  value={reportDateFromAD}
-                  onChange={setReportDateFromAD}
-                  compact
-                  showHint={false}
-                  max={reportDateToAD || undefined}
-                />
-              </div>
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Damage To</label>
-              <div className="w-40">
-                <DateField
-                  mode={dateMode}
-                  value={reportDateToAD}
-                  onChange={setReportDateToAD}
-                  compact
-                  showHint={false}
-                  min={reportDateFromAD || undefined}
-                />
-              </div>
+            <div className="min-w-fit">
+              <PeriodRangeField
+                label="Damage date"
+                startAriaLabel="Damage date from"
+                endAriaLabel="Damage date to"
+                requireEnd={false}
+                from={damageRange.draft.from}
+                to={damageRange.draft.to}
+                onChange={(next) => {
+                  damageRange.setFrom(next.from);
+                  damageRange.setTo(next.to);
+                }}
+                onApply={damageRange.apply}
+                pending={damageRange.pending}
+              />
             </div>
             <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500 cursor-pointer pb-2">
               <input
