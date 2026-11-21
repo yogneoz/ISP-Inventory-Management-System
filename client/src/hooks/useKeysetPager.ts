@@ -18,6 +18,15 @@ export interface KeysetPager<T, M = unknown> {
   nextCursor: string | null;
   reload: () => void;
   loadMore: () => void;
+  /** Rows per cursor page, fixed by the first page (0 before it lands). */
+  pageSize: number;
+  /**
+   * Metadata of the page the CURRENT query returned (e.g. per-status counts).
+   * Dropped in the render that adopts a new `resetKey` and while a reload is in
+   * flight, so a register can never show a previous filter's totals over this
+   * filter's rows.
+   */
+  meta: M | null;
 }
 
 export function isScopeRequiredError(err: any): boolean {
@@ -56,6 +65,8 @@ interface UseKeysetPagerOptions<T, M> {
  * "Load more" sends the previous page's opaque `nextCursor`. The rows already
  * loaded are never re-read, so inserts committed between requests cannot shift
  * the window and make a row appear twice or disappear.
+ *
+ * Numbered pages are a separate concern — see `useKeysetPageView`.
  */
 export function useKeysetPager<T extends { id: string }, M = unknown>({
   fetchPage,
@@ -70,6 +81,19 @@ export function useKeysetPager<T extends { id: string }, M = unknown>({
   const [scopeError, setScopeError] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [pageSize, setPageSize] = useState(0);
+  const [meta, setMeta] = useState<M | null>(null);
+  // Figures belong to the query that produced them, so they are dropped in the
+  // very render that adopts a new resetKey — not one commit later in an effect,
+  // which would pair the new filter with the previous filter's totals for a
+  // frame. (Same render-phase reset as useClientPagination.)
+  const [metaKey, setMetaKey] = useState(resetKey);
+  if (metaKey !== resetKey) {
+    setMetaKey(resetKey);
+    setMeta(null);
+  }
+  // Mirror of `rows` for the append path, which merges inside an async callback.
+  const rowsRef = useRef<T[]>([]);
 
   const seq = useRef(0);
   const fetchRef = useRef(fetchPage);
@@ -83,26 +107,39 @@ export function useKeysetPager<T extends { id: string }, M = unknown>({
     else {
       setLoading(true);
       setLoadingMore(false);
+      rowsRef.current = [];
       setRows([]);
       setHasMore(false);
       setNextCursor(null);
+      // A new query invalidates every total the previous one reported.
+      setMeta(null);
     }
     setError('');
     setScopeError(false);
     try {
-      const page = await fetchRef.current(cursor);
+      const result = await fetchRef.current(cursor);
       if (mine !== seq.current) return;
-      setRows((current) => (append ? appendKeysetRows(current, page.items) : page.items));
-      setNextCursor(page.nextCursor);
-      setHasMore(Boolean(page.hasMore && page.nextCursor));
-      onPageRef.current?.(page);
+      const nextRows = append ? appendKeysetRows(rowsRef.current, result.items) : result.items;
+      rowsRef.current = nextRows;
+      setRows(nextRows);
+      // The first page fixes the page size for the whole walk: every later page
+      // is fetched with the same bounded limit, so page n covers a fixed slice.
+      if (!append && result.items.length > 0) setPageSize(result.items.length);
+      setNextCursor(result.nextCursor);
+      setHasMore(Boolean(result.hasMore && result.nextCursor));
+      setMeta((result.meta ?? null) as M | null);
+      onPageRef.current?.(result);
     } catch (err: any) {
       if (mine !== seq.current) return;
       setError(err?.message || 'The register could not be loaded.');
       setScopeError(isScopeRequiredError(err));
       setHasMore(false);
       setNextCursor(null);
-      if (!append) setRows([]);
+      if (!append) {
+        rowsRef.current = [];
+        setRows([]);
+        setMeta(null);
+      }
     } finally {
       if (mine === seq.current) {
         setLoading(false);
@@ -114,11 +151,13 @@ export function useKeysetPager<T extends { id: string }, M = unknown>({
   useEffect(() => {
     if (!enabled) {
       seq.current++;
+      rowsRef.current = [];
       setRows([]);
       setHasMore(false);
       setNextCursor(null);
       setError('');
       setScopeError(false);
+      setMeta(null);
       setLoading(false);
       setLoadingMore(false);
       return;
@@ -135,5 +174,17 @@ export function useKeysetPager<T extends { id: string }, M = unknown>({
     void load(nextCursor, true);
   }, [enabled, hasMore, load, loading, loadingMore, nextCursor]);
 
-  return { rows, loading, loadingMore, error, scopeError, hasMore, nextCursor, reload, loadMore };
+  return {
+    rows,
+    loading,
+    loadingMore,
+    error,
+    scopeError,
+    hasMore,
+    nextCursor,
+    reload,
+    loadMore,
+    pageSize,
+    meta,
+  };
 }

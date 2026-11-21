@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { pageWindow } from '../../utils/pageWindow';
 
 /**
  * Client-side pagination for data lists.
@@ -100,17 +101,6 @@ export function useServerPageClamp(
   return safePage;
 }
 
-function pageWindow(page: number, pageCount: number): (number | 'gap-l' | 'gap-r')[] {
-  if (pageCount <= 7) return Array.from({ length: pageCount }, (_, i) => i + 1);
-  const pages: (number | 'gap-l' | 'gap-r')[] = [1];
-  const start = Math.max(2, page - 1);
-  const end = Math.min(pageCount - 1, page + 1);
-  if (start > 2) pages.push('gap-l');
-  for (let i = start; i <= end; i++) pages.push(i);
-  if (end < pageCount - 1) pages.push('gap-r');
-  pages.push(pageCount);
-  return pages;
-}
 
 interface TablePaginationProps {
   page: number;
