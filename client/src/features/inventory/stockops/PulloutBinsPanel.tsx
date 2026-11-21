@@ -47,7 +47,9 @@ export const PulloutBinsPanel: React.FC = () => {
 
   const pulloutPager = useKeysetPager({
     fetchPage: fetchPulloutPage,
-    resetKey: [branchFilter, activeTab, sseRefreshKey ?? 0].join('\u0000'),
+    resetKey: [branchFilter, activeTab].join('\u0000'),
+    // An SSE tick is the same query: it must not drop the reader to page 1.
+    refreshKey: sseRefreshKey ?? 0,
     enabled: activeTab === 'PULLOUT_BINS',
   });
   // Numbered view over the cursor walk (the SerialLogRegister pattern): the
@@ -88,7 +90,7 @@ export const PulloutBinsPanel: React.FC = () => {
       await api.reversePulloutOperation(op.id, reason.trim(), currentUser);
       showToast(`Pullout ${op.referenceNumber} reversed. Units returned to ${op.branchName || op.branchId}.`);
       await onRefreshData?.();
-      pulloutPager.reload();
+      pulloutPager.refresh();
     } catch (err: any) {
       showToast(`Reversal failed: ${err.message || 'Unknown error'}`);
     }

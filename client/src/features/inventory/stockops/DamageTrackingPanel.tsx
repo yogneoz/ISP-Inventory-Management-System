@@ -64,7 +64,7 @@ export const DamageTrackingPanel: React.FC = () => {
         await api.reverseStockOperation(op.id, reason.trim(), currentUser);
       }
       showToast(`Damage record ${op.referenceNumber} reversed. Units restored to available stock.`);
-      damagePager.reload();
+      damagePager.refresh();
     } catch (err: any) {
       showToast(`Reversal failed: ${err.message || 'Unknown error'}`);
     }
@@ -99,7 +99,9 @@ export const DamageTrackingPanel: React.FC = () => {
 
   const damagePager = useKeysetPager({
     fetchPage: fetchDamagePage,
-    resetKey: [branchFilter, activeTab, sseRefreshKey ?? 0].join('\u0000'),
+    resetKey: [branchFilter, activeTab].join('\u0000'),
+    // An SSE tick is the same query: it must not drop the reader to page 1.
+    refreshKey: sseRefreshKey ?? 0,
     enabled: activeTab === 'DAMAGE_TRACKING',
   });
 

@@ -79,7 +79,7 @@ export const ConsumablesRegisterPanel: React.FC = () => {
         await api.reverseConsumableIssue(op.id, reason.trim(), currentUser);
       }
       showToast(`Consumable issue ${op.referenceNumber} reversed. Units returned to available stock.`);
-      consumablePager.reload();
+      consumablePager.refresh();
     } catch (err: any) {
       showToast(`Reversal failed: ${err.message || 'Unknown error'}`);
     }
@@ -151,8 +151,9 @@ export const ConsumablesRegisterPanel: React.FC = () => {
       consumableRegisterQuery,
       consumableRegisterDateFrom,
       consumableRegisterDateTo,
-      sseRefreshKey ?? 0,
     ].join('\u0000'),
+    // An SSE tick is the same query: it must not drop the reader to page 1.
+    refreshKey: sseRefreshKey ?? 0,
   });
   // The record chip is the filtered total of the CURRENT query: the per-status
   // counts the server computed with the same filter fragment as this page. They
