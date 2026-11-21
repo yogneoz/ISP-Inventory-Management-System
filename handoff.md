@@ -230,7 +230,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 2726 tests; CI runs
+                                        #   drift/concurrency guards — 2728 tests; CI runs
                                         #   tsc + npm test + the source guards + the
                                         #   production build + the boot-timing gate +
                                         #   npm audit on every push/PR
@@ -594,7 +594,7 @@ The server registers ~130 routes. The most important ones:
 | `/api/accounting/periods`, `:id/close`, `:id/reopen` | GET, POST | Monthly periods; a closed period refuses postings until reopened (`gl-close`) |
 | `/api/accounting/journals`, `:id`, `:id/reverse` | GET, POST | Branch-scoped journal list / detail, balanced manual posting, and contra reversal; a control-account line must carry its subledger party (`gl-post` post, `gl-reverse` reverse) |
 | `/api/accounting/reconciliations?accountId=` | GET | Control-account GL balance vs subledger total, with per-party balances and `RECONCILED`/`DIFFERENCE` (`gl-view`) |
-| `/api/accounting/statements/trial-balance` | GET | Posted-line trial balance: opening, turnover and closing with debit = credit, a `groups` tree of group → sub-group → account with rolled-up subtotals, statement-group → account-group nesting, and every control account's GL vs subledger agreement as of the same date (`gl-view`) |
+| `/api/accounting/statements/trial-balance` | GET | Posted-line trial balance: opening, turnover and closing with debit = credit, a `groups` tree of group → sub-group → account with rolled-up subtotals, statement-group → account-group nesting, and every control account's GL vs subledger agreement as of the same date. Opening, turnover and closing for a window that is a whole run of monthly periods come from the `gl_period_balances` read model (opening = every earlier period, turnover = the periods inside it); a window with a mid-period edge, and every per-line drill-down, reads the posted lines. A closed fiscal year still prefers the immutable snapshot (`gl-view`) |
 | `/api/accounting/statements/profit-and-loss` | GET | Period revenue, cost of sales and expenses from posted lines, nested by statement group → group → sub-group with a rolled-up subtotal at each level; `asOf` or `from`/`to` (`gl-view`) |
 | `/api/accounting/statements/balance-sheet` | GET | As-of assets, liabilities, equity, current earnings and due to/from head office, with each section nested by group → sub-group and rolled-up subtotals; one branch or `ALL` (`gl-view`) |
 | `/api/accounting/statements/cash-flow` | GET | Direct-method operating, investing and financing cash movements from posted cash/bank lines, with one net movement per journal classified by its largest non-cash counterpart; opening cash, net movement and closing cash tie to the same cash-book rows. `from`/`to` (or `asOf`) and one branch or `ALL` (`gl-view`) |
@@ -1538,7 +1538,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 2726 tests against a real PostgreSQL 16 service container
+2. `npm test` — 2728 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM

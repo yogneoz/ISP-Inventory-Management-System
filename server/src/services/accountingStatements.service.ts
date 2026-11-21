@@ -51,6 +51,10 @@ import {
   type AccountType,
   type StatementGroup,
 } from '../models/accounting.repo';
+import {
+  PERIOD_ALIGNED_WINDOW_SQL,
+  PERIOD_BALANCE_ACCOUNT_ROWS_SQL,
+} from '../models/readModels.repo';
 import { isAccountingDate, type AccountingClient } from './accounting.service';
 
 export type StatementMode =
@@ -76,6 +80,15 @@ export interface StatementWindow {
    * switch, not a different definition.
    */
   snapshotFiscalYearId?: string | null;
+  /**
+   * Set when the window is exactly a run of whole monthly periods, so the
+   * statement can read `gl_period_balances` instead of scanning
+   * `gl_journal_lines`. The model is period-granular: a window with a
+   * mid-period edge has no rows that describe it, so it stays on the ledger.
+   * Like the snapshot above, this is a read-path switch — the figures are the
+   * ledger's, per `PERIOD_BALANCE_ACCOUNT_ROWS_SQL`.
+   */
+  periodBalances?: boolean;
 }
 
 export interface StatementScope {
@@ -545,6 +558,7 @@ export async function resolveStatementWindow(
       branchId: scope.branchId,
       empty: Boolean(scope.empty),
       snapshotFiscalYearId: await closedYearSnapshotFor(client, from, to),
+      periodBalances: await isPeriodAlignedWindow(client, from, to),
     };
   }
 
@@ -562,7 +576,23 @@ export async function resolveStatementWindow(
     branchId: scope.branchId,
     empty: Boolean(scope.empty),
     snapshotFiscalYearId: await closedYearSnapshotFor(client, from, to),
+    periodBalances: await isPeriodAlignedWindow(client, from, to),
   };
+}
+
+/**
+ * Whether `from`..`to` is a run of whole monthly periods, which is the only
+ * shape `gl_period_balances` can answer without the ledger (see
+ * PERIOD_ALIGNED_WINDOW_SQL). A window that starts or ends inside a period is
+ * still a valid statement; it just reads the lines.
+ */
+async function isPeriodAlignedWindow(
+  client: AccountingClient,
+  from: string,
+  to: string
+): Promise<boolean> {
+  const row = (await client.query(PERIOD_ALIGNED_WINDOW_SQL, [from, to])).rows[0];
+  return row?.aligned === true;
 }
 
 /**
@@ -608,7 +638,13 @@ async function loadAccountBalances(
           window.snapshotFiscalYearId,
           window.branchId,
         ])
-      : await client.query(ACCOUNT_BALANCE_ROWS_SQL, [window.from, window.to, window.branchId])
+      : window.periodBalances === true
+        ? await client.query(PERIOD_BALANCE_ACCOUNT_ROWS_SQL, [
+            window.from,
+            window.to,
+            window.branchId,
+          ])
+        : await client.query(ACCOUNT_BALANCE_ROWS_SQL, [window.from, window.to, window.branchId])
   ).rows;
   return rows.map((row: any) => ({
     accountId: String(row.accountId),

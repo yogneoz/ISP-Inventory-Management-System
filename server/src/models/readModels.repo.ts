@@ -94,6 +94,75 @@ WHERE branch_id = $1
   ORDER BY account_id ASC, period_start_ad ASC, period_id ASC`;
 
 /**
+ * True when `[$1, $2]` is exactly a run of whole monthly periods: `from` is a
+ * period start, `to` a period end, and the periods inside cover every day of
+ * the window with neither a gap nor an overlap.
+ *
+ * `gl_period_balances` is period-granular, so only such a window can be served
+ * from it without reading `gl_journal_lines` at all. Summing the covered
+ * periods' lengths against the window's is the check, because a gap
+ * under-counts the days and an overlap over-counts them.
+ */
+export const PERIOD_ALIGNED_WINDOW_SQL = `SELECT COALESCE(SUM((p.end_date_ad - p.start_date_ad) + 1), 0)
+  = ($2::date - $1::date) + 1 AS aligned
+FROM gl_periods p
+WHERE p.start_date_ad >= $1::date
+  AND p.end_date_ad <= $2::date`;
+
+/**
+ * The trial balance's account rows, read from `gl_period_balances` instead of
+ * scanning `gl_journal_lines`. The columns, the join to the chart and the
+ * debit-positive sign convention are `ACCOUNT_BALANCE_ROWS_SQL`'s, so every
+ * statement builder consumes it unchanged: `$1` is the opening date (NULL means
+ * "from inception", the balance-sheet shape), `$2` the closing date and `$3`
+ * the caller's branch scope (NULL rolls every branch up).
+ *
+ * Opening is the sum of every period ending before `$1`; turnover is the sum of
+ * the periods inside the window. The two sides cannot drift apart in rounding:
+ * ledger amounts are `NUMERIC(14, 2)` and the model's are `NUMERIC(16, 2)`, so
+ * summing per-period cents and summing the lines both land on exact cents.
+ */
+export const PERIOD_BALANCE_ACCOUNT_ROWS_SQL = `WITH covered AS (
+  SELECT m.account_id, m.period_debit, m.period_credit, p.end_date_ad
+  FROM gl_period_balances m
+  JOIN gl_periods p ON p.id = m.period_id
+  WHERE ($3::varchar IS NULL OR m.branch_id = $3::varchar)
+    AND p.end_date_ad <= $2::date
+), balances AS (
+  SELECT account_id,
+    COALESCE(SUM(CASE WHEN $1::date IS NULL OR end_date_ad < $1::date
+      THEN period_debit - period_credit ELSE 0 END), 0) AS opening_balance,
+    COALESCE(SUM(CASE WHEN $1::date IS NULL OR end_date_ad >= $1::date
+      THEN period_debit ELSE 0 END), 0) AS period_debit,
+    COALESCE(SUM(CASE WHEN $1::date IS NULL OR end_date_ad >= $1::date
+      THEN period_credit ELSE 0 END), 0) AS period_credit
+  FROM covered
+  GROUP BY account_id
+)
+SELECT a.id AS "accountId",
+  a.code,
+  a.name,
+  a.is_active AS "isActive",
+  a.subledger_type AS "subledgerType",
+  a.posting_role AS "postingRole",
+  a.account_kind AS "accountKind",
+  g.id AS "groupId",
+  g.parent_id AS "parentGroupId",
+  g.code AS "groupCode",
+  g.name AS "groupName",
+  g.account_type AS "accountType",
+  g.statement_group AS "statementGroup",
+  g.normal_balance AS "normalBalance",
+  g.sort_order AS "groupSortOrder",
+  COALESCE(b.opening_balance, 0)::numeric AS "openingBalance",
+  COALESCE(b.period_debit, 0)::numeric AS "periodDebit",
+  COALESCE(b.period_credit, 0)::numeric AS "periodCredit"
+FROM gl_accounts a
+JOIN gl_account_groups g ON g.id = a.group_id
+LEFT JOIN balances b ON b.account_id = a.id
+ORDER BY g.sort_order ASC, a.code ASC`;
+
+/**
  * Party balances for one branch: the AR/AP aging read. `$2` is the subledger
  * type, `$3` one party and `$4` one period; NULL means every value at that
  * position. Never a client-supplied branch — the caller passes its session scope.

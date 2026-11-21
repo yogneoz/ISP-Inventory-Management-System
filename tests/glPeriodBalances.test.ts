@@ -24,6 +24,7 @@ import pg from 'pg';
 import dotenv from 'dotenv';
 import { createThrowawayDatabase, dropThrowawayDatabase } from './fixtures/throwawayDatabase';
 import { ACCOUNT_BALANCE_ROWS_SQL } from '../server/src/models/accounting.repo';
+import { buildTrialBalance, resolveStatementWindow } from '../server/src/services/accountingStatements.service';
 import {
   GL_PARTY_PERIOD_BALANCES_REBUILD_SQL,
   GL_PARTY_PERIOD_BALANCES_SQL,
@@ -516,5 +517,65 @@ describe('period and party balances (throwaway PostgreSQL)', { skip: skipNoDb },
     await pool!.query(GL_PARTY_PERIOD_BALANCES_REBUILD_SQL);
     assert.deepEqual(await periodSnapshot(), incremental, 'period rows identical, updated_at included');
     assert.deepEqual(await partySnapshot(), parties, 'party rows identical, updated_at included');
+  });
+
+  test('a whole-period window is served from the model and equals the ledger read', async () => {
+    // January through March is exactly P1..P3: three whole periods, no gap.
+    const window = await resolveStatementWindow(
+      pool!,
+      { from: '2026-01-01', to: '2026-03-31' },
+      'TRIAL_BALANCE',
+      { branchId: BRANCH, empty: false }
+    );
+    assert.equal(window.periodBalances, true, 'the model answers a whole-period window');
+    assert.equal(window.snapshotFiscalYearId, null, 'the year is open, so no snapshot serves it');
+
+    const fromModel = await buildTrialBalance(pool!, window);
+    const fromLedger = await buildTrialBalance(pool!, { ...window, periodBalances: false });
+    assert.ok(fromModel.accounts.length > 0, 'the window has accounts to compare');
+    assert.deepEqual(fromModel, fromLedger, 'the model read is the ledger read, payload for payload');
+
+    // Company-wide sums every branch's period rows, so the roll-up is exercised
+    // too: the other branch posted in January.
+    const allBranches = await resolveStatementWindow(
+      pool!,
+      { from: '2026-01-01', to: '2026-03-31' },
+      'TRIAL_BALANCE',
+      { branchId: null, empty: false }
+    );
+    assert.equal(allBranches.periodBalances, true);
+    assert.deepEqual(
+      await buildTrialBalance(pool!, allBranches),
+      await buildTrialBalance(pool!, { ...allBranches, periodBalances: false }),
+      'company-wide totals agree across both branches'
+    );
+  });
+
+  test('a window with a mid-period edge stays on the ledger', async () => {
+    const midEdges = [
+      ['2026-01-15', '2026-03-31'],
+      ['2026-01-01', '2026-03-15'],
+    ] as const;
+    for (const [from, to] of midEdges) {
+      const window = await resolveStatementWindow(
+        pool!,
+        { from, to },
+        'TRIAL_BALANCE',
+        { branchId: BRANCH, empty: false }
+      );
+      assert.equal(window.periodBalances, false, `${from}..${to} is not a run of whole periods`);
+    }
+
+    // The fiscal-year default `from` is still a period start; a mid-month `to`
+    // is not, so the ledger answers the request.
+    const midMonth = await resolveStatementWindow(
+      pool!,
+      { asOf: '2026-03-15' },
+      'TRIAL_BALANCE',
+      { branchId: BRANCH, empty: false }
+    );
+    assert.equal(midMonth.from, '2026-01-01');
+    assert.equal(midMonth.periodBalances, false);
+    assert.ok((await buildTrialBalance(pool!, midMonth)).accounts.length > 0, 'the ledger still answers it');
   });
 });

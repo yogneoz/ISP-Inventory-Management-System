@@ -180,7 +180,7 @@ export const BRANCH_SCOPE_EXEMPTIONS: readonly BranchScopeExemption[] = [
   {
     table: 'gl_period_balances',
     reason:
-      'Pre-aggregated GL period rollup (ACC read model): one row per branch, account and period, recomputed from the ledger by the 0047 triggers and read only through branch-scoped SQL (GL_PERIOD_BALANCES_SQL in readModels.repo, which pins branch_id = $1 from the session). There is no row-id route and no client-supplied branch, so the by-id guard has nothing to address.',
+      'Pre-aggregated GL period rollup (ACC read model): one row per branch, account and period, recomputed from the ledger by the 0047 triggers and read only by branch-scoped SQL — GL_PERIOD_BALANCES_SQL and PERIOD_BALANCE_ACCOUNT_ROWS_SQL in readModels.repo, which take branch_id from the session scope ($1, or a deliberate NULL roll-up for a company-wide statement). There is no row-id route and no client-supplied branch, so the by-id guard has nothing to address.',
   },
   {
     table: 'gl_party_period_balances',
