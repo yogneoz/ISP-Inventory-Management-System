@@ -30,6 +30,7 @@ import {
   ASSET_SET_ASSIGNMENT_SQL,
   buildStockOperationListQuery,
   buildStockOperationPagedQuery,
+  buildStockOperationKeysetQuery,
   buildStockOperationCountQuery,
   buildStockOperationStatusCountQuery,
   STOCK_OPERATION_INSERT_SQL,
@@ -77,6 +78,7 @@ import {
   buildSerialLookupSql,
   buildSerialLogQuery,
   buildSerialLogCountQuery,
+  buildSerialLogKeysetQuery,
   buildSerialLogStatusCountQuery,
   SERIAL_LOG_FIND_BY_DEVICE_SQL,
   SERIAL_LOG_UPDATE_SQL,
@@ -289,6 +291,40 @@ describe('stock operations', () => {
     const statusCount = buildStockOperationStatusCountQuery(opts);
     assert.match(statusCount.sql, /FROM stock_operations WHERE 1=1 AND \(branch_id = \$1 OR destination_warehouse_id = \$1\) AND type = \$2 AND COALESCE\(status, 'LOGGED'\) = \$3 GROUP BY status$/);
     assert.deepEqual(statusCount.params, ['WH001', 'CONSUMABLE_ISSUE', 'CANCELLED']);
+
+    // The consumables register's numbered footer reports "of N" as the sum of
+    // these status counts, so the cursor page, the counts and the paged total
+    // must filter ONE population — otherwise the footer promises rows the
+    // cursor walk never reaches.
+    const fullOpts = {
+      branchId: 'WH001',
+      type: 'CONSUMABLE_ISSUE',
+      status: 'CANCELLED',
+      query: '  tech  ',
+      dateFromAD: '2026-09-01',
+      dateToAD: '2026-09-30',
+    };
+    const keysetPage = buildStockOperationKeysetQuery(fullOpts, undefined, 20);
+    const fullStatusCount = buildStockOperationStatusCountQuery(fullOpts);
+    const fragment = fullStatusCount.sql.slice(
+      fullStatusCount.sql.indexOf(' WHERE 1=1'),
+      fullStatusCount.sql.indexOf(' GROUP BY status')
+    );
+    assert.ok(
+      keysetPage.sql.includes(fragment),
+      'the cursor page filters exactly the population its status counts were computed over'
+    );
+    assert.deepEqual(
+      keysetPage.params,
+      fullStatusCount.params,
+      'the page and its status counts bind the same branch/type/status/search/date parameters'
+    );
+    const pagedTotal = buildStockOperationCountQuery(fullOpts);
+    assert.equal(pagedTotal.sql.slice(pagedTotal.sql.indexOf(' WHERE 1=1')), fragment);
+    assert.deepEqual(pagedTotal.params, fullStatusCount.params);
+    // A cursor only appends its anchor after that shared fragment.
+    const cursored = buildStockOperationKeysetQuery(fullOpts, ['2026-09-10T00:00:00Z', 'op-9'], 20);
+    assert.ok(cursored.sql.includes(fragment + ' AND (created_at, id) <'));
   });
 
   test('insert takes 20 binds and upserts only status + items on conflict', () => {
@@ -593,6 +629,42 @@ describe('serial log register', () => {
     const statusCount = buildSerialLogStatusCountQuery(opts);
     assert.match(statusCount.sql, /^SELECT status, COUNT\(\*\)::int AS count FROM serial_log WHERE 1=1 AND branch_id IN \(\$1\) AND status = \$2 GROUP BY status$/);
     assert.deepEqual(statusCount.params, ['WH001', 'DAMAGED']);
+
+    // The serial register's numbered footer reports "of N" as the sum of these
+    // per-status counts, so the cursor page and its counts must filter ONE
+    // population. If a filter were added to only one query the footer would
+    // promise rows the cursor walk never reaches.
+    const fullOpts = {
+      branchScope: ['WH001'],
+      status: 'DAMAGED',
+      query: '  huawei  ',
+      dateFromAD: '2026-09-01',
+      dateToAD: '2026-09-30',
+    };
+    const keysetPage = buildSerialLogKeysetQuery(fullOpts, undefined, 20);
+    const fullStatusCount = buildSerialLogStatusCountQuery(fullOpts);
+    const fragment = fullStatusCount.sql.slice(
+      fullStatusCount.sql.indexOf(' WHERE 1=1'),
+      fullStatusCount.sql.indexOf(' GROUP BY status')
+    );
+    assert.ok(
+      keysetPage.sql.includes(fragment),
+      'the cursor page filters exactly the population its status counts were computed over'
+    );
+    assert.deepEqual(
+      keysetPage.params,
+      fullStatusCount.params,
+      'the page and its status counts bind the same branch/status/search/date parameters'
+    );
+    // The paged total is the same fragment too, so the summed counts and
+    // totalItems agree by construction rather than by coincidence.
+    const pagedTotal = buildSerialLogCountQuery(fullOpts);
+    assert.equal(pagedTotal.sql.slice(pagedTotal.sql.indexOf(' WHERE 1=1')), fragment);
+    assert.deepEqual(pagedTotal.params, fullStatusCount.params);
+    // A cursor only appends its anchor after that shared fragment, so paging
+    // further never changes who is counted.
+    const cursored = buildSerialLogKeysetQuery(fullOpts, ['2026-09-10T00:00:00Z', 's9'], 20);
+    assert.ok(cursored.sql.includes(fragment + ' AND (created_at, id) <'));
   });
 
   test('upsert probe matches lower(trim(device_serial)) and carries the row status for the purchase decision', () => {
