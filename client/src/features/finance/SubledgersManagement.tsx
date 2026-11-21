@@ -888,7 +888,7 @@ export const SubledgersManagement: React.FC<SubledgersManagementProps> = ({
                 on screen, `!ledgerError` keeps a failed read from showing a
                 spinner beside its own error. */}
             {ledgerLoading && !ledger && !ledgerError && (
-              <StatementLoadingPlaceholder label="subledger" className="mt-3" />
+              <StatementLoadingPlaceholder label="subledger" className="mt-3 py-24" />
             )}
 
             {ledger && (

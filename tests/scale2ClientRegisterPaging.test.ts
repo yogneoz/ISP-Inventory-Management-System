@@ -101,10 +101,11 @@ test('the register pager appends across page boundaries while newer rows are ins
   // key with the previous key's total, not even for one frame.
   const committedPairs: Array<{ key: string; meta: unknown }> = [];
 
-  function Harness({ resetKey }: { resetKey: string }) {
+  function Harness({ resetKey, refreshKey = '' }: { resetKey: string; refreshKey?: string }) {
     const pager = useKeysetPager({
       fetchPage: (cursor) => source.page(cursor),
       resetKey,
+      refreshKey,
     });
     view = useKeysetPageView(pager);
     latest = pager;
@@ -195,6 +196,33 @@ test('the register pager appends across page boundaries while newer rows are ins
     view!.goToPage(9);
   });
   assert.equal(view!.page, 3, 'a far page cannot be jumped to without walking the cursor to it');
+
+  // A same-query refresh — an SSE tick, or the reload after a reversal — must
+  // hold the page the operator is reading. The walk is re-read from page 1 and
+  // swapped in one commit; clearing it first would clamp the view to page 1.
+  source.insertNewer({ id: 'w', ts: 950 });
+  await act(async () => {
+    root.render(React.createElement(Harness, { resetKey: 'orders', refreshKey: 'tick-1' }));
+  });
+  await waitFor(() => Boolean(latest && !latest.loading), 'same-query refresh');
+  assert.equal(view!.page, 3, 'a same-query refresh keeps the page that was on screen');
+  assert.equal(view!.pageCount, 3, 'the re-walk restores every page that had been reached');
+  assert.equal(latest!.rows.length, 9, 'the re-walk covers the same depth, not just page 1');
+  assert.deepEqual(
+    view!.pageRows.map((row) => row.id),
+    ['e', 'd', 'c'],
+    'page 3 now holds the fresh rows for that slot'
+  );
+
+  // In flight the page and its rows stay on screen: no placeholder, no jump.
+  source.holdPage(true);
+  await act(async () => {
+    root.render(React.createElement(Harness, { resetKey: 'orders', refreshKey: 'tick-2' }));
+  });
+  assert.equal(latest!.loading, true, 'the refresh is in flight');
+  assert.equal(view!.page, 3, 'the page holds while the re-read runs');
+  assert.equal(latest!.rows.length, 9, 'the rows on screen are not cleared by a refresh');
+  source.holdPage(false);
 
   // The footer's "of N" must describe the CURRENT query. A filter change clears
   // the previous figure before the new page lands, so the footer can never
@@ -370,8 +398,43 @@ test('every converted register uses the shared cursor pager and a cursor footer'
           /syntheticDamageOps\.length \+ damageTotal/,
           'the footer total counts the synthetic prefix once'
         );
+        assert.match(source, /damagePager\.refresh\(\)/, 'a reversal refreshes in place');
+        assert.doesNotMatch(
+          source,
+          /damagePager\.reload\(\)/,
+          'a reversal must not start the walk over at page 1'
+        );
+      }
+      if (/(DamageTrackingPanel|PulloutBinsPanel|ConsumablesRegisterPanel)\.tsx$/.test(screen)) {
+        // A same-query refresh holds the page: the refresh token is a
+        // `refreshKey`, never part of the query key that starts over at page 1.
+        assert.match(source, /refreshKey:\s*sseRefreshKey/, `${screen} refreshes in place`);
+        // A reversal is the same query too: it must not start the walk over.
+        assert.doesNotMatch(source, /Pager\.reload\(\)/, `${screen} reloads in place after a reversal`);
+        const resetExpr = source.split('resetKey:')[1]?.split('.join(')[0] || '';
+        assert.doesNotMatch(
+          resetExpr,
+          /sseRefreshKey/,
+          `${screen} keeps the SSE token out of its query key`
+        );
       }
       assert.match(source, /totalRows=\{[^}]*\}/, `${screen} must pass the filtered total to the footer`);
+      if (/exportToCSV/.test(source)) {
+        // A register export is the whole filtered set, never the cursor pages
+        // loaded so far: one page would look like a complete register.
+        assert.match(source, /all: true/, `${screen} exports the whole filtered set`);
+      }
+      if (screen.endsWith('SerialLogRegister.tsx')) {
+        // The full read must abort the export when it fails; falling back to the
+        // rows on screen ships one page as if it were the register.
+        const exportBlock = source.split('handleExportCSV')[1]?.split('exportToCSV(')[0] || '';
+        assert.doesNotMatch(
+          exportBlock,
+          /exportRows = filtered/,
+          'a failed full read must not fall back to the loaded page'
+        );
+        assert.match(exportBlock, /return;/, 'a failed full read writes no file');
+      }
     } else {
       assert.match(source, /KeysetLoadMore/, `${screen} must render the load-more footer`);
     }
@@ -443,6 +506,26 @@ test('every converted register uses the shared cursor pager and a cursor footer'
       );
     }
   }
+  // A full-read export that fails writes no file: falling back to the rows on
+  // screen ships a partial report as if it were the whole filtered set.
+  for (const file of [
+    'client/src/features/finance/FixedAssetRegister.tsx',
+    'client/src/features/finance/DepreciationRegister.tsx',
+  ]) {
+    const source = fs.readFileSync(path.resolve(file), 'utf8');
+    const exportBlock = source.split('handleExportCSV')[1] || '';
+    assert.doesNotMatch(
+      exportBlock,
+      /exportRows = rows|exportGroups = groups/,
+      `${file} must not fall back to the rows on screen`
+    );
+    const announced = exportBlock.match(/No file was written/g)?.length || 0;
+    assert.ok(
+      announced >= (file.includes('Depreciation') ? 2 : 1),
+      `${file} reports every failed full read without writing a file`
+    );
+  }
+
   // Both statements render through LedgerView. A refetch clears the figures (they
   // belong to the query that produced them), so the region must read as
   // in-progress instead of collapsing — and the placeholder may never stand in
@@ -474,7 +557,16 @@ test('every converted register uses the shared cursor pager and a cursor footer'
   );
   assert.match(placeholder, /role="status"/, 'the shared placeholder announces the read');
   assert.match(placeholder, /Reading \{label\}/, 'the label is a prop, not inline copy');
-  const placeholderCallers = [...statementScreens, 'client/src/components/common/LedgerView.tsx'];
+  const placeholderCallers = [
+    ...statementScreens,
+    'client/src/components/common/LedgerView.tsx',
+    'client/src/components/accounting/PartyStatementDialog.tsx',
+  ];
+  assert.match(
+    fs.readFileSync(path.resolve('client/src/components/accounting/PartyStatementDialog.tsx'), 'utf8'),
+    /loading && !data && !error[\s\S]{0,120}StatementLoadingPlaceholder label="statement"/,
+    'the party statement dialog renders the shared placeholder under the same guard'
+  );
   for (const caller of placeholderCallers) {
     const callerSource = fs.readFileSync(path.resolve(caller), 'utf8');
     assert.doesNotMatch(

@@ -4,8 +4,8 @@
  * control tie-out without leaving the report.
  */
 import React, { useEffect, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
 import { ModalPanel } from '../common/ModalPanel';
+import { StatementLoadingPlaceholder } from '../common/StatementLoadingPlaceholder';
 import { api } from '../../services/api';
 import type { LedgerLineDTO, PartyLedgerTieOut } from '../../services/api/sales';
 import { money } from './statementFormat';
@@ -87,10 +87,10 @@ export const PartyStatementDialog: React.FC<{
           </p>
         )}
 
-        {loading && (
-          <p className="mt-4 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-            <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Reading statement…
-          </p>
+        {/* Same contract as the ledger screens: in-progress only while there is
+            no statement and no error, so it never covers either. */}
+        {loading && !data && !error && (
+          <StatementLoadingPlaceholder label="statement" className="mt-4" />
         )}
 
         {data && (

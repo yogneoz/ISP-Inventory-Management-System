@@ -524,7 +524,9 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
 
       {/* `!data` keeps the placeholder off a statement that is on screen;
           `!error` keeps a failed read from showing a spinner beside its error. */}
-      {loading && !data && !error && <StatementLoadingPlaceholder label="statement" />}
+      {loading && !data && !error && (
+        <StatementLoadingPlaceholder label="statement" className="py-24" />
+      )}
       {emptyPrompt && !data && !error && !loading && (
         <div className="flex flex-col items-center justify-center py-16 text-slate-400 dark:text-slate-500">
           <Wallet className="h-12 w-12 mb-3 opacity-40" />

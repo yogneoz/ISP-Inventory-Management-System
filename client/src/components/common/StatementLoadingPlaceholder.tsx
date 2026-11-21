@@ -8,7 +8,10 @@ interface StatementLoadingPlaceholderProps {
   className?: string;
 }
 
-const BASE = 'flex items-center justify-center gap-2 py-24 text-sm text-slate-400 dark:text-slate-500';
+// Spacing is the caller's: a dialog wants a compact line, a full statement
+// surface holds its region open. Keeping it out of BASE means a caller can set
+// it without fighting a conflicting utility.
+const BASE = 'flex items-center justify-center gap-2 text-sm text-slate-400 dark:text-slate-500';
 
 /**
  * Holds a statement region open while its read is in flight.
