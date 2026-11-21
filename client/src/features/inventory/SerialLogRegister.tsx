@@ -3,6 +3,7 @@ import { Branch, SerialLog, SerialLookupResult, User } from '../../types';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { isOperationAllowed } from '../../utils/permissions';
 import { exportToCSV } from '../../utils/exportUtils';
+import { utilityAlert } from '../../components/common/DialogProvider';
 import { buildSerialLogExportRows, serialLogExportColumns } from '../../utils/serialLogExport';
 import { sumStatusCounts } from '../../utils/statusCounts';
 import { api } from '../../services/api';
@@ -189,8 +190,10 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
 
 
   const handleExportCSV = async () => {
-    // Fetch every filtered row (not just the current page) for the export.
-    let exportRows: DisplayLog[] = filtered;
+    // Export the whole filtered set, not the cursor pages loaded so far: one
+    // page would look like a complete register. If the full read fails, no file
+    // is written — falling back to the rows on screen is exactly that mistake.
+    let exportRows: DisplayLog[];
     try {
       const envelope = await api.getSerialLogs({
         branchId: scopeBranch,
@@ -204,8 +207,11 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
         ...row,
         branchName: branches.find((b) => b.id === row.branchId)?.name,
       }));
-    } catch {
-      // Fall back to the rows already on screen rather than failing silently.
+    } catch (err: any) {
+      utilityAlert(
+        `Export cancelled: ${err?.message || 'the full register could not be loaded'}. No file was written.`
+      );
+      return;
     }
     exportToCSV({
       filename: 'Serial_Log_Register',

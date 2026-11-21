@@ -132,7 +132,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
     if (activeTab === 'SUMMARY') {
       // Refetch the summary for the live draft: the table keeps the debounced
       // search, but the file must reflect the text typed before Export.
-      let exportGroups = groups;
+      let exportGroups: typeof groups;
       try {
         const overview = await api.getFixedAssetOverview({
           ...scopedParams,
@@ -142,8 +142,13 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
           categories: true,
         });
         exportGroups = overview?.groups ?? [];
-      } catch {
-        // Keep the groups already on screen rather than exporting nothing.
+      } catch (err: any) {
+        // A failed full read writes no file: the groups on screen came from an
+        // earlier read, not from this export's filters.
+        await alertDialog(
+          `Export failed: ${err?.message || 'the full report could not be loaded'}. No file was written.`
+        );
+        return;
       }
       const data = exportGroups.map((g) => ({
         AssetTitle: g.masterName,
@@ -167,7 +172,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
         { key: 'NetBookValue', label: 'Net Book Value' },
       ], companyProfile);
     } else {
-      let exportRows = rows;
+      let exportRows: typeof rows;
       let truncated = false;
       try {
         const exported = await api.getFixedAssetExport({
@@ -177,8 +182,12 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
         });
         exportRows = exported.data;
         truncated = Boolean(exported.truncated);
-      } catch {
-        // Keep the visible page rather than exporting nothing.
+      } catch (err: any) {
+        // A failed full read writes no file, for the same reason as above.
+        await alertDialog(
+          `Export failed: ${err?.message || 'the full register could not be loaded'}. No file was written.`
+        );
+        return;
       }
       // ASSET-1: a capped export is reported, never silently cut at 20,000 rows.
       if (truncated) {

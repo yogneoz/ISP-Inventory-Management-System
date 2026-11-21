@@ -263,15 +263,19 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
   const handleExportCSV = async () => {
     // The report is the whole filtered set, fetched with the bounded `all=1`
     // read — never just the rows of the page on screen.
-    let exportRows = rows;
+    let exportRows: typeof rows;
     let truncated = false;
     try {
       const exported = await api.getFixedAssetExport({ branchId: selectedBranchId, query: search || undefined });
       exportRows = exported.data;
       truncated = Boolean(exported.truncated);
-    } catch {
-      // Keep the visible page rather than exporting nothing; the server error is
-      // surfaced by the register's own load notice on the next refresh.
+    } catch (err: any) {
+      // A failed full read writes no file: exporting the visible page would look
+      // like the whole register and ship one page of it.
+      await alertDialog(
+        `Export failed: ${err?.message || 'the full register could not be loaded'}. No file was written.`
+      );
+      return;
     }
     // ASSET-1: a capped export is reported, never silently cut at 20,000 rows.
     if (truncated) {
