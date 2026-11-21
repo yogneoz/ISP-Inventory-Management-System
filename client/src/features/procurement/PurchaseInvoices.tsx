@@ -173,8 +173,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   const [billDateToAD, setBillDateToAD] = useState('');
   // Server-side paged fetch state: the register asks /api/purchase-invoices
   // for one page of filtered rows instead of filtering the whole prop array.
-  const [piTotalItems, setPiTotalItems] = useState(0);
-  const [piSums, setPiSums] = useState({ taxable: 0, vat: 0, grand: 0, unpaid: 0 });
+
   const [piRefreshKey, setPiRefreshKey] = useState(0);
   const [billTerms, setBillTerms] = useState<BillTerm[]>([]);
 
@@ -210,9 +209,14 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
     }
   }, [autoOpenModal, activeTab, recordRoute?.kind]);
 
-  const piPager = useKeysetPager<PurchaseInvoice>({
-    fetchPage: (cursor) =>
-      api.getPurchaseInvoices({
+  const piPager = useKeysetPager<
+    PurchaseInvoice,
+    { sums: { taxable: number; vat: number; grand: number; unpaid: number } }
+  >({
+    // The envelope's sums travel as the page's `meta`, which the pager clears
+    // whenever the query changes.
+    fetchPage: async (cursor) => {
+      const page: any = await api.getPurchaseInvoices({
         branchId: selectedBranchId !== 'ALL' ? selectedBranchId : undefined,
         supplier: vendorFilter !== 'ALL' ? vendorFilter : undefined,
         query: searchQuery.trim() || undefined,
@@ -220,7 +224,14 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
         dateToAD: billDateToAD || undefined,
         cursor,
         limit: 15,
-      }) as any,
+      });
+      return {
+        items: page.items || page.data || [],
+        nextCursor: page.nextCursor ?? null,
+        hasMore: Boolean(page.hasMore),
+        meta: { sums: page.sums || { taxable: 0, vat: 0, grand: 0, unpaid: 0 } },
+      };
+    },
     resetKey: [
       selectedBranchId,
       vendorFilter,
@@ -230,10 +241,6 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
       piRefreshKey,
       sseRefreshKey,
     ].join('|'),
-    onPage: (page: any) => {
-      setPiTotalItems(Number(page.totalItems) || 0);
-      setPiSums(page.sums || { taxable: 0, vat: 0, grand: 0, unpaid: 0 });
-    },
   });
   const {
     rows: piRows,
@@ -245,6 +252,10 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
     loadMore: piLoadMore,
     reload: reloadPiPage,
   } = piPager;
+
+  // Money totals for the CURRENT query, from the page's `meta` (cleared when the
+  // filter changes) so a previous filter's sums cannot be shown over these rows.
+  const piSums = piPager.meta?.sums || { taxable: 0, vat: 0, grand: 0, unpaid: 0 };
 
   const openInvoiceDetail = (invoice: PurchaseInvoice) => {
     setViewingInvoice(invoice);

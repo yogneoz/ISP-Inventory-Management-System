@@ -103,10 +103,6 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
   const [orderDateToAD, setOrderDateToAD] = useState('');
   // Server-side paged fetch state: the register asks /api/purchase-orders
   // for one page of filtered rows instead of filtering the whole prop array.
-  const [poTotalItems, setPoTotalItems] = useState(0);
-  const [poStatusCounts, setPoStatusCounts] = useState<Record<string, number>>({});
-  const [poPendingValue, setPoPendingValue] = useState(0);
-  const [poReceivedValue, setPoReceivedValue] = useState(0);
   const [poRefreshKey, setPoRefreshKey] = useState(0);
 
   // Sync the internal page with the sidebar menu that opened this component.
@@ -141,9 +137,14 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
   const supplierFilterName = selectedSupplierFilter === 'ALL' || !availableSuppliers.find((s) => s.id === selectedSupplierFilter)
     ? selectedSupplierFilter === 'ALL' ? undefined : selectedSupplierFilter
     : availableSuppliers.find((s) => s.id === selectedSupplierFilter)!.name;
-  const poPager = useKeysetPager<PurchaseOrder>({
-    fetchPage: (cursor) =>
-      api.getPurchaseOrders({
+  const poPager = useKeysetPager<
+    PurchaseOrder,
+    { statusCounts: Record<string, number>; pendingValue: number; receivedValue: number }
+  >({
+    // The envelope's aggregates travel as the page's `meta`, which the pager
+    // clears whenever the query changes.
+    fetchPage: async (cursor) => {
+      const page: any = await api.getPurchaseOrders({
         branchId: selectedBranchId !== 'ALL' ? selectedBranchId : undefined,
         supplier: supplierFilterName,
         query: searchQuery.trim() || undefined,
@@ -151,7 +152,18 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
         dateToAD: orderDateToAD || undefined,
         cursor,
         limit: 15,
-      }) as any,
+      });
+      return {
+        items: page.items || page.data || [],
+        nextCursor: page.nextCursor ?? null,
+        hasMore: Boolean(page.hasMore),
+        meta: {
+          statusCounts: page.statusCounts || {},
+          pendingValue: Number(page.pendingValue) || 0,
+          receivedValue: Number(page.receivedValue) || 0,
+        },
+      };
+    },
     resetKey: [
       selectedBranchId,
       supplierFilterName,
@@ -161,12 +173,6 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
       poRefreshKey,
       sseRefreshKey,
     ].join('|'),
-    onPage: (page: any) => {
-      setPoTotalItems(Number(page.totalItems) || 0);
-      setPoStatusCounts(page.statusCounts || {});
-      setPoPendingValue(Number(page.pendingValue) || 0);
-      setPoReceivedValue(Number(page.receivedValue) || 0);
-    },
   });
   const {
     rows: poRows,
@@ -178,6 +184,13 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
     loadMore: poLoadMore,
     reload: reloadPoPage,
   } = poPager;
+
+  // Aggregate KPIs for the CURRENT query: they ride on the page's `meta`, which
+  // the pager clears whenever the filter changes, so a previous filter's counts
+  // and values can never be shown over these rows.
+  const poStatusCounts = poPager.meta?.statusCounts || {};
+  const poPendingValue = poPager.meta?.pendingValue || 0;
+  const poReceivedValue = poPager.meta?.receivedValue || 0;
 
   // Rows on screen: the server page, or (on fetch failure) the client-side
   // filtered prop array so the register degrades instead of breaking.

@@ -82,7 +82,6 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
   // Server-paged register (ASSET-1). The page and the KPI totals answer the
   // same branch + search scope; the totals are formula sums over the whole
   // filtered set, not just the rows on this page.
-  const [totalItems, setTotalItems] = useState(0);
   const [totals, setTotals] = useState<FixedAssetTotals>(ZERO_TOTALS);
   const [retryToken, setRetryToken] = useState(0);
   const overviewSeq = useRef(0);
@@ -125,7 +124,6 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
         15
       ),
     resetKey: [selectedBranchId, search, asOfDateAD, refreshToken, retryToken].join('|'),
-    onPage: (page: any) => setTotalItems(Number(page.totalItems) || 0),
   });
   const { rows, loading, error: loadError, scopeError, loadingMore, hasMore, loadMore } = pager;
 

@@ -65,7 +65,6 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [selectedCustomerLabel, setSelectedCustomerLabel] = useState<string>('');
   const [filters, setFilters] = useState<LedgerFilters>({ fromAd: '', toAd: '', branchId: 'ALL' });
-  const [ledgerData, setLedgerData] = useState<SubLedgerData | null>(null);
   const [receiveOpen, setReceiveOpen] = useState(false);
   const [receiveSubmitting, setReceiveSubmitting] = useState(false);
   const [receiveError, setReceiveError] = useState('');
@@ -131,23 +130,22 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
       returnsRefreshKey ?? 0,
     ].join('\u0000'),
     enabled: Boolean(selectedCustomerId) && isVisible,
-    onPage: (page) => {
-      const statement = page.meta;
-      if (!statement) return;
-      setLedgerData({
+  });
+  // The statement header (party, opening/totals/closing, tie-out) is the page's
+  // `meta` for the CURRENT query. It is cleared the moment the filters change,
+  // so a previous range's balances can never head the new range's rows.
+  const statement = ledgerPager.meta;
+  const ledgerView: SubLedgerData | null = statement
+    ? {
         partyName: statement.customer.name,
         partyCode: statement.customer.customerId,
         openingBalance: statement.openingBalance,
         totalDebit: statement.totalDebit,
         totalCredit: statement.totalCredit,
         closingBalance: statement.closingBalance,
-        ledger: [],
+        ledger: ledgerPager.rows,
         tieOut: statement.tieOut,
-      });
-    },
-  });
-  const ledgerView: SubLedgerData | null = ledgerData
-    ? { ...ledgerData, ledger: ledgerPager.rows }
+      }
     : null;
 
   const money = (value: number) => Math.round((Number(value) || 0) * 100) / 100;
@@ -238,7 +236,7 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     try {
       await api.createCustomerPayment({
         customerId: selectedCustomerId,
-        customerName: ledgerData?.partyName || selectedCustomerLabel,
+        customerName: ledgerView?.partyName || selectedCustomerLabel,
         branchId: openInvoices[0]?.branchId || (filters.branchId === 'ALL' ? undefined : filters.branchId),
         paymentDateAD: receiveDate,
         amount: receiveTotal,
@@ -262,10 +260,6 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     setSelectedCustomerId(focusRequest.partyId);
     setSelectedCustomerLabel(focusRequest.partyLabel || focusRequest.partyId);
   }, [focusRequest?.token]);
-
-  useEffect(() => {
-    setLedgerData(null);
-  }, [selectedCustomerId, filters.fromAd, filters.toAd, filters.branchId]);
 
   return (
     <div className="space-y-3">
@@ -404,7 +398,7 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
             <div>
               <div className="text-lg font-semibold">Receive Customer Payment</div>
               <div className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                {ledgerData?.partyName || selectedCustomerLabel || 'Customer'} · allocate across open invoices or leave the excess as an advance.
+                {ledgerView?.partyName || selectedCustomerLabel || 'Customer'} · allocate across open invoices or leave the excess as an advance.
               </div>
             </div>
 

@@ -260,12 +260,13 @@ export const ShipmentRegister: React.FC<ShipmentRegisterProps> = ({
   // pinned to its own branch by App, and the server refuses any other id, so
   // rows and the KPI counts below answer the same scope.
   const scopeBranchId = selectedBranchId;
-  const [totalItems, setTotalItems] = useState(0);
   const [retryToken, setRetryToken] = useState(0);
   // FilterCard's live draft — `searchQuery` is only the debounced apply.
   const searchDraftRef = useRef<string | null>(null);
 
   const pager = useKeysetPager<Shipment, { totalItems?: number }>({
+    // The page's aggregate travels as `meta`, which the pager clears whenever
+    // the query changes.
     fetchPage: (cursor) =>
       api.getShipmentCursorPage(
         {
@@ -278,7 +279,7 @@ export const ShipmentRegister: React.FC<ShipmentRegisterProps> = ({
         },
         cursor,
         15
-      ),
+      ).then((page) => ({ ...page, meta: page })),
     resetKey: [
       scopeBranchId,
       searchQuery,
@@ -289,9 +290,11 @@ export const ShipmentRegister: React.FC<ShipmentRegisterProps> = ({
       refreshToken,
       retryToken,
     ].join('|'),
-    onPage: (page: any) => setTotalItems(Number(page.totalItems) || 0),
   });
   const { rows, loading, error: loadError, scopeError, loadingMore, hasMore, loadMore } = pager;
+  // Shipments for the CURRENT query, from the page's `meta` (cleared on a filter
+  // change) — never a previous filter's total.
+  const totalItems = Number(pager.meta?.totalItems) || 0;
 
   // Exact scope counts for the KPI cards come from the shared bounded
   // overview the host already subscribes to, not from the page currently on

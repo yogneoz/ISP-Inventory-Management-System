@@ -1,8 +1,10 @@
 import React, { useCallback } from 'react';
 import { useStockOperationsCtx } from './StockOperationsContext';
-import { KeysetLoadMore } from '../../../components/common/KeysetLoadMore';
+import { KeysetPagerFooter } from '../../../components/common/KeysetPagerFooter';
 import { useKeysetPager } from '../../../hooks/useKeysetPager';
+import { useKeysetPageView } from '../../../hooks/useKeysetPageView';
 import { formatNPR } from '../../../utils/nprFormat';
+import { sumStatusCounts } from '../../../utils/statusCounts';
 import { isOperationAllowed } from '../../../utils/permissions';
 import { api } from '../../../services/api';
 import {
@@ -26,11 +28,20 @@ export const PulloutBinsPanel: React.FC = () => {
       branchId: branchFilter !== 'ALL' ? branchFilter : undefined,
       cursor,
       limit: 20,
-    }) as { data?: any[]; items?: any[]; nextCursor?: string | null; hasMore?: boolean };
+    }) as {
+      data?: any[];
+      items?: any[];
+      nextCursor?: string | null;
+      hasMore?: boolean;
+      statusCounts?: Record<string, number>;
+    };
     return {
       items: envelope.items || envelope.data || [],
       nextCursor: envelope.nextCursor ?? null,
       hasMore: Boolean(envelope.hasMore),
+      // The page's filtered counts travel as `meta`, which the pager clears the
+      // moment the query changes.
+      meta: { statusCounts: envelope.statusCounts || {} },
     };
   }, [branchFilter]);
 
@@ -39,9 +50,18 @@ export const PulloutBinsPanel: React.FC = () => {
     resetKey: [branchFilter, activeTab, sseRefreshKey ?? 0].join('\u0000'),
     enabled: activeTab === 'PULLOUT_BINS',
   });
+  // Numbered view over the cursor walk (the SerialLogRegister pattern): the
+  // grid renders one cursor page, and pages already fetched stay numbered so
+  // going back costs no request. Forward is one cursor page at a time.
+  const pulloutView = useKeysetPageView(pulloutPager);
+  // Filtered total for the CURRENT query, from the page's `meta` (cleared when
+  // the branch or refresh key changes) — never a previous filter's figure.
+  const pulloutTotal = sumStatusCounts(pulloutPager.meta?.statusCounts);
+  // The error fallback is the client-filtered props array, not cursor pages, so
+  // it is shown whole and gets no numbered footer.
   const pulloutRows = pulloutPager.error && !pulloutPager.scopeError
     ? pulloutOperations.filter((op) => branchFilter === 'ALL' || op.branchId === branchFilter)
-    : pulloutPager.rows;
+    : pulloutView.pageRows;
 
   // SER-1/D2: reverse a dispatch before it is received. The server returns the
   // operation's IN_TRANSIT units to IN_STOCK at the source branch.
@@ -151,11 +171,11 @@ export const PulloutBinsPanel: React.FC = () => {
                 </div>
               ))}
             </div>
-            <KeysetLoadMore
-              loaded={pulloutRows.length}
+            <KeysetPagerFooter
+              view={pulloutView}
+              totalRows={pulloutTotal || undefined}
               hasMore={pulloutPager.hasMore}
-              loadingMore={pulloutPager.loadingMore}
-              onLoadMore={pulloutPager.loadMore}
+              loading={pulloutPager.loadingMore}
               scopeError={pulloutPager.scopeError ? pulloutPager.error : ''}
             />
           </div>

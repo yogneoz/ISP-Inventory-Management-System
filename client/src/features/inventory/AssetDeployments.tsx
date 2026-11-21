@@ -54,7 +54,6 @@ export const AssetDeployments: React.FC<AssetDeploymentsProps> = ({
 
   // Server-paged deployment register (ASSET-1): assigned rows only, filtered by
   // branch, deployment type, POP location and the indexed text search.
-  const [totalItems, setTotalItems] = useState(0);
   const [retryToken, setRetryToken] = useState(0);
 
   const pageParams = {
@@ -66,11 +65,16 @@ export const AssetDeployments: React.FC<AssetDeploymentsProps> = ({
   } as const;
 
   const pager = useKeysetPager<Asset, { totalItems?: number }>({
-    fetchPage: (cursor) => api.getFixedAssetCursorPage(pageParams, cursor, 15),
+    // The page's aggregate travels as `meta`, which the pager clears whenever
+    // the query changes.
+    fetchPage: (cursor) =>
+      api.getFixedAssetCursorPage(pageParams, cursor, 15).then((page) => ({ ...page, meta: page })),
     resetKey: [appliedSearch, branchFilter, locationFilter, typeFilter, refreshToken, retryToken].join('|'),
-    onPage: (page: any) => setTotalItems(Number(page.totalItems) || 0),
   });
   const { rows, loading, error: loadError, scopeError, loadingMore, hasMore, loadMore } = pager;
+  // Deployments for the CURRENT query, from the page's `meta` (cleared on a
+  // filter change) — never a previous filter's total.
+  const totalItems = Number(pager.meta?.totalItems) || 0;
 
   /**
    * Reverse a deployment: clears the assignment and — server-side, guarded by

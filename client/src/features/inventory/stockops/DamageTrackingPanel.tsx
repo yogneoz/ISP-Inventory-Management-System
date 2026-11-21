@@ -4,9 +4,11 @@ import {
   StockOperation,
 } from '../../../types';
 import { api } from '../../../services/api';
-import { KeysetLoadMore } from '../../../components/common/KeysetLoadMore';
+import { KeysetPagerFooter } from '../../../components/common/KeysetPagerFooter';
 import { useKeysetPager } from '../../../hooks/useKeysetPager';
+import { useKeysetPageView } from '../../../hooks/useKeysetPageView';
 import { formatNPR } from '../../../utils/nprFormat';
+import { sumStatusCounts } from '../../../utils/statusCounts';
 import {
   AlertTriangle,
   ShieldAlert,
@@ -78,11 +80,20 @@ export const DamageTrackingPanel: React.FC = () => {
       branchId: branchFilter !== 'ALL' ? branchFilter : undefined,
       cursor,
       limit: 20,
-    }) as { data?: StockOperation[]; items?: StockOperation[]; nextCursor?: string | null; hasMore?: boolean };
+    }) as {
+      data?: StockOperation[];
+      items?: StockOperation[];
+      nextCursor?: string | null;
+      hasMore?: boolean;
+      statusCounts?: Record<string, number>;
+    };
     return {
       items: envelope.items || envelope.data || [],
       nextCursor: envelope.nextCursor ?? null,
       hasMore: Boolean(envelope.hasMore),
+      // The page's filtered counts travel as `meta`, which the pager clears the
+      // moment the query changes.
+      meta: { statusCounts: envelope.statusCounts || {} },
     };
   }, [branchFilter]);
 
@@ -98,9 +109,24 @@ export const DamageTrackingPanel: React.FC = () => {
     ),
     [damageOperations, branchFilter]
   );
+  // Numbered view over the cursor walk (the SerialLogRegister pattern): the
+  // table renders one cursor page, and pages already fetched stay numbered so
+  // going back costs no request.
+  const damageView = useKeysetPageView(damagePager);
+  const damageTotal = sumStatusCounts(damagePager.meta?.statusCounts);
+  // The range counts the synthetic prefix once, at the top of page 1: those
+  // rows have no stock_operations row to page over, so they cannot be spread
+  // over every page.
+  const damageFooterView = {
+    ...damageView,
+    rowStart: damageView.rowStart === 0 ? 0 : damageView.rowStart + syntheticDamageOps.length,
+    rowEnd: damageView.rowEnd === 0 ? 0 : damageView.rowEnd + syntheticDamageOps.length,
+  };
   const damageRows = damagePager.error && !damagePager.scopeError
     ? damageOperations.filter((op) => branchFilter === 'ALL' || op.branchId === branchFilter)
-    : [...syntheticDamageOps, ...damagePager.rows];
+    : damageView.page === 1
+      ? [...syntheticDamageOps, ...damageView.pageRows]
+      : damageView.pageRows;
 
   return (
     <>
@@ -215,11 +241,11 @@ export const DamageTrackingPanel: React.FC = () => {
             </div>
           </div>
 
-          <KeysetLoadMore
-            loaded={damageRows.length}
+          <KeysetPagerFooter
+            view={damageFooterView}
+            totalRows={syntheticDamageOps.length + damageTotal || undefined}
             hasMore={damagePager.hasMore}
-            loadingMore={damagePager.loadingMore}
-            onLoadMore={damagePager.loadMore}
+            loading={damagePager.loadingMore}
             scopeError={damagePager.scopeError ? damagePager.error : ''}
           />
         </div>
