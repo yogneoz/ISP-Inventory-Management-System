@@ -59,7 +59,16 @@ if (shard) {
     process.exit(2);
   }
 }
-const suiteArgs = ['tsx', '--test'];
+// A per-test bound, so one stuck test fails by name instead of holding the
+// whole shard open until the job's own timeout cancels it with no annotation
+// (that is what happened to shard 5: every other shard finished in four
+// minutes while it sat at the 25-minute job limit). No test in the suite is
+// anywhere near this long — the slowest full shard is ~4 minutes in total.
+//
+// `--test-force-exit` covers the other half of the same failure: all tests
+// finished but something still holds the event loop open (a server, a pool, a
+// child's pipe), so the process never exits and the runner never reports.
+const suiteArgs = ['tsx', '--test', '--test-timeout=180000', '--test-force-exit'];
 if (shard) suiteArgs.push(`--test-shard=${shard}`);
 suiteArgs.push('tests/*.test.ts');
 
