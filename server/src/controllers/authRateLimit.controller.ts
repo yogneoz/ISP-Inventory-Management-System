@@ -60,7 +60,7 @@ export async function post_releaseAuthRateLimit(req: Request, res: Response): Pr
   const target = all
     ? 'every bucket'
     : [email && `account ${email}`, ip && `address ${ip}`].filter(Boolean).join(' + ');
-  logAuditEvent(
+  await logAuditEvent(
     req,
     'RELEASE_LOGIN_LOCK',
     'AUTH',

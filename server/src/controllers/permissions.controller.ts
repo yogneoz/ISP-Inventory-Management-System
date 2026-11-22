@@ -626,7 +626,7 @@ export async function create_permission_set(req: any, res: Response): Promise<an
     });
     // Publish only after COMMIT: the authz path must never enforce a rolled-back set.
     await publishPermissionSetGrants();
-    logAuditEvent(
+    await logAuditEvent(
       req,
       'CREATE_PERMISSION_SET',
       'PERMISSIONS',
@@ -674,7 +674,7 @@ export async function update_permission_set(req: any, res: Response): Promise<an
       }
     });
     await publishPermissionSetGrants();
-    logAuditEvent(
+    await logAuditEvent(
       req,
       'UPDATE_PERMISSION_SET',
       'PERMISSIONS',
@@ -714,7 +714,7 @@ export async function delete_permission_set(req: any, res: Response): Promise<an
       await client.query(PERMISSION_SET_DELETE_SQL, [id]);
     });
     await publishPermissionSetGrants();
-    logAuditEvent(
+    await logAuditEvent(
       req,
       'DELETE_PERMISSION_SET',
       'PERMISSIONS',
@@ -788,7 +788,7 @@ export async function put_user_permission_sets(req: any, res: Response): Promise
     await publishPermissionSetGrants();
 
     const names = parsed.setIds.map((setId) => byId.get(setId)!.name).join(', ');
-    logAuditEvent(
+    await logAuditEvent(
       req,
       'ASSIGN_USER_PERMISSION_SETS',
       'PERMISSIONS',

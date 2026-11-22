@@ -541,7 +541,7 @@ export async function post_salesInvoices(req: any, res: Response): Promise<any> 
 
     // Demo mode has no transaction to join, so the audit row is written here.
     if (!getPgConnected()) {
-      logAuditEvent(req, 'CREATE_SALES_INVOICE', 'SALES', `Created Sales Invoice #${newInv.invoiceNumber} for customer ${newInv.customerName}`);
+      await logAuditEvent(req, 'CREATE_SALES_INVOICE', 'SALES', `Created Sales Invoice #${newInv.invoiceNumber} for customer ${newInv.customerName}`);
     }
     res.status(201).json(newInv);
   } catch (err: any) {
@@ -710,7 +710,7 @@ export async function post_salesInvoiceCancel(req: any, res: Response): Promise<
       supersedeCoverageBySourceMirror('SELLER', 'SALES_INVOICE', String(existing.id));
     }
 
-    logAuditEvent(req, 'CANCEL_SALES_INVOICE', 'SALES', `Cancelled Sales Invoice #${existing.invoiceNumber}${reason ? ` — ${reason}` : ''}`);
+    await logAuditEvent(req, 'CANCEL_SALES_INVOICE', 'SALES', `Cancelled Sales Invoice #${existing.invoiceNumber}${reason ? ` — ${reason}` : ''}`);
     res.json({ ...existing, status: 'CANCELLED' });
   } catch (err: any) {
     if (!(err instanceof ApiError)) console.error('Error cancelling sales invoice:', err);
@@ -942,11 +942,11 @@ export async function post_salesReturns(req: any, res: Response): Promise<any> {
     }
 
     if (newRet.status === 'DRAFT') {
-      logAuditEvent(req, 'CREATE_SALES_RETURN_DRAFT', 'SALES', `Sales Return #${newRet.returnNumber} (Rs. ${newRet.grandTotal}) held for approval (threshold Rs. ${RETURNS_APPROVAL_THRESHOLD_NPR})`);
+      await logAuditEvent(req, 'CREATE_SALES_RETURN_DRAFT', 'SALES', `Sales Return #${newRet.returnNumber} (Rs. ${newRet.grandTotal}) held for approval (threshold Rs. ${RETURNS_APPROVAL_THRESHOLD_NPR})`);
       return res.status(201).json({ ...newRet, pendingApproval: true, approvalThreshold: RETURNS_APPROVAL_THRESHOLD_NPR });
     }
 
-    logAuditEvent(req, 'CREATE_SALES_RETURN', 'SALES', `Created Sales Return #${newRet.returnNumber} against invoice ${newRet.originalInvoiceNumber} (customer ${newRet.customerName}, ${newRet.restockable ? 'restocked' : 'routed to damage register'})`);
+    await logAuditEvent(req, 'CREATE_SALES_RETURN', 'SALES', `Created Sales Return #${newRet.returnNumber} against invoice ${newRet.originalInvoiceNumber} (customer ${newRet.customerName}, ${newRet.restockable ? 'restocked' : 'routed to damage register'})`);
     res.status(201).json(newRet);
   } catch (err: any) {
     console.error('Error creating sales return:', err);
@@ -1085,7 +1085,7 @@ export async function post_salesReturnCancel(req: any, res: Response): Promise<a
       if (demoCancelTxns.length > 0) setTransactionLogs([...demoCancelTxns, ...transactionLogs]);
     }
 
-    logAuditEvent(req, 'CANCEL_SALES_RETURN', 'SALES', `Cancelled ${ret.status === 'DRAFT' ? 'draft ' : ''}Sales Return #${ret.returnNumber}${reason ? ` — ${reason}` : ''}`);
+    await logAuditEvent(req, 'CANCEL_SALES_RETURN', 'SALES', `Cancelled ${ret.status === 'DRAFT' ? 'draft ' : ''}Sales Return #${ret.returnNumber}${reason ? ` — ${reason}` : ''}`);
     res.json({ ...ret, status: 'CANCELLED' });
   } catch (err: any) {
     console.error('Error cancelling sales return:', err);
@@ -1147,7 +1147,7 @@ export async function post_salesReturnApprove(req: any, res: Response): Promise<
       });
     }
 
-    logAuditEvent(req, 'APPROVE_SALES_RETURN', 'SALES', `Approved Sales Return #${ret.returnNumber} (draft → posted)`);
+    await logAuditEvent(req, 'APPROVE_SALES_RETURN', 'SALES', `Approved Sales Return #${ret.returnNumber} (draft → posted)`);
     res.json({ ...ret, status: 'POSTED' });
   } catch (err: any) {
     console.error('Error approving sales return:', err);
@@ -1598,7 +1598,7 @@ export async function post_customerPayments(req: any, res: Response): Promise<an
         invoice.paymentStatus =
           invoice.amountPaid >= Number(invoice.grandTotal || 0) ? 'PAID' : 'PARTIAL';
       }
-      logAuditEvent(req, 'RECORD_CUSTOMER_PAYMENT', 'SALES', `Recorded customer payment #${paymentNumber} of NPR ${amount.toLocaleString()} from ${customerName} via ${paymentMethod}`, branchId);
+      await logAuditEvent(req, 'RECORD_CUSTOMER_PAYMENT', 'SALES', `Recorded customer payment #${paymentNumber} of NPR ${amount.toLocaleString()} from ${customerName} via ${paymentMethod}`, branchId);
     }
 
     res.status(201).json(newPayment);
@@ -1674,7 +1674,7 @@ export async function post_customerPaymentReverse(req: any, res: Response): Prom
         );
       });
     } else {
-      logAuditEvent(req, 'REVERSE_CUSTOMER_PAYMENT', 'SALES', `Reversed customer payment #${payment.paymentNumber} — ${reason}`);
+      await logAuditEvent(req, 'REVERSE_CUSTOMER_PAYMENT', 'SALES', `Reversed customer payment #${payment.paymentNumber} — ${reason}`);
     }
 
     res.json({ ...payment, status: 'REVERSED', reversalReason: reason });

@@ -246,7 +246,7 @@ try {
         }
       });
     }
-    logAuditEvent(req, 'CREATE_PURCHASE_ORDER', 'PROCUREMENT', `Created Purchase Order #${newPO.poNumber} for supplier ${newPO.supplierName || 'Vendor'}`);
+    await logAuditEvent(req, 'CREATE_PURCHASE_ORDER', 'PROCUREMENT', `Created Purchase Order #${newPO.poNumber} for supplier ${newPO.supplierName || 'Vendor'}`);
     res.status(201).json(newPO);
   } catch (err: any) {
     console.error('Error creating purchase order:', err);
@@ -298,7 +298,7 @@ try {
       const index = purchaseOrders.findIndex((p) => p.id === id);
       if (index >= 0) setPurchaseOrders(withReplaced(purchaseOrders, index, updatedPO));
     }
-    logAuditEvent(req, 'UPDATE_PURCHASE_ORDER', 'PROCUREMENT', `Updated Purchase Order #${updatedPO.poNumber}`);
+    await logAuditEvent(req, 'UPDATE_PURCHASE_ORDER', 'PROCUREMENT', `Updated Purchase Order #${updatedPO.poNumber}`);
     res.json(updatedPO);
   } catch (err: any) {
     console.error('Error updating purchase order:', err);
@@ -351,7 +351,7 @@ try {
         if (item) stock.incomingQty = Math.max(0, (stock.incomingQty || 0) - (Number(item.quantity) || 0));
       });
     }
-    logAuditEvent(req, 'DELETE_PURCHASE_ORDER', 'PROCUREMENT', `Deleted Purchase Order #${po.poNumber}`);
+    await logAuditEvent(req, 'DELETE_PURCHASE_ORDER', 'PROCUREMENT', `Deleted Purchase Order #${po.poNumber}`);
     res.json({ success: true, deletedId: id });
   } catch (err: any) {
     console.error('Error deleting purchase order:', err);
@@ -370,12 +370,12 @@ try {
       const updated = await pgPool.query(PO_FIND_BY_ID_SQL, [id]);
       const po = updated.rows[0];
       if (po && typeof po.items === 'string') po.items = JSON.parse(po.items);
-      logAuditEvent(req, 'UPDATE_PO_STATUS', 'PROCUREMENT', `Changed Purchase Order status to ${status}`);
+      await logAuditEvent(req, 'UPDATE_PO_STATUS', 'PROCUREMENT', `Changed Purchase Order status to ${status}`);
       return res.json(po || { ...req.body, id, status });
     }
     const po = purchaseOrders.find((p) => p.id === id);
     if (po) po.status = status;
-    logAuditEvent(req, 'UPDATE_PO_STATUS', 'PROCUREMENT', `Changed Purchase Order status to ${status}`);
+    await logAuditEvent(req, 'UPDATE_PO_STATUS', 'PROCUREMENT', `Changed Purchase Order status to ${status}`);
     res.json(po || req.body);
   } catch (err: any) {
     console.error('Error updating PO status:', err);
@@ -894,7 +894,7 @@ try {
     }
     // Demo mode has no transaction to join, so the audit row is written here.
     if (!getPgConnected()) {
-      logAuditEvent(req, 'CREATE_PURCHASE_INVOICE', 'PROCUREMENT', `Created Purchase Invoice #${newInv.invoiceNumber}`);
+      await logAuditEvent(req, 'CREATE_PURCHASE_INVOICE', 'PROCUREMENT', `Created Purchase Invoice #${newInv.invoiceNumber}`);
     }
     res.status(201).json(newInv);
   } catch (err: any) {
@@ -1037,7 +1037,7 @@ try {
         );
       });
     } else {
-      logAuditEvent(req, 'DELETE_PURCHASE_INVOICE', 'PROCUREMENT', `Deleted Purchase Invoice #${invoice.invoiceNumber} and reversed its stock`);
+      await logAuditEvent(req, 'DELETE_PURCHASE_INVOICE', 'PROCUREMENT', `Deleted Purchase Invoice #${invoice.invoiceNumber} and reversed its stock`);
     }
 
     // Demo-mode mirror cleanup only: the PostgreSQL path already reversed
@@ -1088,7 +1088,7 @@ try {
         inv.amountPaid += paymentAmount;
         inv.paymentStatus = inv.amountPaid >= inv.grandTotal ? 'PAID' : 'PARTIAL';
       }
-      logAuditEvent(req, 'RECORD_INVOICE_PAYMENT', 'PROCUREMENT', `Recorded payment of NPR ${paymentAmount.toLocaleString()} for Invoice`);
+      await logAuditEvent(req, 'RECORD_INVOICE_PAYMENT', 'PROCUREMENT', `Recorded payment of NPR ${paymentAmount.toLocaleString()} for Invoice`);
       res.json(inv || { message: 'Payment recorded' });
       return;
     }
@@ -1224,7 +1224,7 @@ try {
       inv.amountPaid = 0;
       inv.paymentStatus = 'UNPAID';
 
-      logAuditEvent(
+      await logAuditEvent(
         req,
         'REVERSE_INVOICE_PAYMENTS',
         'PROCUREMENT',
@@ -1424,7 +1424,7 @@ try {
       });
     } else {
       setVendorPayments(withPrepended(vendorPayments, newPayment));
-      logAuditEvent(
+      await logAuditEvent(
         req,
         'RECORD_VENDOR_PAYMENT',
         'PROCUREMENT',
@@ -1510,7 +1510,7 @@ try {
         );
       });
     } else {
-      logAuditEvent(
+      await logAuditEvent(
         req,
         'REVERSE_VENDOR_PAYMENT',
         'PROCUREMENT',
@@ -1907,11 +1907,11 @@ export async function post_purchaseReturns(req: any, res: Response): Promise<any
     }
 
     if (newRet.status === 'DRAFT') {
-      logAuditEvent(req, 'CREATE_PURCHASE_RETURN_DRAFT', 'PROCUREMENT', `Purchase Return #${newRet.returnNumber} (Rs. ${newRet.grandTotal}) held for approval (threshold Rs. ${RETURNS_APPROVAL_THRESHOLD_NPR})`);
+      await logAuditEvent(req, 'CREATE_PURCHASE_RETURN_DRAFT', 'PROCUREMENT', `Purchase Return #${newRet.returnNumber} (Rs. ${newRet.grandTotal}) held for approval (threshold Rs. ${RETURNS_APPROVAL_THRESHOLD_NPR})`);
       return res.status(201).json({ ...newRet, pendingApproval: true, approvalThreshold: RETURNS_APPROVAL_THRESHOLD_NPR });
     }
 
-    logAuditEvent(req, 'CREATE_PURCHASE_RETURN', 'PROCUREMENT', `Created Purchase Return #${newRet.returnNumber} against invoice ${newRet.originalInvoiceNumber} (supplier ${newRet.supplierName})`);
+    await logAuditEvent(req, 'CREATE_PURCHASE_RETURN', 'PROCUREMENT', `Created Purchase Return #${newRet.returnNumber} against invoice ${newRet.originalInvoiceNumber} (supplier ${newRet.supplierName})`);
     res.status(201).json(newRet);
   } catch (err: any) {
     console.error('Error creating purchase return:', err);
@@ -2027,7 +2027,7 @@ export async function post_purchaseReturnCancel(req: any, res: Response): Promis
       if (demoTxns.length > 0) setTransactionLogs([...demoTxns, ...transactionLogs]);
     }
 
-    logAuditEvent(req, 'CANCEL_PURCHASE_RETURN', 'PROCUREMENT', `Cancelled ${ret.status === 'DRAFT' ? 'draft ' : ''}Purchase Return #${ret.returnNumber}${reason ? ` — ${reason}` : ''}`);
+    await logAuditEvent(req, 'CANCEL_PURCHASE_RETURN', 'PROCUREMENT', `Cancelled ${ret.status === 'DRAFT' ? 'draft ' : ''}Purchase Return #${ret.returnNumber}${reason ? ` — ${reason}` : ''}`);
     res.json({ ...ret, status: 'CANCELLED' });
   } catch (err: any) {
     console.error('Error cancelling purchase return:', err);
@@ -2091,7 +2091,7 @@ export async function post_purchaseReturnApprove(req: any, res: Response): Promi
       });
     }
 
-    logAuditEvent(req, 'APPROVE_PURCHASE_RETURN', 'PROCUREMENT', `Approved Purchase Return #${ret.returnNumber} (draft → posted)`);
+    await logAuditEvent(req, 'APPROVE_PURCHASE_RETURN', 'PROCUREMENT', `Approved Purchase Return #${ret.returnNumber} (draft → posted)`);
     res.json({ ...ret, status: 'POSTED' });
   } catch (err: any) {
     console.error('Error approving purchase return:', err);

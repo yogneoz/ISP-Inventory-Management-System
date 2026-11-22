@@ -658,7 +658,7 @@ try {
       });
       appendLedgerMirror(dispatchTxns);
     }
-    logAuditEvent(req, 'CREATE_SHIPMENT', 'LOGISTICS', `Created Shipment #${newShipment.trackingCode}`);
+    await logAuditEvent(req, 'CREATE_SHIPMENT', 'LOGISTICS', `Created Shipment #${newShipment.trackingCode}`);
     res.status(201).json(newShipment);
   } catch (err: any) {
     console.error('Error creating shipment:', err);
@@ -918,7 +918,7 @@ try {
       );
       appendLedgerMirror(receiveTxns);
     }
-    logAuditEvent(req, 'RECEIVE_SHIPMENT', 'LOGISTICS', `Received Shipment #${sh.trackingCode}`);
+    await logAuditEvent(req, 'RECEIVE_SHIPMENT', 'LOGISTICS', `Received Shipment #${sh.trackingCode}`);
     res.json(sh);
   } catch (err: any) {
     console.error('Error receiving shipment:', err);
@@ -1068,7 +1068,7 @@ try {
     appendLedgerMirror(cancelTxns);
     sh.status = 'CANCELLED';
     sh.notes = cancellationNotes;
-    logAuditEvent(req, 'CANCEL_TRANSFER', 'LOGISTICS', `Cancelled transfer ${sh.trackingCode}`);
+    await logAuditEvent(req, 'CANCEL_TRANSFER', 'LOGISTICS', `Cancelled transfer ${sh.trackingCode}`);
     res.json({ shipment: sh, message: `Transfer ${sh.trackingCode} cancelled successfully.` });
   } catch (err: any) {
     console.error('Error cancelling transfer:', err);
@@ -1212,7 +1212,7 @@ try {
     sh.hasDiscrepancy = false;
     sh.notes = undoNote;
 
-    logAuditEvent(req, 'CANCEL_RECEIVE_TRANSFER', 'LOGISTICS', `Cancelled receipt of Shipment #${sh.trackingCode}; reverted to In-Transit`);
+    await logAuditEvent(req, 'CANCEL_RECEIVE_TRANSFER', 'LOGISTICS', `Cancelled receipt of Shipment #${sh.trackingCode}; reverted to In-Transit`);
     res.json({ shipment: sh, message: `Receipt of transfer ${sh.trackingCode} cancelled. Inventory restored to In-Transit status.` });
   } catch (err: any) {
     console.error('Error cancelling shipment receipt:', err);

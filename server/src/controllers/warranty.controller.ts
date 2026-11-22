@@ -382,7 +382,7 @@ export async function patch_warrantyCoverage(req: any, res: Response): Promise<a
       actor,
     });
     if (!newId) return res.status(404).json({ message: 'Warranty coverage not found.' });
-    logAuditEvent(
+    await logAuditEvent(
       req,
       'UPDATE_WARRANTY_COVERAGE',
       'INVENTORY',

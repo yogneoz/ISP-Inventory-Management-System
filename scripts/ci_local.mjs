@@ -79,6 +79,7 @@ export const JOBS = [
       npmRun('no raw SQL in controllers', 'check:no-inline-sql'),
       npmRun('no native dialogs', 'check:no-raw-dialogs'),
       npmRun('branch predicates on partitioned tables', 'check:branch-predicates'),
+      npmRun('awaited audit writes in controllers', 'check:audit-await'),
       step('production dependency audit', 'npm', ['audit', '--omit=dev']),
     ],
   },

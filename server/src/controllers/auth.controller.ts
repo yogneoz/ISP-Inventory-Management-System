@@ -201,7 +201,7 @@ export async function post_setupSuperadmin(req: any, res: Response): Promise<any
       consumeSetupToken();
       setUsers(withPrepended(users, savedUser));
       setActiveUser(savedUser);
-      logAuditEvent(req, 'CREATE_SUPER_ADMIN', 'AUTH', `Super Admin account initialized: ${savedUser.name} (${savedUser.email})`);
+      await logAuditEvent(req, 'CREATE_SUPER_ADMIN', 'AUTH', `Super Admin account initialized: ${savedUser.name} (${savedUser.email})`);
       await rememberSessionVersion(savedUser);
 
       const { password: _, ...userWithoutPass } = savedUser;
@@ -259,7 +259,7 @@ const { email } = req.body;
   // naming the account and the administrator) for a known one is unauthenticated
   // account enumeration, and this endpoint is reachable before sign-in.
   if (user) {
-    logAuditEvent(req, 'FORGOT_PASSWORD_REQUEST', 'AUTH', `Password reset request submitted for ${user.name} (${user.email})`);
+    await logAuditEvent(req, 'FORGOT_PASSWORD_REQUEST', 'AUTH', `Password reset request submitted for ${user.name} (${user.email})`);
   }
 
   res.json({
@@ -538,7 +538,7 @@ export async function put_profile(req: any, res: Response): Promise<any> {
   );
   setActiveUser(savedUser);
 
-  logAuditEvent(
+  await logAuditEvent(
     req,
     'UPDATE_OWN_PROFILE',
     'AUTH',
