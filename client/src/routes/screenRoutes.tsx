@@ -1089,10 +1089,11 @@ export function buildScreenRoutes(props: ScreenRouteProps): AppRoute[] {
         <PostedVouchers
           currentUser={currentUser}
           sseRefreshKey={registerRefresh.transactionLog}
+          dateMode={dateMode}
         />
     )),
     screenRoute('finance-payroll-postings', (
-        <PayrollPostingsRegister currentUser={currentUser} />
+        <PayrollPostingsRegister currentUser={currentUser} dateMode={dateMode} />
     )),
     screenRoute('accounting-chart', (
         <ChartOfAccountsRegister dateMode={dateMode} currentUser={currentUser} />
@@ -1106,6 +1107,7 @@ export function buildScreenRoutes(props: ScreenRouteProps): AppRoute[] {
     screenRoute('subledgers', (
         <SubledgersManagement
           currentUser={currentUser}
+          dateMode={dateMode}
           fiscalYearStartAD={selectedFiscalYear?.startDateAD}
           fiscalYearEndAD={selectedFiscalYear?.endDateAD}
         />
@@ -1113,6 +1115,7 @@ export function buildScreenRoutes(props: ScreenRouteProps): AppRoute[] {
     screenRoute('lenders', (
         <LendersManagement
           currentUser={currentUser}
+          dateMode={dateMode}
         />
     )),
     screenRoute('bill-terms', (
@@ -1125,6 +1128,7 @@ export function buildScreenRoutes(props: ScreenRouteProps): AppRoute[] {
         <EmployeeDirectory
           currentUser={currentUser}
           selectedBranchId={selectedBranchId}
+          dateMode={dateMode}
         />
     )),
     screenRoute('hr-self-service', (
@@ -1146,6 +1150,7 @@ export function buildScreenRoutes(props: ScreenRouteProps): AppRoute[] {
         <AttendanceLeave
           currentUser={currentUser}
           selectedBranchId={selectedBranchId}
+          dateMode={dateMode}
         />
     )),
     screenRoute('hr-payroll', (

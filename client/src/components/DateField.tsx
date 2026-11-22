@@ -31,8 +31,23 @@ interface DateFieldProps {
   disabled?: boolean;
   id?: string;  /** Extra classes for the control (e.g. red border for cross-field validation). */
   controlClassName?: string;
+  /**
+   * Accessible name for the date input. BS mode defaults to "BS date (click to
+   * open the Nepali calendar)"; a range field passes its own end label so the
+   * two ends stay distinguishable.
+   */
+  ariaLabel?: string;
   /** Tighter padding for filter toolbars. */
   compact?: boolean;
+  /**
+   * Draw only the field, without the bordered control around it, so a caller
+   * that owns one combined control (the period range) can sit two ends inside
+   * a single border. The AD equivalent stays in the title, because a visible
+   * suffix would double the width of each end.
+   * Implies `compact`: the caller's control is the compact toolbar height, so
+   * the inner field is h-8 too and the caller need not pass `compact`.
+   */
+  inline?: boolean;
   /**
    * DEPRECATED — no-op. The converted BS/AD date is now always rendered as a
    * suffix INSIDE the input (right side), so there is no hint line below and
@@ -70,7 +85,9 @@ export function DateField({
   max,  disabled,
   id,
   controlClassName = '',
+  ariaLabel,
   compact,
+  inline,
   showHint = true,
 }: DateFieldProps) {
   const adValue = normalizeAD(value);
@@ -158,14 +175,19 @@ export function DateField({
     }
   }, [adValue]);
 
-  const pad = compact ? 'px-2' : 'px-3';
+  const pad = inline ? 'px-1' : compact ? 'px-2' : 'px-3';
   const showNepaliPicker = mode === 'BS' && bsYears.length > 0 && (Boolean(derivedBS) || !adValue);
   // Shared shell: border + height live here so the input and the converted-
-  // date suffix sit inside ONE bordered control (fixed h-9 in compact mode,
-  // matching the form-grid alignment used across procurement forms).
-  const shellCls = `flex w-full items-center rounded-xl border bg-white text-slate-900 dark:bg-slate-900 dark:text-slate-100 ${
-    compact ? 'h-9' : 'py-2'
-  } border-slate-300 dark:border-slate-700 focus-within:ring-2 focus-within:ring-indigo-500 ${controlClassName}`;
+  // date suffix sit inside ONE bordered control. Compact mode is the filter
+  // toolbar: h-8 is the one control height a FilterCard row uses for its
+  // search box, its selects and its buttons.
+  // `inline` hands the border and height to the caller's control, so a range
+  // field keeps one box in either calendar instead of two boxes in BS mode.
+  const shellCls = inline
+    ? `flex h-8 items-center text-slate-900 dark:text-slate-100 ${controlClassName}`
+    : `flex w-full items-center rounded-xl border bg-white text-slate-900 dark:bg-slate-900 dark:text-slate-100 ${
+        compact ? 'h-8' : 'py-2'
+      } border-slate-300 dark:border-slate-700 focus-within:ring-2 focus-within:ring-indigo-500 ${controlClassName}`;
 
   return (
     <div className="w-full">
@@ -189,7 +211,7 @@ export function DateField({
               readOnly
               required={required}
               disabled={disabled}
-              aria-label="BS date (click to open the Nepali calendar)"
+              aria-label={ariaLabel ?? 'BS date (click to open the Nepali calendar)'}
               title={adValue ? `= ${adValue} AD${bsHint ? ` | ${bsHint}` : ''}` : undefined}
               className={`min-w-0 flex-1 bg-transparent text-xs font-mono focus:outline-none cursor-pointer ${pad}`}
               value={derivedBS ? derivedBS.formattedBSShort : ''}
@@ -198,7 +220,7 @@ export function DateField({
             />
             {/* Converted date suffix — always visible INSIDE the control (no
                 hover needed, no hint line below). Hidden while empty. */}
-            {adValue && (
+            {adValue && !inline && (
               <span
                 className="shrink-0 whitespace-nowrap pr-1 text-[10px] font-mono text-slate-400 dark:text-slate-500"
                 title={`= ${adValue} AD${bsHint ? ` | ${bsHint}` : ''}`}
@@ -257,6 +279,7 @@ export function DateField({
           <input
             id={id}
             type="date"
+            aria-label={ariaLabel}
             className={`min-w-0 flex-1 bg-transparent text-xs font-mono focus:outline-none ${pad}`}
             value={adValue}
             min={min}
@@ -280,7 +303,7 @@ export function DateField({
         </div>
       )}
 
-      {!showNepaliPicker && mode === 'BS' && adValue && !bsHint && (
+      {!inline && !showNepaliPicker && mode === 'BS' && adValue && !bsHint && (
         <div className="mt-1 text-[10px] text-amber-600 dark:text-amber-400">
           Outside the seeded BS calendar range — AD entry is used directly.
         </div>

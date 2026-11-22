@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import type { KeysetPager } from './useKeysetPager';
 
 /** Numbered view over the pages a cursor walk has already fetched. */
 export interface KeysetPageView<T> {
@@ -16,64 +16,26 @@ export interface KeysetPageView<T> {
   goToPage: (page: number) => void;
 }
 
-interface CursorWalk<T> {
-  rows: T[];
-  /** Rows per cursor page, fixed by the first page (0 before it lands). */
-  pageSize: number;
-  hasMore: boolean;
-  loading: boolean;
-  loadingMore: boolean;
-  loadMore: () => void;
-}
-
 /**
  * Numbered pages for a signed-keyset register.
  *
- * A cursor is opaque: page N+1 cannot be requested until page N has returned
- * its anchor. So the numbers cover every page already fetched (sliced locally,
- * no request) plus exactly one forward step — the next cursor page. That is why
- * this is a view over `useKeysetPager` rather than a second source of rows: the
- * append-only registers that never show page numbers do not carry it.
+ * A cursor is opaque: page N+1 cannot be requested until page N has returned its
+ * anchor, so the numbers cover every page already fetched (sliced locally, no
+ * request) plus exactly one forward step — the next cursor page.
+ *
+ * The page state itself lives in `useKeysetPager`, because the same page has to
+ * be known by a same-query refresh: it re-reads the page on screen from that
+ * page's cursor checkpoint, and the view alone cannot tell it which page that
+ * is. This stays as the view over the walk so every numbered register and the
+ * shared footer keep reading one shape.
  */
-export function useKeysetPageView<T>({
-  rows,
-  pageSize,
-  hasMore,
-  loading,
-  loadingMore,
-  loadMore,
-}: CursorWalk<T>): KeysetPageView<T> {
-  const [requested, setRequested] = useState(1);
-  const pageCount = pageSize > 0 ? Math.max(1, Math.ceil(rows.length / pageSize)) : 1;
-  // Clamp during render, so a new query that shrinks the walk back to one page
-  // shows page 1 in the same commit instead of a page that no longer exists.
-  const page = Math.min(Math.max(1, requested), pageCount);
-  const offset = (page - 1) * pageSize;
-  const pageRows = pageSize > 0 ? rows.slice(offset, offset + pageSize) : rows;
-
-  const goToPage = useCallback(
-    (target: number) => {
-      const wanted = Math.floor(Number(target));
-      if (!Number.isFinite(wanted) || wanted < 1) return;
-      if (wanted <= pageCount) {
-        setRequested(wanted);
-        return;
-      }
-      // Only one page ahead exists: page N+1's cursor is published by page N.
-      if (wanted === pageCount + 1 && hasMore && !loading && !loadingMore) {
-        setRequested(wanted);
-        loadMore();
-      }
-    },
-    [hasMore, loadMore, loading, loadingMore, pageCount]
-  );
-
+export function useKeysetPageView<T, M = unknown>(pager: KeysetPager<T, M>): KeysetPageView<T> {
   return {
-    page,
-    pageCount,
-    pageRows,
-    rowStart: pageRows.length === 0 ? 0 : offset + 1,
-    rowEnd: pageRows.length === 0 ? 0 : offset + pageRows.length,
-    goToPage,
+    page: pager.page,
+    pageCount: pager.pageCount,
+    pageRows: pager.pageRows,
+    rowStart: pager.rowStart,
+    rowEnd: pager.rowEnd,
+    goToPage: pager.goToPage,
   };
 }

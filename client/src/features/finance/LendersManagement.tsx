@@ -71,10 +71,12 @@ import { isOperationAllowed } from '../../utils/permissions';
 import { printLenderTdsCertificate } from '../../utils/lenderTdsCertificate';
 import { TDS_REASON_LABEL, TDS_REFERENCE_REQUIRED } from '../../utils/tdsExemption';
 import { LenderTdsWorklist } from '../../components/accounting/LenderTdsWorklist';
+import { PeriodRangeField } from '../../components/common/PeriodRangeField';
 import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface LendersManagementProps {
   currentUser?: User | null;
+  dateMode: 'BS' | 'AD';
 }
 
 interface LenderForm {
@@ -223,6 +225,7 @@ function statusBadge(status: LoanStatus) {
 
 export const LendersManagement: React.FC<LendersManagementProps> = ({
   currentUser,
+  dateMode,
 }) => {
   // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
   const { branches, companyProfile } = useBootstrapData();
@@ -896,7 +899,7 @@ export const LendersManagement: React.FC<LendersManagementProps> = ({
       />
 
       {workspaceView === 'TDS_WORKLIST' ? (
-        <LenderTdsWorklist currentUser={currentUser} />
+        <LenderTdsWorklist currentUser={currentUser} dateMode={dateMode} />
       ) : (
         <>
 
@@ -1262,24 +1265,19 @@ export const LendersManagement: React.FC<LendersManagementProps> = ({
                     <Landmark className="h-3.5 w-3.5" /> Lender statement
                   </h3>
                   <div className="flex flex-wrap items-end gap-2">
-                    <div>
-                      <label className={labelClass}>From</label>
-                      <input
-                        type="date"
-                        value={from}
-                        onChange={(event) => setFrom(event.target.value)}
-                        className={inputClass}
-                      />
-                    </div>
-                    <div>
-                      <label className={labelClass}>To</label>
-                      <input
-                        type="date"
-                        value={to}
-                        onChange={(event) => setTo(event.target.value)}
-                        className={inputClass}
-                      />
-                    </div>
+                    <PeriodRangeField
+                      from={from}
+                      to={to}
+                      onChange={(range) => {
+                        setFrom(range.from);
+                        setTo(range.to);
+                      }}
+                      label="Period (AD)"
+                      startAriaLabel="Lender statement from"
+                      endAriaLabel="Lender statement to"
+                      requireEnd={false}
+                      mode={dateMode}
+                    />
                     <button
                       type="button"
                       onClick={() => void loadDetail(selected.id)}

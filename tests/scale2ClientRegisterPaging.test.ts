@@ -9,6 +9,7 @@ import { useKeysetPager, type KeysetPager } from '../client/src/hooks/useKeysetP
 import { useKeysetPageView, type KeysetPageView } from '../client/src/hooks/useKeysetPageView';
 import { pageWindow } from '../client/src/utils/pageWindow';
 import { sumStatusCounts } from '../client/src/utils/statusCounts';
+import { capShipmentExport } from '../server/src/models/shipments.repo';
 
 interface Row {
   id: string;
@@ -24,8 +25,11 @@ function makeSource(initial: Row[], pageSize = 3) {
   const rows = initial.slice();
   let failScope = false;
   let hold = false;
+  let requests = 0;
   return {
     rows,
+    /** How many cursor reads have been served (the refresh cost). */
+    requests: () => requests,
     failScope: (value: boolean) => {
       failScope = value;
     },
@@ -36,7 +40,15 @@ function makeSource(initial: Row[], pageSize = 3) {
     insertNewer: (row: Row) => {
       rows.push(row);
     },
+    /** Rows deleted between two reads (a page can come back empty). */
+    remove: (ids: string[]) => {
+      for (const id of ids) {
+        const at = rows.findIndex((row) => row.id === id);
+        if (at >= 0) rows.splice(at, 1);
+      }
+    },
     page: async (cursor: string | null) => {
+      requests++;
       if (hold) return new Promise<never>(() => {});
       if (failScope) {
         const err: any = new Error('This request needs a branch_id or a bounded date range.');
@@ -198,30 +210,138 @@ test('the register pager appends across page boundaries while newer rows are ins
   assert.equal(view!.page, 3, 'a far page cannot be jumped to without walking the cursor to it');
 
   // A same-query refresh — an SSE tick, or the reload after a reversal — must
-  // hold the page the operator is reading. The walk is re-read from page 1 and
-  // swapped in one commit; clearing it first would clamp the view to page 1.
+  // hold the page the operator is reading, and it must not pay for the walk
+  // again: page 3's cursor checkpoint is a signed position, so re-reading the
+  // page on screen is ONE request (it used to re-walk pages 1-3).
   source.insertNewer({ id: 'w', ts: 950 });
+  const beforeRefresh = source.requests();
   await act(async () => {
     root.render(React.createElement(Harness, { resetKey: 'orders', refreshKey: 'tick-1' }));
   });
   await waitFor(() => Boolean(latest && !latest.loading), 'same-query refresh');
+  assert.equal(
+    source.requests() - beforeRefresh,
+    1,
+    'a refresh on page 3 re-reads page 3 only, not the whole cursor walk'
+  );
   assert.equal(view!.page, 3, 'a same-query refresh keeps the page that was on screen');
-  assert.equal(view!.pageCount, 3, 'the re-walk restores every page that had been reached');
-  assert.equal(latest!.rows.length, 9, 'the re-walk covers the same depth, not just page 1');
+  assert.equal(view!.pageCount, 3, 'the pages before the refreshed one are still numbered');
+  assert.equal(latest!.rows.length, 7, 'the pages before the refreshed one keep the rows already read');
+  assert.deepEqual(
+    view!.pageRows.map((row) => row.id),
+    ['a'],
+    'page 3 is re-read from its own anchor, so the newer row (before that anchor) still never enters it'
+  );
+
+  // A refresh on an EARLIER page still costs one request and KEEPS the walk:
+  // the later pages stay numbered with the rows already read. They are flagged
+  // internally as no longer guaranteed to follow the page that changed, and
+  // each is re-read (one request) only when the reader opens it.
+  await act(async () => {
+    view!.goToPage(1);
+  });
+  const beforeMidWalk = source.requests();
+  await act(async () => {
+    root.render(React.createElement(Harness, { resetKey: 'orders', refreshKey: 'tick-1b' }));
+  });
+  await waitFor(() => Boolean(latest && !latest.loading), 'mid-walk refresh');
+  assert.equal(source.requests() - beforeMidWalk, 1, 'a refresh on page 1 is one request too');
+  assert.equal(view!.page, 1, 'the reader stays on the page they were reading');
+  assert.equal(view!.pageCount, 3, 'the pages after it keep their numbers — the walk does not collapse');
+  assert.deepEqual(
+    view!.pageRows.map((row) => row.id),
+    ['w', 'z', 'y'],
+    'page 1 is re-read from the top of the chain, so it now holds the newest rows'
+  );
+
+  // Opening a later page re-reads that page only — one request, anchored to the
+  // page before it as it now stands, so the numbering and the depth survive.
+  const beforePageTwo = source.requests();
+  await act(async () => {
+    view!.goToPage(2);
+  });
+  await waitFor(() => Boolean(latest && !latest.loading), 'page 2 re-read');
+  assert.equal(source.requests() - beforePageTwo, 1, 'opening a later page is one request, not a re-walk');
+  assert.equal(view!.page, 2, 'the reader lands on the page they asked for');
+  assert.deepEqual(
+    view!.pageRows.map((row) => row.id),
+    ['h', 'g', 'f'],
+    'page 2 now holds the rows that follow the fresh page 1'
+  );
+  assert.equal(view!.pageCount, 3, 're-reading one page leaves the rest of the walk alone');
+
+  const beforePageThree = source.requests();
+  await act(async () => {
+    view!.goToPage(3);
+  });
+  await waitFor(() => Boolean(latest && !latest.loading), 'page 3 re-read');
+  assert.equal(source.requests() - beforePageThree, 1, 'each later page costs one request, and only when opened');
   assert.deepEqual(
     view!.pageRows.map((row) => row.id),
     ['e', 'd', 'c'],
-    'page 3 now holds the fresh rows for that slot'
+    'page 3 follows the re-read page 2'
   );
+  assert.deepEqual(
+    latest!.rows.map((row) => row.id),
+    ['w', 'z', 'y', 'h', 'g', 'f', 'e', 'd', 'c'],
+    'the fresh chain continues page by page with no duplicate and no gap'
+  );
+
+  // Every page has now been read against the current chain, so going back is a
+  // local slice again — no request.
+  const beforeCachedBack = source.requests();
+  await act(async () => {
+    view!.goToPage(1);
+  });
+  assert.deepEqual(view!.pageRows.map((row) => row.id), ['w', 'z', 'y']);
+  assert.equal(source.requests() - beforeCachedBack, 0, 'a page read against the current chain is cached');
+  await act(async () => {
+    view!.goToPage(3);
+  });
+
+  // The rows after page 3 were deleted between the reads. A next cursor that
+  // comes back empty ends the walk: it must never be numbered as a blank page,
+  // and the same cursor must never be asked again (that would not terminate).
+  source.remove(['e', 'd', 'c', 'b', 'a']);
+  const beforeEmptyAppend = source.requests();
+  await act(async () => {
+    view!.goToPage(4);
+  });
+  await waitFor(() => Boolean(latest && !latest.loadingMore && !latest.loading), 'empty next page');
+  assert.equal(source.requests() - beforeEmptyAppend, 1, 'the next cursor is asked once');
+  assert.equal(view!.pageCount, 3, 'an empty next page is never numbered');
+  assert.equal(view!.page, 3, 'the reader stays on the page they were reading');
+  assert.equal(latest!.hasMore, false, 'the walk ends at the empty answer instead of looping');
+
+  // A page that is re-read and comes back empty is dropped the same way: the
+  // footer can no longer offer an empty page at the end, and the reader is
+  // clamped to the last page that still has rows.
+  const beforeEmptyRead = source.requests();
+  await act(async () => {
+    root.render(React.createElement(Harness, { resetKey: 'orders', refreshKey: 'tick-1c' }));
+  });
+  await waitFor(() => Boolean(latest && !latest.loading), 'empty page re-read');
+  assert.equal(source.requests() - beforeEmptyRead, 1, 'the empty re-read is still one request');
+  assert.equal(view!.pageCount, 2, 'an empty re-read page is dropped, not numbered');
+  assert.equal(view!.page, 2, 'the reader is clamped to the last page that has rows');
+  assert.deepEqual(
+    view!.pageRows.map((row) => row.id),
+    ['h', 'g', 'f'],
+    'the last real page keeps its rows'
+  );
+  assert.equal(latest!.rows.length, 6, 'no blank page is left in the walk');
 
   // In flight the page and its rows stay on screen: no placeholder, no jump.
   source.holdPage(true);
   await act(async () => {
+    view!.goToPage(2);
+  });
+  await act(async () => {
     root.render(React.createElement(Harness, { resetKey: 'orders', refreshKey: 'tick-2' }));
   });
   assert.equal(latest!.loading, true, 'the refresh is in flight');
-  assert.equal(view!.page, 3, 'the page holds while the re-read runs');
-  assert.equal(latest!.rows.length, 9, 'the rows on screen are not cleared by a refresh');
+  assert.equal(view!.page, 2, 'the page holds while the re-read runs');
+  assert.equal(latest!.rows.length, 6, 'the rows on screen are not cleared by a refresh');
   source.holdPage(false);
 
   // The footer's "of N" must describe the CURRENT query. A filter change clears
@@ -419,22 +539,6 @@ test('every converted register uses the shared cursor pager and a cursor footer'
         );
       }
       assert.match(source, /totalRows=\{[^}]*\}/, `${screen} must pass the filtered total to the footer`);
-      if (/exportToCSV/.test(source)) {
-        // A register export is the whole filtered set, never the cursor pages
-        // loaded so far: one page would look like a complete register.
-        assert.match(source, /all: true/, `${screen} exports the whole filtered set`);
-      }
-      if (screen.endsWith('SerialLogRegister.tsx')) {
-        // The full read must abort the export when it fails; falling back to the
-        // rows on screen ships one page as if it were the register.
-        const exportBlock = source.split('handleExportCSV')[1]?.split('exportToCSV(')[0] || '';
-        assert.doesNotMatch(
-          exportBlock,
-          /exportRows = filtered/,
-          'a failed full read must not fall back to the loaded page'
-        );
-        assert.match(exportBlock, /return;/, 'a failed full read writes no file');
-      }
     } else {
       assert.match(source, /KeysetLoadMore/, `${screen} must render the load-more footer`);
     }
@@ -508,23 +612,95 @@ test('every converted register uses the shared cursor pager and a cursor footer'
   }
   // A full-read export that fails writes no file: falling back to the rows on
   // screen ships a partial report as if it were the whole filtered set.
-  for (const file of [
-    'client/src/features/finance/FixedAssetRegister.tsx',
-    'client/src/features/finance/DepreciationRegister.tsx',
-  ]) {
+  const exportingRegisters: Array<{ file: string; fullRead: RegExp }> = [
+    { file: 'client/src/features/inventory/SerialLogRegister.tsx', fullRead: /all: true/ },
+    { file: 'client/src/features/inventory/stockops/ConsumablesRegisterPanel.tsx', fullRead: /all: true/ },
+    { file: 'client/src/features/finance/FixedAssetRegister.tsx', fullRead: /getFixedAssetExport/ },
+    { file: 'client/src/features/finance/DepreciationRegister.tsx', fullRead: /getFixedAssetExport/ },
+  ];
+  for (const { file, fullRead } of exportingRegisters) {
     const source = fs.readFileSync(path.resolve(file), 'utf8');
-    const exportBlock = source.split('handleExportCSV')[1] || '';
+    assert.match(source, fullRead, `${file} reads the whole filtered set`);
+    assert.match(source, /No file was written/, `${file} reports a failed full read`);
     assert.doesNotMatch(
-      exportBlock,
-      /exportRows = rows|exportGroups = groups/,
+      source,
+      /exportRows = (rows|filtered)|exportGroups = groups/,
       `${file} must not fall back to the rows on screen`
     );
-    const announced = exportBlock.match(/No file was written/g)?.length || 0;
-    assert.ok(
-      announced >= (file.includes('Depreciation') ? 2 : 1),
-      `${file} reports every failed full read without writing a file`
+  }
+
+  // ASSET-1's rule reaches the transfer register: its export used the legacy
+  // bare array, which the server stops at 2,000 rows without saying so — a
+  // capped file then reads as the whole filtered set.
+  const shipmentRegister = fs.readFileSync(
+    path.resolve('client/src/features/procurement/ShipmentRegister.tsx'),
+    'utf8'
+  );
+  assert.match(
+    shipmentRegister,
+    /api\.getShipmentExport/,
+    'the shipments export asks for the bounded read that reports its cap'
+  );
+  assert.match(
+    shipmentRegister,
+    /exported\.truncated/,
+    'a capped shipments export is reported, never written silently'
+  );
+  const shipmentsController = fs.readFileSync(
+    path.resolve('server/src/controllers/shipments.controller.ts'),
+    'utf8'
+  );
+  assert.match(
+    shipmentsController,
+    /limit: SHIPMENT_LEGACY_LIMIT \+ 1/,
+    'the legacy read over-reads by one row, so a capped set is distinguishable from a complete one'
+  );
+  assert.match(
+    shipmentsController,
+    /truncated, limit: SHIPMENT_LEGACY_LIMIT/,
+    'the envelope carries the truncation flag and the cap it applied'
+  );
+  // The off-by-one is the whole point: a set that ends exactly at the cap must
+  // not be reported as capped, and the over-read row must never reach the file.
+  const exactlyAtCap = Array.from({ length: 2000 }, (_, i) => i);
+  const capped = capShipmentExport(exactlyAtCap, 2000);
+  assert.equal(capped.truncated, false, 'exactly `limit` rows is a complete set, not a capped one');
+  assert.equal(capped.data.length, 2000, 'a complete read keeps every row');
+  const overCap = capShipmentExport([...exactlyAtCap, 2000], 2000);
+  assert.equal(overCap.truncated, true, 'one row past the cap means more matched the filters');
+  assert.equal(overCap.data.length, 2000, 'the sentinel row that proved truncation never reaches the caller');
+
+  // An SSE tick is a same-query re-read. Every stock-ops panel keeps it on
+  // `refreshKey`: in `resetKey` it is a NEW query, so the tick clears the walk
+  // and discards every page the reader had loaded.
+  for (const panel of [
+    'client/src/features/inventory/stockops/LogsPanel.tsx',
+    'client/src/features/inventory/stockops/PulloutBinsPanel.tsx',
+    'client/src/features/inventory/stockops/DamageTrackingPanel.tsx',
+    'client/src/features/inventory/stockops/ConsumablesRegisterPanel.tsx',
+  ]) {
+    const source = fs.readFileSync(path.resolve(panel), 'utf8');
+    assert.match(
+      source,
+      /refreshKey: sseRefreshKey \?\? 0,/,
+      `${panel} must hold the loaded rows across an SSE tick (refreshKey, not resetKey)`
+    );
+    assert.doesNotMatch(
+      source,
+      /resetKey: \[[^\]]*sseRefreshKey/,
+      `${panel} must not treat an SSE tick as a new query`
     );
   }
+  const logsPanel = fs.readFileSync(
+    path.resolve('client/src/features/inventory/stockops/LogsPanel.tsx'),
+    'utf8'
+  );
+  assert.match(
+    logsPanel,
+    /logsPager\.refresh\(\)/,
+    'LogsPanel re-reads in place after a reversal; reload() would discard the loaded pages'
+  );
+  assert.doesNotMatch(logsPanel, /logsPager\.reload\(\)/, 'LogsPanel must not restart the walk');
 
   // Both statements render through LedgerView. A refetch clears the figures (they
   // belong to the query that produced them), so the region must read as

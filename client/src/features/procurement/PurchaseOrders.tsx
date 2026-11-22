@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { PurchaseOrder, PurchaseInvoice, Product, Branch, InventoryStock, Supplier, User, CompanyProfile } from '../../types';
 import { formatDualDate, formatBSDate } from '../../utils/nepaliCalendar';
-import { DateField } from '../../components/DateField';
+import { PeriodRangeField } from '../../components/common/PeriodRangeField';
 import { exportToCSV } from '../../utils/exportUtils';
 import { isOperationAllowed } from '../../utils/permissions';
 import { useDialog } from '../../components/common/DialogProvider';
@@ -589,6 +589,25 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
             searchValue={searchQuery}
             onSearchApply={setSearchQuery}
             onSearchDraftChange={(draft) => { searchDraftRef.current = draft; }}
+            // One bounded preview page under the register's own filters: the
+            // settle never re-walks the table.
+            fetchPreview={async (query: string) => {
+              const page = (await api.getPurchaseOrders({
+                branchId: selectedBranchId !== 'ALL' ? selectedBranchId : undefined,
+                supplier: supplierFilterName,
+                query,
+                dateFromAD: orderDateFromAD || undefined,
+                dateToAD: orderDateToAD || undefined,
+                page: 1,
+                pageSize: 5,
+              })) as { data?: PurchaseOrder[] };
+              return (page?.data ?? []).map((po) => ({
+                id: po.id,
+                label: po.poNumber,
+                detail: [po.supplierName, po.orderDateAD].filter(Boolean).join(' · '),
+                meta: po.status,
+              }));
+            }}
             hasActiveFilters={
               Boolean(searchQuery) || selectedSupplierFilter !== 'ALL' || Boolean(orderDateFromAD) || Boolean(orderDateToAD)
             }
@@ -605,7 +624,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                   <select
                     value={selectedSupplierFilter}
                     onChange={(e) => setSelectedSupplierFilter(e.target.value)}
-                    className={`w-52 px-3 py-2 text-xs font-medium rounded-xl border focus:outline-none cursor-pointer bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
+                    className={`h-8 w-52 px-3 text-xs font-medium rounded-xl border focus:outline-none cursor-pointer bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
                   >
                     <option value="ALL">All Vendors / Suppliers ({availableSuppliers.length})</option>
                     {availableSuppliers.map((supp) => (
@@ -615,32 +634,19 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                     ))}
                   </select>
                 </div>
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Order Date From</label>
-                  <div className="w-40">
-                    <DateField
-                      mode={dateMode}
-                      value={orderDateFromAD}
-                      onChange={setOrderDateFromAD}
-                      compact
-                      showHint={false}
-                      max={orderDateToAD || undefined}
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Order Date To</label>
-                  <div className="w-40">
-                    <DateField
-                      mode={dateMode}
-                      value={orderDateToAD}
-                      onChange={setOrderDateToAD}
-                      compact
-                      showHint={false}
-                      min={orderDateFromAD || undefined}
-                    />
-                  </div>
-                </div>
+                <PeriodRangeField
+                  from={orderDateFromAD}
+                  to={orderDateToAD}
+                  onChange={(range) => {
+                    setOrderDateFromAD(range.from);
+                    setOrderDateToAD(range.to);
+                  }}
+                  label="Order date (AD)"
+                  startAriaLabel="Purchase orders date from"
+                  endAriaLabel="Purchase orders date to"
+                  requireEnd={false}
+                  mode={dateMode}
+                />
               </>
             }
             rightChildren={

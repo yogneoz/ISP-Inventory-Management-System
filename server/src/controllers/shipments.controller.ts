@@ -12,6 +12,7 @@ import { planSerialGateEntries, resolveSerialGateInDb, SerialGateError, serialGa
 import { OperationError, errorResponse } from '../utils/operationError';
 import {
   buildShipmentListSql, buildShipmentCountSql, buildShipmentSummarySql, filterShipmentsMirror,
+  capShipmentExport,
   buildShipmentKeysetSql,
   type ShipmentListOptions,
   SHIPMENT_UPSERT_SQL, SHIPMENT_FIND_FOR_OVERWRITE_SQL, shipmentUpsertParams,
@@ -156,7 +157,7 @@ function appendLedgerMirror(rows: TransactionLog[]): void {
  * asks for the bare array (the FY closing wizard does, with a year scope) from
  * pulling an unbounded national ledger into Node.
  */
-const SHIPMENT_LEGACY_LIMIT = 2000;
+export const SHIPMENT_LEGACY_LIMIT = 2000;
 const SHIPMENT_PAGE_DEFAULT = 25;
 const SHIPMENT_PAGE_MAX = 200;
 // In-flight rows are the actionable ones (badges, receive lanes, alerts). The
@@ -225,23 +226,37 @@ function shipmentQueryOptions(
 /**
  * Bare-array read (legacy contract, bounded). The FY closing wizard uses the
  * year scope; everything else reads `/page` or `/overview`.
+ *
+ * The cap is real, so it is reported, never silent (ASSET-1's rule for the
+ * fixed-asset export): the read asks for one row PAST the cap, which is the only
+ * way to tell a capped set from one that genuinely ends at the cap, and
+ * `?envelope=1` answers `{ data, truncated, limit }` for callers that need to
+ * say so — the Shipment Register's CSV export does. Without the flag the reply
+ * stays a bare array, so the year-scoped wizard contract is unchanged.
  */
 export async function get_shipments(req: any, res: Response): Promise<any> {
   const scope = resolveShipmentReadScope(req, res);
   if (!scope) return;
-  const opts = shipmentQueryOptions(req, scope, { limit: SHIPMENT_LEGACY_LIMIT });
+  const wantsEnvelope = req.query?.envelope === '1';
+  const opts = shipmentQueryOptions(req, scope, { limit: SHIPMENT_LEGACY_LIMIT + 1 });
+  let rows: any[];
   if (getPgConnected()) {
     try {
       const list = buildShipmentListSql(opts);
       const r = await pgPool.query(list.sql, list.params as any[]);
-      res.json(r.rows);
-      return;
+      rows = r.rows;
     } catch (err) {
       console.error('Error fetching shipments from DB:', err);
       return res.status(500).json({ message: 'Could not load shipments from the database. Reload to retry.' });
     }
+  } else {
+    rows = filterShipmentsMirror(shipments, opts).slice(0, SHIPMENT_LEGACY_LIMIT + 1);
   }
-  res.json(filterShipmentsMirror(shipments, opts).slice(0, SHIPMENT_LEGACY_LIMIT));
+  const { data, truncated } = capShipmentExport(rows, SHIPMENT_LEGACY_LIMIT);
+  if (wantsEnvelope) {
+    return res.json({ data, truncated, limit: SHIPMENT_LEGACY_LIMIT, totalItems: data.length });
+  }
+  res.json(data);
 }
 
 /**

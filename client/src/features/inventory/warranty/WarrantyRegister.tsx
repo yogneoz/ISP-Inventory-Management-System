@@ -388,7 +388,7 @@ export const WarrantyRegister: React.FC<WarrantyRegisterProps> = ({
                 value={status}
                 onChange={(event) => setStatus(event.target.value)}
                 aria-label="Warranty status"
-                className="w-48 rounded-xl border px-3 py-2 text-xs font-semibold focus:outline-none cursor-pointer border-slate-300 bg-white text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
+                className="h-8 w-48 rounded-xl border px-3 text-xs font-semibold focus:outline-none cursor-pointer border-slate-300 bg-white text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
               >
                 {STATUS_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
@@ -405,7 +405,7 @@ export const WarrantyRegister: React.FC<WarrantyRegisterProps> = ({
                 value={category}
                 onChange={(event) => setCategory(event.target.value)}
                 aria-label={isVendor ? 'Warranty category' : 'Warranty type'}
-                className="w-44 rounded-xl border px-3 py-2 text-xs font-semibold focus:outline-none cursor-pointer border-slate-300 bg-white text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
+                className="h-8 w-44 rounded-xl border px-3 text-xs font-semibold focus:outline-none cursor-pointer border-slate-300 bg-white text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
               >
                 {categoryOptions.map((option) => (
                   <option key={option.value} value={option.value}>
@@ -424,6 +424,7 @@ export const WarrantyRegister: React.FC<WarrantyRegisterProps> = ({
             >
               <div className="min-w-fit">
                 <PeriodRangeField
+                  mode={dateMode}
                   label="Warranty start"
                   startAriaLabel="Warranty start from"
                   endAriaLabel="Warranty start to"
@@ -453,7 +454,7 @@ export const WarrantyRegister: React.FC<WarrantyRegisterProps> = ({
               onClick={handleExport}
               disabled={exporting || loading}
               title="Export every row matching the current filters, with AD and BS dates"
-              className="flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold cursor-pointer border-slate-300 text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              className="flex h-8 items-center gap-1.5 rounded-xl border px-3 text-xs font-bold cursor-pointer border-slate-300 text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
             >
               <Download className="h-3.5 w-3.5" />
               <span>{exporting ? 'Exporting…' : 'Export CSV'}</span>

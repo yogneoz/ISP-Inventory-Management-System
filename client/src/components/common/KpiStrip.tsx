@@ -13,6 +13,15 @@ export interface KpiStripItem {
   value: React.ReactNode;
   /** Optional second figure / explanation, shown as a tooltip. */
   hint?: React.ReactNode;
+  /**
+   * Render the hint as visible text instead of a tooltip only.
+   *
+   * The compaction this bar exists for assumes a hint is secondary. It is not
+   * when the figure cannot be read on its own: a dash for "this server did not
+   * report the row" looks like zero until the user hovers. Those items set this
+   * so the explanation is in the DOM text, not just in `title`.
+   */
+  hintVisible?: boolean;
   /** lucide icon rendered at 14 px in the tone colour. */
   icon?: React.ReactNode;
   /** Text-colour classes for the icon only, e.g. "text-rose-500". */
@@ -77,6 +86,11 @@ export function KpiStrip({ items, className = '' }: KpiStripProps) {
             )}
             <b className="font-mono text-xs text-slate-900 dark:text-white">{item.value}</b>
             <span>{item.label}</span>
+            {item.hintVisible && item.hint != null && (
+              <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                · {item.hint}
+              </span>
+            )}
           </>
         );
 

@@ -27,6 +27,7 @@ import { isOperationAllowed } from '../../utils/permissions';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { exportToCSV } from '../../utils/exportUtils';
 import { money } from './statementFormat';
+import { DateField } from '../DateField';
 
 function monthStart(date: string): string {
   return `${date.slice(0, 7)}-01`;
@@ -295,17 +296,19 @@ export const BankReconciliationPanel: React.FC<BankReconciliationPanelProps> = (
             ))}
           </select>
         </label>
-        <label className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-          Period start (AD)
-          <input
-            aria-label="Bank reconciliation period start"
-            type="date"
+        {/* Compact so both calendars render the same height; the value stays
+            AD for the read. */}
+        <div className="w-64 shrink-0">
+          <DateField
+            compact
+            mode={dateMode}
+            label="Period start"
+            ariaLabel="Bank reconciliation period start"
             value={from}
             max={to}
-            onChange={(event) => setFrom(event.target.value)}
-            className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+            onChange={setFrom}
           />
-        </label>
+        </div>
         <div className="rounded-lg bg-slate-50 px-3 py-2 text-[11px] leading-snug text-slate-500 dark:bg-slate-800/50 dark:text-slate-400">
           Period end <span className="font-semibold text-slate-700 dark:text-slate-200">{formatDualDate(to, dateMode)}</span>
           <br />

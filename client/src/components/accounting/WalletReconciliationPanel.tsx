@@ -20,6 +20,7 @@ import type { User } from '../../types';
 import { isOperationAllowed } from '../../utils/permissions';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { money } from './statementFormat';
+import { DateField } from '../DateField';
 
 function monthStart(date: string): string {
   return `${date.slice(0, 7)}-01`;
@@ -248,17 +249,19 @@ export const WalletReconciliationPanel: React.FC<WalletReconciliationPanelProps>
             ))}
           </select>
         </label>
-        <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400">
-          Period start (AD)
-          <input
-            aria-label="Wallet reconciliation period start"
-            type="date"
+        {/* Compact so both calendars render the same height; the value stays
+            AD for the read. */}
+        <div className="w-64 shrink-0">
+          <DateField
+            compact
+            mode={dateMode}
+            label="Period start"
+            ariaLabel="Wallet reconciliation period start"
             value={from}
             max={to}
-            onChange={(event) => setFrom(event.target.value)}
-            className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+            onChange={setFrom}
           />
-        </label>
+        </div>
         <div className="rounded-lg bg-slate-50 px-3 py-2 text-[11px] leading-snug text-slate-500 dark:bg-slate-800/50 dark:text-slate-400">
           Period end <span className="font-semibold text-slate-700 dark:text-slate-200">{formatDualDate(to, dateMode)}</span>
           <br />Company-wide · {data?.account?.providerCode || 'provider'} clearing
@@ -382,16 +385,25 @@ export const WalletReconciliationPanel: React.FC<WalletReconciliationPanelProps>
                 <h3 className="text-xs font-bold text-indigo-900 dark:text-indigo-200">Settle {settling.paymentNumber}</h3>
                 <button type="button" onClick={() => setSettling(null)} className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">Cancel</button>
               </div>
-              <div className="grid grid-cols-2 gap-2 lg:grid-cols-6">
-                <label className="text-[10px] font-semibold text-slate-500">Bank account
+              {/* Eight columns, not six: the BS picker shows the Nepali day
+                  and the AD value it maps to, so it needs two. */}
+              <div className="grid grid-cols-2 gap-2 lg:grid-cols-8">
+                <label className="text-[10px] font-semibold text-slate-500 lg:col-span-2">Bank account
                   <select value={settleBankId} onChange={(event) => setSettleBankId(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-white">
                     <option value="">Choose bank</option>
                     {banks.map((bank) => <option key={bank.id} value={bank.id}>{bank.code} · {bank.name}</option>)}
                   </select>
                 </label>
-                <label className="text-[10px] font-semibold text-slate-500">Date
-                  <input type="date" value={settleDate} onChange={(event) => setSettleDate(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
-                </label>
+                <div className="lg:col-span-2">
+                  <DateField
+                    compact
+                    mode={dateMode}
+                    label="Date"
+                    ariaLabel="Wallet settlement date"
+                    value={settleDate}
+                    onChange={setSettleDate}
+                  />
+                </div>
                 <label className="text-[10px] font-semibold text-slate-500">Gross
                   <input type="number" min="0.01" step="0.01" value={settleGross} onChange={(event) => setSettleGross(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-mono dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
                 </label>

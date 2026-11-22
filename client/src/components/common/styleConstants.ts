@@ -11,6 +11,14 @@
 export const inputClass =
   'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none dark:border-slate-700 dark:bg-[#0f1218] dark:text-white';
 
+/**
+ * Compact filter-toolbar control — the shared FilterCard row's height (h-8),
+ * so a register's select lines up with the search box and the Filter/Clear
+ * buttons instead of standing 34 px tall on px-3 py-2.
+ */
+export const filterControlClass =
+  'h-8 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs text-slate-900 focus:border-indigo-500 focus:outline-none dark:border-slate-700 dark:bg-[#0f1218] dark:text-white';
+
 /** Standard form label styling (light + dark). */
 export const labelClass = 'mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400';
 

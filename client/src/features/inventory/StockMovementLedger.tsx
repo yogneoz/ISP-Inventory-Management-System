@@ -572,16 +572,16 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
               All Time
             </button>
             <span className="text-slate-300 dark:text-slate-700">|</span>
-            <div className="p-0.5 rounded-lg border flex items-center gap-1 bg-slate-100 border-slate-200 dark:bg-slate-900 dark:border-slate-800">
+            <div className="flex h-8 items-center gap-1 rounded-lg border p-0.5 bg-slate-100 border-slate-200 dark:bg-slate-900 dark:border-slate-800">
               <button
                 onClick={() => setViewTab('SUMMARY_MATRIX')}
-                className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${viewTab === 'SUMMARY_MATRIX' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'}`}
+                className={`h-full px-2.5 rounded-md text-[11px] font-bold transition-all cursor-pointer ${viewTab === 'SUMMARY_MATRIX' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'}`}
               >
                 Summary Matrix
               </button>
               <button
                 onClick={() => setViewTab('TRANSACTION_LOGS')}
-                className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${viewTab === 'TRANSACTION_LOGS' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'}`}
+                className={`h-full px-2.5 rounded-md text-[11px] font-bold transition-all cursor-pointer ${viewTab === 'TRANSACTION_LOGS' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'}`}
               >
                 Event Logs ({filteredLogs.length})
               </button>
@@ -592,6 +592,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
           <>
             <div className="min-w-fit">
               <PeriodRangeField
+                mode={dateMode}
                 label="Movement date"
                 startAriaLabel="Movement date from"
                 endAriaLabel="Movement date to"

@@ -1502,7 +1502,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               <select
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
-                className={`w-44 px-3 py-2 rounded-xl border text-xs font-semibold focus:outline-none cursor-pointer bg-white border-slate-300 text-slate-700 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
+                className={`h-8 w-44 px-3 rounded-xl border text-xs font-semibold focus:outline-none cursor-pointer bg-white border-slate-300 text-slate-700 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
               >
                 <option value="ALL">All Categories</option>
                 {categories.map((c) => (
@@ -1517,7 +1517,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               <select
                 value={filterVariance}
                 onChange={(e) => setFilterVariance(e.target.value as any)}
-                className={`w-52 px-3 py-2 rounded-xl border text-xs font-semibold focus:outline-none cursor-pointer bg-white border-slate-300 text-slate-700 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
+                className={`h-8 w-52 px-3 rounded-xl border text-xs font-semibold focus:outline-none cursor-pointer bg-white border-slate-300 text-slate-700 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
               >
                 <option value="ALL">All Stock Rows ({auditRows.length})</option>
                 <option value="DISCREPANCY">Discrepancies Only ({stats.discrepancyCount})</option>
@@ -1530,7 +1530,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               type="button"
               onClick={handleSetZeroAll}
               disabled={isTableLocked}
-              className={`px-3 py-2 rounded-xl border text-[11px] font-bold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed border-slate-300 hover:bg-slate-200 text-rose-600 dark:border-slate-700 dark:hover:bg-slate-800 dark:text-rose-400`}
+              className={`inline-flex h-8 items-center px-3 rounded-xl border text-[11px] font-bold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed border-slate-300 hover:bg-slate-200 text-rose-600 dark:border-slate-700 dark:hover:bg-slate-800 dark:text-rose-400`}
               title="Zero out all physical counts for fresh manual stock count"
             >
               Zero All Counts
@@ -1859,7 +1859,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                   <select
                     value={selectedCategory}
                     onChange={(e) => setSelectedCategory(e.target.value)}
-                    className={`w-44 px-3 py-2 rounded-xl border text-xs font-semibold focus:outline-none cursor-pointer bg-white border-slate-300 text-slate-700 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
+                    className={`h-8 w-44 px-3 rounded-xl border text-xs font-semibold focus:outline-none cursor-pointer bg-white border-slate-300 text-slate-700 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
                   >
                     <option value="ALL">All Categories</option>
                     {categories.map((c) => (
@@ -1869,6 +1869,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                 </div>
                 <div className="min-w-fit">
                   <PeriodRangeField
+                    mode={dateMode}
                     label="Audit submitted"
                     startAriaLabel="Audit submitted from"
                     endAriaLabel="Audit submitted to"
@@ -1889,7 +1890,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               <button
                 type="button"
                 onClick={handleExportBranchCSV}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-colors cursor-pointer border-slate-300 hover:bg-slate-200 text-slate-700 dark:border-slate-700 dark:hover:bg-slate-800 dark:text-slate-300`}
+                className={`flex h-8 items-center gap-1.5 px-3 rounded-xl border text-xs font-bold transition-colors cursor-pointer border-slate-300 hover:bg-slate-200 text-slate-700 dark:border-slate-700 dark:hover:bg-slate-800 dark:text-slate-300`}
               >
                 <FileSpreadsheet className="h-4 w-4 text-emerald-500" />
                 <span>Export Full Company Matrix CSV</span>

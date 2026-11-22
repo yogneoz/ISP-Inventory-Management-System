@@ -9,6 +9,7 @@ import {
 import { ModalPanel } from '../common/ModalPanel';
 import { useDialog } from '../common/DialogProvider';
 import { money } from './statementFormat';
+import { PeriodRangeField } from '../common/PeriodRangeField';
 import {
   getLenderTdsWorklist,
   recordLenderTdsEvidence,
@@ -22,13 +23,15 @@ import { TDS_REASON_LABEL, TDS_REFERENCE_REQUIRED } from '../../utils/tdsExempti
 
 interface LenderTdsWorklistProps {
   currentUser?: User | null;
+  /** Header calendar for the period filter; the read still takes AD bounds. */
+  dateMode: 'BS' | 'AD';
 }
 
 const inputClass =
   'h-9 w-full rounded-lg border border-slate-300 bg-transparent px-3 text-xs text-slate-900 focus:border-indigo-500 focus:outline-none dark:border-slate-700 dark:text-white';
 const labelClass = 'mb-1 block text-[11px] font-semibold text-slate-600 dark:text-slate-300';
 
-export const LenderTdsWorklist: React.FC<LenderTdsWorklistProps> = ({ currentUser }) => {
+export const LenderTdsWorklist: React.FC<LenderTdsWorklistProps> = ({ currentUser, dateMode }) => {
   const { alert: alertDialog } = useDialog();
   const canManage = isOperationAllowed('gl-subledger-manage', currentUser?.role);
   const [draft, setDraft] = useState({ from: '', to: '' });
@@ -116,24 +119,18 @@ export const LenderTdsWorklist: React.FC<LenderTdsWorklistProps> = ({ currentUse
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
-          <div>
-            <label className={labelClass}>From</label>
-            <input
-              type="date"
-              value={draft.from}
-              onChange={(event) => setDraft({ ...draft, from: event.target.value })}
-              className={inputClass}
-            />
-          </div>
-          <div>
-            <label className={labelClass}>To</label>
-            <input
-              type="date"
-              value={draft.to}
-              onChange={(event) => setDraft({ ...draft, to: event.target.value })}
-              className={inputClass}
-            />
-          </div>
+          {/* One range control on the header calendar; Apply below is still the
+              only thing that re-reads the worklist. */}
+          <PeriodRangeField
+            from={draft.from}
+            to={draft.to}
+            onChange={(range) => setDraft(range)}
+            label="Period (AD)"
+            startAriaLabel="TDS worklist from"
+            endAriaLabel="TDS worklist to"
+            requireEnd={false}
+            mode={dateMode}
+          />
           <button
             type="button"
             onClick={() => setApplied({ ...draft })}

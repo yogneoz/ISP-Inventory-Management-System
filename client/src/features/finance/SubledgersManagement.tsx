@@ -13,6 +13,7 @@
  * repair — it never rewrites an existing account.
  */
 import React, { useEffect, useMemo, useState } from 'react';
+import { PeriodRangeField } from '../../components/common/PeriodRangeField';
 import {
   AlertTriangle,
   BookOpen,
@@ -49,6 +50,8 @@ import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface SubledgersManagementProps {
   currentUser?: User | null;
+  /** Header calendar for the book-ledger From/To filter; reads stay in AD. */
+  dateMode: 'BS' | 'AD';
   /** Bounded default window for the book ledger read. */
   fiscalYearStartAD?: string;
   fiscalYearEndAD?: string;
@@ -96,6 +99,7 @@ const rowAction =
 
 export const SubledgersManagement: React.FC<SubledgersManagementProps> = ({
   currentUser,
+  dateMode,
   fiscalYearStartAD = '',
   fiscalYearEndAD = '',
 }) => {
@@ -852,24 +856,19 @@ export const SubledgersManagement: React.FC<SubledgersManagementProps> = ({
                 </p>
               </div>
               <div className="flex items-end gap-2">
-                <label className="text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  From
-                  <input
-                    type="date"
-                    className={inputClass}
-                    value={ledgerFrom}
-                    onChange={(event) => setLedgerFrom(event.target.value)}
-                  />
-                </label>
-                <label className="text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  To
-                  <input
-                    type="date"
-                    className={inputClass}
-                    value={ledgerTo}
-                    onChange={(event) => setLedgerTo(event.target.value)}
-                  />
-                </label>
+                <PeriodRangeField
+                  from={ledgerFrom}
+                  to={ledgerTo}
+                  onChange={(range) => {
+                    setLedgerFrom(range.from);
+                    setLedgerTo(range.to);
+                  }}
+                  label="Period (AD)"
+                  startAriaLabel="Book ledger from"
+                  endAriaLabel="Book ledger to"
+                  requireEnd={false}
+                  mode={dateMode}
+                />
                 <button
                   type="button"
                   className={rowAction}

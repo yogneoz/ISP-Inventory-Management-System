@@ -682,7 +682,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                 onChange={(e) => {
                   setSelectedBranchFilter(e.target.value);
                 }}
-                className="px-3 py-2 text-xs rounded-xl border outline-none font-medium bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-white cursor-pointer"
+                className="h-8 px-3 text-xs rounded-xl border outline-none font-medium bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-white cursor-pointer"
               >
                 <option value="ALL">All Branches ({branches.length})</option>
                 {branches.map((b) => (
@@ -699,7 +699,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                 onChange={(e) => {
                   setStatusFilter(e.target.value as any);
                 }}
-                className="px-3 py-2 text-xs rounded-xl border outline-none font-medium bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-white cursor-pointer"
+                className="h-8 px-3 text-xs rounded-xl border outline-none font-medium bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-white cursor-pointer"
               >
                 <option value="ALL">All Statuses</option>
                 <option value="ACTIVE">Active Only</option>

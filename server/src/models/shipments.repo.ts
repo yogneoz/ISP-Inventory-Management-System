@@ -171,6 +171,22 @@ export function buildShipmentKeysetSql(
   return { sql, params };
 }
 
+/**
+ * Split a legacy-array read that asked for one row PAST its cap.
+ *
+ * The over-read is what makes a capped set distinguishable from one that
+ * genuinely ends at the cap — the bare array alone cannot say, which is how a
+ * capped CSV export read as the whole filtered set (ASSET-1's rule for the
+ * fixed-asset export, applied here). `limit` is the caller's cap.
+ */
+export function capShipmentExport<T>(
+  rows: readonly T[],
+  limit: number
+): { data: T[]; truncated: boolean } {
+  const truncated = rows.length > limit;
+  return { data: rows.length > limit ? rows.slice(0, limit) : [...rows], truncated };
+}
+
 /** Total rows matching the same filters a page was read with. */
 export function buildShipmentCountSql(opts: ShipmentListOptions = {}): { sql: string; params: unknown[] } {
   const { where, params } = buildShipmentWhere(opts);

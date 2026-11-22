@@ -16,6 +16,7 @@ import type { Branch } from '../../types';
 import { localTodayAD } from '../../utils/localDate';
 import { isOperationAllowed } from '../../utils/permissions';
 import { money } from './statementFormat';
+import { DateField } from '../DateField';
 
 interface CashFlowForecastSourcesProps {
   forecast: CashFlowForecastResponse | null;
@@ -263,16 +264,18 @@ export const CashFlowForecastSources: React.FC<CashFlowForecastSourcesProps> = (
                 ))}
               </select>
             </label>
-            <label className="md:col-span-2">
-              <span className={labelClass}>Date ({dateMode})</span>
-              <input
-                aria-label="Manual forecast date"
-                type="date"
-                className={inputClass}
+            {/* Four columns, not two: a BS picker shows the Nepali day AND the
+                AD value it maps to, so it needs room the native input did not. */}
+            <div className="md:col-span-4">
+              <DateField
+                compact
+                mode={dateMode}
+                label="Date"
+                ariaLabel="Manual forecast date"
                 value={form.expectedDateAD}
-                onChange={(event) => setForm({ ...form, expectedDateAD: event.target.value })}
+                onChange={(expectedDateAD) => setForm({ ...form, expectedDateAD })}
               />
-            </label>
+            </div>
             <label className="md:col-span-2">
               <span className={labelClass}>Direction</span>
               <select
@@ -297,7 +300,7 @@ export const CashFlowForecastSources: React.FC<CashFlowForecastSourcesProps> = (
                 onChange={(event) => setForm({ ...form, amountFormula: event.target.value })}
               />
             </label>
-            <label className="md:col-span-4">
+            <label className="md:col-span-2">
               <span className={labelClass}>Description</span>
               <input
                 aria-label="Manual forecast description"

@@ -2584,6 +2584,8 @@ test('chart register renders when the server omits unlinkedSubledgerRows', async
       text(tree.container),
       /This server did not report unlinked subledger rows\. The rest of the chart is available\./
     );
+    // The KPI shows a dash for the unreported figure, so its explanation must be
+    // visible text, not a tooltip nobody hovers: otherwise "—" reads as zero.
     assert.match(text(tree.container), /Not reported by this server/);
     assert.doesNotMatch(text(tree.container), /Cannot read properties of undefined/);
   } finally {

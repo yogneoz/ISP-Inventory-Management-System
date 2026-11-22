@@ -7,6 +7,7 @@
  * managers see the add/import/edit controls.
  */
 import React, { useEffect, useMemo, useState } from 'react';
+import { PeriodRangeField } from '../../components/common/PeriodRangeField';
 import {
   Calculator,
   CalendarCheck,
@@ -48,6 +49,8 @@ import { useBootstrapData } from '../../contexts/AppProviders';
 interface AttendanceLeaveProps {
   currentUser: User | null;
   selectedBranchId?: string;
+  /** Header calendar for the register's From/To filter; rows stay AD. */
+  dateMode: 'BS' | 'AD';
 }
 
 type Tab =
@@ -260,6 +263,7 @@ const labelClass = 'mb-1 block text-[10px] font-semibold uppercase tracking-wide
 export const AttendanceLeave: React.FC<AttendanceLeaveProps> = ({
   currentUser,
   selectedBranchId = 'ALL',
+  dateMode,
 }) => {
   // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
   const { branches } = useBootstrapData();
@@ -843,14 +847,19 @@ export const AttendanceLeave: React.FC<AttendanceLeaveProps> = ({
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-800 dark:bg-[#0f1218]">
         {activeTab !== 'BALANCES' && (
           <>
-            <label className="flex items-center gap-1.5">
-              <span className="font-semibold text-slate-500 dark:text-slate-400">From</span>
-              <input type="date" value={from} onChange={(event) => setFrom(event.target.value)} className={inputClass} />
-            </label>
-            <label className="flex items-center gap-1.5">
-              <span className="font-semibold text-slate-500 dark:text-slate-400">To</span>
-              <input type="date" value={to} onChange={(event) => setTo(event.target.value)} className={inputClass} />
-            </label>
+            <PeriodRangeField
+              from={from}
+              to={to}
+              onChange={(range) => {
+                setFrom(range.from);
+                setTo(range.to);
+              }}
+              label="Period (AD)"
+              startAriaLabel="Attendance range from"
+              endAriaLabel="Attendance range to"
+              requireEnd={false}
+              mode={dateMode}
+            />
           </>
         )}
         {activeTab === 'LEAVE_REQUESTS' && (

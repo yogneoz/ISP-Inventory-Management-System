@@ -164,6 +164,28 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
     };
   }, [appliedSearch, branches, activityRange.from, activityRange.to, filterStatus, scopeBranch]);
 
+  // Typeahead preview: ONE bounded read of the same filtered query, under the
+  // same branch/status/date filters, so a match can be found and picked without
+  // re-walking the register. It never touches `appliedSearch`.
+  const fetchSerialPreview = useCallback(async (query: string) => {
+    const page = (await api.getSerialLogs({
+      branchId: scopeBranch,
+      status: filterStatus,
+      query,
+      dateFromAD: activityRange.from || undefined,
+      dateToAD: activityRange.to || undefined,
+      limit: 5,
+    })) as { items?: SerialLog[]; data?: SerialLog[] };
+    return (page?.items ?? page?.data ?? []).map((row) => ({
+      id: row.id,
+      label: row.deviceSerial,
+      detail: [row.productName, row.ponSerial, row.customerName, row.branchName || row.branchId]
+        .filter(Boolean)
+        .join(' · '),
+      meta: row.status,
+    }));
+  }, [scopeBranch, filterStatus, activityRange.from, activityRange.to]);
+
   const serialPager = useKeysetPager({
     fetchPage: fetchSerialPage,
     resetKey: [scopeBranch, filterStatus, appliedSearch, activityRange.from, activityRange.to, refreshKey].join('\u0000'),
@@ -513,6 +535,7 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
         searchValue={appliedSearch}
         onSearchApply={setAppliedSearch}
         onSearchDraftChange={(draft) => { searchDraftRef.current = draft; }}
+        fetchPreview={fetchSerialPreview}
         hasActiveFilters={
           Boolean(appliedSearch) || filterBranch !== 'ALL' || filterStatus !== 'ALL' || Boolean(activityRange.from) || Boolean(activityRange.to)
         }
@@ -529,7 +552,7 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
               <select
                 value={filterBranch}
                 onChange={(e) => setFilterBranch(e.target.value)}
-                className="w-44 px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white cursor-pointer"
+                className="h-8 w-44 px-3 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white cursor-pointer"
               >
                 <option value="ALL">All Branches</option>
                 {branches.map((branch) => (
@@ -544,7 +567,7 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
               <select
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
-                className="w-40 px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white cursor-pointer"
+                className="h-8 w-40 px-3 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white cursor-pointer"
               >
                 <option value="ALL">All Status</option>
                 {ALL_STATUSES.map((s) => (
@@ -554,6 +577,7 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
             </div>
             <div className="min-w-fit">
               <PeriodRangeField
+                mode={dateMode}
                 label="Activity"
                 startAriaLabel="Activity from"
                 endAriaLabel="Activity to"

@@ -487,13 +487,10 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
 
   return (
     <div className="space-y-3">
-      {/* BS Calendar Gate Banner: blocks stock operations until today's BS date record exists */}
-      {bsDateStatus === 'checking' && (
-        <div className="p-2.5 rounded-2xl bg-slate-500/10 border border-slate-400/30 text-slate-700 dark:text-slate-300 flex items-center gap-2 text-xs font-medium">
-          <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-          Checking today's Nepali (BS) date record…
-        </div>
-      )}
+      {/* BS Calendar Gate Banner: blocks stock operations until today's BS date
+          record exists. Only the resolved state renders — a "checking" banner
+          here mounted and then vanished above the header, shifting the whole
+          page as the screen opened. */}
       {bsDateStatus === 'missing' && (
         <div className={`p-3 rounded-2xl bg-red-500/10 border border-red-500/40 flex flex-col sm:flex-row sm:items-center justify-start gap-3 text-red-900 dark:text-red-200`}>
           <div className="flex items-start gap-3">
@@ -738,6 +735,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
             </div>
             <div className="min-w-fit">
               <PeriodRangeField
+                mode={dateMode}
                 label="Damage date"
                 startAriaLabel="Damage date from"
                 endAriaLabel="Damage date to"
@@ -752,7 +750,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                 pending={damageRange.pending}
               />
             </div>
-            <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500 cursor-pointer pb-2">
+            <label className="inline-flex h-8 items-center gap-2 text-xs font-semibold text-slate-500 cursor-pointer">
               <input
                 type="checkbox"
                 checked={showZeroDamaged}

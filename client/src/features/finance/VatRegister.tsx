@@ -173,19 +173,19 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
           <div className="flex items-center gap-2">
             <button
               onClick={() => setVatTypeFilter('ALL')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${vatTypeFilter === 'ALL' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'}`}
+              className={`inline-flex h-8 items-center px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer ${vatTypeFilter === 'ALL' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'}`}
             >
               All Rates
             </button>
             <button
               onClick={() => setVatTypeFilter('TAXABLE')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${vatTypeFilter === 'TAXABLE' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'}`}
+              className={`inline-flex h-8 items-center px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer ${vatTypeFilter === 'TAXABLE' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'}`}
             >
               {getDefaultTaxRate()}% Taxable
             </button>
             <button
               onClick={() => setVatTypeFilter('0%')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${vatTypeFilter === '0%' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'}`}
+              className={`inline-flex h-8 items-center px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer ${vatTypeFilter === '0%' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'}`}
             >
               0% Exempt
             </button>

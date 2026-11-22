@@ -393,7 +393,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
             <select
               value={filterCategory}
               onChange={(e) => setFilterCategory(e.target.value)}
-              className="rounded-xl border px-3 py-1.5 text-xs font-medium cursor-pointer bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200"
+              className="h-8 rounded-xl border px-3 text-xs font-medium cursor-pointer bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200"
             >
               <option value="ALL">All Categories</option>
               {categories.map((cat) => (
@@ -404,7 +404,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
             </select>
             <button
               onClick={() => setShowOnlyReorder(!showOnlyReorder)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${showOnlyReorder ? 'bg-rose-600 text-white border-rose-600' : 'bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-900 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400 dark:hover:text-white'}`}
+              className={`inline-flex h-8 items-center px-3 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${showOnlyReorder ? 'bg-rose-600 text-white border-rose-600' : 'bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-900 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400 dark:hover:text-white'}`}
             >
               {showOnlyReorder ? 'Reorder Alerts Only' : 'Show All Items'}
             </button>

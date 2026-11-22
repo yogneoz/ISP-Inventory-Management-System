@@ -77,7 +77,7 @@ test('subledgers render grouped, collapse across refresh and tolerate legacy hea
     createElement(
       DialogProvider,
       null,
-      createElement(BootstrapDataProvider, { initial: { branches } }, createElement(SubledgersManagement, { currentUser: user }))
+      createElement(BootstrapDataProvider, { initial: { branches } }, createElement(SubledgersManagement, { currentUser: user, dateMode: 'AD' }))
     )
   );
   try {

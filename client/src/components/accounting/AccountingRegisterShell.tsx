@@ -260,6 +260,7 @@ export const AccountingRegisterShell: React.FC<{
           )}
           <div className="min-w-0 flex-1 md:max-w-md">
             <PeriodRangeField
+              mode={dateMode}
               from={draft.from}
               to={draft.to}
               onChange={(next) => {

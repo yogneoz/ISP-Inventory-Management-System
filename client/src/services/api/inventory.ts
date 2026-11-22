@@ -659,9 +659,22 @@ export async function getSerialLogs(params?: {
     ...r,
     history: typeof r.history === 'string' ? safeParseHistory(r.history) : (r.historyJson ? safeParseHistory(r.historyJson) : (r.history || [])),
   });
-  if (params?.page !== undefined || params?.all) {
-    const envelope = await fetchJson<any>(`/api/serial-log${queryString}`);
-    return { ...envelope, data: (envelope.data || []).map(parseRow) };
+  // A cursor/limit read is a page too: the server answers the keyset route with
+  // an envelope, so asking for one without entering this branch made
+  // `(rows || []).map` run on an object ("is not a function").
+  const wantsEnvelope =
+    params?.page !== undefined ||
+    params?.all ||
+    params?.cursor !== undefined ||
+    params?.limit !== undefined;
+  if (wantsEnvelope) {
+    const payload = await fetchJson<any>(`/api/serial-log${queryString}`);
+    // Accept both shapes: the legacy endpoint returns a bare array.
+    if (Array.isArray(payload)) return payload.map(parseRow);
+    const items = (payload?.items ?? payload?.data ?? []).map(parseRow);
+    // Both aliases point at the same parsed rows, so a caller reading `items`
+    // (the register) gets parsed history like a caller reading `data`.
+    return { ...payload, items, data: items };
   }
   const rows = await fetchJson<any[]>(`/api/serial-log${queryString}`);
   return (rows || []).map(parseRow);

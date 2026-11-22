@@ -143,6 +143,28 @@ export const ConsumablesRegisterPanel: React.FC = () => {
     };
   }, [consumableRegisterBranch, consumableRegisterStatus, consumableRegisterQuery, consumableRegisterDateFrom, consumableRegisterDateTo]);
 
+  // Typeahead preview: one bounded read of the register's own filters, so an
+  // issue can be found as the operator types without re-walking the pages.
+  const fetchConsumablePreview = useCallback(async (query: string) => {
+    const envelope = (await api.getStockOperations({
+      type: 'CONSUMABLE_ISSUE',
+      branchId: consumableRegisterBranch !== 'ALL' ? consumableRegisterBranch : undefined,
+      status: consumableRegisterStatus,
+      query,
+      dateFromAD: consumableRegisterDateFrom || undefined,
+      dateToAD: consumableRegisterDateTo || undefined,
+      limit: 5,
+    })) as { data?: StockOperation[]; items?: StockOperation[] };
+    return (envelope.items ?? envelope.data ?? []).map((op) => ({
+      id: op.id,
+      label: op.referenceNumber,
+      detail: [op.technicianName, op.workOrderRef, op.productName, op.branchName || op.branchId]
+        .filter(Boolean)
+        .join(' · '),
+      meta: op.dateAD,
+    }));
+  }, [consumableRegisterBranch, consumableRegisterStatus, consumableRegisterDateFrom, consumableRegisterDateTo]);
+
   const consumablePager = useKeysetPager({
     fetchPage: fetchConsumablePage,
     resetKey: [
@@ -197,6 +219,7 @@ export const ConsumablesRegisterPanel: React.FC = () => {
               searchValue={consumableRegisterQuery}
               onSearchApply={setConsumableRegisterQuery}
               onSearchDraftChange={(draft) => { searchDraftRef.current = draft; }}
+              fetchPreview={fetchConsumablePreview}
               hasActiveFilters={
                 Boolean(consumableRegisterQuery) || consumableRegisterBranch !== 'ALL' || consumableRegisterStatus !== 'ALL' ||
                 Boolean(consumableRegisterDateFrom) || Boolean(consumableRegisterDateTo)
@@ -214,7 +237,7 @@ export const ConsumablesRegisterPanel: React.FC = () => {
                     <select
                       value={consumableRegisterBranch}
                       onChange={(e) => setConsumableRegisterBranch(e.target.value)}
-                      className={`w-44 rounded-xl border px-3 py-2 text-xs font-semibold bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white cursor-pointer`}
+                      className={`h-8 w-44 rounded-xl border px-3 text-xs font-semibold bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white cursor-pointer`}
                     >
                       <option value="ALL">All Branches</option>
                       {branches.map((b) => (
@@ -227,7 +250,7 @@ export const ConsumablesRegisterPanel: React.FC = () => {
                     <select
                       value={consumableRegisterStatus}
                       onChange={(e) => setConsumableRegisterStatus(e.target.value)}
-                      className={`w-36 rounded-xl border px-3 py-2 text-xs font-semibold bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white cursor-pointer`}
+                      className={`h-8 w-36 rounded-xl border px-3 text-xs font-semibold bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white cursor-pointer`}
                     >
                       <option value="ALL">All Statuses</option>
                       <option value="LOGGED">Logged</option>
@@ -236,6 +259,7 @@ export const ConsumablesRegisterPanel: React.FC = () => {
                   </div>
                   <div className="min-w-fit">
                     <PeriodRangeField
+                      mode={dateMode}
                       label="Issue date"
                       startAriaLabel="Issue date from"
                       endAriaLabel="Issue date to"
@@ -313,7 +337,7 @@ export const ConsumablesRegisterPanel: React.FC = () => {
                   ]
                   );
                   }}
-                className={`px-3 py-2 rounded-xl border text-xs font-bold bg-white border-slate-300 text-slate-600 hover:bg-slate-100 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 flex items-center gap-1.5 ${consumableRegisterError ? 'cursor-not-allowed opacity-40' : 'cursor-pointer'}`}
+                className={`h-8 px-3 rounded-xl border text-xs font-bold bg-white border-slate-300 text-slate-600 hover:bg-slate-100 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 flex items-center gap-1.5 ${consumableRegisterError ? 'cursor-not-allowed opacity-40' : 'cursor-pointer'}`}
               >
                 <Download className="h-4 w-4" />
                 <span>Export CSV</span>

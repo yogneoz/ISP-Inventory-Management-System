@@ -22,6 +22,7 @@
  */
 import React from 'react';
 import { Search, Download, RefreshCw, Wallet, Loader2 } from 'lucide-react';
+import { PeriodRangeField } from './PeriodRangeField';
 import { StatCardTone } from './StatCard';
 import { StatementLoadingPlaceholder } from './StatementLoadingPlaceholder';
 import { KpiStrip, KPI_TONE_TEXT } from './KpiStrip';
@@ -361,22 +362,16 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
             </div>
           )}
         </div>
-        <div>
-          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">From (AD)</label>
-          <input
-            type="date"
-            value={filters.fromAd}
-            onChange={(e) => onFilterChange({ fromAd: e.target.value })}
-            className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm dark:text-white"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">To (AD)</label>
-          <input
-            type="date"
-            value={filters.toAd}
-            onChange={(e) => onFilterChange({ toAd: e.target.value })}
-            className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm dark:text-white"
+        <div className="md:col-span-2">
+          <PeriodRangeField
+            from={filters.fromAd}
+            to={filters.toAd}
+            onChange={(range) => onFilterChange({ fromAd: range.from, toAd: range.to })}
+            label="Period (AD)"
+            startAriaLabel="Ledger from"
+            endAriaLabel="Ledger to"
+            requireEnd={false}
+            mode={dateMode}
           />
         </div>
         <div>

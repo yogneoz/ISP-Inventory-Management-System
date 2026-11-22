@@ -1181,15 +1181,17 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     //   scoped pending-procurement cache; PurchaseOrderForm stays fetch-free).
     'procurement/CreateShipmentForm.tsx': [],
     'procurement/Shipments.tsx': [],
-    // VOL-3: the register pages its own reads (getShipmentPage) and exports a
-    // bounded slice of the current filters (getShipments); the cancel/receive
-    // fallbacks moved with their flows.
+    // VOL-3: the register pages its own reads (getShipmentCursorPage) and
+    // exports a bounded slice of the current filters; the cancel/receive
+    // fallbacks moved with their flows. ASSET-1: the export asks
+    // getShipmentExport, the same read with its 2,000-row cap reported, so a
+    // capped file is never handed over as the whole filtered set.
     'procurement/ShipmentRegister.tsx': [
       'cancelApprovalRequest',
       'cancelReceiveShipment',
       'createApprovalRequest',
       'getShipmentCursorPage',
-      'getShipments',
+      'getShipmentExport',
     ],
     // lookupExchangeSerial: the exchange modal resolves a serial the cached
     // IN_STOCK register does not know, so its refusal can name the unit's real

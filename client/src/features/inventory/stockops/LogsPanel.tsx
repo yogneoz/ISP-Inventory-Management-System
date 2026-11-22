@@ -31,7 +31,9 @@ export const LogsPanel: React.FC = () => {
 
   const logsPager = useKeysetPager({
     fetchPage: fetchLogsPage,
-    resetKey: [branchFilter, activeTab, sseRefreshKey ?? 0].join('\u0000'),
+    resetKey: [branchFilter, activeTab].join('\u0000'),
+    // An SSE tick is the same query: it must not drop the reader to page 1.
+    refreshKey: sseRefreshKey ?? 0,
     enabled: activeTab === 'LOGS',
   });
   const syntheticLogs = useMemo(
@@ -69,7 +71,8 @@ export const LogsPanel: React.FC = () => {
       await api.reverseStockOutOperation(op.id, reason.trim(), currentUser);
       showToast(`Product sale ${op.referenceNumber} reversed. Units returned to available stock.`);
       await onRefreshData?.();
-      logsPager.reload();
+      // Same query after the reversal: hold the rows already loaded.
+      logsPager.refresh();
     } catch (err: any) {
       showToast(`Reversal failed: ${err.message || 'Unknown error'}`);
     }

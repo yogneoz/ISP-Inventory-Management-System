@@ -53,6 +53,8 @@ import { useBootstrapData } from '../../contexts/AppProviders';
 interface EmployeeDirectoryProps {
   currentUser: User | null;
   selectedBranchId?: string;
+  /** Header calendar for the transfer-history range filter. */
+  dateMode: 'BS' | 'AD';
 }
 
 
@@ -66,6 +68,7 @@ const formatMoney = (value: string | number | null): string => {
 export const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({
   currentUser,
   selectedBranchId = 'ALL',
+  dateMode,
 }) => {
   // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
   const { branches } = useBootstrapData();
@@ -264,7 +267,7 @@ export const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({
             <select
               value={branchFilter}
               onChange={(event) => setBranchFilter(event.target.value)}
-              className="h-9 rounded-lg border border-slate-300 bg-transparent px-2.5 text-xs dark:border-slate-700"
+              className="h-8 rounded-lg border border-slate-300 bg-transparent px-2.5 text-xs dark:border-slate-700"
             >
               <option value="ALL">All branches</option>
               {branches.map((branch) => (
@@ -537,6 +540,7 @@ export const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({
           currentUserEmail={currentUser?.email}
           onEmployeeTransferred={loadEmployees}
           onClose={() => setTransfersOpen(false)}
+          dateMode={dateMode}
         />
       ) : null}
 

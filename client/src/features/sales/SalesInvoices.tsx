@@ -37,7 +37,7 @@ import { formatMoney } from '../../utils/nprFormat';
 import { exportToCSV } from '../../utils/exportUtils';
 import { getDefaultTaxRate } from '../../utils/taxConfig';
 import { isSellableProduct } from '../../utils/productGroupBehavior';
-import { inputClass, labelClass, btnPrimary, btnGhost } from '../../components/common/styleConstants';
+import { inputClass, labelClass, btnPrimary, btnGhost, filterControlClass } from '../../components/common/styleConstants';
 import { api } from '../../services/api';
 import { DeviceSerialInput } from '../../components/common/DeviceSerialInput';
 import { normalizeMacAddress } from '../../../../shared/macAddress';
@@ -1584,13 +1584,14 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
               <>
                 <div className="w-56">
                   <label className={labelClass}>Branch</label>
-                  <select className={inputClass} value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)}>
+                  <select className={filterControlClass} value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)}>
                     <option value="ALL">All Branches</option>
                     {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
                   </select>
                 </div>
                 <div className="min-w-fit">
                   <PeriodRangeField
+                    mode={dateMode}
                     label="Invoice date"
                     startAriaLabel="Sales invoice date from"
                     endAriaLabel="Sales invoice date to"

@@ -11,6 +11,7 @@
  * Read-only by design. Posting stays with payroll and the manual journal.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { PeriodRangeField } from '../../components/common/PeriodRangeField';
 import {
   AlertTriangle,
   BookOpen,
@@ -379,7 +380,7 @@ export const EmployeeLedger: React.FC<EmployeeLedgerProps> = ({
       />
 
       <div className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900/40 lg:grid-cols-12">
-        <div className="lg:col-span-5">
+        <div className="lg:col-span-4">
           <label className={labelClass} htmlFor="employee-ledger-picker">
             Employee
           </label>
@@ -417,28 +418,19 @@ export const EmployeeLedger: React.FC<EmployeeLedgerProps> = ({
             )}
           />
         </div>
-        <div className="lg:col-span-3">
-          <label className={labelClass} htmlFor="employee-ledger-from">
-            From (AD)
-          </label>
-          <input
-            id="employee-ledger-from"
-            type="date"
-            className={inputClass}
-            value={fromAD}
-            onChange={(event) => setFromAD(event.target.value)}
-          />
-        </div>
-        <div className="lg:col-span-3">
-          <label className={labelClass} htmlFor="employee-ledger-to">
-            To (AD)
-          </label>
-          <input
-            id="employee-ledger-to"
-            type="date"
-            className={inputClass}
-            value={toAD}
-            onChange={(event) => setToAD(event.target.value)}
+        <div className="lg:col-span-7">
+          <PeriodRangeField
+            from={fromAD}
+            to={toAD}
+            onChange={(range) => {
+              setFromAD(range.from);
+              setToAD(range.to);
+            }}
+            label="Period (AD)"
+            startAriaLabel="Employee ledger from"
+            endAriaLabel="Employee ledger to"
+            requireEnd={false}
+            mode={dateMode}
           />
         </div>
         <div className="flex items-end lg:col-span-1">

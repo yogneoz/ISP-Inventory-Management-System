@@ -351,7 +351,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
             <select
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
-              className="px-3 py-2 rounded-xl border text-xs font-semibold focus:outline-none bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-white cursor-pointer"
+              className="h-8 px-3 rounded-xl border text-xs font-semibold focus:outline-none bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-white cursor-pointer"
             >
               <option value="ALL" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">All Categories</option>
               {categories.map((cat) => (

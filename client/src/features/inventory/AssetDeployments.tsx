@@ -209,7 +209,7 @@ export const AssetDeployments: React.FC<AssetDeploymentsProps> = ({
             <select
               value={branchFilter}
               onChange={(e) => setBranchFilter(e.target.value)}
-              className="rounded-lg border px-2 py-1 text-xs font-semibold focus:outline-none bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white"
+              className="h-8 rounded-lg border px-2 text-xs font-semibold focus:outline-none bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white"
             >
               <option value="ALL">All Branches</option>
               {allowedBranches.map((b) => (
@@ -220,7 +220,7 @@ export const AssetDeployments: React.FC<AssetDeploymentsProps> = ({
             <select
               value={locationFilter}
               onChange={(e) => setLocationFilter(e.target.value)}
-              className="rounded-lg border px-2 py-1 text-xs font-semibold focus:outline-none bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white"
+              className="h-8 rounded-lg border px-2 text-xs font-semibold focus:outline-none bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white"
             >
               <option value="ALL">All POP Locations</option>
               {popLocations.map((l) => (
@@ -231,7 +231,7 @@ export const AssetDeployments: React.FC<AssetDeploymentsProps> = ({
             <select
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value as 'ALL' | 'LOCATION' | 'CUSTOMER')}
-              className="rounded-lg border px-2 py-1 text-xs font-semibold focus:outline-none bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white"
+              className="h-8 rounded-lg border px-2 text-xs font-semibold focus:outline-none bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white"
             >
               <option value="ALL">All Types</option>
               <option value="LOCATION">POP / Network Site</option>
@@ -242,7 +242,7 @@ export const AssetDeployments: React.FC<AssetDeploymentsProps> = ({
         rightChildren={
           <button
             onClick={handleExport}
-            className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer flex items-center gap-1.5"
+            className="h-8 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer flex items-center gap-1.5"
           >
             <Download className="h-3.5 w-3.5" />
             <span>Export CSV</span>

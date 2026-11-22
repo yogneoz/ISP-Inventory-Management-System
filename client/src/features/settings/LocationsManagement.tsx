@@ -218,7 +218,7 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
               <select
                 value={selectedBranchFilter}
                 onChange={(e) => setSelectedBranchFilter(e.target.value)}
-                className="rounded-xl border px-3 py-2 text-xs font-medium focus:outline-none focus:border-indigo-500 cursor-pointer bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200"
+                className="h-8 rounded-xl border px-3 text-xs font-medium focus:outline-none focus:border-indigo-500 cursor-pointer bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200"
               >
                 <option value="ALL">All Branches</option>
                 {branches.map((b) => (
@@ -231,7 +231,7 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
               <select
                 value={selectedTypeFilter}
                 onChange={(e) => setSelectedTypeFilter(e.target.value)}
-                className="rounded-xl border px-3 py-2 text-xs font-medium focus:outline-none focus:border-indigo-500 cursor-pointer bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200"
+                className="h-8 rounded-xl border px-3 text-xs font-medium focus:outline-none focus:border-indigo-500 cursor-pointer bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200"
               >
                 <option value="ALL">All Location Types</option>
                 <option value="POP_SERVER_ROOM">POP Server Room</option>

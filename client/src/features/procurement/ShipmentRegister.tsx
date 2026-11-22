@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useCallback, useState, useEffect, useRef } from 'react';
 import { Shipment, Branch, User, ApprovalRequest } from '../../types';
 import { formatDualDate, formatBSDate } from '../../utils/nepaliCalendar';
 import { DateField } from '../../components/DateField';
@@ -23,6 +23,7 @@ import { useKeysetPager } from '../../hooks/useKeysetPager';
 import { KeysetLoadMore } from '../../components/common/KeysetLoadMore';
 import { useReceiveVerification, ReceiveVerificationModal } from '../../components/common/ReceiveVerificationModal';
 import { useDarkMode } from '../../contexts/DarkModeContext';
+import { utilityAlert } from '../../components/common/DialogProvider';
 
 interface ShipmentRegisterProps {
   currentUser?: User | null;
@@ -308,6 +309,29 @@ export const ShipmentRegister: React.FC<ShipmentRegisterProps> = ({
     0
   );
 
+  // Typeahead preview: one bounded cursor page under the same filters, so a
+  // transfer can be found as the operator types without paying for a walk.
+  const fetchShipmentPreview = useCallback(async (query: string) => {
+    const page = await api.getShipmentCursorPage(
+      {
+        branchId: scopeBranchId,
+        status: shipmentStatusFilter,
+        direction: shipmentMode === 'ALL' ? undefined : shipmentMode,
+        dateFromAD: startDateAD || undefined,
+        dateToAD: endDateAD || undefined,
+        search: query,
+      },
+      null,
+      5
+    );
+    return (page.items || []).map((sh) => ({
+      id: sh.id,
+      label: sh.trackingCode,
+      detail: `${sh.sourceBranchName || sh.sourceBranchId || '—'} → ${sh.destinationBranchName || sh.destinationBranchId}`,
+      meta: sh.status,
+    }));
+  }, [scopeBranchId, shipmentStatusFilter, shipmentMode, startDateAD, endDateAD]);
+
   const exportShipmentsCSV = async () => {
     const columns = [
       { key: 'trackingCode', label: 'Tracking Code' },
@@ -336,10 +360,10 @@ export const ShipmentRegister: React.FC<ShipmentRegisterProps> = ({
         : branches.find((b) => b.id === effectiveBranchId)?.name || `Branch ${effectiveBranchId}`;
 
     try {
-      // Bounded export of the CURRENT filters. The server caps the legacy
-      // array, so this is a report of the latest matching rows — the register
-      // pages through everything on screen instead.
-      const data = await api.getShipments({
+      // Bounded export of the CURRENT filters. The server caps this read, so the
+      // call reports whether it stopped at the cap (ASSET-1): a capped file is
+      // never handed over as if it were the whole filtered set.
+      const exported = await api.getShipmentExport({
         branchId: scopeBranchId,
         search: (searchDraftRef.current ?? searchQuery) || undefined,
         status: shipmentStatusFilter,
@@ -347,13 +371,23 @@ export const ShipmentRegister: React.FC<ShipmentRegisterProps> = ({
         dateFromAD: startDateAD || undefined,
         dateToAD: endDateAD || undefined,
       });
+      const data = exported.data;
       if (data.length === 0) {
         showToast('No shipments match the current filters.');
         return;
       }
+      const cappedAt = exported.limit.toLocaleString('en-IN');
+      if (exported.truncated) {
+        utilityAlert(
+          `The export was capped at ${cappedAt} rows. Narrow the branch, status or dispatch-date filters before exporting the rest — this file is not the whole filtered set.`
+        );
+      }
       exportToCSV({
         filename: 'Shipments_Transfer_History',
-        reportTitle: 'Multi-Branch Transfer & Logistics Shipment Report',
+        // The dialog is gone once it is dismissed; the file itself still says so.
+        reportTitle: exported.truncated
+          ? `Multi-Branch Transfer & Logistics Shipment Report (CAPPED AT ${cappedAt} ROWS — more rows match these filters)`
+          : 'Multi-Branch Transfer & Logistics Shipment Report',
         branchName,
         generatedBy: currentUser?.name ? `${currentUser.name} (${currentUser.role})` : currentUser?.email || 'System User',
         data,
@@ -403,6 +437,7 @@ export const ShipmentRegister: React.FC<ShipmentRegisterProps> = ({
         searchValue={searchQuery}
         onSearchApply={setSearchQuery}
         onSearchDraftChange={(draft) => { searchDraftRef.current = draft; }}
+        fetchPreview={fetchShipmentPreview}
         hasActiveFilters={
           Boolean(searchQuery) || shipmentStatusFilter !== 'ALL' || shipmentMode !== 'ALL' || Boolean(startDateAD) || Boolean(endDateAD)
         }
@@ -440,7 +475,7 @@ export const ShipmentRegister: React.FC<ShipmentRegisterProps> = ({
               <select
                 value={shipmentStatusFilter}
                 onChange={(e) => setShipmentStatusFilter(e.target.value)}
-                className={`rounded-xl border px-3 py-2 text-xs font-medium focus:outline-none cursor-pointer w-40 ${
+                className={`h-8 rounded-xl border px-3 text-xs font-medium focus:outline-none cursor-pointer w-40 ${
                   isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-300 text-slate-800'
                 }`}
               >
@@ -458,7 +493,7 @@ export const ShipmentRegister: React.FC<ShipmentRegisterProps> = ({
               <select
                 value={shipmentMode}
                 onChange={(e) => setShipmentMode(e.target.value as 'ALL' | 'CREATED' | 'RECEIVED')}
-                className={`rounded-xl border px-3 py-2 text-xs font-medium focus:outline-none cursor-pointer w-40 ${
+                className={`h-8 rounded-xl border px-3 text-xs font-medium focus:outline-none cursor-pointer w-40 ${
                   isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-300 text-slate-800'
                 }`}
               >
@@ -473,7 +508,7 @@ export const ShipmentRegister: React.FC<ShipmentRegisterProps> = ({
           <button
             type="button"
             onClick={exportShipmentsCSV}
-            className="flex items-center gap-2 rounded-xl bg-amber-600 px-4 py-2 text-xs font-bold text-white hover:bg-amber-500 shadow-md shadow-amber-900/20 transition-all cursor-pointer"
+            className="flex h-8 items-center gap-2 rounded-xl bg-amber-600 px-4 text-xs font-bold text-white hover:bg-amber-500 shadow-md shadow-amber-900/20 transition-all cursor-pointer"
           >
             <FileSpreadsheet className="h-4 w-4" />
             <span>Export History CSV ({totalItems})</span>

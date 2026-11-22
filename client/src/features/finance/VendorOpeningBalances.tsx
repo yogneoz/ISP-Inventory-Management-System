@@ -45,7 +45,7 @@ import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface VendorOpeningBalancesProps {
   currentUser?: User | null;
-  fiscalYears: FiscalYear[];
+  fiscalYears: FiscalYear[];
   onRefreshData?: () => void;
   /** Globally selected fiscal year id (app-wide scope). */
   selectedFiscalYearId?: string;
@@ -83,7 +83,7 @@ function newGlLine(): GlLineDraft {
  */
 export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
   currentUser,
-  fiscalYears,
+  fiscalYears,
   onRefreshData,
   selectedFiscalYearId,
   onSelectFiscalYear,
@@ -1403,7 +1403,7 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
                   <select
                     value={vendorBranchFilter}
                     onChange={(e) => setVendorBranchFilter(e.target.value)}
-                    className="px-3 py-2 rounded-xl border text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200 cursor-pointer"
+                    className="h-8 px-3 rounded-xl border text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200 cursor-pointer"
                   >
                     <option value="ALL">All Branches</option>
                     {scopedBranches.map((b) => (
@@ -1411,11 +1411,11 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
                     ))}
                   </select>
                 </div>
-                <label className="flex items-center gap-1.5 px-2 py-2 text-xs font-semibold cursor-pointer text-slate-600 dark:text-slate-300">
+                <label className="flex h-8 items-center gap-1.5 px-2 text-xs font-semibold cursor-pointer text-slate-600 dark:text-slate-300">
                   <input type="checkbox" checked={vendorNonZeroOnly} onChange={(e) => setVendorNonZeroOnly(e.target.checked)} className="rounded" />
                   Non-zero only
                 </label>
-                <label className="flex items-center gap-1.5 px-2 py-2 text-xs font-semibold cursor-pointer text-slate-600 dark:text-slate-300">
+                <label className="flex h-8 items-center gap-1.5 px-2 text-xs font-semibold cursor-pointer text-slate-600 dark:text-slate-300">
                   <input type="checkbox" checked={vendorChangedOnly} onChange={(e) => setVendorChangedOnly(e.target.checked)} className="rounded" />
                   Changed only
                 </label>
@@ -1427,7 +1427,7 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
                   type="button"
                   onClick={handleExportVendor}
                   disabled={vendorLoading || filteredVendorRows.length === 0}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed border-slate-300 text-slate-600 hover:bg-slate-200 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                  className="inline-flex h-8 items-center gap-1.5 px-3 rounded-lg border text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed border-slate-300 text-slate-600 hover:bg-slate-200 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                 >
                   <Download className="h-3.5 w-3.5" /> Export CSV
                 </button>
@@ -1436,7 +1436,7 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
                     type="button"
                     onClick={handleGenerateVendorOpenings}
                     disabled={vendorGenerating}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200 dark:text-emerald-400 dark:border-emerald-800"
+                    className="inline-flex h-8 items-center gap-1.5 px-3 rounded-lg border text-xs font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200 dark:text-emerald-400 dark:border-emerald-800"
                   >
                     <RefreshCw className={`h-3.5 w-3.5 ${vendorGenerating ? 'animate-spin' : ''}`} />
                     {vendorGenerating ? 'Rolling Forward…' : 'Roll Forward from Previous Close'}

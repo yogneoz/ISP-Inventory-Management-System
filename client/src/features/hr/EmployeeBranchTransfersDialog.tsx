@@ -19,6 +19,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { ModalPanel } from '../../components/common/ModalPanel';
+import { PeriodRangeField } from '../../components/common/PeriodRangeField';
 import { useDialog } from '../../components/common/DialogProvider';
 import { api } from '../../services/api';
 import type { HrEmployeeBranchTransferLogRow } from '../../services/api';
@@ -31,6 +32,8 @@ interface EmployeeBranchTransfersDialogProps {
   currentUserEmail?: string | null;
   onEmployeeTransferred?: () => void | Promise<void>;
   onClose: () => void;
+  /** Header calendar for the history date range; the server read stays AD. */
+  dateMode: 'BS' | 'AD';
 }
 
 const inputClass =
@@ -41,6 +44,7 @@ const labelClass =
 export const EmployeeBranchTransfersDialog: React.FC<EmployeeBranchTransfersDialogProps> = ({
   branches,
   initialBranchId = 'ALL',
+  dateMode,
   canApprove,
   currentUserEmail,
   onEmployeeTransferred,
@@ -171,26 +175,19 @@ export const EmployeeBranchTransfersDialog: React.FC<EmployeeBranchTransfersDial
               ))}
             </select>
           </label>
-          <label className="block">
-            <span className={labelClass}>From date</span>
-            <input
-              type="date"
-              value={dateFrom}
-              max={dateTo || undefined}
-              onChange={(event) => setDateFrom(event.target.value)}
-              className={inputClass}
-            />
-          </label>
-          <label className="block">
-            <span className={labelClass}>To date</span>
-            <input
-              type="date"
-              value={dateTo}
-              min={dateFrom || undefined}
-              onChange={(event) => setDateTo(event.target.value)}
-              className={inputClass}
-            />
-          </label>
+          <PeriodRangeField
+            from={dateFrom}
+            to={dateTo}
+            onChange={(range) => {
+              setDateFrom(range.from);
+              setDateTo(range.to);
+            }}
+            label="Transfer date (AD)"
+            startAriaLabel="Transfer history from"
+            endAriaLabel="Transfer history to"
+            requireEnd={false}
+            mode={dateMode}
+          />
           {hasFilters ? (
             <button
               type="button"

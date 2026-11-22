@@ -44,7 +44,7 @@ import { useDarkMode } from '../../contexts/DarkModeContext';
 import { formatMoney } from '../../utils/nprFormat';
 import { parseLineQuantity } from '../../utils/lineQuantity';
 import { getDefaultTaxRate } from '../../utils/taxConfig';
-import { inputClass, labelClass, btnPrimary, btnGhost } from '../../components/common/styleConstants';
+import { inputClass, labelClass, btnPrimary, btnGhost, filterControlClass } from '../../components/common/styleConstants';
 import { api } from '../../services/api';
 import type { RecordRoute } from '../../routes/appPaths';
 import type {
@@ -962,14 +962,14 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
               <div className="flex flex-wrap gap-3">
                 <div className="w-48">
                   <label className={labelClass}>Branch</label>
-                  <select className={inputClass} value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)}>
+                  <select className={filterControlClass} value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)}>
                     <option value="ALL">All Branches</option>
                     {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
                   </select>
                 </div>
                 <div className="w-40">
                   <label className={labelClass}>Status</label>
-                  <select className={inputClass} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                  <select className={filterControlClass} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
                     <option value="ALL">All</option>
                     <option value="POSTED">POSTED</option>
                     <option value="DRAFT">DRAFT (APPROVAL)</option>
@@ -978,6 +978,7 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
                 </div>
                 <div className="min-w-fit">
                   <PeriodRangeField
+                    mode={dateMode}
                     label="Return date"
                     startAriaLabel="Return date from"
                     endAriaLabel="Return date to"

@@ -348,7 +348,16 @@ export interface ShipmentQuery {
   destinationBranchIds?: string[];
 }
 
-function shipmentQueryString(params: ShipmentQuery & { page?: number; pageSize?: number; cursor?: string | null; limit?: number } = {}): string {
+function shipmentQueryString(
+  params: ShipmentQuery & {
+    page?: number;
+    pageSize?: number;
+    cursor?: string | null;
+    limit?: number;
+    /** Ask the legacy array read for `{ data, truncated, limit }` instead. */
+    envelope?: boolean;
+  } = {}
+): string {
   const search = new URLSearchParams();
   if (params.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
   if (params.dateFromAD) search.append('dateFromAD', params.dateFromAD);
@@ -363,6 +372,7 @@ function shipmentQueryString(params: ShipmentQuery & { page?: number; pageSize?:
   if (params.pageSize !== undefined) search.append('pageSize', String(params.pageSize));
   if (params.limit !== undefined) search.append('limit', String(params.limit));
   if (params.cursor) search.append('cursor', params.cursor);
+  if (params.envelope) search.append('envelope', '1');
   return search.toString() ? `?${search.toString()}` : '';
 }
 
@@ -373,6 +383,26 @@ function shipmentQueryString(params: ShipmentQuery & { page?: number; pageSize?:
  */
 export async function getShipments(params?: ShipmentQuery): Promise<Shipment[]> {
   return fetchJson(`/api/shipments${shipmentQueryString(params)}`);
+}
+
+/**
+ * The same bounded read, with its cap reported (ASSET-1 contract).
+ *
+ * The bare-array call cannot say whether it stopped at the server cap, so a
+ * report built from it could be mistaken for the whole filtered set. This asks
+ * for the envelope the server already builds for that question.
+ */
+export interface ShipmentExportPage {
+  data: Shipment[];
+  /** True when the server stopped at `limit` rows and more match the filters. */
+  truncated: boolean;
+  /** The row cap the server applied. */
+  limit: number;
+  totalItems: number;
+}
+
+export async function getShipmentExport(params?: ShipmentQuery): Promise<ShipmentExportPage> {
+  return fetchJson(`/api/shipments${shipmentQueryString({ ...params, envelope: true })}`);
 }
 
 /** One server-paged slice of the transfer register. */

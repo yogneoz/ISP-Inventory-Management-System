@@ -9,11 +9,12 @@
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertCircle, RefreshCw, Wallet } from 'lucide-react';
+import { PeriodRangeField } from '../../components/common/PeriodRangeField';
 import { FilterCard } from '../../components/common/FilterCard';
 import { PageHeader } from '../../components/common/PageHeader';
 import { SearchSelect, type SearchSelectOption } from '../../components/common/SearchSelect';
 import { TablePagination, useClientPagination } from '../../components/common/TablePagination';
-import { inputClass, labelClass } from '../../components/common/styleConstants';
+import { labelClass } from '../../components/common/styleConstants';
 import { useActivationKey } from '../../components/common/KeepMounted';
 import { api } from '../../services/api';
 import type { HrPayrollPostingRow } from '../../services/api';
@@ -28,6 +29,8 @@ import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface PayrollPostingsRegisterProps {
   currentUser?: User | null;
+  /** Header calendar switch: BS opens the Nepali grid, AD the native picker. */
+  dateMode?: 'BS' | 'AD';
 }
 
 const PAGE_SIZE = 15;
@@ -46,6 +49,7 @@ const statusBadgeClass = (status: string): string =>
 
 export const PayrollPostingsRegister: React.FC<PayrollPostingsRegisterProps> = ({
   currentUser,
+  dateMode = 'BS',
 }) => {
   // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
   const { branches } = useBootstrapData();
@@ -185,37 +189,25 @@ export const PayrollPostingsRegister: React.FC<PayrollPostingsRegisterProps> = (
                     setBranchId(next);
                   }}
                   allowClear={false}
+                  inputClassName="h-8 text-xs font-semibold"
                   placeholder="Search branches…"
                   ariaLabel="Payroll postings branch"
                   emptyLabel="No branch matches this search."
                 />
               </div>
-              <div>
-                <label className={labelClass} htmlFor="payroll-postings-from">
-                  From (AD)
-                </label>
-                <input
-                  id="payroll-postings-from"
-                  type="date"
-                  className={inputClass}
-                  value={fromDate}
-                  max={toDate || undefined}
-                  onChange={(event) => setFromDate(event.target.value)}
-                />
-              </div>
-              <div>
-                <label className={labelClass} htmlFor="payroll-postings-to">
-                  To (AD)
-                </label>
-                <input
-                  id="payroll-postings-to"
-                  type="date"
-                  className={inputClass}
-                  value={toDate}
-                  min={fromDate || undefined}
-                  onChange={(event) => setToDate(event.target.value)}
-                />
-              </div>
+              <PeriodRangeField
+                from={fromDate}
+                to={toDate}
+                onChange={(range) => {
+                  setFromDate(range.from);
+                  setToDate(range.to);
+                }}
+                label="Period (AD)"
+                startAriaLabel="Payroll postings from"
+                endAriaLabel="Payroll postings to"
+                requireEnd={false}
+                mode={dateMode}
+              />
             </>
           }
         />

@@ -15,6 +15,7 @@ import {
 } from '../../types';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { DateField } from '../../components/DateField';
+import { PeriodRangeField } from '../../components/common/PeriodRangeField';
 import { exportToCSV } from '../../utils/exportUtils';
 import { isOperationAllowed } from '../../utils/permissions';
 import { useDialog } from '../../components/common/DialogProvider';
@@ -783,6 +784,24 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
             searchValue={searchQuery}
             onSearchApply={setSearchQuery}
             onSearchDraftChange={(draft) => { searchDraftRef.current = draft; }}
+            // One bounded preview page under the register's own filters: the
+            // settle never re-walks the table.
+            fetchPreview={async (query: string) => {
+              const page = (await api.getPurchaseInvoices({
+                branchId: selectedBranchId !== 'ALL' ? selectedBranchId : undefined,
+                supplier: vendorFilter !== 'ALL' ? vendorFilter : undefined,
+                query,
+                dateFromAD: billDateFromAD || undefined,
+                dateToAD: billDateToAD || undefined,
+                page: 1,
+                pageSize: 5,
+              })) as { data?: PurchaseInvoice[] };
+              return (page?.data ?? []).map((inv) => ({
+                id: inv.id,
+                label: inv.invoiceNumber,
+                detail: [inv.supplierName, inv.invoiceDateAD].filter(Boolean).join(' · '),
+              }));
+            }}
             hasActiveFilters={
               Boolean(searchQuery) || vendorFilter !== 'ALL' || Boolean(billDateFromAD) || Boolean(billDateToAD)
             }
@@ -799,7 +818,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                   <select
                     value={vendorFilter}
                     onChange={(e) => setVendorFilter(e.target.value)}
-                    className={`w-52 px-3 py-2 text-xs font-medium rounded-xl border focus:outline-none cursor-pointer bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
+                    className={`h-8 w-52 px-3 text-xs font-medium rounded-xl border focus:outline-none cursor-pointer bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
                   >
                     <option value="ALL">All Vendors / Suppliers ({availableSuppliers.length})</option>
                     {Array.from(new Set([...availableSuppliers.map((s) => s.name), ...invoices.map((i) => i.supplierName)])).map((supp) => (
@@ -809,32 +828,19 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                     ))}
                   </select>
                 </div>
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Bill Date From</label>
-                  <div className="w-40">
-                    <DateField
-                      mode={dateMode}
-                      value={billDateFromAD}
-                      onChange={setBillDateFromAD}
-                      compact
-                      showHint={false}
-                      max={billDateToAD || undefined}
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Bill Date To</label>
-                  <div className="w-40">
-                    <DateField
-                      mode={dateMode}
-                      value={billDateToAD}
-                      onChange={setBillDateToAD}
-                      compact
-                      showHint={false}
-                      min={billDateFromAD || undefined}
-                    />
-                  </div>
-                </div>
+                <PeriodRangeField
+                  from={billDateFromAD}
+                  to={billDateToAD}
+                  onChange={(range) => {
+                    setBillDateFromAD(range.from);
+                    setBillDateToAD(range.to);
+                  }}
+                  label="Bill date (AD)"
+                  startAriaLabel="Purchase bills date from"
+                  endAriaLabel="Purchase bills date to"
+                  requireEnd={false}
+                  mode={dateMode}
+                />
               </>
             }
             rightChildren={

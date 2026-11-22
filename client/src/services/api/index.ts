@@ -436,6 +436,7 @@ export const api = {
 
   // Shipments
   getShipments: procurement.getShipments,
+  getShipmentExport: procurement.getShipmentExport,
   getShipmentPage: procurement.getShipmentPage,
   getShipmentCursorPage: procurement.getShipmentCursorPage,
   getShipmentOverview: procurement.getShipmentOverview,

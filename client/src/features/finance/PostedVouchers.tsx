@@ -7,6 +7,7 @@
  * reversal action. The entry screens post; this screen reviews and reverses.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { PeriodRangeField } from '../../components/common/PeriodRangeField';
 import {
   AlertCircle,
   ClipboardList,
@@ -44,6 +45,8 @@ export interface PostedVouchersProps {
   currentUser?: User | null;
   /** App's transactionLog register counter: journal-writing mutations bump it. */
   sseRefreshKey?: number;
+  /** Header calendar for the From/To date filter; rows keep AD dates. */
+  dateMode: 'BS' | 'AD';
 }
 
 /** Voucher families the manual entry screens own and may reverse here. */
@@ -56,6 +59,7 @@ const errorBox =
 export const PostedVouchers: React.FC<PostedVouchersProps> = ({
   currentUser,
   sseRefreshKey = 0,
+  dateMode,
 }) => {
   // Workspace data: owned by BootstrapDataProvider (step 6 of the App split).
   const { branches } = useBootstrapData();
@@ -244,29 +248,18 @@ export const PostedVouchers: React.FC<PostedVouchersProps> = ({
               />
             </div>
             <div>
-              <label className={labelClass} htmlFor="posted-vouchers-from">From (AD)</label>
-              <input
-                id="posted-vouchers-from"
-                type="date"
-                className={inputClass}
-                value={fromDate}
-                max={toDate || undefined}
-                onChange={(event) => {
-                  setFromDate(event.target.value);
+              <PeriodRangeField
+                from={fromDate}
+                to={toDate}
+                onChange={(range) => {
+                  setFromDate(range.from);
+                  setToDate(range.to);
                 }}
-              />
-            </div>
-            <div>
-              <label className={labelClass} htmlFor="posted-vouchers-to">To (AD)</label>
-              <input
-                id="posted-vouchers-to"
-                type="date"
-                className={inputClass}
-                value={toDate}
-                min={fromDate || undefined}
-                onChange={(event) => {
-                  setToDate(event.target.value);
-                }}
+                label="Period (AD)"
+                startAriaLabel="Posted vouchers from"
+                endAriaLabel="Posted vouchers to"
+                requireEnd={false}
+                mode={dateMode}
               />
             </div>
             <div>

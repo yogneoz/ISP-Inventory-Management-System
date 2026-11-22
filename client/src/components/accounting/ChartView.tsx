@@ -831,6 +831,9 @@ export const ChartView: React.FC<{
                 value: unlinkedAvailable ? String(health?.unlinkedSubledgerRows.count ?? 0) : '—',
                 tone: KPI_TONE_TEXT[unlinkedAvailable && (health?.unlinkedSubledgerRows.count ?? 0) > 0 ? 'amber' : 'emerald'],
                 hint: unlinkedAvailable ? 'Posted party rows with no book' : 'Not reported by this server',
+                // An unreported figure shows as a dash: say so in the open, not
+                // only on hover, or it reads as zero.
+                hintVisible: !unlinkedAvailable,
               },
             ]}
           />

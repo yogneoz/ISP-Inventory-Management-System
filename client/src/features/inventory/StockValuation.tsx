@@ -341,7 +341,7 @@ export const StockValuation: React.FC<StockValuationProps> = ({
                   <select
                     value={activeBranchId}
                     onChange={(e) => setActiveBranchId(e.target.value)}
-                    className={`w-44 rounded-xl border px-3 py-2 text-xs font-medium cursor-pointer bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
+                    className={`h-8 w-44 rounded-xl border px-3 text-xs font-medium cursor-pointer bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                   >
                     <option value="ALL">All Branch Locations</option>
                     {branches.map((b) => (
@@ -356,7 +356,7 @@ export const StockValuation: React.FC<StockValuationProps> = ({
                   <select
                     value={selectedCategory}
                     onChange={(e) => setSelectedCategory(e.target.value)}
-                    className={`w-40 rounded-xl border px-3 py-2 text-xs font-medium cursor-pointer bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
+                    className={`h-8 w-40 rounded-xl border px-3 text-xs font-medium cursor-pointer bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                   >
                     <option value="ALL">All Categories</option>
                     {categories.map((cat) => (
@@ -371,7 +371,7 @@ export const StockValuation: React.FC<StockValuationProps> = ({
                   <select
                     value={stockStatusFilter}
                     onChange={(e) => setStockStatusFilter(e.target.value as any)}
-                    className={`w-36 rounded-xl border px-3 py-2 text-xs font-medium cursor-pointer bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
+                    className={`h-8 w-36 rounded-xl border px-3 text-xs font-medium cursor-pointer bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                   >
                     <option value="ALL">All</option>
                     <option value="LOW">Low Stock</option>
@@ -381,6 +381,7 @@ export const StockValuation: React.FC<StockValuationProps> = ({
                 </div>
                 <div className="min-w-fit">
                   <PeriodRangeField
+                    mode={dateMode}
                     label="Activity"
                     startAriaLabel="Activity from"
                     endAriaLabel="Activity to"
