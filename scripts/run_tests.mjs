@@ -65,10 +65,11 @@ if (shard) {
 // minutes while it sat at the 25-minute job limit). No test in the suite is
 // anywhere near this long — the slowest full shard is ~4 minutes in total.
 //
-// `--test-force-exit` covers the other half of the same failure: all tests
-// finished but something still holds the event loop open (a server, a pool, a
-// child's pipe), so the process never exits and the runner never reports.
-const suiteArgs = ['tsx', '--test', '--test-timeout=180000', '--test-force-exit'];
+// `--test-force-exit` was tried for the other half of the same shape (all tests
+// done, something still holding the loop open) and removed: it exits as soon as
+// the current callbacks finish, which cut the parallel run short — two shards
+// went red in a minute with only part of their tests executed.
+const suiteArgs = ['tsx', '--test', '--test-timeout=180000'];
 if (shard) suiteArgs.push(`--test-shard=${shard}`);
 suiteArgs.push('tests/*.test.ts');
 
