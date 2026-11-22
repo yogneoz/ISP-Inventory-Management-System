@@ -5104,11 +5104,29 @@ RETURNS void AS $$
 DECLARE
   v_start TIMESTAMPTZ := (date_trunc('month', p_date)::timestamp) AT TIME ZONE 'UTC';
   v_end TIMESTAMPTZ := ((date_trunc('month', p_date) + INTERVAL '1 month')::timestamp) AT TIME ZONE 'UTC';
+  v_name TEXT := 'serial_log_' || to_char(p_date, 'YYYYMM');
 BEGIN
-  EXECUTE format(
-    'CREATE TABLE IF NOT EXISTS %I PARTITION OF serial_log FOR VALUES FROM (%L) TO (%L)',
-    'serial_log_' || to_char(p_date, 'YYYYMM'), v_start, v_end
-  );
+  -- A row written before its month had a child sits in the DEFAULT catch-all,
+  -- and PostgreSQL refuses to create the child while it is there: the new bound
+  -- would contradict the DEFAULT partition's own constraint
+  -- (check_default_partition_contents, SQLSTATE 23514). That used to be a
+  -- one-way door — the month could never be provisioned again, so every later
+  -- serial write for it failed and the edit endpoint answered 500.
+  --
+  -- The month is skipped instead: the rows stay in the catch-all, where every
+  -- read still finds them and every write still lands, and the child appears on
+  -- the next call once the month has been emptied (a retention purge, an
+  -- archive, or the boot window passing over it again). Failing the caller to
+  -- protect a partition that cannot legally be created is the worse trade.
+  BEGIN
+    EXECUTE format(
+      'CREATE TABLE IF NOT EXISTS %I PARTITION OF serial_log FOR VALUES FROM (%L) TO (%L)',
+      v_name, v_start, v_end
+    );
+  EXCEPTION
+    WHEN check_violation THEN
+      RETURN;
+  END;
 END;
 $$ LANGUAGE plpgsql;
 

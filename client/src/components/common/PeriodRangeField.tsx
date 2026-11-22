@@ -108,7 +108,7 @@ export function usePeriodRangeFilter(
 // flex-1 inputs inside one control squeezed each other and rendered the date as
 // "dd /mm/ y"; a fixed width that cannot shrink keeps the full value visible.
 // The BS ends use it too — each carries its mapped AD day as a "BS" suffix, so
-// the width has to clear "2083-08-01 BS", not just a BS day — which keeps the
+// the width has to clear that longer pair, not just a BS day — which keeps the
 // row the same measure in either calendar.
 const DATE_WIDTH = 'w-[8.5rem]';
 const INPUT_CLASS = `h-7 ${DATE_WIDTH} shrink-0 rounded-md border-0 bg-transparent px-1 text-xs tabular-nums text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-100`;

@@ -134,11 +134,13 @@ describe('stock operation partitions', () => {
   });
 
   test('a one-month read prunes to that month and never touches DEFAULT', { skip: skipNoDb }, async () => {
-    const monthRow = await pool!.query(
-      `SELECT to_char(date_ad, 'YYYY-MM') AS ym FROM stock_operations ORDER BY date_ad DESC LIMIT 1`
-    );
-    assert.ok(monthRow.rows.length > 0, 'the fixture database holds stock operations');
-    const month = String(monthRow.rows[0].ym);
+    // Plan against this file's own fixture month: a fresh CI database holds no
+    // stock operations, and "the newest operation in the table" would otherwise
+    // depend on what another file in the shard happened to write.
+    await dropTestMonth();
+    await pool!.query('SELECT ensure_stock_operation_month_partition($1::date)', [`${TEST_MONTH}-01`]);
+    await insertOp(opRow({ referenceNumber: `${PREFIX}PRUNE-1` }));
+    const month = TEST_MONTH;
     const start = `${month}-01`;
     const boundary = new Date(`${start}T00:00:00Z`);
     boundary.setUTCMonth(boundary.getUTCMonth() + 1);
@@ -156,7 +158,8 @@ describe('stock operation partitions', () => {
       assert.deepEqual(touched, [`stock_operations_${month.replace('-', '')}`], `one month, one child:\n${text}`);
       assert.doesNotMatch(text, /stock_operations_default/, 'the catch-all is never read for a dated month');
     } finally {
-      await pool!.query('ROLLBACK');
+      await pool!.query('ROLLBACK').catch(() => undefined);
+      await dropTestMonth();
     }
   });
 

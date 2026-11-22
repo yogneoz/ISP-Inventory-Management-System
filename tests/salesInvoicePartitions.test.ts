@@ -147,11 +147,13 @@ describe('sales invoice partitions', () => {
   });
 
   test('a one-month read prunes to that month and never touches DEFAULT', { skip: skipNoDb }, async () => {
-    const monthRow = await pool!.query(
-      `SELECT to_char(invoice_date_ad, 'YYYY-MM') AS ym FROM sales_invoices ORDER BY invoice_date_ad DESC LIMIT 1`
-    );
-    assert.ok(monthRow.rows.length > 0, 'the fixture database holds invoices');
-    const month = String(monthRow.rows[0].ym);
+    // Plan against this file's own fixture month: a fresh CI database holds no
+    // invoices, and "the newest invoice in the table" would otherwise depend on
+    // what another file in the shard happened to write.
+    await cleanupMonth();
+    await ensureMonth();
+    await insertInvoice(`${PREFIX}p`, 'SI3-INV-P');
+    const month = '2035-04';
     const start = `${month}-01`;
     const boundary = new Date(`${start}T00:00:00Z`);
     boundary.setUTCMonth(boundary.getUTCMonth() + 1);
@@ -169,7 +171,8 @@ describe('sales invoice partitions', () => {
       assert.deepEqual(touched, [`sales_invoices_${month.replace('-', '')}`], `one month, one child:\n${text}`);
       assert.doesNotMatch(text, /sales_invoices_default/, 'the catch-all is never read for a dated month');
     } finally {
-      await pool!.query('ROLLBACK');
+      await pool!.query('ROLLBACK').catch(() => undefined);
+      await cleanupMonth();
     }
   });
 

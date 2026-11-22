@@ -144,22 +144,31 @@ describe('serial register partitions', () => {
       'only the primary key may be unique; the three serial uniques moved to the registry'
     );
 
+    // The rows this file writes, never the whole register: a fresh database has
+    // no register rows until a test puts some there, and the other files in the
+    // same shard write rows of their own in parallel.
+    await ensureMonth();
+    await insertSerial(`${PREFIX}r`, 'S3PART-SERIAL-R', 'S3PART-PON-R', 'AA:BB:CC:00:00:0R');
+    await insertSerial(`${PREFIX}s`, 'S3PART-SERIAL-S', null, null);
+
     const roles = await pool!.query(
       `SELECT key_role, count(*)::int AS n FROM document_identity_registry
-        WHERE document_type = 'SERIAL_LOG' GROUP BY key_role ORDER BY key_role`
+        WHERE document_type = 'SERIAL_LOG' AND id LIKE $1 GROUP BY key_role ORDER BY key_role`,
+      [`${PREFIX}%`]
     );
     assert.deepEqual(roles.rows.map((row: any) => row.key_role), ['MAC', 'PON', 'SERIAL']);
 
     // One registry key per non-blank value, exactly what the partial uniques
-    // governed.
+    // governed — counted over this file's own rows.
     const parity = await pool!.query(
-      `SELECT (SELECT count(*)::int FROM serial_log WHERE btrim(device_serial) <> '') AS serials,
-              (SELECT count(*)::int FROM serial_log WHERE btrim(coalesce(pon_serial, '')) <> '') AS pons,
-              (SELECT count(*)::int FROM serial_log WHERE btrim(coalesce(mac_address, '')) <> '') AS macs,
-              (SELECT count(*)::int FROM document_identity_registry WHERE document_type = 'SERIAL_LOG' AND key_role = 'SERIAL') AS reg_serials,
-              (SELECT count(*)::int FROM document_identity_registry WHERE document_type = 'SERIAL_LOG' AND key_role = 'PON') AS reg_pons,
-              (SELECT count(*)::int FROM document_identity_registry WHERE document_type = 'SERIAL_LOG' AND key_role = 'MAC') AS reg_macs`
+      `SELECT (SELECT count(*)::int FROM serial_log WHERE id LIKE '${PREFIX}%' AND btrim(device_serial) <> '') AS serials,
+              (SELECT count(*)::int FROM serial_log WHERE id LIKE '${PREFIX}%' AND btrim(coalesce(pon_serial, '')) <> '') AS pons,
+              (SELECT count(*)::int FROM serial_log WHERE id LIKE '${PREFIX}%' AND btrim(coalesce(mac_address, '')) <> '') AS macs,
+              (SELECT count(*)::int FROM document_identity_registry WHERE document_type = 'SERIAL_LOG' AND id LIKE '${PREFIX}%' AND key_role = 'SERIAL') AS reg_serials,
+              (SELECT count(*)::int FROM document_identity_registry WHERE document_type = 'SERIAL_LOG' AND id LIKE '${PREFIX}%' AND key_role = 'PON') AS reg_pons,
+              (SELECT count(*)::int FROM document_identity_registry WHERE document_type = 'SERIAL_LOG' AND id LIKE '${PREFIX}%' AND key_role = 'MAC') AS reg_macs`
     );
+    assert.ok(parity.rows[0].serials > 0 && parity.rows[0].pons > 0 && parity.rows[0].macs > 0, 'the fixture writes all three keys');
     assert.deepEqual(parity.rows[0], {
       serials: parity.rows[0].reg_serials,
       pons: parity.rows[0].reg_pons,
@@ -171,11 +180,13 @@ describe('serial register partitions', () => {
   });
 
   test('a one-month read prunes to that month and never touches DEFAULT', { skip: skipNoDb }, async () => {
-    const monthRow = await pool!.query(
-      `SELECT to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM') AS ym FROM serial_log ORDER BY created_at DESC LIMIT 1`
-    );
-    assert.ok(monthRow.rows.length > 0, 'the fixture database holds register rows');
-    const month = String(monthRow.rows[0].ym);
+    // The month is this file's own fixture month. Reading "the newest row in the
+    // table" made the pruning proof depend on rows another file happened to
+    // leave behind, so a fresh CI database had nothing to plan against.
+    await cleanupMonth();
+    await ensureMonth();
+    await insertSerial(`${PREFIX}p`, 'S3PART-SERIAL-P', 'S3PART-PON-P', 'AA:BB:CC:00:00:0P');
+    const month = '2034-03';
     const start = `${month}-01`;
     const boundary = new Date(`${start}T00:00:00Z`);
     boundary.setUTCMonth(boundary.getUTCMonth() + 1);

@@ -121,18 +121,39 @@ describe('page-read indexes (SCALE-3, migration 0040)', () => {
   });
 
   test('a keyset page is served in index order, without a sort', { skip: skipNoDb }, async () => {
-    const branch = await pool!.query(
-      `SELECT branch_id FROM sales_invoices WHERE branch_id IS NOT NULL LIMIT 1`
+    // The plan needs one invoice of its own: a fresh database holds no invoices,
+    // so borrowing "any invoice with a branch" made this proof depend on the
+    // data a developer machine happened to carry.
+    const BRANCH = 'page-fixture-branch';
+    const MONTH = '2035-06';
+    await pool!.query('SELECT ensure_sales_invoice_month_partition($1::date)', [`${MONTH}-01`]);
+    await pool!.query(
+      `INSERT INTO branches (id, code, name, location) VALUES ($1,'PAGEIDX','Page index fixture branch','Kathmandu')
+       ON CONFLICT DO NOTHING`,
+      [BRANCH]
     );
-    assert.ok(branch.rows.length > 0, 'the configured database holds at least one invoice with a branch');
-    const page = await planFor(
-      `SELECT id FROM sales_invoices WHERE branch_id = $1
-        ORDER BY created_at DESC, id DESC LIMIT 51`,
-      [branch.rows[0].branch_id]
+    await pool!.query(
+      `INSERT INTO sales_invoices (id, invoice_number, customer_name, invoice_date_ad, invoice_date_bs, grand_total, items, branch_id)
+       VALUES ('page-fixture-invoice','PAGEIDX-1','Page index fixture', DATE '${MONTH}-10', '2092-03-01', 0, '[]'::jsonb, $1)
+       ON CONFLICT DO NOTHING`,
+      [BRANCH]
     );
-    assert.match(page, /Index (Only )?Scan/, `expected an index scan:\n${page}`);
-    assert.doesNotMatch(page, /Seq Scan/, 'the page must not fall back to a sequential scan');
-    assert.doesNotMatch(page, /->\s+Sort/, 'the index must produce the page order, not a sort');
+    try {
+      const page = await planFor(
+        `SELECT id FROM sales_invoices WHERE branch_id = $1
+          ORDER BY created_at DESC, id DESC LIMIT 51`,
+        [BRANCH]
+      );
+      assert.match(page, /Index (Only )?Scan/, `expected an index scan:\n${page}`);
+      assert.doesNotMatch(page, /Seq Scan/, 'the page must not fall back to a sequential scan');
+      assert.doesNotMatch(page, /->\s+Sort/, 'the index must produce the page order, not a sort');
+    } finally {
+      await pool!
+        .query(`DELETE FROM sales_invoices WHERE invoice_date_ad >= DATE '${MONTH}-01' AND invoice_date_ad < DATE '2035-07-01'`)
+        .catch(() => undefined);
+      await pool!.query(`DROP TABLE IF EXISTS sales_invoices_203506`).catch(() => undefined);
+      await pool!.query(`DELETE FROM branches WHERE id = $1`, [BRANCH]).catch(() => undefined);
+    }
   });
 
   test('the subledger book page is served in index order, without a sort', { skip: skipNoDb }, async () => {

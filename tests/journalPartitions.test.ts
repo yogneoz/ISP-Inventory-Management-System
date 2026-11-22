@@ -53,8 +53,66 @@ try {
 }
 const skipNoDb = !dbReachable && 'needs a reachable PostgreSQL (partition DDL)';
 
+/**
+ * A month this file owns, with one posted subledger row in it. The pruning and
+ * append-only proofs need a row of their own: a fresh database holds no
+ * subledger entries at all, and reading "the busiest month in the table" made
+ * them depend on whatever another test file happened to leave behind.
+ */
+const FIXTURE_MONTH = '2034-06';
+
+async function ensureSubledgerFixture() {
+  await pool!.query('SELECT ensure_subledger_month_partition($1::date)', [`${FIXTURE_MONTH}-01`]);
+  await pool!.query(
+    `INSERT INTO branches (id, code, name, location) VALUES ('sub-fixture-branch','SUBFIX','Subledger fixture branch','Kathmandu')
+     ON CONFLICT DO NOTHING`
+  );
+  await pool!.query(
+    `INSERT INTO gl_account_groups (id, code, name, account_type, statement_group, normal_balance)
+     VALUES ('sub-fixture-group','9100','Subledger fixture group','ASSET','CURRENT_ASSET','DEBIT')
+     ON CONFLICT DO NOTHING`
+  );
+  await pool!.query(
+    `INSERT INTO gl_accounts (id, code, name, group_id) VALUES ('sub-fixture-account','9101','Subledger fixture account','sub-fixture-group')
+     ON CONFLICT DO NOTHING`
+  );
+  await pool!.query(
+    `INSERT INTO gl_journals_registry (id, journal_no, journal_date_ad) VALUES ('sub-fixture-journal','SUBFIX-JV-1','${FIXTURE_MONTH}-10')
+     ON CONFLICT DO NOTHING`
+  );
+  await pool!.query(
+    `INSERT INTO gl_journal_line_registry (id, journal_id, journal_date_ad, line_no)
+     VALUES ('sub-fixture-line','sub-fixture-journal','${FIXTURE_MONTH}-10',1)
+     ON CONFLICT DO NOTHING`
+  );
+  await pool!.query(
+    `INSERT INTO gl_subledger_entries
+       (id, journal_id, journal_line_id, account_id, subledger_type, branch_id, entry_date_ad, entry_date_bs, debit, credit)
+     VALUES ('sub-fixture-entry','sub-fixture-journal','sub-fixture-line','sub-fixture-account','CUSTOMER','sub-fixture-branch',
+             '${FIXTURE_MONTH}-10','2091-02-27 BS',100,0)
+     ON CONFLICT DO NOTHING`
+  );
+}
+
+async function dropSubledgerFixture() {
+  if (!pool || !dbReachable) return;
+  await pool
+    .query(
+      `DELETE FROM gl_subledger_entries
+        WHERE entry_date_ad >= DATE '${FIXTURE_MONTH}-01' AND entry_date_ad < DATE '2034-07-01'`
+    )
+    .catch(() => undefined);
+  await pool.query(`DROP TABLE IF EXISTS gl_subledger_entries_203406`).catch(() => undefined);
+  await pool.query(`DELETE FROM gl_journal_line_registry WHERE id = 'sub-fixture-line'`).catch(() => undefined);
+  await pool.query(`DELETE FROM gl_journals_registry WHERE id = 'sub-fixture-journal'`).catch(() => undefined);
+  await pool.query(`DELETE FROM gl_accounts WHERE id = 'sub-fixture-account'`).catch(() => undefined);
+  await pool.query(`DELETE FROM gl_account_groups WHERE id = 'sub-fixture-group'`).catch(() => undefined);
+  await pool.query(`DELETE FROM branches WHERE id = 'sub-fixture-branch'`).catch(() => undefined);
+}
+
 describe('journal partition provisioning', () => {
   after(async () => {
+    await dropSubledgerFixture();
     if (pool && dbReachable) await pool.end();
   });
 
@@ -200,12 +258,14 @@ describe('journal partition provisioning', () => {
     const defaults = await pool!.query('SELECT count(*)::int AS n FROM gl_subledger_entries_default');
     assert.equal(defaults.rows[0].n, 0, 'no converted row may sit in the DEFAULT partition');
 
+    await ensureSubledgerFixture();
     const written = await pool!.query(
       `SELECT to_char(entry_date_ad, 'YYYY-MM') AS ym, count(*)::int AS n
-         FROM gl_subledger_entries GROUP BY 1 ORDER BY n DESC LIMIT 1`
+         FROM gl_subledger_entries WHERE id = 'sub-fixture-entry' GROUP BY 1`
     );
-    assert.ok(written.rows.length > 0, 'the fixture database holds posted subledger rows');
+    assert.equal(written.rows.length, 1, 'this file posted a subledger row of its own');
     const month = String(written.rows[0].ym);
+    assert.equal(month, FIXTURE_MONTH, 'the fixture row landed in its own month');
     const start = `${month}-01`;
     const boundary = new Date(`${start}T00:00:00Z`);
     boundary.setUTCMonth(boundary.getUTCMonth() + 1);
@@ -230,8 +290,17 @@ describe('journal partition provisioning', () => {
 
     // The append-only guard reaches the child, not only the parent: DML aimed
     // straight at the month is refused unless the purge switch is set.
-    const child = months.find((row: any) => row.name === `gl_subledger_entries_${month.replace('-', '')}`);
-    assert.ok(child, 'the busiest month must have its own child');
+    // Read the child list again: the fixture above created this month after the
+    // structural query ran.
+    const childRows = await pool!.query(
+      `SELECT c.relname AS name FROM pg_class c
+         JOIN pg_inherits i ON i.inhrelid = c.oid
+         JOIN pg_class p ON p.oid = i.inhparent
+        WHERE p.relname = 'gl_subledger_entries' AND c.relname = $1`,
+      [`gl_subledger_entries_${month.replace('-', '')}`]
+    );
+    const child = childRows.rows[0];
+    assert.ok(child, 'the fixture month must have its own child');
     await pool!.query('BEGIN');
     try {
       await pool!.query("SET LOCAL inventory.allow_ledger_purge = 'off'");
