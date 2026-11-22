@@ -171,11 +171,14 @@ export function maskCommentsAndStrings(source: string): string {
  * offending snippet. `file` is only echoed back into the violation.
  */
 export function findUnawaitedAuditCalls(source: string, file: string): AuditAwaitViolation[] {
-  const masked = maskCommentsAndStrings(source);
-  const lines = masked.split('\n');
+  const maskedLines = maskCommentsAndStrings(source).split('\n');
+  // The report quotes the REAL line: the masked copy blanks every string
+  // argument, and a violation message that hides the action it is about is
+  // useless to the person fixing it.
+  const originalLines = source.split('\n');
   const violations: AuditAwaitViolation[] = [];
 
-  lines.forEach((line, index) => {
+  maskedLines.forEach((line, index) => {
     CALL_PATTERN.lastIndex = 0;
     let match: RegExpExecArray | null;
     while ((match = CALL_PATTERN.exec(line)) !== null) {
@@ -185,7 +188,7 @@ export function findUnawaitedAuditCalls(source: string, file: string): AuditAwai
       violations.push({
         file,
         line: index + 1,
-        snippet: line.trim(),
+        snippet: (originalLines[index] ?? line).trim(),
       });
     }
   });
