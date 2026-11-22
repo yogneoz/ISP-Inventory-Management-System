@@ -224,7 +224,7 @@ test('TDS certificate prints on A4 with intact rows and totals', async (t) => {
       '--virtual-time-budget=1500',
       pathToFileURL(htmlPath).href,
     ],
-    { stdio: 'pipe', timeout: 30_000 }
+    { stdio: 'pipe', timeout: 30_000, killSignal: 'SIGKILL' }
   );
   assert.ok(fs.existsSync(pdfPath), 'headless Chrome must write a PDF');
 
@@ -437,7 +437,7 @@ test('TDS certificate paginates a 48-row table with repeated headers and intact 
       '--virtual-time-budget=1500',
       pathToFileURL(htmlPath).href,
     ],
-    { stdio: 'pipe', timeout: 30_000 }
+    { stdio: 'pipe', timeout: 30_000, killSignal: 'SIGKILL' }
   );
   assert.ok(fs.existsSync(pdfPath), 'headless Chrome must write a PDF');
 
