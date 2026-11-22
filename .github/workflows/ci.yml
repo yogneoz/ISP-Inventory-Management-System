@@ -51,7 +51,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18
         env:
           POSTGRES_USER: inventory_user
           POSTGRES_PASSWORD: securepassword
@@ -90,7 +90,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18
         env:
           POSTGRES_USER: inventory_user
           POSTGRES_PASSWORD: securepassword
@@ -177,9 +177,16 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4, 5, 6]
 
+    # The image major has to be at least the runner's PostgreSQL client major.
+    # The BAK/BAK-3 proofs here run the runner's own pg_dump/pg_restore against
+    # this server, and restoring a newer dump into an older server is not
+    # supported: an 18 client's dump opens with `SET transaction_timeout = 0`,
+    # which a 16 server rejects, so five restore tests failed on the skew rather
+    # than on their own logic. 18 also matches the dev install, and the migrations
+    # already rely on PG 18 behaviour.
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18
         env:
           POSTGRES_USER: inventory_user
           POSTGRES_PASSWORD: securepassword
@@ -224,19 +231,6 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      # The runner image's PostgreSQL tools track the newest major, while the
-      # service above is 16. A dump written by pg_dump 18 carries
-      # `SET transaction_timeout = 0`, which a 16 server rejects, so pg_restore
-      # failed before restoring a single object and the BAK/BAK-3 restore proofs
-      # went red for a version skew rather than a bug. Pin the client to the
-      # server's major; a missing matching client fails the shard here instead of
-      # surfacing later as a mysterious restore failure.
-      - name: Match the PostgreSQL client to the service major
-        run: |
-          sudo apt-get install -y postgresql-client-16 >/dev/null
-          echo '/usr/lib/postgresql/16/bin' >> "$GITHUB_PATH"
-          /usr/lib/postgresql/16/bin/pg_dump --version
-          /usr/lib/postgresql/16/bin/pg_restore --version
       - run: npm ci
       - name: Apply schema.sql to this shard's CI database
         run: |
