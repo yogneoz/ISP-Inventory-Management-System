@@ -106,6 +106,8 @@ import {
   get_hrSelfServiceLeave,
   get_hrSelfServicePayslips,
   get_hrSelfServiceProfile,
+  post_hrSelfServiceLeave,
+  post_hrSelfServiceLeaveCancel,
   put_hrSelfServiceProfile,
 } from '../controllers/hrSelfService.controller';
 import {
@@ -170,6 +172,23 @@ export function registerHrRoutes(app: Express) {
     requirePermissionAny('hr-self-service'),
     async (req, res, next) => {
       get_hrSelfServiceLeave(req as any, res as any).catch(next);
+    }
+  );
+  // The mobile client files and withdraws its own leave here. Same grant as the
+  // read; the controller derives the employee from the session and refuses a
+  // body that names anyone else. Approval stays on the HR register's routes.
+  app.post(
+    '/api/hr/self-service/leave',
+    requirePermissionAny('hr-self-service'),
+    async (req, res, next) => {
+      post_hrSelfServiceLeave(req as any, res as any).catch(next);
+    }
+  );
+  app.post(
+    '/api/hr/self-service/leave/:id/cancel',
+    requirePermissionAny('hr-self-service'),
+    async (req, res, next) => {
+      post_hrSelfServiceLeaveCancel(req as any, res as any).catch(next);
     }
   );
   app.get(

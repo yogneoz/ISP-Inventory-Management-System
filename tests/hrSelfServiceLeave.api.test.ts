@@ -9,7 +9,8 @@
  *   4. pending, rejected and cancelled history remains visible;
  *   5. employee/user selectors, `branchId=ALL`, another branch and an
  *      out-of-scope employee link are refused;
- *   6. reads do not mutate the ledger and there is no write route.
+ *   6. reads do not mutate the ledger, and the only write paths are the
+ *      create/withdraw routes covered by hrSelfServiceLeaveWrite.api.test.ts.
  */
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -340,7 +341,7 @@ describe('employee self-service leave (real HTTP + PostgreSQL)', { skip: skipNoD
     assert.equal(unlinked.status, 404, 'an account without a linked employee is not widened');
   });
 
-  test('selectors, branch widening and cross-branch links are refused, with no write path', async () => {
+  test('selectors, branch widening and cross-branch links are refused', async () => {
     const beforeCounts = await ledgerCounts();
 
     for (const selector of [
@@ -376,11 +377,15 @@ describe('employee self-service leave (real HTTP + PostgreSQL)', { skip: skipNoD
     const afterCounts = await ledgerCounts();
     assert.deepEqual(afterCounts, beforeCounts, 'reads must not create or delete leave rows');
 
-    const noWrite = await request('POST', '/api/hr/self-service/leave', {}, userAToken);
-    assert.equal(noWrite.status, 404, 'the route has no POST write path');
+    // The only write path is POST (create) plus POST :id/cancel; an incomplete
+    // body is refused by validation rather than reaching the ledger.
+    const emptyCreate = await request('POST', '/api/hr/self-service/leave', {}, userAToken);
+    assert.equal(emptyCreate.status, 400, JSON.stringify(emptyCreate.json));
+    assert.match(emptyCreate.json.message, /leave type is required/i);
     const noPatch = await request('PATCH', '/api/hr/self-service/leave', {}, userAToken);
     assert.equal(noPatch.status, 404, 'the route has no PATCH write path');
     const noDelete = await request('DELETE', '/api/hr/self-service/leave', undefined, userAToken);
     assert.equal(noDelete.status, 404, 'the route has no DELETE write path');
+    assert.deepEqual(await ledgerCounts(), beforeCounts, 'a refused create writes nothing');
   });
 });

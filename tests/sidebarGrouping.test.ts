@@ -163,7 +163,7 @@ const EXPECTED: Record<string, { sections: string[]; items: string[] }> = {
   admin: {
     sections: ['Setup', 'Governance'],
     items: [
-      'company-setup', 'users', 'login-locks', 'api-keys', 'permissions', 'user-permissions',
+      'company-setup', 'users', 'login-locks', 'api-keys', 'integration-partners', 'permissions', 'user-permissions',
       'fiscal-year-closing', 'bs-calendar',
       'audit', 'data-recalculation', 'clear-demo-data',
     ],

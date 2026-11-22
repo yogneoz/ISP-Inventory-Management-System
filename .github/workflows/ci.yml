@@ -39,6 +39,11 @@ jobs:
       # scripts/check_audit_await.ts.
       - name: Enforce awaited audit writes in controllers
         run: npm run check:audit-await
+      # A mobile- or partner-consumed route, field or envelope change must land in
+      # docs/contracts/*.md in the same commit; the phone and the portal are
+      # outside this repo so a silent rename breaks someone else's build.
+      - name: Enforce mobile and partner contract parity
+        run: npm run check:contract-parity
       # npm audit exits non-zero when vulnerabilities are found; gating on
       # --omit=dev covers the deployable dependency surface (dev tooling
       # advisories are surfaced in local audits but do not block the build).

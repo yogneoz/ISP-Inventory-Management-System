@@ -242,6 +242,13 @@ export const PermissionManagementLazy = React.lazy(() =>
 export const ApiKeysLazy = React.lazy(() =>
   import('../features/settings/ApiKeys').then((m) => ({ default: m.ApiKeys }))
 );
+// The portal's partner rows and delivery queue load with the key screen they
+// belong to, never during boot.
+export const IntegrationPartnersLazy = React.lazy(() =>
+  import('../features/settings/IntegrationPartners').then((m) => ({
+    default: m.IntegrationPartners,
+  }))
+);
 export const UserPermissionsLazy = React.lazy(() =>
   import('../features/settings/UserPermissions').then((m) => ({ default: m.UserPermissions }))
 );

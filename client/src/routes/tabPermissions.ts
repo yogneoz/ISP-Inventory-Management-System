@@ -113,6 +113,8 @@ export const TAB_PERMISSIONS: Record<string, string | string[]> = {
   users: 'admin-users',
   'login-locks': 'admin-users',
   'api-keys': 'admin-api-keys',
+  // Partner registrations sit behind the same grant as the keys they bind.
+  'integration-partners': 'admin-api-keys',
   audit: 'admin-audit',
   'fiscal-year-management': 'admin-fiscal',
   'fiscal-year-closing': 'admin-fiscal',

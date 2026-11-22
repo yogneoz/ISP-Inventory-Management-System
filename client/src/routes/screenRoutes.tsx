@@ -39,7 +39,8 @@ import {
   DepreciationRegister, AuditTrailReports, DocumentNumbering, OpeningStockManager, VendorOpeningBalances,
   VendorLedger, CustomerLedger, EmployeeLedger, FiscalYearClosingWizard, LocationsManagement,
   ImportCustomers, ClearDemoDataView, DataRecalculationMaintenance, BsCalendarUtility,
-  NepaliFiscalManagement, PermissionManagementLazy, ApiKeysLazy, UserPermissionsLazy, UsersManagementLazy,
+  NepaliFiscalManagement, PermissionManagementLazy, ApiKeysLazy, IntegrationPartnersLazy,
+  UserPermissionsLazy, UsersManagementLazy,
   ApprovalWorkflowCenter, HelpDocumentationLazy
 } from './lazyScreens';
 import { screenRoute, type AppRoute } from './appRoutes';
@@ -981,6 +982,11 @@ export function buildScreenRoutes(props: ScreenRouteProps): AppRoute[] {
     )),
     screenRoute('api-keys', (
       <ApiKeysLazy currentUser={currentUser} />
+    )),
+    // The partner row and its delivery queue sit beside the keys they bind, and
+    // are gated by the same `admin-api-keys` operation.
+    screenRoute('integration-partners', (
+      <IntegrationPartnersLazy currentUser={currentUser} />
     )),
     screenRoute('login-locks', (
       <LoginLocks currentUser={currentUser} />

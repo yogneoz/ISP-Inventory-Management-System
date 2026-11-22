@@ -62,6 +62,7 @@ export const SCREEN_PRELOADERS: Readonly<Record<string, ScreenModuleLoader>> = {
   permissions: () => import('./features/settings/PermissionManagement'),
   'user-permissions': () => import('./features/settings/UserPermissions'),
   'api-keys': () => import('./features/settings/ApiKeys'),
+  'integration-partners': () => import('./features/settings/IntegrationPartners'),
   'import-customers': () => import('./features/sales/ImportCustomers'),
   'create-purchase': loadPurchaseInvoices,
   'purchase-list': loadPurchaseInvoices,

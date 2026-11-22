@@ -267,6 +267,47 @@ export const BRANCH_SCOPE_EXEMPTIONS: readonly BranchScopeExemption[] = [
     reason:
       'Accruals are child documents of a loan: every read and write addresses the parent loan id under /accounting/loans/:id, which is branch-checked before posting, and each accrual also stores the parent branch. No /loan-interest-accruals/:id route exists.',
   },
+
+  {
+    table: 'branch_geofences',
+    reason:
+      'One fence per branch, read only by the punch evaluator (mobile.service) which takes the employee\'s own branch from the session-derived employee row; no row-id route exists and no client supplies a branch.',
+  },
+  {
+    table: 'employee_shift_roster',
+    reason:
+      'Roster rows are read by employee, never by row id: the bootstrap and sync queries pin employee_id from the token and compare branch_id to the employee\'s own branch in SQL. There is no /shift-roster/:id route.',
+  },
+  {
+    table: 'hr_expense_claims',
+    reason:
+      'A claim always belongs to the signed-in employee: submitClaim writes employee.branch_id from the session, and the only by-id read (MOBILE_CLAIM_BY_ID_SQL) filters on employee_id as well. A cross-branch by-id refusal is already impossible.',
+  },
+  {
+    table: 'company_announcements',
+    reason:
+      'Announcements are broadcast to every employee of the branch (or all branches when branch_id is NULL) and are read through the bootstrap/sync payload that filters on the employee\'s branch; there is no announcement detail route.',
+  },
+  {
+    table: 'employee_location_breadcrumbs',
+    reason:
+      'Breadcrumbs are an append-only device trace: the batch insert takes branch_id from the token\'s employee and the id is the client\'s own point id, with ON CONFLICT DO NOTHING. No route reads or mutates one by id.',
+  },
+  {
+    table: 'mobile_change_log',
+    reason:
+      'Sync cursor feed: rows are written by the service that performs the change (branch_id copied from the employee) and read by /api/v1/sync/pull, which filters employee_id and branch_id in SQL before returning a seq.',
+  },
+  {
+    table: 'service_invoices',
+    reason:
+      'Written only by the partner ingest service, which resolves the branch from the linked customer or the partner\'s branch scope and refuses a branch the key does not own; reads go through the admin integration list, not a /service-invoices/:id route.',
+  },
+  {
+    table: 'stock_consumption_events',
+    reason:
+      'Append-only record of a partner stock pull: the external id is the natural key, branch_id comes from the resolved partner branch, and the guarded UPDATE on inventory_stock carries the same branch. No row-id route exists.',
+  },
 ];
 
 /** Resource prefixes where a list read must name an authorized branch. */

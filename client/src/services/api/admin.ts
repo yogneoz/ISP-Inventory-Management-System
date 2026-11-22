@@ -432,3 +432,150 @@ export async function revokeApiKey(id: string): Promise<{ key: ApiKeyRecord }> {
 export async function getApiKeyLogs(id: string, limit = 100): Promise<ApiKeyAuditEntry[]> {
   return fetchJson(`/api/admin/api-keys/${encodeURIComponent(id)}/logs?limit=${limit}`);
 }
+
+/**
+ * Integration partners — the subscription portal's row and its delivery queue
+ * (`/api/admin/integration/*`).
+ *
+ * The field names here are the ones `docs/contracts/partner-v1.md` publishes,
+ * snake_case for rows read out of the database and camelCase for request bodies,
+ * exactly as the controller accepts them; `check:contract-parity` fails the
+ * build when a documented field stops existing on either side.
+ */
+export type IntegrationPartnerStatus = 'ACTIVE' | 'SUSPENDED';
+
+export interface IntegrationPartnerRecord {
+  id: string;
+  code: string;
+  name: string;
+  contract_version: string;
+  status: IntegrationPartnerStatus;
+  allowed_events: string[];
+  api_key_id: string | null;
+  created_at: string;
+  pending_events: number;
+  dead_events: number;
+}
+
+export interface IntegrationPartnerCreated {
+  id: string;
+  code: string;
+  name: string;
+  contract_version: string;
+  allowed_events: string[];
+}
+
+export interface IntegrationPartnerUpdated {
+  id: string;
+  code: string;
+  name: string;
+  status: IntegrationPartnerStatus;
+  allowed_events: string[];
+  webhook_url: string | null;
+}
+
+export interface IntegrationOutboxRecord {
+  id: string;
+  event: string;
+  entity: string;
+  entity_id: string | null;
+  status: 'PENDING' | 'DELIVERED' | 'FAILED' | 'DEAD';
+  attempts: number;
+  last_error: string | null;
+  created_at: string;
+  delivered_at: string | null;
+  next_attempt_at: string | null;
+  partner_code: string;
+}
+
+export interface IntegrationPushResult {
+  partner: string;
+  queued: number;
+  nextCursor: string | null;
+}
+
+export interface CreateIntegrationPartnerInput {
+  code: string;
+  name: string;
+  apiKeyId?: string | null;
+  allowedEvents?: string[];
+  contractVersion?: string;
+  webhookUrl?: string | null;
+}
+
+export interface UpdateIntegrationPartnerInput {
+  name?: string;
+  allowedEvents?: string[];
+  webhookUrl?: string | null;
+  status?: IntegrationPartnerStatus;
+}
+
+export async function getIntegrationPartners(): Promise<IntegrationPartnerRecord[]> {
+  return fetchJson('/api/admin/integration/partners');
+}
+
+export async function createIntegrationPartner(
+  input: CreateIntegrationPartnerInput
+): Promise<IntegrationPartnerCreated> {
+  return fetchJson('/api/admin/integration/partners', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateIntegrationPartner(
+  id: string,
+  input: UpdateIntegrationPartnerInput
+): Promise<IntegrationPartnerUpdated> {
+  return fetchJson(`/api/admin/integration/partners/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function getIntegrationOutbox(
+  params: { status?: string | null; limit?: number } = {}
+): Promise<IntegrationOutboxRecord[]> {
+  const search = new URLSearchParams();
+  if (params.status) search.set('status', params.status);
+  if (params.limit) search.set('limit', String(params.limit));
+  const query = search.toString();
+  return fetchJson(`/api/admin/integration/outbox${query ? `?${query}` : ''}`);
+}
+
+export async function replayIntegrationOutbox(
+  id: string
+): Promise<{ id: string; status: string }> {
+  return fetchJson(`/api/admin/integration/outbox/${encodeURIComponent(id)}/replay`, {
+    method: 'POST',
+  });
+}
+
+export async function deliverIntegrationOutbox(
+  limit = 20
+): Promise<{ delivered: number; failed: number; skipped: number }> {
+  return fetchJson('/api/admin/integration/deliver', {
+    method: 'POST',
+    body: JSON.stringify({ limit }),
+  });
+}
+
+export async function pushIntegrationStock(
+  id: string,
+  input: { branchId?: string | null; cursor?: string | null; limit?: number } = {}
+): Promise<IntegrationPushResult> {
+  return fetchJson(`/api/admin/integration/partners/${encodeURIComponent(id)}/push/stock`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function pushIntegrationHr(
+  id: string,
+  input: { branchId?: string | null; cursor?: string | null; limit?: number } = {}
+): Promise<IntegrationPushResult> {
+  return fetchJson(`/api/admin/integration/partners/${encodeURIComponent(id)}/push/hr`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}

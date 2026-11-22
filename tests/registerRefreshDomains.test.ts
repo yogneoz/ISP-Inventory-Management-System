@@ -1244,6 +1244,18 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'settings/LoginLocks.tsx': ['getRateLimitBlocks', 'releaseRateLimit'],
     // The API creator reads the list and calls create/rotate/revoke/logs; each is a distinct api.* call site.
     'settings/ApiKeys.tsx': ['createApiKey', 'getApiKeyLogs', 'getApiKeys', 'revokeApiKey', 'rotateApiKey'],
+    // The partner console reads the rows and the queue, and each action is its
+    // own documented endpoint: create, patch, replay, drain, push stock/HR.
+    'settings/IntegrationPartners.tsx': [
+      'createIntegrationPartner',
+      'deliverIntegrationOutbox',
+      'getIntegrationOutbox',
+      'getIntegrationPartners',
+      'pushIntegrationHr',
+      'pushIntegrationStock',
+      'replayIntegrationOutbox',
+      'updateIntegrationPartner',
+    ],
 
     // — HR Phase 2: employee, attendance/leave, org-master and payroll screens.
     //   AttendanceLeave and Payroll are whole-list mount/selection screens;

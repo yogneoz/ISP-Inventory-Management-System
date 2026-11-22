@@ -62,6 +62,8 @@ import { ApiError } from './errors/ApiError';
 import { VENDOR_PAYMENT_SELECT } from './models/procurement.repo';
 
 import { registerSyncRoutes } from './routes/sync.routes';
+import { registerMobileRoutes } from './routes/mobile.routes';
+import { registerPartnerRoutes } from './routes/partner.routes';
 import { requireSseAuth } from './middleware/sseAuth';
 import { sseConnectionLimit } from './middleware/sseRateLimit';
 import { registerPermissionsRoutes } from './routes/permissions.routes';
@@ -308,6 +310,12 @@ export function createApp(): express.Express {
       '/auth/setup-superadmin',
       '/auth/forgot-password',
       '/auth/login',
+      // The mobile client signs in and rotates its refresh token without a
+      // bearer token; both handlers authenticate against the users table /
+      // the stored refresh hash, so they are public in the same sense login is.
+      '/v1/auth/login',
+      '/v1/auth/refresh',
+      '/v1/auth/logout',
       '/db/status',
       '/health',
     ]);
@@ -357,6 +365,11 @@ export function registerAllRoutes(expressApp: express.Express) {
   registerAccountingRoutes(expressApp);
   registerPayrollRoutes(expressApp);
   registerHrRoutes(expressApp);
+  // The mobile client and the external partner surface are registered after the
+  // domain routes so their paths never shadow an existing endpoint, and before
+  // the error handler so their throws are mapped like every other route.
+  registerMobileRoutes(expressApp);
+  registerPartnerRoutes(expressApp);
 
   // Central structured-error handler must be registered LAST so every route's
   // thrown ApiError is converted to a standard JSON response.

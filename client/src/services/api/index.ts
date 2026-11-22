@@ -801,6 +801,16 @@ export const api = {
   revokeApiKey: admin.revokeApiKey,
   getApiKeyLogs: admin.getApiKeyLogs,
 
+  // Integration partners (subscription portal) and their delivery queue
+  getIntegrationPartners: admin.getIntegrationPartners,
+  createIntegrationPartner: admin.createIntegrationPartner,
+  updateIntegrationPartner: admin.updateIntegrationPartner,
+  getIntegrationOutbox: admin.getIntegrationOutbox,
+  replayIntegrationOutbox: admin.replayIntegrationOutbox,
+  deliverIntegrationOutbox: admin.deliverIntegrationOutbox,
+  pushIntegrationStock: admin.pushIntegrationStock,
+  pushIntegrationHr: admin.pushIntegrationHr,
+
   // Server-side settings & user preferences (replaces browser localStorage)
   getSettings: settings.getSettings,
   saveAppSettings: settings.saveAppSettings,

@@ -59,6 +59,7 @@ import {
   Wallet,
   Undo2,
   Lock,
+  PlugZap,
   Workflow,
 } from 'lucide-react';
 import { User, CompanyProfile, Branch, FiscalYear } from '../../types';
@@ -121,6 +122,7 @@ export type NavTab =
   | 'users'
   | 'login-locks'
   | 'api-keys'
+  | 'integration-partners'
   | 'import-customers'
   | 'permissions'
   | 'user-permissions'
@@ -237,6 +239,7 @@ export const NAV_TABS: NavTab[] = [
   'users',
   'login-locks',
   'api-keys',
+  'integration-partners',
   'import-customers',
   'permissions',
   'user-permissions',
@@ -1064,7 +1067,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
       // The throttle that guards sign-in lives beside the accounts it locks.
       { id: 'login-locks' as NavTab, label: 'Login Locks & Sign-in Throttle', icon: Lock, section: 'Setup' },
       // Partner credentials live beside the accounts and sessions they compete with.
-      { id: 'api-keys' as NavTab, label: 'API Creator', icon: Lock, section: 'Setup' }
+      { id: 'api-keys' as NavTab, label: 'API Creator', icon: Lock, section: 'Setup' },
+      // The partner registrations that consume those keys, and the queue of
+      // events delivered to them.
+      { id: 'integration-partners' as NavTab, label: 'Integration Partners', icon: PlugZap, section: 'Setup' }
     );
   }
   if (isSuperAdmin) {

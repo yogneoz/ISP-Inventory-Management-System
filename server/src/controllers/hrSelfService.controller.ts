@@ -41,6 +41,11 @@ import {
   HR_SELF_PROFILE_UPDATE_SQL,
 } from '../models/hrSelfService.repo';
 import { logAuditEvent } from '../services/audit.service';
+import {
+  cancelOwnLeaveRequest,
+  createLeaveRequestFor,
+  leaveRequestResponse,
+} from '../services/hrLeaveRequestWrite.service';
 
 function holdsPermission(req: any, operation: string): boolean {
   const user = req.user || getUserFromReq(req);
@@ -436,4 +441,47 @@ export async function put_hrSelfServiceProfile(req: any, res: Response): Promise
   const refreshed = (await pgPool.query(HR_SELF_PROFILE_SQL, [user.id])).rows[0];
   res.setHeader('Cache-Control', 'private, no-store');
   return res.json(refreshed);
+}
+
+/**
+ * POST /api/hr/self-service/leave — the signed-in employee files their own
+ * leave request.
+ *
+ * The employee is resolved from `employees.user_id`, never from the body. A
+ * body that names a DIFFERENT employee is refused rather than ignored, so this
+ * route can never become a way to file leave in someone else's name. The
+ * overlap lock, validation and audit row are the register's own path (see
+ * services/hrLeaveRequestWrite.service.ts); only the identity differs.
+ */
+export async function post_hrSelfServiceLeave(req: any, res: Response): Promise<any> {
+  const user = requireSelfService(req);
+  const employee = await resolveOwnEmployee(req, user);
+
+  for (const selector of ['employeeId', 'userId', 'user_id']) {
+    const supplied = req.body?.[selector];
+    if (supplied !== undefined && String(supplied) !== String(employee.id)) {
+      throw new ApiError(
+        403,
+        'Self-service always writes the signed-in employee; employee selectors are refused.'
+      );
+    }
+  }
+
+  const saved = await createLeaveRequestFor(req, employee, req.body || {});
+  res.setHeader('Cache-Control', 'private, no-store');
+  return res.status(201).json(leaveRequestResponse(saved));
+}
+
+/**
+ * POST /api/hr/self-service/leave/:id/cancel — withdraw one of the caller's own
+ * requests. Another employee's id is reported as 404, not 403, so the route does
+ * not confirm that a request exists outside the caller's records.
+ */
+export async function post_hrSelfServiceLeaveCancel(req: any, res: Response): Promise<any> {
+  const user = requireSelfService(req);
+  const employee = await resolveOwnEmployee(req, user);
+
+  const saved = await cancelOwnLeaveRequest(req, employee, req.params?.id);
+  res.setHeader('Cache-Control', 'private, no-store');
+  return res.json(leaveRequestResponse(saved));
 }
