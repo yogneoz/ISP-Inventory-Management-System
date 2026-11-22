@@ -91,7 +91,9 @@ try {
     // Audit + broadcast: every connected client re-reads the matrix slice
     // (targeted PERMISSIONS domain) instead of acting on stale grants until
     // an unrelated reload. Also the first audit trail this table ever had.
-    logAuditEvent(req, 'UPDATE_PERMISSION_MATRIX', 'PERMISSIONS', `Updated permission matrix (${Object.keys(matrix).length} role-operation rules).`);
+    // Awaited for the same reason as the override write: the audit row must
+    // exist before the 200 says the matrix change was recorded.
+    await logAuditEvent(req, 'UPDATE_PERMISSION_MATRIX', 'PERMISSIONS', `Updated permission matrix (${Object.keys(matrix).length} role-operation rules).`);
     res.json({ message: 'Permission matrix updated successfully.', operationCount: Object.keys(matrix).length });
     return;
   } catch (err: any) {
@@ -557,7 +559,11 @@ export async function put_user_permission_overrides(req: any, res: Response): Pr
       parsed.records.length === 0
         ? 'no exceptions (cleared)'
         : parsed.records.map((record) => `${record.effect} ${record.operationId} (${record.reason})`).join('; ');
-    logAuditEvent(
+    // Awaited: the response is an assertion that the change is recorded, and
+    // logAuditEvent resolves once the row is committed. Left un-awaited, a
+    // reader that queries straight after this 200 (the suite, or an auditor)
+    // could miss the row on a fast host.
+    await logAuditEvent(
       req,
       'UPDATE_USER_PERMISSIONS',
       'PERMISSIONS',

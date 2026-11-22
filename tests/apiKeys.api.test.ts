@@ -63,14 +63,22 @@ const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
 let redis: any = null;
 let redisReachable = false;
 try {
-  redis = createClient({ url: REDIS_URL });
+  // `reconnectStrategy: false` is load-bearing: with the default strategy
+  // node-redis re-dials a missing server forever, and `connect()` then never
+  // settles, so a host without Redis would hang this file — and with it the
+  // whole shard — instead of skipping the one test that needs Redis.
+  redis = createClient({ url: REDIS_URL, socket: { connectTimeout: 2000, reconnectStrategy: false } });
   redis.on('error', () => undefined);
   await redis.connect();
   await redis.ping();
   redisReachable = true;
 } catch {
   redisReachable = false;
-  if (redis?.isOpen) await redis.quit().catch(() => undefined);
+  try {
+    redis?.destroy();
+  } catch {
+    /* the socket is already gone */
+  }
   redis = null;
 }
 const skipNoRedis = !redisReachable && 'needs a reachable Redis for the shared RPM counter';
