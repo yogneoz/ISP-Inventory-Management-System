@@ -1,5 +1,21 @@
 import type { Request, Response, NextFunction } from 'express';
 import { ApiError } from './ApiError';
+import { DbBusyError } from './dbErrors';
+
+/**
+ * SQLSTATEs that mean "the database ran out of time", not "this change was
+ * refused": 57014 is a statement (or lock wait) cancelled by
+ * `statement_timeout`, 55P03 is a lock that could not be taken because
+ * `lock_timeout`/NOWAIT expired. Both are retryable, so they answer with the
+ * same typed 503 `DB_BUSY` + Retry-After the bootstrap path and the pool
+ * wrapper already emit.
+ *
+ * This exists because a raw `client.query` inside withConnection/withTransaction
+ * never passes through db.ts's wrapper: a slow read that hit the role-level
+ * statement_timeout reached callers as the generic 500 "database refused this
+ * change", which reads like a permanent rejection of a valid request.
+ */
+const TIMEOUT_SQL_STATES = new Set(['57014', '55P03']);
 
 /**
  * Central error-handling middleware. Mounted LAST in registerAllRoutes so any
@@ -33,6 +49,12 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
   // offending value (`Key (code)=(SM-AR-KTM) already exists`), which would hand
   // callers data they did not supply through a 500.
   const sqlState = (err as any)?.code;
+  if (typeof sqlState === 'string' && TIMEOUT_SQL_STATES.has(sqlState)) {
+    console.error('Database timeout surfaced to the central handler:', (err as any)?.message || err);
+    // Re-enter through the ApiError branch: one place sets Retry-After and the
+    // { message, code } body, so the busy contract cannot drift between them.
+    return errorHandler(new DbBusyError(), _req, res, _next);
+  }
   if (typeof sqlState === 'string' && /^[0-9A-Z]{5}$/.test(sqlState)) {
     if (sqlState === '23505') {
       console.error('Database unique violation:', (err as any)?.message || err);

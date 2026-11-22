@@ -35,6 +35,7 @@ const db = await import('../server/db');
 const { DbBreaker, dbBreaker } = await import('../server/src/observability/dbBreaker');
 const { createApp, registerAllRoutes } = await import('../server/src/app');
 const { issueAuthToken } = await import('../server/src/middleware/auth');
+const { errorHandler } = await import('../server/src/errors/errorHandler');
 
 // Resolved at module load: node:test evaluates the skip option at registration.
 let skipNoDb: false | string = false;
@@ -289,5 +290,75 @@ describe('real request path — 503, short-circuit and recovery', () => {
     assert.deepEqual(res.body, { ok: true });
     assert.equal(dbBreaker.snapshot().state, 'closed');
     assert.equal(db.getIsPgConnected(), true);
+  });
+});
+
+/**
+ * A statement timeout can reach the central handler as a RAW SQLSTATE: the pool
+ * wrapper in db.ts converts 57014 to DbBusyError, but a `client.query` inside
+ * withConnection/withTransaction never passes through that wrapper. A slow
+ * trial-balance read therefore answered 500 "the database refused this change"
+ * — which reads like a permanent rejection of a valid request. These cases pin
+ * the mapping so a timeout is the same retryable 503 the bootstrap path emits.
+ */
+function fakeRes() {
+  const res: any = { headersSent: false, statusCode: 0, body: null, headers: {} as Record<string, string> };
+  res.setHeader = (name: string, value: string) => {
+    res.headers[name.toLowerCase()] = value;
+  };
+  res.status = (code: number) => {
+    res.statusCode = code;
+    return res;
+  };
+  res.json = (body: any) => {
+    res.body = body;
+    return res;
+  };
+  return res;
+}
+
+describe('central handler — a database timeout is retryable, not a refusal', () => {
+  test('a statement timeout (57014) becomes the typed DB_BUSY 503 with Retry-After', () => {
+    const res = fakeRes();
+    errorHandler(
+      Object.assign(new Error('canceling statement due to statement timeout'), { code: '57014' }),
+      {} as any,
+      res,
+      () => undefined
+    );
+    assert.equal(res.statusCode, 503);
+    assert.equal(res.body?.code, 'DB_BUSY');
+    assert.match(String(res.body?.message || ''), /busy/i);
+    assert.ok(Number(res.headers['retry-after']) >= 1, 'Retry-After must be present');
+    assert.doesNotMatch(
+      JSON.stringify(res.body),
+      /statement timeout|canceling/i,
+      'the driver text stays in the server log'
+    );
+  });
+
+  test('a lock timeout (55P03) is retryable too', () => {
+    const res = fakeRes();
+    errorHandler(
+      Object.assign(new Error('canceling statement due to lock timeout'), { code: '55P03' }),
+      {} as any,
+      res,
+      () => undefined
+    );
+    assert.equal(res.statusCode, 503);
+    assert.equal(res.body?.code, 'DB_BUSY');
+  });
+
+  test('a non-timeout SQLSTATE keeps the 500 refusal and never echoes the driver text', () => {
+    const res = fakeRes();
+    errorHandler(
+      Object.assign(new Error('relation "nope" does not exist'), { code: '42P01' }),
+      {} as any,
+      res,
+      () => undefined
+    );
+    assert.equal(res.statusCode, 500);
+    assert.match(String(res.body?.message || ''), /refused this change/);
+    assert.doesNotMatch(JSON.stringify(res.body), /nope/, 'the driver text stays in the server log');
   });
 });
