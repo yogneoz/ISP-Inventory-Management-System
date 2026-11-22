@@ -191,7 +191,7 @@ try {
     if (getPgConnected()) {
       await pgPool.query(COMPANY_PROFILE_UPSERT_SQL, companyProfileUpsertParams(companyProfile as CompanyProfile));
     }
-    logAuditEvent(req, 'UPDATE_COMPANY_PROFILE', 'MASTER_DATA', `Updated Company Master Details: ${companyProfile.name}`);
+    await logAuditEvent(req, 'UPDATE_COMPANY_PROFILE', 'MASTER_DATA', `Updated Company Master Details: ${companyProfile.name}`);
     setDataVersion(getDataVersion() + 1);
     res.json(companyProfile);
   } catch (err: any) {
@@ -254,7 +254,7 @@ try {
     if (getPgConnected()) {
       await pgPool.query(BRANCH_UPSERT_SQL, branchUpsertParams(newBranch as Branch));
     }
-    logAuditEvent(req, 'CREATE_BRANCH', 'MASTER_DATA', `Created new branch ${newBranch.name} (${newBranch.code || newBranch.id})`);
+    await logAuditEvent(req, 'CREATE_BRANCH', 'MASTER_DATA', `Created new branch ${newBranch.name} (${newBranch.code || newBranch.id})`);
     res.status(201).json(newBranch);
   } catch (err: any) {
     console.error('Error creating branch:', err);
@@ -277,7 +277,7 @@ try {
     if (getPgConnected()) {
       await pgPool.query(BRANCH_UPDATE_SQL, branchUpdateParams({ ...branches[idx], ...req.body, id }));
     }
-    logAuditEvent(req, 'UPDATE_BRANCH', 'MASTER_DATA', `Updated branch details for ${b.name} (${b.id})`);
+    await logAuditEvent(req, 'UPDATE_BRANCH', 'MASTER_DATA', `Updated branch details for ${b.name} (${b.id})`);
     res.json(b);
   } catch (err: any) {
     console.error('Error updating branch:', err);
@@ -296,7 +296,7 @@ try {
     if (getPgConnected()) {
       await pgPool.query(BRANCH_DELETE_SQL, [id]);
     }
-    logAuditEvent(req, 'DELETE_BRANCH', 'MASTER_DATA', `Deleted branch ${br?.name || id}`);
+    await logAuditEvent(req, 'DELETE_BRANCH', 'MASTER_DATA', `Deleted branch ${br?.name || id}`);
     res.json({ success: true });
   } catch (err: any) {
     console.error('Error deleting branch:', err);
@@ -332,7 +332,7 @@ try {
       await pgPool.query(USER_UPSERT_SQL, userUpsertParams(newUser as User));
     }
     await rememberSessionVersion(newUser as User);
-    logAuditEvent(req, 'CREATE_USER', 'AUTH', `Created new user account ${newUser.name} (${newUser.email}) - Role: ${newUser.role}`);
+    await logAuditEvent(req, 'CREATE_USER', 'AUTH', `Created new user account ${newUser.name} (${newUser.email}) - Role: ${newUser.role}`);
     const { password: _, ...userWithoutPass } = newUser;
     res.status(201).json(userWithoutPass);
   } catch (err: any) {
@@ -379,7 +379,7 @@ try {
       await pgPool.query(USER_UPDATE_SQL, userUpdateParams(updatedUser as User, req.body.password ? updatedUser.password : null));
     }
     await rememberSessionVersion(updatedUser as User);
-    logAuditEvent(req, 'UPDATE_USER', 'AUTH', `Updated user account ${updatedUser.name} (${updatedUser.email})`);
+    await logAuditEvent(req, 'UPDATE_USER', 'AUTH', `Updated user account ${updatedUser.name} (${updatedUser.email})`);
     const { password: _, ...userWithoutPass } = updatedUser;
     res.json(userWithoutPass);
   } catch (err: any) {
@@ -411,7 +411,7 @@ try {
       }
     }
     await revokeSessionVersion(id);
-    logAuditEvent(req, 'DELETE_USER', 'AUTH', `Deleted user account ${deletedName || id} (${deletedEmail || id})`);
+    await logAuditEvent(req, 'DELETE_USER', 'AUTH', `Deleted user account ${deletedName || id} (${deletedEmail || id})`);
     res.json({ success: true });
   } catch (err: any) {
     console.error('Error deleting user:', err);
@@ -448,7 +448,7 @@ try {
     }
     if (userIdx !== -1) await rememberSessionVersion(users[userIdx]);
     else await revokeSessionVersion(id);
-    logAuditEvent(req, 'RESET_USER_PASSWORD', 'AUTH', `Password reset for user account ${targetName} (${targetEmail})`);
+    await logAuditEvent(req, 'RESET_USER_PASSWORD', 'AUTH', `Password reset for user account ${targetName} (${targetEmail})`);
 
     const userWithoutPass = userIdx !== -1 ? (({ password, ...rest }) => rest)(users[userIdx]) : { id, email: targetEmail, name: targetName };
     res.json({
@@ -481,7 +481,7 @@ try {
         await pgPool.query(ASSET_RECALC_UPDATE_SQL, [values.accumulatedDepreciation, values.netBookValue, asset.id]);
       }
     }
-    logAuditEvent(req, 'RECALCULATE_FIXED_ASSETS', 'SYSTEM', `Recalculated ${assetsToUpdate.length} fixed asset record(s) as of ${asOfDateAD}.`);
+    await logAuditEvent(req, 'RECALCULATE_FIXED_ASSETS', 'SYSTEM', `Recalculated ${assetsToUpdate.length} fixed asset record(s) as of ${asOfDateAD}.`);
     res.json({ updated: assetsToUpdate.length, message: `Recalculated ${assetsToUpdate.length} fixed asset record(s) as of ${asOfDateAD}.` });
   } catch (error: any) {
     console.error('Error recalculating fixed assets:', error);
@@ -518,7 +518,7 @@ try {
         }
       });
     }
-    logAuditEvent(req, 'RECALCULATE_LIVE_STOCK', 'SYSTEM', `Recalculated ${updated} live stock balance(s) from the latest non-damage transaction.`);
+    await logAuditEvent(req, 'RECALCULATE_LIVE_STOCK', 'SYSTEM', `Recalculated ${updated} live stock balance(s) from the latest non-damage transaction.`);
     res.json({ updated, message: `Recalculated ${updated} live stock balance(s) from transaction history.` });
   } catch (error: any) {
     console.error('Error recalculating live stock:', error);
@@ -561,7 +561,7 @@ export async function post_ledgerBalances(req: any, res: Response): Promise<any>
       });
     }
 
-    logAuditEvent(req, 'BACKFILL_LEDGER_BALANCES', 'SYSTEM', `Reconstructed before/after balances for ${updated} movement-ledger row(s) by replaying signed deltas${skipped ? ` (${skipped} row(s) skipped: no product/branch)` : ''}.`);
+    await logAuditEvent(req, 'BACKFILL_LEDGER_BALANCES', 'SYSTEM', `Reconstructed before/after balances for ${updated} movement-ledger row(s) by replaying signed deltas${skipped ? ` (${skipped} row(s) skipped: no product/branch)` : ''}.`);
     res.json({ updated, skipped, message: `Reconstructed true before/after balances for ${updated} movement-ledger row(s).${skipped ? ` ${skipped} row(s) skipped (no product/branch to group under).` : ''} Idempotent — safe to re-run.` });
   } catch (error: any) {
     console.error('Error backfilling ledger balances:', error);
@@ -587,7 +587,7 @@ export async function post_serialRegisterBackfill(req: any, res: Response): Prom
   }
   try {
     const result = await backfillSerialLog(pgPool);
-    logAuditEvent(
+    await logAuditEvent(
       req,
       'BACKFILL_SERIAL_REGISTER',
       'INVENTORY_AUDIT',
@@ -651,7 +651,7 @@ try {
       regeneratedRecords = inMemoryBsDayRecords.length;
     }
 
-    logAuditEvent(req, 'RECALCULATE_BS_DAY_RECORDS', 'SYSTEM', `Regenerated ${regeneratedRecords} BS day-by-day lookup record(s) from configured calendar years.`);
+    await logAuditEvent(req, 'RECALCULATE_BS_DAY_RECORDS', 'SYSTEM', `Regenerated ${regeneratedRecords} BS day-by-day lookup record(s) from configured calendar years.`);
     res.json({
       success: true,
       pgSynced,
@@ -694,7 +694,7 @@ try {
       }
     });
 
-    logAuditEvent(
+    await logAuditEvent(
       req,
       'REPAIR_FISCAL_YEAR_LINKS',
       'FISCAL_YEAR',
@@ -1061,7 +1061,7 @@ const { code, startDateAD, endDateAD, startDateBS, endDateBS } = req.body || {};
       withAppended(fiscalYears, newFiscalYear),
       (a, b) => String(b.startDateAD).localeCompare(String(a.startDateAD))
     ));
-    logAuditEvent(
+    await logAuditEvent(
       req,
       'CREATE_FISCAL_YEAR',
       'FISCAL_YEAR',
@@ -1145,7 +1145,7 @@ const { id } = req.params;
 
     const index = fiscalYears.findIndex((item) => item.id === id);
     if (index >= 0) setFiscalYears(withReplaced(fiscalYears, index, fiscalYear));
-    logAuditEvent(
+    await logAuditEvent(
       req,
       'CLOSE_FISCAL_YEAR',
       'FISCAL_YEAR',
@@ -1176,7 +1176,7 @@ const { id } = req.params;
     if (!fiscalYear) return res.status(404).json({ message: 'Fiscal year not found.' });
     const index = fiscalYears.findIndex((item) => item.id === id);
     if (index >= 0) setFiscalYears(withReplaced(fiscalYears, index, fiscalYear));
-    logAuditEvent(req, 'REOPEN_FISCAL_YEAR', 'FISCAL_YEAR', `Reopened fiscal year ${fiscalYear.code} (authorized by ${authCheck.email})`);
+    await logAuditEvent(req, 'REOPEN_FISCAL_YEAR', 'FISCAL_YEAR', `Reopened fiscal year ${fiscalYear.code} (authorized by ${authCheck.email})`);
     res.json(fiscalYear);
     return;
   } catch (error: any) {
@@ -1226,7 +1226,7 @@ const { id } = req.params;
       return { targetFiscalYear, recordsCreated: inserted.rowCount || 0, manualRowsPreserved };
     });
 
-    logAuditEvent(
+    await logAuditEvent(
       req,
       'INITIALIZE_FISCAL_OPENING_STOCK',
       'FISCAL_YEAR',
@@ -1300,7 +1300,7 @@ const { id } = req.params;
     });
 
     setFiscalYears(fiscalYears.filter((fiscalYear) => fiscalYear.id !== id));
-    logAuditEvent(req, 'DELETE_FISCAL_YEAR', 'FISCAL_YEAR', `Deleted fiscal year ${result.code} (no records existed)`);
+    await logAuditEvent(req, 'DELETE_FISCAL_YEAR', 'FISCAL_YEAR', `Deleted fiscal year ${result.code} (no records existed)`);
     res.json({ message: `Fiscal year ${result.code} deleted successfully.`, id });
     return;
   } catch (error: any) {
@@ -1425,7 +1425,7 @@ export async function post_integrityApply(req: any, res: Response): Promise<any>
       await pgPool.query(BS_MONTHS_REBUILD_SQL);
       await hydrateDynamicState();
       broadcastChange({ type: 'BS_CALENDAR_UPDATED', entity: 'MASTER_DATA' });
-      logAuditEvent(
+      await logAuditEvent(
         req,
         'BS_CALENDAR_INTEGRITY_APPLY',
         'MASTER_DATA',

@@ -123,7 +123,7 @@ async function ensureCategoryName(req: any, submitted: unknown): Promise<string>
   };
   setCategories(withAppended(categories, created));
   if (getPgConnected()) await pgPool.query(CATEGORY_UPSERT_SQL, categoryUpsertParams(created));
-  logAuditEvent(req, 'CREATE_CATEGORY', 'CATEGORIES', `Created category ${created.name} (${created.code}) from a product save`);
+  await logAuditEvent(req, 'CREATE_CATEGORY', 'CATEGORIES', `Created category ${created.name} (${created.code}) from a product save`);
   broadcastChange({ type: 'CATEGORY_CREATED', entity: 'CATEGORIES' });
   return created.name;
 }
@@ -145,7 +145,7 @@ async function ensureUnitSymbol(req: any, submitted: unknown): Promise<string> {
   };
   setUomList(withAppended(uomList, created));
   if (getPgConnected()) await pgPool.query(UOM_UPSERT_SQL, upsertUomParams(created));
-  logAuditEvent(req, 'CREATE_UOM', 'MASTER_DATA', `Created unit of measure ${created.name} (${created.symbol}) from a product save`);
+  await logAuditEvent(req, 'CREATE_UOM', 'MASTER_DATA', `Created unit of measure ${created.name} (${created.symbol}) from a product save`);
   broadcastChange({ type: 'MASTER_DATA_UPDATED', entity: 'MASTER_DATA' });
   return created.symbol;
 }
@@ -194,7 +194,7 @@ try {
     if (getPgConnected()) {
       await pgPool.query(UOM_UPSERT_SQL, upsertUomParams(newUom));
     }
-    logAuditEvent(req, 'CREATE_UOM', 'MASTER_DATA', `Created/updated Unit of Measure ${newUom.name} (${newUom.symbol})`);
+    await logAuditEvent(req, 'CREATE_UOM', 'MASTER_DATA', `Created/updated Unit of Measure ${newUom.name} (${newUom.symbol})`);
     res.status(201).json(newUom);
   } catch (err: any) {
     console.error('Error creating UOM:', err);
@@ -214,7 +214,7 @@ try {
     if (getPgConnected()) {
       await pgPool.query(UOM_UPDATE_SQL, updateUomParams(uom, id));
     }
-    logAuditEvent(req, 'UPDATE_UOM', 'MASTER_DATA', `Updated UOM ${uom.name}`);
+    await logAuditEvent(req, 'UPDATE_UOM', 'MASTER_DATA', `Updated UOM ${uom.name}`);
     res.json(uom);
   } catch (err: any) {
     console.error('Error updating UOM:', err);
@@ -233,7 +233,7 @@ try {
     if (getPgConnected()) {
       await pgPool.query(UOM_DELETE_SQL, [id]);
     }
-    logAuditEvent(req, 'DELETE_UOM', 'MASTER_DATA', `Deleted UOM ${uom?.name || id}`);
+    await logAuditEvent(req, 'DELETE_UOM', 'MASTER_DATA', `Deleted UOM ${uom?.name || id}`);
     res.json({ success: true });
   } catch (err: any) {
     console.error('Error deleting UOM:', err);
@@ -295,7 +295,7 @@ try {
     }
     // The row is committed: make every cached catalog read miss before replying.
     await invalidateCatalog('locations');
-    logAuditEvent(req, 'CREATE_LOCATION', 'MASTER_DATA', `Created/updated location ${newLoc.name} (${newLoc.id})`, newLoc.branchId);
+    await logAuditEvent(req, 'CREATE_LOCATION', 'MASTER_DATA', `Created/updated location ${newLoc.name} (${newLoc.id})`, newLoc.branchId);
     res.status(201).json(newLoc);
   } catch (err: any) {
     console.error('Error creating location:', err);
@@ -316,7 +316,7 @@ try {
       await pgPool.query(LOCATION_DELETE_SQL, [id]);
     }
     await invalidateCatalog('locations');
-    logAuditEvent(req, 'DELETE_LOCATION', 'MASTER_DATA', `Deleted location ${loc?.name || id}`);
+    await logAuditEvent(req, 'DELETE_LOCATION', 'MASTER_DATA', `Deleted location ${loc?.name || id}`);
     res.json({ success: true });
   } catch (err: any) {
     console.error('Error deleting location:', err);
@@ -377,7 +377,7 @@ try {
         ledgerWarning = `Supplier saved, but its ledger book could not be created. Check Finance → Chart of Accounts.`;
       }
     }
-    logAuditEvent(
+    await logAuditEvent(
       req,
       'CREATE_SUPPLIER',
       'MASTER_DATA',
@@ -403,7 +403,7 @@ try {
     if (getPgConnected()) {
       await pgPool.query(SUPPLIER_UPDATE_SQL, supplierUpdateParams(sup, id));
     }
-    logAuditEvent(req, 'UPDATE_SUPPLIER', 'MASTER_DATA', `Updated supplier ${sup.name} (${id})`);
+    await logAuditEvent(req, 'UPDATE_SUPPLIER', 'MASTER_DATA', `Updated supplier ${sup.name} (${id})`);
     res.json(sup);
   } catch (err: any) {
     console.error('Error updating supplier:', err);
@@ -422,7 +422,7 @@ try {
     if (getPgConnected()) {
       await pgPool.query(SUPPLIER_DELETE_SQL, [id]);
     }
-    logAuditEvent(req, 'DELETE_SUPPLIER', 'MASTER_DATA', `Deleted supplier ${sup?.name || id}`);
+    await logAuditEvent(req, 'DELETE_SUPPLIER', 'MASTER_DATA', `Deleted supplier ${sup?.name || id}`);
     res.json({ success: true });
   } catch (err: any) {
     console.error('Error deleting supplier:', err);
@@ -531,7 +531,7 @@ try {
         }
       });
     }
-    logAuditEvent(req, 'CREATE_PRODUCT', 'PRODUCTS', `Created new product SKU ${newProd.sku} (${newProd.name}) - Price: NPR ${newProd.sellingPrice}`);
+    await logAuditEvent(req, 'CREATE_PRODUCT', 'PRODUCTS', `Created new product SKU ${newProd.sku} (${newProd.name}) - Price: NPR ${newProd.sellingPrice}`);
     res.status(201).json(newProd);
   } catch (err: any) {
     console.error('Error creating product in database:', err);
@@ -589,7 +589,7 @@ try {
       ? `SKU updated from ${oldProd.sku} to ${updated.sku}`
       : `Updated product details for ${updated.name} (${updated.sku})`;
 
-    logAuditEvent(req, 'UPDATE_PRODUCT_SKU', 'PRODUCTS', changeMsg);
+    await logAuditEvent(req, 'UPDATE_PRODUCT_SKU', 'PRODUCTS', changeMsg);
     res.json(products[idx]);
   } catch (err: any) {
     console.error('Error updating product in database:', err);
@@ -609,7 +609,7 @@ try {
     if (getPgConnected()) {
       await pgPool.query(PRODUCT_DELETE_SQL, [id]);
     }
-    logAuditEvent(req, 'DELETE_PRODUCT', 'PRODUCTS', `Deleted product ${prod?.name || id} (SKU: ${prod?.sku || 'N/A'})`);
+    await logAuditEvent(req, 'DELETE_PRODUCT', 'PRODUCTS', `Deleted product ${prod?.name || id} (SKU: ${prod?.sku || 'N/A'})`);
     res.json({ success: true });
   } catch (err: any) {
     console.error('Error deleting product from database:', err);
@@ -653,7 +653,7 @@ try {
     if (getPgConnected()) {
       await pgPool.query(CATEGORY_UPSERT_SQL, categoryUpsertParams(newCat));
     }
-    logAuditEvent(req, 'CREATE_CATEGORY', 'CATEGORIES', `Created category ${newCat.name} (${newCat.code})`);
+    await logAuditEvent(req, 'CREATE_CATEGORY', 'CATEGORIES', `Created category ${newCat.name} (${newCat.code})`);
     broadcastChange({ type: 'CATEGORY_CREATED', entity: 'categories' });
     res.status(201).json(newCat);
   } catch (err: any) {
@@ -676,7 +676,7 @@ try {
     if (getPgConnected()) {
       await pgPool.query(CATEGORY_UPDATE_SQL, categoryUpdateParams(updated, id));
     }
-    logAuditEvent(req, 'UPDATE_CATEGORY', 'CATEGORIES', `Updated category ${updated.name}`);
+    await logAuditEvent(req, 'UPDATE_CATEGORY', 'CATEGORIES', `Updated category ${updated.name}`);
     broadcastChange({ type: 'CATEGORY_UPDATED', entity: 'categories' });
     res.json(updated);
   } catch (err: any) {
@@ -696,7 +696,7 @@ try {
     if (getPgConnected()) {
       await pgPool.query(CATEGORY_DELETE_SQL, [id]);
     }
-    logAuditEvent(req, 'DELETE_CATEGORY', 'CATEGORIES', `Deleted category ${cat?.name || id}`);
+    await logAuditEvent(req, 'DELETE_CATEGORY', 'CATEGORIES', `Deleted category ${cat?.name || id}`);
     broadcastChange({ type: 'CATEGORY_DELETED', entity: 'categories' });
     res.json({ success: true });
   } catch (err: any) {
@@ -784,7 +784,7 @@ try {
     if (getPgConnected()) {
       await pgPool.query(PRODUCT_GROUP_UPSERT_SQL, productGroupUpsertParams(group as any));
     }
-    logAuditEvent(req, 'CREATE_PRODUCT_GROUP', 'MASTER_DATA', `Created product group ${group.name} (${group.behavior})`);
+    await logAuditEvent(req, 'CREATE_PRODUCT_GROUP', 'MASTER_DATA', `Created product group ${group.name} (${group.behavior})`);
     broadcastChange({ type: 'MASTER_DATA_UPDATED', entity: 'MASTER_DATA' });
     res.status(201).json(group);
   } catch (err: any) {
@@ -846,7 +846,7 @@ try {
     }
 
     const change = renamed ? `renamed '${current.name}' to '${next.name}'` : `updated '${next.name}'`;
-    logAuditEvent(
+    await logAuditEvent(
       req,
       behaviorChanged ? 'PRODUCT_GROUP_BEHAVIOR_CHANGED' : 'UPDATE_PRODUCT_GROUP',
       'MASTER_DATA',
@@ -884,7 +884,7 @@ try {
       await pgPool.query(PRODUCT_GROUP_DELETE_SQL, [id]);
     }
     setProductGroups(productGroups.filter((g) => g.id !== id));
-    logAuditEvent(req, 'DELETE_PRODUCT_GROUP', 'MASTER_DATA', `Deleted product group ${group.name}`);
+    await logAuditEvent(req, 'DELETE_PRODUCT_GROUP', 'MASTER_DATA', `Deleted product group ${group.name}`);
     broadcastChange({ type: 'MASTER_DATA_UPDATED', entity: 'MASTER_DATA' });
     res.json({ success: true });
   } catch (err: any) {
@@ -1124,7 +1124,7 @@ try {
       }
     }
     invalidateCustomerKpis();
-    logAuditEvent(
+    await logAuditEvent(
       req,
       'CREATE_CUSTOMER',
       'MASTER_DATA',
@@ -1197,7 +1197,7 @@ try {
     const total = getPgConnected()
       ? Number((await pgPool.query(CUSTOMER_COUNT_SQL)).rows[0]?.count) || 0
       : customerMasterRecords.length;
-    logAuditEvent(req, 'BULK_IMPORT_CUSTOMERS', 'MASTER_DATA', `Bulk imported ${count} Customer Records into Master Directory`);
+    await logAuditEvent(req, 'BULK_IMPORT_CUSTOMERS', 'MASTER_DATA', `Bulk imported ${count} Customer Records into Master Directory`);
     res.status(201).json({ success: true, count, total });
   } catch (err: any) {
     console.error('Error bulk importing customers:', err);
@@ -1240,7 +1240,7 @@ try {
       if (idx >= 0) setCustomerMasterRecords(withReplaced(customerMasterRecords, idx, updated));
     }
     invalidateCustomerKpis();
-    logAuditEvent(req, 'UPDATE_CUSTOMER', 'MASTER_DATA', `Updated Customer Master Details for ${updated.customerName} (${updated.customerId})`, updated.branchId);
+    await logAuditEvent(req, 'UPDATE_CUSTOMER', 'MASTER_DATA', `Updated Customer Master Details for ${updated.customerName} (${updated.customerId})`, updated.branchId);
     res.json(updated);
   } catch (err: any) {
     console.error('Error updating customer:', err);
@@ -1263,7 +1263,7 @@ try {
       setCustomerMasterRecords(customerMasterRecords.filter((c) => c.id !== id && c.customerId !== id));
     }
     invalidateCustomerKpis();
-    logAuditEvent(req, 'DELETE_CUSTOMER', 'MASTER_DATA', `Deleted Customer Record ${cust?.customerName || id}`);
+    await logAuditEvent(req, 'DELETE_CUSTOMER', 'MASTER_DATA', `Deleted Customer Record ${cust?.customerName || id}`);
     res.json({ success: true, deletedId: id });
   } catch (err: any) {
     console.error('Error deleting customer:', err);

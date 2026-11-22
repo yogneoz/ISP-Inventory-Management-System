@@ -650,7 +650,7 @@ try {
 
     const branch = branches.find((b) => b.id === branchId);
 
-    logAuditEvent(
+    await logAuditEvent(
       req,
       'STOCK_AUDIT_RECONCILED',
       'INVENTORY_AUDIT',
@@ -1141,7 +1141,7 @@ try {
         }
       });
     }
-    logAuditEvent(req, 'ASSIGN_FIXED_ASSET', 'FIXED_ASSETS', `Assigned / Registered Fixed Asset Tag #${newAsset.tagNumber} (${newAsset.name}) at branch ${newAsset.branchId}${deployFromStock ? ` — deducted ${1} unit of ${newAsset.productId} from branch stock` : ''}`);
+    await logAuditEvent(req, 'ASSIGN_FIXED_ASSET', 'FIXED_ASSETS', `Assigned / Registered Fixed Asset Tag #${newAsset.tagNumber} (${newAsset.name}) at branch ${newAsset.branchId}${deployFromStock ? ` — deducted ${1} unit of ${newAsset.productId} from branch stock` : ''}`);
     res.status(201).json(newAsset);
   } catch (err: any) {
     // A serial the register does not know (or has already moved on) is a
@@ -1273,7 +1273,7 @@ try {
       });
       asset.deviceSerial = undefined;
       if (restockTxn && asset.productId) {
-        logAuditEvent(req, 'UNASSIGN_FIXED_ASSET', 'FIXED_ASSETS', `Unassigned Fixed Asset Tag #${asset.tagNumber} — restored 1 unit of ${asset.productId} to branch ${branchId} stock`);
+        await logAuditEvent(req, 'UNASSIGN_FIXED_ASSET', 'FIXED_ASSETS', `Unassigned Fixed Asset Tag #${asset.tagNumber} — restored 1 unit of ${asset.productId} to branch ${branchId} stock`);
       }
     }
 
@@ -1331,7 +1331,7 @@ try {
       });
     }
     if (isDisposal && !getPgConnected()) supersedeVendorCoverageForAssetMirror(id);
-    logAuditEvent(req, 'UPDATE_ASSET_STATUS', 'FIXED_ASSETS', `Updated Fixed Asset status to ${req.body.status || 'UPDATED'}`);
+    await logAuditEvent(req, 'UPDATE_ASSET_STATUS', 'FIXED_ASSETS', `Updated Fixed Asset status to ${req.body.status || 'UPDATED'}`);
     res.json(asset || req.body);
   } catch (err: any) {
     // A failed transaction leaves the database untouched; put the in-memory
@@ -1960,7 +1960,7 @@ try {
       ...operationTransactions.filter((txn) => !transactionLogs.some((entry) => entry.id === txn.id)),
       ...transactionLogs,
     ]);
-    logAuditEvent(req, `CREATE_STOCK_${opType}`, 'STOCK_OPERATIONS', `Created Stock Operation ${newOp.referenceNumber}`);
+    await logAuditEvent(req, `CREATE_STOCK_${opType}`, 'STOCK_OPERATIONS', `Created Stock Operation ${newOp.referenceNumber}`);
     res.status(201).json(newOp);
   } catch (err: any) {
     // A refused serial is a caller error, not a server fault: report the
@@ -2176,7 +2176,7 @@ try {
       ...transactionLogs,
     ]);
 
-    logAuditEvent(req, 'REVERSE_STOCK_DAMAGE', 'STOCK_OPERATIONS', `Reversed damage record ${op.referenceNumber} — ${reason}`);
+    await logAuditEvent(req, 'REVERSE_STOCK_DAMAGE', 'STOCK_OPERATIONS', `Reversed damage record ${op.referenceNumber} — ${reason}`);
     res.json({ message: 'Damage record reversed successfully. Units restored to available stock.', operation: updatedOp });
   } catch (err: any) {
     const { status, message } = errorResponse(err);
@@ -2337,7 +2337,7 @@ export async function post_reverseConsumable(req: any, res: Response): Promise<a
       ...transactionLogs,
     ]);
 
-    logAuditEvent(req, 'REVERSE_CONSUMABLE_ISSUE', 'STOCK_OPERATIONS', `Reversed consumable issue ${op.referenceNumber} — ${reason}`);
+    await logAuditEvent(req, 'REVERSE_CONSUMABLE_ISSUE', 'STOCK_OPERATIONS', `Reversed consumable issue ${op.referenceNumber} — ${reason}`);
     res.json({ message: 'Consumable issue reversed successfully. Units returned to available stock.', operation: updatedOp });
   } catch (err: any) {
     const { status, message } = errorResponse(err);
@@ -2543,7 +2543,7 @@ async function reverseIssuedOperation(
       ...transactionLogs,
     ]);
 
-    logAuditEvent(
+    await logAuditEvent(
       req,
       expectedType === 'PULLOUT' ? 'REVERSE_PULLOUT' : 'REVERSE_STOCK_OUT',
       'STOCK_OPERATIONS',
@@ -2748,7 +2748,7 @@ try {
       const fresh = receiveTxns.filter((txn) => !known.has(txn.id));
       if (fresh.length > 0) setTransactionLogs([...fresh, ...transactionLogs]);
     }
-    logAuditEvent(req, 'RECEIVE_PULLOUT_BIN', 'STOCK_OPERATIONS', `Received Pullout Bin`);
+    await logAuditEvent(req, 'RECEIVE_PULLOUT_BIN', 'STOCK_OPERATIONS', `Received Pullout Bin`);
     res.json(op || { message: 'Stock operation received' });
   } catch (err: any) {
     console.error('Error receiving stock operation:', err);
@@ -3263,7 +3263,7 @@ try {
         ));
       }
     }
-    logAuditEvent(req, 'ASSIGN_CUSTOMER_CPE', 'CPE_MANAGEMENT', `Assigned CPE Device Serial ${newRecord.deviceSerial} (PON: ${newRecord.ponSerial || 'N/A'}) to customer ${newRecord.customerName}`, newRecord.branchId);
+    await logAuditEvent(req, 'ASSIGN_CUSTOMER_CPE', 'CPE_MANAGEMENT', `Assigned CPE Device Serial ${newRecord.deviceSerial} (PON: ${newRecord.ponSerial || 'N/A'}) to customer ${newRecord.customerName}`, newRecord.branchId);
     res.status(201).json(newRecord);
   } catch (err: any) {
     console.error('Error adding customer device:', err);
@@ -3397,7 +3397,7 @@ try {
         ));
       }
     }
-    logAuditEvent(req, 'UPDATE_CPE_DEVICE_STATUS', 'CPE_MANAGEMENT', `Updated CPE Device ${record.deviceSerial} status from ${oldStatus} to ${newStatusStr}`, record.branchId);
+    await logAuditEvent(req, 'UPDATE_CPE_DEVICE_STATUS', 'CPE_MANAGEMENT', `Updated CPE Device ${record.deviceSerial} status from ${oldStatus} to ${newStatusStr}`, record.branchId);
     res.json(record);
   } catch (err: any) {
     // The status flip is written to the mirror before the transaction; undo it
@@ -3575,7 +3575,7 @@ async function logExchangeRefusal(
       // the refusal is returned (tests and audits both read it immediately).
       await logAuditEvent(req, 'DEVICE_EXCHANGE_REFUSED', 'CPE_MANAGEMENT', details, heldAt || undefined, pgPool);
     } else {
-      logAuditEvent(req, 'DEVICE_EXCHANGE_REFUSED', 'CPE_MANAGEMENT', details, heldAt || undefined);
+      await logAuditEvent(req, 'DEVICE_EXCHANGE_REFUSED', 'CPE_MANAGEMENT', details, heldAt || undefined);
     }
   } catch (e: any) {
     console.error('audit_logs persist failed: DEVICE_EXCHANGE_REFUSED', e?.message || e);
@@ -4080,7 +4080,7 @@ try {
         );
       }
     }
-    logAuditEvent(req, 'DEVICE_EXCHANGE', 'CPE_MANAGEMENT', `Exchanged CPE Device for ${oldRecord.customerName}. Replaced SN ${oldRecord.deviceSerial} -> New SN ${newDeviceSerial}${exchProd && (exchAction === 'RESTOCK' || exchAction === 'DAMAGE') ? ` — old unit ${exchAction === 'RESTOCK' ? 'restocked to branch inventory' : 'quarantined as damaged stock'}` : ''}`, oldRecord.branchId);
+    await logAuditEvent(req, 'DEVICE_EXCHANGE', 'CPE_MANAGEMENT', `Exchanged CPE Device for ${oldRecord.customerName}. Replaced SN ${oldRecord.deviceSerial} -> New SN ${newDeviceSerial}${exchProd && (exchAction === 'RESTOCK' || exchAction === 'DAMAGE') ? ` — old unit ${exchAction === 'RESTOCK' ? 'restocked to branch inventory' : 'quarantined as damaged stock'}` : ''}`, oldRecord.branchId);
     res.status(201).json({ oldRecord, newRecord, message: 'Customer device successfully exchanged and inventory synchronized.' });
   } catch (err: any) {
     const status = Number(err?.status) || 500;
