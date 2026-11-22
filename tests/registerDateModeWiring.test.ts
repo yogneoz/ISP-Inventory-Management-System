@@ -240,6 +240,51 @@ describe('card date filters follow the session BS/AD choice', () => {
   });
 });
 
+/** Repo-relative path, for a guard's failure message. */
+const repoPath = (abs: string) => path.relative(process.cwd(), abs).split(path.sep).join('/');
+
+/** The `<PeriodRangeField ... />` usages in one source file. */
+function ranges(src: string): string[] {
+  const found: string[] = [];
+  let at = src.indexOf('<PeriodRangeField');
+  while (at !== -1) {
+    const block = src.slice(at, src.indexOf('/>', at) + 2);
+    found.push(block);
+    at = src.indexOf('<PeriodRangeField', at + block.length);
+  }
+  return found;
+}
+
+/**
+ * The label that names a raw date input: its own `aria-label`, the `htmlFor`
+ * label matching its `id`, or the <label> it is nested in.
+ */
+function labelOf(src: string, at: number): string | null {
+  // The whole element, not just from `type="date"` on: `id` and `aria-label`
+  // may sit on either side of the attribute that the sweep matched.
+  const openTag = src.lastIndexOf('<input', at);
+  const tag = src.slice(openTag === -1 ? at : openTag, src.indexOf('>', at) + 1);
+  const strip = (text: string) => text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+
+  const ariaLabel = /aria-label="([^"]*)"/.exec(tag)?.[1];
+  if (ariaLabel) return ariaLabel;
+
+  const id = /\bid="([^"]*)"/.exec(tag)?.[1];
+  if (id) {
+    const htmlFor = src.indexOf(`htmlFor="${id}"`);
+    if (htmlFor !== -1) {
+      const open = src.lastIndexOf('<label', htmlFor);
+      return strip(src.slice(src.indexOf('>', open) + 1, src.indexOf('</label>', htmlFor)));
+    }
+  }
+
+  const open = src.lastIndexOf('<label', at);
+  if (open !== -1 && src.slice(open, at).indexOf('</label>') === -1) {
+    return strip(src.slice(src.indexOf('>', open) + 1, at));
+  }
+  return null;
+}
+
 /**
  * Finance screens and the shared party ledger own their own period filters, so
  * the accounting sweep above cannot see them. Two rules, no exemption list:
@@ -254,7 +299,6 @@ describe('card date filters follow the session BS/AD choice', () => {
 describe('finance date filters follow the session BS/AD choice', () => {
   const FINANCE = path.resolve('client/src/features/finance');
   const LEDGER_VIEW = path.resolve('client/src/components/common/LedgerView.tsx');
-  const repoPath = (abs: string) => path.relative(process.cwd(), abs).split(path.sep).join('/');
 
   /** Every finance range filter, by the two accessible names its ends carry. */
   const FILTERS: Array<{ file: string; component: string; start: string; end: string }> = [
@@ -289,48 +333,6 @@ describe('finance date filters follow the session BS/AD choice', () => {
       end: 'Book ledger to',
     },
   ];
-
-  /** The `<PeriodRangeField ... />` usages in one source file. */
-  function ranges(src: string): string[] {
-    const found: string[] = [];
-    let at = src.indexOf('<PeriodRangeField');
-    while (at !== -1) {
-      const block = src.slice(at, src.indexOf('/>', at) + 2);
-      found.push(block);
-      at = src.indexOf('<PeriodRangeField', at + block.length);
-    }
-    return found;
-  }
-
-  /**
-   * The label that names a raw date input: its own `aria-label`, the `htmlFor`
-   * label matching its `id`, or the <label> it is nested in.
-   */
-  function labelOf(src: string, at: number): string | null {
-    // The whole element, not just from `type="date"` on: `id` and `aria-label`
-    // may sit on either side of the attribute that the sweep matched.
-    const openTag = src.lastIndexOf('<input', at);
-    const tag = src.slice(openTag === -1 ? at : openTag, src.indexOf('>', at) + 1);
-    const strip = (text: string) => text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-
-    const ariaLabel = /aria-label="([^"]*)"/.exec(tag)?.[1];
-    if (ariaLabel) return ariaLabel;
-
-    const id = /\bid="([^"]*)"/.exec(tag)?.[1];
-    if (id) {
-      const htmlFor = src.indexOf(`htmlFor="${id}"`);
-      if (htmlFor !== -1) {
-        const open = src.lastIndexOf('<label', htmlFor);
-        return strip(src.slice(src.indexOf('>', open) + 1, src.indexOf('</label>', htmlFor)));
-      }
-    }
-
-    const open = src.lastIndexOf('<label', at);
-    if (open !== -1 && src.slice(open, at).indexOf('</label>') === -1) {
-      return strip(src.slice(src.indexOf('>', open) + 1, at));
-    }
-    return null;
-  }
 
   test('every finance range filter is one PeriodRangeField on mode={dateMode}', () => {
     const problems: string[] = [];
@@ -418,8 +420,16 @@ describe('finance date filters follow the session BS/AD choice', () => {
       `finance range filters are still fixed to AD:\n${problems.join('\n')}`
     );
   });
+});
 
-  /** The range filters outside finance: procurement and HR. */
+/**
+ * The same range rule outside finance: the purchase-order and bill date
+ * filters and HR's attendance / branch-transfer history were a From box and a
+ * To box each. They are one shared period field now, so a failure in this
+ * suite names procurement or HR instead of finance.
+ */
+describe('procurement and HR range filters follow the session BS/AD choice', () => {
+  /** Those filters, by the two accessible names their ends carry. */
   const OUTSIDE: Array<{ file: string; component?: string; start: string; end: string }> = [
     {
       file: 'procurement/PurchaseOrders.tsx',
