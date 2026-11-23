@@ -301,12 +301,12 @@ export const BRANCH_SCOPE_EXEMPTIONS: readonly BranchScopeExemption[] = [
   {
     table: 'service_invoices',
     reason:
-      'Written only by the partner ingest service, which resolves the branch from the linked customer or the partner\'s branch scope and refuses a branch the key does not own; reads go through the admin integration list, not a /service-invoices/:id route.',
+      'Written only by the partner ingest service. The branch is the body\'s branchId when present, otherwise the linked customer\'s branch, and the resolved branch is checked against the API key\'s branch scope (assertKeyBranchAllowed in integration.service) before any write; reads go through the admin integration list, not a /service-invoices/:id route.',
   },
   {
     table: 'stock_consumption_events',
     reason:
-      'Append-only record of a partner stock pull: the external id is the natural key, branch_id comes from the resolved partner branch, and the guarded UPDATE on inventory_stock carries the same branch. No row-id route exists.',
+      'Append-only record of a partner stock pull: the external id is the natural key, branch_id comes from the resolved partner branch, and the guarded UPDATE on inventory_stock carries the same branch. The ingest refuses that branch when it is outside the API key\'s scope (assertKeyBranchScope), before the decrement. No row-id route exists.',
   },
 ];
 

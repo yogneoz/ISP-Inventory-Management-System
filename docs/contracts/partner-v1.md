@@ -23,7 +23,7 @@ is always worth retrying with the same body. Codes the portal must handle:
 | Code | Meaning |
 | --- | --- |
 | `PARTNER_NOT_REGISTERED` | the API key is valid but no `integration_partners` row binds it; the key alone is not enough |
-| `PARTNER_BRANCH_SCOPE` | the body names a branch (by `branchId` or `branchCode`) outside this key's branch scope — refused before any write, with an inbox row |
+| `PARTNER_BRANCH_SCOPE` | the branch the call would write into is outside this key's branch scope — the `branchId`/`branchCode` in the body, the linked customer's stored branch on a re-sync or a subscription without `branchId`, or the branch of a customer the key would link — refused before any write, with an inbox row |
 | `CUSTOMER_NOT_LINKED` | the subscription names a customer that was never synced; send it to `/customers` first |
 | `IDEMPOTENCY_CONFLICT` | the same key arrived with a different body |
 
@@ -33,12 +33,17 @@ Ingest routes authenticate with an API key (`x-api-key: isp_live_…`), never a
 human session. The key must (a) be bound to a partner row, (b) carry the
 operation the route needs — `customers-manage` for customers,
 `sales-invoice-create` for subscriptions, `stock-out` for consumptions — and
-(c) include the branch in its branch scope. A human token on an ingest route is
-401 even if it reaches it.
+(c) include in its branch scope the branch the call writes into. That is the
+`branchCode`/`branchId` the body names, and for a subscription that names no
+`branchId` the branch of the linked customer. A human token on an ingest route
+is 401 even if it reaches it.
 
 ## Documents
 
-A subscription period becomes a **service invoice**, never a sales invoice.
+A subscription's `branchId` is optional: without it the invoice is filed in the
+linked customer's branch, so that branch must be in the key's scope exactly as
+if the body had named it. A subscription period becomes a **service invoice**,
+never a sales invoice.
 `sales_invoices` deducts branch stock per line and refuses a document when stock
 is short, which is wrong for a service. `service_invoices` posts through the same
 `postJournal`: Dr `AR_CONTROL`, Cr `SALES` (revenue), Cr `TAX_OUTPUT` when tax is
@@ -90,6 +95,17 @@ POST /api/admin/integration/deliver | req: limit | res: delivered, failed, skipp
 POST /api/admin/integration/partners/:id/push/stock | req: branchId, cursor, limit | res: partner, queued, nextCursor
 POST /api/admin/integration/partners/:id/push/hr | req: branchId, cursor, limit | res: partner, queued, nextCursor
 ```
+
+`branchId` is optional on `POST /subscriptions`: omit it and the invoice is
+filed in the linked customer's branch, which must still be inside the key's
+branch scope (otherwise `403 PARTNER_BRANCH_SCOPE`, before any write).
+
+The same rule applies to `POST /customers`. `branchCode` is required and must be
+in scope, but on a re-sync the row that would be updated is the one the existing
+link points at: if that customer is filed in another branch, the call is refused
+with `PARTNER_BRANCH_SCOPE` and the contact is left untouched. Linking a customer
+already in the ERP under the portal's code is refused the same way when that
+customer sits outside the key's branches.
 
 `POST /partners/:id/push/{stock,hr}` addresses the partner by the `id` the list
 returns, and `cursor` is the `nextCursor` of the previous push: pass it back to

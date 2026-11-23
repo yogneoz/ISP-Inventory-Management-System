@@ -63,7 +63,7 @@ export const CUSTOMER_BY_ID_SQL = `
    WHERE id = $1`;
 
 export const CUSTOMER_BY_CODE_SQL = `
-  SELECT id, customer_id, customer_name
+  SELECT id, customer_id, customer_name, branch_id
     FROM customer_records
    WHERE customer_id = $1`;
 

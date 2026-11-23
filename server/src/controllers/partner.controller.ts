@@ -15,10 +15,12 @@
 import type { Response } from 'express';
 import { ApiError } from '../errors/ApiError';
 import {
+  assertKeyBranchAllowed,
   createPartner,
   deliverOutbox,
   ingestConsumption,
   ingestSubscription,
+  keyBranchScope,
   listPartners,
   queueHrSnapshot,
   queueStockSnapshot,
@@ -55,22 +57,19 @@ function idempotencyKey(req: any): string {
  * bodies name the branch by `branchCode`. Without this the key's branch scope
  * (the whole point of binding a key to a branch) was advisory: a key scoped to
  * one branch could ingest into any branch by naming its code.
+ *
+ * This guards the branch NAMED IN THE BODY. `upsertCustomer` and
+ * `ingestSubscription` repeat the check on the branch the write actually lands
+ * in — the linked customer's row for a re-sync, and the linked customer's
+ * branch for a subscription that names none.
  */
 async function assertKeyBranchScope(req: any, body: any): Promise<void> {
-  // The key row is the SQL shape (`branch_ids`); the synthetic principal uses
-  // the camelCase copy. Accept either so a mapper change cannot open the gate.
-  const keyBranchIds: string[] = Array.isArray(req?.apiKey?.branch_ids)
-    ? req.apiKey.branch_ids
-    : Array.isArray(req?.apiKey?.branchIds)
-      ? req.apiKey.branchIds
-      : [];
-  // An empty list is the key's company-wide scope (`createApiKey` refuses ALL).
-  if (keyBranchIds.length === 0) return;
+  const scope = keyBranchScope(req?.apiKey);
+  if (!scope) return;
   const candidates = [body?.branchId, body?.branchCode].filter(
     (value: unknown) => typeof value === 'string' && value.trim()
   ) as string[];
   if (candidates.length === 0) return;
-  const allowed = new Set(keyBranchIds.map(String));
   for (const value of candidates) {
     if (value === 'ALL') {
       throw new ApiError(403, 'A branch-scoped partner key cannot address ALL branches.', {
@@ -81,11 +80,7 @@ async function assertKeyBranchScope(req: any, body: any): Promise<void> {
     const branch = byId || (await pgPool.query(BRANCH_BY_CODE_SQL, [value])).rows[0];
     // An unknown branch is the service's own 404/CUSTOMER_NOT_LINKED answer.
     if (!branch) continue;
-    if (!allowed.has(String(branch.id))) {
-      throw new ApiError(403, 'This API key is not scoped for the requested branch.', {
-        code: 'PARTNER_BRANCH_SCOPE',
-      });
-    }
+    assertKeyBranchAllowed(scope, branch.id);
   }
 }
 
@@ -130,13 +125,15 @@ async function ingest(
 
 /** POST /api/partner/v1/customers */
 export async function post_partnerCustomer(req: any, res: Response): Promise<any> {
-  return ingest(req, res, 'CUSTOMER', (partner, actor) => upsertCustomer(partner, req.body, actor));
+  return ingest(req, res, 'CUSTOMER', (partner, actor) =>
+    upsertCustomer(partner, req.body, actor, keyBranchScope(req.apiKey))
+  );
 }
 
 /** POST /api/partner/v1/subscriptions */
 export async function post_partnerSubscription(req: any, res: Response): Promise<any> {
   return ingest(req, res, 'SUBSCRIPTION', (partner, actor) =>
-    ingestSubscription(partner, req.body, actor)
+    ingestSubscription(partner, req.body, actor, keyBranchScope(req.apiKey))
   );
 }
 

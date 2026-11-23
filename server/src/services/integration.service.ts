@@ -124,6 +124,38 @@ export async function resolvePartner(req: any): Promise<any> {
 }
 
 /**
+ * The branch scope of the presented API key, or `null` for a company-wide key.
+ *
+ * The key row carries the SQL shape (`branch_ids`); the synthetic principal
+ * carries the camelCase copy. Accept either so a mapper change cannot widen the
+ * scope. `createApiKey` refuses 'ALL', so an empty list is company-wide, not a
+ * list that permits nothing.
+ */
+export function keyBranchScope(key: any): Set<string> | null {
+  const ids: string[] = Array.isArray(key?.branch_ids)
+    ? key.branch_ids
+    : Array.isArray(key?.branchIds)
+      ? key.branchIds
+      : [];
+  return ids.length ? new Set(ids.map(String)) : null;
+}
+
+/**
+ * The key's branch scope applies to the branch a write LANDS in, not only to a
+ * branch named in the body. A subscription with no `branchId` inherits the
+ * linked customer's branch, so a body-only check left a key scoped to one
+ * branch free to invoice into another by sending the customer's external id.
+ */
+export function assertKeyBranchAllowed(scope: Set<string> | null, branchId: string): void {
+  if (!scope) return;
+  if (!scope.has(String(branchId))) {
+    throw new ApiError(403, 'This API key is not scoped for the requested branch.', {
+      code: 'PARTNER_BRANCH_SCOPE',
+    });
+  }
+}
+
+/**
  * Replay the first response for a repeated idempotency key.
  *
  * This is a response cache, not the write guard: each ingest is independently
@@ -189,7 +221,8 @@ function customerDto(row: any, created: boolean) {
 export async function upsertCustomer(
   partner: any,
   body: any,
-  actor: string
+  actor: string,
+  keyScope: Set<string> | null
 ): Promise<{ status: number; body: any }> {
   const externalId = required(body?.externalId, 160, 'externalId');
   const name = required(body?.name, 200, 'name');
@@ -197,11 +230,18 @@ export async function upsertCustomer(
   const branchCode = required(body?.branchCode, 20, 'branchCode');
   const branch = (await pgPool.query(BRANCH_BY_CODE_SQL, [branchCode])).rows[0];
   if (!branch) throw new ApiError(400, `Unknown branch code "${branchCode}".`);
+  assertKeyBranchAllowed(keyScope, branch.id);
 
   const ref = (
     await pgPool.query(EXTERNAL_REF_BY_EXTERNAL_SQL, [partner.id, 'CUSTOMER', externalId])
   ).rows[0];
   if (ref) {
+    // The ref can point at a customer filed in another branch — linked while
+    // the key's scope allowed it, or before the scope was narrowed. The body's
+    // branchCode is in scope but irrelevant: the UPDATE lands on the ref's row,
+    // so the guard is on that row's branch.
+    const linked = (await pgPool.query(CUSTOMER_BY_ID_SQL, [ref.internal_id])).rows[0];
+    if (linked) assertKeyBranchAllowed(keyScope, linked.branch_id);
     const updated = (
       await pgPool.query(CUSTOMER_CONTACT_UPDATE_SQL, [
         ref.internal_id,
@@ -218,6 +258,10 @@ export async function upsertCustomer(
   // duplicated: the local row keeps its identity and gets a ref row.
   const existingCode = (await pgPool.query(CUSTOMER_BY_CODE_SQL, [externalId])).rows[0];
   if (existingCode) {
+    // Linking is a write through this key even though it lands in external_refs:
+    // refuse a customer outside the scope instead of handing the portal a
+    // success it cannot subsequently bill.
+    assertKeyBranchAllowed(keyScope, existingCode.branch_id);
     await pgPool.query(EXTERNAL_REF_UPSERT_SQL, [
       partner.id,
       'CUSTOMER',
@@ -263,7 +307,8 @@ export async function upsertCustomer(
 export async function ingestSubscription(
   partner: any,
   body: any,
-  actor: string
+  actor: string,
+  keyScope: Set<string> | null
 ): Promise<{ status: number; body: any }> {
   const externalSubscriptionId = required(
     body?.externalSubscriptionId,
@@ -306,6 +351,10 @@ export async function ingestSubscription(
   const branchId = text(body?.branchId, 50) || String(customer.branch_id);
   const branch = (await pgPool.query(BRANCH_BY_ID_SQL, [branchId])).rows[0];
   if (!branch) throw new ApiError(400, `Unknown branch "${branchId}".`);
+  // Checked on the RESOLVED branch: when the body names no branch the invoice
+  // is billed in the linked customer's branch, which the body-only guard in
+  // the controller never sees.
+  assertKeyBranchAllowed(keyScope, branch.id);
 
   const existing = (
     await pgPool.query(SERVICE_INVOICE_EXISTS_SQL, [

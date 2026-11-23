@@ -136,11 +136,14 @@ describe('partner integration API (real HTTP + PostgreSQL)', { skip: skipNoDb },
         "DELETE FROM gl_subledger_entries WHERE subledger_id IN (SELECT id FROM gl_subledgers WHERE party_id LIKE 'PORTAL-CUST%')"
       );
       await purge.query("DELETE FROM gl_subledgers WHERE party_id LIKE 'PORTAL-CUST%'");
+      // Both fixture branches: the cross-branch subscription test proves a
+      // write into the other branch is refused, and the run that reproduced
+      // the hole before the fix left a journal there.
       await purge.query(
-        'DELETE FROM gl_journal_lines WHERE journal_id IN (SELECT id FROM gl_journals WHERE branch_id = $1)',
-        [BRANCH]
+        'DELETE FROM gl_journal_lines WHERE journal_id IN (SELECT id FROM gl_journals WHERE branch_id IN ($1, $2))',
+        [BRANCH, OTHER_BRANCH]
       );
-      await purge.query('DELETE FROM gl_journals WHERE branch_id = $1', [BRANCH]);
+      await purge.query('DELETE FROM gl_journals WHERE branch_id IN ($1, $2)', [BRANCH, OTHER_BRANCH]);
     } finally {
       purge.release();
     }
@@ -309,6 +312,137 @@ describe('partner integration API (real HTTP + PostgreSQL)', { skip: skipNoDb },
       [PARTNER]
     );
     assert.equal(inbox.rows[0].verdict, 'REFUSED', 'the refusal still leaves an inbox row');
+    assert.equal(inbox.rows[0].error_code, 'PARTNER_BRANCH_SCOPE');
+  });
+
+  test('a subscription cannot inherit a customer branch outside the key scope', async () => {
+    // The ERP already files this customer under the OTHER branch and the
+    // partner holds a ref for it (linked before this key's scope narrowed) —
+    // so nothing in the body names the branch that would receive the invoice.
+    await pool!.query(
+      `INSERT INTO customer_records (id, customer_id, customer_name, contact_number, branch_id, status)
+       VALUES ('int-test-cust-other', 'PORTAL-CUST-EXISTING', 'Existing Other Branch Customer',
+               '9800000009', $1, 'ACTIVE')`,
+      [OTHER_BRANCH]
+    );
+    await pool!.query(
+      `INSERT INTO external_refs (partner_id, entity, external_id, internal_id)
+       VALUES ($1, 'CUSTOMER', 'PORTAL-CUST-EXISTING', 'int-test-cust-other')`,
+      [PARTNER]
+    );
+
+    // No branchId in the body: the service resolves the branch from the linked
+    // customer, which is exactly the branch the key is not scoped for.
+    const refused = await request('POST', '/api/partner/v1/subscriptions', {
+      externalSubscriptionId: 'SUB-CROSS-BRANCH',
+      customerExternalId: 'PORTAL-CUST-EXISTING',
+      planName: '100 Mbps Home',
+      durationDays: 30,
+      serviceFromAD: '2026-12-01',
+      serviceToAD: '2026-12-30',
+      subtotal: 1500,
+      taxAmount: 195,
+      invoiceDateAD: '2026-12-01',
+    });
+    assert.equal(refused.status, 403, JSON.stringify(refused.json));
+    assert.equal(refused.json.code, 'PARTNER_BRANCH_SCOPE');
+
+    const written = await pool!.query(
+      `SELECT COUNT(*)::int AS n FROM service_invoices
+        WHERE partner_id = $1 AND external_subscription_id = $2`,
+      [PARTNER, 'SUB-CROSS-BRANCH']
+    );
+    assert.equal(written.rows[0].n, 0, 'a customer-derived branch outside the key scope writes no invoice');
+
+    const inbox = await pool!.query(
+      `SELECT verdict, error_code FROM integration_inbox
+        WHERE partner_id = $1 AND kind = 'SUBSCRIPTION'
+        ORDER BY received_at DESC LIMIT 1`,
+      [PARTNER]
+    );
+    assert.equal(inbox.rows[0].verdict, 'REFUSED', 'the refusal still leaves an inbox row');
+    assert.equal(inbox.rows[0].error_code, 'PARTNER_BRANCH_SCOPE');
+  });
+
+  test('a linked customer filed in another branch is not re-synced by the key', async () => {
+    // The partner already holds a ref for this customer (it was linked while the
+    // key's scope allowed it, or the scope was narrowed since). The portal
+    // re-sends the customer naming its OWN branchCode — in scope — and the
+    // service would update the row the ref points at, in the other branch.
+    await pool!.query(
+      `INSERT INTO customer_records (id, customer_id, customer_name, contact_number, branch_id, status)
+       VALUES ('int-test-cust-linked', 'PORTAL-CUST-LINKED', 'Linked Other Branch Customer',
+               '9800000010', $1, 'ACTIVE')`,
+      [OTHER_BRANCH]
+    );
+    await pool!.query(
+      `INSERT INTO external_refs (partner_id, entity, external_id, internal_id)
+       VALUES ($1, 'CUSTOMER', 'PORTAL-CUST-LINKED', 'int-test-cust-linked')`,
+      [PARTNER]
+    );
+
+    const refused = await request('POST', '/api/partner/v1/customers', {
+      externalId: 'PORTAL-CUST-LINKED',
+      name: 'Linked Other Branch Customer',
+      contactNumber: '9800000011',
+      branchCode: 'INTT',
+    });
+    assert.equal(refused.status, 403, JSON.stringify(refused.json));
+    assert.equal(refused.json.code, 'PARTNER_BRANCH_SCOPE');
+
+    const row = (
+      await pool!.query('SELECT contact_number, branch_id FROM customer_records WHERE id = $1', [
+        'int-test-cust-linked',
+      ])
+    ).rows[0];
+    assert.equal(row.branch_id, OTHER_BRANCH);
+    assert.equal(row.contact_number, '9800000010', 'the out-of-scope customer is untouched');
+
+    const inbox = await pool!.query(
+      `SELECT verdict, error_code FROM integration_inbox
+        WHERE partner_id = $1 AND kind = 'CUSTOMER'
+        ORDER BY received_at DESC LIMIT 1`,
+      [PARTNER]
+    );
+    assert.equal(inbox.rows[0].verdict, 'REFUSED');
+    assert.equal(inbox.rows[0].error_code, 'PARTNER_BRANCH_SCOPE');
+  });
+
+  test('a stock consumption naming another branch is refused before the decrement', async () => {
+    // The other branch HAS stock, so an unchecked ingest would apply rather
+    // than answer CONFLICT — the refusal must come from the key scope.
+    await pool!.query(
+      `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, average_cost)
+       VALUES ('int-test-stock-2', $1, $2, 5, 100)`,
+      [stockProduct, OTHER_BRANCH]
+    );
+    const product = (await pool!.query('SELECT sku FROM products WHERE id = $1', [stockProduct])).rows[0];
+    const refused = await request('POST', '/api/partner/v1/stock/consumptions', {
+      externalId: 'CONS-CROSS-BRANCH',
+      sku: product.sku,
+      branchCode: 'INTT2',
+      quantity: 2,
+    });
+    assert.equal(refused.status, 403, JSON.stringify(refused.json));
+    assert.equal(refused.json.code, 'PARTNER_BRANCH_SCOPE');
+
+    const events = await pool!.query(
+      'SELECT COUNT(*)::int AS n FROM stock_consumption_events WHERE partner_id = $1 AND external_id = $2',
+      [PARTNER, 'CONS-CROSS-BRANCH']
+    );
+    assert.equal(events.rows[0].n, 0, 'a refused consumption writes no event');
+    const stock = await pool!.query('SELECT quantity_on_hand FROM inventory_stock WHERE id = $1', [
+      'int-test-stock-2',
+    ]);
+    assert.equal(Number(stock.rows[0].quantity_on_hand), 5, 'the other branch stock is untouched');
+
+    const inbox = await pool!.query(
+      `SELECT verdict, error_code FROM integration_inbox
+        WHERE partner_id = $1 AND kind = 'STOCK_CONSUMPTION'
+        ORDER BY received_at DESC LIMIT 1`,
+      [PARTNER]
+    );
+    assert.equal(inbox.rows[0].verdict, 'REFUSED');
     assert.equal(inbox.rows[0].error_code, 'PARTNER_BRANCH_SCOPE');
   });
 
