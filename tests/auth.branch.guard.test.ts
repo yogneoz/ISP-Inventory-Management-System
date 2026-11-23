@@ -382,4 +382,13 @@ describe('branch scoping (enforceBranchAccess, HTTP layer)', () => {
   });
 });
 
-test.after(async () => { await probe?.end(); });
+test.after(async () => {
+  // This account is a fixture, not seed data. Leaving it behind made a
+  // first-launch install look like it already had a user: `/api/auth/setup-status`
+  // reports userCount > 0 while hasSuperAdmin is false, so the setup screen
+  // still shows but the users table is no longer empty.
+  if (probe) {
+    await probe.query('DELETE FROM users WHERE email = $1', [LOGIN_TEST_EMAIL]).catch(() => undefined);
+  }
+  await probe?.end();
+});

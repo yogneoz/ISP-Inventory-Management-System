@@ -67,14 +67,21 @@ describe('auth.repo', () => {
   describe('one-time Super Admin claim (C1)', () => {
     test('claims with a single INSERT … SELECT, not an upsert', () => {
       assert.match(USER_SUPER_ADMIN_CLAIM_SQL, /^INSERT INTO users \(/);
-      assert.match(USER_SUPER_ADMIN_CLAIM_SQL, /SELECT \$1, \$2, \$3, \$4, 'SUPER_ADMIN'/);
+      // `$2::text` is part of the statement shape, not decoration: without the
+      // cast PostgreSQL deduces varchar for the INSERT target and text for
+      // LOWER($2), then refuses the claim with "inconsistent types deduced for
+      // parameter $2" before any row is considered.
+      assert.match(USER_SUPER_ADMIN_CLAIM_SQL, /SELECT \$1, \$2::text, \$3, \$4, 'SUPER_ADMIN'/);
       assert.doesNotMatch(USER_SUPER_ADMIN_CLAIM_SQL, /ON CONFLICT/, 'a conflict must fail, never adopt the row');
       assert.doesNotMatch(USER_SUPER_ADMIN_CLAIM_SQL, /DO UPDATE/i);
     });
 
     test('never promotes an existing account', () => {
       assert.doesNotMatch(USER_SUPER_ADMIN_CLAIM_SQL, /^UPDATE/im, 'setup must not UPDATE an existing user');
-      assert.match(USER_SUPER_ADMIN_CLAIM_SQL, /NOT EXISTS \(SELECT 1 FROM users WHERE LOWER\(email\) = LOWER\(\$2\)\)/);
+      assert.match(
+        USER_SUPER_ADMIN_CLAIM_SQL,
+        /NOT EXISTS \(SELECT 1 FROM users WHERE LOWER\(email\) = LOWER\(\$2::text\)\)/
+      );
     });
 
     test('carries its own "no SUPER_ADMIN exists" guard and returns the created row', () => {

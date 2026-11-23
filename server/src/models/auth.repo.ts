@@ -90,10 +90,14 @@ export const SUPER_ADMIN_SETUP_LOCK_SQL =
  *
  * A zero-row result is therefore "someone else got here first", never a success.
  */
+// `$2` is cast once: the INSERT target makes PostgreSQL deduce `varchar` for
+// it, while `LOWER($2)` makes it deduce `text`, and the statement is refused
+// with "inconsistent types deduced for parameter $2" before any row is
+// considered. Every first-launch claim failed on that until the cast was added.
 export const USER_SUPER_ADMIN_CLAIM_SQL = `INSERT INTO users (id, email, password, name, role, branch_id, allowed_branch_ids, can_switch_user)
-SELECT $1, $2, $3, $4, 'SUPER_ADMIN', $5, $6, true
+SELECT $1, $2::text, $3, $4, 'SUPER_ADMIN', $5, $6, true
 WHERE NOT EXISTS (SELECT 1 FROM users WHERE role = 'SUPER_ADMIN')
-  AND NOT EXISTS (SELECT 1 FROM users WHERE LOWER(email) = LOWER($2))
+  AND NOT EXISTS (SELECT 1 FROM users WHERE LOWER(email) = LOWER($2::text))
 RETURNING ${USER_SELECT_COLUMNS}`;
 
 export function superAdminInsertParams(
