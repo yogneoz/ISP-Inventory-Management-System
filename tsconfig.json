@@ -1,4 +1,7 @@
 {
+  // The Expo client is a separate app with its own tsconfig and React Native
+  // types; the server/client tree must not typecheck it with DOM libs.
+  "exclude": ["mobile-expo", "dist", "node_modules"],
   "compilerOptions": {
     "target": "ES2022",
     "experimentalDecorators": true,

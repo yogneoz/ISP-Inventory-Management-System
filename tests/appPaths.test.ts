@@ -39,7 +39,7 @@ describe('canonical workspace paths', () => {
     }
 
     const liveTabs = NAV_TABS.filter((tab) => canonicalTab(tab) === tab);
-    assert.equal(liveTabs.length, 112, '112 rendered screens, excluding the retired aliases');
+    assert.equal(liveTabs.length, 113, '113 rendered screens, excluding the retired aliases');
     const paths = liveTabs.map(pathForTab);
     assert.equal(new Set(paths).size, paths.length, 'two live screens cannot share a path');
 
@@ -53,7 +53,7 @@ describe('canonical workspace paths', () => {
     // App gets its routes from, not the root that spreads them.
     const app = readScreenRoutes();
     const routeKeys = [...app.matchAll(/screenRoute\('([^']+)'/g)].map((match) => match[1]);
-    assert.equal(routeKeys.length, 112, 'the route table must still declare 112 screens');
+    assert.equal(routeKeys.length, 113, 'the route table must still declare 113 screens');
     for (const key of routeKeys) {
       assert.equal(
         tabFromPath(pathForTab(key as NavTab)),

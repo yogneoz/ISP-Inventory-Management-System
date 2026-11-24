@@ -1286,6 +1286,9 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       'updateHrShift',
     ],
     'hr/EmployeeSelfService.tsx': ['getMyHrProfile', 'saveMyHrProfile'],
+    // My Workplace → My Stock resolves the account's employee id, then mounts
+    // the custody panel (whose own calls are pinned with the panel).
+    'hr/MyStock.tsx': ['getMyHrProfile'],
     // The photo dialog owns the crop/resize canvas only; the screen behind it
     // saves the data URL through saveMyHrProfile.
     'hr/EmployeeSelfServicePhotoDialog.tsx': [],

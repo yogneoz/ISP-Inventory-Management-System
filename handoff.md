@@ -1638,14 +1638,14 @@ so any unwired new fetch fails the suite instead of shipping:
   remount refreshes it). Each test pins the effect deps carrying the refresh key and EVERY App.tsx render
   site passing it (2 PO, 2 PI, 1 SerialLogRegister, 11 StockOperations, 4 ReturnsRegister,
   2 SalesInvoices) — a newly added unwired mount fails.
-- **Feature-screen coverage (2026-10-03 audit, all 123 screens — the §G StockOperations
+- **Feature-screen coverage (2026-10-03 audit, all 124 screens — the §G StockOperations
   split added 12 tab panels plus the extracted tab-bar chrome, the BS-calendar
   integrity work added the Calendar Health panel, the permission-sets editor
   added its own panel, the daily cash close added its own screen, and the accounting
   workspace split into seven statement registers, the Posting Rules & Account Control screen,
   the standalone Login Locks screen promoted off the Users dialog, and the General Ledger Master
   form merged into Chart of Accounts)** — a `SCREEN_SURFACE_PINS`
-  table pins the 112 screens not covered above (the other 11 are pinned by the dedicated
+  table pins the 113 screens not covered above (the other 11 are pinned by the dedicated
   tests); an unpinned new screen fails coverage, and each pinned screen must match its
   exact surface. Surfaces use `serverCallsIn` = `api.*` methods **plus named
   `services/api` imports** — a bare `api.*` scan would miss a named helper, so every pin uses

@@ -100,6 +100,15 @@ const EXPECTED: Record<string, { sections: string[]; items: string[] }> = {
     sections: [],
     items: ['company-overview', 'dashboard', 'financial-statements', 'approvals'],
   },
+  // My Workplace re-homes the self-service screens (same tab ids) so daily work
+  // sits beside the dashboards instead of inside the HR registers.
+  workplace: {
+    sections: ['Me'],
+    items: [
+      'hr-self-service', 'hr-self-stock', 'hr-self-attendance', 'hr-self-leave',
+      'hr-self-payslips', 'hr-self-documents',
+    ],
+  },
   inventory: {
     sections: ['Registers', 'Forms', 'Reports & exports'],
     items: [
@@ -146,8 +155,7 @@ const EXPECTED: Record<string, { sections: string[]; items: string[] }> = {
   people: {
     sections: ['People'],
     items: [
-      'hr-self-service', 'hr-self-payslips', 'hr-self-leave', 'hr-self-attendance',
-      'hr-self-documents', 'employees', 'org-chart', 'hr-attendance', 'hr-recruitment', 'hr-performance',
+      'employees', 'org-chart', 'hr-attendance', 'hr-recruitment', 'hr-performance',
       'hr-lifecycle', 'hr-payroll', 'hr-reports',
     ],
   },
@@ -171,7 +179,7 @@ const EXPECTED: Record<string, { sections: string[]; items: string[] }> = {
 };
 
 describe('sidebar grouping', () => {
-  test('nine domain groups render in work order, each with its sections and items', () => {
+  test('ten domain groups render in work order, each with its sections and items', () => {
     const tree = render(admin);
     try {
       const wrappers = [...tree.container.querySelectorAll('[data-nav-group]')];

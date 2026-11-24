@@ -126,6 +126,7 @@ export const APP_PATHS: Record<NavTab, string> = {
   employees: '/people/employees',
   'org-chart': '/people/org-chart',
   'hr-self-service': '/people/profile',
+  'hr-self-stock': '/people/stock',
   'hr-self-payslips': '/people/payslips',
   'hr-self-leave': '/people/leave',
   'hr-self-attendance': '/people/attendance',

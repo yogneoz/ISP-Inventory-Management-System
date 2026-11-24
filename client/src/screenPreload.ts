@@ -41,6 +41,7 @@ export const SCREEN_PRELOADERS: Readonly<Record<string, ScreenModuleLoader>> = {
   'fixed-assets': () => import('./features/finance/FixedAssetRegister'),
   employees: () => import('./features/hr/EmployeeDirectory'),
   'hr-self-service': () => import('./features/hr/EmployeeSelfService'),
+  'hr-self-stock': () => import('./features/hr/MyStock'),
   'hr-self-payslips': () => import('./features/hr/EmployeePayslips'),
   'hr-self-leave': () => import('./features/hr/EmployeeLeave'),
   'hr-self-attendance': () => import('./features/hr/EmployeeAttendance'),

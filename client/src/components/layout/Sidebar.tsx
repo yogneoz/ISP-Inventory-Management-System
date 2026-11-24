@@ -141,6 +141,7 @@ export type NavTab =
   | 'hr-self-leave'
   | 'hr-self-attendance'
   | 'hr-self-documents'
+  | 'hr-self-stock'
   | 'accounting'
   | 'accounting-bs-summary'
   | 'accounting-profit-loss'
@@ -259,6 +260,7 @@ export const NAV_TABS: NavTab[] = [
   'hr-self-leave',
   'hr-self-attendance',
   'hr-self-documents',
+  'hr-self-stock',
   'accounting',
   'accounting-bs-summary',
   'accounting-profit-loss',
@@ -538,6 +540,38 @@ export const Sidebar: React.FC<SidebarProps> = ({
     icon: LayoutDashboard,
     children: dashboardChildren,
   });
+
+  // 1b. My Workplace — the signed-in employee's own screens. These are the
+  //     same tab ids and screens that used to sit under People & HR, re-homed
+  //     rather than copied: daily work is "my profile, my stock, my attendance,
+  //     my leave, my payslips, my documents", and the HR registers an HR role
+  //     reads stay in People & HR. One tab, one home.
+  const workplaceChildren: NavChildDef[] = [];
+  if (isOperationAllowed('hr-self-service', currentUser?.role)) {
+    workplaceChildren.push(
+      { id: 'hr-self-service' as NavTab, label: 'My Profile', icon: UserCheck, section: 'Me' },
+      ...(isOperationAllowed('employee-stock-view', currentUser?.role)
+        ? [{ id: 'hr-self-stock' as NavTab, label: 'My Stock', icon: Package, section: 'Me' }]
+        : []),
+      {
+        id: 'hr-self-attendance' as NavTab,
+        label: 'My Attendance',
+        icon: Clock,
+        section: 'Me',
+      },
+      { id: 'hr-self-leave' as NavTab, label: 'My Leave', icon: CalendarDays, section: 'Me' },
+      { id: 'hr-self-payslips' as NavTab, label: 'My Payslips', icon: FileText, section: 'Me' },
+      { id: 'hr-self-documents' as NavTab, label: 'My Documents', icon: FileText, section: 'Me' },
+    );
+  }
+  if (workplaceChildren.length > 0) {
+    groups.push({
+      id: 'workplace',
+      title: 'My Workplace',
+      icon: UserCheck,
+      children: workplaceChildren,
+    });
+  }
 
   // 2. Inventory & Stock — every on-hand register and every stock action,
   //    including consumables, damage labelling and fixed-asset assignment
@@ -868,40 +902,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const hrChildren: NavChildDef[] = [];
   // Self-service is independent of the employee-master grants, so an ordinary
   // employee still gets the People & HR group with only their own profile.
-  if (isOperationAllowed('hr-self-service', currentUser?.role)) {
-    hrChildren.push(
-      {
-        id: 'hr-self-service',
-        label: 'My Profile',
-        icon: UserCheck,
-        section: 'People',
-      },
-      {
-        id: 'hr-self-payslips',
-        label: 'My Payslips',
-        icon: FileText,
-        section: 'People',
-      },
-      {
-        id: 'hr-self-leave',
-        label: 'My Leave',
-        icon: CalendarDays,
-        section: 'People',
-      },
-      {
-        id: 'hr-self-attendance',
-        label: 'My Attendance',
-        icon: Clock,
-        section: 'People',
-      },
-      {
-        id: 'hr-self-documents',
-        label: 'My Documents',
-        icon: FileText,
-        section: 'People',
-      }
-    );
-  }
+  // Self-service is now its own group (see "My Workplace" above), because a
+  // technician's daily work is their own job, stock, attendance and payslip —
+  // not the employee master. People & HR keeps the registers an HR role reads.
   if (
     isOperationAllowed('hr-employee-view', currentUser?.role) ||
     isOperationAllowed('gl-payroll-manage', currentUser?.role)

@@ -33,7 +33,7 @@ import {
   CashFlowRegister, CashBookRegister, RecurringCloseRegister, AgingRegister, ChartOfAccountsRegister,
   PostingRulesRegister, JournalEntry, CashBankEntry, PostedVouchers, PayrollPostingsRegister,
   SubledgersManagement, LendersManagement, BillTermsManagement, CostCentersManagement, EmployeeDirectory,
-  EmployeeSelfService, EmployeePayslips, EmployeeLeave, EmployeeAttendance, EmployeeDocuments, Recruitment,
+  EmployeeSelfService, MyStock, EmployeePayslips, EmployeeLeave, EmployeeAttendance, EmployeeDocuments, Recruitment,
   Performance, Lifecycle, HrReports, AttendanceLeave, OrgMasters, OrgChart, Payroll,
   NarrationTemplatesManagement, DailyCashClose, FinanceDashboard, CompanyOverview, VatRegister,
   DepreciationRegister, AuditTrailReports, DocumentNumbering, OpeningStockManager, VendorOpeningBalances,
@@ -1149,6 +1149,12 @@ export function buildScreenRoutes(props: ScreenRouteProps): AppRoute[] {
     )),
     screenRoute('hr-self-service', (
         <EmployeeSelfService currentUser={currentUser} />
+    )),
+    // My Workplace → My Stock: the same custody panel the profile mounts, for
+    // the account's own employee record, so the group has its own "what do I
+    // hold?" destination instead of a scroll inside My Profile.
+    screenRoute('hr-self-stock', (
+        <MyStock currentUser={currentUser} />
     )),
     screenRoute('hr-self-payslips', (
         <EmployeePayslips currentUser={currentUser} />

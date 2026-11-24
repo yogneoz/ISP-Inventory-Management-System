@@ -57,6 +57,7 @@ export const TAB_PERMISSIONS: Record<string, string | string[]> = {
   // Own-record self-service: any role holding the ESS grant, independent of
   // the employee-master and Finance payroll grants.
   'hr-self-service': 'hr-self-service',
+  'hr-self-stock': 'hr-self-service',
   'hr-self-payslips': 'hr-self-service',
   'hr-self-leave': 'hr-self-service',
   'hr-self-attendance': 'hr-self-service',

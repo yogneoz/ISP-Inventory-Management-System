@@ -847,7 +847,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   passing its counter (2 PurchaseOrders, 2 PurchaseInvoices, 1
   SerialLogRegister, 11 StockOperations, 4 ReturnsRegister, 2 SalesInvoices).
   A newly added unwired mount fails.
-- **All 123 feature screens pinned** — a coverage table asserts every screen
+- **All 124 feature screens pinned** — a coverage table asserts every screen
   under `client/src/features` exists in `SCREEN_SURFACE_PINS` with its exact
   server-call surface (`api.*` methods **and** named `services/api` imports —
   a bare `api.*` scan misses a named helper), so a fetch added by any mechanism must be
