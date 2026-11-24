@@ -13,7 +13,7 @@
 import 'dotenv/config';
 import { flushAccountingOutbox, listAccountingOutbox } from '../server/src/services/accountingOutbox.service';
 import { OUTBOX_PENDING_COUNT_SQL } from '../server/src/models/accountingOutbox.repo';
-import { pgPool } from '../server/db';
+import { ensurePostgresConnection, pgPool } from '../server/db';
 
 function argValue(flag: string): string | null {
   const index = process.argv.indexOf(flag);
@@ -46,6 +46,12 @@ async function flush(): Promise<number> {
 }
 
 async function main(): Promise<void> {
+  // Standalone process: the shared app pool answers no query until a boot has
+  // proven the database reachable, and a CLI has no boot. Without this probe
+  // every command "failed" with DB_UNAVAILABLE and the flush posted nothing.
+  if (!(await ensurePostgresConnection())) {
+    throw new Error('PostgreSQL is not reachable; nothing was queued or posted.');
+  }
   const command = process.argv[2] || 'pending';
   if (command === 'pending') {
     process.exitCode = (await pending()) > 0 ? 1 : 0;

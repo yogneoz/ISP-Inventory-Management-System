@@ -21,6 +21,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import pg from 'pg';
 import dotenv from 'dotenv';
+import crypto from 'node:crypto';
 import { createApp, registerAllRoutes } from '../server/src/app';
 import { issueAuthToken } from '../server/src/middleware/auth';
 import { setPermissionMatrix } from '../server/src/state/runtimeState';
@@ -275,6 +276,33 @@ describe('workplace dispatch override and evidence (real HTTP + PostgreSQL)', { 
     assert.equal(list.status, 200, JSON.stringify(list.json));
     assert.equal(list.json.count, 1);
     assert.equal(list.json.evidence[0].caption, 'ONT installed');
+  });
+
+  test('the ceiling is 2 MiB of bytes, above the default JSON body limit', async () => {
+    // A 1.5 MiB photo is ~2 MB of base64 on the wire: the evidence routes must
+    // accept it (they carry their own body limit) or the declared 2 MiB ceiling
+    // is unreachable — the generic 1 MB parser used to answer 413 first.
+    const order = await insertOrder('OPEN', EMP_TECH, 'Dispatch Tech');
+    const bytes = crypto.randomBytes(1_500_000);
+    const stored = await request(
+      'POST',
+      `/api/v1/workplace/jobs/${order}/evidence`,
+      { kind: 'PHOTO', contentType: 'image/png', dataBase64: bytes.toString('base64') },
+      techToken
+    );
+    assert.equal(stored.status, 201, JSON.stringify(stored.json).slice(0, 200));
+    assert.equal(stored.json.byteSize, 1_500_000);
+    assert.equal(stored.json.sha256, crypto.createHash('sha256').update(bytes).digest('hex'));
+
+    const overCeiling = crypto.randomBytes(2 * 1024 * 1024 + 1);
+    const refused = await request(
+      'POST',
+      `/api/v1/workplace/jobs/${order}/evidence`,
+      { kind: 'PHOTO', contentType: 'image/png', dataBase64: overCeiling.toString('base64') },
+      techToken
+    );
+    assert.equal(refused.status, 400, JSON.stringify(refused.json).slice(0, 200));
+    assert.match(refused.json.message, /ceiling is 2097152/);
   });
 
   test('bad evidence is refused and another employee cannot attach to this job', async () => {

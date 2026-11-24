@@ -16,6 +16,7 @@
 import { purgeAuditLogs } from './support/purgeAuditLogs';
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import pg from 'pg';
 import dotenv from 'dotenv';
 import { setPermissionMatrix } from '../server/src/state/runtimeState';
@@ -186,6 +187,31 @@ describe('accounting outbox (PostgreSQL)', { skip: skipNoDb }, () => {
     const again = await flushAccountingOutbox({ limit: 10, branchId: BRANCH });
     assert.equal(again.posted, 0, 'a posted claim is no longer owed');
     assert.equal(again.remaining, 0);
+  });
+
+  test('the flush CLI proves the database on its own and posts the queued claim', async () => {
+    // The service was covered, the command was not: a standalone process has no
+    // boot, so the shared pool refused every query and `npm run
+    // accounting-outbox:flush` answered DB_UNAVAILABLE and posted nothing.
+    const claimId = await submit(120);
+    const decided = await decideClaim(REQUEST, APPROVER_USER, employee(APPROVER, 'Outbox Approver'), claimId, {
+      approve: true,
+      note: 'Approved for the CLI',
+    });
+    assert.equal(decided.accountingOutboxStatus, 'QUEUED');
+
+    const run = spawnSync('npx', ['tsx', 'scripts/accounting_outbox.ts', 'flush'], {
+      cwd: process.cwd(),
+      env: process.env,
+      encoding: 'utf8',
+      timeout: 180_000,
+    });
+    const output = `${run.stdout || ''}${run.stderr || ''}`;
+    assert.match(output, /accounting outbox flush: posted [1-9]/, output.slice(0, 600));
+
+    const row = await outbox(claimId);
+    assert.equal(row.status, 'POSTED', output.slice(0, 600));
+    assert.ok(row.journal_id, 'the CLI recorded the journal it posted');
   });
 
   test('a rejected claim cancels its posting instead of queueing it', async () => {

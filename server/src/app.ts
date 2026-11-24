@@ -280,6 +280,16 @@ export function createApp(): express.Express {
   // sizeFromEnv rejects garbage ('25 b', 'abc', '0mb') with a warning
   // instead of producing a NaN/zero limit (backlog #4).
   const jsonBodyLimit = sizeFromEnv('JSON_BODY_LIMIT', '1mb', { minBytes: 1024 });
+  // Proof-of-work captures travel as base64 JSON: a 2 MiB photo is ~2.8 MB on
+  // the wire, so the evidence routes carry their own ceiling. The validator in
+  // workOrderEvidence.service still enforces the real 2 MiB limit — without
+  // this the generic parser answered 413 for anything above ~750 KiB, so the
+  // documented ceiling was unreachable.
+  const evidenceBodyLimit = sizeFromEnv('EVIDENCE_BODY_LIMIT', '4mb', { minBytes: 1024 * 1024 });
+  app.use(
+    ['/api/v1/workplace/jobs/:id/evidence', '/api/field-work-orders/:id/evidence'],
+    express.json({ limit: evidenceBodyLimit })
+  );
   app.use(express.json({ limit: jsonBodyLimit }));
 
   // Health & Control Plane Endpoints FIRST before any other routes or middleware

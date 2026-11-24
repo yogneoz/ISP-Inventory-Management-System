@@ -196,7 +196,10 @@ at the customer's premises. `kind` is `PHOTO` or `SIGNATURE`, `contentType` is
 `image/jpeg`, `image/png` or `image/webp`, and `dataBase64` is the image (a
 `data:` URL prefix is accepted). The capture is capped at 2 MiB, and
 `capturedAtEpochMs` may not be more than 15 minutes ahead of the server — the
-same skew tolerance a punch gets.
+same skew tolerance a punch gets. The cap is measured on the decoded bytes: the
+evidence routes accept a request body up to 4 MiB (the base64 of a 2 MiB image),
+while the rest of the API keeps the 1 MB JSON default. A larger image is a
+`400` naming the ceiling, not the generic `request entity too large`.
 
 The bytes are **content-addressed per order**: sending the same capture again
 (the queued item retried after a timeout) returns the stored row with
