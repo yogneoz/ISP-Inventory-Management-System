@@ -3,6 +3,7 @@
  * Mirrors the procurement module's fetchJson patterns.
  */
 import { fetchJson } from './http';
+import { fetchBlob } from './blob';
 import type { SalesInvoice, SalesReturn, CustomerPayment } from '../../types';
 
 // Paged mode (params.page set): returns a { data, page, pageSize,
@@ -266,6 +267,71 @@ export async function completeFieldWorkOrder(id: string, input: Record<string, a
 }
 
 // ---------------------------------------------------------------------------
+// Proof of work — the photo or signature captured on site
+// ---------------------------------------------------------------------------
+
+export interface WorkOrderEvidence {
+  id: string;
+  work_order_id: string;
+  branch_id: string;
+  kind: 'PHOTO' | 'SIGNATURE';
+  content_type: string;
+  byte_size: number;
+  sha256: string;
+  caption: string | null;
+  captured_at: string;
+  captured_by: string;
+  latitude: string | null;
+  longitude: string | null;
+  accuracy_meters: string | null;
+  created_at: string;
+}
+
+export interface WorkOrderEvidenceUpload {
+  kind: 'PHOTO' | 'SIGNATURE';
+  contentType: string;
+  dataBase64: string;
+  caption?: string | null;
+  capturedAtEpochMs?: number;
+}
+
+export interface WorkOrderEvidenceSaved {
+  id: string;
+  kind: 'PHOTO' | 'SIGNATURE';
+  contentType: string;
+  byteSize: number;
+  sha256: string;
+  capturedAt: string;
+  /** False when this exact capture was already stored (a replayed upload). */
+  inserted: boolean;
+  count: number;
+}
+
+export async function getFieldWorkOrderEvidence(
+  workOrderId: string
+): Promise<{ evidence: WorkOrderEvidence[]; count: number }> {
+  return fetchJson(`/api/field-work-orders/${workOrderId}/evidence`);
+}
+
+export async function postFieldWorkOrderEvidence(
+  workOrderId: string,
+  input: WorkOrderEvidenceUpload
+): Promise<WorkOrderEvidenceSaved> {
+  return fetchJson(`/api/field-work-orders/${workOrderId}/evidence`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+/** The bytes of one stored capture, for the read-back preview. */
+export async function fetchFieldWorkOrderEvidenceContent(
+  workOrderId: string,
+  evidenceId: string
+): Promise<Blob> {
+  return fetchBlob(`/api/field-work-orders/${workOrderId}/evidence/${evidenceId}/content`);
+}
+
+// ---------------------------------------------------------------------------
 // Employee stock custody (the My Stock panel / employee profile Equipment)
 // ---------------------------------------------------------------------------
 
@@ -332,4 +398,38 @@ export async function recordEmployeeStockMovement(
   input: EmployeeStockMovementInput
 ): Promise<EmployeeStockMovement> {
   return fetchJson(`/api/employee-stock/${action}`, { method: 'POST', body: JSON.stringify(input) });
+}
+
+/** The branch roster custody actions pick a person from (`employee-stock-view`). */
+export interface CustodyEmployee {
+  id: string;
+  employee_code: string;
+  name: string;
+  department: string | null;
+  branch_id: string;
+}
+
+export async function getCustodyEmployees(): Promise<CustodyEmployee[]> {
+  return fetchJson('/api/employee-stock/employees');
+}
+
+export interface EmployeeStockTransferInput {
+  fromEmployeeId: string;
+  toEmployeeId: string;
+  productId: string;
+  quantity: number;
+  reason: string;
+}
+
+export interface EmployeeStockTransferResult {
+  transferGroupId: string;
+  from: EmployeeStockMovement;
+  to: EmployeeStockMovement;
+}
+
+/** Custody person to person inside one branch; crossing branches is a 409. */
+export async function transferEmployeeStock(
+  input: EmployeeStockTransferInput
+): Promise<EmployeeStockTransferResult> {
+  return fetchJson('/api/employee-stock/transfer', { method: 'POST', body: JSON.stringify(input) });
 }

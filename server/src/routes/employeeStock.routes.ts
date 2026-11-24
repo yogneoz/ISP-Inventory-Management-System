@@ -11,6 +11,7 @@
 import type { Express } from 'express';
 import {
   get_employeeStock,
+  get_employeeStockEmployees,
   get_employeeStockMovements,
   post_employeeStockConsume,
   post_employeeStockIssue,
@@ -28,6 +29,16 @@ export function registerEmployeeStockRoutes(app: Express) {
   app.get('/api/employee-stock/movements', requirePermission('employee-stock-view'), async (req, res, next) => {
     get_employeeStockMovements(req as any, res as any).catch(next);
   });
+
+  // The people custody can name: the same view gate as the holdings, because
+  // handing units to a technician must not require the HR employee register.
+  app.get(
+    '/api/employee-stock/employees',
+    requirePermission('employee-stock-view'),
+    async (req, res, next) => {
+      get_employeeStockEmployees(req as any, res as any).catch(next);
+    }
+  );
 
   app.post('/api/employee-stock/issue', requirePermission('stock-out'), async (req, res, next) => {
     post_employeeStockIssue(req as any, res as any, next).catch(next);

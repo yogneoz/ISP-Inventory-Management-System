@@ -32,6 +32,7 @@ export const TAB_PERMISSIONS: Record<string, string | string[]> = {
   'create-transfer': 'branch-transfer-create',
   'assign-asset': 'branch-asset-assign',
   'asset-deployments': 'branch-asset-assign',
+  'equipment-custody': 'employee-stock-view',
   'opening-stock': 'opening-stock-view',
   'category-management': 'category-manage',
   'product-group-management': 'product-group-manage',

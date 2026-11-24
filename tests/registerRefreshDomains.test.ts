@@ -1470,8 +1470,20 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       'assignFieldWorkOrder',
       'completeFieldWorkOrder',
       'createFieldWorkOrder',
+      'fetchFieldWorkOrderEvidenceContent',
       'getCustomers',
+      'getFieldWorkOrderEvidence',
       'getFieldWorkOrders',
+      'postFieldWorkOrderEvidence',
+    ],
+    // The branch-wide custody board: holdings and the roster it picks people
+    // from on mount, plus the two movements between people. Both writes reuse
+    // the employee-stock routes the panel and the phone already call.
+    'inventory/EquipmentCustody.tsx': [
+      'getCustodyEmployees',
+      'getEmployeeStockHoldings',
+      'recordEmployeeStockMovement',
+      'transferEmployeeStock',
     ],
     'inventory/SellerWarrantyRegister.tsx': [],
     'inventory/warranty/WarrantyEditModal.tsx': ['updateWarrantyCoverage'],

@@ -27,7 +27,7 @@ import {
   BranchStockTracking, FixedAssetRegister, CustomersManagement, CustomerMasterDirectory,
   SalesAgentsAreasManagement, SerialLogRegister, PurchaseInvoices, SalesInvoices, ReturnsRegister, Shipments,
   PhysicalStockAudit, DamagedStockTracking, ReorderStockTracking, StockValuation, StockMovementLedger,
-  AssetDeployments, SupplierWarrantyRegister, FieldWorkOrders, SellerWarrantyRegister, CategoryManagement,
+  AssetDeployments, EquipmentCustody, SupplierWarrantyRegister, FieldWorkOrders, SellerWarrantyRegister, CategoryManagement,
   ProductGroupManagement, UomManagement, ImportStock, ExportStock, TrialBalanceRegister,
   BsLedgerSummaryRegister, ProfitAndLossRegister, BranchConsolidatedRegister, BalanceSheetRegister,
   CashFlowRegister, CashBookRegister, RecurringCloseRegister, AgingRegister, ChartOfAccountsRegister,
@@ -841,6 +841,16 @@ export function buildScreenRoutes(props: ScreenRouteProps): AppRoute[] {
         onCancelApproval={handleCancelApprovalRequest}
         onReverseOperation={handleReverseStockOperation}
         onUpdateAssetStatus={handleUpdateAssetStatus}
+      />
+    )),
+    // Branch-wide custody: who holds what, issuing to a person, and moving
+    // custody between two people (a cross-branch hand-off is a 409 with the
+    // return-then-issue remedy, shown as the server words it).
+    screenRoute('equipment-custody', (
+      <EquipmentCustody
+        currentUser={currentUser}
+        selectedBranchId={selectedBranchId}
+        products={products}
       />
     )),
     screenRoute('consumables-register', (

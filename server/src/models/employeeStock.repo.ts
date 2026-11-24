@@ -144,6 +144,35 @@ export async function listEmployeeStockMovements(options: {
   return result.rows;
 }
 
+export interface CustodyEmployeeRow {
+  id: string;
+  employee_code: string;
+  name: string;
+  department: string | null;
+  branch_id: string;
+}
+
+/**
+ * The branch roster the custody actions pick a person from.
+ *
+ * Issuing equipment to someone and transferring it between two people both need
+ * a recipient list, and `employee-stock-view` already authorises exactly those
+ * screens. Reading it through `/api/employees` instead demanded `hr-employee-view`
+ * as well, an HR permission the branch manager who owns custody does not hold, so
+ * the holder had no way to name the person the units were for.
+ */
+export async function listCustodyEmployees(branchIds: string[] | null): Promise<CustodyEmployeeRow[]> {
+  const result = await pgPool.query(
+    `SELECT id, employee_code, name, department, branch_id
+       FROM employees
+      WHERE ($1::text[] IS NULL OR branch_id = ANY($1::text[]))
+      ORDER BY name ASC
+      LIMIT 1000`,
+    [branchIds && branchIds.length ? branchIds : null]
+  );
+  return result.rows;
+}
+
 export interface EmployeeStockCustodyProduct {
   product_id: string;
   product_code: string;

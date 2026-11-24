@@ -9,6 +9,7 @@
  */
 import React from 'react';
 import { api } from '../../services/api';
+import type { WorkOrderEvidence } from '../../services/api';
 import type { User } from '../../types';
 
 type WorkOrder = {
@@ -53,6 +54,26 @@ const STATUS_STYLE: Record<WorkOrder['status'], string> = {
 
 const today = () => new Date().toISOString().slice(0, 10);
 
+/** The server's per-capture ceiling; it re-checks and names it on refusal. */
+const MAX_EVIDENCE_BYTES = 2 * 1024 * 1024;
+
+const formatBytes = (bytes: number): string =>
+  bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(2)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+
+const stampOf = (value: string): string => {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+};
+
+/** The browser reads the file the way the phone does: a base64 payload. */
+const readFileAsBase64 = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('The file could not be read.'));
+    reader.onload = () => resolve(String(reader.result || '').replace(/^data:[^;]+;base64,/, ''));
+    reader.readAsDataURL(file);
+  });
+
 export const FieldWorkOrders: React.FC<FieldWorkOrdersProps> = ({ selectedBranchId, refreshKey, customers = [] }) => {
   const [rows, setRows] = React.useState<WorkOrder[]>([]);
   const [subscribers, setSubscribers] = React.useState<Array<Record<string, any>>>([]);
@@ -62,6 +83,17 @@ export const FieldWorkOrders: React.FC<FieldWorkOrdersProps> = ({ selectedBranch
   const [dialog, setDialog] = React.useState<'create' | 'assign' | 'complete' | null>(null);
   const [active, setActive] = React.useState<WorkOrder | null>(null);
   const [busy, setBusy] = React.useState(false);
+  // Proof of work (the visit's photo/signature gallery and upload).
+  const [proofFor, setProofFor] = React.useState<WorkOrder | null>(null);
+  const [evidence, setEvidence] = React.useState<WorkOrderEvidence[]>([]);
+  const [proofLoading, setProofLoading] = React.useState(false);
+  const [proofError, setProofError] = React.useState<string | null>(null);
+  const [proofNotice, setProofNotice] = React.useState<string | null>(null);
+  const [captureKind, setCaptureKind] = React.useState<'PHOTO' | 'SIGNATURE'>('PHOTO');
+  const [captureCaption, setCaptureCaption] = React.useState('');
+  const [captureFile, setCaptureFile] = React.useState<File | null>(null);
+  const [uploading, setUploading] = React.useState(false);
+  const [preview, setPreview] = React.useState<{ url: string; label: string } | null>(null);
   const [form, setForm] = React.useState({
     customerId: '',
     kind: 'INSTALL',
@@ -119,6 +151,103 @@ export const FieldWorkOrders: React.FC<FieldWorkOrdersProps> = ({ selectedBranch
     }));
     setError(null);
     setDialog(kind);
+  };
+
+  const loadEvidence = async (workOrderId: string) => {
+    setProofLoading(true);
+    setProofError(null);
+    try {
+      const payload = await api.getFieldWorkOrderEvidence(workOrderId);
+      setEvidence(Array.isArray(payload?.evidence) ? payload.evidence : []);
+    } catch (err: any) {
+      setEvidence([]);
+      setProofError(err?.message || 'The proof-of-work captures could not be loaded.');
+    } finally {
+      setProofLoading(false);
+    }
+  };
+
+  const openProof = (row: WorkOrder) => {
+    setProofFor(row);
+    setEvidence([]);
+    setProofError(null);
+    setProofNotice(null);
+    setCaptureFile(null);
+    setCaptureCaption('');
+    setCaptureKind('PHOTO');
+    setPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev.url);
+      return null;
+    });
+    void loadEvidence(row.id);
+  };
+
+  const closeProof = () => {
+    setPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev.url);
+      return null;
+    });
+    setProofFor(null);
+  };
+
+  const uploadCapture = async () => {
+    if (!proofFor) return;
+    setProofError(null);
+    setProofNotice(null);
+    if (!captureFile) {
+      setProofError('Choose an image file to attach first.');
+      return;
+    }
+    if (captureFile.size > MAX_EVIDENCE_BYTES) {
+      setProofError(
+        `That file is ${formatBytes(captureFile.size)}. One capture is capped at 2 MiB (2,097,152 bytes) — downscale or retake it.`
+      );
+      return;
+    }
+    setUploading(true);
+    try {
+      const dataBase64 = await readFileAsBase64(captureFile);
+      const saved = await api.postFieldWorkOrderEvidence(proofFor.id, {
+        kind: captureKind,
+        contentType: captureFile.type || 'image/png',
+        dataBase64,
+        caption: captureCaption.trim() || undefined,
+      });
+      setProofNotice(
+        saved.inserted
+          ? `Stored a ${formatBytes(saved.byteSize)} ${saved.kind.toLowerCase()} · SHA-256 ${saved.sha256.slice(0, 12)}… · this order now holds ${saved.count} capture${saved.count === 1 ? '' : 's'}.`
+          : `Already on file — these exact bytes were stored earlier, so nothing was duplicated. The order still holds ${saved.count} capture${saved.count === 1 ? '' : 's'}.`
+      );
+      setCaptureFile(null);
+      setCaptureCaption('');
+      await loadEvidence(proofFor.id);
+    } catch (err: any) {
+      const message = String(err?.message || '');
+      if (err?.status === 413) {
+        setProofError('The upload was refused by the request-size limit before it could be checked. One capture is capped at 2 MiB.');
+      } else if (/ceiling is/i.test(message)) {
+        setProofError(`That capture is too large — ${message}`);
+      } else {
+        setProofError(message || 'The capture could not be stored.');
+      }
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const viewCapture = async (row: WorkOrderEvidence) => {
+    if (!proofFor) return;
+    setProofError(null);
+    try {
+      const blob = await api.fetchFieldWorkOrderEvidenceContent(proofFor.id, row.id);
+      const url = URL.createObjectURL(blob);
+      setPreview((prev) => {
+        if (prev) URL.revokeObjectURL(prev.url);
+        return { url, label: `${row.kind === 'PHOTO' ? 'Photo' : 'Signature'} · ${row.sha256.slice(0, 12)}…` };
+      });
+    } catch (err: any) {
+      setProofError(err?.message || 'The stored capture could not be read back.');
+    }
   };
 
   const submit = async () => {
@@ -251,14 +380,19 @@ export const FieldWorkOrders: React.FC<FieldWorkOrdersProps> = ({ selectedBranch
                     : '—'}
                 </td>
                 <td className="px-3 py-2 text-right">
-                  {['OPEN', 'ASSIGNED'].includes(row.status) && (
-                    <span className="inline-flex gap-2">
-                      <button className="text-xs font-medium text-sky-700" onClick={() => openDialog('assign', row)}>
-                        {row.status === 'ASSIGNED' ? 'Reassign' : 'Assign'}
-                      </button>
-                      <button className="text-xs font-medium text-emerald-700" onClick={() => openDialog('complete', row)}>Complete</button>
-                    </span>
-                  )}
+                  <span className="inline-flex gap-2">
+                    <button className="text-xs font-medium text-slate-700" onClick={() => openProof(row)}>
+                      Proof
+                    </button>
+                    {['OPEN', 'ASSIGNED'].includes(row.status) && (
+                      <>
+                        <button className="text-xs font-medium text-sky-700" onClick={() => openDialog('assign', row)}>
+                          {row.status === 'ASSIGNED' ? 'Reassign' : 'Assign'}
+                        </button>
+                        <button className="text-xs font-medium text-emerald-700" onClick={() => openDialog('complete', row)}>Complete</button>
+                      </>
+                    )}
+                  </span>
                   {row.status === 'COMPLETED' && row.completion_notes && (
                     <span className="text-xs text-slate-400" title={row.completion_notes}>Completed</span>
                   )}
@@ -268,6 +402,145 @@ export const FieldWorkOrders: React.FC<FieldWorkOrdersProps> = ({ selectedBranch
           </tbody>
         </table>
       </div>
+
+      {proofFor && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-label="Proof of work">
+          <div className="max-h-[90vh] w-full max-w-3xl space-y-4 overflow-y-auto rounded-2xl bg-white p-5 shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-slate-800">Proof of work</h2>
+                <p className="text-sm text-slate-500">
+                  {proofFor.work_order_no} · {proofFor.customer_name || proofFor.customer_id}
+                </p>
+              </div>
+              <button className="text-xs font-medium text-slate-500" onClick={closeProof}>Close</button>
+            </div>
+
+            {proofError && (
+              <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                {proofError}
+              </div>
+            )}
+            {proofNotice && (
+              <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                {proofNotice}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                Captures on this order {evidence.length ? `(${evidence.length})` : ''}
+              </p>
+              {proofLoading ? (
+                <p className="text-sm text-slate-500">Loading captures…</p>
+              ) : evidence.length === 0 ? (
+                <p className="text-sm text-slate-500">
+                  No proof stored yet. A photo or signature captured on site appears here once it is attached.
+                </p>
+              ) : (
+                <table className="w-full text-left text-sm">
+                  <thead className="text-[11px] uppercase tracking-wider text-slate-400">
+                    <tr>
+                      <th className="px-2 py-1 font-semibold">Kind</th>
+                      <th className="px-2 py-1 font-semibold">Captured</th>
+                      <th className="px-2 py-1 font-semibold">Size</th>
+                      <th className="px-2 py-1 font-semibold">SHA-256</th>
+                      <th className="px-2 py-1 font-semibold">Caption</th>
+                      <th className="px-2 py-1" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {evidence.map((row) => (
+                      <tr key={row.id} className="border-t border-slate-100">
+                        <td className="px-2 py-1">{row.kind === 'PHOTO' ? 'Photo' : 'Signature'}</td>
+                        <td className="px-2 py-1 text-xs text-slate-500">{stampOf(row.captured_at)}</td>
+                        <td className="px-2 py-1 tabular-nums">{formatBytes(row.byte_size)}</td>
+                        <td className="px-2 py-1 font-mono text-xs text-slate-500">{row.sha256.slice(0, 12)}…</td>
+                        <td className="px-2 py-1 text-xs text-slate-500">{row.caption || '—'}</td>
+                        <td className="px-2 py-1 text-right">
+                          <button className="text-xs font-medium text-sky-700" onClick={() => void viewCapture(row)}>
+                            View
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {preview && (
+              <div className="space-y-2 rounded-xl border border-slate-200 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs font-semibold text-slate-600">Read back · {preview.label}</p>
+                  <button
+                    className="text-xs font-medium text-slate-500"
+                    onClick={() => {
+                      URL.revokeObjectURL(preview.url);
+                      setPreview(null);
+                    }}
+                  >
+                    Close preview
+                  </button>
+                </div>
+                <img src={preview.url} alt={preview.label} className="max-h-80 w-auto rounded-lg border border-slate-200" />
+              </div>
+            )}
+
+            <div className="space-y-2 rounded-xl border border-slate-200 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Attach a capture</p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="block text-sm">
+                  <span className="mb-1 block font-medium text-slate-600">Kind</span>
+                  <select
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                    value={captureKind}
+                    onChange={(event) => setCaptureKind(event.target.value as 'PHOTO' | 'SIGNATURE')}
+                  >
+                    <option value="PHOTO">Photo</option>
+                    <option value="SIGNATURE">Signature</option>
+                  </select>
+                </label>
+                <label className="block text-sm">
+                  <span className="mb-1 block font-medium text-slate-600">Image file</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                    onChange={(event) => setCaptureFile(event.target.files?.[0] || null)}
+                  />
+                </label>
+              </div>
+              <label className="block text-sm">
+                <span className="mb-1 block font-medium text-slate-600">Caption (optional)</span>
+                <input
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  value={captureCaption}
+                  placeholder="What the capture shows"
+                  onChange={(event) => setCaptureCaption(event.target.value)}
+                />
+              </label>
+              {captureFile && (
+                <p className="text-xs text-slate-500">
+                  {captureFile.name} · {formatBytes(captureFile.size)}
+                </p>
+              )}
+              <p className="text-xs text-slate-400">
+                One capture is capped at 2 MiB. Re-sending the same file is safe — the server recognises it and stores nothing twice.
+              </p>
+              <div className="flex justify-end">
+                <button
+                  className="rounded-lg bg-slate-800 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
+                  onClick={() => void uploadCapture()}
+                  disabled={uploading}
+                >
+                  {uploading ? 'Attaching…' : 'Attach capture'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {dialog && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 p-4" role="dialog" aria-modal="true">

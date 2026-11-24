@@ -115,6 +115,7 @@ export type NavTab =
   | 'assign-asset'
   | 'asset-deployments'
   | 'consumable-issue'
+  | 'equipment-custody'
   | 'consumables-register'
   | 'device-exchange'
   | 'branches'
@@ -232,6 +233,7 @@ export const NAV_TABS: NavTab[] = [
   'assign-asset',
   'asset-deployments',
   'consumable-issue',
+  'equipment-custody',
   'consumables-register',
   'device-exchange',
   'branches',
@@ -542,6 +544,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   //    that used to live in Branch Operations.
   const canViewProducts = isOperationAllowed('prod-view', currentUser?.role);
   const canAssignAssets = isOperationAllowed('branch-asset-assign', currentUser?.role);
+  // Custody is `employee-stock-view`; a desk role without it never sees the board.
+  const canViewCustody = isOperationAllowed('employee-stock-view', currentUser?.role);
   const inventoryChildren: NavChildDef[] = [
     ...(!isBranchUser
       ? [{ id: 'all-stock' as NavTab, label: 'All Available Stock', icon: Package, section: 'Registers' }]
@@ -563,6 +567,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       section: 'Registers',
     },
     { id: 'consumables-register' as NavTab, label: 'Consumables Register', icon: ClipboardList, section: 'Registers' },
+    ...(canViewCustody
+      ? [{ id: 'equipment-custody' as NavTab, label: 'Equipment Custody', icon: Package, section: 'Registers' }]
+      : []),
     { id: 'damage-report' as NavTab, label: 'Damaged Stock Report', icon: ClipboardList, section: 'Registers' },
     ...(canAssignAssets
       ? [{ id: 'asset-deployments' as NavTab, label: 'Asset Deployments', icon: MapPin, section: 'Registers' }]

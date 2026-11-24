@@ -75,6 +75,7 @@ export const SCREEN_PRELOADERS: Readonly<Record<string, ScreenModuleLoader>> = {
   'create-shipment': loadShipments,
   'shipment-list': loadShipments,
   'asset-deployments': () => import('./features/inventory/AssetDeployments'),
+  'equipment-custody': () => import('./features/inventory/EquipmentCustody'),
   'supplier-warranty': () => import('./features/inventory/SupplierWarrantyRegister'),
   'seller-warranty': () => import('./features/inventory/SellerWarrantyRegister'),
   'clear-demo-data': () => import('./components/common/ClearDemoDataView'),

@@ -65,6 +65,10 @@ export const SupplierWarrantyRegister = React.lazy(() =>
 export const FieldWorkOrders = React.lazy(() =>
   import('../features/sales/FieldWorkOrders').then((m) => ({ default: m.FieldWorkOrders }))
 );
+
+export const EquipmentCustody = React.lazy(() =>
+  import('../features/inventory/EquipmentCustody').then((m) => ({ default: m.EquipmentCustody }))
+);
 export const SellerWarrantyRegister = React.lazy(() =>
   import('../features/inventory/SellerWarrantyRegister').then((m) => ({
     default: m.SellerWarrantyRegister,

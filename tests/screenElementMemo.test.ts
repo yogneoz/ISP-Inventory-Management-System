@@ -206,7 +206,7 @@ describe('A1 wiring — the container actually memoises, and every tab is a memo
     );
   });
 
-  test('all 111 route entries declare a screen element (directly or in one Suspense)', () => {
+  test('all 112 route entries declare a screen element (directly or in one Suspense)', () => {
     // A4a moved the tab tree from inline <KeepMounted> blocks into the
     // screenRoutes table; the memo contract is unchanged, so the guard now
     // walks that table. AppRoutes passes each entry as KeepMounted's child.
@@ -218,7 +218,7 @@ describe('A1 wiring — the container actually memoises, and every tab is a memo
     const starts = app
       .map((line, index) => (line.includes('screenRoute(') ? index : -1))
       .filter((index) => index >= 0);
-    assert.equal(starts.length, 111, 'tab count changed — re-check the memo covers every slot');
+    assert.equal(starts.length, 112, 'tab count changed — re-check the memo covers every slot');
 
     const offenders: string[] = [];
     for (const start of starts) {

@@ -104,7 +104,7 @@ const EXPECTED: Record<string, { sections: string[]; items: string[] }> = {
     sections: ['Registers', 'Forms', 'Reports & exports'],
     items: [
       'all-stock', 'branch-stock', 'stock-ledger', 'complete-serial-inventory',
-      'damaged-stock', 'consumables-register', 'damage-report', 'asset-deployments',
+      'damaged-stock', 'consumables-register', 'equipment-custody', 'damage-report', 'asset-deployments',
       'consumable-issue', 'damage', 'assign-asset', 'physical-stock-audit',
       'reorder-stock', 'import-stock',
       'stock-valuation', 'export-stock',

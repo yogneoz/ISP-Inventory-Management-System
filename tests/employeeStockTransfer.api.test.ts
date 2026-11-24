@@ -11,7 +11,11 @@
  *      CROSS_BRANCH_TRANSFER) and writes nothing;
  *   4. transferring more than the giver holds is a 409 and leaves both
  *      projections untouched; a transfer to oneself is a 400, and a missing
- *      reason is a 400.
+ *      reason is a 400;
+ *   5. the roster the custody screen picks people from is readable with
+ *      `employee-stock-view` alone (the branch manager who issues and
+ *      transfers does not hold `hr-employee-view`), stays branch-scoped, and
+ *      is refused to a role without the custody view.
  */
 import { purgeAuditLogs } from './support/purgeAuditLogs';
 import { test, describe, before, after } from 'node:test';
@@ -57,12 +61,12 @@ describe('employee stock transfer (real HTTP + PostgreSQL)', { skip: skipNoDb },
   let close: (() => Promise<void>) | null = null;
   const token = issueAuthToken(MANAGER);
 
-  async function request(method: 'GET' | 'POST', path: string, body?: unknown) {
+  async function request(method: 'GET' | 'POST', path: string, body?: unknown, auth: string = token) {
     const res = await fetch('http://127.0.0.1:' + port + path, {
       method,
       headers: {
         ...(body === undefined ? {} : { 'content-type': 'application/json' }),
-        authorization: 'Bearer ' + token,
+        authorization: 'Bearer ' + auth,
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
@@ -255,5 +259,26 @@ describe('employee stock transfer (real HTTP + PostgreSQL)', { skip: skipNoDb },
       [BRANCH]
     );
     assert.equal(movements.rows[0].n, 2, 'only the successful transfer wrote rows');
+  });
+
+  test('the custody roster is readable with employee-stock-view alone', async () => {
+    // Issuing to a person and transferring between two people both need a
+    // recipient list. Reading it through /api/employees demanded
+    // hr-employee-view, which the branch manager who owns custody does not hold.
+    const roster = await request('GET', '/api/employee-stock/employees');
+    assert.equal(roster.status, 200, JSON.stringify(roster.json));
+    const ids = (roster.json as any[]).map((row) => row.id);
+    assert.ok(ids.includes(EMP_A), 'the branch roster names the employee who holds units');
+    assert.ok(ids.includes(EMP_B), 'and the one who holds nothing yet — that is who a transfer is for');
+    assert.ok(!ids.includes(EMP_C), "another branch's employee must not be listed");
+
+    const accountant = issueAuthToken({
+      ...MANAGER,
+      id: 'cst-test-acct',
+      email: 'cst-test-acct@example.com',
+      role: 'ACCOUNTANT',
+    } as any);
+    const denied = await request('GET', '/api/employee-stock/employees', undefined, accountant);
+    assert.equal(denied.status, 403, 'without employee-stock-view the roster is refused');
   });
 });

@@ -65,6 +65,7 @@ export const APP_PATHS: Record<NavTab, string> = {
   'assign-asset': '/inventory/assets/assign',
   'asset-deployments': '/inventory/assets/deployments',
   'consumable-issue': '/inventory/consumables/issue',
+  'equipment-custody': '/inventory/custody',
   'consumables-register': '/inventory/consumables',
   'device-exchange': '/inventory/exchange',
 

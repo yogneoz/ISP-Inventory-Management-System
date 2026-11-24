@@ -21,6 +21,7 @@ import {
   consumeEmployeeStock,
   employeeBranchId,
   issueEmployeeStock,
+  listCustodyEmployees,
   listEmployeeStockHoldings,
   listEmployeeStockMovements,
   recordEmployeeStockLoss,
@@ -84,6 +85,22 @@ export async function get_employeeStock(req: Request, res: Response): Promise<an
     employeeId: text(req.query.employeeId, 50) || undefined,
     productId: text(req.query.productId, 50) || undefined,
   });
+  res.set('Cache-Control', 'private, no-store');
+  res.json(rows);
+}
+
+/**
+ * GET /api/employee-stock/employees — the roster the custody actions pick from.
+ *
+ * Same `employee-stock-view` gate as the holdings it sits beside, and the same
+ * branch scope: a manager handing units to a technician can name that person
+ * without being granted the whole HR employee register.
+ */
+export async function get_employeeStockEmployees(req: Request, res: Response): Promise<any> {
+  const scope = resolveBranchScope(req as any, res);
+  if (!scope) return;
+  if (scope.empty) return res.status(403).json({ message: 'Forbidden: no branch is assigned to this account.' });
+  const rows = await listCustodyEmployees(readableBranchIds(scope));
   res.set('Cache-Control', 'private, no-store');
   res.json(rows);
 }
