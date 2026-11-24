@@ -43,7 +43,8 @@
     "check:boot-timing": "node scripts/check_boot_timing.mjs",
     "audit:bs-dates": "tsx scripts/audit_bs_calendar_dates.ts",
     "verify:fresh-install": "node scripts/verify_fresh_install.mjs",
-    "seed:verify": "tsx scripts/seed_verification_data.ts"
+    "seed:verify": "tsx scripts/seed_verification_data.ts",
+    "check:demo-coverage": "tsx scripts/check_demo_coverage.ts"
   },
   "dependencies": {
     "@fontsource/noto-sans": "^5.3.0",

@@ -367,6 +367,33 @@ Run these after an import correction or database migration, preferably during a 
 
 To recreate the demo database from scratch, drop/recreate `inventory_db`, then run `npm run setup:pg -- --force --skip-backup-check` (the database is deliberately disposable).
 
+### What the Verification Dataset Covers
+
+`npm run seed:verify` (and the setup script that calls it) writes **one** dataset
+that every module reads: two fiscal years, four branches, nine demo accounts,
+80 customers, 25 products, purchases/sales/receipts with a full double-entry
+ledger, CPE and warranty registers, damage, stock operations, purchase orders,
+returns, shipments, budgets and budget history, cost-centre allocations, the
+month-end close checklist, HR (org masters, payroll, attendance, leave,
+recruitment, performance, lifecycle), permissions, and — as of the demo-dataset
+pass — the **dispatch board** with photo and signature proof of work, **van
+custody** (issues, consumption, a mirrored transfer, and holdings that equal the
+movement sum), the **warranty claim/RMA timeline**, an **imported bank statement**
+with an open reconciliation session, **recurring journal templates**, **cash-flow
+forecast inputs**, the **lending register** (lenders, loans, schedules),
+**shift roster and field-tracking breadcrumbs**, **attendance integrity proofs**,
+**company announcements**, **branch geofences**, **expense claims, delegations and
+employee-file sections**, and a **partner + API key + queued integration events**.
+
+Prove it with `npm run check:demo-coverage`: it counts every table the app exposes
+and fails when a module is empty. Modules that are deliberately left empty are
+printed with the reason (a POSTED service invoice, a loan receipt, a recurring run
+or a payment allocation would each post a journal and move a verified figure).
+The dataset keeps its own promises — AR 10,000 / AP 15,000 / Inventory 20,000 /
+Cash + Bank 10,000 / Equity 50,000 / Fixed assets 24,000 / Prepaid 5,000, every
+branch trial balance at zero, and five pieces of every product in every branch —
+and the seeder refuses to exit if one of them drifts.
+
 ### Default Clean Mode
 The application seeds **example master branches only** (Branch 1 `WH001`, Branch 2 `BRH01`) plus fiscal years at minimum, so you can immediately begin importing your real products or entering stock.
 
@@ -916,7 +943,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 2842-test suite against a PostgreSQL 16 service container (zero DB skips;
+  full 2859-test suite against a PostgreSQL 16 service container (zero DB skips;
   the two unconditional skips are Windows-only real-signal checks, which CI runs,
   and the live-drain check runs under `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1` so its
   preconditions cannot silently skip it) →

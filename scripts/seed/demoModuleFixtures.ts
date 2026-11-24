@@ -12,12 +12,20 @@ import { applyDemoFinanceFixtures, buildDemoFinanceFixtures } from './demoFinanc
 import { applyDemoOperationsFixtures, buildDemoOperationsFixtures } from './demoOperationsFixtures';
 import { applyDemoHrFixtures, buildDemoHrFixtures } from './demoHrFixtures';
 import { applyDemoPermissionFixtures, buildDemoPermissionFixtures } from './demoPermissionFixtures';
+import { applyDemoWorkplaceFixtures, buildDemoWorkplaceFixtures } from './demoWorkplaceFixtures';
+import { applyDemoIntegrationFixtures, buildDemoIntegrationFixtures } from './demoIntegrationFixtures';
+import { applyDemoRegisterFixtures, buildDemoRegisterFixtures } from './demoRegisterFixtures';
+import { applyDemoSelfServiceFixtures, buildDemoSelfServiceFixtures } from './demoSelfServiceFixtures';
 
 export interface DemoModuleFixtures {
   finance: ReturnType<typeof buildDemoFinanceFixtures>;
   operations: ReturnType<typeof buildDemoOperationsFixtures>;
   hr: ReturnType<typeof buildDemoHrFixtures>;
   permissions: ReturnType<typeof buildDemoPermissionFixtures>;
+  workplace: ReturnType<typeof buildDemoWorkplaceFixtures>;
+  integration: ReturnType<typeof buildDemoIntegrationFixtures>;
+  registers: ReturnType<typeof buildDemoRegisterFixtures>;
+  selfService: ReturnType<typeof buildDemoSelfServiceFixtures>;
 }
 
 export function buildDemoModuleFixtures(dataset: VerificationDataset): DemoModuleFixtures {
@@ -26,6 +34,10 @@ export function buildDemoModuleFixtures(dataset: VerificationDataset): DemoModul
     operations: buildDemoOperationsFixtures(dataset),
     hr: buildDemoHrFixtures(dataset),
     permissions: buildDemoPermissionFixtures(),
+    workplace: buildDemoWorkplaceFixtures(dataset),
+    integration: buildDemoIntegrationFixtures(),
+    registers: buildDemoRegisterFixtures(dataset),
+    selfService: buildDemoSelfServiceFixtures(dataset),
   };
 }
 
@@ -38,5 +50,9 @@ export async function applyDemoModuleFixtures(
     ...(await applyDemoOperationsFixtures(client, dataset)),
     ...(await applyDemoHrFixtures(client, dataset)),
     ...(await applyDemoPermissionFixtures(client)),
+    ...(await applyDemoWorkplaceFixtures(client, dataset)),
+    ...(await applyDemoIntegrationFixtures(client)),
+    ...(await applyDemoRegisterFixtures(client, dataset)),
+    ...(await applyDemoSelfServiceFixtures(client, dataset)),
   };
 }

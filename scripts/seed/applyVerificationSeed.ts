@@ -11,7 +11,7 @@
 import crypto from 'node:crypto';
 import { buildBsDayRecordsForYear, DEFAULT_BS_YEARS_SERVER } from '../../server/src/config/bsCalendar';
 import { defaultAccountSide } from '../../server/src/config/defaultChart';
-import { COST_CENTER_BY_EXPENSE_ACCOUNT } from './verificationDataset';
+import { COST_CENTER_BY_EXPENSE_ACCOUNT, FISCAL_YEARS } from './verificationDataset';
 import type { VerificationDataset } from './verificationDataset';
 
 /** Bcrypt-compatible-with-the-server scrypt format: scrypt$<salt>$<hex>. */
@@ -96,7 +96,42 @@ export async function backfillDemoCostCenterTags(client: any): Promise<number> {
   return result.rowCount || 0;
 }
 
+/**
+ * Provisions a journal partition for every month the dataset writes.
+ *
+ * Boot only provisions one month behind and three ahead of *today*, but this
+ * dataset deliberately spans two fiscal years. Rows dated outside that window
+ * land in the DEFAULT catch-all, and PostgreSQL then refuses to attach a month
+ * partition whose range DEFAULT already holds rows in ("the default partition
+ * would be violated by some row") — which also breaks any later UPDATE that
+ * moves a journal between dates. Provisioning the seeded months before the
+ * first insert keeps DEFAULT empty, which is the state the partition tests, the
+ * keeper and partition pruning all assume.
+ *
+ * Runs after the wipe, so the months are attached against an empty DEFAULT.
+ * The DDL is the same idempotent function the boot/keeper path calls.
+ */
+export async function provisionSeededJournalMonths(client: any): Promise<string[]> {
+  const months: string[] = [];
+  for (const year of FISCAL_YEARS) {
+    const cursor = new Date(`${year.startDateAD}T00:00:00Z`);
+    const end = new Date(`${year.endDateAD}T00:00:00Z`);
+    while (cursor.getTime() <= end.getTime()) {
+      const key = `${cursor.getUTCFullYear()}${String(cursor.getUTCMonth() + 1).padStart(2, '0')}`;
+      if (!months.includes(key)) months.push(key);
+      cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+    }
+  }
+  for (const key of months) {
+    await client.query('SELECT ensure_journal_month_partition($1::date)', [
+      `${key.slice(0, 4)}-${key.slice(4, 6)}-01`,
+    ]);
+  }
+  return months;
+}
+
 export async function applyVerificationSeed(client: any, dataset: VerificationDataset): Promise<Record<string, number>> {
+  await provisionSeededJournalMonths(client);
   const summary: Record<string, number> = {};
   const count = (key: string, rows: any[]) => {
     summary[key] = rows.length;
