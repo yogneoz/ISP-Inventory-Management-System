@@ -61,6 +61,17 @@ const EMPLOYEES = [
     ssfNo: '', bank: 'Global IME Bank', account: '012345678905',
     phone: '9801000005', email: 'rajan.rai@example.com',
   },
+  {
+    // The auditor login (`usr-auditor`) used to hold no employee record at all,
+    // so `/api/v1/payslips` answered 404 for it and the audit persona could not
+    // open the payroll screens the mission requires it to verify.
+    id: 'demo-emp-020', code: 'EMP-020', name: 'Sabina Shrestha', branchId: 'BR-KTM',
+    department: 'Executive Management', designation: 'Internal Auditor & Compliance Officer', designationCode: 'DES-41',
+    userId: 'usr-auditor', salary: 75_000, basic: 48_000, allowance: 27_000,
+    ssf: true, joining: '2025-08-01', dob: '1991-02-14', pan: '100100120',
+    ssfNo: 'SSF-1020', bank: 'Nabil Bank', account: '012345678920',
+    phone: '9801000020', email: 'sabina.shrestha@example.com',
+  },
 ];
 
 /**
@@ -500,6 +511,10 @@ export function buildDemoHrFixtures(dataset: VerificationDataset): DemoHrFixture
     { id: 'demo-emp-007', code: 'EMP-007', name: 'Sandesh Bhandari', branchId: 'BR-KTM', basic: 69_000, allowance: 46_000, incentive: 0, ssf: true, tds: 10_000, salaryId: null, bank: 'Nabil Bank', account: '012345678907' },
     { id: 'demo-emp-011', code: 'EMP-011', name: 'Manisha Joshi', branchId: 'BR-KTM', basic: 69_000, allowance: 46_000, incentive: 0, ssf: true, tds: 10_000, salaryId: null, bank: 'Nabil Bank', account: '012345678911' },
     { id: 'demo-emp-014', code: 'EMP-014', name: 'Rohit Karki', branchId: 'BR-KTM', basic: 49_200, allowance: 32_800, incentive: 0, ssf: true, tds: 6_000, salaryId: null, bank: 'Nabil Bank', account: '012345678914' },
+    // The auditor's own payslip rides the same posted Kathmandu run: a second
+    // run would double-post the branch payroll, and a payslip outside a posted
+    // run would not survive the immutable run-line snapshot the screen reads.
+    { id: 'demo-emp-020', code: 'EMP-020', name: 'Sabina Shrestha', branchId: 'BR-KTM', basic: 48_000, allowance: 27_000, incentive: 0, ssf: true, tds: 4_000, salaryId: 'demo-salary-emp-020', bank: 'Nabil Bank', account: '012345678920' },
   ];
 
   const ssfOf = (person: PayrollPersona) => (person.ssf ? Math.round(person.basic * 0.11) : 0);

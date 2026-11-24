@@ -60,17 +60,18 @@ describe('verification dataset', () => {
     assert.ok(modules.operations.damage.length > 0);
     assert.ok(modules.operations.purchaseOrders.length > 0);
     assert.ok(modules.operations.shipments.length > 0);
-    // 5 payroll/attendance demo employees + 14 chart-only employees that hold
-    // the refactored designations.
-    assert.equal(modules.hr.employees.length, 19);
+    // 6 payroll/attendance demo employees (the auditor now holds one too) + 14
+    // chart-only employees that hold the refactored designations.
+    assert.equal(modules.hr.employees.length, 20);
     assert.equal(modules.hr.attendance.length, 10);
-    // One payslip per demo account that has an employee record (the auditor
-    // account is a view-only login and holds none).
-    assert.equal(modules.hr.payrollLines.length, 8);
+    // One payslip per demo account that has an employee record — including the
+    // auditor, whose payslip rides the posted Kathmandu run rather than a second
+    // cycle of its own.
+    assert.equal(modules.hr.payrollLines.length, 9);
     const payrollDebit = modules.hr.journalLines.reduce((sum, line) => sum + Number(line.debit), 0);
     const payrollCredit = modules.hr.journalLines.reduce((sum, line) => sum + Number(line.credit), 0);
-    assert.equal(payrollDebit, 669_000, 'demo payroll journal debits');
-    assert.equal(payrollCredit, 669_000, 'demo payroll journals must balance');
+    assert.equal(payrollDebit, 744_000, 'demo payroll journal debits');
+    assert.equal(payrollCredit, 744_000, 'demo payroll journals must balance');
     // One posted cycle per payroll branch, each carrying its own employees.
     assert.equal(modules.hr.payrollRuns.length, 4);
     for (const run of modules.hr.payrollRuns) {

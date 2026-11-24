@@ -309,7 +309,7 @@ describe('demo coverage fixtures', () => {
       byEmployee.set(String(row.employee_id), dates);
     }
     // The non-payroll personas the phone signs in as.
-    for (const employeeId of ['demo-emp-003', 'demo-emp-004', 'demo-emp-005', 'demo-emp-007', 'demo-emp-011', 'demo-emp-014']) {
+    for (const employeeId of ['demo-emp-003', 'demo-emp-004', 'demo-emp-005', 'demo-emp-007', 'demo-emp-011', 'demo-emp-014', 'demo-emp-020']) {
       const dates = byEmployee.get(employeeId);
       assert.ok(dates, `${employeeId} must have attendance the app can show`);
       assert.equal(dates!.size, 5, `${employeeId} needs a full working week`);
@@ -323,8 +323,8 @@ describe('demo coverage fixtures', () => {
 
   test('the office personas have a leave type to choose from', () => {
     const owners = new Set(coverage.mobileLeaveBalances.map((row) => String(row.employee_id)));
-    assert.deepEqual([...owners].sort(), ['demo-emp-007', 'demo-emp-011', 'demo-emp-014']);
-    assert.equal(coverage.mobileLeaveBalances.length, 9, 'three leave types for each persona that files leave');
+    assert.deepEqual([...owners].sort(), ['demo-emp-007', 'demo-emp-011', 'demo-emp-014', 'demo-emp-020']);
+    assert.equal(coverage.mobileLeaveBalances.length, 12, 'three leave types for each persona that files leave');
     for (const row of coverage.mobileLeaveBalances) {
       assert.ok(Number(row.entitlement_days) > 0);
       assert.equal(row.balance_year, 2026);

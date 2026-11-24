@@ -22,8 +22,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { act, createElement } from 'react';
 import { mountTree } from './harness/mount';
 import { buildVerificationDataset } from '../scripts/seed/verificationDataset';
+import { buildDemoHrFixtures } from '../scripts/seed/demoHrFixtures';
 import { buildDemoWorkplaceFixtures } from '../scripts/seed/demoWorkplaceFixtures';
 import { buildDemoCoverageFixtures } from '../scripts/seed/demoCoverageFixtures';
+// The payslip payload is built by the server's own projection from the seed
+// fixture rows, so this test asserts the shape the controller really returns.
+import { buildPayrollOutput } from '../server/src/services/payrollOutput.service';
 
 const stubUrl = (file: string) => new URL(`./harness/${file}`, import.meta.url).href;
 
@@ -55,6 +59,7 @@ registerHooks({
 const screensUrl = pathToFileURL(fileURLToPath(new URL('../mobile-expo/src/screens.tsx', import.meta.url))).href;
 
 const dataset = buildVerificationDataset();
+const hr = buildDemoHrFixtures(dataset);
 const workplace = buildDemoWorkplaceFixtures(dataset);
 const coverage = buildDemoCoverageFixtures(dataset);
 
@@ -214,6 +219,102 @@ const stockPayload = {
   }),
 };
 
+/**
+ * The accountant (`demo-emp-011`) used to open Payslips on the unlock state and
+ * then "No payslips on file": the persona had an employee record but no payroll
+ * run line. The November run now carries one, so the payload below is the
+ * server's own projection of that seeded line rather than a hand-written card.
+ */
+const PAYSLIP_PERSONA = 'demo-emp-011';
+const slipLine = hr.payrollLines.find((row: any) => row.employee_id === PAYSLIP_PERSONA) as any;
+const slipRun = hr.payrollRuns.find((row: any) => row.id === slipLine.run_id) as any;
+const slipEmployee = hr.employees.find((row: any) => row.id === PAYSLIP_PERSONA) as any;
+const slipBranch = dataset.branches.find((row: any) => row.id === slipRun.branch_id) as any;
+
+const payslipsPayload = {
+  payslips: buildPayrollOutput(
+    {
+      branchId: slipRun.branch_id,
+      branchName: slipBranch.name,
+      fiscalYearCode: '2083-84',
+      runNo: slipRun.run_no,
+      periodKey: slipRun.period_key,
+      runDateAD: slipRun.run_date_ad,
+      runDateBS: slipRun.run_date_bs,
+      paidDateAD: null,
+      paymentMethod: null,
+      status: slipRun.status,
+    },
+    [
+      {
+        id: slipLine.id,
+        employeeId: slipLine.employee_id,
+        employeeCode: slipLine.employee_code,
+        employeeName: slipLine.employee_name,
+        periodKey: slipLine.period_key,
+        basicAmount: slipLine.basic_amount,
+        payableDays: slipLine.payable_days,
+        lopDays: slipLine.lop_days,
+        lopDeduction: slipLine.lop_deduction,
+        overtimeHours: slipLine.overtime_hours,
+        overtimeAmount: slipLine.overtime_amount,
+        incentive: slipLine.incentive_amount,
+        arrears: slipLine.arrears_amount,
+        gross: slipLine.gross_amount,
+        tds: slipLine.tds_amount,
+        ssf: slipLine.ssf_amount,
+        employerSsf: slipLine.employer_ssf_amount,
+        advance: slipLine.advance_deduction,
+        loan: slipLine.loan_deduction,
+        net: slipLine.net_amount,
+        bankName: slipLine.bank_name,
+        bankAccount: slipLine.bank_account,
+      },
+    ],
+    [
+      {
+        id: slipEmployee.id,
+        name: slipEmployee.name,
+        department: slipEmployee.department,
+        designation: slipEmployee.designation,
+        panNumber: slipEmployee.pan_number,
+        ssfNumber: slipEmployee.ssf_number,
+      },
+    ],
+    true
+  ).payslips,
+};
+
+const reAuthPayload = { reAuthToken: 'render-check-reauth', expiresInSeconds: 300 };
+
+/** The screen's own formatter (`money()` in screens.tsx), spelled out. */
+const moneyText = (value: unknown) => `NPR ${Number(value).toLocaleString()}`;
+
+/** Types into the first text field the way the device keyboard does. */
+function typeInto(container: HTMLElement, value: string): void {
+  const input = container.querySelector('input') as HTMLInputElement | null;
+  assert.ok(input, 'the unlock form must render its password field');
+  // jsdom's constructors live on the window, not on the test global; the native
+  // setter is what keeps React's value tracker from swallowing the change.
+  const view = container.ownerDocument.defaultView as any;
+  const setValue = Object.getOwnPropertyDescriptor(view.HTMLInputElement.prototype, 'value')!.set!;
+  act(() => {
+    setValue.call(input!, value);
+    input!.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+
+/** Presses the control whose label matches, as the user would. */
+function clickText(container: HTMLElement, label: string): void {
+  const button = [...container.querySelectorAll('[data-rn="Pressable"]')].find(
+    (element) => (element.textContent || '').trim() === label
+  ) as HTMLElement | undefined;
+  assert.ok(button, `expected a "${label}" control on screen`);
+  act(() => {
+    button!.click();
+  });
+}
+
 let screens: any;
 
 before(async () => {
@@ -291,6 +392,34 @@ describe('the mobile tabs reach their loaded state with the seeded rows', () => 
     expectOnScreen(stock.container, [holding.productName, holding.sku, 'Van KTM', String(holding.quantity)]);
     expectNoEmptyBranch(stock.container, ['Nothing is issued to you right now.']);
     stock.unmount();
+  });
+
+  test('Payslips — the accountant unlocks the posted November payslip instead of the empty state', async () => {
+    mockApi([
+      { match: '/api/v1/auth/re-auth', body: reAuthPayload },
+      { match: '/api/v1/payslips', body: payslipsPayload },
+    ]);
+    const tree = mountTree(createElement(screens.PayslipsScreen, { token: TOKEN }));
+    await settle(2);
+    // Locked before the password is typed, as the contract requires.
+    expectOnScreen(tree.container, ['My payslips', 'Unlock payslips']);
+
+    typeInto(tree.container, 'Demo@123');
+    clickText(tree.container, 'Unlock payslips');
+    await settle();
+
+    const slip = payslipsPayload.payslips[0];
+    assert.ok(Number(slip.net) > 0, 'the seeded payslip this persona reads must pay a nonzero net');
+    expectOnScreen(tree.container, [
+      `${slip.periodKey} · ${slip.status}`,
+      moneyText(slip.gross),
+      moneyText(slip.totalDeductions),
+      moneyText(slip.net),
+      slip.branchName,
+    ]);
+    expectNoEmptyBranch(tree.container, ['No payslips on file.']);
+    assert.deepEqual(requested, ['/api/v1/auth/re-auth', '/api/v1/payslips']);
+    tree.unmount();
   });
 
   test('the API the tabs read is the documented mobile surface, not a stub path', async () => {
