@@ -11,12 +11,25 @@ const API_BASE = (process.env.EXPO_PUBLIC_API_BASE || 'http://10.10.2.50:3000').
 export const apiBase = API_BASE;
 
 /**
- * The device binding the contract names. One Expo Go install is one device for
- * the server (a punch, a login and a revoked-phone pull all key off it), so the
- * value is fixed per build rather than random per request: a random one would
- * register a new device on every cold start.
+ * The device binding the contract names.
+ *
+ * The server admits the device a password login names and then refuses a login
+ * that names a device bound to another employee (`403 This device is bound to
+ * another employee`). A single hard-coded id would therefore lock this phone to
+ * whoever signed in first — unusable for a demo that switches accounts on one
+ * handset. The id is derived from the account instead: stable across launches
+ * for that account (a punch and a claim keep the same device), distinct per
+ * account, and still one device per person as the contract intends.
  */
-export const DEVICE_ID = 'expo-workplace-android';
+const deviceSlug = (email: string) =>
+  email.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+
+export const deviceIdFor = (email: string) => `expo-workplace-${deviceSlug(email)}`;
+
+let activeDeviceId = 'expo-workplace-anonymous';
+
+/** The device the signed-in account is using. */
+export const deviceId = () => activeDeviceId;
 
 export class ApiError extends Error {
   status: number;
@@ -192,8 +205,12 @@ export interface BootstrapPayload {
 
 // The mobile contract names the session token `accessToken` (the web login
 // calls it `token`); the app keeps the contract's word.
-export const login = (email: string, password: string) =>
-  call<LoginResult>('/api/v1/auth/login', { body: { email, password, deviceId: DEVICE_ID } });
+export const login = (email: string, password: string) => {
+  activeDeviceId = deviceIdFor(email);
+  return call<LoginResult>('/api/v1/auth/login', {
+    body: { email, password, deviceId: activeDeviceId },
+  });
+};
 
 export const logout = (token: string, refreshToken: string) =>
   call<{ loggedOut: boolean }>('/api/v1/auth/logout', { token, body: { refreshToken } });
@@ -201,7 +218,7 @@ export const logout = (token: string, refreshToken: string) =>
 export const registerDevice = (token: string, appVersion: string) =>
   call<{ registered: boolean; deviceId: string; boundAt: string }>('/api/v1/devices/register', {
     token,
-    body: { deviceId: DEVICE_ID, platform: 'android', appVersion, idempotencyKey: `device-${DEVICE_ID}` },
+    body: { deviceId: activeDeviceId, platform: 'android', appVersion, idempotencyKey: `device-${activeDeviceId}` },
   });
 
 export const profile = (token: string) => call<any>('/api/v1/profile', { token });
@@ -305,7 +322,7 @@ export const submitClaim = (
       ticketCode: input.ticketCode || undefined,
       description: input.description,
       receiptAttached: Boolean(input.receiptAttached),
-      idempotencyKey: `claim-${DEVICE_ID}-${Date.now()}`,
+      idempotencyKey: `claim-${activeDeviceId}-${Date.now()}`,
     },
   });
 
@@ -325,9 +342,9 @@ export const punch = (
       latitude: input.latitude,
       longitude: input.longitude,
       accuracyMeters: input.accuracyMeters,
-      deviceId: DEVICE_ID,
+      deviceId: activeDeviceId,
       deviceTimeEpochMs: Date.now(),
-      idempotencyKey: `punch-${DEVICE_ID}-${input.action}-${input.attendanceDateAD}-${Date.now()}`,
+      idempotencyKey: `punch-${activeDeviceId}-${input.action}-${input.attendanceDateAD}-${Date.now()}`,
     },
   });
 
