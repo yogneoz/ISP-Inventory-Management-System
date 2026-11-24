@@ -435,6 +435,15 @@ describe('every demo login reaches a populated surface', () => {
       rows: (employeeId) => hr.payrollLines.filter((row: any) => row.employee_id === employeeId).length,
     },
     {
+      // Gated only by claims.submit, which every demo role holds, so the entry
+      // is offered to all nine and "Find a claim" must find one of their own.
+      name: 'Expense claim',
+      gate: 'claims.submit',
+      rows: (employeeId) =>
+        selfService.expenseClaims.filter((row: any) => row.employee_id === employeeId).length +
+        (coverage.mobileClaim.employee_id === employeeId ? 1 : 0),
+    },
+    {
       name: 'Jobs',
       gate: null,
       rows: workOrderRows,
