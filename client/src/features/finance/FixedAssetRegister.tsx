@@ -23,6 +23,7 @@ import { PageHeader } from '../../components/common/PageHeader';
 import { RegisterLoadError } from '../../components/common/RegisterLoadError';
 import { useDialog } from '../../components/common/DialogProvider';
 import { ModalPanel } from '../../components/common/ModalPanel';
+import { businessDateAD } from '../../../../shared/businessDate';
 import { warrantyEndFieldError, warrantyEndFor } from '../../utils/warrantyCapture';
 import { getRowActivationProps, ROW_FOCUS_CLASS } from '../../utils/interactiveRow';
 import type { RecordRoute } from '../../routes/appPaths';
@@ -96,13 +97,14 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
     'STRAIGHT_LINE'
   );
   const [depreciationRatePercent, setDepreciationRatePercent] = useState(15);
-  const [acquisitionDateAD, setAcquisitionDateAD] = useState(
-    new Date().toISOString().split('T')[0]
-  );
+  // The business day is the one every other receipt stamps
+  // (Asia/Kathmandu): a UTC date would open the form on yesterday's day for
+  // the first 5h45 of the local morning.
+  const [acquisitionDateAD, setAcquisitionDateAD] = useState(() => businessDateAD());
   // WTY-4: the supplier expiry is captured with the asset. It follows the
   // acquisition date only until the operator edits it.
   const [supplierWarrantyEndDateAD, setSupplierWarrantyEndDateAD] = useState(() =>
-    warrantyEndFor(new Date().toISOString().split('T')[0], 12)
+    warrantyEndFor(businessDateAD(), 12)
   );
   const [warrantyTouched, setWarrantyTouched] = useState(false);
   // WTY-5: the asset may carry no supplier warranty at all; the switch makes

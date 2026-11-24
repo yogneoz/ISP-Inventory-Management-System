@@ -1,3 +1,4 @@
+import { businessDateAD } from './businessDate';
 /**
  * Warranty claim / RMA lifecycle, shared by the API and the register.
  *
@@ -107,7 +108,7 @@ export function warrantyClaimSlaDays(
 ): number {
   const start = Date.parse(`${String(reportedDateAD).slice(0, 10)}T00:00:00Z`);
   const end = Date.parse(
-    `${String(closedDateAD || todayAD || new Date().toISOString().slice(0, 10)).slice(0, 10)}T00:00:00Z`
+    `${String(closedDateAD || todayAD || businessDateAD()).slice(0, 10)}T00:00:00Z`
   );
   if (!Number.isFinite(start) || !Number.isFinite(end)) return 0;
   return Math.max(0, Math.round((end - start) / 86_400_000));

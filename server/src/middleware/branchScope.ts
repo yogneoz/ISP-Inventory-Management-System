@@ -153,6 +153,16 @@ export const BRANCH_SCOPE_EXEMPTIONS: readonly BranchScopeExemption[] = [
       'Written by the guarded stock-operation/damage service and read through the branch-scoped bootstrap slice; there is no /damage-records/:id route.',
   },
   {
+    table: 'field_work_order_evidence',
+    reason:
+      'A capture is a child of a guarded work order: every evidence route is nested under /api/field-work-orders/:id (and /api/v1/workplace/jobs/:id), and both controllers load the order first and refuse an out-of-branch order with 403 before reading or writing a row. The branch is copied from the order at write time, and there is no /evidence/:id route of its own.',
+  },
+  {
+    table: 'accounting_outbox',
+    reason:
+      'The outbox is internal queue state with no client route at all: claims enqueue and approval/rejection flips happen inside the services, the flusher (npm run accounting-outbox:flush) scans every branch as an operator command, and the only branch-visible fact is the claim response the mobile contract already scopes. There is no row-id route, so a by-id guard has nothing to address.',
+  },
+  {
     table: 'employee_stock_movements',
     reason:
       'Custody ledger rows have no by-id route: /api/employee-stock reads intersect the caller\'s allowed branches and its writes are pinned to the session branch (or, for head office, the employee\'s own) inside employeeStock.controller before the repository sees them. Movements are the append-only source the holdings row is rebuilt from.',
@@ -292,6 +302,11 @@ export const BRANCH_SCOPE_EXEMPTIONS: readonly BranchScopeExemption[] = [
     table: 'employee_location_breadcrumbs',
     reason:
       'Breadcrumbs are an append-only device trace: the batch insert takes branch_id from the token\'s employee and the id is the client\'s own point id, with ON CONFLICT DO NOTHING. No route reads or mutates one by id.',
+  },
+  {
+    table: 'mobile_sync_rejections',
+    reason:
+      'A retained offline rejection is written by /api/v1/sync/push with the branch copied from the token\'s employee and clientId scoped per employee. Reads happen only through the employee\'s own bootstrap count; there is no /sync-rejections/:id route and no client-supplied branch.',
   },
   {
     table: 'mobile_change_log',

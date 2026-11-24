@@ -14,14 +14,25 @@
 import type { Response } from 'express';
 import { pgPool } from '../app';
 import { ApiError } from '../errors/ApiError';
-import { issueAuthToken, verifyPassword } from '../middleware/auth';
+import { issueAuthToken, issueSensitiveToken, verifyPassword } from '../middleware/auth';
 import { USER_FIND_BY_EMAIL_SQL, USER_FIND_BY_ID_OR_EMAIL_SQL } from '../models/auth.repo';
+import {
+  HR_SELF_PROFILE_MOBILE_SQL,
+  HR_SELF_SENSITIVE_SQL,
+} from '../models/hrSelfService.repo';
 import {
   MOBILE_BREADCRUMB_INSERT_SQL,
   MOBILE_CONTACT_UPDATE_SQL,
+  MOBILE_DEVICE_LIST_SQL,
   MOBILE_REFRESH_REVOKE_SQL,
 } from '../models/mobile.repo';
+import { logAuditEvent } from '../services/audit.service';
+import { decideClaim, listApprovals, reviewPunch } from '../services/approvalInbox.service';
+import { workplaceCapabilitiesFor } from '../../../shared/workplaceCapabilities';
 import {
+  admitDevice,
+  assignWorkOrder,
+  attachWorkOrderEvidence,
   buildBootstrap,
   capabilitiesForUser,
   claimForEmployee,
@@ -29,12 +40,17 @@ import {
   consumeRefreshToken,
   createDelegation,
   issueRefreshToken,
+  jobQueue,
+  listWorkOrderEvidence,
   pullChanges,
+  pushActions,
   registerDevice,
   registerFcmToken,
   resolveEmployeeForUser,
+  revokeDevice,
   submitClaim,
   submitPunch,
+  vanStock,
 } from '../services/mobile.service';
 
 /** The web token lives 8 hours; the app refreshes long before that. */
@@ -64,8 +80,13 @@ export async function post_v1Login(req: any, res: Response): Promise<any> {
   }
 
   const employee = await resolveEmployeeForUser(dbUser.id);
-  const deviceId = text(req.body?.deviceId, 120) || 'dev_and_primary';
-  const refreshToken = await issueRefreshToken(dbUser.id, deviceId);
+  const deviceId = text(req.body?.deviceId, 120);
+  // A device that was revoked, or that belongs to a colleague, cannot sign in:
+  // this is what makes `mobile_devices.revoked_at` mean something.
+  if (deviceId) {
+    await admitDevice(employee, req.body || {}, String(dbUser.email || employee.employee_code));
+  }
+  const refreshToken = await issueRefreshToken(dbUser.id, deviceId || 'dev_and_primary');
 
   res.setHeader('Cache-Control', 'private, no-store');
   return res.json({
@@ -77,6 +98,7 @@ export async function post_v1Login(req: any, res: Response): Promise<any> {
     role: dbUser.role,
     employeeId: employee.id,
     capabilities: capabilitiesForUser(dbUser),
+    workplaceCapabilities: workplaceCapabilitiesFor(capabilitiesForUser(dbUser)),
     branchScope: dbUser.branch_id || employee.branch_id || 'ALL',
     employeeName: employee.name,
     branchCode: employee.branch_code,
@@ -105,6 +127,7 @@ export async function post_v1Refresh(req: any, res: Response): Promise<any> {
     role: dbUser.role,
     employeeId: employee.id,
     capabilities: capabilitiesForUser(dbUser),
+    workplaceCapabilities: workplaceCapabilitiesFor(capabilitiesForUser(dbUser)),
     branchScope: dbUser.branch_id || employee.branch_id || 'ALL',
   });
 }
@@ -129,12 +152,155 @@ export async function get_v1Bootstrap(req: any, res: Response): Promise<any> {
   return res.json(payload);
 }
 
-/** GET /api/v1/sync/pull?updated_since=&limit= */
+/** GET /api/v1/sync/pull?updated_since=&limit=&deviceId= */
 export async function get_v1SyncPull(req: any, res: Response): Promise<any> {
   const user = ownEmployee(req);
   const employee = await resolveEmployeeForUser(user.id);
-  const payload = await pullChanges(employee, req.query.updated_since, req.query.limit);
+  const payload = await pullChanges(
+    employee,
+    req.query.updated_since,
+    req.query.limit,
+    text(req.query.deviceId, 120)
+  );
   res.setHeader('Cache-Control', 'private, no-store');
+  return res.json(payload);
+}
+
+/**
+ * POST /api/v1/sync/push — a batch of actions captured offline.
+ *
+ * Applied one by one through the same services the single-action routes use.
+ * A refused item is answered per item and its payload is retained, so the batch
+ * as a whole never discards what the technician captured at the site.
+ */
+export async function post_v1SyncPush(req: any, res: Response): Promise<any> {
+  const user = ownEmployee(req);
+  const employee = await resolveEmployeeForUser(user.id);
+  const payload = await pushActions(req, employee, req.body || {});
+  res.setHeader('Cache-Control', 'private, no-store');
+  return res.json(payload);
+}
+
+/**
+ * POST /api/v1/auth/re-auth — the password behind a sensitive screen.
+ *
+ * Returns a five-minute elevation token; it is bound to this user id and is
+ * never stored. The audit row records that someone unlocked sensitive data on a
+ * phone, which is the part HR needs after a lost device.
+ */
+export async function post_v1ReAuth(req: any, res: Response): Promise<any> {
+  const user = ownEmployee(req);
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  if (!password) throw new ApiError(400, 'password is required.');
+  const dbUser = (await pgPool.query(USER_FIND_BY_ID_OR_EMAIL_SQL, [user.id, user.id])).rows[0];
+  const check = dbUser ? verifyPassword(password, String(dbUser.password || '')) : { valid: false };
+  if (!dbUser || !check.valid) throw new ApiError(401, 'The password is not correct.');
+  const issued = issueSensitiveToken(String(user.id));
+  await logAuditEvent(
+    req,
+    'MOBILE_REAUTH',
+    'AUTH',
+    `Sensitive access re-confirmed from the app for ${user.email}`,
+    String(user.branchId || '')
+  );
+  res.setHeader('Cache-Control', 'private, no-store');
+  return res.json({ reAuthToken: issued.token, expiresInSeconds: issued.expiresInSeconds });
+}
+
+/** GET /api/v1/profile — the app's own card, without PAN, SSF, bank or salary. */
+export async function get_v1Profile(req: any, res: Response): Promise<any> {
+  const user = ownEmployee(req);
+  const row = (await pgPool.query(HR_SELF_PROFILE_MOBILE_SQL, [user.id])).rows[0];
+  if (!row) throw new ApiError(404, 'No employee record is linked to this account.');
+  res.setHeader('Cache-Control', 'private, no-store');
+  return res.json(row);
+}
+
+/**
+ * GET /api/v1/hr/me/sensitive — PAN, SSF and bank details, behind re-auth.
+ *
+ * The projection is keyed by `users.id`, never by an employee id the caller
+ * supplies, and every open writes its own audit row before the data leaves.
+ */
+export async function get_v1SensitiveProfile(req: any, res: Response): Promise<any> {
+  const user = ownEmployee(req);
+  const row = (await pgPool.query(HR_SELF_SENSITIVE_SQL, [user.id])).rows[0];
+  if (!row) throw new ApiError(404, 'No employee record is linked to this account.');
+  await logAuditEvent(
+    req,
+    'MOBILE_SENSITIVE_VIEW',
+    'AUTH',
+    'Opened PAN/SSF/bank details from the app',
+    String(user.branchId || '')
+  );
+  res.setHeader('Cache-Control', 'private, no-store');
+  return res.json({ ...row, viewedAt: new Date().toISOString() });
+}
+
+/** GET /api/v1/workplace/jobs — the technician's own open work orders. */
+export async function get_v1Jobs(req: any, res: Response): Promise<any> {
+  const user = ownEmployee(req);
+  const employee = await resolveEmployeeForUser(user.id);
+  const payload = await jobQueue(employee);
+  res.setHeader('Cache-Control', 'private, no-store');
+  return res.json(payload);
+}
+
+/** GET /api/v1/workplace/stock — the van's holdings. */
+export async function get_v1VanStock(req: any, res: Response): Promise<any> {
+  const user = ownEmployee(req);
+  const employee = await resolveEmployeeForUser(user.id);
+  const payload = await vanStock(employee);
+  res.setHeader('Cache-Control', 'private, no-store');
+  return res.json(payload);
+}
+
+/** GET /api/v1/workplace/approvals — the supervisor's inbox. */
+export async function get_v1Approvals(req: any, res: Response): Promise<any> {
+  const user = ownEmployee(req);
+  const employee = await resolveEmployeeForUser(user.id);
+  const payload = await listApprovals(employee);
+  res.setHeader('Cache-Control', 'private, no-store');
+  return res.json(payload);
+}
+
+/** POST /api/v1/workplace/approvals/:kind/:id — one decision. */
+export async function post_v1ApprovalDecision(req: any, res: Response): Promise<any> {
+  const user = ownEmployee(req);
+  const employee = await resolveEmployeeForUser(user.id);
+  const kind = text(req.params?.kind, 30).toUpperCase();
+  const id = text(req.params?.id, 60);
+  if (!id) throw new ApiError(400, 'A record id is required.');
+  if (kind !== 'EXPENSE_CLAIM' && kind !== 'PUNCH') {
+    throw new ApiError(400, "kind must be EXPENSE_CLAIM or PUNCH.");
+  }
+  const payload =
+    kind === 'EXPENSE_CLAIM'
+      ? await decideClaim(req, user, employee, id, req.body || {})
+      : await reviewPunch(req, user, employee, id, req.body || {});
+  res.setHeader('Cache-Control', 'private, no-store');
+  return res.json(payload);
+}
+
+/** GET /api/admin/mobile-devices — the devices HR/IT can revoke. */
+export async function get_v1Devices(req: any, res: Response): Promise<any> {
+  const employeeId = text(req.query?.employeeId, 50) || null;
+  const limit = Math.min(500, Math.max(1, Math.trunc(Number(req.query?.limit) || 100)));
+  const rows = (await pgPool.query(MOBILE_DEVICE_LIST_SQL, [employeeId, limit])).rows;
+  res.setHeader('Cache-Control', 'private, no-store');
+  return res.json({ devices: rows });
+}
+
+/** POST /api/admin/mobile-devices/:deviceId/revoke — takes a phone out of service. */
+export async function post_v1DeviceRevoke(req: any, res: Response): Promise<any> {
+  const payload = await revokeDevice(String(req.params?.deviceId || ''), String(req.user?.email || ''));
+  await logAuditEvent(
+    req,
+    'MOBILE_DEVICE_REVOKE',
+    'AUTH',
+    `Revoked mobile device ${payload.deviceId} of employee ${payload.employeeId}`,
+    String(req.user?.branchId || '')
+  );
   return res.json(payload);
 }
 
@@ -215,6 +381,27 @@ export async function post_v1Delegation(req: any, res: Response): Promise<any> {
 }
 
 /** POST /api/v1/workplace/jobs/:id/complete */
+export async function post_v1JobAssign(req: any, res: Response): Promise<any> {
+  const employee = await resolveEmployeeForUser(ownEmployee(req).id);
+  const result = await assignWorkOrder(req, employee, String(req.params.id), req.body || {});
+  res.set('Cache-Control', 'private, no-store');
+  res.json(result);
+}
+
+export async function post_v1JobEvidence(req: any, res: Response): Promise<any> {
+  const employee = await resolveEmployeeForUser(ownEmployee(req).id);
+  const result = await attachWorkOrderEvidence(req, employee, String(req.params.id), req.body || {});
+  res.set('Cache-Control', 'private, no-store');
+  res.status(201).json(result);
+}
+
+export async function get_v1JobEvidence(req: any, res: Response): Promise<any> {
+  const employee = await resolveEmployeeForUser(ownEmployee(req).id);
+  const result = await listWorkOrderEvidence(employee, String(req.params.id));
+  res.set('Cache-Control', 'private, no-store');
+  res.json(result);
+}
+
 export async function post_v1WorkOrderComplete(req: any, res: Response): Promise<any> {
   const user = ownEmployee(req);
   const employee = await resolveEmployeeForUser(user.id);

@@ -12,6 +12,7 @@
  * figure after the count. The read exposes `stale` in that case rather than
  * silently recomputing a variance the counter never agreed to.
  */
+import { businessDateAD } from '../../../shared/businessDate';
 import crypto from 'crypto';
 import { ApiError } from '../errors/ApiError';
 import { bsDateOrThrow, resolveBsDateForLedger } from '../utils/bsDate';
@@ -78,12 +79,13 @@ export interface CashPositionResult {
   };
 }
 
-/** The server's local calendar day (the operator's business day, not UTC). */
+/**
+ * The operator's business day. Kathmandu is UTC+05:45, so neither the server's
+ * local clock nor its UTC clock names the business day unless the machine is
+ * set to Nepal time; the shared helper does.
+ */
 export function cashCloseTodayAD(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
-    now.getDate()
-  ).padStart(2, '0')}`;
+  return businessDateAD();
 }
 
 export function requireCashCloseDate(value: unknown, field = 'dateAD'): string {

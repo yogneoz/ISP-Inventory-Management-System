@@ -25,6 +25,13 @@ import {
   insertFieldWorkOrder,
   listFieldWorkOrders,
 } from '../models/fieldWorkOrders.repo';
+import {
+  appendFieldWorkOrderEvidence,
+  findFieldWorkOrderEvidenceContent,
+  listFieldWorkOrderEvidence,
+} from '../models/fieldWorkOrderEvidence.repo';
+import { parseEvidenceBody } from '../services/workOrderEvidence.service';
+import { logAuditEvent } from '../services/audit.service';
 
 const KINDS = new Set(['INSTALL', 'SERVICE', 'DISCONNECT']);
 const STATUSES = new Set(['OPEN', 'ASSIGNED', 'COMPLETED', 'CANCELLED']);
@@ -182,6 +189,88 @@ export async function post_fieldWorkOrderComplete(req: Request, res: Response): 
   if (!updated) return conflict(res, existing.status);
   res.set('Cache-Control', 'private, no-store');
   res.json(updated);
+}
+
+/** GET /api/field-work-orders/:id/evidence — metadata for the visit's captures. */
+export async function get_fieldWorkOrderEvidence(req: Request, res: Response): Promise<any> {
+  const order = await findFieldWorkOrder(String(req.params.id));
+  if (!order) return notFound(res);
+  if (!canSeeBranch(req as any, order)) {
+    return res.status(403).json({ message: 'Forbidden: this work order belongs to another branch.' });
+  }
+  const rows = await listFieldWorkOrderEvidence(order.id);
+  res.set('Cache-Control', 'private, no-store');
+  res.json({ evidence: rows, count: rows.length });
+}
+
+/**
+ * POST /api/field-work-orders/:id/evidence — store a photo or signature.
+ *
+ * A closed order still accepts evidence: the technician may capture the proof
+ * offline, complete the visit, and only reach the network later. The bytes are
+ * content-addressed, so the replay stores once.
+ */
+export async function post_fieldWorkOrderEvidence(req: Request, res: Response): Promise<any> {
+  const order = await findFieldWorkOrder(String(req.params.id));
+  if (!order) return notFound(res);
+  if (!canSeeBranch(req as any, order)) {
+    return res.status(403).json({ message: 'Forbidden: this work order belongs to another branch.' });
+  }
+  let parsed;
+  try {
+    parsed = parseEvidenceBody(req.body || {});
+  } catch (error: any) {
+    return res.status(400).json({ message: error?.message || 'Invalid evidence.' });
+  }
+  const saved = await appendFieldWorkOrderEvidence({
+    workOrderId: order.id,
+    branchId: order.branch_id,
+    kind: parsed.kind,
+    contentType: parsed.contentType,
+    dataBase64: parsed.dataBase64,
+    caption: parsed.caption,
+    capturedAt: parsed.capturedAt,
+    capturedBy: actorEmail(req as any),
+    latitude: parsed.latitude,
+    longitude: parsed.longitude,
+    accuracyMeters: parsed.accuracyMeters,
+  });
+  await logAuditEvent(
+    req as any,
+    'FIELD_WORK_ORDER_EVIDENCE',
+    'OPERATIONS',
+    `${saved.inserted ? 'Captured' : 'Replayed'} ${parsed.kind.toLowerCase()} ${saved.sha256.slice(0, 12)} on work order ${order.work_order_no}`,
+    order.branch_id
+  );
+  res.set('Cache-Control', 'private, no-store');
+  res.status(201).json({
+    id: saved.row.id,
+    kind: saved.row.kind,
+    contentType: saved.row.content_type,
+    byteSize: saved.row.byte_size,
+    sha256: saved.sha256,
+    capturedAt: saved.row.captured_at,
+    inserted: saved.inserted,
+    count: saved.count,
+  });
+}
+
+/** GET /api/field-work-orders/:id/evidence/:evidenceId/content — the bytes. */
+export async function get_fieldWorkOrderEvidenceContent(req: Request, res: Response): Promise<any> {
+  const order = await findFieldWorkOrder(String(req.params.id));
+  if (!order) return notFound(res);
+  if (!canSeeBranch(req as any, order)) {
+    return res.status(403).json({ message: 'Forbidden: this work order belongs to another branch.' });
+  }
+  const content = await findFieldWorkOrderEvidenceContent(String(req.params.evidenceId));
+  if (!content) return res.status(404).json({ message: 'Evidence not found.' });
+  const rows = await listFieldWorkOrderEvidence(order.id);
+  if (!rows.some((row) => row.id === String(req.params.evidenceId))) {
+    return res.status(404).json({ message: 'Evidence not found on this work order.' });
+  }
+  res.set('Cache-Control', 'private, no-store');
+  res.type(content.content_type);
+  res.send(Buffer.from(content.data_base64, 'base64'));
 }
 
 export async function post_fieldWorkOrderCancel(req: Request, res: Response): Promise<any> {

@@ -4,6 +4,7 @@
  * whose rejection is forwarded to the central error middleware by the route
  * forwarder. SQL lives in ../models/sales.repo.ts.
  */
+import { businessDateAD } from '../../../shared/businessDate';
 import type { Request, Response } from 'express';
 import {
   getPgConnected, pgPool, issueNextDocNumber, inventoryStock, logAuditEvent,
@@ -376,7 +377,7 @@ export async function post_salesInvoices(req: any, res: Response): Promise<any> 
     // C1: totals recomputed from line primitives; client aggregates ignored.
     const totals = computeBillTotals(items, undefined, defaultVatRateFor(companyProfile));
     const targetBranchId = req.body.branchId || branches[0]?.id || 'WH001';
-    const invDate = req.body.invoiceDateAD || req.body.invoiceDateAd || new Date().toISOString().split('T')[0];
+    const invDate = req.body.invoiceDateAD || req.body.invoiceDateAd || businessDateAD();
     const invoiceNumber = await resolveDocumentNumber({
       provided: req.body.invoiceNumber,
       docType: 'INV',
@@ -602,7 +603,7 @@ export async function post_salesInvoiceCancel(req: any, res: Response): Promise<
       return res.status(400).json({ message: `Sales invoice ${existing.invoiceNumber} is already cancelled.` });
     }
 
-    const cancelAD = new Date().toISOString().split('T')[0];
+    const cancelAD = businessDateAD();
     // BS dates are mandatory even for the cancellation stamp.
     const cancelBS = await bsDateOr400(res, cancelAD);
     if (!cancelBS) return;
@@ -811,7 +812,7 @@ export async function post_salesReturns(req: any, res: Response): Promise<any> {
     // C1: totals are recomputed from line primitives; client aggregates ignored.
     const totals = computeBillTotals(items);
     const targetBranchId = req.body.branchId || branches[0]?.id || 'WH001';
-    const retDate = req.body.returnDateAD || req.body.returnDateAd || new Date().toISOString().split('T')[0];
+    const retDate = req.body.returnDateAD || req.body.returnDateAd || businessDateAD();
     // BS dates are mandatory: derive from bs_day_records for the return's
     // own AD date; 400 when unseeded.
     const srReturnDateBS = await bsDateOr400(res, retDate);
@@ -971,7 +972,7 @@ export async function post_salesReturnCancel(req: any, res: Response): Promise<a
     }
 
     // BS date for the compensating ledger rows: today's seeded BS record.
-    const srCancelAD = new Date().toISOString().split('T')[0];
+    const srCancelAD = businessDateAD();
     const srCancelBS = await bsDateOr400(res, srCancelAD);
     if (!srCancelBS) return;
 
@@ -1047,7 +1048,7 @@ export async function post_salesReturnCancel(req: any, res: Response): Promise<a
                   status: 'SOLD',
                   sourceType: 'SALES_RETURN_CANCELLED',
                   sourceId: ret.id,
-                  dateAD: new Date().toISOString().split('T')[0],
+                  dateAD: businessDateAD(),
                   notes: `Sales return ${ret.returnNumber} cancelled`,
                 }]),
                 ['IN_STOCK'],
@@ -1431,7 +1432,7 @@ export async function post_customerPayments(req: any, res: Response): Promise<an
       return res.status(400).json({ message: 'The receipt customer does not match the allocated invoice customer.' });
     }
     const branchId = linkedInvoice?.branchId || body.branchId || getUserFromReq(req)?.branchId || branches[0]?.id || 'WH001';
-    const paymentDateAD = String(body.paymentDateAD || new Date().toISOString().split('T')[0]).split('T')[0];
+    const paymentDateAD = String(body.paymentDateAD || businessDateAD()).split('T')[0];
     // BS dates are mandatory: derive from bs_day_records for the payment's
     // OWN AD date; 400 when unseeded (no fallback, no empty string).
     const paymentDateBS = await bsDateOr400(res, paymentDateAD);

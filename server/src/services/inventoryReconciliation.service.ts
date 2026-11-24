@@ -11,6 +11,7 @@
  * movement rows. The inventory tie is the hard close guard; the other two are
  * evidence sections with explicit differences rather than invented values.
  */
+import { businessDateAD } from '../../../shared/businessDate';
 import { ApiError } from '../errors/ApiError';
 import { roundMoney } from '../utils/money';
 import {
@@ -64,7 +65,7 @@ function money(value: unknown): number {
 }
 
 function todayAD(): string {
-  return new Date().toISOString().slice(0, 10);
+  return businessDateAD();
 }
 
 function monthStart(date: string): string {

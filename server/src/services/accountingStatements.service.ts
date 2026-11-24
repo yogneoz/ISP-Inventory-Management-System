@@ -30,6 +30,7 @@
  * flow statements, so a caller that only names an as-of date still gets a
  * meaningful period rather than an empty one.
  */
+import { businessDateAD } from '../../../shared/businessDate';
 import { ApiError } from '../errors/ApiError';
 import { roundMoney } from '../utils/money';
 import {
@@ -508,7 +509,7 @@ function emptyTrialBalanceTotals(): TrialBalanceLineTotals {
 }
 
 function todayAD(): string {
-  return new Date().toISOString().split('T')[0];
+  return businessDateAD();
 }
 
 function money(value: unknown): number {

@@ -16,6 +16,7 @@ import {
   post_employeeStockIssue,
   post_employeeStockLoss,
   post_employeeStockReturn,
+  post_employeeStockTransfer,
 } from '../controllers/employeeStock.controller';
 import { requirePermission } from '../app';
 
@@ -42,5 +43,11 @@ export function registerEmployeeStockRoutes(app: Express) {
 
   app.post('/api/employee-stock/loss', requirePermission('stock-out'), async (req, res, next) => {
     post_employeeStockLoss(req as any, res as any, next).catch(next);
+  });
+
+  // Custody moving to a colleague stays inside the branch: the units were
+  // issued from its shelf once, so `stock-out` is the control it already is.
+  app.post('/api/employee-stock/transfer', requirePermission('stock-out'), async (req, res, next) => {
+    post_employeeStockTransfer(req as any, res as any, next).catch(next);
   });
 }

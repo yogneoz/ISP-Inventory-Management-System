@@ -54,6 +54,38 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 
 const ADVISORY_LOCK_SQL = `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`;
 
+/**
+ * 'own' is the boot path: every step is its own transaction and commits.
+ * 'outer' joins a transaction the caller already opened (the destructive reset
+ * in scripts/seed/resetSchema.ts), so a step that fails rolls back only to its
+ * savepoint and the CALLER decides whether the whole reset commits. Without this
+ * the reset could commit a wipe and a schema whose ledger never got recorded.
+ */
+export type MigrationTransactionMode = 'own' | 'outer';
+
+export interface MigrationRunOptions {
+  baselineSql: string;
+  migrationsDir?: string | null;
+  /** Defaults to 'own'. */
+  transaction?: MigrationTransactionMode;
+}
+
+const STEP_SAVEPOINT = 'inventory_migration_step';
+
+async function beginStep(client: PoolClient, mode: MigrationTransactionMode): Promise<void> {
+  await client.query(mode === 'outer' ? `SAVEPOINT ${STEP_SAVEPOINT}` : 'BEGIN');
+}
+
+async function commitStep(client: PoolClient, mode: MigrationTransactionMode): Promise<void> {
+  await client.query(mode === 'outer' ? `RELEASE SAVEPOINT ${STEP_SAVEPOINT}` : 'COMMIT');
+}
+
+async function rollbackStep(client: PoolClient, mode: MigrationTransactionMode): Promise<void> {
+  await client
+    .query(mode === 'outer' ? `ROLLBACK TO SAVEPOINT ${STEP_SAVEPOINT}` : 'ROLLBACK')
+    .catch(() => undefined);
+}
+
 function checksumRaw(sql: string): string {
   return crypto.createHash('sha256').update(sql).digest('hex');
 }
@@ -157,6 +189,110 @@ export function stripSqlComments(sql: string): string {
   return out.trim();
 }
 
+/**
+ * Removes a migration's own transaction control, for the reset transaction only.
+ *
+ * Three migrations (0043, 0044, 0050) wrap their DDL in `BEGIN; … COMMIT;`.
+ * Those statements are meaningless inside the reset's transaction and worse
+ * than meaningless: the embedded `COMMIT` ends the CALLER's transaction, so a
+ * migration that came later could fail after earlier work had already been
+ * committed. The boot path (mode 'own') keeps the text untouched — there the
+ * migration's own BEGIN/COMMIT is the transaction it was written with. Inside a
+ * savepoint the wrapper is dropped; the DDL itself is copied verbatim, and
+ * dollar-quoted bodies, literals and comments are never touched.
+ */
+export function neutralizeOuterTransactionControl(sql: string): string {
+  let out = '';
+  let i = 0;
+  const n = sql.length;
+  while (i < n) {
+    const ch = sql[i];
+    const next = sql[i + 1];
+
+    if (ch === '$') {
+      const match = /^(\$\$|\$[A-Za-z_][A-Za-z0-9_]*\$)/.exec(sql.slice(i));
+      if (match) {
+        const tag = match[0];
+        const close = sql.indexOf(tag, i + tag.length);
+        const end = close === -1 ? n : close + tag.length;
+        out += sql.slice(i, end);
+        i = end;
+        continue;
+      }
+    }
+
+    if (ch === "'" || ch === '"') {
+      const quote = ch;
+      out += quote;
+      let j = i + 1;
+      while (j < n) {
+        if (sql[j] === quote) {
+          if (sql[j + 1] === quote) {
+            out += quote + quote;
+            j += 2;
+            continue;
+          }
+          out += quote;
+          j += 1;
+          break;
+        }
+        out += sql[j];
+        j += 1;
+      }
+      i = j;
+      continue;
+    }
+
+    if (ch === '-' && next === '-') {
+      while (i < n && sql[i] !== '\n') {
+        out += sql[i];
+        i += 1;
+      }
+      continue;
+    }
+
+    if (ch === '/' && next === '*') {
+      let depth = 1;
+      out += '/*';
+      i += 2;
+      while (i < n && depth > 0) {
+        if (sql[i] === '/' && sql[i + 1] === '*') {
+          depth += 1;
+          out += '/*';
+          i += 2;
+          continue;
+        }
+        if (sql[i] === '*' && sql[i + 1] === '/') {
+          depth -= 1;
+          out += '*/';
+          i += 2;
+          continue;
+        }
+        out += sql[i];
+        i += 1;
+      }
+      continue;
+    }
+
+    // Only a statement that starts a statement may be transaction control.
+    const before = out.replace(/\s+$/, '');
+    if (before.length === 0 || before.endsWith(';')) {
+      const control = /^(BEGIN|COMMIT|START\s+TRANSACTION)\b(\s+(WORK|TRANSACTION))?\s*;/i.exec(
+        sql.slice(i)
+      );
+      if (control) {
+        out += `-- [reset transaction] ${control[0]}`;
+        i += control[0].length;
+        continue;
+      }
+    }
+
+    out += ch;
+    i += 1;
+  }
+  return out;
+}
+
 /** The checksum recorded for a numbered migration: statements, not comments. */
 export function migrationChecksum(sql: string): string {
   return checksumRaw(stripSqlComments(sql));
@@ -222,9 +358,10 @@ async function recordMigration(
 
 async function establishBaseline(
   client: PoolClient,
-  baselineSql: string
+  baselineSql: string,
+  mode: MigrationTransactionMode
 ): Promise<MigrationSource | null> {
-  await client.query('BEGIN');
+  await beginStep(client, mode);
   try {
     await client.query(ADVISORY_LOCK_SQL, ['inventory_schema_migrations']);
     const existing = await client.query(
@@ -232,7 +369,7 @@ async function establishBaseline(
       [BASELINE_VERSION]
     );
     if (existing.rowCount) {
-      await client.query('COMMIT');
+      await commitStep(client, mode);
       return null;
     }
 
@@ -253,10 +390,10 @@ async function establishBaseline(
       Date.now() - startedAt,
       source
     );
-    await client.query('COMMIT');
+    await commitStep(client, mode);
     return source;
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => undefined);
+    await rollbackStep(client, mode);
     throw err;
   }
 }
@@ -282,14 +419,15 @@ function listMigrationFiles(migrationsDir: string | null | undefined): Migration
 
 async function applyPendingMigrations(
   client: PoolClient,
-  migrationsDir: string | null | undefined
+  migrationsDir: string | null | undefined,
+  mode: MigrationTransactionMode
 ): Promise<string[]> {
   const applied: string[] = [];
   for (const migration of listMigrationFiles(migrationsDir)) {
     const sql = fs.readFileSync(migration.filePath, 'utf8');
     const sqlChecksum = migrationChecksum(sql);
 
-    await client.query('BEGIN');
+    await beginStep(client, mode);
     try {
       await client.query(ADVISORY_LOCK_SQL, ['inventory_schema_migrations']);
       const existing = await client.query(
@@ -310,7 +448,7 @@ async function applyPendingMigrations(
               'UPDATE schema_migrations SET checksum = $2 WHERE version = $1',
               [migration.version, sqlChecksum]
             );
-            await client.query('COMMIT');
+            await commitStep(client, mode);
             continue;
           }
           throw new Error(
@@ -319,12 +457,14 @@ async function applyPendingMigrations(
               'Only comments may change in an applied migration; a statement change needs a new migration.'
           );
         }
-        await client.query('COMMIT');
+        await commitStep(client, mode);
         continue;
       }
 
       const startedAt = Date.now();
-      await client.query(sql);
+      await client.query(
+        mode === 'outer' ? neutralizeOuterTransactionControl(sql) : sql
+      );
       await recordMigration(
         client,
         migration.version,
@@ -333,10 +473,10 @@ async function applyPendingMigrations(
         Date.now() - startedAt,
         'MIGRATION'
       );
-      await client.query('COMMIT');
+      await commitStep(client, mode);
       applied.push(migration.version);
     } catch (err) {
-      await client.query('ROLLBACK').catch(() => undefined);
+      await rollbackStep(client, mode);
       throw err;
     }
   }
@@ -356,11 +496,12 @@ async function readCurrentVersion(client: PoolClient): Promise<string | null> {
  */
 export async function runSchemaMigrations(
   client: PoolClient,
-  options: { baselineSql: string; migrationsDir?: string | null }
+  options: MigrationRunOptions
 ): Promise<MigrationRunResult> {
+  const mode: MigrationTransactionMode = options.transaction ?? 'own';
   await client.query(CREATE_MIGRATIONS_TABLE_SQL);
-  const baselineSource = await establishBaseline(client, options.baselineSql);
-  const applied = await applyPendingMigrations(client, options.migrationsDir);
+  const baselineSource = await establishBaseline(client, options.baselineSql, mode);
+  const applied = await applyPendingMigrations(client, options.migrationsDir, mode);
   currentVersion = await readCurrentVersion(client);
   return { baselineSource, applied, currentVersion };
 }

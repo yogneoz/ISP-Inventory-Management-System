@@ -8,6 +8,7 @@
  * the bank issues one statement per account. Branch-scoped users cannot open
  * this workspace; global users reconcile every branch's postings together.
  */
+import { businessDateAD } from '../../../shared/businessDate';
 import type { Response } from 'express';
 import { pgPool } from '../app';
 import { withTransaction } from '../db/transactions';
@@ -31,7 +32,7 @@ function actorOf(req: any): string | null {
 }
 
 function todayAD(): string {
-  return new Date().toISOString().slice(0, 10);
+  return businessDateAD();
 }
 
 /**

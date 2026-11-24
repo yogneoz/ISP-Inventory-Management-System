@@ -5,6 +5,7 @@
  * Response bodies and status codes are preserved verbatim from the
  * original route handlers.
  */
+import { businessDateAD } from '../../../shared/businessDate';
 import type { Request, Response } from 'express';
 import { getPgConnected, pgPool, shipments, branches, detectDateTypeMismatch, findBsDayRecordForAdDate, getUserFromReq, issueNextDocNumber, permissionMatrix, userPermissionOverrides, userPermissionSetGrants, setShipments, withReplaced, withPrepended, withTransaction, inventoryStock, setInventoryStock, transactionLogs, setTransactionLogs, products, logAuditEvent, serialLogs, setSerialLogs } from '../app';
 import { effectivePermission } from '../services/permissionOverrides.service';
@@ -440,7 +441,7 @@ try {
       res.status(400).json({ message: dispatchDateMismatch, dateTypeMismatch: true });
       return;
     }
-    const dispatchDateAD = String(rawDispatchDateAD || new Date().toISOString().split('T')[0]).split('T')[0];
+    const dispatchDateAD = String(rawDispatchDateAD || businessDateAD()).split('T')[0];
     // Same derive-or-400 resolver the receipt path uses, so the refusal carries
     // bsDateReason + calendarCoverage and the UI can route the operator to the
     // BS Calendar screen instead of only printing a message.
@@ -745,7 +746,7 @@ try {
 
     let hasDiscrepancy = false;
     sh.receivedByNotes = receivedByNotes || '';
-    sh.receivedDateAD = new Date().toISOString().split('T')[0];
+    sh.receivedDateAD = businessDateAD();
     // Date integrity: the BS receipt date is ALWAYS derived from the seeded
     // bs_day_records row for the AD receipt date — a hardcoded or client-
     // supplied BS value is never stored in received_date_bs.
@@ -826,7 +827,7 @@ try {
               serialLogTransferFlipParams(
                 'IN_STOCK',
                 sh.destinationBranchId || null,
-                shipmentSerialHistory('IN_STOCK', sh.trackingCode, sh.receivedDateAD || new Date().toISOString().split('T')[0], `Received on transfer ${sh.trackingCode}`),
+                shipmentSerialHistory('IN_STOCK', sh.trackingCode, sh.receivedDateAD || businessDateAD(), `Received on transfer ${sh.trackingCode}`),
                 sh.trackingCode,
                 entry.deviceSerial,
                 'IN_TRANSIT'
@@ -851,7 +852,7 @@ try {
             shipmentReceiveStockParams(sh.destinationBranchId, item, unitCost)
           );
           if (sh.destinationBranchId) {
-            receiveTxns.push(buildTransferTxn(sh, item, lineIdx++, sh.destinationBranchId, 'TRANSFER_IN', before, receivedQty, sh.receivedDateAD || new Date().toISOString().split('T')[0], receivedDateBS || ''));
+            receiveTxns.push(buildTransferTxn(sh, item, lineIdx++, sh.destinationBranchId, 'TRANSFER_IN', before, receivedQty, sh.receivedDateAD || businessDateAD(), receivedDateBS || ''));
             if (receivedQty > 0) {
               receiptValueLines.push({ productId: String(item.productId), quantity: receivedQty, unitCost });
             }
@@ -863,7 +864,7 @@ try {
         if (sh.destinationBranchId && sh.sourceBranchId && receiptValueLines.length > 0) {
           await postTransferReceiptJournal(client, {
             shipmentId: String(sh.id),
-            dateAD: sh.receivedDateAD || new Date().toISOString().split('T')[0],
+            dateAD: sh.receivedDateAD || businessDateAD(),
             sourceBranchId: String(sh.sourceBranchId),
             sourceBranchName: sh.sourceBranchName,
             destinationBranchId: String(sh.destinationBranchId),
@@ -901,7 +902,7 @@ try {
         destStk.quantityOnHand = before + receivedQty;
         destStk.incomingQty = Math.max(0, (destStk.incomingQty || 0) - receivedQty);
         destStk.lastUpdated = new Date().toISOString();
-        receiveTxns.push(buildTransferTxn(sh, item, idx, receiveDestId, 'TRANSFER_IN', before, receivedQty, sh.receivedDateAD || new Date().toISOString().split('T')[0], receivedDateBS || ''));
+        receiveTxns.push(buildTransferTxn(sh, item, idx, receiveDestId, 'TRANSFER_IN', before, receivedQty, sh.receivedDateAD || businessDateAD(), receivedDateBS || ''));
       });
     }
     // Demo-mode register mirror: the received units land at the destination.
@@ -913,7 +914,7 @@ try {
         'IN_STOCK',
         sh.destinationBranchId || null,
         sh.trackingCode,
-        sh.receivedDateAD || new Date().toISOString().split('T')[0],
+        sh.receivedDateAD || businessDateAD(),
         `Received on transfer ${sh.trackingCode}`
       );
       appendLedgerMirror(receiveTxns);
@@ -956,7 +957,7 @@ try {
     }
 
     const cancellationNotes = (sh.notes ? sh.notes + ' | ' : '') + `Transfer cancelled by ${cancelActor.name || cancelActor.email || 'System'}${reason ? ': ' + reason : ''}`;
-    const cancelDateAD = new Date().toISOString().split('T')[0];
+    const cancelDateAD = businessDateAD();
     const cancelBsDay = await findBsDayRecordForAdDate(cancelDateAD);
     const cancelDateBS = cancelBsDay.found ? `${cancelBsDay.record.bsDate} BS` : '';
     const cancelTxns: TransactionLog[] = [];
@@ -1101,7 +1102,7 @@ try {
     }
 
     const undoNote = (sh.notes ? sh.notes + ' | ' : '') + `Receipt cancelled by ${undoActor.name || undoActor.email || 'System'}${reason ? ': ' + reason : ''}`;
-    const undoDateAD = new Date().toISOString().split('T')[0];
+    const undoDateAD = businessDateAD();
     const undoBsDay = await findBsDayRecordForAdDate(undoDateAD);
     const undoDateBS = undoBsDay.found ? `${undoBsDay.record.bsDate} BS` : '';
     const undoTxns: TransactionLog[] = [];

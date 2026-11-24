@@ -1,3 +1,4 @@
+import { businessDateAD } from './businessDate';
 /**
  * Warranty recovery rules, shared by the API and the Recovery tab.
  *
@@ -38,7 +39,7 @@ export function warrantyRmaAgeDays(
   if (!sentDateAD) return null;
   const start = Date.parse(`${String(sentDateAD).slice(0, 10)}T00:00:00Z`);
   const end = Date.parse(
-    `${String(todayAD || new Date().toISOString().slice(0, 10)).slice(0, 10)}T00:00:00Z`
+    `${String(todayAD || businessDateAD()).slice(0, 10)}T00:00:00Z`
   );
   if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
   return Math.max(0, Math.round((end - start) / 86_400_000));

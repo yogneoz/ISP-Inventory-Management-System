@@ -6,6 +6,7 @@
  * every statement figure is read from posted `gl_subledger_entries`, so the
  * screen cannot disagree with the ledger.
  */
+import { businessDateAD } from '../../../shared/businessDate';
 import type { Response } from 'express';
 import { getPgConnected, pgPool } from '../app';
 import { withTransaction } from '../db/transactions';
@@ -208,7 +209,7 @@ function actorOf(req: any): string | null {
 }
 
 function todayAD(): string {
-  return new Date().toISOString().slice(0, 10);
+  return businessDateAD();
 }
 
 function loanResponse(row: any) {

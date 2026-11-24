@@ -45,6 +45,51 @@ WHERE e.user_id = $1
 LIMIT 1`;
 
 /**
+ * The mobile profile card: the same own-record projection minus everything the
+ * v2 design treats as sensitive (PAN, SSF, bank, salary). Those live behind
+ * `HR_SELF_SENSITIVE_SQL` and a re-authentication token, so the everyday
+ * profile read a phone makes on every launch cannot leak them.
+ */
+export const HR_SELF_PROFILE_MOBILE_SQL = `SELECT
+  e.id,
+  e.employee_code AS "employeeCode",
+  e.name,
+  e.branch_id AS "branchId",
+  b.name AS "branchName",
+  e.department,
+  e.designation,
+  e.employment_type AS "employmentType",
+  e.work_station AS "workStation",
+  e.joining_date_ad::text AS "joiningDateAD",
+  e.contract_expiry_ad::text AS "contractExpiryAD",
+  e.internal_email AS "internalEmail",
+  e.personal_email AS "personalEmail",
+  e.personal_contact AS "personalContact",
+  e.emergency_contact_person AS "emergencyContactPerson",
+  e.emergency_contact_number AS "emergencyContactNumber",
+  e.address,
+  e.is_active AS "isActive",
+  e.profile_photo AS "profilePhoto"
+FROM employees e
+LEFT JOIN branches b ON b.id = e.branch_id
+WHERE e.user_id = $1
+LIMIT 1`;
+
+/** PAN, SSF and bank details: only readable with a re-auth elevation token. */
+export const HR_SELF_SENSITIVE_SQL = `SELECT
+  e.id,
+  e.employee_code AS "employeeCode",
+  e.pan_number AS "panNumber",
+  e.ssf_number AS "ssfNumber",
+  e.ssf_eligible AS "ssfEligible",
+  e.bank_name AS "bankName",
+  e.bank_account AS "bankAccount",
+  e.monthly_salary::numeric AS "monthlySalary"
+FROM employees e
+WHERE e.user_id = $1
+LIMIT 1`;
+
+/**
  * The ONLY write self-service exposes on the employee row.
  *
  * The column list IS the allow-list: contact details, address, emergency

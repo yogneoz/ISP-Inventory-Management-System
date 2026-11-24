@@ -1,3 +1,4 @@
+import { businessDateAD } from './businessDate';
 /**
  * Warranty term arithmetic — the one rule the capture screens, the API and the
  * two registers share.
@@ -31,7 +32,7 @@ export function isAdDate(value: unknown): value is string {
 
 /** `YYYY-MM-DD` for a UTC timestamp's calendar day. */
 export function todayAd(now: Date = new Date()): string {
-  return now.toISOString().slice(0, 10);
+  return businessDateAD(now);
 }
 
 /**

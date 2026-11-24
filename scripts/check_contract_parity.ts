@@ -40,6 +40,13 @@ const SURFACES: Surface[] = [
     corpus: [
       'server/src/controllers/mobile.controller.ts',
       'server/src/services/mobile.service.ts',
+      // The approvals inbox is its own service and the profile projections are
+      // SELECT lists in the repo, so both are part of what the app consumes.
+      'server/src/services/approvalInbox.service.ts',
+      'server/src/models/approvalInbox.repo.ts',
+      'server/src/models/hrSelfService.repo.ts',
+      // The re-auth header the sensitive reads require is declared here.
+      'server/src/middleware/sensitiveAuth.ts',
     ],
     prefixes: ['/api/v1/'],
   },

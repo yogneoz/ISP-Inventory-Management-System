@@ -24,6 +24,7 @@
  * silently skipped. A reversal posts a linked contra journal, leaving the
  * original rows in place for the audit trail.
  */
+import { businessDateAD } from '../../../shared/businessDate';
 import { ApiError } from '../errors/ApiError';
 import { roundMoney } from '../utils/money';
 import {
@@ -391,7 +392,7 @@ export async function postVendorPaymentLedger(
 
 /** Today's date: the reversal is a new document and belongs in an open period. */
 function reversalDateAD(): string {
-  return new Date().toISOString().split('T')[0];
+  return businessDateAD();
 }
 
 /** Contra journal for a customer receipt; a legacy receipt with no journal is a no-op. */

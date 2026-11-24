@@ -4,6 +4,7 @@
  * No HTTP, no global state: DB clients, state arrays and context values are
  * passed in by the caller, so every function here runs under node:test.
  */
+import { businessDateAD } from '../../../shared/businessDate';
 import type { DamageRecord, InventoryStock, TransactionLog } from '../../../client/src/types';
 import type { SqlClient } from './serials.service';
 
@@ -234,7 +235,7 @@ export async function restoreSerialsInDb(
   const sns = (Array.isArray(itemSerials) ? itemSerials : [])
     .map((s: any) => String(s?.deviceSerial || '').trim().toLowerCase())
     .filter(Boolean);
-  const restoreHistory = JSON.stringify([{ status: 'IN_STOCK', sourceType: 'DAMAGE_REVERSED', sourceId: op.id, dateAD: nowIso.slice(0, 10), notes: message }]);
+  const restoreHistory = JSON.stringify([{ status: 'IN_STOCK', sourceType: 'DAMAGE_REVERSED', sourceId: op.id, dateAD: businessDateAD(new Date(nowIso)), notes: message }]);
   if (sns.length > 0) {
     await client.query(
       `UPDATE serial_log SET status = 'IN_STOCK', source_type = 'STOCK_OP', source_id = NULL,

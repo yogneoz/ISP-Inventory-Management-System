@@ -25,6 +25,7 @@ import {
   listEmployeeStockMovements,
   recordEmployeeStockLoss,
   returnEmployeeStock,
+  transferEmployeeStock,
   type EmployeeStockMovementType,
   type MovementInput,
 } from '../models/employeeStock.repo';
@@ -57,8 +58,10 @@ function refusalStatus(code: EmployeeStockRefusal['code']): number {
   switch (code) {
     case 'INSUFFICIENT_BRANCH_STOCK':
     case 'INSUFFICIENT_HOLDING':
+    case 'CROSS_BRANCH_TRANSFER':
       return 409;
     case 'REASON_REQUIRED':
+    case 'SAME_EMPLOYEE':
       return 400;
     default:
       return 400;
@@ -196,4 +199,63 @@ export async function post_employeeStockConsume(req: Request, res: Response, nex
 
 export async function post_employeeStockLoss(req: Request, res: Response, next: any): Promise<any> {
   return runMovement(req, res, next, 'LOSS');
+}
+
+/**
+ * POST /api/employee-stock/transfer — custody moves person to person.
+ *
+ * The giver's branch decides the scope: a branch account may transfer only
+ * inside its own branch, and head office may name any single branch. Crossing
+ * branches is a 409 with the remedy named (return, then issue), not a silent
+ * stock move.
+ */
+export async function post_employeeStockTransfer(req: Request, res: Response, next: any): Promise<any> {
+  const body = req.body || {};
+  const fromEmployeeId = text(body.fromEmployeeId ?? body.employeeId, 50);
+  if (!fromEmployeeId) return res.status(400).json({ message: 'fromEmployeeId is required.' });
+  const toEmployeeId = text(body.toEmployeeId, 50);
+  if (!toEmployeeId) return res.status(400).json({ message: 'toEmployeeId is required.' });
+  const productId = text(body.productId, 50);
+  if (!productId) return res.status(400).json({ message: 'productId is required.' });
+  const quantity = Number(body.quantity);
+  if (!Number.isInteger(quantity) || quantity <= 0 || quantity > MAX_QUANTITY) {
+    return res.status(400).json({ message: `quantity must be a whole number between 1 and ${MAX_QUANTITY}.` });
+  }
+  const reason = text(body.reason, 1000);
+  if (!reason) {
+    return res.status(400).json({ message: 'A custody transfer needs a reason.', code: 'REASON_REQUIRED' });
+  }
+
+  const scope = resolveBranchScope(req as any, res, body.branchId);
+  if (!scope) return;
+  if (scope.empty) return res.status(403).json({ message: 'Forbidden: no branch is assigned to this account.' });
+
+  let branchId: string | null = null;
+  try {
+    branchId = await employeeBranchId(fromEmployeeId);
+  } catch (error) {
+    return handleRefusal(error, res, next);
+  }
+  if (!branchId) return res.status(400).json({ message: 'That employee does not exist.', code: 'UNKNOWN_EMPLOYEE' });
+  if (scope.branchId && scope.branchId !== branchId) {
+    return res.status(403).json({ message: 'Forbidden: the giving employee is not in this branch.' });
+  }
+  if (scope.allowed && scope.allowed.size > 0 && !scope.allowed.has(branchId)) {
+    return res.status(403).json({ message: 'Forbidden: this account is not authorized for the requested branch.' });
+  }
+
+  try {
+    const transfer = await transferEmployeeStock({
+      fromEmployeeId,
+      toEmployeeId,
+      productId,
+      quantity,
+      reason,
+      actor: actorEmail(req as any),
+    });
+    res.set('Cache-Control', 'private, no-store');
+    res.status(201).json(transfer);
+  } catch (error) {
+    handleRefusal(error, res, next);
+  }
 }

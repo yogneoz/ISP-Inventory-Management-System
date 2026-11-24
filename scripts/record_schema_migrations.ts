@@ -1,21 +1,29 @@
 /**
- * Record the schema migration baseline after `setup:pg` applies schema.sql.
+ * Reset the schema and record the migration ledger, in ONE transaction.
  *
- * `setup:pg` builds the current schema and then seeds demo data. If it leaves
- * `schema_migrations` empty, the next server boot detects the current shape,
- * adopts the baseline, and replays every numbered migration against a database
- * that already contains current-role accounts. Older migrations can then fail
- * their role CHECK constraints (for example 0011 predates LOAN_PAYABLE).
+ * `npm run setup:pg` runs this after the destructive guard and before the
+ * seeder:
  *
- * This script runs after the schema pass and before the seeder inserts accounts,
- * so the empty ledger tables let the numbered migrations apply cleanly and boot
- * sees a complete migration history.
+ *   tsx scripts/record_schema_migrations.ts            # wipe + schema + ledger
+ *   tsx scripts/record_schema_migrations.ts --keep-data # keep rows, still record
+ *
+ * Why the whole reset is one transaction: this script used to record the ledger
+ * in a second process, after the wipe and schema.sql had already committed. When
+ * the recorder stopped partway — 0011's role CHECK rejecting a seeded
+ * LOAN_PAYABLE account is the case that broke this workstation — the database
+ * kept the wipe and the schema but not the ledger, so the next boot or seed ran
+ * migrations against rows that made them fail again.
+ *
+ * Why it must run before any row is inserted: boot adopts the current shape and
+ * then applies every unrecorded migration. Seeding first (as `seed:verify` used
+ * to) leaves rows that an older migration's CHECK rejects, which is exactly the
+ * unbootable state this script exists to prevent.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import pg from 'pg';
 import dotenv from 'dotenv';
-import { runSchemaMigrations } from '../server/src/boot/migrations';
+import { resetSchema } from './seed/resetSchema';
 
 dotenv.config({ quiet: true });
 
@@ -29,22 +37,31 @@ function connectionString(): string {
   return `postgres://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host}:${port}/${database}`;
 }
 
+const keepData = process.argv.includes('--keep-data');
 const pool = new pg.Pool({ connectionString: connectionString(), max: 1 });
 try {
   const client = await pool.connect();
   try {
-    const result = await runSchemaMigrations(client, {
+    const result = await resetSchema(client, {
       baselineSql: fs.readFileSync(path.resolve('scripts/schema.sql'), 'utf8'),
       migrationsDir: path.resolve('scripts/migrations'),
+      wipe: !keepData,
     });
     console.log(
-      `schema-migrations: baseline ${result.baselineSource || 'already recorded'}; ` +
+      `schema-reset: wiped ${keepData ? 'none (--keep-data)' : `${result.wipedTables.length} tables`}; ` +
+        `baseline ${result.baselineSource || 'already recorded'}; ` +
         `applied ${result.applied.length ? result.applied.join(', ') : 'none'}; ` +
         `current ${result.currentVersion || 'none'}`
     );
   } finally {
     client.release();
   }
+} catch (err) {
+  console.error(
+    'schema-reset: rolled back — the database still holds the rows, schema and ledger it had before this command.'
+  );
+  console.error((err as Error)?.message || err);
+  process.exitCode = 1;
 } finally {
   await pool.end().catch(() => undefined);
 }

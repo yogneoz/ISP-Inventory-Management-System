@@ -18,6 +18,7 @@
  * name or product description in either script keeps its glyphs inside a
  * table cell.
  */
+import { businessDateAD } from '../../../shared/businessDate';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -356,7 +357,7 @@ function documentDefinition(
           width: '*',
           text: [
             { text: 'मिति: ', font: 'NotoSansDevanagari', bold: true },
-            { text: meta.dateAD || new Date().toISOString().split('T')[0], font: 'NotoSans' },
+            { text: meta.dateAD || businessDateAD(), font: 'NotoSans' },
           ],
           fontSize: 7,
           color: MUTED,

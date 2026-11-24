@@ -3,6 +3,7 @@
  * extraction). Owns the fail-closed branch-scoped daily document-number issuer
  * and the operator/import override validation.
  */
+import { businessDateAD } from '../../../shared/businessDate';
 import { pgPool } from '../../db';
 import { ApiError } from '../errors/ApiError';
 import { branches, docNumberConfigs, fiscalYears, getPgConnected } from '../state/runtimeState';
@@ -115,7 +116,7 @@ export async function issueNextDocNumber(
   // values like "PO-2081-" still resolve to "PO". Unconfigured doc types
   // fall back to the built-in code map.
   const opCode = documentNumberCode(docType);
-  const day = (dateAd || new Date().toISOString().split('T')[0]).slice(0, 10);
+  const day = (dateAd || businessDateAD()).slice(0, 10);
   const pool = client || pgPool;
   if (!pool) {
     throw new ApiError(503, `Document number sequence ${opCode} is unavailable; nothing was posted.`);

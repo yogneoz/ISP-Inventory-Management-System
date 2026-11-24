@@ -47,6 +47,38 @@ export function pickCurrentFiscalYear(years: any[]): any | undefined {
  * "PostgreSQL became unavailable" whenever the fiscal-year master was
  * unusable, pointing operators at the wrong subsystem entirely.
  */
+/**
+ * Which fiscal year should carry `is_current` on `todayAD`, or null when the
+ * flag is already right or the data cannot answer.
+ *
+ * The boot reconcile (server/src/boot/fiscalYearCurrent.ts) applies this. It
+ * refuses to guess: overlapping years, no open year containing today, or a
+ * current flag on a year that has not started yet (an operator opening the next
+ * year early) all leave the flag untouched.
+ */
+export function resolveCurrentFiscalYearId(rows: readonly any[], todayAD: string): string | null {
+  const years = (rows || [])
+    .map((row: any) => ({
+      id: String(row?.id ?? ''),
+      start: toCalendarDate(row?.startDateAD),
+      end: toCalendarDate(row?.endDateAD),
+      isCurrent: row?.isCurrent === true,
+      isClosed: row?.isClosed === true,
+    }))
+    .filter((year) => year.id && year.start && year.end);
+  if (years.length === 0) return null;
+  const contains = (year: { start: string; end: string }) =>
+    todayAD >= year.start && todayAD <= year.end;
+  const current = years.filter((year) => year.isCurrent);
+  // The common case: the flag already sits on the year that contains today.
+  if (current.length === 1 && contains(current[0])) return null;
+  // A current flag on a year that has not begun is a deliberate forward
+  // opening; do not drag it back.
+  if (current.some((year) => todayAD < year.start)) return null;
+  const candidates = years.filter((year) => contains(year) && !year.isClosed);
+  return candidates.length === 1 ? candidates[0].id : null;
+}
+
 export type FiscalYearScopeFailure =
   /** The caller named a fiscal-year id that does not exist. */
   | { ok: false; reason: 'not-found'; requestedId: string }

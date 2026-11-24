@@ -108,9 +108,9 @@ export const MOBILE_ATTENDANCE_PROOF_UPSERT_SQL = `
   INSERT INTO hr_attendance_proofs (
     attendance_id, latitude, longitude, distance_meters, gps_accuracy_meters,
     wifi_bssid, device_id, device_time_epoch_ms, inside_geofence,
-    integrity_status, risk_score, integrity_notes
+    integrity_status, risk_score, integrity_notes, verdict, held_reason, clock_skew_ms
   )
-  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
   ON CONFLICT (attendance_id) DO UPDATE
      SET latitude = EXCLUDED.latitude,
          longitude = EXCLUDED.longitude,
@@ -123,8 +123,11 @@ export const MOBILE_ATTENDANCE_PROOF_UPSERT_SQL = `
          integrity_status = EXCLUDED.integrity_status,
          risk_score = EXCLUDED.risk_score,
          integrity_notes = EXCLUDED.integrity_notes,
+         verdict = EXCLUDED.verdict,
+         held_reason = EXCLUDED.held_reason,
+         clock_skew_ms = EXCLUDED.clock_skew_ms,
          server_received_at = now()
-  RETURNING attendance_id, integrity_status, risk_score`;
+  RETURNING attendance_id, integrity_status, risk_score, verdict`;
 
 /**
  * A device is bound to the employee that registered it. The `WHERE` on the
@@ -145,6 +148,60 @@ export const MOBILE_DEVICE_OWNER_SQL = `
   SELECT device_id, employee_id, revoked_at
     FROM mobile_devices
    WHERE device_id = $1`;
+
+/** The approve/revoke state a login and a sync both consult. */
+export const MOBILE_DEVICE_STATE_SQL = `
+  SELECT device_id, employee_id, revoked_at, approved_at
+    FROM mobile_devices
+   WHERE device_id = $1`;
+
+export const MOBILE_DEVICE_TOUCH_SQL = `
+  UPDATE mobile_devices
+     SET last_seen_at = now()
+   WHERE device_id = $1 AND revoked_at IS NULL
+  RETURNING device_id`;
+
+/**
+ * A password login admits the device it names. Revocation is the only switch
+ * that takes it away again, so a technician who replaces a phone does not need
+ * an administrator for the first one.
+ */
+export const MOBILE_DEVICE_ADMIT_SQL = `
+  INSERT INTO mobile_devices (device_id, employee_id, model_name, app_version, approved_at, approved_by, last_seen_at)
+  VALUES ($1, $2, $3, $4, now(), $5, now())
+  ON CONFLICT (device_id) DO UPDATE
+     SET model_name = EXCLUDED.model_name,
+         app_version = EXCLUDED.app_version,
+         last_seen_at = now(),
+         approved_at = COALESCE(mobile_devices.approved_at, now()),
+         approved_by = COALESCE(mobile_devices.approved_by, EXCLUDED.approved_by)
+   WHERE mobile_devices.employee_id = EXCLUDED.employee_id
+     AND mobile_devices.revoked_at IS NULL
+  RETURNING device_id, employee_id, approved_at`;
+
+/** HR/IT takes a lost or shared phone out of service. */
+export const MOBILE_DEVICE_REVOKE_SQL = `
+  UPDATE mobile_devices
+     SET revoked_at = now()
+   WHERE device_id = $1 AND revoked_at IS NULL
+  RETURNING device_id, employee_id, revoked_at`;
+
+/** The devices known for one employee (the revoke screen's list). */
+export const MOBILE_DEVICE_LIST_SQL = `
+  SELECT d.device_id AS "deviceId",
+         d.employee_id AS "employeeId",
+         e.name AS "employeeName",
+         d.model_name AS "modelName",
+         d.app_version AS "appVersion",
+         d.bound_at AS "boundAt",
+         d.last_seen_at AS "lastSeenAt",
+         d.approved_at AS "approvedAt",
+         d.revoked_at AS "revokedAt"
+    FROM mobile_devices d
+    JOIN employees e ON e.id = d.employee_id
+   WHERE ($1::text IS NULL OR d.employee_id = $1)
+   ORDER BY d.last_seen_at DESC NULLS LAST, d.bound_at DESC
+   LIMIT $2`;
 
 export const MOBILE_REFRESH_INSERT_SQL = `
   INSERT INTO mobile_refresh_tokens (user_id, device_id, token_hash, expires_at)
@@ -245,6 +302,18 @@ export const MOBILE_WORK_ORDER_SQL = `
     FROM field_work_orders
    WHERE id = $1 AND technician_id = $2`;
 
+/** Any order in the caller's branch, whatever its technician or status. */
+export const MOBILE_WORK_ORDER_BRANCH_SQL = `
+  SELECT id, work_order_no, status, branch_id, technician_id,
+         to_char(scheduled_date_ad, 'YYYY-MM-DD') AS scheduled_date_ad,
+         row_version
+    FROM field_work_orders
+   WHERE id = $1 AND branch_id = $2`;
+
+/** The person a job is being dispatched to must work in the same branch. */
+export const MOBILE_TECHNICIAN_IN_BRANCH_SQL = `
+  SELECT id, name, branch_id FROM employees WHERE id = $1 AND branch_id = $2`;
+
 /**
  * Completion is guarded three ways at once: the technician must own the order,
  * the order must still be open or assigned, and the version must match what the
@@ -264,12 +333,75 @@ export const MOBILE_WORK_ORDER_COMPLETE_SQL = `
      AND row_version = $3
   RETURNING id, work_order_no, status, row_version`;
 
+/** The technician's own open work orders — the queue the app shows first. */
+export const MOBILE_JOB_QUEUE_SQL = `
+  SELECT w.id,
+         w.work_order_no AS "workOrderNo",
+         w.kind,
+         w.status,
+         w.customer_id AS "customerId",
+         c.customer_name AS "customerName",
+         w.scheduled_date_ad::text AS "scheduledDateAD",
+         w.scheduled_date_bs AS "scheduledDateBS",
+         w.notes,
+         w.row_version AS "rowVersion"
+    FROM field_work_orders w
+    LEFT JOIN customer_records c ON c.id = w.customer_id
+   WHERE w.technician_id = $1
+     AND w.branch_id = $2
+     AND w.status IN ('OPEN', 'ASSIGNED')
+   ORDER BY w.scheduled_date_ad, w.work_order_no
+   LIMIT 100`;
+
+/** What the technician is carrying, from the custody projection. */
+export const MOBILE_VAN_STOCK_SQL = `
+  SELECT h.product_id AS "productId",
+         p.name AS "productName",
+         p.sku,
+         h.quantity,
+         h.updated_at AS "updatedAt"
+    FROM employee_stock_holdings h
+    JOIN products p ON p.id = h.product_id
+   WHERE h.employee_id = $1
+     AND h.branch_id = $2
+     AND h.quantity > 0
+   ORDER BY p.name
+   LIMIT 500`;
+
 export const MOBILE_EMPLOYEE_STOCK_CONSUME_SQL = `
   INSERT INTO employee_stock_movements (
     employee_id, product_id, branch_id, movement_type, quantity, work_order_id, reason, actor
   )
   VALUES ($1, $2, $3, 'CONSUME', $4, $5, $6, $7)
   RETURNING id`;
+
+/**
+ * A refused queued action is kept whole: this insert is the promise that a
+ * customer's signature, photo or reading is never lost because the server said
+ * no. Re-sending the same clientId updates the reason rather than stacking rows.
+ */
+export const MOBILE_SYNC_REJECTION_UPSERT_SQL = `
+  INSERT INTO mobile_sync_rejections (
+    client_id, action_kind, employee_id, branch_id, idempotency_key,
+    code, message, retryable, payload
+  )
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
+  ON CONFLICT (employee_id, client_id) DO UPDATE
+     SET action_kind = EXCLUDED.action_kind,
+         branch_id = EXCLUDED.branch_id,
+         idempotency_key = EXCLUDED.idempotency_key,
+         code = EXCLUDED.code,
+         message = EXCLUDED.message,
+         retryable = EXCLUDED.retryable,
+         payload = EXCLUDED.payload,
+         captured_at = now()
+  RETURNING id`;
+
+/** The Needs attention badge: unresolved items the phone queued. */
+export const MOBILE_SYNC_REJECTION_COUNT_SQL = `
+  SELECT COUNT(*)::int AS pending
+    FROM mobile_sync_rejections
+   WHERE employee_id = $1 AND resolved_at IS NULL`;
 
 /** The app's contact card: only the three fields the phone owns. */
 export const MOBILE_CONTACT_UPDATE_SQL = `

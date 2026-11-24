@@ -39,6 +39,7 @@ import {
   INITIAL_MASTER_BRANCHES,
   INITIAL_MASTER_FISCAL_YEARS,
 } from '../../server/src/config/seedData';
+import { businessDateAD } from '../../shared/businessDate';
 import {
   ensureDefaultChart,
   ensureDefaultSubledgers,
@@ -54,10 +55,11 @@ export const WAREHOUSE_BRANCH_ID = 'WH001';
 export const TRANSFER_BRANCH_ID = 'BRH01';
 
 /** The AD date the server derives for "now" — receipts and cancels stamp the
- *  current day, so a BS row for it is what those paths need. Mirrors
- *  `new Date().toISOString().split('T')[0]` exactly. */
+ *  current business day, so a BS row for it is what those paths need. Same
+ *  helper the server uses: Kathmandu's date, not UTC's (they disagree until
+ *  05:45 local, which is when a UTC-derived fixture date was a day behind). */
 export function todayAd(): string {
-  return new Date().toISOString().split('T')[0];
+  return businessDateAD();
 }
 
 /** Ad -> BS day-record lookup over the bundled calendar, built once per year. */
@@ -172,7 +174,24 @@ export async function ensureDemoBranches(
 /** Idempotently inserts the fiscal-year master rows dbBoot seeds. The
  *  bootstrap controller scopes its payload to the active fiscal year and
  *  dereferences it, so a suite that calls GET /api/bootstrap needs these. */
+/**
+ * True when a fiscal year is the current one on `todayAD`: it contains that
+ * day and is not closed. The same rule dbBoot applies, so the fixture cannot
+ * seed a different "current" year than a real install would.
+ */
+function isCurrentOn(
+  fy: { startDateAD?: string; endDateAD?: string; isClosed?: boolean },
+  todayAD: string
+): boolean {
+  const start = fy.startDateAD || '';
+  const end = fy.endDateAD || '';
+  return Boolean(start && end && !fy.isClosed && todayAD >= start && todayAD <= end);
+}
+
 export async function ensureFiscalYearMaster(db: Queryable): Promise<void> {
+  // Derived, not copied from the constant: its isCurrent was true when it was
+  // written and stops being true the day the year rolls over.
+  const todayAD = businessDateAD();
   for (const fy of INITIAL_MASTER_FISCAL_YEARS) {
     await db.query(
       `INSERT INTO fiscal_years (id, code, start_date_ad, end_date_ad, start_date_bs, end_date_bs, is_current, is_closed, is_demo)
@@ -184,7 +203,7 @@ export async function ensureFiscalYearMaster(db: Queryable): Promise<void> {
         fy.endDateAD || '2026-07-15',
         fy.startDateBS || '2082-04-01',
         fy.endDateBS || '2083-03-31',
-        fy.isCurrent || false,
+        isCurrentOn(fy, todayAD),
         fy.isClosed || false,
       ]
     );

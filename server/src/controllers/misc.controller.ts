@@ -5,6 +5,7 @@
  * Response bodies and status codes are preserved verbatim from the
  * original route handlers.
  */
+import { businessDateAD } from '../../../shared/businessDate';
 import type { Request, Response } from 'express';
 import { ensurePostgresConnection, getPgConnected, pgPool, transactionLogs, approvalRequests, setApprovalRequests, withPrepended, logAuditEvent, getUserFromReq, withTransaction, withConnection, products, inventoryStock, setInventoryStock, withAppended, setTransactionLogs, shipments, branches, customerDeviceRecords, serialLogs, setSerialLogs, auditTrail, permissionMatrix, userPermissionOverrides, userPermissionSetGrants } from '../app';
 import { classifyDbFailure, noteDbFailure } from '../../db';
@@ -435,7 +436,7 @@ try {
                 historyEntry: cdrHistoryEntry(
                   approvedSerialStatus,
                   request.requestNumber,
-                  new Date().toISOString().split('T')[0],
+                  businessDateAD(),
                   `Approved ${request.requestNumber}: CPE status ${request.currentStatus} → ${targetStatus}`
                 ),
                 deviceSerial: request.deviceSerial,
@@ -456,7 +457,7 @@ try {
               cpeId: request.targetId,
               deviceSerial: request.deviceSerial,
               requestNumber: request.requestNumber,
-              todayAD: new Date().toISOString().split('T')[0],
+              todayAD: businessDateAD(),
               todayBS: todayBs(),
               branchId: request.branchId,
               products,
@@ -535,7 +536,7 @@ try {
           if (undoReceive && sh) {
             const destBranchObj = branches.find((b) => b.id === sh.destinationBranchId || b.code === sh.destinationBranchId);
             const destBranchId = destBranchObj?.id || sh.destinationBranchId;
-            const undoDateAD = new Date().toISOString().split('T')[0];
+            const undoDateAD = businessDateAD();
             for (const item of sh.items) {
               const qty = shipmentReceivedQty(item);
               if (qty > 0 && destBranchId) {
@@ -573,7 +574,7 @@ try {
             const destBranchObj = branches.find((b) => b.id === sh.destinationBranchId || b.code === sh.destinationBranchId);
             const destBranchId = destBranchObj?.id || sh.destinationBranchId;
 
-            const cancelDateAD = new Date().toISOString().split('T')[0];
+            const cancelDateAD = businessDateAD();
             for (const item of sh.items) {
               const qtySent = shipmentQtySent(item);
               if (qtySent > 0 && srcBranchId) {
@@ -616,7 +617,9 @@ try {
 
           if (auditData.varianceItems && Array.isArray(auditData.varianceItems)) {
             const auditRef = String(auditData.auditRefNumber || request.targetId || request.requestNumber);
-            const journalDateAD = String(request.processedAtAD || new Date().toISOString()).slice(0, 10);
+            const journalDateAD = request.processedAtAD
+              ? String(request.processedAtAD).slice(0, 10)
+              : businessDateAD();
             const movements: Array<{ productId: string; quantity: number; unitCost: number }> = [];
 
             for (const item of auditData.varianceItems) {
@@ -673,7 +676,7 @@ try {
             cdrHistoryEntry(
               approvedSerialStatus,
               request.requestNumber,
-              new Date().toISOString().split('T')[0],
+              businessDateAD(),
               `Approved ${request.requestNumber}: CPE status ${request.currentStatus} → ${targetStatus}`
             )
           ));

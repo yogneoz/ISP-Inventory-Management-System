@@ -14,8 +14,10 @@
 // ============================================================================
 import dotenv from 'dotenv';
 import pg from 'pg';
+import fs from 'node:fs';
+import path from 'node:path';
+import { runSchemaMigrations } from '../server/src/boot/migrations';
 import {
-  applySchema,
   applyVerificationSeed,
   verifySeededDatabase,
   wipeOperationalData,
@@ -56,17 +58,42 @@ async function main() {
   const pool = new Pool({ ...DB_CONFIG, connectionTimeoutMillis: 8000 });
   const client = await pool.connect();
   try {
-    if (!KEEP_DATA) {
-      const wiped = await wipeOperationalData(client);
-      console.log(`🗑  Cleared ${wiped.length} tables (Nepali BS calendar preserved: bs_calendar_years, bs_day_records).`);
-    } else {
-      console.log('🗑  --keep-data: existing rows left in place (inserts skip conflicts).');
+    const schemaSql = fs.readFileSync(path.join(process.cwd(), 'scripts', 'schema.sql'), 'utf8');
+    let wiped: string[] = [];
+    let applied: string[] = [];
+
+    // The wipe, the schema pass and the migration ledger are one transaction,
+    // and the ledger is recorded BEFORE the first row is inserted. Seeding first
+    // is what leaves rows an older migration's CHECK rejects, and the database
+    // then cannot boot; a failure here rolls all three steps back instead.
+    await client.query('BEGIN');
+    try {
+      if (!KEEP_DATA) wiped = await wipeOperationalData(client);
+      if (!SKIP_SCHEMA) await client.query(schemaSql);
+      applied = (
+        await runSchemaMigrations(client, {
+          baselineSql: schemaSql,
+          migrationsDir: path.join(process.cwd(), 'scripts', 'migrations'),
+          transaction: 'outer',
+        })
+      ).applied;
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      console.error(
+        '❌ Reset rolled back: the wipe, the schema pass and the migration ledger are one transaction, ' +
+          'so the database is unchanged and no rows were seeded.'
+      );
+      throw err;
     }
 
-    if (!SKIP_SCHEMA) {
-      await applySchema(client);
-      console.log('📋 scripts/schema.sql applied (idempotent).');
+    if (KEEP_DATA) {
+      console.log('🗑  --keep-data: existing rows left in place (inserts skip conflicts).');
+    } else {
+      console.log(`🗑  Cleared ${wiped.length} tables (Nepali BS calendar preserved: bs_calendar_years, bs_day_records).`);
     }
+    if (!SKIP_SCHEMA) console.log('📋 scripts/schema.sql applied (idempotent).');
+    console.log(`📋 migrations recorded: ${applied.length ? applied.join(', ') : 'none pending'}.`);
 
     console.log('🌱 Seeding masters, documents, stock and ledger...');
     const summary = await applyVerificationSeed(client, dataset);

@@ -12,6 +12,7 @@
  * upload and its audit row commit or roll back together. The bytes are never
  * part of a list or detail projection; the content route is the only read.
  */
+import { businessDateAD } from '../../../shared/businessDate';
 import crypto from 'crypto';
 import type { Response } from 'express';
 import {
@@ -136,7 +137,7 @@ function privateNoStore(res: Response): void {
 }
 
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return businessDateAD();
 }
 
 function parseDate(value: unknown, label: string): string {
@@ -219,7 +220,9 @@ function parseMode(value: unknown): HrRecruitmentInterviewMode {
 }
 
 function referenceNo(prefix: string): string {
-  return `${prefix}-${new Date().getUTCFullYear()}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+  // The year in a reference number is the office's year: on 1 January before
+  // 05:45 the UTC year is still the previous one.
+  return `${prefix}-${businessDateAD().slice(0, 4)}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
 }
 
 function sanitizeFileName(value: unknown): string {

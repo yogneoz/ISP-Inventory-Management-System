@@ -6,6 +6,7 @@
  * Serial identity rule (case-insensitive): two serial values are the same
  * identifier when their trimmed, uppercased forms are equal.
  */
+import { businessDateAD } from '../../../shared/businessDate';
 import type { SerialLog } from '../../../client/src/types';
 
 /** Minimal DB client surface (satisfied by pg clients from withTransaction). */
@@ -191,7 +192,7 @@ export function applyInMemorySerialRename(
     status: 'SERIAL_CORRECTION',
     sourceType: 'SERIAL_CORRECTION',
     sourceId: input.targetId || null,
-    dateAD: nowIso.slice(0, 10),
+    dateAD: businessDateAD(new Date(nowIso)),
     notes: `${input.oldDeviceSerial}→${input.newDeviceSerial}`,
   } as any;
   const oldKey = normalizeSerial(input.oldDeviceSerial).toLowerCase();
@@ -274,7 +275,7 @@ export function buildSerialLogRenameStep(
     status: 'SERIAL_CORRECTION',
     sourceType: 'SERIAL_CORRECTION',
     sourceId: input.targetId || null,
-    dateAD: nowIso.slice(0, 10),
+    dateAD: businessDateAD(new Date(nowIso)),
     notes: `${input.oldDeviceSerial}→${input.newDeviceSerial}`,
   };
   return {

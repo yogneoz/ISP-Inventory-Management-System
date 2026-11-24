@@ -6,6 +6,7 @@
  * original route handlers.
  */
 import type { Request, Response } from 'express';
+import { randomUUID } from 'node:crypto';
 import { getPgConnected, pgPool, uomList, setUomList, withReplaced, withAppended, logAuditEvent, locationRecords, setLocationRecords, withPrepended, suppliers, setSuppliers, products, setProducts, branches, setInventoryStock, inventoryStock, categories, setCategories, productGroups, setProductGroups, broadcastChange, customerMasterRecords, customerDeviceRecords, setCustomerMasterRecords, withTransaction, companyProfile } from '../app';
 import { readCatalog, invalidateCatalog } from '../state/catalogCache';
 import { defaultVatRateFor } from '../utils/money';
@@ -276,7 +277,11 @@ const { branchId } = req.query;
 export async function post_locations(req: any, res: Response): Promise<any> {
 try {
     const newLoc: LocationRecord = {
-      id: req.body.id || `LOC-${Math.floor(1000 + Math.random() * 9000)}`,
+      // A generated id must not collide: the upsert treats an existing id as an
+      // update, so a 4-digit random code could silently overwrite another
+      // location (two concurrent creates landed on one row).
+      id: req.body.id || `LOC-${randomUUID().slice(0, 8).toUpperCase()}`,
+
       name: req.body.name || 'New Location',
       type: req.body.type || 'POP_SERVER_ROOM',
       branchId: req.body.branchId || 'WH001',

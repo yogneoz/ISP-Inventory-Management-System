@@ -5,6 +5,7 @@
  * Response bodies and status codes are preserved verbatim from the
  * original route handlers.
  */
+import { businessDateAD } from '../../../shared/businessDate';
 import type { Request, Response } from 'express';
 import { pgPool, hydrateOperationalData, setDataVersion, getDataVersion, sseClients, users, getPgConnected, setCompanyProfile, companyProfile, logAuditEvent, branches, setBranches, withReplaced, withAppended, validateRole, hashPassword, setUsers, assetRegister, transactionLogs, inventoryStock, inMemoryBsCalendarYears, withTransaction, withConnection, buildBsDayRecordsForYear, setInMemoryBsCalendarYears, generateInMemoryBsDayRecords, inMemoryBsDayRecords, setDocNumberConfigs, docNumberConfigs, fiscalYears, setFiscalYears, withSorted, verifySuperAdminCredentials, getUserFromReq, findBsDayRecordForAdDate, NEPALI_MONTHS_EN_SERVER, NEPALI_MONTHS_NP_SERVER, DAYS_OF_WEEK_EN_SERVER, DAYS_OF_WEEK_NP_SERVER, DEFAULT_BS_YEARS_SERVER, hydrateBsCalendarFromDb, setInMemoryBsDayRecords, broadcastChange } from '../app';
 import { rememberSessionVersion, revokeSessionVersion } from '../state/sessionVersion';
@@ -466,7 +467,7 @@ try {
 /** Forwarded from admin.routes.ts (post_fixedAssets). */
 export async function post_fixedAssets(req: any, res: Response): Promise<any> {
 try {
-    const asOfDateAD = new Date().toISOString().slice(0, 10);
+    const asOfDateAD = businessDateAD();
     let assetsToUpdate = assetRegister;
     if (getPgConnected()) {
       const result = await pgPool.query(ASSET_RECALC_SELECT_SQL);

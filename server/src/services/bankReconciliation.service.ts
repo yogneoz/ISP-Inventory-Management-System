@@ -8,6 +8,7 @@
  * bank-book line only when both signed amounts agree. The service never edits
  * the ledger; it only records the match and the period session.
  */
+import { businessDateAD } from '../../../shared/businessDate';
 import crypto from 'crypto';
 import { ApiError } from '../errors/ApiError';
 import { isAccountingDate, type AccountingClient } from './accounting.service';
@@ -197,7 +198,7 @@ function money(value: unknown): number {
 }
 
 function todayAD(): string {
-  return new Date().toISOString().slice(0, 10);
+  return businessDateAD();
 }
 
 function dateValue(value: unknown, label: string): string {

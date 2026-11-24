@@ -14,6 +14,7 @@
  * business write, which is why the dirty-DEFAULT check and the repair path are
  * part of this slice rather than a follow-up.
  */
+import { businessDateAD } from '../../../shared/businessDate';
 import { type PartitionSqlClient, partitionWindow } from './journalPartitions';
 
 export const LOG_TABLES = ['audit_logs', 'transaction_logs'] as const;
@@ -284,7 +285,7 @@ export async function repairLogDefaultPartitions(
       await client.query(`DELETE FROM ${child}`);
       await client.query('SELECT ensure_log_month_partition($1, $2::timestamptz)', [
         table,
-        `${new Date().toISOString().slice(0, 10)}T00:00:00Z`,
+        `${businessDateAD()}T00:00:00Z`,
       ]).catch(() => undefined);
       // Provision one child per month the staged rows occupy, then reinsert
       // through the parent so each row lands in its own month.

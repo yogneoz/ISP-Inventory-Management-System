@@ -38,6 +38,8 @@ import {
 import { hashPassword } from '../middleware/auth';
 import { ensureDefaultChart, ensureDefaultSubledgers } from '../services/accountingSeed.service';
 import { runSchemaMigrations } from './migrations';
+import { reconcileCurrentFiscalYear } from './fiscalYearCurrent';
+import { businessDateAD } from '../../../shared/businessDate';
 import {
   defaultPartitionIsDirty,
   describeJournalPartitions,
@@ -332,7 +334,15 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
         [b.id, b.code, b.name, b.location, b.phone || '', b.isHeadquarters || false, b.active !== false, b.allowProcurement !== false, b.allowWarehouseTransfer !== false]
       );
     }
+    const bootBusinessDateAD = businessDateAD();
     for (const fy of (isFreshInstall ? INITIAL_MASTER_FISCAL_YEARS : [])) {
+      // Derived from the business date, not copied from the constant: its
+      // isCurrent was true when it was written and is stale from the day the
+      // year rolls over.
+      const containsToday =
+        Boolean(fy.startDateAD && fy.endDateAD) &&
+        bootBusinessDateAD >= fy.startDateAD &&
+        bootBusinessDateAD <= fy.endDateAD;
       await client.query(
         `INSERT INTO fiscal_years (id, code, start_date_ad, end_date_ad, start_date_bs, end_date_bs, is_current, is_closed, is_demo)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE) ON CONFLICT (id) DO NOTHING`,
@@ -340,9 +350,24 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
         // they mirror fy-3 (2082-83 = Shrawan 1 2082 .. Ashadh 32 2083) from
         // INITIAL_MASTER_FISCAL_YEARS so they never reintroduce a boundary that
         // is not a patro date (2025-07-16 is Ashadh 32, not Shrawan 1).
-        [fy.id, fy.code, fy.startDateAD || '2025-07-17', fy.endDateAD || '2026-07-16', fy.startDateBS || '2082-04-01', fy.endDateBS || '2083-03-32', fy.isCurrent || false, fy.isClosed || false]
+        [fy.id, fy.code, fy.startDateAD || '2025-07-17', fy.endDateAD || '2026-07-16', fy.startDateBS || '2082-04-01', fy.endDateBS || '2083-03-32', containsToday && !fy.isClosed, fy.isClosed || false]
       );
     }
+    // The current flag is data, not a constant. Reconcile it on every boot so
+    // a database seeded before the rollover (or a hand-edited row) cannot keep
+    // the previous year current; a master-data problem must not block the boot,
+    // so a failure is reported and the server continues.
+    try {
+      const reconciled = await reconcileCurrentFiscalYear(client, bootBusinessDateAD);
+      if (reconciled.changed) {
+        console.log(
+          `ℹ️  Fiscal year current flag moved to ${reconciled.id} (business date ${reconciled.todayAD}).`
+        );
+      }
+    } catch (err: any) {
+      console.warn('Fiscal-year current reconcile skipped:', err?.message || err);
+    }
+
     // Seed Company Profile if empty
     await client.query(
       `INSERT INTO company_profile (id, name, legal_name, tagline, address, city, country, postal_code, phone, email, website, pan_vat_number, registration_number, logo_url, logo_preset, currency_symbol, currency_code, currency_locale, currency_position, currency_decimals, default_tax_rate, notes)

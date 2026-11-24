@@ -11,10 +11,17 @@
  * Branch scope is a WHERE clause, not a post-filter: a caller that may see one
  * branch never reads another's rows.
  */
+import crypto from 'node:crypto';
 import { pgPool } from '../../db';
 import { withTransaction } from '../db/transactions';
 
-export type EmployeeStockMovementType = 'ISSUE' | 'RETURN' | 'CONSUME' | 'LOSS';
+export type EmployeeStockMovementType =
+  | 'ISSUE'
+  | 'RETURN'
+  | 'CONSUME'
+  | 'LOSS'
+  | 'TRANSFER_OUT'
+  | 'TRANSFER_IN';
 
 export interface EmployeeStockHoldingRow {
   employee_id: string;
@@ -45,6 +52,10 @@ export interface EmployeeStockMovementRow {
   work_order_no: string | null;
   reason: string | null;
   actor: string;
+  /** The other person in a custody transfer; null for every other movement. */
+  counterparty_employee_id: string | null;
+  counterparty_name: string | null;
+  transfer_group_id: string | null;
   created_at: string;
 }
 
@@ -59,7 +70,9 @@ export type EmployeeStockRefusalCode =
   | 'UNKNOWN_EMPLOYEE'
   | 'UNKNOWN_PRODUCT'
   | 'UNKNOWN_WORK_ORDER'
-  | 'REASON_REQUIRED';
+  | 'REASON_REQUIRED'
+  | 'SAME_EMPLOYEE'
+  | 'CROSS_BRANCH_TRANSFER';
 
 export class EmployeeStockRefusal extends Error {
   readonly code: EmployeeStockRefusalCode;
@@ -83,12 +96,15 @@ const MOVEMENT_SELECT = `
   SELECT m.id, m.employee_id, e.employee_code, e.name AS employee_name,
          m.product_id, p.sku AS product_code, p.name AS product_name,
          m.branch_id, b.name AS branch_name, m.movement_type, m.quantity,
-         m.work_order_id, w.work_order_no, m.reason, m.actor, m.created_at
+         m.work_order_id, w.work_order_no, m.reason, m.actor,
+         m.counterparty_employee_id, ce.name AS counterparty_name,
+         m.transfer_group_id, m.created_at
     FROM employee_stock_movements m
     JOIN employees e ON e.id = m.employee_id
     JOIN products p ON p.id = m.product_id
     JOIN branches b ON b.id = m.branch_id
-    LEFT JOIN field_work_orders w ON w.id = m.work_order_id`;
+    LEFT JOIN field_work_orders w ON w.id = m.work_order_id
+    LEFT JOIN employees ce ON ce.id = m.counterparty_employee_id`;
 
 export interface EmployeeStockQuery {
   branchIds?: string[] | null;
@@ -186,6 +202,12 @@ export async function employeeBranchId(employeeId: string): Promise<string | nul
   return result.rows[0]?.branch_id || null;
 }
 
+/** The same lookup inside the caller's transaction (a transfer locks nothing else). */
+async function employeeBranchIdInTransaction(client: any, employeeId: string): Promise<string | null> {
+  const result = await client.query('SELECT branch_id FROM employees WHERE id = $1', [employeeId]);
+  return result.rows[0]?.branch_id || null;
+}
+
 async function assertEmployeeInBranch(client: any, employeeId: string, branchId: string): Promise<void> {
   const result = await client.query('SELECT 1 FROM employees WHERE id = $1 AND branch_id = $2', [employeeId, branchId]);
   if (result.rows.length === 0) {
@@ -252,12 +274,15 @@ async function appendMovement(
     workOrderId: string | null;
     reason: string | null;
     actor: string;
+    counterpartyEmployeeId?: string | null;
+    transferGroupId?: string | null;
   }
 ): Promise<EmployeeStockMovementRow> {
   const inserted = await client.query(
     `INSERT INTO employee_stock_movements
-       (employee_id, product_id, branch_id, movement_type, quantity, work_order_id, reason, actor)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       (employee_id, product_id, branch_id, movement_type, quantity, work_order_id, reason, actor,
+        counterparty_employee_id, transfer_group_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      RETURNING id`,
     [
       input.employeeId,
@@ -268,11 +293,15 @@ async function appendMovement(
       input.workOrderId,
       input.reason,
       input.actor,
+      input.counterpartyEmployeeId || null,
+      input.transferGroupId || null,
     ]
   );
 
+  // ISSUE and TRANSFER_IN add units; everything else (RETURN, CONSUME, LOSS,
+  // TRANSFER_OUT) subtracts them.
   const sum = await client.query(
-    `SELECT COALESCE(SUM(CASE WHEN movement_type = 'ISSUE' THEN quantity ELSE -quantity END), 0)::int AS quantity
+    `SELECT COALESCE(SUM(CASE WHEN movement_type IN ('ISSUE', 'TRANSFER_IN') THEN quantity ELSE -quantity END), 0)::int AS quantity
        FROM employee_stock_movements
       WHERE employee_id = $1 AND product_id = $2 AND branch_id = $3`,
     [input.employeeId, input.productId, input.branchId]
@@ -360,6 +389,83 @@ export async function consumeEmployeeStock(input: MovementInput): Promise<Employ
       workOrderId: input.workOrderId || null,
       reason: input.reason || null,
     });
+  });
+}
+
+/** The shape of a custody transfer's request after validation. */
+export interface TransferInput {
+  fromEmployeeId: string;
+  toEmployeeId: string;
+  productId: string;
+  quantity: number;
+  reason: string;
+  actor: string;
+}
+
+/**
+ * TRANSFER: custody moves person to person, inside one branch.
+ *
+ * The rule the parked item was waiting for, stated rather than implied:
+ * custody does **not** cross a branch boundary directly. Units that leave one
+ * branch's shelf were issued once and belong to that branch's custody; moving
+ * them to a colleague in another branch would make the destination's stock a
+ * fiction (it never received them) and the source's issue unreconcilable. The
+ * books already carry the right path — return to the source branch, then issue
+ * from the destination branch — so a cross-branch transfer is refused with that
+ * remedy named.
+ *
+ * Both appends land in one transaction: OUT on the giver (projection down), IN
+ * on the receiver (projection up), same `transfer_group_id`, each naming the
+ * other person. No `inventory_stock` row is touched, because the units left the
+ * shelf at issue time.
+ */
+export async function transferEmployeeStock(
+  input: TransferInput
+): Promise<{ transferGroupId: string; from: EmployeeStockMovementRow; to: EmployeeStockMovementRow }> {
+  const reason = String(input.reason || '').trim();
+  if (!reason) throw new EmployeeStockRefusal('REASON_REQUIRED', 'A custody transfer needs a reason.');
+  if (input.fromEmployeeId === input.toEmployeeId) {
+    throw new EmployeeStockRefusal('SAME_EMPLOYEE', 'A transfer needs two different employees.');
+  }
+  return withTransaction(async (client) => {
+    const fromBranch = await employeeBranchIdInTransaction(client, input.fromEmployeeId);
+    const toBranch = await employeeBranchIdInTransaction(client, input.toEmployeeId);
+    if (!fromBranch) throw new EmployeeStockRefusal('UNKNOWN_EMPLOYEE', 'The giving employee does not exist.');
+    if (!toBranch) throw new EmployeeStockRefusal('UNKNOWN_EMPLOYEE', 'The receiving employee does not exist.');
+    if (fromBranch !== toBranch) {
+      throw new EmployeeStockRefusal(
+        'CROSS_BRANCH_TRANSFER',
+        'Custody does not cross branches directly: return the units to the source branch, then issue them from the destination branch.'
+      );
+    }
+    await assertProductExists(client, input.productId);
+
+    const transferGroupId = crypto.randomUUID();
+    const from = await appendMovement(client, {
+      employeeId: input.fromEmployeeId,
+      productId: input.productId,
+      branchId: fromBranch,
+      type: 'TRANSFER_OUT',
+      quantity: input.quantity,
+      workOrderId: null,
+      reason,
+      actor: input.actor,
+      counterpartyEmployeeId: input.toEmployeeId,
+      transferGroupId,
+    });
+    const to = await appendMovement(client, {
+      employeeId: input.toEmployeeId,
+      productId: input.productId,
+      branchId: toBranch,
+      type: 'TRANSFER_IN',
+      quantity: input.quantity,
+      workOrderId: null,
+      reason,
+      actor: input.actor,
+      counterpartyEmployeeId: input.fromEmployeeId,
+      transferGroupId,
+    });
+    return { transferGroupId, from, to };
   });
 }
 

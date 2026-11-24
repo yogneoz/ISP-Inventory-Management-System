@@ -9,6 +9,7 @@
  * COMPLETED, and completion is irreversible.
  */
 import crypto from 'crypto';
+import { businessDateAD } from '../../../shared/businessDate';
 import type { Response } from 'express';
 import { rememberSessionVersion } from '../state/sessionVersion';
 import {
@@ -219,7 +220,7 @@ function hasNonEmployeeAssetCustody(asset: any): boolean {
 }
 
 function referenceNo(type: HrLifecycleType): string {
-  return `${type === 'ONBOARDING' ? 'ONB' : 'OFF'}-${new Date().getUTCFullYear()}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+  return `${type === 'ONBOARDING' ? 'ONB' : 'OFF'}-${businessDateAD().slice(0, 4)}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
 }
 
 async function findChecklist(id: string): Promise<any | null> {

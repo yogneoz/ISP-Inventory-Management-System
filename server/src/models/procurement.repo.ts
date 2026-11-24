@@ -7,6 +7,7 @@
  * updates, audit logging, response bodies); query text and column lists are
  * defined once in this layer.
  */
+import { businessDateAD } from '../../../shared/businessDate';
 
 // ---------------------------------------------------------------------------
 // Purchase Orders
@@ -423,7 +424,7 @@ export function piTxnLogParams(inv: Record<string, any>, item: Record<string, an
     before + changed,
     Number(item.unitPrice) || 0,
     inv.invoiceNumber,
-    inv.invoiceDateAD || new Date().toISOString(),
+    inv.invoiceDateAD || businessDateAD(),
     inv.invoiceDateBS || (() => { throw new Error('purchase-invoice insert requires invoiceDateBS resolved from bs_day_records'); })(),
   ];
 }
@@ -897,7 +898,7 @@ export function prTxnLogParams(ret: Record<string, any>, item: Record<string, an
     Math.max(0, before + changed),
     Number.isFinite(Number(unitCostOverride)) ? Number(unitCostOverride) : Number(item.unitPrice) || 0,
     ret.returnNumber,
-    ret.returnDateAD || new Date().toISOString(),
+    ret.returnDateAD || businessDateAD(),
     ret.returnDateBS || (() => { throw new Error('purchase-return insert requires returnDateBS resolved from bs_day_records'); })(),
   ];
 }

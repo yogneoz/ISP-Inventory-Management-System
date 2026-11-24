@@ -5,6 +5,7 @@
  * Response bodies and status codes are preserved verbatim from the
  * original route handlers.
  */
+import { businessDateAD } from '../../../shared/businessDate';
 import type { Request, Response } from 'express';
 import { getPgConnected, pgPool, purchaseOrders, issueNextDocNumber, setPurchaseOrders, withReplaced, withPrepended, inventoryStock, logAuditEvent, purchaseInvoices, withTransaction, branches, products, companyProfile, setPurchaseInvoices, suppliers, setInventoryStock, withAppended, customerDeviceRecords, setCustomerDeviceRecords, vendorPayments, getUserFromReq, broadcastChange, VENDOR_PAYMENT_SELECT, providerSupplierIdFromName, findBsDayRecordForAdDate, setVendorPayments, purchaseReturns, setPurchaseReturns, transactionLogs, setTransactionLogs, serialLogs, setSerialLogs, productGroups } from '../app';
 import { VendorPayment, VendorPaymentMethod, TransactionLog } from '../../../client/src/types';
@@ -192,7 +193,7 @@ try {
     const totalAmount = poTotals.grandTotal;
 
     const poBranchId = req.body.branchId || 'WH001';
-    const poOrderDate = req.body.orderDateAD || req.body.orderDateAd || new Date().toISOString().split('T')[0];
+    const poOrderDate = req.body.orderDateAD || req.body.orderDateAd || businessDateAD();
     // Both PO business dates are derived from bs_day_records: a client-supplied
     // BS value cannot override the calendar, and an unseeded day refuses the PO.
     const poOrderDateBS = await bsDateOr400(res, poOrderDate);
@@ -509,7 +510,7 @@ async function registerPurchaseSerials(
 ): Promise<void> {
   const history = purchaseRegisterHistoryEntry(
     { id: inv.id, invoiceNumber: inv.invoiceNumber },
-    inv.invoiceDateAD || new Date().toISOString()
+    inv.invoiceDateAD || businessDateAD()
   );
   for (const entry of entries) {
     if (entry.ponSerial) {
@@ -594,7 +595,7 @@ try {
     });
     if (quantityRefusal) return res.status(400).json({ message: quantityRefusal });
     const targetBranchId = req.body.branchId || branches[0]?.id || 'WH001';
-    const invDate = req.body.invoiceDateAD || req.body.invoiceDateAd || new Date().toISOString().split('T')[0];
+    const invDate = req.body.invoiceDateAD || req.body.invoiceDateAd || businessDateAD();
     const invoiceNumber = await resolveDocumentNumber({
       provided: req.body.invoiceNumber,
       docType: 'PI',
@@ -976,7 +977,7 @@ try {
         // the deletion reverses them out of the movement ledger with positive
         // mirror rows carrying the TRUE balance from the guarded reversal's
         // RETURNING (before + restored = after).
-        const cancelAD = new Date().toISOString().split('T')[0];
+        const cancelAD = businessDateAD();
         const cancelBsRec = await findBsDayRecordForAdDate(cancelAD);
         const cancelBS = cancelBsRec.found ? `${cancelBsRec.record.bsDate} BS` : '';
         let lineIdx = 0;
@@ -1347,7 +1348,7 @@ try {
     }
 
     const branchId = body.branchId || linkedInvoice?.branchId || getUserFromReq(req).branchId || branches[0]?.id || 'WH001';
-    const paymentDateAD = String(body.paymentDateAD || new Date().toISOString().split('T')[0]).split('T')[0];
+    const paymentDateAD = String(body.paymentDateAD || businessDateAD()).split('T')[0];
     // BS dates are mandatory: derive from bs_day_records for the payment's
     // OWN AD date (never the linked invoice's date, never a fallback);
     // 400 when the calendar day is unseeded.
@@ -1776,7 +1777,7 @@ export async function post_purchaseReturns(req: any, res: Response): Promise<any
     // C1: totals are recomputed from line primitives; client aggregates ignored.
     const totals = computeBillTotals(items, undefined, defaultVatRateFor(companyProfile));
     const targetBranchId = req.body.branchId || branches[0]?.id || 'WH001';
-    const retDate = req.body.returnDateAD || req.body.returnDateAd || new Date().toISOString().split('T')[0];
+    const retDate = req.body.returnDateAD || req.body.returnDateAd || businessDateAD();
     // BS dates are mandatory: derive from bs_day_records for the return's
     // own AD date; 400 when unseeded.
     const prReturnDateBS = await bsDateOr400(res, retDate);
@@ -1936,7 +1937,7 @@ export async function post_purchaseReturnCancel(req: any, res: Response): Promis
     }
 
     // BS date for the compensating ledger rows: today's seeded BS record.
-    const prCancelAD = new Date().toISOString().split('T')[0];
+    const prCancelAD = businessDateAD();
     const prCancelBsRec = await findBsDayRecordForAdDate(prCancelAD);
     const prCancelBS = prCancelBsRec.found ? `${prCancelBsRec.record.bsDate} BS` : '';
 
@@ -1981,7 +1982,7 @@ export async function post_purchaseReturnCancel(req: any, res: Response): Promis
                   status: 'IN_STOCK',
                   sourceType: 'PURCHASE_RETURN_CANCELLED',
                   sourceId: ret.id,
-                  dateAD: new Date().toISOString().split('T')[0],
+                  dateAD: businessDateAD(),
                   notes: `Purchase return ${ret.returnNumber} cancelled`,
                 }]),
                 ['RETURNED_TO_VENDOR'],

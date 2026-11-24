@@ -29,6 +29,8 @@
     "check:branch-predicates": "tsx scripts/check_branch_predicates.ts",
     "check:audit-await": "tsx scripts/check_audit_await.ts",
     "check:contract-parity": "tsx scripts/check_contract_parity.ts",
+    "accounting-outbox:pending": "tsx scripts/accounting_outbox.ts pending",
+    "accounting-outbox:flush": "tsx scripts/accounting_outbox.ts flush",
     "read-models:pending": "tsx scripts/read_models.ts pending",
     "read-models:flush": "tsx scripts/read_models.ts flush",
     "read-models:rebuild": "tsx scripts/read_models.ts rebuild",

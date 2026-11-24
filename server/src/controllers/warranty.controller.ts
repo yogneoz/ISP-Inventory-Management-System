@@ -5,6 +5,7 @@
  * Branch scope is resolved from the session exactly like the paged device read,
  * so a forged or omitted branchId cannot widen a branch account.
  */
+import { businessDateAD } from '../../../shared/businessDate';
 import type { Response } from 'express';
 import { getPgConnected, pgPool } from '../app';
 import { withTransaction } from '../db/transactions';
@@ -134,8 +135,7 @@ function mirrorRows(opts: WarrantyQueryOptions, branchNames: Map<string, string>
     .map((row) => {
       const state = row.isCurrent ? warrantyStateForMirror(row.endDateAD) : 'RETURNED';
       const end = Date.parse(`${row.endDateAD}T00:00:00Z`);
-      const today = new Date();
-      const todayUTC = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+      const todayUTC = Date.parse(`${businessDateAD()}T00:00:00Z`);
       return {
         id: row.id,
         coverageType: row.coverageType,
@@ -393,7 +393,7 @@ export async function patch_warrantyCoverage(req: any, res: Response): Promise<a
       ...updated,
       warrantyState: warrantyStateFor(updated.endDateAD),
       daysRemaining: Math.round(
-        (Date.parse(`${updated.endDateAD}T00:00:00Z`) - Date.parse(`${new Date().toISOString().slice(0, 10)}T00:00:00Z`)) / 86_400_000
+        (Date.parse(`${updated.endDateAD}T00:00:00Z`) - Date.parse(`${businessDateAD()}T00:00:00Z`)) / 86_400_000
       ),
     });
   } catch (err: any) {

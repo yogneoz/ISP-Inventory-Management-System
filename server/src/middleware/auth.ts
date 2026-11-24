@@ -144,6 +144,45 @@ export function sessionStillValid(user: SessionUser, cache: readonly Partial<Use
   return sessionFingerprint(cached) === user.ver;
 }
 
+/**
+ * Short-lived elevation for sensitive reads (payslips, PAN/SSF/bank, documents).
+ *
+ * Deliberately a separate token family: the HMAC input is prefixed with
+ * `sensitive.`, so a session token cannot be presented as an elevation and an
+ * elevation cannot be used as a session. It carries only the user id and its
+ * expiry, and is never stored server-side.
+ */
+export const SENSITIVE_TTL_SECONDS = 5 * 60;
+
+export function issueSensitiveToken(userId: string): { token: string; expiresInSeconds: number } {
+  const payload = Buffer.from(
+    JSON.stringify({
+      sub: userId,
+      purpose: 'SENSITIVE',
+      exp: Math.floor(Date.now() / 1000) + SENSITIVE_TTL_SECONDS,
+    })
+  ).toString('base64url');
+  const signature = crypto.createHmac('sha256', AUTH_TOKEN_SECRET).update(`sensitive.${payload}`).digest('base64url');
+  return { token: `${payload}.${signature}`, expiresInSeconds: SENSITIVE_TTL_SECONDS };
+}
+
+/** The user id an elevation token was issued to, or null when it is not valid. */
+export function verifySensitiveToken(token: string): string | null {
+  const [payload, signature] = String(token || '').split('.');
+  if (!payload || !signature) return null;
+  const expected = crypto.createHmac('sha256', AUTH_TOKEN_SECRET).update(`sensitive.${payload}`).digest();
+  const actual = Buffer.from(signature, 'base64url');
+  if (expected.length !== actual.length || !crypto.timingSafeEqual(expected, actual)) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (parsed.purpose !== 'SENSITIVE' || !parsed.sub || !parsed.exp) return null;
+    if (parsed.exp <= Math.floor(Date.now() / 1000)) return null;
+    return String(parsed.sub);
+  } catch (_err) {
+    return null;
+  }
+}
+
 export function verifyAuthToken(token: string): SessionUser | null {
   const [payload, signature] = token.split('.');
   if (!payload || !signature) return null;

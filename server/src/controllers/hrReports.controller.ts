@@ -17,6 +17,7 @@
  * approved-request usage derived from the same ledger the leave screen uses.
  */
 import type { Response } from 'express';
+import { businessDateAD } from '../../../shared/businessDate';
 import { getPgConnected, pgPool } from '../app';
 import { ApiError } from '../errors/ApiError';
 import { getUserFromReq } from '../middleware/auth';
@@ -270,7 +271,7 @@ export async function get_hrWorkforceReport(req: any, res: Response): Promise<an
       byBranch: attritionByBranch,
     },
     leaveLiability: {
-      balanceYear: Number(yearResult.rows[0]?.balanceYear ?? new Date().getFullYear()),
+      balanceYear: Number(yearResult.rows[0]?.balanceYear ?? businessDateAD().slice(0, 4)),
       totalEntitlementDays: num(leaveTotals.entitlementDays),
       totalAdjustmentDays: num(leaveTotals.adjustmentDays),
       totalUsedDays: num(leaveTotals.usedDays),

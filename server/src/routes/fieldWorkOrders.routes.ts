@@ -10,11 +10,14 @@
 import type { Express } from 'express';
 import {
   get_fieldWorkOrder,
+  get_fieldWorkOrderEvidence,
+  get_fieldWorkOrderEvidenceContent,
   get_fieldWorkOrders,
   patch_fieldWorkOrderAssign,
   post_fieldWorkOrder,
   post_fieldWorkOrderCancel,
   post_fieldWorkOrderComplete,
+  post_fieldWorkOrderEvidence,
 } from '../controllers/fieldWorkOrders.controller';
 import { requirePermission } from '../app';
 
@@ -42,4 +45,21 @@ export function registerFieldWorkOrderRoutes(app: Express) {
   app.post('/api/field-work-orders/:id/cancel', requirePermission('field-work-order'), async (req, res, next) => {
     post_fieldWorkOrderCancel(req as any, res as any).catch(next);
   });
+
+  // Proof of work: the photo or signature captured on site, and the stored bytes.
+  app.get('/api/field-work-orders/:id/evidence', requirePermission('field-work-order'), async (req, res, next) => {
+    get_fieldWorkOrderEvidence(req as any, res as any).catch(next);
+  });
+
+  app.post('/api/field-work-orders/:id/evidence', requirePermission('field-work-order'), async (req, res, next) => {
+    post_fieldWorkOrderEvidence(req as any, res as any).catch(next);
+  });
+
+  app.get(
+    '/api/field-work-orders/:id/evidence/:evidenceId/content',
+    requirePermission('field-work-order'),
+    async (req, res, next) => {
+      get_fieldWorkOrderEvidenceContent(req as any, res as any).catch(next);
+    }
+  );
 }

@@ -9,6 +9,7 @@
  * legacy payroll-master grant accepted during the HR permission migration.
  */
 import crypto from 'crypto';
+import { businessDateAD } from '../../../shared/businessDate';
 import type { Response } from 'express';
 import {
   getPgConnected,
@@ -171,7 +172,7 @@ function parseFeedbackRating(value: unknown): number {
 }
 
 function referenceNo(prefix: string): string {
-  return `${prefix}-${new Date().getUTCFullYear()}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+  return `${prefix}-${businessDateAD().slice(0, 4)}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
 }
 
 /** Reject every unknown or repeated query key, and refuse the literal ALL. */

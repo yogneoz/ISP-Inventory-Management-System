@@ -14,6 +14,7 @@
  * the controller repeats the check so a future route registration cannot widen
  * payroll silently.
  */
+import { businessDateAD } from '../../../shared/businessDate';
 import crypto from 'crypto';
 import type { Response } from 'express';
 import { rememberSessionVersion } from '../state/sessionVersion';
@@ -441,7 +442,7 @@ const EMPLOYEE_LOGIN_ROLES = new Set([
  * future contract end is not a separation yet.
  */
 function todayAd(): string {
-  return new Date(Date.now() + 5.75 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  return businessDateAD();
 }
 
 /** Only these roles may hand out a role other than HR Self Service. */

@@ -909,6 +909,12 @@ export const FY_SINGLE_CURRENT_CONSTRAINT = 'uq_fiscal_years_single_current';
 
 export const FY_SET_CURRENT_SQL = 'UPDATE fiscal_years SET is_current = TRUE WHERE id = $1 RETURNING id;';
 
+/** Read shape for the boot-time current-year reconcile (dates as text, so the
+ *  comparison is against the same YYYY-MM-DD the business date is). */
+export const FISCAL_YEARS_CURRENT_STATE_SQL = `SELECT id, code, start_date_ad::text AS "startDateAD",
+       end_date_ad::text AS "endDateAD", is_current AS "isCurrent", is_closed AS "isClosed"
+  FROM fiscal_years ORDER BY start_date_ad, id;`;
+
 export const FY_UPDATE_SQL = `UPDATE fiscal_years
        SET code = $1, start_date_ad = $2, end_date_ad = $3, start_date_bs = $4, end_date_bs = $5
        WHERE id = $6

@@ -5,6 +5,7 @@
  * Response bodies and status codes are preserved verbatim from the
  * original route handlers.
  */
+import { businessDateAD } from '../../../shared/businessDate';
 import type { Request, Response } from 'express';
 import { bsDateOr400 } from '../utils/bsDate';
 import { getPgConnected, pgPool, inventoryStock, products, setTransactionLogs, withPrepended, transactionLogs, getUserFromReq, damageRecords, setDamageRecords, withReplaced, branches, setInventoryStock, withAppended, broadcastChange, withTransaction, logAuditEvent, assetRegister, purchaseInvoices, setAssetRegister, stockOperations, customerDeviceRecords, detectDateTypeMismatch, findBsDayRecordForAdDate, issueNextDocNumber, getFiscalYearCodeForDate, getFiscalYearIdForDate, setStockOperations, serialLogs, mutable, setCustomerDeviceRecords, runSerialEditCapture, setSerialLogs, customerMasterRecords } from '../app';
@@ -215,7 +216,7 @@ export async function patch_Id(req: any, res: Response): Promise<any> {
   // C4: BS dates for ledger/audit rows come from the seeded bs_day_records
   // for "today", never from hardcoded strings.
   const todayBsForLedger = await resolveBsDateForLedger();
-  const todayAD = new Date().toISOString().split('T')[0];
+  const todayAD = businessDateAD();
   const { id } = req.params;
   const { quantityOnHand, minReorderLevel, damagedQty, reason, changeType } = req.body || {};
   for (const [field, value] of Object.entries({ quantityOnHand, minReorderLevel, damagedQty })) {
@@ -460,7 +461,7 @@ try {
     // One audit document id for both the movement ledger and the journal, so a
     // reversal or reconciliation report can find all of its rows by source.
     const auditRef = String(auditRefNumber || `AUDIT-${Date.now()}`);
-    const auditDateAD = new Date().toISOString().split('T')[0];
+    const auditDateAD = businessDateAD();
 
     if (getPgConnected()) {
       await withTransaction(async (client) => {
@@ -564,7 +565,7 @@ try {
                 quantityDamaged: writtenOff,
                 unitCost: movementCost,
                 totalCost: movementCost * writtenOff,
-                damageDateAD: new Date().toISOString().split('T')[0],
+                damageDateAD: businessDateAD(),
                 damageDateBS: auditBsDate,
                 approvedBy: auditorName || userEmail || 'AUDITOR',
                 notes: notes || `Physical audit shortage write-off (${auditRefNumber || 'DIRECT'})`,
@@ -677,22 +678,22 @@ export async function post_assets(req: any, res: Response): Promise<any> {
 try {
     const tagNum = req.body.tagNumber || req.body.assetTag || `AST-${Math.floor(1000 + Math.random() * 9000)}`;
     // C4: resolve the BS fallback from the AD date actually being stored.
-    const newAssetAcquisitionAD = String(req.body.acquisitionDateAD || req.body.acquisitionDateAd || new Date().toISOString().split('T')[0]).split('T')[0];
+    const newAssetAcquisitionAD = String(req.body.acquisitionDateAD || req.body.acquisitionDateAd || businessDateAD()).split('T')[0];
     const newAsset: Record<string, any> = {
       id: req.body.id || `ast-${Date.now()}`,
       tagNumber: tagNum,
       name: req.body.name || 'Fixed Asset',
       category: req.body.category || 'Equipment',
       branchId: req.body.branchId || branches[0]?.id,
-      acquisitionDateAD: req.body.acquisitionDateAD || req.body.acquisitionDateAd || new Date().toISOString().split('T')[0],
+      acquisitionDateAD: req.body.acquisitionDateAD || req.body.acquisitionDateAd || businessDateAD(),
       // BS is derived below from each stored AD date; a request body can never
       // supply the Nepali half (same rule as every journal write).
       acquisitionDateBS: null,
-      purchaseInvoiceDateAD: req.body.purchaseInvoiceDateAD || req.body.purchaseInvoiceDateAd || req.body.acquisitionDateAD || req.body.acquisitionDateAd || new Date().toISOString().split('T')[0],
+      purchaseInvoiceDateAD: req.body.purchaseInvoiceDateAD || req.body.purchaseInvoiceDateAd || req.body.acquisitionDateAD || req.body.acquisitionDateAd || businessDateAD(),
       purchaseInvoiceDateBS: null,
-      capitalizationDateAD: req.body.capitalizationDateAD || req.body.capitalizationDateAd || req.body.acquisitionDateAD || req.body.acquisitionDateAd || new Date().toISOString().split('T')[0],
+      capitalizationDateAD: req.body.capitalizationDateAD || req.body.capitalizationDateAd || req.body.acquisitionDateAD || req.body.acquisitionDateAd || businessDateAD(),
       capitalizationDateBS: null,
-      placedInServiceDateAD: req.body.placedInServiceDateAD || req.body.placedInServiceDateAd || req.body.acquisitionDateAD || req.body.acquisitionDateAd || new Date().toISOString().split('T')[0],
+      placedInServiceDateAD: req.body.placedInServiceDateAD || req.body.placedInServiceDateAd || req.body.acquisitionDateAD || req.body.acquisitionDateAd || businessDateAD(),
       placedInServiceDateBS: null,
       acquisitionCost: Number(req.body.acquisitionCost) || 0,
       depreciationMethod: req.body.depreciationMethod || 'STRAIGHT_LINE',
@@ -1178,7 +1179,7 @@ try {
     // WTY-4: a disposed asset keeps its coverage history but stops being a
     // current supplier obligation.
     const isDisposal = String(req.body?.status || '') === 'DISPOSED';
-    const todayAD = new Date().toISOString().split('T')[0];
+    const todayAD = businessDateAD();
     let restockTxn: TransactionLog | null = null;
 
     if (isUnassign && asset) {
@@ -1531,7 +1532,7 @@ try {
       res.status(400).json({ message: opDateMismatch, dateTypeMismatch: true });
       return;
     }
-    const opDateAD = String(rawOpDateAD || new Date().toISOString().split('T')[0]).split('T')[0];
+    const opDateAD = String(rawOpDateAD || businessDateAD()).split('T')[0];
     // Shared derive-or-400 resolver: the refusal carries bsDateReason +
     // calendarCoverage so the client can offer the seeding screen.
     const opDateBS = await bsDateOr400(res, opDateAD);
@@ -2027,7 +2028,7 @@ try {
     }
 
     // Reversal ledger date (today), with the same BS calendar gate used on creation.
-    const reversalDateAD = new Date().toISOString().split('T')[0];
+    const reversalDateAD = businessDateAD();
     const bsDayForRev = await findBsDayRecordForAdDate(reversalDateAD);
     const reversalDateBS = bsDayForRev.found ? `${bsDayForRev.record.bsDate} BS` : op.dateBS;
 
@@ -2237,7 +2238,7 @@ export async function post_reverseConsumable(req: any, res: Response): Promise<a
     }
 
     // Reversal ledger date (today), with the same BS calendar gate used on creation.
-    const reversalDateAD = new Date().toISOString().split('T')[0];
+    const reversalDateAD = businessDateAD();
     const bsDayForRev = await findBsDayRecordForAdDate(reversalDateAD);
     const reversalDateBS = bsDayForRev.found ? `${bsDayForRev.record.bsDate} BS` : op.dateBS;
 
@@ -2417,7 +2418,7 @@ async function reverseIssuedOperation(
       ? operationItems.filter((item: any) => String(item.condition || '').toUpperCase() === 'DAMAGED_STOCK')
       : [];
 
-    const reversalDateAD = new Date().toISOString().split('T')[0];
+    const reversalDateAD = businessDateAD();
     const bsDayForRev = await findBsDayRecordForAdDate(reversalDateAD);
     const reversalDateBS = bsDayForRev.found ? `${bsDayForRev.record.bsDate} BS` : op.dateBS;
 
@@ -2618,7 +2619,7 @@ try {
         quantityAfter: before + qty,
         unitCost: Number(item.unitCost ?? item.costPerUnit ?? product?.costPrice) || 0,
         referenceDocId: receiveOp.id,
-        timestampAD: new Date(`${op?.dateAD || new Date().toISOString().split('T')[0]}T00:00:00.000Z`).toISOString(),
+        timestampAD: new Date(`${op?.dateAD || businessDateAD()}T00:00:00.000Z`).toISOString(),
         timestampBS: op?.dateBS || '',
       } as TransactionLog;
     };
@@ -2672,7 +2673,7 @@ try {
         // damaged-pool pullout carried no value when it left, so it carries
         // none back. Same transaction as the TRANSFER_IN row and status flip.
         if (String(current.rows[0].type) === 'PULLOUT' && receiveValueMovements.length > 0) {
-          const rawDate = current.rows[0].dateAD || op?.dateAD || new Date().toISOString().split('T')[0];
+          const rawDate = current.rows[0].dateAD || op?.dateAD || businessDateAD();
           const journalDateAD = rawDate instanceof Date
             ? rawDate.toISOString().slice(0, 10)
             : String(rawDate).slice(0, 10);
@@ -2696,7 +2697,7 @@ try {
         // the destination warehouse; until now the register kept them at the
         // source branch. Reversal and issue attribution stay on the operation.
         if (op) {
-          await receivePulloutSerialsInDb(client, op as any, whId, op.dateAD || new Date().toISOString().split('T')[0]);
+          await receivePulloutSerialsInDb(client, op as any, whId, op.dateAD || businessDateAD());
         }
       });
     } else {
@@ -2735,7 +2736,7 @@ try {
       // Demo-mode twin of the PG receive transition.
       if (op) {
         setSerialLogs(
-          receivePulloutSerialsInMemory(serialLogs as any, op as any, whId, op.dateAD || new Date().toISOString().split('T')[0]) as any
+          receivePulloutSerialsInMemory(serialLogs as any, op as any, whId, op.dateAD || businessDateAD()) as any
         );
       }
     }
@@ -2980,7 +2981,7 @@ try {
     const product = products.find((entry) => entry.name.trim().toLowerCase() === String(newRecord.productName || '').trim().toLowerCase());
     if (isAssigned && !product) return res.status(400).json({ message: 'A valid product is required when assigning a device.' });
 
-    const issuedDateAD = newRecord.issuedDateAD || new Date().toISOString().split('T')[0];
+    const issuedDateAD = newRecord.issuedDateAD || businessDateAD();
     const issuedDateBS = newRecord.issuedDateBS || todayBs(); // C4: from bs_day_records cache
     const remainsAssigned = serialStatusForCdrStatus(nextStatus) === 'CUSTOMER_ASSIGNED';
 
@@ -3320,7 +3321,7 @@ try {
     // same service the approval path uses keys the stock credit on the asset
     // id, so a status PATCH after an approved collection cannot credit twice.
     const collectionStatus = serialStatusForCdrStatus(newStatusStr) === 'IN_STOCK';
-    const todayAD = new Date().toISOString().split('T')[0];
+    const todayAD = businessDateAD();
     let collectionLedger: TransactionLog | null = null;
 
     if (getPgConnected()) {
@@ -3391,7 +3392,7 @@ try {
           cdrHistoryEntry(
             serialStatus,
             id,
-            new Date().toISOString().split('T')[0],
+            businessDateAD(),
             `CPE status change: ${oldStatus} → ${newStatusStr}`
           )
         ));
@@ -3755,7 +3756,7 @@ try {
       }
     }
 
-    const dateStrAD = new Date().toISOString().split('T')[0];
+    const dateStrAD = businessDateAD();
     // A PG failure after the mirror writes below must not leave a phantom
     // replacement row and a flipped old record behind.
     mirrorStatusBefore = mirrorOld ? { status: mirrorOld.status, notes: mirrorOld.notes } : null;

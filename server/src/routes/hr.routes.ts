@@ -6,6 +6,11 @@
 import express, { type Express } from 'express';
 import { requirePermissionAny, requireRole } from '../middleware';
 import {
+  delete_hrShiftRoster,
+  get_hrShiftRoster,
+  post_hrShiftRoster,
+} from '../controllers/hrShiftRoster.controller';
+import {
   get_hrOrgCatalogue,
   get_hrOrgChart,
   get_hrOrgHeadcounts,
@@ -314,6 +319,18 @@ export function registerHrRoutes(app: Express) {
   });
   app.patch('/api/hr/shifts/:id', requirePermissionAny(...HR_ATTENDANCE_WRITE), async (req, res, next) => {
     patch_hrShift(req as any, res as any).catch(next);
+  });
+
+  // The roster the mobile bootstrap reads. It had no writer before this, so
+  // `shiftWindow` could only ever be NO_SHIFT on a real device.
+  app.get('/api/hr/shift-roster', requirePermissionAny(...HR_VIEW), async (req, res, next) => {
+    get_hrShiftRoster(req as any, res as any).catch(next);
+  });
+  app.post('/api/hr/shift-roster', requirePermissionAny(...HR_ATTENDANCE_WRITE), async (req, res, next) => {
+    post_hrShiftRoster(req as any, res as any).catch(next);
+  });
+  app.delete('/api/hr/shift-roster/:id', requirePermissionAny(...HR_ATTENDANCE_WRITE), async (req, res, next) => {
+    delete_hrShiftRoster(req as any, res as any).catch(next);
   });
 
   app.get('/api/hr/leave-types', requirePermissionAny(...HR_VIEW), async (req, res, next) => {

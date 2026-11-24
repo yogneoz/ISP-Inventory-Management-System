@@ -50,6 +50,7 @@ const BRANCH = 'mob-test-branch';
 const OTHER_BRANCH = 'mob-test-branch-2';
 const EMP = 'mob-test-emp';
 const EMP_OTHER = 'mob-test-emp-2';
+const EMP_SUP = 'mob-test-emp-sup';
 const SHIFT = 'mob-test-shift';
 const FENCE_LAT = 27.7172;
 const FENCE_LNG = 85.324;
@@ -63,6 +64,17 @@ const USER = {
   allowedBranchIds: [BRANCH],
   canSwitchUser: false,
   password: hashPassword('mobile-pass-123'),
+} as any;
+
+const USER_SUP = {
+  id: 'mob-test-user-sup',
+  email: 'mob-test-sup@example.com',
+  name: 'Mobile Test Supervisor',
+  role: 'FRONT_DESK',
+  branchId: BRANCH,
+  allowedBranchIds: [BRANCH],
+  canSwitchUser: false,
+  password: hashPassword('mobile-pass-789'),
 } as any;
 
 const USER_OTHER = {
@@ -81,6 +93,8 @@ describe('mobile v1 API (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => {
   let close: (() => Promise<void>) | null = null;
   const token = issueAuthToken(USER);
   const otherToken = issueAuthToken(USER_OTHER);
+  const supToken = issueAuthToken(USER_SUP);
+  const adminToken = issueAuthToken({ id: 'mob-test-admin', email: 'mob-test-admin@example.com', name: 'Mobile Test Admin', role: 'SUPER_ADMIN', branchId: 'ALL', allowedBranchIds: [], canSwitchUser: false } as any);
 
   async function request(
     method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
@@ -106,6 +120,9 @@ describe('mobile v1 API (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => {
   }
 
   async function cleanup() {
+    // Submitting a claim now enqueues its posting, and the outbox holds a branch
+    // FK: it has to go before the claim and the branch it names.
+    await pool!.query("DELETE FROM accounting_outbox WHERE branch_id LIKE 'mob-test-branch%'");
     await pool!.query("DELETE FROM employee_location_breadcrumbs WHERE employee_id LIKE 'mob-test-emp%'");
     await pool!.query("DELETE FROM idempotency_keys WHERE scope = 'mobile.punch'");
     await pool!.query("DELETE FROM mobile_change_log WHERE employee_id LIKE 'mob-test-emp%'");
@@ -142,7 +159,7 @@ describe('mobile v1 API (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => {
        VALUES ($1, $2, $3, 100)`,
       [BRANCH, FENCE_LAT, FENCE_LNG]
     );
-    for (const user of [USER, USER_OTHER]) {
+    for (const user of [USER, USER_OTHER, USER_SUP]) {
       await pool!.query(
         `INSERT INTO users (id, email, password, name, role, branch_id, allowed_branch_ids, status)
          VALUES ($1, $2, $3, $4, $5, $6, ARRAY[$7]::text[], 'active')`,
@@ -152,8 +169,16 @@ describe('mobile v1 API (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => {
     await pool!.query(
       `INSERT INTO employees (id, employee_code, name, branch_id, user_id, department)
        VALUES ($1, 'MOB-001', 'Mobile Test Employee', $2, $3, 'Field'),
-              ($4, 'MOB-002', 'Mobile Other Employee', $5, $6, 'Field')`,
-      [EMP, BRANCH, USER.id, EMP_OTHER, OTHER_BRANCH, USER_OTHER.id]
+              ($4, 'MOB-002', 'Mobile Other Employee', $5, $6, 'Field'),
+              ($7, 'MOB-003', 'Mobile Test Supervisor', $2, $8, 'Field')`,
+      [EMP, BRANCH, USER.id, EMP_OTHER, OTHER_BRANCH, USER_OTHER.id, EMP_SUP, USER_SUP.id]
+    );
+    // A supervisor's active delegation is what authorises a decision when the
+    // role itself lacks hr-attendance-manage; before v2 it granted nothing.
+    await pool!.query(
+      `INSERT INTO hr_delegations (id, delegator_employee_id, delegate_employee_id, capabilities, start_date_ad, end_date_ad, created_by)
+       VALUES ('mob-test-deleg-1', $1, $2, ARRAY['approve.expense', 'approve.attendance_ot']::text[], CURRENT_DATE, CURRENT_DATE + 7, 'mob-test')`,
+      [EMP, EMP_SUP]
     );
     await pool!.query(
       `INSERT INTO hr_shifts (id, code, name, start_time, end_time)
@@ -238,6 +263,11 @@ describe('mobile v1 API (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => {
     assert.equal(boot.json.geofence.radiusMeters, 100);
     assert.ok(boot.json.unreadNotices >= 1);
     assert.ok(Array.isArray(boot.json.capabilities));
+    assert.ok(
+      boot.json.workplaceCapabilities.includes('attendance.punch'),
+      'the home screen is assembled from capability names'
+    );
+    assert.equal(typeof boot.json.needsAttention, 'number');
   });
 
   test('a punch writes one attendance row and one proof, and replays by key', async () => {
@@ -287,6 +317,8 @@ describe('mobile v1 API (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => {
     );
     assert.equal(stillOne.rows[0].n, 1, 'a replayed punch does not write a second row');
 
+    // v2: a punch outside the fence is ACCEPTED and flagged, not refused. A
+    // wrongly rejected punch costs the technician a day of pay.
     const outside = await request('POST', '/api/v1/workplace/attendance/punch', {
       ...punch,
       action: 'CLOCK_OUT',
@@ -295,11 +327,48 @@ describe('mobile v1 API (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => {
       punchTime: '18:05',
       idempotencyKey: 'mob-test-punch-2',
     });
-    assert.equal(outside.status, 422, JSON.stringify(outside.json));
-    assert.match(outside.json.message, /geofence/i);
+    assert.equal(outside.status, 201, JSON.stringify(outside.json));
+    assert.equal(outside.json.verdict, 'FLAGGED');
+    assert.equal(outside.json.integrityStatus, 'SUSPECT');
+    assert.equal(outside.json.geofence.inside, false, 'the server still says it is outside');
+    assert.ok(outside.json.riskScore >= 40);
+
+    const flagged = await pool!.query(
+      'SELECT verdict, inside_geofence FROM hr_attendance_proofs WHERE integrity_status = $1',
+      ['SUSPECT']
+    );
+    assert.equal(flagged.rowCount, 1, 'the flagged punch is stored, not dropped');
+    assert.equal(flagged.rows[0].verdict, 'FLAGGED');
+    assert.equal(flagged.rows[0].inside_geofence, false);
 
     const boot = await request('GET', '/api/v1/workplace/bootstrap');
-    assert.equal(boot.json.punchState, 'CLOCKED_IN');
+    assert.equal(boot.json.punchState, 'CLOCKED_OUT');
+  });
+
+  test('a punch whose device clock is far off is held for review, not refused', async () => {
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    const held = await request('POST', '/api/v1/workplace/attendance/punch', {
+      attendanceDateAd: tomorrow,
+      action: 'CLOCK_IN',
+      punchTime: '08:58',
+      latitude: FENCE_LAT,
+      longitude: FENCE_LNG,
+      gpsAccuracyMeters: 7,
+      deviceTimeEpochMs: Date.now() - 3 * 60 * 60 * 1000,
+      idempotencyKey: 'mob-test-punch-held',
+    });
+    assert.equal(held.status, 201, JSON.stringify(held.json));
+    assert.equal(held.json.verdict, 'HELD');
+    assert.equal(held.json.integrityStatus, 'HELD');
+    assert.match(held.json.heldReason, /clock/i);
+
+    const proof = await pool!.query(
+      'SELECT verdict, held_reason, clock_skew_ms FROM hr_attendance_proofs WHERE attendance_id = $1',
+      [held.json.id]
+    );
+    assert.equal(proof.rowCount, 1);
+    assert.equal(proof.rows[0].verdict, 'HELD');
+    assert.ok(Number(proof.rows[0].clock_skew_ms) < -15 * 60 * 1000);
   });
 
   test('a device binds to one employee and refuses another', async () => {
@@ -318,6 +387,76 @@ describe('mobile v1 API (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => {
       modelName: 'Other Phone',
     }, otherToken);
     assert.equal(hijack.status, 409, JSON.stringify(hijack.json));
+  });
+
+  test('a revoked device cannot sign in and sync reports it', async () => {
+    // A password login admits the device it names.
+    const login = await request('POST', '/api/v1/auth/login', {
+      email: USER.email,
+      password: 'mobile-pass-123',
+      deviceId: 'mob-test-device-revoke',
+    }, null);
+    assert.equal(login.status, 200, JSON.stringify(login.json));
+
+    const devices = await request('GET', '/api/admin/mobile-devices?employeeId=' + EMP, undefined, adminToken);
+    assert.equal(devices.status, 200, JSON.stringify(devices.json));
+    assert.ok(devices.json.devices.some((d: any) => d.deviceId === 'mob-test-device-revoke'));
+
+    const revoked = await request('POST', '/api/admin/mobile-devices/mob-test-device-revoke/revoke', {}, adminToken);
+    assert.equal(revoked.status, 200, JSON.stringify(revoked.json));
+
+    const again = await request('POST', '/api/v1/auth/login', {
+      email: USER.email,
+      password: 'mobile-pass-123',
+      deviceId: 'mob-test-device-revoke',
+    }, null);
+    assert.equal(again.status, 403, JSON.stringify(again.json));
+    assert.match(again.json.message, /revoked/i);
+
+    const pull = await request(
+      'GET',
+      '/api/v1/sync/pull?updated_since=0&deviceId=mob-test-device-revoke'
+    );
+    assert.equal(pull.json.revokedDevice, true, 'sync tells the app to wipe itself');
+  });
+
+  test('sensitive reads need a fresh password, and the profile card never carries PAN or bank', async () => {
+    const profile = await request('GET', '/api/v1/profile');
+    assert.equal(profile.status, 200, JSON.stringify(profile.json));
+    assert.equal(profile.json.panNumber, undefined, 'PAN is not in the everyday card');
+    assert.equal(profile.json.bankAccount, undefined, 'bank details are not in the everyday card');
+    assert.equal(profile.json.monthlySalary, undefined, 'salary is not in the everyday card');
+
+    const denied = await request('GET', '/api/v1/hr/me/sensitive');
+    assert.equal(denied.status, 401, JSON.stringify(denied.json));
+    assert.equal(denied.json.code, 'REAUTH_REQUIRED');
+
+    const wrong = await request('POST', '/api/v1/auth/re-auth', { password: 'nope' });
+    assert.equal(wrong.status, 401);
+
+    const elevation = await request('POST', '/api/v1/auth/re-auth', { password: 'mobile-pass-123' });
+    assert.equal(elevation.status, 200, JSON.stringify(elevation.json));
+    assert.ok(elevation.json.reAuthToken);
+    assert.ok(elevation.json.expiresInSeconds > 0 && elevation.json.expiresInSeconds <= 300);
+
+    const sensitive = await request('GET', '/api/v1/hr/me/sensitive', undefined, undefined);
+    // Without the header, the session token alone is still refused.
+    assert.equal(sensitive.status, 401);
+
+    const res = await fetch('http://127.0.0.1:' + port + '/api/v1/hr/me/sensitive', {
+      headers: {
+        authorization: 'Bearer ' + token,
+        'x-reauth-token': elevation.json.reAuthToken,
+      },
+    });
+    assert.equal(res.status, 200, await res.clone().text());
+    const body: any = await res.json();
+    assert.equal(body.employeeCode, 'MOB-001');
+    assert.ok('panNumber' in body && 'bankAccount' in body);
+
+    const payslipDenied = await request('GET', '/api/v1/payslips');
+    assert.equal(payslipDenied.status, 401);
+    assert.equal(payslipDenied.json.code, 'REAUTH_REQUIRED');
   });
 
   test('an FCM token registers idempotently', async () => {
@@ -347,6 +486,61 @@ describe('mobile v1 API (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => {
     );
     const ahead = await request('GET', `/api/v1/sync/pull?updated_since=${pull.json.serverCursor}`);
     assert.equal(ahead.json.changes.length, 0, 'nothing new past the cursor');
+  });
+
+  test('an offline batch applies every action and retains the one it refuses', async () => {
+    const tomorrow = new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10);
+    const pushed = await request('POST', '/api/v1/sync/push', {
+      deviceId: 'mob-test-device-1',
+      actions: [
+        {
+          clientId: 'mob-q-1',
+          kind: 'PUNCH',
+          idempotencyKey: 'mob-push-punch-1',
+          payload: {
+            attendanceDateAd: tomorrow,
+            action: 'CLOCK_IN',
+            punchTime: '09:00',
+            latitude: FENCE_LAT,
+            longitude: FENCE_LNG,
+            gpsAccuracyMeters: 9,
+          },
+        },
+        {
+          clientId: 'mob-q-2',
+          kind: 'CLAIM',
+          idempotencyKey: 'mob-push-claim-1',
+          payload: { category: 'TRAVEL', amount: 300, description: 'bus to site' },
+        },
+        {
+          clientId: 'mob-q-3',
+          kind: 'CLAIM',
+          idempotencyKey: 'mob-push-claim-bad',
+          payload: { category: 'TRAVEL', amount: 0, description: 'lost receipt' },
+        },
+      ],
+    });
+    assert.equal(pushed.status, 200, JSON.stringify(pushed.json));
+    assert.equal(pushed.json.receivedCount, 3);
+    assert.equal(pushed.json.acceptedCount, 2, 'the good punch and claim still apply');
+    assert.equal(pushed.json.rejectedCount, 1);
+    const refused = pushed.json.results.find((item: any) => item.clientId === 'mob-q-3');
+    assert.equal(refused.status, 'REJECTED');
+    assert.equal(refused.code, 'VALIDATION_ERROR');
+    assert.equal(refused.retryable, false);
+
+    // The captured item is kept whole, so nothing from the site is lost.
+    const retained = await pool!.query(
+      "SELECT action_kind, code, payload, resolved_at FROM mobile_sync_rejections WHERE employee_id = $1 AND client_id = 'mob-q-3'",
+      [EMP]
+    );
+    assert.equal(retained.rowCount, 1, 'the refused action is retained');
+    assert.equal(retained.rows[0].action_kind, 'CLAIM');
+    assert.equal(Number(retained.rows[0].payload.amount), 0, 'the payload travels with the rejection');
+    assert.equal(retained.rows[0].resolved_at, null, 'it starts unresolved');
+
+    const boot = await request('GET', '/api/v1/workplace/bootstrap');
+    assert.ok(boot.json.needsAttention >= 1, 'bootstrap counts it for the Needs attention badge');
   });
 
   test('a re-sent breadcrumb batch stores each point once', async () => {
@@ -435,6 +629,87 @@ describe('mobile v1 API (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => {
       capabilitiesCsv: 'APPROVE_LEAVE',
     });
     assert.equal(same.status, 400, 'delegating to yourself is refused');
+  });
+
+  test('the job queue and the van balance are the technician\'s own', async () => {
+    const jobs = await request('GET', '/api/v1/workplace/jobs');
+    assert.equal(jobs.status, 200, JSON.stringify(jobs.json));
+    assert.ok(Array.isArray(jobs.json.jobs));
+    assert.equal(jobs.json.count, jobs.json.jobs.length);
+
+    const stock = await request('GET', '/api/v1/workplace/stock');
+    assert.equal(stock.status, 200, JSON.stringify(stock.json));
+    assert.ok(Array.isArray(stock.json.holdings));
+    assert.equal(stock.json.vanLocation, 'MOBT');
+  });
+
+  test('a delegated supervisor decides the branch inbox, and nobody decides their own', async () => {
+    const inbox = await request('GET', '/api/v1/workplace/approvals', undefined, supToken);
+    assert.equal(inbox.status, 200, JSON.stringify(inbox.json));
+    assert.ok(
+      inbox.json.claims.some((claim: any) => claim.id === 'mob-test-claim-1'),
+      'the submitted claim is in the branch inbox'
+    );
+    assert.ok(
+      inbox.json.punches.some((punch: any) => punch.verdict === 'FLAGGED'),
+      'the flagged punch needs a reviewer'
+    );
+    assert.equal(inbox.json.claims[0].employeeId, EMP);
+    assert.deepEqual(inbox.json.delegations[0].capabilities.includes('approve.expense'), true);
+
+    const decided = await request(
+      'POST',
+      '/api/v1/workplace/approvals/EXPENSE_CLAIM/mob-test-claim-1',
+      { approve: true, note: 'Receipt checked' },
+      supToken
+    );
+    assert.equal(decided.status, 200, JSON.stringify(decided.json));
+    assert.equal(decided.json.status, 'APPROVED');
+    assert.equal(decided.json.delegated, true, 'authority came from the delegation');
+
+    const again = await request(
+      'POST',
+      '/api/v1/workplace/approvals/EXPENSE_CLAIM/mob-test-claim-1',
+      { approve: false },
+      supToken
+    );
+    assert.equal(again.status, 409, 'a decided claim cannot be rewritten');
+
+    // The requester cannot approve their own claim, even holding the branch inbox.
+    const own = await request('POST', '/api/v1/workplace/claims', {
+      claimId: 'mob-test-claim-own',
+      category: 'MEAL',
+      amount: 50,
+    });
+    assert.equal(own.status, 201, JSON.stringify(own.json));
+    // The requester's own token is refused even though the claim is theirs to see.
+    const self = await request(
+      'POST',
+      '/api/v1/workplace/approvals/EXPENSE_CLAIM/mob-test-claim-own',
+      { approve: true },
+      token
+    );
+    assert.equal(self.status, 403, JSON.stringify(self.json));
+    assert.match(self.json.message, /own claim/i);
+
+    const punchReview = await request(
+      'POST',
+      '/api/v1/workplace/approvals/PUNCH/' + inbox.json.punches[0].attendanceId,
+      { note: 'Called the technician; time confirmed' },
+      supToken
+    );
+    assert.equal(punchReview.status, 200, JSON.stringify(punchReview.json));
+    assert.ok(punchReview.json.reviewedAt);
+    const reviewedPunch = await pool!.query(
+      'SELECT reviewed_at, reviewed_by, verdict FROM hr_attendance_proofs WHERE attendance_id = $1',
+      [inbox.json.punches[0].attendanceId]
+    );
+    assert.ok(reviewedPunch.rows[0].reviewed_at);
+    assert.equal(
+      reviewedPunch.rows[0].verdict,
+      inbox.json.punches[0].verdict,
+      'the verdict is never rewritten'
+    );
   });
 
   test('a leave review without an explicit approve flag is refused, not defaulted', async () => {

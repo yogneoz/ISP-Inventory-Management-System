@@ -2,6 +2,7 @@
  * Unit tests for the procurement repo query builders (node:test).
  * Verifies SQL text and param ordering without a live database.
  */
+import { businessDateAD } from '../shared/businessDate';
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -142,7 +143,8 @@ describe('piUpsertParams', () => {
     assert.equal(params[13], 'bs');
     const fallbackInv = { invoiceNumber: 'PI-8', invoiceDateBS: '2083-04-10 BS' };
     const fallback = piTxnLogParams(fallbackInv, { productId: 'p1' }, 'WH001');
-    assert.match(fallback[12] as string, /^\d{4}-\d{2}-\d{2}T/);
+    assert.match(fallback[12] as string, /^\d{4}-\d{2}-\d{2}$/, 'a missing invoice date is a date, not a timestamp');
+    assert.equal(fallback[12], businessDateAD(), 'the fallback is the business date, not the UTC clock');
     assert.equal(fallback[13], '2083-04-10 BS');
     // Mandatory BS: a missing BS date must fail loudly instead of persisting
     // the old fictitious '2083-04-16 BS' fallback.

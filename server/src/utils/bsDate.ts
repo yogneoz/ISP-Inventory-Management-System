@@ -8,6 +8,7 @@
  * that one day (C4).
  */
 
+import { businessDateAD } from '../../../shared/businessDate';
 import { findBsDayRecordForAdDate, getInMemoryBsDayRecords, getBsCalendarCoverage, type BsCalendarCoverage, type BsCalendarQueryable } from '../config/bsCalendar';
 import { ApiError } from '../errors/ApiError';
 
@@ -43,7 +44,7 @@ export async function resolveBsDateForLedger(
   adDate?: string | null,
   db?: BsCalendarQueryable
 ): Promise<string> {
-  const ad = String(adDate || new Date().toISOString().split('T')[0]).split('T')[0];
+  const ad = String(adDate || businessDateAD()).split('T')[0];
   try {
     const day = await findBsDayRecordForAdDate(ad, db);
     if (day.found && day.record?.bsDate) {
@@ -64,7 +65,7 @@ export async function resolveBsDateForLedger(
  * (unseeded calendar) the caller gets BS_NOT_SEEDED.
  */
 export function resolveBsDateForLedgerSync(adDate?: string | null): string {
-  const ad = String(adDate || new Date().toISOString().split('T')[0]).split('T')[0];
+  const ad = String(adDate || businessDateAD()).split('T')[0];
   const record = getInMemoryBsDayRecords().find((r) => r.adDate === ad);
   return record?.bsDate ? `${record.bsDate} BS` : BS_NOT_SEEDED;
 }

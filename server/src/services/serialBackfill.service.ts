@@ -13,6 +13,7 @@
  * (POST /api/admin/recalculate/serial-register) and stays idempotent, so a
  * legacy database runs it once and a converged one reports 0 / 0.
  */
+import { businessDateAD } from '../../../shared/businessDate';
 import { setSerialLogs } from '../state/runtimeState';
 import { ENSURE_SERIAL_LOG_PARTITION_SQL } from '../models/inventory.repo';
 
@@ -47,7 +48,7 @@ export async function backfillSerialLog(db: SerialBackfillDb): Promise<SerialBac
     return [];
   };
   const keyOf = (s: any) => String(s || '').trim().toLowerCase();
-  const isoDate = (d: any) => { const s = String(d || '').slice(0, 10); return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : new Date().toISOString().slice(0, 10); };
+  const isoDate = (d: any) => { const s = String(d || '').slice(0, 10); return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : businessDateAD(); };
 
   type Cand = {
     deviceSerial: string; ponSerial?: string; macAddress?: string;

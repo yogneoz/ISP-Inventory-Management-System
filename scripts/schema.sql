@@ -6048,16 +6048,58 @@ CREATE TABLE IF NOT EXISTS field_work_orders (
   -- Optimistic concurrency for the mobile offline queue: the phone downloads a
   -- row_version and must send it back to complete the job (409 when stale).
   row_version INT NOT NULL DEFAULT 1,
+  -- An authorised dispatch override: the reason, who waived the rule, when, and
+  -- which rules were waived (`NO_ROSTER_SEAT`, `DAILY_JOB_CAP`).
+  dispatch_override_reason VARCHAR(500),
+  dispatch_override_by VARCHAR(200),
+  dispatch_override_at TIMESTAMPTZ,
+  dispatch_override_rules TEXT[] NOT NULL DEFAULT '{}',
   CONSTRAINT field_work_orders_completion_state
     CHECK ((status = 'COMPLETED') = (completed_at IS NOT NULL)),
   CONSTRAINT field_work_orders_assigned_needs_technician
-    CHECK (status <> 'ASSIGNED' OR technician_name IS NOT NULL)
+    CHECK (status <> 'ASSIGNED' OR technician_name IS NOT NULL),
+  CONSTRAINT field_work_orders_override_shape CHECK (
+    (dispatch_override_reason IS NULL AND dispatch_override_by IS NULL
+      AND dispatch_override_at IS NULL AND cardinality(dispatch_override_rules) = 0)
+    OR (dispatch_override_reason IS NOT NULL AND dispatch_override_by IS NOT NULL
+      AND dispatch_override_at IS NOT NULL AND cardinality(dispatch_override_rules) > 0)
+  )
 );
 
 CREATE INDEX IF NOT EXISTS idx_field_work_orders_branch_date
   ON field_work_orders (branch_id, scheduled_date_ad DESC, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_field_work_orders_status
   ON field_work_orders (status, scheduled_date_ad);
+CREATE INDEX IF NOT EXISTS idx_field_work_orders_technician_day
+  ON field_work_orders (technician_id, scheduled_date_ad)
+  WHERE technician_id IS NOT NULL;
+
+-- Proof of work: the photo or signature a technician captured on site, stored
+-- with the point and time the device reported. Content-addressed per order, so
+-- a re-sent queue item is the same capture rather than a second one.
+CREATE TABLE IF NOT EXISTS field_work_order_evidence (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  work_order_id UUID NOT NULL REFERENCES field_work_orders(id) ON DELETE CASCADE,
+  branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+  kind VARCHAR(16) NOT NULL CHECK (kind IN ('PHOTO', 'SIGNATURE')),
+  content_type VARCHAR(60) NOT NULL
+    CHECK (content_type IN ('image/jpeg', 'image/png', 'image/webp')),
+  byte_size INT NOT NULL CHECK (byte_size > 0 AND byte_size <= 2097152),
+  sha256 CHAR(64) NOT NULL,
+  data_base64 TEXT NOT NULL,
+  caption VARCHAR(200),
+  captured_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  captured_by VARCHAR(200) NOT NULL,
+  latitude NUMERIC(9, 6) CHECK (latitude IS NULL OR (latitude BETWEEN -90 AND 90)),
+  longitude NUMERIC(9, 6) CHECK (longitude IS NULL OR (longitude BETWEEN -180 AND 180)),
+  accuracy_meters NUMERIC(8, 2) CHECK (accuracy_meters IS NULL OR accuracy_meters >= 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_field_work_order_evidence_capture
+  ON field_work_order_evidence (work_order_id, sha256);
+CREATE INDEX IF NOT EXISTS idx_field_work_order_evidence_order
+  ON field_work_order_evidence (work_order_id, created_at DESC);
 
 -- ==========================================
 -- 30. Employee stock custody (per-person ledger)
@@ -6069,15 +6111,29 @@ CREATE TABLE IF NOT EXISTS employee_stock_movements (
     employee_id VARCHAR(50) NOT NULL REFERENCES employees(id) ON DELETE RESTRICT,
     product_id VARCHAR(50) NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
     branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
-    movement_type VARCHAR(16) NOT NULL CHECK (movement_type IN ('ISSUE', 'RETURN', 'CONSUME', 'TRANSFER', 'LOSS')),
+    movement_type VARCHAR(16) NOT NULL CHECK (movement_type IN ('ISSUE', 'RETURN', 'CONSUME', 'TRANSFER', 'TRANSFER_OUT', 'TRANSFER_IN', 'LOSS')),
     quantity INT NOT NULL CHECK (quantity > 0),
     work_order_id UUID REFERENCES field_work_orders(id) ON DELETE SET NULL,
     reason TEXT,
     actor VARCHAR(200) NOT NULL,
+    -- The other person in a custody transfer, and the group that pairs the two
+    -- appends (OUT on the giver, IN on the receiver).
+    counterparty_employee_id VARCHAR(50) REFERENCES employees(id) ON DELETE RESTRICT,
+    transfer_group_id UUID,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT employee_stock_loss_needs_reason
-      CHECK (movement_type <> 'LOSS' OR (reason IS NOT NULL AND length(btrim(reason)) > 0))
+      CHECK (movement_type <> 'LOSS' OR (reason IS NOT NULL AND length(btrim(reason)) > 0)),
+    CONSTRAINT employee_stock_transfer_shape CHECK (
+      (movement_type NOT IN ('TRANSFER_OUT', 'TRANSFER_IN')
+        AND counterparty_employee_id IS NULL AND transfer_group_id IS NULL)
+      OR (movement_type IN ('TRANSFER_OUT', 'TRANSFER_IN')
+        AND counterparty_employee_id IS NOT NULL AND transfer_group_id IS NOT NULL)
+    )
 );
+
+CREATE INDEX IF NOT EXISTS idx_employee_stock_movements_transfer
+  ON employee_stock_movements (transfer_group_id)
+  WHERE transfer_group_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_employee_stock_movements_employee
   ON employee_stock_movements (employee_id, created_at DESC);
@@ -6188,7 +6244,9 @@ CREATE TABLE IF NOT EXISTS mobile_devices (
   app_version VARCHAR(40) NOT NULL DEFAULT '',
   bound_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_seen_at TIMESTAMPTZ,
-  revoked_at TIMESTAMPTZ
+  revoked_at TIMESTAMPTZ,
+  approved_at TIMESTAMPTZ,
+  approved_by VARCHAR(200)
 );
 
 CREATE INDEX IF NOT EXISTS idx_mobile_devices_employee
@@ -6268,9 +6326,18 @@ CREATE TABLE IF NOT EXISTS hr_attendance_proofs (
   server_received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   inside_geofence BOOLEAN NOT NULL DEFAULT TRUE,
   integrity_status VARCHAR(20) NOT NULL DEFAULT 'VERIFIED'
-    CHECK (integrity_status IN ('VERIFIED', 'SUSPECT', 'REJECTED')),
+    CHECK (integrity_status IN ('VERIFIED', 'SUSPECT', 'REJECTED', 'HELD')),
   risk_score INT NOT NULL DEFAULT 0 CHECK (risk_score BETWEEN 0 AND 100),
-  integrity_notes VARCHAR(500)
+  integrity_notes VARCHAR(500),
+  -- v2: the verdict the server returned, and its reason when a supervisor must
+  -- look at the punch. A punch is never deleted for being suspicious.
+  verdict VARCHAR(20) NOT NULL DEFAULT 'ACCEPTED'
+    CHECK (verdict IN ('ACCEPTED', 'FLAGGED', 'HELD')),
+  held_reason VARCHAR(200),
+  clock_skew_ms BIGINT,
+  reviewed_at TIMESTAMPTZ,
+  reviewed_by VARCHAR(200),
+  review_note VARCHAR(500)
 );
 
 CREATE TABLE IF NOT EXISTS hr_expense_claims (
@@ -6296,6 +6363,39 @@ CREATE TABLE IF NOT EXISTS hr_expense_claims (
 
 CREATE INDEX IF NOT EXISTS idx_hr_expense_claims_employee
   ON hr_expense_claims (employee_id, submitted_at DESC);
+
+-- The durable accounting queue behind `accountingOutboxStatus`: PENDING_APPROVAL
+-- until a supervisor approves, QUEUED for the flusher, POSTED with its journal,
+-- FAILED with the reason it raised. One row per claim (unique source), so a
+-- claim can never owe two postings.
+CREATE TABLE IF NOT EXISTS accounting_outbox (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  source_type VARCHAR(40) NOT NULL CHECK (source_type IN ('EXPENSE_CLAIM')),
+  source_id VARCHAR(60) NOT NULL,
+  branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+  status VARCHAR(20) NOT NULL DEFAULT 'PENDING_APPROVAL'
+    CHECK (status IN ('PENDING_APPROVAL', 'QUEUED', 'POSTED', 'FAILED', 'CANCELLED')),
+  amount NUMERIC(14, 2) NOT NULL CHECK (amount > 0),
+  currency VARCHAR(3) NOT NULL DEFAULT 'NPR',
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  attempts INT NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+  last_error VARCHAR(500),
+  journal_id VARCHAR(50),
+  journal_no VARCHAR(40),
+  queued_at TIMESTAMPTZ,
+  posted_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT accounting_outbox_posted_state CHECK (
+    (status = 'POSTED') = (posted_at IS NOT NULL AND journal_id IS NOT NULL)
+  )
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_accounting_outbox_source
+  ON accounting_outbox (source_type, source_id);
+CREATE INDEX IF NOT EXISTS idx_accounting_outbox_queued
+  ON accounting_outbox (queued_at)
+  WHERE status IN ('QUEUED', 'FAILED');
 
 CREATE TABLE IF NOT EXISTS hr_delegations (
   id VARCHAR(60) PRIMARY KEY,
@@ -6387,6 +6487,44 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
 
 CREATE INDEX IF NOT EXISTS idx_idempotency_keys_created
   ON idempotency_keys (created_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- MyWorkplace v2 (migrations 0052–0054): a punch is judged and reviewable, and
+-- the offline push queue retains what it refuses.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS mobile_sync_rejections (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id VARCHAR(120) NOT NULL,
+  action_kind VARCHAR(40) NOT NULL
+    CHECK (action_kind IN ('PUNCH', 'CLAIM', 'WORK_ORDER_COMPLETE')),
+  employee_id VARCHAR(50) NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE SET NULL,
+  idempotency_key VARCHAR(160),
+  code VARCHAR(60) NOT NULL,
+  message VARCHAR(500) NOT NULL,
+  retryable BOOLEAN NOT NULL DEFAULT FALSE,
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  captured_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at TIMESTAMPTZ,
+  resolution VARCHAR(20) CHECK (resolution IN ('REPLAYED', 'DISCARDED')),
+  resolved_by VARCHAR(200)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mobile_sync_rejections_client
+  ON mobile_sync_rejections (employee_id, client_id);
+CREATE INDEX IF NOT EXISTS idx_mobile_sync_rejections_open
+  ON mobile_sync_rejections (employee_id, captured_at DESC)
+  WHERE resolved_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_mobile_devices_active
+  ON mobile_devices (employee_id)
+  WHERE revoked_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_hr_attendance_proofs_needs_review
+  ON hr_attendance_proofs (integrity_status)
+  WHERE reviewed_at IS NULL AND integrity_status IN ('SUSPECT', 'HELD');
+CREATE INDEX IF NOT EXISTS idx_hr_expense_claims_branch_pending
+  ON hr_expense_claims (branch_id, submitted_at)
+  WHERE status = 'SUBMITTED';
+CREATE INDEX IF NOT EXISTS idx_hr_delegations_delegate
+  ON hr_delegations (delegate_employee_id, end_date_ad DESC);
 
 -- hr_attendance.source is a CHECK vocabulary; 'MOBILE' is the phone's punch. A
 -- plain ADD COLUMN would not change an existing CHECK, so the constraint is
@@ -7058,3 +7196,4 @@ BEGIN
         PERFORM rebuild_gl_party_period_balances();
     END IF;
 END $$;
+

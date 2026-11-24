@@ -11,6 +11,7 @@ import { performanceSnapshot } from '../observability/metrics';
 import { DAYS_OF_WEEK_EN_SERVER, DAYS_OF_WEEK_NP_SERVER, NEPALI_MONTHS_EN_SERVER, NEPALI_MONTHS_NP_SERVER, hydrateOperationalData, pgPool } from '../app';
 import type { Asset, Branch, DocumentNumberConfig } from '../../../client/src/types';
 import { get_apiKeys, post_apiKeys, post_rotateApiKey, delete_apiKey, get_apiKeyLogs } from '../controllers/apiKeys.controller';
+import { get_v1Devices, post_v1DeviceRevoke } from '../controllers/mobile.controller';
 
 export function registerAdminRoutes(app: Express) {
 // Process-local capacity signal for operators. Aggregate only: no SQL bind
@@ -24,6 +25,12 @@ app.get('/api/admin/performance', requirePermission('admin-audit'), (_req, res) 
 // and the Sub Super Admin role; every response is private/no-store and the
 // secret appears only in create/rotate responses.
 app.get('/api/admin/api-keys', requirePermission('admin-api-keys'), async (req, res, next) => { get_apiKeys(req as any, res as any).catch(next); });
+
+// Mobile device custody: IT lists the phones a person is using and takes a lost
+// or shared one out of service. A revoked device is refused at login and
+// reported by /api/v1/sync/pull as `revokedDevice`, so the app can wipe itself.
+app.get('/api/admin/mobile-devices', requireRole('SUPER_ADMIN'), async (req, res, next) => { get_v1Devices(req as any, res as any).catch(next); });
+app.post('/api/admin/mobile-devices/:deviceId/revoke', requireRole('SUPER_ADMIN'), async (req, res, next) => { post_v1DeviceRevoke(req as any, res as any).catch(next); });
 
 app.post('/api/admin/api-keys', requirePermission('admin-api-keys'), async (req, res, next) => { post_apiKeys(req as any, res as any).catch(next); });
 

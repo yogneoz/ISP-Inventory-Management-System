@@ -11,6 +11,7 @@
  * like the paged shipment/customer/device reads. A PG-down demo mirror applies
  * the same scope, filters and paging rules over the operational cache.
  */
+import { businessDateAD } from '../../../shared/businessDate';
 import type { Response } from 'express';
 import { assetRegister, getPgConnected, pgPool } from '../app';
 import { withTransaction } from '../db/transactions';
@@ -79,7 +80,7 @@ function cleanMasterName(name: unknown): string {
 
 const ZERO_TOTALS = (): FixedAssetTotals => ({ acquisitionCost: 0, accumulatedDepreciation: 0, netBookValue: 0 });
 
-const todayAD = (): string => new Date().toISOString().slice(0, 10);
+const todayAD = (): string => businessDateAD();
 
 export function resolveFixedAssetScope(
   req: any,

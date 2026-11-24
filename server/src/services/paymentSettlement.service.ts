@@ -7,6 +7,7 @@
  * and the provider statement is imported into the same statement store used by
  * bank reconciliation, but matched to the settlement row it paid.
  */
+import { businessDateAD } from '../../../shared/businessDate';
 import crypto from 'crypto';
 import { ApiError } from '../errors/ApiError';
 import { bsDateOrThrow } from '../utils/bsDate';
@@ -179,7 +180,7 @@ function dateValue(value: unknown, label: string): string {
 }
 
 function todayAD(): string {
-  return new Date().toISOString().slice(0, 10);
+  return businessDateAD();
 }
 
 function requirePeriod(query: WalletQuery): { from: string; to: string } {

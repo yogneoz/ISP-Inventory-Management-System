@@ -15,6 +15,7 @@
  * All writes use the caller's transaction. The unique open-unit index is the
  * final guard against two open claims for the same side of a warranty.
  */
+import { businessDateAD } from '../../../shared/businessDate';
 import { ApiError } from '../errors/ApiError';
 import { roundMoney } from '../utils/money';
 import { resolveBsDateForLedger } from '../utils/bsDate';
@@ -468,7 +469,7 @@ export async function transitionWarrantyClaim(
   if (!canTransitionWarrantyClaim(claim.status, target)) {
     throw new ApiError(409, `A ${claim.status} claim cannot move to ${target}.`);
   }
-  const dateAD = requireDate(input.dateAD || new Date().toISOString().slice(0, 10), 'Transition date');
+  const dateAD = requireDate(input.dateAD || businessDateAD(), 'Transition date');
   const dateBS = await resolveBsDateForLedger(dateAD, executor as any);
   const note = text(input.note, 2000);
   let resolution = claim.resolution;

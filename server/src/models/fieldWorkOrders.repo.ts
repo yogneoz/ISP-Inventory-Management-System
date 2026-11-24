@@ -148,22 +148,58 @@ export async function insertFieldWorkOrder(input: {
   return row;
 }
 
-/** Assign (or reassign) a technician. Refused once the order is closed. */
+/**
+ * Assign (or reassign) a technician. Refused once the order is closed. A plain
+ * assignment clears any earlier override: the row must describe the current
+ * decision, not a waiver that no longer applies.
+ */
 export async function assignFieldWorkOrder(
   id: string,
   technicianId: string | null,
-  technicianName: string
+  technicianName: string,
+  override: { reason: string | null; by: string | null; rules: string[] } | null = null
 ): Promise<FieldWorkOrderRow | null> {
   const result = await pgPool.query(
     `UPDATE field_work_orders
         SET technician_id = $2, technician_name = $3, status = 'ASSIGNED',
+            dispatch_override_reason = $4::varchar,
+            dispatch_override_by = $5::varchar,
+            dispatch_override_at = CASE WHEN $4::varchar IS NULL THEN NULL ELSE now() END,
+            dispatch_override_rules = $6::text[],
             updated_at = now()
       WHERE id = $1 AND status IN ('OPEN', 'ASSIGNED')
       RETURNING id`,
-    [id, technicianId, technicianName]
+    [id, technicianId, technicianName, override?.reason || null, override?.by || null, override?.rules || []]
   );
   if (!result.rows[0]) return null;
   return findFieldWorkOrder(id);
+}
+
+/**
+ * What the dispatch rules need to know about one technician on one date: how
+ * many open or assigned jobs they already hold that day, and whether the roster
+ * gives them a seat at all.
+ */
+export async function technicianDispatchState(
+  technicianId: string,
+  dateAD: string
+): Promise<{ openJobs: number; rostered: boolean }> {
+  const [jobs, roster] = await Promise.all([
+    pgPool.query(
+      `SELECT COUNT(*)::int AS count
+         FROM field_work_orders
+        WHERE technician_id = $1 AND scheduled_date_ad = $2::date
+          AND status IN ('OPEN', 'ASSIGNED')`,
+      [technicianId, dateAD]
+    ),
+    pgPool.query(
+      `SELECT 1 FROM employee_shift_roster
+        WHERE employee_id = $1 AND shift_date_ad = $2::date
+        LIMIT 1`,
+      [technicianId, dateAD]
+    ),
+  ]);
+  return { openJobs: Number(jobs.rows[0]?.count || 0), rostered: roster.rows.length > 0 };
 }
 
 /**

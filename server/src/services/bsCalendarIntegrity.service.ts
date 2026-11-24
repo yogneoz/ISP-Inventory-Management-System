@@ -34,6 +34,7 @@
  * derivable from the patro reference or from the row's own AD date. Anything
  * else is reported with what the operator has to supply.
  */
+import { businessDateAD } from '../../../shared/businessDate';
 import { DEFAULT_BS_YEARS_SERVER, buildBsDayRecordsForYear } from '../config/bsCalendar';
 import {
   BS_CALENDAR_YEARS_SELECT_SQL,
@@ -626,7 +627,7 @@ export async function auditBsCalendar(
     });
   }
 
-  const today = options.today ?? new Date().toISOString().split('T')[0];
+  const today = options.today ?? businessDateAD();
   const currentFy = fiscalYears.find((fy) => today >= fy.start_ad && today <= fy.end_ad);
   if (currentFy && !currentFy.is_current) {
     findings.push({
@@ -857,7 +858,7 @@ export async function applyBsCalendarFixes(
     await client.query(BS_INTEGRITY_FY_LINK_SET_SQL);
   }
   if (wantsCurrentFix) {
-    const today = options.today ?? new Date().toISOString().split('T')[0];
+    const today = options.today ?? businessDateAD();
     const containing = (await client.query(BS_INTEGRITY_CURRENT_FY_SELECT_SQL, [today])).rows[0];
     if (containing) {
       await client.query(BS_INTEGRITY_CURRENT_FY_SET_SQL, [containing.id]);

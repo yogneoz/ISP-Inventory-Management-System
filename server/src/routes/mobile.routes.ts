@@ -14,12 +14,12 @@
  */
 import type { Express } from 'express';
 import { requireAuth } from '../middleware';
+import { auditSensitiveRead, requireSensitiveAuth } from '../middleware/sensitiveAuth';
 import {
   get_hrSelfServiceAttendance,
   get_hrSelfServiceDocuments,
   get_hrSelfServiceLeave,
   get_hrSelfServicePayslips,
-  get_hrSelfServiceProfile,
   post_hrSelfServiceLeave,
   post_hrSelfServiceLeaveCancel,
 } from '../controllers/hrSelfService.controller';
@@ -28,17 +28,28 @@ import {
   post_hrLeaveRequestReject,
 } from '../controllers/hrLeave.controller';
 import {
+  get_v1Approvals,
   get_v1Bootstrap,
   get_v1Claim,
+  get_v1JobEvidence,
+  get_v1Jobs,
+  get_v1Profile,
+  get_v1SensitiveProfile,
   get_v1SyncPull,
+  get_v1VanStock,
+  post_v1ApprovalDecision,
   post_v1Claim,
+  post_v1SyncPush,
   post_v1Delegation,
   post_v1DeviceRegister,
   post_v1FcmToken,
+  post_v1JobAssign,
+  post_v1JobEvidence,
   post_v1LocationBatch,
   post_v1Login,
   post_v1Logout,
   post_v1Punch,
+  post_v1ReAuth,
   post_v1Refresh,
   post_v1WorkOrderComplete,
   put_v1Contact,
@@ -55,6 +66,11 @@ export function registerMobileRoutes(app: Express) {
   app.post('/api/v1/auth/logout', (req, res, next) => {
     post_v1Logout(req as any, res as any).catch(next);
   });
+  // Sensitive screens ask for the password again and receive a short-lived
+  // elevation token; the session token alone can never read a payslip.
+  app.post('/api/v1/auth/re-auth', requireAuth, (req, res, next) => {
+    post_v1ReAuth(req as any, res as any).catch(next);
+  });
 
   // --- bootstrap + sync ------------------------------------------------------
   app.get('/api/v1/workplace/bootstrap', requireAuth, (req, res, next) => {
@@ -62,6 +78,9 @@ export function registerMobileRoutes(app: Express) {
   });
   app.get('/api/v1/sync/pull', requireAuth, (req, res, next) => {
     get_v1SyncPull(req as any, res as any).catch(next);
+  });
+  app.post('/api/v1/sync/push', requireAuth, (req, res, next) => {
+    post_v1SyncPush(req as any, res as any).catch(next);
   });
 
   // --- attendance ------------------------------------------------------------
@@ -102,18 +121,35 @@ export function registerMobileRoutes(app: Express) {
   });
 
   // --- profile, payslips, documents ------------------------------------------
+  // The everyday card carries no PAN/SSF/bank/salary; those fields have their
+  // own route behind re-authentication below.
   app.get('/api/v1/profile', requireAuth, (req, res, next) => {
-    get_hrSelfServiceProfile(req as any, res as any).catch(next);
+    get_v1Profile(req as any, res as any).catch(next);
+  });
+  app.get('/api/v1/hr/me/sensitive', requireAuth, requireSensitiveAuth, (req, res, next) => {
+    get_v1SensitiveProfile(req as any, res as any).catch(next);
   });
   app.put('/api/v1/employees/me/contact', requireAuth, (req, res, next) => {
     put_v1Contact(req as any, res as any).catch(next);
   });
-  app.get('/api/v1/payslips', requireAuth, (req, res, next) => {
-    get_hrSelfServicePayslips(req as any, res as any).catch(next);
-  });
-  app.get('/api/v1/documents', requireAuth, (req, res, next) => {
-    get_hrSelfServiceDocuments(req as any, res as any).catch(next);
-  });
+  app.get(
+    '/api/v1/payslips',
+    requireAuth,
+    requireSensitiveAuth,
+    auditSensitiveRead('MOBILE_SENSITIVE_VIEW', 'Payslips'),
+    (req, res, next) => {
+      get_hrSelfServicePayslips(req as any, res as any).catch(next);
+    }
+  );
+  app.get(
+    '/api/v1/documents',
+    requireAuth,
+    requireSensitiveAuth,
+    auditSensitiveRead('MOBILE_SENSITIVE_VIEW', 'Documents'),
+    (req, res, next) => {
+      get_hrSelfServiceDocuments(req as any, res as any).catch(next);
+    }
+  );
 
   // --- device, notifications -------------------------------------------------
   app.post('/api/v1/devices/register', requireAuth, (req, res, next) => {
@@ -127,6 +163,18 @@ export function registerMobileRoutes(app: Express) {
   app.post('/api/v1/workplace/jobs/:id/complete', requireAuth, (req, res, next) => {
     post_v1WorkOrderComplete(req as any, res as any).catch(next);
   });
+  // Dispatch (and re-dispatch) with the two stated rules; a supervisor may
+  // waive either one with a reason, and the order records that it happened.
+  app.post('/api/v1/workplace/jobs/:id/assign', requireAuth, (req, res, next) => {
+    post_v1JobAssign(req as any, res as any).catch(next);
+  });
+  // Proof of work: the photo or signature captured on site.
+  app.get('/api/v1/workplace/jobs/:id/evidence', requireAuth, (req, res, next) => {
+    get_v1JobEvidence(req as any, res as any).catch(next);
+  });
+  app.post('/api/v1/workplace/jobs/:id/evidence', requireAuth, (req, res, next) => {
+    post_v1JobEvidence(req as any, res as any).catch(next);
+  });
   app.post('/api/v1/workplace/claims', requireAuth, (req, res, next) => {
     post_v1Claim(req as any, res as any).catch(next);
   });
@@ -138,5 +186,21 @@ export function registerMobileRoutes(app: Express) {
   });
   app.post('/api/v1/workplace/location/batch', requireAuth, (req, res, next) => {
     post_v1LocationBatch(req as any, res as any).catch(next);
+  });
+
+  // --- field queue and van ---------------------------------------------------
+  app.get('/api/v1/workplace/jobs', requireAuth, (req, res, next) => {
+    get_v1Jobs(req as any, res as any).catch(next);
+  });
+  app.get('/api/v1/workplace/stock', requireAuth, (req, res, next) => {
+    get_v1VanStock(req as any, res as any).catch(next);
+  });
+
+  // --- approvals -------------------------------------------------------------
+  app.get('/api/v1/workplace/approvals', requireAuth, (req, res, next) => {
+    get_v1Approvals(req as any, res as any).catch(next);
+  });
+  app.post('/api/v1/workplace/approvals/:kind/:id', requireAuth, (req, res, next) => {
+    post_v1ApprovalDecision(req as any, res as any).catch(next);
   });
 }

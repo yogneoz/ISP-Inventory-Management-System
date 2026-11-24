@@ -7,7 +7,9 @@
 //      on Linux/macOS when it is not).
 //   3. Clear every operational table while PRESERVING the Nepali BS calendar
 //      (bs_calendar_years, bs_day_records). `--keep-data` skips this.
-//   4. Apply scripts/schema.sql (idempotent).
+//   4. Apply scripts/schema.sql and record the whole migration ledger, in the
+//      SAME transaction as the wipe (scripts/seed/resetSchema.ts), so a reset
+//      that stops partway rolls back instead of committing half a database.
 //   5. Hand the seeding itself to scripts/seed_verification_data.ts, the ONE
 //      dataset definition, so `npm run setup:pg` and `npm run seed:verify`
 //      can never seed two different worlds.
@@ -15,7 +17,10 @@
 // The wipe deliberately runs BEFORE the schema pass: schema.sql rewrites CHECK
 // constraints with ADD CONSTRAINT, which validates existing rows, so a stale
 // row from an older schema would otherwise abort the reset (and the server
-// boot, which applies the same file).
+// boot, which applies the same file). For the same reason the ledger is
+// completed before the seeder runs: a migration whose CHECK predates a seeded
+// value (0011 against a LOAN_PAYABLE account) would stop the recorder, and a
+// database seeded in that state cannot boot.
 // ============================================================================
 
 import fs from 'fs';
@@ -301,34 +306,8 @@ function runShellInstaller() {
   }
 }
 
-async function applySchema(client) {
-  const schemaPath = path.join(process.cwd(), 'scripts', 'schema.sql');
-  if (!fs.existsSync(schemaPath)) throw new Error(`schema.sql not found at ${schemaPath}`);
-  // One multi-statement simple query: PostgreSQL parses it natively, so
-  // semicolons in comments or literals can never break client-side splitting.
-  await client.query(fs.readFileSync(schemaPath, 'utf8'));
-  console.log('✅ Database schema applied (scripts/schema.sql).');
-}
-
-async function wipeOperationalData(client) {
-  const preserved = new Set(['bs_calendar_years', 'bs_day_records', 'fiscal_years']);
-  const tables = (
-    await client.query(
-      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
-    )
-  ).rows.map((r) => r.table_name);
-  const wipeTables = tables.filter((t) => !preserved.has(t));
-  if (wipeTables.length > 0) {
-    await client.query(`TRUNCATE TABLE ${wipeTables.join(', ')} RESTART IDENTITY CASCADE`);
-    console.log(`🗑  Truncated ${wipeTables.length} tables (Nepali BS calendar preserved).`);
-  }
-  if (tables.includes('fiscal_years')) {
-    // Plain DELETE (not TRUNCATE) so bs_day_records.fiscal_year_id is SET NULL
-    // by the FK action instead of the calendar being wiped by CASCADE.
-    await client.query('DELETE FROM fiscal_years');
-    console.log('🗑  Removed fiscal years (BS calendar rows preserved, re-linked by the seeder).');
-  }
-}
+// The wipe and the schema pass live in scripts/seed/resetSchema.ts so they run
+// inside ONE transaction together with the migration ledger.
 
 function tsxCliPath() {
   const tsxCli = path.join(process.cwd(), 'node_modules', 'tsx', 'dist', 'cli.mjs');
@@ -340,11 +319,14 @@ function tsxCliPath() {
   return tsxCli;
 }
 
-function runMigrationRecorder() {
-  // Record the baseline before seeding. Boot adopts the current shape and then
-  // applies every unrecorded migration; replaying 0011 after LOAN_PAYABLE is
-  // seeded would fail its older role CHECK constraint.
-  execFileSync(process.execPath, [tsxCliPath(), path.join('scripts', 'record_schema_migrations.ts')], {
+function runSchemaReset(keepData) {
+  // Wipe + schema.sql + the whole migration ledger, in one transaction, before
+  // any row exists. A recorder that stops partway now rolls the wipe and the
+  // schema back too, instead of committing a database whose next boot or seed
+  // fails on an older migration's CHECK.
+  const args = [tsxCliPath(), path.join('scripts', 'record_schema_migrations.ts')];
+  if (keepData) args.push('--keep-data');
+  execFileSync(process.execPath, args, {
     stdio: 'inherit',
     env: {
       ...process.env,
@@ -391,20 +373,20 @@ async function runSetup(keepData) {
     }
   }
 
-  const client = await pool.connect();
+  await pool.end().catch(() => {});
+
   try {
-    if (keepData) {
-      console.log('🗑  --keep-data passed: skipping the wipe.');
-    } else {
-      await wipeOperationalData(client);
-    }
-    await applySchema(client);
-  } finally {
-    client.release();
-    await pool.end();
+    runSchemaReset(keepData);
+  } catch (err) {
+    console.error(
+      '❌ Schema reset failed; the database was left exactly as it was (the wipe, the schema and the ' +
+        'migration ledger are one transaction) and nothing was seeded.'
+    );
+    console.error('   Re-run with --force to clear the rows that block an older migration:');
+    console.error('   npm run setup:pg -- --force --skip-backup-check');
+    throw err;
   }
 
-  if (!keepData) runMigrationRecorder();
   runDatasetSeeder();
   console.log('🎉 PostgreSQL setup verified and operational!');
 }
