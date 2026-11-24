@@ -555,10 +555,23 @@ export function AppShell(props: AppShellProps) {
 
         {/* empty:hidden matters: most of the time every banner returns null.
             The stack used to keep its box-shadow while empty, painting a thin
-            grey strip under the header that read as a blank banner. */}
+            grey strip under the header that read as a blank banner.
+
+            z-20, BELOW the header's own z-30: a notice is anchored under the
+            header, so the header's popovers (the fiscal-year list, the branch
+            picker, the account menu) must paint over it. At equal z the later
+            sibling won, which put the whole notice on top of an open fiscal-year
+            dropdown and clipped its first line.
+
+            md:left-[--sidebar-width]: the strip belongs to the workspace, not to
+            the whole window. Without the offset it started at x=0 and the
+            sidebar covered its left edge — "PostgreSQL unreachable" read as
+            "GRESQL UNREACHABLE" and the Refresh button disappeared. The width is
+            published by Sidebar (user-resizable, persisted) as a CSS variable;
+            18rem is its default for the first paint. */}
         <div
           id="shell-banner-stack"
-          className="absolute inset-x-0 top-full z-40 max-h-[calc(100vh-3.25rem)] overflow-y-auto shadow-lg pointer-events-none empty:hidden [&>*]:pointer-events-auto"
+          className="absolute inset-x-0 top-full z-20 max-h-[calc(100vh-3.25rem)] overflow-y-auto shadow-lg pointer-events-none empty:hidden md:left-[var(--sidebar-width,18rem)] [&>*]:pointer-events-auto"
         >
           {banners}
         </div>

@@ -1168,6 +1168,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // need more room. 288 px is the old w-72 at the 100% tier.
   const [sidebarWidth, setSidebarWidth] = useState<number>(readStoredSidebarWidth);
   const sidebarWidthRef = useRef<number>(sidebarWidth);
+
+  // The shell anchors its banner strip under the header; that strip must start
+  // where the workspace does, not under the menu. The width is user-resizable
+  // and persisted here, so publish it as a variable instead of making AppShell
+  // keep a second copy of the sidebar's state (they would drift on a drag).
+  useEffect(() => {
+    document.documentElement.style.setProperty('--sidebar-width', `${sidebarWidth}px`);
+  }, [sidebarWidth]);
   const resizeStartRef = useRef<{ x: number; width: number } | null>(null);
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
 
