@@ -70,11 +70,15 @@ export interface DemoWorkplaceFixtures {
  * demo login, so whoever signs in finds work assigned to their own account.
  */
 const TECHNICIANS = [
+  { employeeId: 'demo-emp-001', name: 'Aarav Sharma', branchId: 'BR-KTM' },
   { employeeId: 'demo-emp-002', name: 'Nisha Karki', branchId: 'BR-KTM' },
   { employeeId: 'demo-emp-003', name: 'Bikash Thapa', branchId: 'BR-PKR' },
   { employeeId: 'demo-emp-004', name: 'Sita Gurung', branchId: 'BR-BTL' },
   { employeeId: 'demo-emp-005', name: 'Rajan Rai', branchId: 'BR-DHN' },
+  { employeeId: 'demo-emp-007', name: 'Sandesh Bhandari', branchId: 'BR-KTM' },
+  { employeeId: 'demo-emp-011', name: 'Manisha Joshi', branchId: 'BR-KTM' },
   { employeeId: 'demo-emp-014', name: 'Rohit Karki', branchId: 'BR-KTM' },
+  { employeeId: 'demo-emp-020', name: 'Sabina Shrestha', branchId: 'BR-KTM' },
 ] as const;
 
 export function buildDemoWorkplaceFixtures(dataset: VerificationDataset): DemoWorkplaceFixtures {
@@ -154,6 +158,47 @@ export function buildDemoWorkplaceFixtures(dataset: VerificationDataset): DemoWo
       index: 6, no: 'WO-DEMO-006', branchId: 'BR-KTM', customerIndex: 4, kind: 'DISCONNECT',
       status: 'CANCELLED', scheduledDate: '2026-11-18', plan: 'Home Fibre 50 Mbps',
       notes: 'Customer withdrew the disconnection request and renewed the plan.',
+    }),
+    // The Jobs tab is in the client's tab bar for every signed-in persona, not
+    // gated by `jobs.execute`, so the office logins need a visit of their own or
+    // they open the tab on "No open jobs right now". These are the site
+    // walk-throughs each of those roles actually does in the demo: hand-over
+    // checks, a pre-install survey, and the auditor's Q4 branch assurance visit.
+    workOrder({
+      index: 8, no: 'WO-DEMO-008', branchId: 'BR-KTM', customerIndex: 5, kind: 'SERVICE',
+      status: 'ASSIGNED', technicianId: 'demo-emp-001', scheduledDate: '2026-11-27',
+      plan: 'Business Fibre 300 Mbps',
+      notes: 'Chief executive hand-over walk-through before the December contract renewal.',
+    }),
+    workOrder({
+      index: 9, no: 'WO-DEMO-009', branchId: 'BR-BTL', customerIndex: 4, kind: 'INSTALL',
+      status: 'ASSIGNED', technicianId: 'demo-emp-004', scheduledDate: '2026-11-27',
+      plan: 'Home Fibre 100 Mbps',
+      notes: 'Pre-install survey for the Butwal branch manager before the crew is booked.',
+    }),
+    workOrder({
+      index: 10, no: 'WO-DEMO-010', branchId: 'BR-DHN', customerIndex: 4, kind: 'SERVICE',
+      status: 'ASSIGNED', technicianId: 'demo-emp-005', scheduledDate: '2026-11-28',
+      plan: 'Home Fibre 200 Mbps',
+      notes: 'Dharan branch manager site check after the customer reported a slow evening link.',
+    }),
+    workOrder({
+      index: 11, no: 'WO-DEMO-011', branchId: 'BR-KTM', customerIndex: 6, kind: 'SERVICE',
+      status: 'ASSIGNED', technicianId: 'demo-emp-007', scheduledDate: '2026-11-28',
+      plan: 'Home Fibre 200 Mbps',
+      notes: 'Head of Network & IT: verify the new splitter port and record the optical levels.',
+    }),
+    workOrder({
+      index: 12, no: 'WO-DEMO-012', branchId: 'BR-KTM', customerIndex: 7, kind: 'SERVICE',
+      status: 'ASSIGNED', technicianId: 'demo-emp-011', scheduledDate: '2026-11-28',
+      plan: 'Business Fibre 300 Mbps',
+      notes: 'Finance manager: confirm the metered service matches the billed plan.',
+    }),
+    workOrder({
+      index: 13, no: 'WO-DEMO-013', branchId: 'BR-KTM', customerIndex: 8, kind: 'SERVICE',
+      status: 'ASSIGNED', technicianId: 'demo-emp-020', scheduledDate: '2026-11-29',
+      plan: 'Home Fibre 100 Mbps',
+      notes: 'Internal auditor Q4 assurance visit: onsite service record against the billing file.',
     }),
   ];
 
@@ -266,6 +311,33 @@ export function buildDemoWorkplaceFixtures(dataset: VerificationDataset): DemoWo
       employeeId: 'demo-emp-005', productId: 'prd-spl-108', branchId: 'BR-DHN', type: 'RETURN',
       quantity: 1, reason: 'Unused splitter returned to the Dharan store.', createdAt: '2026-11-21T10:00:00Z',
     }),
+    // "My stock" is a fixed More entry for every persona, so each demo login is
+    // issued one item. The movement is what the custody register sums; the
+    // holdings row below must equal it (no inventory_stock change, no journal).
+    movement({
+      employeeId: 'demo-emp-001', productId: 'prd-onu-200', branchId: 'BR-KTM', type: 'ISSUE',
+      quantity: 1, reason: 'Test ONU held for the executive hand-over walk-through.', createdAt: '2026-11-22T04:00:00Z',
+    }),
+    movement({
+      employeeId: 'demo-emp-003', productId: 'prd-cbl-drop', branchId: 'BR-PKR', type: 'ISSUE',
+      quantity: 1, reason: 'Drop-cable roll for the Pokhara pre-install survey.', createdAt: '2026-11-22T04:10:00Z',
+    }),
+    movement({
+      employeeId: 'demo-emp-004', productId: 'prd-onu-200', branchId: 'BR-BTL', type: 'ISSUE',
+      quantity: 1, reason: 'Test ONU held for the Butwal branch site checks.', createdAt: '2026-11-22T04:20:00Z',
+    }),
+    movement({
+      employeeId: 'demo-emp-007', productId: 'prd-onu-200', branchId: 'BR-KTM', type: 'ISSUE',
+      quantity: 2, reason: 'Two ONUs held for optical-level testing in Kathmandu.', createdAt: '2026-11-22T04:30:00Z',
+    }),
+    movement({
+      employeeId: 'demo-emp-011', productId: 'prd-cbl-drop', branchId: 'BR-KTM', type: 'ISSUE',
+      quantity: 1, reason: 'Drop-cable roll for the metered-service verification visit.', createdAt: '2026-11-22T04:40:00Z',
+    }),
+    movement({
+      employeeId: 'demo-emp-020', productId: 'prd-spl-108', branchId: 'BR-KTM', type: 'ISSUE',
+      quantity: 1, reason: 'Splitter held for the auditor pull-out and re-termination check.', createdAt: '2026-11-22T04:50:00Z',
+    }),
   ];
 
   // Balance per (employee, product, branch) must equal the holdings rows below;
@@ -274,6 +346,12 @@ export function buildDemoWorkplaceFixtures(dataset: VerificationDataset): DemoWo
     { employee_id: 'demo-emp-002', product_id: 'prd-onu-200', branch_id: 'BR-KTM', quantity: 3, updated_at: '2026-11-20T06:20:00Z' },
     { employee_id: 'demo-emp-014', product_id: 'prd-cbl-drop', branch_id: 'BR-KTM', quantity: 2, updated_at: '2026-11-18T05:00:00Z' },
     { employee_id: 'demo-emp-005', product_id: 'prd-spl-108', branch_id: 'BR-DHN', quantity: 1, updated_at: '2026-11-21T10:00:00Z' },
+    { employee_id: 'demo-emp-001', product_id: 'prd-onu-200', branch_id: 'BR-KTM', quantity: 1, updated_at: '2026-11-22T04:00:00Z' },
+    { employee_id: 'demo-emp-003', product_id: 'prd-cbl-drop', branch_id: 'BR-PKR', quantity: 1, updated_at: '2026-11-22T04:10:00Z' },
+    { employee_id: 'demo-emp-004', product_id: 'prd-onu-200', branch_id: 'BR-BTL', quantity: 1, updated_at: '2026-11-22T04:20:00Z' },
+    { employee_id: 'demo-emp-007', product_id: 'prd-onu-200', branch_id: 'BR-KTM', quantity: 2, updated_at: '2026-11-22T04:30:00Z' },
+    { employee_id: 'demo-emp-011', product_id: 'prd-cbl-drop', branch_id: 'BR-KTM', quantity: 1, updated_at: '2026-11-22T04:40:00Z' },
+    { employee_id: 'demo-emp-020', product_id: 'prd-spl-108', branch_id: 'BR-KTM', quantity: 1, updated_at: '2026-11-22T04:50:00Z' },
   ];
 
   const roster: Row[] = [

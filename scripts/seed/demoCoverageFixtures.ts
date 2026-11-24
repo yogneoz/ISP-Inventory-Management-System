@@ -93,11 +93,16 @@ RETURNING e.id`;
  * The mapping is to a real, unlinked employee of the same branch and job — no
  * employee is invented, so the payroll run and the HR headcount do not move.
  */
+/** The three links as data, so the pure fixture checks can resolve an account. */
+export const DEMO_MOBILE_ACCOUNT_LINKS = [
+  { employeeId: 'demo-emp-014', userId: 'usr-ktm-manager' },
+  { employeeId: 'demo-emp-011', userId: 'usr-accountant' },
+  { employeeId: 'demo-emp-007', userId: 'usr-inventory' },
+] as const;
+
 export const DEMO_MOBILE_ACCOUNT_LINK_SQL = `UPDATE employees e
    SET user_id = m.user_id
-  FROM (VALUES ('demo-emp-014', 'usr-ktm-manager'),
-               ('demo-emp-011', 'usr-accountant'),
-               ('demo-emp-007', 'usr-inventory')) AS m(id, user_id)
+  FROM (VALUES ${DEMO_MOBILE_ACCOUNT_LINKS.map((link) => `('${link.employeeId}', '${link.userId}')`).join(',\n               ')}) AS m(id, user_id)
  WHERE e.id = m.id
    AND e.user_id IS NULL
 RETURNING e.id`;

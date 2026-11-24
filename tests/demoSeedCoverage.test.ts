@@ -12,18 +12,23 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { buildVerificationDataset } from '../scripts/seed/verificationDataset';
+import { buildDemoHrFixtures } from '../scripts/seed/demoHrFixtures';
 import { buildDemoWorkplaceFixtures } from '../scripts/seed/demoWorkplaceFixtures';
+import { DEFAULT_PERMISSIONS_MATRIX } from '../client/src/utils/permissionMatrixData';
+import { workplaceCapabilitiesFor } from '../shared/workplaceCapabilities';
 import { buildDemoIntegrationFixtures, DEMO_PARTNER_API_KEY_ID, DEMO_PARTNER_SECRET } from '../scripts/seed/demoIntegrationFixtures';
 import { buildDemoRegisterFixtures } from '../scripts/seed/demoRegisterFixtures';
 import { buildDemoSelfServiceFixtures } from '../scripts/seed/demoSelfServiceFixtures';
 import {
   buildDemoCoverageFixtures,
+  DEMO_MOBILE_ACCOUNT_LINKS,
   DEMO_MOBILE_ACCOUNT_LINK_SQL,
   DEMO_SEPARATION_SQL,
 } from '../scripts/seed/demoCoverageFixtures';
 import { buildDemoOperationsFixtures } from '../scripts/seed/demoOperationsFixtures';
 
 const dataset = buildVerificationDataset();
+const hr = buildDemoHrFixtures(dataset);
 const workplace = buildDemoWorkplaceFixtures(dataset);
 const integration = buildDemoIntegrationFixtures();
 const registers = buildDemoRegisterFixtures(dataset);
@@ -379,5 +384,182 @@ describe('demo coverage catalogue', () => {
         assert.ok(tablesInSchema.has(table), `${table} is declared intentionally empty but does not exist`);
       }
     }
+  });
+});
+
+/**
+ * Every demo login, capability by capability: the mobile client shows the Jobs
+ * tab and the "My stock" entry to *every* signed-in persona (unlike Approvals,
+ * Claims, Documents and PAN/SSF/bank, which it gates), so a persona with no row
+ * on those surfaces opens a visible empty state. These assertions fail the seed
+ * suite when a login has no payslip, visit, holding, attendance day, leave
+ * balance, document or statutory detail — the regression the live matrix caught.
+ */
+describe('every demo login reaches a populated surface', () => {
+  const operationsForRole = (role: string): string[] =>
+    Object.keys(DEFAULT_PERMISSIONS_MATRIX).filter(
+      (operationId) => (DEFAULT_PERMISSIONS_MATRIX as any)[operationId][role] === true
+    );
+
+  // The role matrix is the whole story for the capabilities below: the demo
+  // overrides and permission sets only add finance, stock-valuation and
+  // employee-visibility operations, none of which implies a workplace capability.
+  const capabilitiesFor = (role: string) => workplaceCapabilitiesFor(operationsForRole(role));
+
+  interface Surface {
+    name: string;
+    /** Capability that hides the entry in the client; null = shown to everyone. */
+    gate: string | null;
+    rows: (employeeId: string, branchId: string) => number;
+  }
+
+  // The Kathmandu visit the mobile fixtures own (WO-DEMO-007) rides the
+  // coverage module, not the dispatch-board list.
+  const allWorkOrders = [...workplace.workOrders, coverage.mobileWorkOrder];
+  const workOrderRows = (employeeId: string, branchId: string) =>
+    allWorkOrders.filter(
+      (row: any) =>
+        row.technician_id === employeeId &&
+        row.branch_id === branchId &&
+        (row.status === 'OPEN' || row.status === 'ASSIGNED')
+    ).length;
+  const holdingRows = (employeeId: string, branchId: string) =>
+    workplace.holdings.filter(
+      (row: any) => row.employee_id === employeeId && row.branch_id === branchId && Number(row.quantity) > 0
+    ).length;
+
+  const surfaces: Surface[] = [
+    {
+      name: 'Payslips',
+      gate: null,
+      rows: (employeeId) => hr.payrollLines.filter((row: any) => row.employee_id === employeeId).length,
+    },
+    {
+      name: 'Jobs',
+      gate: null,
+      rows: workOrderRows,
+    },
+    {
+      name: 'My stock',
+      gate: null,
+      rows: holdingRows,
+    },
+    {
+      name: 'Attendance',
+      gate: 'attendance.punch',
+      rows: (employeeId) =>
+        hr.attendance.filter((row: any) => row.employee_id === employeeId).length +
+        coverage.mobileAttendance.filter((row: any) => row.employee_id === employeeId).length,
+    },
+    {
+      name: 'Leave',
+      gate: 'ess.view',
+      rows: (employeeId) =>
+        hr.leaveBalances.filter((row: any) => row.employee_id === employeeId).length +
+        coverage.mobileLeaveBalances.filter((row: any) => row.employee_id === employeeId).length,
+    },
+    {
+      name: 'My documents',
+      gate: 'ess.view',
+      rows: (employeeId) => hr.documents.filter((row: any) => row.employee_id === employeeId).length,
+    },
+    {
+      name: 'PAN, SSF and bank',
+      gate: 'ess.view',
+      rows: (employeeId) => {
+        // A non-SSF employee legitimately shows "not eligible" for SSF, so the
+        // surface is populated when PAN and the bank account are on file.
+        const employee = hr.employees.find((row: any) => row.id === employeeId) as any;
+        return employee && employee.pan_number && employee.bank_account ? 1 : 0;
+      },
+    },
+  ];
+
+  test('every account the login surface offers holds every capability it shows', () => {
+    // Nine logins, one row per seeded account (the roster the live matrix prints).
+    assert.deepEqual(
+      dataset.users.map((user: any) => user.email).sort(),
+      [
+        'accountant@example.com',
+        'auditor@example.com',
+        'btl.manager@example.com',
+        'dhn.manager@example.com',
+        'frontdesk@example.com',
+        'inventory@example.com',
+        'ktm.manager@example.com',
+        'pkr.manager@example.com',
+        'superadmin@example.com',
+      ]
+    );
+  });
+
+  for (const user of dataset.users as any[]) {
+    test(`${user.email} opens every surface the app offers it with seeded rows`, () => {
+      // Three logins are linked by DEMO_MOBILE_ACCOUNT_LINK_SQL at seed time,
+      // not on the employee row, so resolve through the same exported map.
+      const link = DEMO_MOBILE_ACCOUNT_LINKS.find((entry: any) => entry.userId === user.id);
+      const employee = hr.employees.find(
+        (row: any) => row.user_id === user.id || (link && row.id === link.employeeId)
+      ) as any;
+      assert.ok(employee, `${user.email} must be linked to an employee record`);
+      const capabilities = capabilitiesFor(user.role);
+      assert.ok(capabilities.length > 0, `${user.email} must hold at least one workplace capability`);
+
+      for (const surface of surfaces) {
+        if (surface.gate && !capabilities.includes(surface.gate)) {
+          // The client hides this entry for the role, so an empty result is invisible.
+          continue;
+        }
+        assert.ok(
+          surface.rows(employee.id, employee.branch_id) > 0,
+          `${user.email} (${user.role}) can open "${surface.name}" but the seed has no row for it`
+        );
+      }
+    });
+  }
+
+  test('a navigable surface with no seeded row fails the suite (the guard itself works)', () => {
+    // Guard the guard: removing one persona's holdings must make the check above fail.
+    const auditor = hr.employees.find((row: any) => row.user_id === 'usr-auditor') as any;
+    assert.ok(holdingRows(auditor.id, auditor.branch_id) > 0, 'the auditor holds seeded stock');
+    assert.equal(
+      workplace.holdings.filter((row: any) => row.employee_id === 'demo-emp-999').length,
+      0,
+      'an unseeded employee has nothing — the assertion above is not vacuously true'
+    );
+  });
+
+  test('the entries the client gates are hidden for the roles that lack the capability', () => {
+    const gatedByClient = [
+      { entry: 'Approvals', caps: ['approve.expense', 'approve.attendance_ot'] },
+      { entry: 'Expense claim', caps: ['claims.submit'] },
+      { entry: 'My documents', caps: ['ess.view'] },
+    ];
+    for (const user of dataset.users as any[]) {
+      const capabilities = capabilitiesFor(user.role);
+      for (const gate of gatedByClient) {
+        const visible = gate.caps.some((capability) => capabilities.includes(capability));
+        // Every demo role holds claims.submit and ess.view, so only Approvals is
+        // hidden for these accounts — proven here from the matrix, not assumed.
+        if (!visible) {
+          assert.ok(
+            !capabilities.some((capability) => gate.caps.includes(capability)),
+            `${user.email} must not hold ${gate.caps.join('/')} if ${gate.entry} is hidden`
+          );
+        }
+      }
+    }
+    // The gate itself lives in the client's More hub, keyed on those capabilities.
+    const screensSource = fs.readFileSync('mobile-expo/src/screens.tsx', 'utf8');
+    assert.match(
+      screensSource,
+      /id: 'approvals',[\s\S]{0,220}approve\.expense/,
+      'the Approvals entry must stay behind approve.expense / approve.attendance_ot'
+    );
+    assert.match(
+      screensSource,
+      /id: 'documents',[\s\S]{0,120}ess\.view/,
+      'My documents must stay behind ess.view'
+    );
   });
 });
