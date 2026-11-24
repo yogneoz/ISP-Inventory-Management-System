@@ -28,6 +28,8 @@ import { buildDemoCoverageFixtures } from '../scripts/seed/demoCoverageFixtures'
 // The payslip payload is built by the server's own projection from the seed
 // fixture rows, so this test asserts the shape the controller really returns.
 import { buildPayrollOutput } from '../server/src/services/payrollOutput.service';
+import { buildDemoSelfServiceFixtures } from '../scripts/seed/demoSelfServiceFixtures';
+import { HR_SELF_DOCUMENT_EXPIRY_SOON_DAYS } from '../server/src/models/hrSelfService.repo';
 
 const stubUrl = (file: string) => new URL(`./harness/${file}`, import.meta.url).href;
 
@@ -429,6 +431,302 @@ describe('the mobile tabs reach their loaded state with the seeded rows', () => 
     );
     await settle();
     assert.deepEqual(requested, ['/api/v1/workplace/bootstrap']);
+    tree.unmount();
+  });
+});
+
+
+/**
+ * The rest of the More hub: Expense claim, My documents, PAN/SSF/bank,
+ * Approvals and Profile.
+ *
+ * Each screen is mounted for a seeded persona with `fetch` answering from the
+ * same server projection the controller uses (`HR_SELF_PROFILE_MOBILE_SQL`,
+ * `HR_SELF_SENSITIVE_SQL`, `HR_SELF_DOCUMENTS_SQL`, `MOBILE_CLAIM_BY_ID_SQL`,
+ * `APPROVAL_CLAIMS_PENDING_SQL`), applied to the fixture rows that seed the
+ * database — so the screen is proven against the shape the API really returns.
+ */
+describe('the More-hub screens reach their loaded state', () => {
+  const selfService = buildDemoSelfServiceFixtures(dataset);
+
+  const branchNameOf = (branchId: string) =>
+    (dataset.branches.find((row: any) => row.id === branchId) as any)?.name ?? branchId;
+
+  const employeeRow = (employeeId: string) =>
+    hr.employees.find((row: any) => row.id === employeeId) as any;
+
+  /** HR_SELF_PROFILE_MOBILE_SQL, field for field. */
+  const profilePayload = (employeeId: string) => {
+    const row = employeeRow(employeeId);
+    return {
+      id: row.id,
+      employeeCode: row.employee_code,
+      name: row.name,
+      branchId: row.branch_id,
+      branchName: branchNameOf(row.branch_id),
+      department: row.department,
+      designation: row.designation,
+      employmentType: row.employment_type,
+      workStation: row.work_station,
+      joiningDateAD: row.joining_date_ad,
+      contractExpiryAD: row.contract_expiry_ad,
+      internalEmail: row.internal_email,
+      personalEmail: row.personal_email,
+      personalContact: row.personal_contact,
+      emergencyContactPerson: row.emergency_contact_person,
+      emergencyContactNumber: row.emergency_contact_number,
+      address: row.address,
+      isActive: row.is_active,
+      profilePhoto: null,
+    };
+  };
+
+  /** HR_SELF_SENSITIVE_SQL plus the controller's `viewedAt`. */
+  const sensitivePayload = (employeeId: string) => {
+    const row = employeeRow(employeeId);
+    return {
+      id: row.id,
+      employeeCode: row.employee_code,
+      panNumber: row.pan_number,
+      ssfNumber: row.ssf_number,
+      ssfEligible: row.ssf_eligible,
+      bankName: row.bank_name,
+      bankAccount: row.bank_account,
+      monthlySalary: Number(row.monthly_salary),
+      viewedAt: '2026-11-24T08:00:00Z',
+    };
+  };
+
+  /** HR_SELF_DOCUMENTS_SQL, including its expiry CASE, plus `contentUrl`. */
+  const documentsPayload = (employeeId: string) => {
+    const today = new Date().toISOString().slice(0, 10);
+    const soon = new Date(Date.now() + HR_SELF_DOCUMENT_EXPIRY_SOON_DAYS * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    const documents = hr.documents
+      .filter((row: any) => row.employee_id === employeeId)
+      .map((row: any) => {
+        const expiresOnAD = row.expires_on_ad ? String(row.expires_on_ad).slice(0, 10) : null;
+        const expiryStatus = !expiresOnAD
+          ? 'NO_EXPIRY'
+          : expiresOnAD < today
+            ? 'EXPIRED'
+            : expiresOnAD <= soon
+              ? 'EXPIRING'
+              : 'VALID';
+        return {
+          id: row.id,
+          docType: row.doc_type,
+          title: row.original_name,
+          mimeType: row.mime_type,
+          byteSize: Number(row.byte_size),
+          issuedOnAD: null,
+          expiresOnAD,
+          expiryStatus,
+          uploadedAt: null,
+          notes: row.notes,
+          uploadedBy: row.uploaded_by,
+          contentUrl: `/api/employees/${employeeId}/documents/${row.id}/content`,
+        };
+      });
+    return {
+      expirySoonDays: HR_SELF_DOCUMENT_EXPIRY_SOON_DAYS,
+      summary: {
+        totalDocuments: documents.length,
+        expiringSoon: documents.filter((doc) => doc.expiryStatus === 'EXPIRING').length,
+        expiredDocuments: documents.filter((doc) => doc.expiryStatus === 'EXPIRED').length,
+      },
+      documents,
+    };
+  };
+
+  /** MOBILE_CLAIM_BY_ID_SQL. */
+  const claimPayload = (claimId: string) => {
+    const claim = [...selfService.expenseClaims, coverage.mobileClaim].find(
+      (row: any) => row.id === claimId
+    ) as any;
+    return {
+      id: claim.id,
+      status: claim.status,
+      submitted_at: claim.submitted_at,
+      amount: Number(claim.amount),
+      category: claim.category,
+    };
+  };
+
+  /** APPROVAL_CLAIMS_PENDING_SQL, for the approver's own branch. */
+  const approvalsPayload = (approverEmployeeId: string) => {
+    const approver = employeeRow(approverEmployeeId);
+    const claims = [...selfService.expenseClaims, coverage.mobileClaim]
+      .filter(
+        (row: any) =>
+          row.branch_id === approver.branch_id &&
+          row.status === 'SUBMITTED' &&
+          row.employee_id !== approver.id
+      )
+      .map((row: any) => ({
+        id: row.id,
+        employeeId: row.employee_id,
+        employeeName: employeeRow(row.employee_id).name,
+        category: row.category,
+        amount: Number(row.amount),
+        currency: row.currency,
+        ticketCode: row.ticket_code ?? null,
+        description: row.description,
+        receiptAttached: row.receipt_attached,
+        status: row.status,
+        submittedAt: row.submitted_at,
+      }))
+      .sort((left, right) => String(left.submittedAt).localeCompare(String(right.submittedAt)));
+    // APPROVAL_PUNCHES_PENDING_SQL needs an unreviewed HELD/FLAGGED proof inside
+    // the 14-day review window; every seeded proof is ACCEPTED, so the queue is
+    // empty by fixture and the screen's punch section is honestly empty.
+    const punches: any[] = [];
+    return {
+      claims,
+      punches,
+      delegations: [],
+      counts: { claims: claims.length, punches: punches.length },
+    };
+  };
+
+  /** Types into the nth text field, as the device keyboard does. */
+  function typeIntoField(container: HTMLElement, index: number, value: string): void {
+    const inputs = [...container.querySelectorAll('input')] as HTMLInputElement[];
+    const input = inputs[index];
+    assert.ok(input, `expected a field at index ${index}, saw ${inputs.length}`);
+    const view = container.ownerDocument.defaultView as any;
+    const setValue = Object.getOwnPropertyDescriptor(view.HTMLInputElement.prototype, 'value')!.set!;
+    act(() => {
+      setValue.call(input, value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+
+  test('Expense claim — the accountant finds a seeded claim by its id', async () => {
+    const claim = claimPayload('demo-expense-008');
+    mockApi([{ match: '/api/v1/workplace/claims/', body: claim }]);
+    const tree = mountTree(createElement(screens.ClaimsScreen, { token: TOKEN }));
+    await settle(2);
+    expectOnScreen(tree.container, ['Expense claim', 'Submit claim', 'Find a claim']);
+    assert.ok(
+      !textOf(tree.container).includes('Claim not found.'),
+      'the lookup must not start on an error'
+    );
+
+    // Amount, description, then the "Find a claim" field.
+    typeIntoField(tree.container, 2, claim.id);
+    clickText(tree.container, 'Look it up');
+    await settle();
+
+    // The card shows the id, the status and the ledger outbox state the API
+    // returns; the amount is carried in the payload but not printed by this screen.
+    expectOnScreen(tree.container, [claim.id, claim.status, 'Accounting']);
+    assert.match(textOf(tree.container), /submitted/);
+    assert.ok(Number(claim.amount) > 0, 'the seeded claim must carry a nonzero amount');
+    assert.deepEqual(requested, [`/api/v1/workplace/claims/${claim.id}`]);
+    tree.unmount();
+  });
+
+  test('My documents — the Kathmandu manager unlocks the seeded contract', async () => {
+    const documents = documentsPayload(PERSONA);
+    mockApi([
+      { match: '/api/v1/auth/re-auth', body: reAuthPayload },
+      { match: '/api/v1/documents', body: documents },
+    ]);
+    const tree = mountTree(
+      createElement(screens.SensitiveScreen, { token: TOKEN, mode: 'documents' })
+    );
+    const first = documents.documents[0];
+    assert.ok(first, 'the persona must have a seeded document');
+    expectOnScreen(tree.container, ['My documents', 'Unlock']);
+    typeInto(tree.container, 'Demo@123');
+    clickText(tree.container, 'Unlock');
+    await settle();
+
+    expectOnScreen(tree.container, [
+      first.title,
+      first.docType,
+      first.expiryStatus,
+      String(first.expiresOnAD),
+    ]);
+    expectNoEmptyBranch(tree.container, ['No documents on file.']);
+    tree.unmount();
+  });
+
+  test('PAN, SSF, bank — the auditor unlocks their statutory detail', async () => {
+    const detail = sensitivePayload('demo-emp-020');
+    mockApi([
+      { match: '/api/v1/auth/re-auth', body: reAuthPayload },
+      { match: '/api/v1/hr/me/sensitive', body: detail },
+    ]);
+    const tree = mountTree(
+      createElement(screens.SensitiveScreen, { token: TOKEN, mode: 'sensitive' })
+    );
+    await settle(2);
+    expectOnScreen(tree.container, ['PAN, SSF and bank', 'Unlock']);
+    typeInto(tree.container, 'Demo@123');
+    clickText(tree.container, 'Unlock');
+    await settle();
+
+    expectOnScreen(tree.container, [
+      'PAN',
+      String(detail.panNumber),
+      'SSF',
+      String(detail.ssfNumber),
+      String(detail.bankName),
+      String(detail.bankAccount),
+      moneyText(detail.monthlySalary),
+    ]);
+    tree.unmount();
+  });
+
+  test('Approvals — the superadmin sees the branch claims waiting on a decision', async () => {
+    const approvals = approvalsPayload('demo-emp-001');
+    assert.ok(approvals.claims.length > 0, 'the approver branch must hold a pending claim');
+    mockApi([{ match: '/api/v1/workplace/approvals', body: approvals }]);
+    const tree = mountTree(
+      createElement(screens.ApprovalsScreen, { token: TOKEN, capabilities: CAPABILITIES })
+    );
+    await settle();
+
+    const first = approvals.claims[0];
+    expectOnScreen(tree.container, [
+      `Expense claims (${approvals.claims.length})`,
+      first.employeeName,
+      first.category,
+      moneyText(first.amount),
+      'Approve',
+      'Reject',
+      'Flagged punches (0)',
+    ]);
+    expectNoEmptyBranch(tree.container, ['No claims are waiting in this branch.']);
+    tree.unmount();
+  });
+
+  test('Profile — the inventory manager sees their own card, without salary or PAN', async () => {
+    const profile = profilePayload('demo-emp-007');
+    mockApi([{ match: '/api/v1/profile', body: profile }]);
+    const tree = mountTree(createElement(screens.ProfileScreen, { token: TOKEN }));
+    await settle();
+
+    expectOnScreen(tree.container, [
+      profile.name,
+      `${profile.employeeCode} · ${profile.designation}`,
+      profile.branchName,
+      String(profile.joiningDateAD),
+      String(profile.internalEmail),
+    ]);
+    // The same employee's sensitive half exists; the everyday projection must
+    // not carry any of it (HR_SELF_PROFILE_MOBILE_SQL has no PAN/salary column).
+    const secret = sensitivePayload('demo-emp-007');
+    const rendered = textOf(tree.container);
+    assert.ok(!rendered.includes(String(secret.panNumber)), 'the everyday card must not show PAN');
+    assert.ok(!rendered.includes(String(secret.bankAccount)), 'the everyday card must not show the bank account');
+    assert.ok(
+      !rendered.includes(moneyText(secret.monthlySalary)),
+      'the everyday card must not show salary'
+    );
     tree.unmount();
   });
 });
