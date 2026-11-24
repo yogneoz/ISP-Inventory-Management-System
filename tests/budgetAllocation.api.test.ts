@@ -555,10 +555,12 @@ describe('budget allocation API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
     );
     assert.equal(preview.status, 200, JSON.stringify(preview.json));
     assert.equal(preview.json.status, 'READY');
-    assert.equal(preview.json.totals.expenseActual, 172700);
-    assert.equal(preview.json.totals.taggedActual, 172700);
+    assert.equal(preview.json.totals.expenseActual, 484700);
+    assert.equal(preview.json.totals.taggedActual, 484700);
     // The verification dataset includes a 100 credit reclassification (demo-health-difference),
-    // so the net expense actual is 172,700. The demo budget is 80,000 per month (30,000 + 50,000). The
+    // so the net expense actual is 484,700 — the branch payroll's 479,000 salary
+    // expense plus 5,700 of operating cost — and the demo budget is 80,000 per
+    // month (30,000 + 50,000). The
     // preview counts the monthly budgets whose period BEGINS inside the
     // window, and FY 2083-84 starts on 2026-07-17 while the July period begins
     // on 2026-07-01 — so eleven periods, not twelve: 11 x 80,000.
@@ -578,7 +580,7 @@ describe('budget allocation API (real HTTP + PostgreSQL)', { skip: skipNoDb }, (
       [
         [0, 88000],
         [1100, 176000],
-        [171600, 352000],
+        [483600, 352000],
         [0, 132000],
         [0, 132000],
       ],

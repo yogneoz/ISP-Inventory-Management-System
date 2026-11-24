@@ -466,77 +466,168 @@ export function buildDemoHrFixtures(dataset: VerificationDataset): DemoHrFixture
   const payrollPeriod = dataset.periods.find(
     (period: any) => period.fiscalYearId === 'fy-2083' && period.periodKey === '2026-11'
   );
-  const journals: Row[] = [{
-    id: 'demo-payroll-journal-2083-11', journal_no: 'PR-DEMO-2083-11',
-    journal_date_ad: '2026-11-29', journal_date_bs: bsOn('2026-11-29'),
-    fiscal_year_id: 'fy-2083', period_id: payrollPeriod?.id ?? 'vfy-period-fy-2083-2026-11',
-    branch_id: 'BR-KTM', source_type: 'PAYROLL', source_id: 'demo-payroll-run-2083-11',
-    memo: 'Demo November 2026 payroll posting', status: 'POSTED',
-    posted_at: '2026-11-29T12:00:00Z', posted_by: 'superadmin@example.com',
+  const payrollPeriodId = payrollPeriod?.id ?? 'vfy-period-fy-2083-2026-11';
+  const PAYROLL_DATE = '2026-11-29';
+  const PAYROLL_PERIOD_KEY = '2026-11';
+
+  // One November payslip per demo account. The first two were the only ones the
+  // earlier fixtures wrote, so the mobile client's payslip screen — and the HR
+  // payroll report behind it — answered "No payslips on file" for every other
+  // persona the demo offers. Each persona's figures follow the run's own
+  // arithmetic: gross = basic + allowance + incentive, SSF = 11% of basic for
+  // an SSF-eligible employee, net = gross − TDS − SSF.
+  interface PayrollPersona {
+    id: string;
+    code: string;
+    name: string;
+    branchId: string;
+    basic: number;
+    allowance: number;
+    incentive: number;
+    ssf: boolean;
+    tds: number;
+    salaryId: string | null;
+    bank: string;
+    account: string;
+  }
+
+  const PAYROLL_PEOPLE: PayrollPersona[] = [
+    { id: 'demo-emp-001', code: 'EMP-001', name: 'Aarav Sharma', branchId: 'BR-KTM', basic: 60_000, allowance: 40_000, incentive: 5_000, ssf: true, tds: 6_000, salaryId: 'demo-salary-emp-001', bank: 'Nabil Bank', account: '012345678901' },
+    { id: 'demo-emp-002', code: 'EMP-002', name: 'Nisha Karki', branchId: 'BR-KTM', basic: 40_000, allowance: 20_000, incentive: 2_000, ssf: false, tds: 2_000, salaryId: 'demo-salary-emp-002', bank: 'Nabil Bank', account: '012345678902' },
+    { id: 'demo-emp-003', code: 'EMP-003', name: 'Bikash Thapa', branchId: 'BR-PKR', basic: 45_000, allowance: 25_000, incentive: 0, ssf: true, tds: 3_500, salaryId: 'demo-salary-emp-003', bank: 'Global IME Bank', account: '012345678903' },
+    { id: 'demo-emp-004', code: 'EMP-004', name: 'Sita Gurung', branchId: 'BR-BTL', basic: 40_000, allowance: 25_000, incentive: 0, ssf: true, tds: 3_000, salaryId: 'demo-salary-emp-004', bank: 'Nabil Bank', account: '012345678904' },
+    { id: 'demo-emp-005', code: 'EMP-005', name: 'Rajan Rai', branchId: 'BR-DHN', basic: 35_000, allowance: 20_000, incentive: 0, ssf: false, tds: 2_000, salaryId: 'demo-salary-emp-005', bank: 'Global IME Bank', account: '012345678905' },
+    { id: 'demo-emp-007', code: 'EMP-007', name: 'Sandesh Bhandari', branchId: 'BR-KTM', basic: 69_000, allowance: 46_000, incentive: 0, ssf: true, tds: 10_000, salaryId: null, bank: 'Nabil Bank', account: '012345678907' },
+    { id: 'demo-emp-011', code: 'EMP-011', name: 'Manisha Joshi', branchId: 'BR-KTM', basic: 69_000, allowance: 46_000, incentive: 0, ssf: true, tds: 10_000, salaryId: null, bank: 'Nabil Bank', account: '012345678911' },
+    { id: 'demo-emp-014', code: 'EMP-014', name: 'Rohit Karki', branchId: 'BR-KTM', basic: 49_200, allowance: 32_800, incentive: 0, ssf: true, tds: 6_000, salaryId: null, bank: 'Nabil Bank', account: '012345678914' },
+  ];
+
+  const ssfOf = (person: PayrollPersona) => (person.ssf ? Math.round(person.basic * 0.11) : 0);
+  const grossOf = (person: PayrollPersona) => person.basic + person.allowance + person.incentive;
+  const netOf = (person: PayrollPersona) => grossOf(person) - person.tds - ssfOf(person);
+
+  const payrollBranches = [...new Set(PAYROLL_PEOPLE.map((person) => person.branchId))];
+  const branchSuffix = (branchId: string) => branchId.slice(3).toLowerCase();
+  // KTM keeps the original ids so the already-posted run and its journal stay
+  // the same rows; the three branch cycles are new postings of their own.
+  const journalIdFor = (branchId: string) =>
+    branchId === 'BR-KTM' ? 'demo-payroll-journal-2083-11' : `demo-payroll-journal-2083-11-${branchSuffix(branchId)}`;
+  const runIdFor = (branchId: string) =>
+    branchId === 'BR-KTM' ? 'demo-payroll-run-2083-11' : `demo-payroll-run-2083-11-${branchSuffix(branchId)}`;
+  const journalNoFor = (branchId: string) =>
+    branchId === 'BR-KTM' ? 'PR-DEMO-2083-11' : `PR-DEMO-2083-11-${branchId.slice(3)}`;
+  const runNoFor = (branchId: string) =>
+    branchId === 'BR-KTM' ? 'PR-2083-DEMO-11' : `PR-2083-DEMO-11-${branchId.slice(3)}`;
+
+  const journals: Row[] = payrollBranches.map((branchId) => ({
+    id: journalIdFor(branchId), journal_no: journalNoFor(branchId),
+    journal_date_ad: PAYROLL_DATE, journal_date_bs: bsOn(PAYROLL_DATE),
+    fiscal_year_id: 'fy-2083', period_id: payrollPeriodId,
+    branch_id: branchId, source_type: 'PAYROLL', source_id: runIdFor(branchId),
+    memo: `Demo November 2026 payroll posting — ${branchId}`,
+    status: 'POSTED', posted_at: `${PAYROLL_DATE}T12:00:00Z`, posted_by: 'superadmin@example.com',
     voucher_type: 'PAYROLL', currency: 'NPR', exchange_rate: 1, is_demo: true,
-  }];
+  }));
+
   // The salary line is an expense, so it carries its operational cost centre,
   // exactly like the demo ledger lines (COST_CENTER_BY_EXPENSE_ACCOUNT['7110']
   // in verificationDataset.ts). Without it the branch's department preview
   // counts payroll as untagged actuals. The credit legs are liabilities and
   // stay untagged.
-  const journalLines: Row[] = [
-    { id: 'demo-payroll-journal-line-1', journal_id: 'demo-payroll-journal-2083-11', journal_date_ad: '2026-11-29', journal_date_bs: bsOn('2026-11-29'), line_no: 1, account_id: 'gla-7110', branch_id: 'BR-KTM', cost_center_id: 'cc-demo-ops', debit: 167_000, credit: 0, memo: 'Salaries and wages' },
-    { id: 'demo-payroll-journal-line-2', journal_id: 'demo-payroll-journal-2083-11', journal_date_ad: '2026-11-29', journal_date_bs: bsOn('2026-11-29'), line_no: 2, account_id: 'gla-5220', branch_id: 'BR-KTM', cost_center_id: null, debit: 0, credit: 8_000, memo: 'TDS payable' },
-    { id: 'demo-payroll-journal-line-3', journal_id: 'demo-payroll-journal-2083-11', journal_date_ad: '2026-11-29', journal_date_bs: bsOn('2026-11-29'), line_no: 3, account_id: 'gla-5250', branch_id: 'BR-KTM', cost_center_id: null, debit: 0, credit: 6_600, memo: 'SSF payable' },
-    { id: 'demo-payroll-journal-line-4', journal_id: 'demo-payroll-journal-2083-11', journal_date_ad: '2026-11-29', journal_date_bs: bsOn('2026-11-29'), line_no: 4, account_id: 'gla-5270', branch_id: 'BR-KTM', cost_center_id: null, debit: 0, credit: 152_400, memo: 'Net salaries payable' },
-  ];
+  const journalLines: Row[] = payrollBranches.flatMap((branchId) => {
+    const people = PAYROLL_PEOPLE.filter((person) => person.branchId === branchId);
+    const gross = people.reduce((sum, person) => sum + grossOf(person), 0);
+    const tds = people.reduce((sum, person) => sum + person.tds, 0);
+    const ssf = people.reduce((sum, person) => sum + ssfOf(person), 0);
+    const net = people.reduce((sum, person) => sum + netOf(person), 0);
+    const journalId = journalIdFor(branchId);
+    const line = (lineNo: number, accountId: string, costCenterId: string | null, debit: number, credit: number, memo: string): Row => ({
+      id: `${journalId}-line-${lineNo}`, journal_id: journalId,
+      journal_date_ad: PAYROLL_DATE, journal_date_bs: bsOn(PAYROLL_DATE), line_no: lineNo,
+      account_id: accountId, branch_id: branchId, cost_center_id: costCenterId,
+      debit, credit, memo,
+    });
+    const rows: Row[] = [line(1, 'gla-7110', 'cc-demo-ops', gross, 0, 'Salaries and wages')];
+    let lineNo = 1;
+    if (tds > 0) {
+      lineNo += 1;
+      rows.push(line(lineNo, 'gla-5220', null, 0, tds, 'TDS payable'));
+    }
+    if (ssf > 0) {
+      lineNo += 1;
+      rows.push(line(lineNo, 'gla-5250', null, 0, ssf, 'SSF payable'));
+    }
+    lineNo += 1;
+    rows.push(line(lineNo, 'gla-5270', null, 0, net, 'Net salaries payable'));
+    return rows;
+  });
 
-  // The payroll journal is inserted directly (the demo run is already POSTED),
-  // so its control lines need the same employee subledger rows the posting
+  const lineIdFor = (branchId: string, accountId: string) =>
+    String(
+      journalLines.find((row) => row.journal_id === journalIdFor(branchId) && row.account_id === accountId)?.id
+    );
+
+  // The payroll journals are inserted directly (each run is already POSTED), so
+  // their control lines need the same employee subledger rows the posting
   // service would have written. Without these the GL ties to the trial balance
   // but Salary Payable, TDS and SSF show a false control difference.
-  const payrollSubledgers: Row[] = [
-    { id: 'gls-demo-2320-emp-001', code: 'SL-5270-EMP-001', name: 'Aarav Sharma — Salary Payable', subledger_type: 'EMPLOYEE', main_account_id: 'gla-5270', party_id: 'demo-emp-001', description: 'Demo payroll book for Aarav Sharma.', is_active: true, is_demo: true },
-    { id: 'gls-demo-2320-emp-002', code: 'SL-5270-EMP-002', name: 'Nisha Karki — Salary Payable', subledger_type: 'EMPLOYEE', main_account_id: 'gla-5270', party_id: 'demo-emp-002', description: 'Demo payroll book for Nisha Karki.', is_active: true, is_demo: true },
-    { id: 'gls-demo-2330-emp-001', code: 'SL-5220-EMP-001', name: 'Aarav Sharma — TDS Payable', subledger_type: 'EMPLOYEE', main_account_id: 'gla-5220', party_id: 'demo-emp-001', description: 'Demo TDS book for Aarav Sharma.', is_active: true, is_demo: true },
-    { id: 'gls-demo-2330-emp-002', code: 'SL-5220-EMP-002', name: 'Nisha Karki — TDS Payable', subledger_type: 'EMPLOYEE', main_account_id: 'gla-5220', party_id: 'demo-emp-002', description: 'Demo TDS book for Nisha Karki.', is_active: true, is_demo: true },
-    { id: 'gls-demo-2340-emp-001', code: 'SL-5250-EMP-001', name: 'Aarav Sharma — SSF Payable', subledger_type: 'EMPLOYEE', main_account_id: 'gla-5250', party_id: 'demo-emp-001', description: 'Demo SSF book for Aarav Sharma.', is_active: true, is_demo: true },
-  ];
-  const payrollSubledgerEntries: Row[] = [
-    { id: 'gls-demo-payroll-001', journal_id: 'demo-payroll-journal-2083-11', journal_line_id: 'demo-payroll-journal-line-4', account_id: 'gla-5270', subledger_id: 'gls-demo-2320-emp-001', subledger_type: 'EMPLOYEE', party_id: 'demo-emp-001', party_name: 'Aarav Sharma', branch_id: 'BR-KTM', entry_date_ad: '2026-11-29', entry_date_bs: bsOn('2026-11-29'), debit: 0, credit: 92_400 },
-    { id: 'gls-demo-payroll-002', journal_id: 'demo-payroll-journal-2083-11', journal_line_id: 'demo-payroll-journal-line-4', account_id: 'gla-5270', subledger_id: 'gls-demo-2320-emp-002', subledger_type: 'EMPLOYEE', party_id: 'demo-emp-002', party_name: 'Nisha Karki', branch_id: 'BR-KTM', entry_date_ad: '2026-11-29', entry_date_bs: bsOn('2026-11-29'), debit: 0, credit: 60_000 },
-    { id: 'gls-demo-payroll-003', journal_id: 'demo-payroll-journal-2083-11', journal_line_id: 'demo-payroll-journal-line-2', account_id: 'gla-5220', subledger_id: 'gls-demo-2330-emp-001', subledger_type: 'EMPLOYEE', party_id: 'demo-emp-001', party_name: 'Aarav Sharma', branch_id: 'BR-KTM', entry_date_ad: '2026-11-29', entry_date_bs: bsOn('2026-11-29'), debit: 0, credit: 6_000 },
-    { id: 'gls-demo-payroll-004', journal_id: 'demo-payroll-journal-2083-11', journal_line_id: 'demo-payroll-journal-line-2', account_id: 'gla-5220', subledger_id: 'gls-demo-2330-emp-002', subledger_type: 'EMPLOYEE', party_id: 'demo-emp-002', party_name: 'Nisha Karki', branch_id: 'BR-KTM', entry_date_ad: '2026-11-29', entry_date_bs: bsOn('2026-11-29'), debit: 0, credit: 2_000 },
-    { id: 'gls-demo-payroll-005', journal_id: 'demo-payroll-journal-2083-11', journal_line_id: 'demo-payroll-journal-line-3', account_id: 'gla-5250', subledger_id: 'gls-demo-2340-emp-001', subledger_type: 'EMPLOYEE', party_id: 'demo-emp-001', party_name: 'Aarav Sharma', branch_id: 'BR-KTM', entry_date_ad: '2026-11-29', entry_date_bs: bsOn('2026-11-29'), debit: 0, credit: 6_600 },
-  ];
+  const bookSuffix: Record<string, string> = { 'gla-5270': '20', 'gla-5220': '30', 'gla-5250': '40' };
+  const payrollSubledgers: Row[] = PAYROLL_PEOPLE.flatMap((person) => {
+    const books: Row[] = [
+      { id: `gls-demo-2320-${person.code.toLowerCase()}`, code: `SL-5270-${person.code}`, name: `${person.name} — Salary Payable`, subledger_type: 'EMPLOYEE', main_account_id: 'gla-5270', party_id: person.id, description: `Demo payroll book for ${person.name}.`, is_active: true, is_demo: true },
+      { id: `gls-demo-2330-${person.code.toLowerCase()}`, code: `SL-5220-${person.code}`, name: `${person.name} — TDS Payable`, subledger_type: 'EMPLOYEE', main_account_id: 'gla-5220', party_id: person.id, description: `Demo TDS book for ${person.name}.`, is_active: true, is_demo: true },
+    ];
+    if (person.ssf) {
+      books.push({ id: `gls-demo-2340-${person.code.toLowerCase()}`, code: `SL-5250-${person.code}`, name: `${person.name} — SSF Payable`, subledger_type: 'EMPLOYEE', main_account_id: 'gla-5250', party_id: person.id, description: `Demo SSF book for ${person.name}.`, is_active: true, is_demo: true });
+    }
+    return books;
+  });
 
-  const payrollRuns: Row[] = [{
-    id: 'demo-payroll-run-2083-11', run_no: 'PR-2083-DEMO-11', branch_id: 'BR-KTM',
-    period_key: '2026-11', run_date_ad: '2026-11-29', run_date_bs: bsOn('2026-11-29'),
-    gross_total: 167_000, tds_total: 8_000, ssf_total: 6_600, advance_total: 0,
-    loan_total: 0, net_total: 152_400, status: 'POSTED',
-    journal_id: 'demo-payroll-journal-2083-11', posted_by: 'superadmin@example.com',
-    is_demo: true, prepared_by: 'superadmin@example.com', prepared_at: '2026-11-28T10:00:00Z',
-    approved_by: 'superadmin@example.com', approved_at: '2026-11-28T11:00:00Z',
-    statutory_config_id: 'demo-statutory-fy2083', incentive_total: 7_000, arrears_total: 0,
-  }];
+  const payrollSubledgerEntries: Row[] = PAYROLL_PEOPLE.flatMap((person) => {
+    const entry = (accountId: string, credit: number): Row => ({
+      id: `gls-demo-payroll-${person.code}-${accountId}`,
+      journal_id: journalIdFor(person.branchId), journal_line_id: lineIdFor(person.branchId, accountId),
+      account_id: accountId, subledger_id: `gls-demo-${bookSuffix[accountId] === '20' ? '2320' : bookSuffix[accountId] === '30' ? '2330' : '2340'}-${person.code.toLowerCase()}`,
+      subledger_type: 'EMPLOYEE', party_id: person.id, party_name: person.name, branch_id: person.branchId,
+      entry_date_ad: PAYROLL_DATE, entry_date_bs: bsOn(PAYROLL_DATE), debit: 0, credit,
+    });
+    const rows: Row[] = [entry('gla-5270', netOf(person))];
+    if (person.tds > 0) rows.push(entry('gla-5220', person.tds));
+    if (ssfOf(person) > 0) rows.push(entry('gla-5250', ssfOf(person)));
+    return rows;
+  });
 
-  const payrollLines: Row[] = [
-    {
-      id: 'demo-payroll-line-emp-001', run_id: 'demo-payroll-run-2083-11', employee_id: 'demo-emp-001',
-      employee_code: 'EMP-001', employee_name: 'Aarav Sharma', period_key: '2026-11',
-      gross_amount: 105_000, tds_amount: 6_000, ssf_amount: 6_600, advance_deduction: 0,
-      loan_deduction: 0, net_amount: 92_400, salary_id: 'demo-salary-emp-001',
-      basic_amount: 60_000, payable_days: 30, lop_days: 0, lop_deduction: 0,
-      overtime_hours: 0, overtime_amount: 0, employer_ssf_amount: 12_000,
-      incentive_amount: 5_000, arrears_amount: 0, bank_name: 'Nabil Bank', bank_account: '012345678901',
-    },
-    {
-      id: 'demo-payroll-line-emp-002', run_id: 'demo-payroll-run-2083-11', employee_id: 'demo-emp-002',
-      employee_code: 'EMP-002', employee_name: 'Nisha Karki', period_key: '2026-11',
-      gross_amount: 62_000, tds_amount: 2_000, ssf_amount: 0, advance_deduction: 0,
-      loan_deduction: 0, net_amount: 60_000, salary_id: 'demo-salary-emp-002',
-      basic_amount: 40_000, payable_days: 30, lop_days: 0, lop_deduction: 0,
-      overtime_hours: 0, overtime_amount: 0, employer_ssf_amount: 0,
-      incentive_amount: 2_000, arrears_amount: 0, bank_name: 'Nabil Bank', bank_account: '012345678902',
-    },
-  ];
+  const payrollRuns: Row[] = payrollBranches.map((branchId) => {
+    const people = PAYROLL_PEOPLE.filter((person) => person.branchId === branchId);
+    return {
+      id: runIdFor(branchId), run_no: runNoFor(branchId), branch_id: branchId,
+      period_key: PAYROLL_PERIOD_KEY, run_date_ad: PAYROLL_DATE, run_date_bs: bsOn(PAYROLL_DATE),
+      gross_total: people.reduce((sum, person) => sum + grossOf(person), 0),
+      tds_total: people.reduce((sum, person) => sum + person.tds, 0),
+      ssf_total: people.reduce((sum, person) => sum + ssfOf(person), 0),
+      advance_total: 0, loan_total: 0,
+      net_total: people.reduce((sum, person) => sum + netOf(person), 0),
+      status: 'POSTED', journal_id: journalIdFor(branchId), posted_by: 'superadmin@example.com',
+      is_demo: true, prepared_by: 'superadmin@example.com', prepared_at: '2026-11-28T10:00:00Z',
+      approved_by: 'superadmin@example.com', approved_at: '2026-11-28T11:00:00Z',
+      statutory_config_id: 'demo-statutory-fy2083',
+      incentive_total: people.reduce((sum, person) => sum + person.incentive, 0),
+      arrears_total: 0,
+    };
+  });
+
+  const payrollLines: Row[] = PAYROLL_PEOPLE.map((person) => ({
+    id: `demo-payroll-line-${person.code.toLowerCase()}`,
+    run_id: runIdFor(person.branchId), employee_id: person.id,
+    employee_code: person.code, employee_name: person.name, period_key: PAYROLL_PERIOD_KEY,
+    gross_amount: grossOf(person), tds_amount: person.tds, ssf_amount: ssfOf(person),
+    advance_deduction: 0, loan_deduction: 0, net_amount: netOf(person), salary_id: person.salaryId,
+    basic_amount: person.basic, payable_days: 30, lop_days: 0, lop_deduction: 0,
+    overtime_hours: 0, overtime_amount: 0,
+    employer_ssf_amount: person.ssf ? Math.round(person.basic * 0.2) : 0,
+    incentive_amount: person.incentive, arrears_amount: 0,
+    bank_name: person.bank, bank_account: person.account,
+  }));
 
   const requisitions: Row[] = [{
     id: 'demo-requisition-1', requisition_no: 'REQ-2083-DEMO-001', branch_id: 'BR-KTM',

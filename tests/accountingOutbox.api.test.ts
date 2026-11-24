@@ -205,6 +205,9 @@ describe('accounting outbox (PostgreSQL)', { skip: skipNoDb }, () => {
       env: process.env,
       encoding: 'utf8',
       timeout: 180_000,
+      // Windows ships `npx.cmd`, which a bare spawn cannot resolve (the command
+      // exits 0 with no output and the queue is never flushed); Linux is unaffected.
+      shell: process.platform === 'win32',
     });
     const output = `${run.stdout || ''}${run.stderr || ''}`;
     assert.match(output, /accounting outbox flush: posted [1-9]/, output.slice(0, 600));

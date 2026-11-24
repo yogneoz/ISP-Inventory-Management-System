@@ -128,6 +128,9 @@ const MOBILE_PERSONAS = [
 const MOBILE_BALANCE_PERSONAS = [
   { employeeId: 'demo-emp-007', branchId: 'BR-KTM' },
   { employeeId: 'demo-emp-011', branchId: 'BR-KTM' },
+  // The Kathmandu manager files the pending request below, so he needs the
+  // leave types the request form offers.
+  { employeeId: 'demo-emp-014', branchId: 'BR-KTM' },
 ] as const;
 
 const MOBILE_LEAVE_TYPES = [

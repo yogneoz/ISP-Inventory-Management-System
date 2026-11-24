@@ -112,10 +112,12 @@ export async function backfillDemoCostCenterTags(client: any): Promise<number> {
  * The DDL is the same idempotent function the boot/keeper path calls.
  *
  * Every date-keyed partitioned table the fixtures write gets the same months:
- * journals (and their lines/subledger entries), stock operations, serial log
- * and sales invoices. Each of those would otherwise drop a September/November
- * fixture into its DEFAULT partition, which is the exact state
- * `npm run check:partitions` fails on.
+ * journals (and their lines/subledger entries), stock operations, serial log,
+ * sales invoices and the two log tables. Each of those would otherwise drop a
+ * September/November fixture into its DEFAULT partition, which is the exact
+ * state `npm run check:partitions` fails on — the seeded stock history spans
+ * both fiscal years, so it needs both years of log partitions, not the four
+ * months the boot path provisions around today.
  */
 export async function provisionSeededJournalMonths(client: any): Promise<string[]> {
   const months: string[] = [];
@@ -135,6 +137,10 @@ export async function provisionSeededJournalMonths(client: any): Promise<string[
     await client.query('SELECT ensure_stock_operation_month_partition($1::date)', [firstOfMonth]);
     await client.query('SELECT ensure_serial_log_month_partition($1::date)', [firstOfMonth]);
     await client.query('SELECT ensure_sales_invoice_month_partition($1::date)', [firstOfMonth]);
+    // The one function that serves both log tables (`audit_logs`,
+    // `transaction_logs`): it derives the partition name from the table.
+    await client.query('SELECT ensure_log_month_partition($1, $2::timestamptz)', ['audit_logs', `${firstOfMonth}T00:00:00Z`]);
+    await client.query('SELECT ensure_log_month_partition($1, $2::timestamptz)', ['transaction_logs', `${firstOfMonth}T00:00:00Z`]);
   }
   return months;
 }

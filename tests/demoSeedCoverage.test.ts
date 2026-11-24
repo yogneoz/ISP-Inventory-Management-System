@@ -323,8 +323,8 @@ describe('demo coverage fixtures', () => {
 
   test('the office personas have a leave type to choose from', () => {
     const owners = new Set(coverage.mobileLeaveBalances.map((row) => String(row.employee_id)));
-    assert.deepEqual([...owners].sort(), ['demo-emp-007', 'demo-emp-011']);
-    assert.equal(coverage.mobileLeaveBalances.length, 6, 'three leave types for each office persona');
+    assert.deepEqual([...owners].sort(), ['demo-emp-007', 'demo-emp-011', 'demo-emp-014']);
+    assert.equal(coverage.mobileLeaveBalances.length, 9, 'three leave types for each persona that files leave');
     for (const row of coverage.mobileLeaveBalances) {
       assert.ok(Number(row.entitlement_days) > 0);
       assert.equal(row.balance_year, 2026);
