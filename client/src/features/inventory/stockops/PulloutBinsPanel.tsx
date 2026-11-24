@@ -7,6 +7,7 @@ import { formatNPR } from '../../../utils/nprFormat';
 import { sumStatusCounts } from '../../../utils/statusCounts';
 import { isOperationAllowed } from '../../../utils/permissions';
 import { api } from '../../../services/api';
+import { stockOperationScope } from './stockOperationScope';
 import {
   Truck,
 } from 'lucide-react';
@@ -25,7 +26,7 @@ export const PulloutBinsPanel: React.FC = () => {
   const fetchPulloutPage = useCallback(async (cursor: string | null) => {
     const envelope = await api.getStockOperations({
       type: 'PULLOUT',
-      branchId: branchFilter !== 'ALL' ? branchFilter : undefined,
+      ...stockOperationScope(branchFilter),
       cursor,
       limit: 20,
     }) as {

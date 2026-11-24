@@ -110,6 +110,12 @@ export async function backfillDemoCostCenterTags(client: any): Promise<number> {
  *
  * Runs after the wipe, so the months are attached against an empty DEFAULT.
  * The DDL is the same idempotent function the boot/keeper path calls.
+ *
+ * Every date-keyed partitioned table the fixtures write gets the same months:
+ * journals (and their lines/subledger entries), stock operations, serial log
+ * and sales invoices. Each of those would otherwise drop a September/November
+ * fixture into its DEFAULT partition, which is the exact state
+ * `npm run check:partitions` fails on.
  */
 export async function provisionSeededJournalMonths(client: any): Promise<string[]> {
   const months: string[] = [];
@@ -123,9 +129,12 @@ export async function provisionSeededJournalMonths(client: any): Promise<string[
     }
   }
   for (const key of months) {
-    await client.query('SELECT ensure_journal_month_partition($1::date)', [
-      `${key.slice(0, 4)}-${key.slice(4, 6)}-01`,
-    ]);
+    const firstOfMonth = `${key.slice(0, 4)}-${key.slice(4, 6)}-01`;
+    await client.query('SELECT ensure_journal_month_partition($1::date)', [firstOfMonth]);
+    await client.query('SELECT ensure_subledger_month_partition($1::date)', [firstOfMonth]);
+    await client.query('SELECT ensure_stock_operation_month_partition($1::date)', [firstOfMonth]);
+    await client.query('SELECT ensure_serial_log_month_partition($1::date)', [firstOfMonth]);
+    await client.query('SELECT ensure_sales_invoice_month_partition($1::date)', [firstOfMonth]);
   }
   return months;
 }

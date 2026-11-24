@@ -62,7 +62,7 @@ const DOMAINS: Domain[] = [
     tables: [
       ['sales_invoices', 50], ['serial_log', 50], ['transaction_logs', 50],
       ['customer_payments', 10], ['sales_returns', 1], ['vendor_payments', 5],
-      ['payment_settlements', 1], ['sales_invoices_default', 1],
+      ['payment_settlements', 1],
     ],
   },
   {
@@ -74,7 +74,9 @@ const DOMAINS: Domain[] = [
   {
     name: 'Inventory operations',
     tables: [
-      ['stock_operations', 1], ['damage_records', 1], ['transaction_logs_default', 1],
+      // Every operation type the stock screens tab over: sales, pullouts,
+      // damage, disposal, adjustments and consumable issues in all branches.
+      ['stock_operations', 10], ['damage_records', 1],
     ],
   },
   {

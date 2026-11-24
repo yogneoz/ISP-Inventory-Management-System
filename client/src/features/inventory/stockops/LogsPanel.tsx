@@ -5,6 +5,7 @@ import { useKeysetPager } from '../../../hooks/useKeysetPager';
 import { formatNPR } from '../../../utils/nprFormat';
 import { isOperationAllowed } from '../../../utils/permissions';
 import { api } from '../../../services/api';
+import { stockOperationScope } from './stockOperationScope';
 
 /**
  * LogsPanel - tab panel extracted VERBATIM from StockOperations.tsx
@@ -18,7 +19,7 @@ export const LogsPanel: React.FC = () => {
 
   const fetchLogsPage = useCallback(async (cursor: string | null) => {
     const envelope = await api.getStockOperations({
-      branchId: branchFilter !== 'ALL' ? branchFilter : undefined,
+      ...stockOperationScope(branchFilter),
       cursor,
       limit: 25,
     }) as { data?: any[]; items?: any[]; nextCursor?: string | null; hasMore?: boolean };

@@ -7,6 +7,7 @@ import { api } from '../../../services/api';
 import { KeysetPagerFooter } from '../../../components/common/KeysetPagerFooter';
 import { useKeysetPager } from '../../../hooks/useKeysetPager';
 import { useKeysetPageView } from '../../../hooks/useKeysetPageView';
+import { stockOperationScope } from './stockOperationScope';
 import { formatNPR } from '../../../utils/nprFormat';
 import { sumStatusCounts } from '../../../utils/statusCounts';
 import {
@@ -77,7 +78,7 @@ export const DamageTrackingPanel: React.FC = () => {
   const fetchDamagePage = useCallback(async (cursor: string | null) => {
     const envelope = await api.getStockOperations({
       type: 'DAMAGE,DISPOSAL',
-      branchId: branchFilter !== 'ALL' ? branchFilter : undefined,
+      ...stockOperationScope(branchFilter),
       cursor,
       limit: 20,
     }) as {

@@ -12,7 +12,18 @@
  * owner, note and evidence change is a normal row update with an audit event.
  */
 
-const TEMPLATE_HEADER_SQL = `SELECT t.id,
+/*
+ * The template row is read in two pieces because the callers append different
+ * things: the register adds the line/run counts to the SELECT list, the
+ * by-id read stops at the row. A single "header" string that already includes
+ * FROM/JOIN cannot be extended with select-list expressions — appending them
+ * produced `FROM gl_recurring_templates t JOIN branches b ..., (SELECT ... t.id)`
+ * and PostgreSQL rejected the whole register with "invalid reference to
+ * FROM-clause entry for table \"t\"" (the screen then showed "No recurring
+ * templates yet" over a table full of them). Keep the select list and the FROM
+ * clause separate.
+ */
+const TEMPLATE_COLUMNS_SQL = `SELECT t.id,
   t.code,
   t.name,
   t.description,
@@ -29,20 +40,24 @@ const TEMPLATE_HEADER_SQL = `SELECT t.id,
   t.created_by AS "createdBy",
   t.updated_by AS "updatedBy",
   t.created_at AS "createdAt",
-  t.updated_at AS "updatedAt"
-FROM gl_recurring_templates t
+  t.updated_at AS "updatedAt"`;
+
+const TEMPLATE_FROM_SQL = `FROM gl_recurring_templates t
 JOIN branches b ON b.id = t.branch_id`;
 
-export const RECURRING_TEMPLATE_LIST_SQL = `${TEMPLATE_HEADER_SQL},
+export const RECURRING_TEMPLATE_LIST_SQL = `${TEMPLATE_COLUMNS_SQL},
   (SELECT COUNT(*)::int FROM gl_recurring_template_lines l WHERE l.template_id = t.id) AS "lineCount",
   (SELECT COUNT(*)::int FROM gl_recurring_runs r WHERE r.template_id = t.id) AS "runCount"
+${TEMPLATE_FROM_SQL}
 WHERE ($1::varchar IS NULL OR t.branch_id = $1)
 ORDER BY t.active DESC, t.next_run_date ASC, t.code ASC`;
 
-export const RECURRING_TEMPLATE_BY_ID_SQL = `${TEMPLATE_HEADER_SQL}
+export const RECURRING_TEMPLATE_BY_ID_SQL = `${TEMPLATE_COLUMNS_SQL}
+${TEMPLATE_FROM_SQL}
 WHERE t.id = $1`;
 
-export const RECURRING_TEMPLATE_LOCK_SQL = `${TEMPLATE_HEADER_SQL}
+export const RECURRING_TEMPLATE_LOCK_SQL = `${TEMPLATE_COLUMNS_SQL}
+${TEMPLATE_FROM_SQL}
 WHERE t.id = $1
 FOR UPDATE`;
 

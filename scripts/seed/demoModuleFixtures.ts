@@ -16,6 +16,7 @@ import { applyDemoWorkplaceFixtures, buildDemoWorkplaceFixtures } from './demoWo
 import { applyDemoIntegrationFixtures, buildDemoIntegrationFixtures } from './demoIntegrationFixtures';
 import { applyDemoRegisterFixtures, buildDemoRegisterFixtures } from './demoRegisterFixtures';
 import { applyDemoSelfServiceFixtures, buildDemoSelfServiceFixtures } from './demoSelfServiceFixtures';
+import { applyDemoCoverageFixtures, buildDemoCoverageFixtures } from './demoCoverageFixtures';
 
 export interface DemoModuleFixtures {
   finance: ReturnType<typeof buildDemoFinanceFixtures>;
@@ -26,6 +27,7 @@ export interface DemoModuleFixtures {
   integration: ReturnType<typeof buildDemoIntegrationFixtures>;
   registers: ReturnType<typeof buildDemoRegisterFixtures>;
   selfService: ReturnType<typeof buildDemoSelfServiceFixtures>;
+  coverage: ReturnType<typeof buildDemoCoverageFixtures>;
 }
 
 export function buildDemoModuleFixtures(dataset: VerificationDataset): DemoModuleFixtures {
@@ -38,6 +40,7 @@ export function buildDemoModuleFixtures(dataset: VerificationDataset): DemoModul
     integration: buildDemoIntegrationFixtures(),
     registers: buildDemoRegisterFixtures(dataset),
     selfService: buildDemoSelfServiceFixtures(dataset),
+    coverage: buildDemoCoverageFixtures(dataset),
   };
 }
 
@@ -54,5 +57,6 @@ export async function applyDemoModuleFixtures(
     ...(await applyDemoIntegrationFixtures(client)),
     ...(await applyDemoRegisterFixtures(client, dataset)),
     ...(await applyDemoSelfServiceFixtures(client, dataset)),
+    ...(await applyDemoCoverageFixtures(client, dataset)),
   };
 }

@@ -12,6 +12,15 @@ import { useDialog } from '../../components/common/DialogProvider';
 import { api } from '../../services/api';
 import { useBootstrapData } from '../../contexts/AppProviders';
 
+/**
+ * The register is historical: a deployment made five years ago is still a
+ * deployment. The page API refuses an unscoped national read, so an all-branch
+ * view bounds the query by the asset's acquisition date — and this is the
+ * earliest date a tag number can carry, which keeps every deployment in scope
+ * without pretending the register has a fiscal year.
+ */
+const EARLIEST_ASSET_ACQUISITION = '2000-01-01';
+
 interface AssetDeploymentsProps {
   /** ASSET-1: rows page through GET /api/fixed-assets/page?assigned=1. */
   refreshToken?: number;
@@ -56,12 +65,20 @@ export const AssetDeployments: React.FC<AssetDeploymentsProps> = ({
   // branch, deployment type, POP location and the indexed text search.
   const [retryToken, setRetryToken] = useState(0);
 
+  // "All branches" is not a scope the page API accepts (the national installed
+  // base is never read without one), so the all-branch view is scoped by the
+  // acquisition window instead of by branch. Without it the request comes back
+  // SCOPE_REQUIRED and the board used to render that as "No Asset Deployments
+  // Found" over four deployed assets.
+  const windowedAllBranches = branchFilter === 'ALL';
   const pageParams = {
-    branchId: branchFilter,
+    branchId: windowedAllBranches ? undefined : branchFilter,
     query: appliedSearch || undefined,
     assigned: true,
     assignedType: typeFilter === 'ALL' ? undefined : typeFilter,
     assignedLocationId: locationFilter === 'ALL' ? undefined : locationFilter,
+    acquisitionFrom: windowedAllBranches ? EARLIEST_ASSET_ACQUISITION : undefined,
+    acquisitionTo: windowedAllBranches ? new Date().toISOString().slice(0, 10) : undefined,
   } as const;
 
   const pager = useKeysetPager<Asset, { totalItems?: number }>({
@@ -261,7 +278,15 @@ export const AssetDeployments: React.FC<AssetDeploymentsProps> = ({
       )}
 
       {/* Table */}
-      {rows.length === 0 ? (
+      {scopeError ? (
+        <div className="p-8 rounded-2xl border border-dashed text-center bg-white border-amber-300 text-slate-500 dark:bg-[#0f1218] dark:border-amber-900 dark:text-slate-400">
+          <Building className="h-9 w-9 mx-auto mb-2 text-amber-300 dark:text-amber-800" />
+          <h3 className="font-bold text-xs text-slate-800 dark:text-slate-200">Choose a branch to read the deployments</h3>
+          <p className="text-[11px] text-slate-400 max-w-md mx-auto mt-0.5">
+            {loadError || 'This register needs a branch, a bounded date range or one customer before it reads the installed base.'}
+          </p>
+        </div>
+      ) : rows.length === 0 ? (
         <div className="p-8 rounded-2xl border border-dashed text-center bg-white border-slate-300 text-slate-500 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-400">
           <Building className="h-9 w-9 mx-auto mb-2 text-slate-300 dark:text-slate-700" />
           <h3 className="font-bold text-xs text-slate-800 dark:text-slate-200">No Asset Deployments Found</h3>

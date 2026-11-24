@@ -246,6 +246,25 @@ describe('recurring journals and month-end close (real HTTP + PostgreSQL)', { sk
     assert.equal(detail.json.lastRunDate, DATE_ONE);
   });
 
+  // The register screen calls this endpoint and renders an empty state for an
+  // empty array. The list SQL once appended its line/run count subqueries AFTER
+  // the FROM/JOIN clause, so PostgreSQL rejected every call and the screen sat
+  // on "No recurring templates yet" over a table full of them.
+  test('the register lists the template with its line and run counts', async () => {
+    const listed = await get('/api/accounting/recurring-templates', tokens.super);
+    assert.equal(listed.status, 200, JSON.stringify(listed.json));
+    assert.ok(Array.isArray(listed.json), 'the register expects an array');
+    const row = listed.json.find((template: any) => template.id === templateId);
+    assert.ok(row, 'the template just created must appear in the register');
+    assert.equal(row.code, CODE);
+    assert.equal(row.lineCount, 2, 'the register shows how many formula lines each template has');
+    assert.equal(typeof row.runCount, 'number');
+
+    const scoped = await get(`/api/accounting/recurring-templates?branchId=${BR}`, tokens.super);
+    assert.equal(scoped.status, 200, JSON.stringify(scoped.json));
+    assert.ok(scoped.json.some((template: any) => template.id === templateId));
+  });
+
   test('rejects an unbalanced preview/run and a branch user cannot read or run another branch template', async () => {
     const unbalanced = await post('/api/accounting/recurring-templates', tokens.super, {
       code: 'RCT-UNBAL',
