@@ -250,6 +250,14 @@ export function buildDemoWorkplaceFixtures(dataset: VerificationDataset): DemoWo
       caption: 'Shop owner sign-off', capturedAt: '2026-11-19T07:12:00Z',
       capturedBy: 'Rajan Rai', latitude: 26.812345, longitude: 87.283333,
     }),
+    // The open Kathmandu install already carries one capture, so the job detail
+    // screen renders its proof list (and the completion flow) against seeded
+    // rows instead of its "No proof stored yet" branch.
+    evidenceRow({
+      index: 5, workOrderIndex: 1, branchId: 'BR-KTM', kind: 'PHOTO',
+      caption: 'ONT mounted before the drop cable is run', capturedAt: '2026-11-23T05:40:00Z',
+      capturedBy: 'Nisha Karki', latitude: 27.717245, longitude: 85.323959,
+    }),
   ];
 
   const movement = (input: {

@@ -78,6 +78,8 @@ const jsonResponse = (body: unknown, status = 200) => ({
 
 interface Route {
   match: string;
+  /** Optional verb: the evidence route answers GET and POST on one path. */
+  method?: string;
   body: unknown;
 }
 
@@ -85,12 +87,15 @@ let requested: string[] = [];
 
 function mockApi(routes: Route[]): void {
   requested = [];
-  (globalThis as any).fetch = async (input: any) => {
+  (globalThis as any).fetch = async (input: any, init?: any) => {
     const url = typeof input === 'string' ? input : String(input?.url ?? input);
     const path = url.replace(/^https?:\/\/[^/]+/, '');
-    requested.push(path);
-    const hit = routes.find((route) => path.startsWith(route.match));
-    if (!hit) return jsonResponse({ message: `the render check has no fixture for ${path}` }, 404);
+    const method = String(init?.method || 'GET').toUpperCase();
+    requested.push(`${method} ${path}`);
+    const hit = routes.find(
+      (route) => path.startsWith(route.match) && (!route.method || route.method === method)
+    );
+    if (!hit) return jsonResponse({ message: `the render check has no fixture for ${method} ${path}` }, 404);
     return jsonResponse(hit.body);
   };
 }
@@ -420,7 +425,7 @@ describe('the mobile tabs reach their loaded state with the seeded rows', () => 
       slip.branchName,
     ]);
     expectNoEmptyBranch(tree.container, ['No payslips on file.']);
-    assert.deepEqual(requested, ['/api/v1/auth/re-auth', '/api/v1/payslips']);
+    assert.deepEqual(requested, ['POST /api/v1/auth/re-auth', 'GET /api/v1/payslips']);
     tree.unmount();
   });
 
@@ -430,7 +435,7 @@ describe('the mobile tabs reach their loaded state with the seeded rows', () => 
       createElement(screens.HomeScreen, { token: TOKEN, capabilities: CAPABILITIES, onOpen: () => undefined })
     );
     await settle();
-    assert.deepEqual(requested, ['/api/v1/workplace/bootstrap']);
+    assert.deepEqual(requested, ['GET /api/v1/workplace/bootstrap']);
     tree.unmount();
   });
 });
@@ -624,7 +629,7 @@ describe('the More-hub screens reach their loaded state', () => {
     expectOnScreen(tree.container, [claim.id, claim.status, 'Accounting']);
     assert.match(textOf(tree.container), /submitted/);
     assert.ok(Number(claim.amount) > 0, 'the seeded claim must carry a nonzero amount');
-    assert.deepEqual(requested, [`/api/v1/workplace/claims/${claim.id}`]);
+    assert.deepEqual(requested, [`GET /api/v1/workplace/claims/${claim.id}`]);
     tree.unmount();
   });
 
@@ -727,6 +732,167 @@ describe('the More-hub screens reach their loaded state', () => {
       !rendered.includes(moneyText(secret.monthlySalary)),
       'the everyday card must not show salary'
     );
+    tree.unmount();
+  });
+});
+
+/**
+ * Job detail and completion — the last mobile screen without a render check.
+ *
+ * The seeded Kathmandu front desk (`demo-emp-002`) holds the open install
+ * WO-DEMO-001, which carries one proof capture in the fixtures. The test opens
+ * it from the derived Jobs list, checks the detail and its evidence against the
+ * same projections the server uses (`MOBILE_JOB_QUEUE_SQL`, the evidence list in
+ * `listWorkOrderEvidence`), then completes the visit and asserts the payload the
+ * `completeWorkOrder` service returns.
+ */
+describe('job detail and completion', () => {
+  const FIELD_EMPLOYEE = 'demo-emp-002';
+  const QUEUE_SQL_STATUSES = ['OPEN', 'ASSIGNED'];
+
+  /** MOBILE_JOB_QUEUE_SQL, field for field — the same shape mobileExpoTabs uses. */
+  const queueFor = (employeeId: string) => {
+    const employee = hr.employees.find((row: any) => row.id === employeeId) as any;
+    const jobs = workplace.workOrders
+      .filter(
+        (row: any) =>
+          row.technician_id === employeeId &&
+          row.branch_id === employee.branch_id &&
+          QUEUE_SQL_STATUSES.includes(String(row.status))
+      )
+      .map((row: any) => {
+        const customer = dataset.customers.find((entry: any) => entry.id === row.customer_id) as any;
+        return {
+          id: row.id,
+          workOrderNo: row.work_order_no,
+          kind: row.kind,
+          status: row.status,
+          customerId: row.customer_id,
+          customerName: customer?.customerName ?? null,
+          scheduledDateAD: row.scheduled_date_ad,
+          notes: row.notes,
+          rowVersion: 1,
+        };
+      });
+    return { jobs, count: jobs.length };
+  };
+
+  const queue = queueFor(FIELD_EMPLOYEE);
+  const job = queue.jobs.find((row: any) => row.status === 'ASSIGNED') as any;
+  const jobRow = workplace.workOrders.find((row: any) => row.id === job.id) as any;
+
+  /** listWorkOrderEvidence's projection for this order. */
+  const evidenceFor = (workOrderId: string) => {
+    const rows = workplace.evidence.filter((row: any) => row.work_order_id === workOrderId);
+    return {
+      workOrderId,
+      evidence: rows.map((row: any) => ({
+        id: row.id,
+        kind: row.kind,
+        contentType: row.content_type,
+        byteSize: Number(row.byte_size),
+        sha256: row.sha256,
+        capturedAt: row.captured_at,
+        caption: row.caption,
+      })),
+      count: rows.length,
+    };
+  };
+
+  /** completeWorkOrder's response: the row reopened at the next version. */
+  const completionFor = (workOrderId: string) => ({
+    workOrderId,
+    resultStatus: 'CLOSED',
+    message: 'Operational close committed.',
+    baseVersion: Number(jobRow.row_version) + 1,
+  });
+
+  /** clicks the card whose text contains the label, as a finger would. */
+  function clickContaining(container: HTMLElement, label: string): void {
+    const card = [...container.querySelectorAll('[data-rn="Pressable"]')].find((element) =>
+      (element.textContent || '').includes(label)
+    ) as HTMLElement | undefined;
+    assert.ok(card, `expected a card containing "${label}"`);
+    act(() => {
+      card!.click();
+    });
+  }
+
+  test('the open visit is opened from the Jobs list, shows its proof, and closes', async () => {
+    assert.ok(job, 'the seeded queue must hold an assigned visit');
+    const opened: any[] = [];
+    mockApi([{ match: '/api/v1/workplace/jobs', body: queue }]);
+    const list = mountTree(
+      createElement(screens.JobsScreen, {
+        token: TOKEN,
+        onOpenJob: (next: any) => opened.push(next),
+      })
+    );
+    await settle();
+    expectOnScreen(list.container, [job.workOrderNo, job.customerName, 'ASSIGNED']);
+    clickContaining(list.container, job.workOrderNo);
+    assert.equal(opened.length, 1, 'tapping the seeded card must open that visit');
+    assert.equal(opened[0].id, job.id);
+    list.unmount();
+  });
+
+  test('the detail renders the seeded visit and its proof, then completes the job', async () => {
+    const evidence = evidenceFor(job.id);
+    const completion = completionFor(job.id);
+    assert.ok(evidence.count > 0, 'the seeded visit must carry a proof capture');
+
+    const completed: string[] = [];
+    mockApi([
+      { match: `/api/v1/workplace/jobs/${job.id}/evidence`, body: evidence },
+      {
+        match: `/api/v1/workplace/jobs/${job.id}/complete`,
+        method: 'POST',
+        body: completion,
+      },
+    ]);
+    const tree = mountTree(
+      createElement(screens.JobScreen, {
+        token: TOKEN,
+        job,
+        onBack: () => undefined,
+        onCompleted: () => completed.push(job.id),
+      })
+    );
+    await settle();
+
+    const proof = evidence.evidence[0];
+    // formatBytes in screens.tsx: below one MiB it prints whole KB, minimum 1.
+    const proofSize = `${Math.max(1, Math.round(Number(proof.byteSize) / 1024))} KB`;
+    expectOnScreen(tree.container, [
+      job.workOrderNo,
+      `v${job.rowVersion}`,
+      job.customerName,
+      String(job.scheduledDateAD),
+      job.status,
+      jobRow.notes,
+      `Captures on this job (${evidence.count})`,
+      proof.kind === 'PHOTO' ? 'Photo' : 'Signature',
+      proofSize,
+      String(proof.sha256).slice(0, 12),
+      proof.caption,
+      'Close the visit',
+      'Complete job',
+    ]);
+    expectNoEmptyBranch(tree.container, ['No proof stored yet.']);
+
+    // The completion note is the only text field on this screen.
+    typeInto(tree.container, 'ONT mounted, drop cable run, 100 Mbps verified on site.');
+    clickText(tree.container, 'Complete job');
+    await settle();
+
+    expectOnScreen(tree.container, [
+      `${completion.resultStatus}: ${completion.message}`,
+    ]);
+    assert.deepEqual(completed, [job.id], 'the screen must report the completion to the app shell');
+    assert.deepEqual(requested, [
+      `GET /api/v1/workplace/jobs/${job.id}/evidence`,
+      `POST /api/v1/workplace/jobs/${job.id}/complete`,
+    ]);
     tree.unmount();
   });
 });
