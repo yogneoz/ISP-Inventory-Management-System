@@ -19,6 +19,7 @@ import { before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire, registerHooks } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import crypto from 'node:crypto';
 import { act, createElement } from 'react';
 import { mountTree } from './harness/mount';
 import { buildVerificationDataset } from '../scripts/seed/verificationDataset';
@@ -80,23 +81,31 @@ interface Route {
   match: string;
   /** Optional verb: the evidence route answers GET and POST on one path. */
   method?: string;
-  body: unknown;
+  /** A fixed body, or a function of the request for routes that write. */
+  body: unknown | ((context: { path: string; body: any }) => unknown);
 }
 
 let requested: string[] = [];
 
+/** What the screens actually sent, so a write can be read field by field. */
+let sent: { method: string; path: string; body: any }[] = [];
+
 function mockApi(routes: Route[]): void {
   requested = [];
+  sent = [];
   (globalThis as any).fetch = async (input: any, init?: any) => {
     const url = typeof input === 'string' ? input : String(input?.url ?? input);
     const path = url.replace(/^https?:\/\/[^/]+/, '');
     const method = String(init?.method || 'GET').toUpperCase();
+    const body = init?.body === undefined ? undefined : JSON.parse(String(init.body));
     requested.push(`${method} ${path}`);
+    sent.push({ method, path, body });
     const hit = routes.find(
       (route) => path.startsWith(route.match) && (!route.method || route.method === method)
     );
     if (!hit) return jsonResponse({ message: `the render check has no fixture for ${method} ${path}` }, 404);
-    return jsonResponse(hit.body);
+    const answer = typeof hit.body === 'function' ? (hit.body as any)({ path, body }) : hit.body;
+    return jsonResponse(answer);
   };
 }
 
@@ -746,77 +755,89 @@ describe('the More-hub screens reach their loaded state', () => {
  * `listWorkOrderEvidence`), then completes the visit and asserts the payload the
  * `completeWorkOrder` service returns.
  */
+const QUEUE_SQL_STATUSES = ['OPEN', 'ASSIGNED'];
+
+/** Every seeded work order: the workplace board plus the coverage install. */
+const workOrderRows = [...workplace.workOrders, coverage.mobileWorkOrder];
+
+/** MOBILE_JOB_QUEUE_SQL, field for field — the same shape mobileExpoTabs uses. */
+function queueFor(employeeId: string) {
+  const employee = hr.employees.find((row: any) => row.id === employeeId) as any;
+  const jobs = workOrderRows
+    .filter(
+      (row: any) =>
+        row.technician_id === employeeId &&
+        row.branch_id === employee.branch_id &&
+        QUEUE_SQL_STATUSES.includes(String(row.status))
+    )
+    .map((row: any) => {
+      const customer = dataset.customers.find((entry: any) => entry.id === row.customer_id) as any;
+      return {
+        id: row.id,
+        workOrderNo: row.work_order_no,
+        kind: row.kind,
+        status: row.status,
+        customerId: row.customer_id,
+        customerName: customer?.customerName ?? null,
+        scheduledDateAD: row.scheduled_date_ad,
+        notes: row.notes,
+        rowVersion: 1,
+      };
+    });
+  return { jobs, count: jobs.length };
+}
+
+/**
+ * `listWorkOrderEvidence`'s projection, over whichever rows the store holds. The
+ * attach test feeds it the rows its mock "server" has written, so the screen is
+ * read through the same field names the controller returns.
+ */
+function evidenceProjection(workOrderId: string, rows: any[]) {
+  const forOrder = rows.filter((row: any) => row.work_order_id === workOrderId);
+  return {
+    workOrderId,
+    evidence: forOrder.map((row: any) => ({
+      id: row.id,
+      kind: row.kind,
+      contentType: row.content_type,
+      byteSize: Number(row.byte_size),
+      sha256: row.sha256,
+      capturedAt: row.captured_at,
+      caption: row.caption,
+    })),
+    count: forOrder.length,
+  };
+}
+
+/** completeWorkOrder's response: the order reopened at the next version. */
+function completionFor(workOrderId: string, rowVersion: number) {
+  return {
+    workOrderId,
+    resultStatus: 'CLOSED',
+    message: 'Operational close committed.',
+    baseVersion: Number(rowVersion) + 1,
+  };
+}
+
+/** clicks the card whose text contains the label, as a finger would. */
+function clickContaining(container: HTMLElement, label: string): void {
+  const card = [...container.querySelectorAll('[data-rn="Pressable"]')].find((element) =>
+    (element.textContent || '').includes(label)
+  ) as HTMLElement | undefined;
+  assert.ok(card, `expected a card containing "${label}"`);
+  act(() => {
+    card!.click();
+  });
+}
+
 describe('job detail and completion', () => {
   const FIELD_EMPLOYEE = 'demo-emp-002';
-  const QUEUE_SQL_STATUSES = ['OPEN', 'ASSIGNED'];
-
-  /** MOBILE_JOB_QUEUE_SQL, field for field — the same shape mobileExpoTabs uses. */
-  const queueFor = (employeeId: string) => {
-    const employee = hr.employees.find((row: any) => row.id === employeeId) as any;
-    const jobs = workplace.workOrders
-      .filter(
-        (row: any) =>
-          row.technician_id === employeeId &&
-          row.branch_id === employee.branch_id &&
-          QUEUE_SQL_STATUSES.includes(String(row.status))
-      )
-      .map((row: any) => {
-        const customer = dataset.customers.find((entry: any) => entry.id === row.customer_id) as any;
-        return {
-          id: row.id,
-          workOrderNo: row.work_order_no,
-          kind: row.kind,
-          status: row.status,
-          customerId: row.customer_id,
-          customerName: customer?.customerName ?? null,
-          scheduledDateAD: row.scheduled_date_ad,
-          notes: row.notes,
-          rowVersion: 1,
-        };
-      });
-    return { jobs, count: jobs.length };
-  };
-
   const queue = queueFor(FIELD_EMPLOYEE);
   const job = queue.jobs.find((row: any) => row.status === 'ASSIGNED') as any;
   const jobRow = workplace.workOrders.find((row: any) => row.id === job.id) as any;
 
   /** listWorkOrderEvidence's projection for this order. */
-  const evidenceFor = (workOrderId: string) => {
-    const rows = workplace.evidence.filter((row: any) => row.work_order_id === workOrderId);
-    return {
-      workOrderId,
-      evidence: rows.map((row: any) => ({
-        id: row.id,
-        kind: row.kind,
-        contentType: row.content_type,
-        byteSize: Number(row.byte_size),
-        sha256: row.sha256,
-        capturedAt: row.captured_at,
-        caption: row.caption,
-      })),
-      count: rows.length,
-    };
-  };
-
-  /** completeWorkOrder's response: the row reopened at the next version. */
-  const completionFor = (workOrderId: string) => ({
-    workOrderId,
-    resultStatus: 'CLOSED',
-    message: 'Operational close committed.',
-    baseVersion: Number(jobRow.row_version) + 1,
-  });
-
-  /** clicks the card whose text contains the label, as a finger would. */
-  function clickContaining(container: HTMLElement, label: string): void {
-    const card = [...container.querySelectorAll('[data-rn="Pressable"]')].find((element) =>
-      (element.textContent || '').includes(label)
-    ) as HTMLElement | undefined;
-    assert.ok(card, `expected a card containing "${label}"`);
-    act(() => {
-      card!.click();
-    });
-  }
+  const evidenceFor = (workOrderId: string) => evidenceProjection(workOrderId, workplace.evidence);
 
   test('the open visit is opened from the Jobs list, shows its proof, and closes', async () => {
     assert.ok(job, 'the seeded queue must hold an assigned visit');
@@ -838,7 +859,7 @@ describe('job detail and completion', () => {
 
   test('the detail renders the seeded visit and its proof, then completes the job', async () => {
     const evidence = evidenceFor(job.id);
-    const completion = completionFor(job.id);
+    const completion = completionFor(job.id, Number(jobRow.row_version));
     assert.ok(evidence.count > 0, 'the seeded visit must carry a proof capture');
 
     const completed: string[] = [];
@@ -893,6 +914,179 @@ describe('job detail and completion', () => {
       `GET /api/v1/workplace/jobs/${job.id}/evidence`,
       `POST /api/v1/workplace/jobs/${job.id}/complete`,
     ]);
+    tree.unmount();
+  });
+});
+
+/**
+ * Attaching a proof capture — the write half of the job screen.
+ *
+ * The seeded `demo-emp-014` install (`WO-DEMO-007`) holds no capture, so this is
+ * the branch the app reaches with an empty list. The picker stub is armed with
+ * the fixtures' own PNG bytes, the mock server applies `appendFieldWorkOrderEvidence`'s
+ * rules (byte size and SHA-256 from the posted bytes, `(work_order_id, sha256)`
+ * de-duplicated), and the screen reads the list back through the controller's
+ * projection. Nothing here is hand-written payload: the expectations are the
+ * fixture's hash, the fixture's size and the caption the screen builds.
+ */
+describe('attaching proof to an open visit', () => {
+  const emptyQueue = queueFor(PERSONA);
+  const emptyJob = emptyQueue.jobs.find(
+    (row: any) => row.workOrderNo === coverage.mobileWorkOrder.work_order_no
+  ) as any;
+  const PHOTO = workplace.evidence.find(
+    (row: any) => row.kind === 'PHOTO' && !!row.data_base64
+  ) as any;
+
+  /** What the image picker hands back for a photo taken on site. */
+  const PICKED = {
+    canceled: false,
+    assets: [
+      {
+        uri: 'file:///demo/ont-mounted.png',
+        fileName: 'ont-mounted.png',
+        mimeType: 'image/png',
+        base64: PHOTO.data_base64,
+        width: 1,
+        height: 1,
+      },
+    ],
+  };
+
+  /**
+   * `appendFieldWorkOrderEvidence` in miniature, over an in-memory store seeded
+   * from the demo rows for this order (none, for this persona).
+   */
+  function evidenceStore() {
+    const rows: any[] = workplace.evidence.filter(
+      (row: any) => row.work_order_id === emptyJob.id
+    );
+    const append = (body: any) => {
+      const base64 = String(body?.dataBase64 || '')
+        .replace(/^data:[a-z/+.-]+;base64,/i, '')
+        .replace(/\s+/g, '');
+      const bytes = Buffer.from(base64, 'base64');
+      const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+      const existing = rows.find((row: any) => row.sha256 === sha256);
+      if (!existing) {
+        rows.push({
+          id: `render-evidence-${rows.length + 1}`,
+          work_order_id: emptyJob.id,
+          kind: body.kind,
+          content_type: body.contentType,
+          byte_size: bytes.length,
+          sha256,
+          caption: body.caption ?? null,
+          captured_at: new Date(body.capturedAtEpochMs).toISOString(),
+        });
+      }
+      const row = existing || rows[rows.length - 1];
+      return {
+        evidenceId: row.id,
+        workOrderId: emptyJob.id,
+        kind: row.kind,
+        contentType: row.content_type,
+        byteSize: row.byte_size,
+        sha256: row.sha256,
+        capturedAt: row.captured_at,
+        inserted: !existing,
+        count: rows.length,
+      };
+    };
+    return { rows, append };
+  }
+
+  function mockAttach(store: ReturnType<typeof evidenceStore>): void {
+    const path = `/api/v1/workplace/jobs/${emptyJob.id}/evidence`;
+    mockApi([
+      { match: path, method: 'GET', body: () => evidenceProjection(emptyJob.id, store.rows) },
+      { match: path, method: 'POST', body: (context: { path: string; body: any }) => store.append(context.body) },
+    ]);
+  }
+
+  async function mountVisit() {
+    const tree = mountTree(
+      createElement(screens.JobScreen, {
+        token: TOKEN,
+        job: emptyJob,
+        onBack: () => undefined,
+        onCompleted: () => undefined,
+      })
+    );
+    await settle();
+    return tree;
+  }
+
+  test('the picked photo is posted once and appears in the captures list', async () => {
+    const picker = await import(stubUrl('mobileImagePickerStub.ts'));
+    picker.resetPicker();
+    picker.pickerWillReturn(PICKED);
+    const store = evidenceStore();
+    mockAttach(store);
+    const tree = await mountVisit();
+
+    // The empty branch first: this persona's install really has no captures.
+    expectOnScreen(tree.container, ['Captures on this job (0)', 'No proof stored yet.']);
+
+    clickText(tree.container, 'Attach a photo');
+    await settle();
+
+    const posts = sent.filter((row) => row.method === 'POST');
+    assert.equal(posts.length, 1, 'one tap must attach exactly one capture');
+    const posted = posts[0].body;
+    assert.equal(posted.kind, 'PHOTO');
+    assert.equal(posted.contentType, 'image/png');
+    assert.equal(posted.dataBase64, PHOTO.data_base64, 'the picked bytes are what gets stored');
+    assert.equal(posted.caption, `Captured on ${emptyJob.workOrderNo}`);
+    assert.equal(typeof posted.capturedAtEpochMs, 'number');
+    assert.ok(posted.capturedAtEpochMs > 0 && posted.capturedAtEpochMs <= Date.now());
+
+    // The store's hash and size come from those bytes, so they are the fixture's.
+    assert.equal(store.rows.length, 1);
+    assert.equal(store.rows[0].sha256, PHOTO.sha256);
+    assert.equal(store.rows[0].byte_size, PHOTO.byte_size);
+    assert.equal(store.rows[0].caption, `Captured on ${emptyJob.workOrderNo}`);
+
+    const shaPrefix = String(PHOTO.sha256).slice(0, 12);
+    // formatBytes in screens.tsx prints whole KB below a MiB, minimum 1.
+    const size = `${Math.max(1, Math.round(Number(PHOTO.byte_size) / 1024))} KB`;
+    expectOnScreen(tree.container, [
+      `Stored ${size} · SHA-256 ${shaPrefix}… · the job now holds 1 capture.`,
+      'Captures on this job (1)',
+      'Photo',
+      size,
+      shaPrefix,
+      `Captured on ${emptyJob.workOrderNo}`,
+    ]);
+    expectNoEmptyBranch(tree.container, ['No proof stored yet.']);
+    assert.deepEqual(requested, [
+      `GET /api/v1/workplace/jobs/${emptyJob.id}/evidence`,
+      `POST /api/v1/workplace/jobs/${emptyJob.id}/evidence`,
+      `GET /api/v1/workplace/jobs/${emptyJob.id}/evidence`,
+    ], 'the list must be re-read after the write');
+    tree.unmount();
+  });
+
+  test('a closed sheet or an empty pick posts nothing and leaves the list alone', async () => {
+    const picker = await import(stubUrl('mobileImagePickerStub.ts'));
+    picker.resetPicker();
+    const store = evidenceStore();
+    mockAttach(store);
+    const tree = await mountVisit();
+
+    // The user closed the sheet (the stub's default answer).
+    clickText(tree.container, 'Attach a photo');
+    await settle();
+    // Denied permission / nothing selected: `canceled: false` with no asset.
+    picker.pickerWillReturn({ canceled: false, assets: [] });
+    clickText(tree.container, 'Attach a photo');
+    await settle();
+
+    assert.equal(picker.pickerCalls.length, 2, 'both taps must reach the picker');
+    assert.equal(sent.filter((row) => row.method === 'POST').length, 0, 'a cancelled pick must never post');
+    assert.equal(store.rows.length, 0);
+    assert.deepEqual(requested, [`GET /api/v1/workplace/jobs/${emptyJob.id}/evidence`]);
+    expectOnScreen(tree.container, ['Captures on this job (0)', 'No proof stored yet.']);
     tree.unmount();
   });
 });
