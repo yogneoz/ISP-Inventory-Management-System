@@ -453,7 +453,7 @@ export async function get_journals(req: any, res: Response): Promise<any> {
         : undefined,
       size
     );
-    const r = await pgPool.query(q.sql, q.params as any[]);
+    const r = await withReadReplay(() => pgPool.query(q.sql, q.params as any[]));
     const hasMore = r.rows.length > size;
     const rows = hasMore ? r.rows.slice(0, size) : r.rows;
     const items = rows.map((row: any) => ({
@@ -474,10 +474,12 @@ export async function get_journals(req: any, res: Response): Promise<any> {
   }
   const pageQuery = buildJournalPageQuery(opts);
   const countQuery = buildJournalCountQuery(opts);
-  const [rows, count] = await Promise.all([
-    pgPool.query(pageQuery.sql, pageQuery.params as any[]),
-    pgPool.query(countQuery.sql, countQuery.params as any[]),
-  ]);
+  const [rows, count] = await withReadReplay(() =>
+    Promise.all([
+      pgPool.query(pageQuery.sql, pageQuery.params as any[]),
+      pgPool.query(countQuery.sql, countQuery.params as any[]),
+    ])
+  );
   return res.json({
     data: rows.rows.map((row: any) => ({
       ...row,
@@ -498,7 +500,7 @@ export async function get_journal(req: any, res: Response): Promise<any> {
   const id = String(req.params?.id || '').trim();
   if (!id) throw new ApiError(400, 'A journal id is required.');
   if (!getPgConnected()) throw new ApiError(503, 'PostgreSQL is unavailable.');
-  const journal = await readJournal(pgPool, id);
+  const journal = await withReadReplay(() => readJournal(pgPool, id));
   if (!journal) return res.status(404).json({ message: 'Journal not found.' });
   const inScope = scope.allowed
     ? scope.allowed.has(journal.branchId)
@@ -672,18 +674,22 @@ export async function get_fiscalYearBalances(req: any, res: Response): Promise<a
   if (!fiscalYearId) throw new ApiError(400, 'A fiscal year id is required.');
   if (!getPgConnected()) throw new ApiError(503, 'PostgreSQL is unavailable.');
 
-  const fiscalYear = (await pgPool.query(FISCAL_YEAR_BALANCE_HEADER_SQL, [fiscalYearId])).rows[0];
+  // Both reads answer the same snapshot; a concurrent month-partition create
+  // can abort either of them, so they replay together as one bounded read.
+  const snapshot = await withReadReplay(async () => {
+    const header = (await pgPool.query(FISCAL_YEAR_BALANCE_HEADER_SQL, [fiscalYearId])).rows[0];
+    let list: any[] = [];
+    if (header && !scope.empty) {
+      list = (
+        await pgPool.query(FISCAL_YEAR_BALANCES_LIST_SQL, [fiscalYearId, scope.branchId ?? null])
+      ).rows;
+    }
+    return { header, list };
+  });
+  const fiscalYear = snapshot.header;
   if (!fiscalYear) return res.status(404).json({ message: 'Fiscal year not found.' });
 
-  let rows: any[] = [];
-  if (!scope.empty) {
-    rows = (
-      await pgPool.query(FISCAL_YEAR_BALANCES_LIST_SQL, [
-        fiscalYearId,
-        scope.branchId ?? null,
-      ])
-    ).rows;
-  }
+  const rows: any[] = snapshot.list;
   if (rows.length === 0) {
     return res.status(404).json({
       message: `Fiscal year ${fiscalYear.code} has no close snapshot in this scope.`,
@@ -964,12 +970,14 @@ export async function get_aging(req: any, res: Response): Promise<any> {
     empty: Boolean(scope.empty),
   });
   return res.json(
-    await buildAging(pgPool, {
-      type: rawType as AgingType,
-      asOf: window.to,
-      branchId: window.branchId,
-      empty: window.empty,
-    })
+    await withReadReplay(() =>
+      buildAging(pgPool, {
+        type: rawType as AgingType,
+        asOf: window.to,
+        branchId: window.branchId,
+        empty: window.empty,
+      })
+    )
   );
 }
 
@@ -987,10 +995,12 @@ export async function get_cashBook(req: any, res: Response): Promise<any> {
   }
   const accountId = typeof req.query?.accountId === 'string' ? req.query.accountId.trim() : null;
   return res.json(
-    await buildCashBook(pgPool, window, {
-      kind: (rawKind || undefined) as 'CASH' | 'BANK' | 'WALLET' | 'CASH_BANK' | undefined,
-      accountId: accountId || null,
-    })
+    await withReadReplay(() =>
+      buildCashBook(pgPool, window, {
+        kind: (rawKind || undefined) as 'CASH' | 'BANK' | 'WALLET' | 'CASH_BANK' | undefined,
+        accountId: accountId || null,
+      })
+    )
   );
 }
 
@@ -1003,7 +1013,9 @@ export async function get_bankPosition(req: any, res: Response): Promise<any> {
   const window = await statementWindow(req, res, 'TRIAL_BALANCE');
   if (!window) return;
   const accountId = typeof req.query?.accountId === 'string' ? req.query.accountId.trim() : null;
-  return res.json(await buildCashBook(pgPool, window, { kind: 'BANK', accountId: accountId || null }));
+  return res.json(
+    await withReadReplay(() => buildCashBook(pgPool, window, { kind: 'BANK', accountId: accountId || null }))
+  );
 }
 
 /** GET /api/accounting/reconciliations?accountId=… */
