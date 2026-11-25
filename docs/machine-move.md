@@ -11,7 +11,7 @@ Two repositories, both on GitHub under `yogneoz`:
 
 | repo | remote (still HTTPS) | `main` HEAD | fresh clone |
 | --- | --- | --- | --- |
-| `ISP-Inventory-Management-System` (this one) | `https://github.com/yogneoz/ISP-Inventory-Management-System.git` | `07d27ed` (code at `c704548`; later commits are docs) | checks out clean |
+| `ISP-Inventory-Management-System` (this one) | `https://github.com/yogneoz/ISP-Inventory-Management-System.git` | `main` HEAD (code at `c704548`; every later commit is docs) | checks out clean |
 | `ISP-Mobile-App` (sibling folder `../ISP-Mobile-App`) | `https://github.com/yogneoz/ISP-Mobile-App` | `bbc1c23` | checks out clean |
 
 Both repositories are **still public**. Making them private is a user step with
