@@ -44,10 +44,11 @@ import {
   ensureDefaultChart,
   ensureDefaultSubledgers,
 } from '../../server/src/services/accountingSeed.service';
+import { purgeAuditLogs } from '../support/purgeAuditLogs';
 
 /** Minimal structural type: a pg.Pool or a checked-out pg.PoolClient. */
 export interface Queryable {
-  query(sql: string, params?: any[]): Promise<{ rows: any[] }>;
+  query(sql: string, params?: any[]): Promise<{ rows: any[]; rowCount?: number | null }>;
 }
 
 /** The demo branch ids the app itself seeds (server/src/config/seedData.ts). */
@@ -240,4 +241,199 @@ export async function ensureReferenceData(
   );
   const resolved = await ensureBsDayRecords(db, dates);
   return { adDate, bsDate: resolved.get(adDate)! };
+}
+
+/* ---------------------------------------------------------------------------
+ * Demo-master ownership
+ *
+ * The demo master above is a *schema-only* fallback, not a fixture every
+ * database should carry. `ensureReferenceData()` seeds it unconditionally so a
+ * CI database (which is `scripts/schema.sql` and nothing else) can run a suite;
+ * pointed at a developer database that already owns its branch master, the same
+ * call left WH001/BRH01 and the 2080-81/2081-82 fiscal years — plus the
+ * journals, daily sequence counters and GL period balances suites posted
+ * against them — sitting next to the install's real master and its own fiscal
+ * years. A boot guard already refuses to do that from dbBoot; the fixture had
+ * no equivalent.
+ *
+ * No single suite can clean it up safely: test files run concurrently, so one
+ * file's teardown would delete a branch a sibling file is still using. The run
+ * owns the decision instead — `scripts/testDbHygiene.ts` snapshots what existed
+ * before the run and removes, afterwards, only the demo rows the run created,
+ * driven by `scripts/run_tests.mjs`.
+ * ------------------------------------------------------------------------ */
+
+/** Ids of the demo branch master `dbBoot` and `ensureDemoBranches()` write. */
+export const DEMO_MASTER_BRANCH_IDS: string[] = INITIAL_MASTER_BRANCHES.map((branch) => branch.id);
+
+/** Ids of the demo fiscal-year master the same places write. */
+export const DEMO_MASTER_FISCAL_YEAR_IDS: string[] = INITIAL_MASTER_FISCAL_YEARS.map((fy) => fy.id);
+
+/** Every column that points at `parent`, read from the catalog rather than a
+ *  hand-kept list — the branch master alone has ~275 referencing columns, and a
+ *  missed one turns the parent delete into a foreign-key error nobody reads.
+ *
+ *  Read through pg_constraint (not information_schema's constraint views): those
+ *  views join on constraint *name*, and this schema reuses names per table, so a
+ *  name join multiplies 275 columns into ~140,000 rows — and a clean-up that
+ *  believed them would fire one DELETE per phantom. */
+async function foreignKeyColumns(
+  db: Queryable,
+  parent: string
+): Promise<Array<{ table: string; column: string }>> {
+  const result = await db.query(
+    `SELECT DISTINCT child.relname AS "table", att.attname AS "column"
+       FROM pg_constraint con
+       JOIN pg_class child ON child.oid = con.conrelid
+       JOIN pg_class parent ON parent.oid = con.confrelid
+       JOIN LATERAL unnest(con.conkey) AS key(attnum) ON true
+       JOIN pg_attribute att
+         ON att.attrelid = con.conrelid AND att.attnum = key.attnum
+      WHERE con.contype = 'f'
+        AND parent.relname = $1
+        AND parent.relnamespace = 'public'::regnamespace
+        AND child.relnamespace = 'public'::regnamespace`,
+    [parent]
+  );
+  return result.rows as Array<{ table: string; column: string }>;
+}
+
+/** Branch-scoped tables that carry a `branch_id` with no foreign key to
+ *  `branches` — `audit_logs` and `document_number_retirements`. A catalog walk
+ *  over foreign keys cannot see them, and leaving them behind is not cosmetic:
+ *  `audit_logs` keeps the document numbers a re-created demo branch then reuses,
+ *  so a number-keyed assertion elsewhere matches last run's evidence. */
+async function branchScopedTablesWithoutForeignKey(
+  db: Queryable
+): Promise<Array<{ table: string; column: string }>> {
+  const result = await db.query(
+    `SELECT c.relname AS "table", a.attname AS "column"
+       FROM pg_attribute a
+       JOIN pg_class c ON c.oid = a.attrelid
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public'
+        AND a.attname = 'branch_id'
+        AND a.attnum > 0
+        AND NOT a.attisdropped
+        AND c.relkind IN ('r', 'p')
+        AND NOT EXISTS (
+          SELECT 1
+            FROM pg_constraint con
+            JOIN pg_class parent ON parent.oid = con.confrelid
+           WHERE con.contype = 'f'
+             AND con.conrelid = c.oid
+             AND parent.relname = 'branches'
+             AND a.attnum = ANY(con.conkey))`
+  );
+  return result.rows as Array<{ table: string; column: string }>;
+}
+
+/** Tables whose DELETE is refused unless the sanctioned purge switch is on:
+ *  `audit_logs` and its month partitions (worklist A7). A test run removing its
+ *  own evidence goes through the same switch the ledger purge uses — see
+ *  tests/support/purgeAuditLogs.ts — instead of the guard being loosened. */
+const APPEND_ONLY_AUDIT_TABLES = /^audit_logs/i;
+
+/** Deletes every row that still points at `values` in `parent`, repeating until
+ *  nothing changes: a first pass frees the rows whose own children are gone,
+ *  a later pass the ones that were blocked. A row locked by the ACC-1b ledger
+ *  purge trigger is only removed when the caller connected with
+ *  `inventory.allow_ledger_purge=on` — which the test runner does. */
+async function deleteReferencingRows(
+  db: Queryable,
+  parent: string,
+  values: string[]
+): Promise<number> {
+  const columns =
+    parent === 'branches'
+      ? [
+          ...(await foreignKeyColumns(db, 'branches')),
+          ...(await branchScopedTablesWithoutForeignKey(db)),
+        ]
+      : await foreignKeyColumns(db, parent);
+  let deleted = 0;
+  for (let pass = 0; pass < 5; pass += 1) {
+    let thisPass = 0;
+    for (const ref of columns) {
+      const statement = `DELETE FROM "${ref.table}" WHERE "${ref.column}" = ANY($1::text[])`;
+      try {
+        if (APPEND_ONLY_AUDIT_TABLES.test(ref.table)) {
+          await purgeAuditLogs(db, statement, [values]);
+        } else {
+          const result = await db.query(statement, [values]);
+          thisPass += result.rowCount ?? result.rows.length;
+        }
+      } catch {
+        // Blocked by a row deeper in the chain, or by a guard trigger. The next
+        // pass retries once the shallower rows are gone; the final `remaining`
+        // count below is what tells the caller the truth either way.
+      }
+    }
+    deleted += thisPass;
+    if (thisPass === 0) break;
+  }
+  return deleted;
+}
+
+export interface DemoMasterRemoval {
+  deletedRows: number;
+  remaining: { branches: number; fiscalYears: number };
+}
+
+/**
+ * Removes demo-master rows that a run created in a database which already had
+ * its own master data, together with the suite residue that points at them.
+ *
+ * Only the ids passed in are touched — callers pass "the demo ids that were
+ * absent before this run", so an install's own branches and fiscal years can
+ * never be candidates. Branch residue is deleted first (journals, lines,
+ * sequence counters, period balances), because a fiscal year's last dependent
+ * is usually a GL period whose journal was posted at a demo branch.
+ */
+export async function removeDemoMasterRows(
+  db: Queryable,
+  branchIds: string[] = [],
+  fiscalYearIds: string[] = [],
+  log: (message: string) => void = () => {}
+): Promise<DemoMasterRemoval> {
+  let deletedRows = 0;
+
+  if (branchIds.length > 0) {
+    const children = await deleteReferencingRows(db, 'branches', branchIds);
+    deletedRows += children;
+    const branches = await db
+      .query('DELETE FROM branches WHERE id = ANY($1::text[])', [branchIds])
+      .catch((err: any) => {
+        log(`test-hygiene: branch master delete refused: ${err?.message || err}`);
+        return { rows: [], rowCount: 0 };
+      });
+    deletedRows += branches.rowCount ?? 0;
+    log(`test-hygiene: removed ${branches.rowCount ?? 0} demo branch row(s) and ${children} dependent row(s)`);
+  }
+
+  if (fiscalYearIds.length > 0) {
+    const children = await deleteReferencingRows(db, 'fiscal_years', fiscalYearIds);
+    deletedRows += children;
+    const fiscalYears = await db
+      .query('DELETE FROM fiscal_years WHERE id = ANY($1::text[])', [fiscalYearIds])
+      .catch((err: any) => {
+        log(`test-hygiene: fiscal-year delete refused: ${err?.message || err}`);
+        return { rows: [], rowCount: 0 };
+      });
+    deletedRows += fiscalYears.rowCount ?? 0;
+    log(
+      `test-hygiene: removed ${fiscalYears.rowCount ?? 0} demo fiscal-year row(s) and ${children} dependent row(s)`
+    );
+  }
+
+  const remaining = await db.query(
+    `SELECT (SELECT COUNT(*)::int FROM branches WHERE id = ANY($1::text[])) AS branches,
+            (SELECT COUNT(*)::int FROM fiscal_years WHERE id = ANY($2::text[])) AS fiscal_years`,
+    [branchIds, fiscalYearIds]
+  );
+  const row = remaining.rows[0] || { branches: 0, fiscal_years: 0 };
+  return {
+    deletedRows,
+    remaining: { branches: Number(row.branches) || 0, fiscalYears: Number(row.fiscal_years) || 0 },
+  };
 }

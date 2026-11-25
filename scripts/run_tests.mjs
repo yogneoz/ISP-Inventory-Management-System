@@ -108,6 +108,29 @@ function withLedgerPurgeBypass(connectionString) {
 
 spawnEnv.DATABASE_URL = withLedgerPurgeBypass(spawnEnv.DATABASE_URL);
 
+/**
+ * Demo-master hygiene. Suites seed the demo branch/fiscal-year master
+ * (tests/fixtures/referenceData.ts) because CI's database is schema-only; on a
+ * developer database that already owns its master those rows — and the
+ * journals, sequence counters and period balances posted against them — used to
+ * survive the run. Test files run concurrently, so no single suite can safely
+ * remove a row a sibling file may still be using. This process is the only one
+ * that sees every suite finish, so it snapshots before the run and removes
+ * exactly the demo rows the run created afterwards (scripts/testDbHygiene.ts).
+ * Clean-up never changes this run's exit status.
+ */
+const hygieneSnapshotPath = path.join(os.tmpdir(), `inventory-test-hygiene-${process.pid}.json`);
+function runDbHygiene(mode) {
+  const step = spawnSync(npxCmd, ['tsx', 'scripts/testDbHygiene.ts', mode, hygieneSnapshotPath], {
+    cwd: root,
+    shell: isWindows,
+    env: spawnEnv,
+    stdio: 'inherit',
+  });
+  if (step.error) console.error(`test-hygiene: ${mode} step could not run:`, step.error.message);
+}
+runDbHygiene('snapshot');
+
 // Piped stdout so the summary line can be parsed, while the bytes still
 // stream straight through to the terminal / CI log unchanged.
 const suite = spawn(npxCmd, suiteArgs, {
@@ -169,6 +192,7 @@ function annotateFailures(output) {
 
 suite.on('close', (code) => {
   if (code !== 0) {
+    runDbHygiene('cleanup');
     annotateFailures(Buffer.concat([...chunks, ...stderrChunks]).toString('utf8'));
     process.exit(code ?? 1);
   }
@@ -207,6 +231,7 @@ suite.on('close', (code) => {
     console.log(
       `test shard ${shard}: ${summary.tests} tests (${summary.pass} pass, ${summary.fail} fail, ${summary.skipped} skipped)`
     );
+    runDbHygiene('cleanup');
     process.exit(0);
   }
 
@@ -216,5 +241,6 @@ suite.on('close', (code) => {
     env: spawnEnv,
     stdio: 'inherit',
   });
+  runDbHygiene('cleanup');
   process.exit(gate.status ?? 1);
 });
