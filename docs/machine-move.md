@@ -11,7 +11,7 @@ Two repositories, both on GitHub under `yogneoz`:
 
 | repo | remote (still HTTPS) | `main` HEAD | fresh clone |
 | --- | --- | --- | --- |
-| `ISP-Inventory-Management-System` (this one) | `https://github.com/yogneoz/ISP-Inventory-Management-System.git` | `31250fa` (plus the commit that added this note) | checks out clean |
+| `ISP-Inventory-Management-System` (this one) | `https://github.com/yogneoz/ISP-Inventory-Management-System.git` | `07d27ed` (code at `c704548`; later commits are docs) | checks out clean |
 | `ISP-Mobile-App` (sibling folder `../ISP-Mobile-App`) | `https://github.com/yogneoz/ISP-Mobile-App` | `bbc1c23` | checks out clean |
 
 Both repositories are **still public**. Making them private is a user step with
@@ -108,8 +108,8 @@ ssh-keygen -y -f ~/.ssh/isp_github_ed25519   # prints the public key; must match
 ```
 
 The private key must never enter either repository: it lives in `~/.ssh`, both
-working copies ignore it, and a scan of all 556 ERP commits and both mobile
-commits found no key material (see below).
+working copies ignore it, and a scan of every ERP commit (556 at scan
+time) and both mobile commits found no key material (see below).
 
 ## Secret scan of what is actually on GitHub
 
