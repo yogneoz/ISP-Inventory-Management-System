@@ -10,7 +10,7 @@
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { pgPool } from '../server/db';
-import { withTransaction } from '../server/src/db/transactions';
+import { withReadReplay, withTransaction } from '../server/src/db/transactions';
 import {
   resetTransactionRetryMetrics,
   transactionRetryMetrics,
@@ -77,6 +77,23 @@ describe('transaction-retry counters', () => {
     assert.equal(metrics.deadlock, 0);
     assert.equal(metrics.serializationFailure, 1);
     assert.equal(metrics.lastCode, '40001');
+  });
+
+  test('a statement read replays a deadlock victim through the same loop', async () => {
+    let attempts = 0;
+    const statement = await withReadReplay(async () => {
+      attempts += 1;
+      if (attempts === 1) throw abort('40P01', 'deadlock detected');
+      return { totals: { closingDebit: 700 } };
+    });
+
+    assert.equal(statement.totals.closingDebit, 700, 'the replayed read returns its own result');
+    assert.equal(attempts, 2, 'the deadlocked read must be replayed exactly once');
+    // Same counters as the write path: a read victim is still contention.
+    const metrics = transactionRetryMetrics();
+    assert.equal(metrics.total, 1);
+    assert.equal(metrics.deadlock, 1);
+    assert.equal(metrics.lastCode, '40P01');
   });
 
   test('an ordinary database error is not retried and not counted', async () => {

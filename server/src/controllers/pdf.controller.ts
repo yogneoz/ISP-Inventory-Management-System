@@ -35,6 +35,7 @@ import {
   type PdfCompany,
 } from '../services/pdf.service';
 import { isBsDateMissing, resolveBsDateForLedger } from '../utils/bsDate';
+import { withReadReplay } from '../db/transactions';
 import { resolveBranchScope } from './accounting.controller';
 
 function requireDb(): void {
@@ -70,6 +71,17 @@ function canReadRecordBranch(req: any, res: Response, branchId: string): boolean
 }
 
 type PrintableStatementMode = Exclude<StatementMode, 'BALANCE_SHEET_MOVEMENT'>;
+
+/**
+ * What the print path reads before it renders: the same payload the JSON
+ * statement endpoints return. Spelled out so the read-replay wrapper keeps the
+ * union the `mode` switch produces instead of narrowing to the first branch.
+ */
+type PrintableStatement =
+  | Awaited<ReturnType<typeof buildTrialBalance>>
+  | Awaited<ReturnType<typeof buildProfitAndLoss>>
+  | Awaited<ReturnType<typeof buildCashFlow>>
+  | Awaited<ReturnType<typeof buildBalanceSheet>>;
 
 function sendPdf(res: Response, buffer: Buffer, filename: string): void {
   const safe = filename.replace(/[^A-Za-z0-9._-]+/g, '-');
@@ -142,14 +154,17 @@ async function printStatement(req: any, res: Response, mode: PrintableStatementM
     branchId: scope.branchId || null,
     empty: Boolean(scope.empty),
   });
-  const statement =
+  // A printed statement is the same read as the JSON endpoint, so it replays a
+  // deadlock victim the same way rather than failing the print with a 500.
+  const statement = await withReadReplay<PrintableStatement>(() =>
     mode === 'TRIAL_BALANCE'
-      ? await buildTrialBalance(pgPool, window)
+      ? buildTrialBalance(pgPool, window)
       : mode === 'PROFIT_AND_LOSS'
-        ? await buildProfitAndLoss(pgPool, window)
+        ? buildProfitAndLoss(pgPool, window)
         : mode === 'CASH_FLOW'
-          ? await buildCashFlow(pgPool, window)
-          : await buildBalanceSheet(pgPool, window);
+          ? buildCashFlow(pgPool, window)
+          : buildBalanceSheet(pgPool, window)
+  );
 
   // A printed statement is an official Nepali report: derive both period
   // boundaries from bs_day_records so the header carries AD and BS. An unseeded

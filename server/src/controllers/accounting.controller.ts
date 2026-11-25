@@ -11,7 +11,7 @@
  */
 import type { Response } from 'express';
 import { getPgConnected, pgPool } from '../app';
-import { withTransaction } from '../db/transactions';
+import { withReadReplay, withTransaction } from '../db/transactions';
 import { logAuditEvent } from '../services/audit.service';
 import { getUserFromReq } from '../middleware/auth';
 import { allowedBranchScope } from '../middleware/branchScope';
@@ -648,14 +648,14 @@ async function statementWindow(req: any, res: Response, mode: StatementMode) {
 export async function get_trialBalance(req: any, res: Response): Promise<any> {
   const window = await statementWindow(req, res, 'TRIAL_BALANCE');
   if (!window) return;
-  return res.json(await buildTrialBalance(pgPool, window));
+  return res.json(await withReadReplay(() => buildTrialBalance(pgPool, window)));
 }
 
 /** GET /api/accounting/statements/bs-summary — BS month/quarter ledger view */
 export async function get_bsLedgerSummary(req: any, res: Response): Promise<any> {
   const window = await statementWindow(req, res, 'PROFIT_AND_LOSS');
   if (!window) return;
-  return res.json(await buildBsLedgerSummary(pgPool, window));
+  return res.json(await withReadReplay(() => buildBsLedgerSummary(pgPool, window)));
 }
 
 /**
@@ -737,14 +737,14 @@ export async function get_fiscalYearBalances(req: any, res: Response): Promise<a
 export async function get_profitAndLoss(req: any, res: Response): Promise<any> {
   const window = await statementWindow(req, res, 'PROFIT_AND_LOSS');
   if (!window) return;
-  return res.json(await buildProfitAndLoss(pgPool, window));
+  return res.json(await withReadReplay(() => buildProfitAndLoss(pgPool, window)));
 }
 
 /** GET /api/accounting/statements/balance-sheet */
 export async function get_balanceSheet(req: any, res: Response): Promise<any> {
   const window = await statementWindow(req, res, 'BALANCE_SHEET');
   if (!window) return;
-  return res.json(await buildBalanceSheet(pgPool, window));
+  return res.json(await withReadReplay(() => buildBalanceSheet(pgPool, window)));
 }
 
 /**
@@ -755,7 +755,7 @@ export async function get_balanceSheet(req: any, res: Response): Promise<any> {
 export async function get_balanceSheetMovement(req: any, res: Response): Promise<any> {
   const window = await statementWindow(req, res, 'BALANCE_SHEET_MOVEMENT');
   if (!window) return;
-  return res.json(await buildBalanceSheetMovement(pgPool, window));
+  return res.json(await withReadReplay(() => buildBalanceSheetMovement(pgPool, window)));
 }
 
 /**
@@ -773,10 +773,12 @@ export async function get_branchProfitAndLoss(req: any, res: Response): Promise<
   });
   const branches = await loadStatementBranches(pgPool, scope.allowed);
   return res.json(
-    await buildBranchProfitAndLossMatrix(
-      pgPool,
-      { ...window, branchId: null, empty: Boolean(scope.empty) },
-      branches
+    await withReadReplay(() =>
+      buildBranchProfitAndLossMatrix(
+        pgPool,
+        { ...window, branchId: null, empty: Boolean(scope.empty) },
+        branches
+      )
     )
   );
 }
@@ -806,11 +808,13 @@ export async function get_branchBalanceSheet(req: any, res: Response): Promise<a
   );
   const branches = await loadStatementBranches(pgPool, scope.allowed);
   return res.json(
-    await buildBranchBalanceSheetMatrix(
-      pgPool,
-      { ...window, branchId: null, empty: Boolean(scope.empty) },
-      branches,
-      view
+    await withReadReplay(() =>
+      buildBranchBalanceSheetMatrix(
+        pgPool,
+        { ...window, branchId: null, empty: Boolean(scope.empty) },
+        branches,
+        view
+      )
     )
   );
 }
@@ -819,7 +823,7 @@ export async function get_branchBalanceSheet(req: any, res: Response): Promise<a
 export async function get_cashFlow(req: any, res: Response): Promise<any> {
   const window = await statementWindow(req, res, 'CASH_FLOW');
   if (!window) return;
-  return res.json(await buildCashFlow(pgPool, window));
+  return res.json(await withReadReplay(() => buildCashFlow(pgPool, window)));
 }
 
 function forecastMinCash(value: unknown): number {
@@ -842,13 +846,15 @@ export async function get_cashFlowForecast(req: any, res: Response): Promise<any
   const window = await statementWindow(req, res, 'BALANCE_SHEET');
   if (!window) return;
   return res.json(
-    await buildCashFlowForecast(pgPool, {
-      asOf: window.to,
-      branchId: window.branchId,
-      empty: window.empty,
-      weeks: req.query?.weeks,
-      minCash: forecastMinCash(req.query?.minCash),
-    })
+    await withReadReplay(() =>
+      buildCashFlowForecast(pgPool, {
+        asOf: window.to,
+        branchId: window.branchId,
+        empty: window.empty,
+        weeks: req.query?.weeks,
+        minCash: forecastMinCash(req.query?.minCash),
+      })
+    )
   );
 }
 
@@ -856,13 +862,15 @@ export async function get_cashFlowForecast(req: any, res: Response): Promise<any
 export async function get_cashFlowForecastExport(req: any, res: Response): Promise<any> {
   const window = await statementWindow(req, res, 'BALANCE_SHEET');
   if (!window) return;
-  const forecast = await buildCashFlowForecast(pgPool, {
-    asOf: window.to,
-    branchId: window.branchId,
-    empty: window.empty,
-    weeks: req.query?.weeks,
-    minCash: forecastMinCash(req.query?.minCash),
-  });
+  const forecast = await withReadReplay(() =>
+    buildCashFlowForecast(pgPool, {
+      asOf: window.to,
+      branchId: window.branchId,
+      empty: window.empty,
+      weeks: req.query?.weeks,
+      minCash: forecastMinCash(req.query?.minCash),
+    })
+  );
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader(
     'Content-Disposition',
@@ -900,15 +908,19 @@ export async function get_statementGroupLines(req: any, res: Response): Promise<
   const limit = Number(req.query?.limit);
   const safeLimit = Number.isFinite(limit) ? limit : undefined;
   if (rawStatement === 'TRIAL_BALANCE') {
-    return res.json(await buildTrialBalanceGroupLines(pgPool, window, groupId, safeLimit));
+    return res.json(
+      await withReadReplay(() => buildTrialBalanceGroupLines(pgPool, window, groupId, safeLimit))
+    );
   }
   return res.json(
-    await buildStatementGroupLines(
-      pgPool,
-      window,
-      groupId,
-      rawStatement as StatementGroupDrilldownMode,
-      safeLimit
+    await withReadReplay(() =>
+      buildStatementGroupLines(
+        pgPool,
+        window,
+        groupId,
+        rawStatement as StatementGroupDrilldownMode,
+        safeLimit
+      )
     )
   );
 }
@@ -928,7 +940,9 @@ export async function get_statementAccountLines(req: any, res: Response): Promis
   if (!window) return;
   const limit = Number(req.query?.limit);
   const safeLimit = Number.isFinite(limit) ? limit : undefined;
-  return res.json(await buildTrialBalanceAccountLines(pgPool, window, accountId, safeLimit));
+  return res.json(
+    await withReadReplay(() => buildTrialBalanceAccountLines(pgPool, window, accountId, safeLimit))
+  );
 }
 
 /**

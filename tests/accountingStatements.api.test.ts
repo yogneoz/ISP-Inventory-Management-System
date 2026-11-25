@@ -36,6 +36,8 @@ import { issueAuthToken } from '../server/src/middleware/auth';
 import { setPermissionMatrix } from '../server/src/state/runtimeState';
 import { DEFAULT_PERMISSIONS_MATRIX } from '../client/src/utils/permissionMatrixData';
 import { ensureReferenceData } from './fixtures/referenceData';
+import { pgPool } from '../server/db';
+import { transactionRetryMetrics } from '../server/src/db/transactionMetrics';
 
 dotenv.config();
 
@@ -404,6 +406,45 @@ describe('financial statements API (real HTTP + PostgreSQL)', { skip: skipNoDb }
     assert.equal(expense.closingBalance, 700);
     assert.equal(accountOf(res.json.accounts, 'AST-1100').openingDebit, 1130);
     assert.equal(accountOf(res.json.accounts, '2110').openingDebit, 0);
+  });
+
+  /**
+   * A statement read can be the victim of a deadlock even though it only holds
+   * AccessShareLock: the posting path provisions a month partition on demand
+   * (`ensure_journal_month_partition`, DDL on the journal parents) from another
+   * connection, and the two lock orders can close a cycle. The write path has
+   * always replayed its half; this proves the read path now replays too, by
+   * injecting exactly one 40P01 into the trial-balance read and requiring the
+   * request to still answer 200 with its own figures.
+   */
+  test('a statement read replays a deadlock victim instead of answering 500', async () => {
+    const original = pgPool.query.bind(pgPool);
+    const deadlocksBefore = transactionRetryMetrics().deadlock;
+    let injected = 0;
+    (pgPool as any).query = async (text: any, values?: any[]) => {
+      const sql = typeof text === 'string' ? text : String(text?.text ?? '');
+      if (injected === 0 && sql.includes('WITH scoped_lines AS')) {
+        injected += 1;
+        throw Object.assign(new Error('deadlock detected'), { code: '40P01' });
+      }
+      return original(text, values);
+    };
+    try {
+      const res = await get(
+        `/api/accounting/statements/trial-balance?from=2026-07-24&to=${TO}&branchId=${BR}`,
+        tokens.super
+      );
+      assert.equal(res.status, 200, JSON.stringify(res.json));
+      assert.equal(injected, 1, 'the injected deadlock must have been hit');
+      assert.equal(res.json.totals.closingDebit, 2849, 'the replayed read keeps its own figures');
+      assert.equal(
+        transactionRetryMetrics().deadlock,
+        deadlocksBefore + 1,
+        'the replay must go through the shared contention counter'
+      );
+    } finally {
+      (pgPool as any).query = original;
+    }
   });
 
   test('a trial balance group drill-down splits opening from period and ties to the group subtotal', async () => {

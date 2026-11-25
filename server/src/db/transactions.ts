@@ -57,6 +57,37 @@ const RETRYABLE_TRANSACTION_CODES = new Set(['40P01', '40001']);
 const TRANSACTION_ATTEMPTS = 3;
 
 /**
+ * Replays `run` when PostgreSQL aborts the attempt with one of
+ * RETRYABLE_TRANSACTION_CODES.
+ *
+ * The write path and the statement read path must retry the same aborts, the
+ * same number of times, with the same backoff and the same counters — otherwise
+ * the read side keeps surfacing a 500 for a collision the write side already
+ * survives. `label` only names the replay in the log line.
+ */
+async function replayOnContention<T>(label: string, run: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await run();
+    } catch (err: any) {
+      const code = String(err?.code || '');
+      if (attempt >= TRANSACTION_ATTEMPTS || !RETRYABLE_TRANSACTION_CODES.has(code)) {
+        throw err;
+      }
+      // The aborted attempt released every lock it held, so a short jittered
+      // pause is enough — and the jitter keeps the two victims from colliding
+      // again in lockstep.
+      recordTransactionRetry(code);
+      const delayMs = 10 * attempt + Math.floor(Math.random() * 20);
+      console.warn(
+        `${label} aborted by ${code} (attempt ${attempt}/${TRANSACTION_ATTEMPTS}); retrying in ${delayMs} ms.`
+      );
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+}
+
+/**
  * Explicit Database Transaction Runner
  * Executes a sequence of SQL queries inside an explicit BEGIN...COMMIT / ROLLBACK block.
  *
@@ -71,25 +102,26 @@ const TRANSACTION_ATTEMPTS = 3;
 export async function withTransaction<T>(
   callback: (client: any) => Promise<T>
 ): Promise<T> {
-  for (let attempt = 1; ; attempt += 1) {
-    try {
-      return await runTransactionOnce(callback);
-    } catch (err: any) {
-      const code = String(err?.code || '');
-      if (attempt >= TRANSACTION_ATTEMPTS || !RETRYABLE_TRANSACTION_CODES.has(code)) {
-        throw err;
-      }
-      // The aborted attempt released every lock it held, so a short jittered
-      // pause is enough — and the jitter keeps the two victims from colliding
-      // again in lockstep.
-      recordTransactionRetry(code);
-      const delayMs = 10 * attempt + Math.floor(Math.random() * 20);
-      console.warn(
-        `Transaction aborted by ${code} (attempt ${attempt}/${TRANSACTION_ATTEMPTS}); retrying in ${delayMs} ms.`
-      );
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
-    }
-  }
+  return replayOnContention('Transaction', () => runTransactionOnce(callback));
+}
+
+/**
+ * Read-path replay for the financial statements.
+ *
+ * A statement read holds only AccessShareLock, but PostgreSQL still picks a
+ * deadlock victim by cost, and it can be the reader: the posting path creates a
+ * month partition on demand (`SELECT ensure_journal_month_partition(date)`,
+ * which is DDL and takes AccessExclusiveLock on the journal parents) while a
+ * statement is reading the same tables, and the two lock orders can close a
+ * cycle. The write path has always replayed its half of that collision; without
+ * the same replay the reader surfaced as a 500 for a conflict that is not a bug
+ * in the request — and it is exactly what made shard 1 of the suite flaky.
+ *
+ * Nothing a read wrote can be lost by re-running it, and the callback must stay
+ * a pure read: it is replayed from the start.
+ */
+export async function withReadReplay<T>(run: () => Promise<T>): Promise<T> {
+  return replayOnContention('Statement read', run);
 }
 
 /**

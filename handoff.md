@@ -132,7 +132,7 @@
 - **Server-side permission matrix**: the authoritative matrix lives in the `permission_matrix` table (seeded from the same defaults as the client at startup); clients cache it via the bootstrap payload.
 - **Repository layer**: all SQL lives in `server/src/models/*.repo.ts`; controllers execute repo-owned constants and builders only. Enforced in CI by the no-inline-SQL guard (§15.8).
 - **Transaction-retry counters for monitoring** (`db/transactionMetrics.ts`): every replay is counted (`total`, `deadlock`, `serializationFailure`, `lastRetryAt`, `lastCode`) and reported on the public liveness endpoint `GET /api/health` under `transactionRetries`, because that endpoint stays reachable while PostgreSQL is down — which is when contention matters. Counters are process-local rate signals (reset on restart), counts only, never request data.
-- **Deadlock replay in `withTransaction`** (`db/transactions.ts`): PostgreSQL aborts one participant of a deadlock (SQLSTATE `40P01`) or a serialization conflict (`40001`) by design — nothing that attempt wrote survives — so the runner replays the whole callback, up to three attempts with a short jittered backoff, and logs a warning per retry. Accounting postings contend on shared fiscal-year/period rows; without this, one of two correct concurrent requests surfaced as a 500 (and made `accounting.api` flaky in the parallel suite). Callbacks must stay replay-safe: DB work only, no external side effects. `errorHandler.ts` keeps PostgreSQL's lock-cycle `detail` in the log so an exhausted retry is diagnosable.
+- **Deadlock replay in `withTransaction`** (`db/transactions.ts`): PostgreSQL aborts one participant of a deadlock (SQLSTATE `40P01`) or a serialization conflict (`40001`) by design — nothing that attempt wrote survives — so the runner replays the whole callback, up to three attempts with a short jittered backoff, and logs a warning per retry. Accounting postings contend on shared fiscal-year/period rows; without this, one of two correct concurrent requests surfaced as a 500 (and made `accounting.api` flaky in the parallel suite). Callbacks must stay replay-safe: DB work only, no external side effects. `errorHandler.ts` keeps PostgreSQL's lock-cycle `detail` in the log so an exhausted retry is diagnosable. The statement reads replay through the same loop (`withReadReplay`, same codes, same three attempts, same counters): the posting path provisions a month partition on demand, which is DDL on the journal parents, so a concurrent statement read can be the deadlock victim even though it only holds `AccessShareLock` — a pure read loses nothing by being re-run and must not answer 500.
 - **HTTP hardening**: helmet security headers (LAN-safe config — HSTS off on plain HTTP), enforced `JSON_BODY_LIMIT` with 413 passthrough in the error handler, authenticated SSE (`sseAuth.ts` accepts header or `?token=` for EventSource), per-IP concurrent SSE cap (`sseRateLimit.ts`), and login/forgot-password rate limiting (`authRateLimit.ts`) with per-IP + failure-only global per-account buckets.
 - **Schema integrity**: `tests/schema.drift.guard.test.ts` compares every `scripts/schema.sql` CREATE TABLE block against the live database's columns on every test run (skips without a DB), so runtime DDL and the schema script can never silently diverge. When adding a column, update BOTH schema.sql and `boot/dbBoot.ts`.
 
@@ -230,7 +230,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 2900 tests; CI runs
+                                        #   drift/concurrency guards — 2902 tests; CI runs
                                         #   tsc + npm test + the source guards + the
                                         #   production build + the boot-timing gate +
                                         #   npm audit on every push/PR
@@ -1539,7 +1539,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 2900 tests against a real PostgreSQL 16 service container
+2. `npm test` — 2902 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM
