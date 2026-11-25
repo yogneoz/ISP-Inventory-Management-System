@@ -67,7 +67,7 @@ Cash+Bank 10,000 / Equity 50,000, per-branch trial balance 0/0/0/0.
 
 An ed25519 pair was generated on the old machine:
 
-- private: `~/.ssh/isp_github_ed25519` (mode `600`)
+- private: `~/.ssh/isp_github_ed25519` (Git Bash on NTFS still reports `644`; run `chmod 600` on the new machine, where the bits are real)
 - public: `~/.ssh/isp_github_ed25519.pub`
 
 The public key line to paste at **GitHub → Settings → SSH and GPG keys → New SSH
