@@ -100,6 +100,50 @@ export function strictIntFromEnv(
 }
 
 /**
+ * A value usable as this server's listen port, or null.
+ *
+ * PORT is not a free-form knob: the process advertises one URL and the client
+ * is configured for it, so "0" (let the OS pick an ephemeral port) is not
+ * usable here even though node's listen() accepts it. Surrounding quotes are
+ * stripped before judging: `PORT="3000"` means 3000, and a quoted `"0"` is
+ * still zero — neither is treated as an unset variable.
+ */
+export function usablePortValue(raw: string | undefined): number | null {
+  if (raw == null) return null;
+  let value = String(raw).trim();
+  const quoted = /^(['"])([\s\S]*)\1$/.exec(value);
+  if (quoted) value = quoted[2].trim();
+  if (!/^\d+$/.test(value)) return null;
+  const parsed = Number.parseInt(value, 10);
+  return parsed >= 1 && parsed <= 65535 ? parsed : null;
+}
+
+/**
+ * Decide which declared PORT the process should use.
+ *
+ * dotenv never overrides a variable the environment already defines, which is
+ * right for every knob but PORT: this workstation's shell exports an ambient
+ * `PORT=0`, so a dev boot warned and fell back on every start even though the
+ * project's own `.env` names 3000. A real port in the environment still wins
+ * (an operator's `PORT=4000 npm run dev` keeps working); an unusable ambient
+ * value — empty, garbage, or zero — defers to the value the project declares,
+ * and the caller reports the deferral instead of hiding it.
+ */
+export function resolveDeclaredPort(
+  ambientRaw: string | undefined,
+  declaredInFile: string | undefined
+): { port: number | null; ambientIgnored: string | null } {
+  const ambient = usablePortValue(ambientRaw);
+  if (ambient != null) return { port: ambient, ambientIgnored: null };
+  const declared = usablePortValue(declaredInFile);
+  if (declared != null) {
+    const raw = ambientRaw == null ? '' : String(ambientRaw).trim();
+    return { port: declared, ambientIgnored: raw === '' ? null : raw };
+  }
+  return { port: null, ambientIgnored: null };
+}
+
+/**
  * Parse a body-parser size string ('25mb', '512kb', '1048576') into bytes.
  * Accepts exactly the forms body-parser accepts (bytes / kb / mb / gb,
  * case-insensitive, optional 'B' suffix). Returns null when invalid —

@@ -349,7 +349,8 @@ export interface Asset {
   /** Serial of the IN_STOCK unit consumed from branch stock (deploy-from-stock flow). */
   deviceSerial?: string;
   // Fixed Asset Assignment fields
-  assignedType?: 'CUSTOMER' | 'LOCATION';
+  /** EMPLOYEE is technician custody: the unit is carried for a visit, not yet installed. */
+  assignedType?: 'CUSTOMER' | 'LOCATION' | 'EMPLOYEE';
   assignedCustomerId?: string;
   assignedCustomerName?: string;
   assignedLocationId?: string;
@@ -370,8 +371,37 @@ export interface SerialLog {
   branchName?: string;
   customerId?: string;
   customerName?: string;
-  status: 'IN_STOCK' | 'IN_TRANSIT' | 'CUSTOMER_ASSIGNED' | 'POP_LOCATION_ASSIGNED' | 'DAMAGED' | 'RETURNED' | 'SOLD' | 'RETURNED_TO_VENDOR' | 'CONSUMED';
-  sourceType: 'PURCHASE' | 'CUSTOMER_ASSIGN' | 'RETURN' | 'DAMAGE' | 'SHIPMENT' | 'STOCK_OP' | 'FIXED_ASSET' | 'SERIAL_CORRECTION' | 'STATUS_CHANGE';
+  /** The person holding the unit (set while `status` is IN_CUSTODY). */
+  holderEmployeeId?: string | null;
+  holderEmployeeName?: string | null;
+  status:
+    | 'IN_STOCK'
+    | 'IN_TRANSIT'
+    | 'CUSTOMER_ASSIGNED'
+    | 'POP_LOCATION_ASSIGNED'
+    | 'DAMAGED'
+    | 'RETURNED'
+    | 'SOLD'
+    | 'RETURNED_TO_VENDOR'
+    | 'CONSUMED'
+    | 'IN_CUSTODY'
+    | 'LOST';
+  sourceType:
+    | 'PURCHASE'
+    | 'CUSTOMER_ASSIGN'
+    | 'RETURN'
+    | 'DAMAGE'
+    | 'SHIPMENT'
+    | 'STOCK_OP'
+    | 'FIXED_ASSET'
+    | 'SERIAL_CORRECTION'
+    | 'STATUS_CHANGE'
+    | 'CUSTODY_ISSUE'
+    | 'CUSTODY_RETURN'
+    | 'CUSTODY_CONSUME'
+    | 'CUSTODY_TRANSFER'
+    | 'CUSTODY_LOSS'
+    | 'WORK_ORDER';
   sourceId?: string;
   history: SerialLogEntry[];
   createdAt: string;
@@ -941,7 +971,13 @@ export interface StockOperation {
   referenceNumber: string;
   type: 'PULLOUT' | 'DAMAGE' | 'DISPOSAL' | 'STOCK_OUT' | 'MANUAL_ADJUSTMENT' | 'CONSUMABLE_ISSUE';
   technicianName?: string;
+  /** The employee a person-directed issue put the units in custody of. */
+  employeeId?: string | null;
+  /** The group the document's custody movements share (reversal key). */
+  custodyGroupId?: string | null;
   workOrderRef?: string;
+  /** The field work order the issue was booked against (custody movement FK). */
+  workOrderId?: string | null;
   branchId: string;
   branchName?: string;
   destinationWarehouseId?: string;

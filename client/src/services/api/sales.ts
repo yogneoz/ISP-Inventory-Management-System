@@ -375,6 +375,11 @@ export interface EmployeeStockMovementInput {
   quantity: number;
   workOrderId?: string | null;
   reason?: string | null;
+  /** Device serials, one per unit, for serial-tracked equipment. */
+  deviceSerials?: string[];
+  /** The customer a consumed unit was installed at (CONSUME only). */
+  customerId?: string | null;
+  customerName?: string | null;
 }
 
 export async function getEmployeeStockHoldings(
@@ -390,6 +395,69 @@ export async function getEmployeeStockHoldings(
 export async function getEmployeeStockMovements(employeeId: string, limit = 100): Promise<EmployeeStockMovement[]> {
   const query = new URLSearchParams({ employeeId, limit: String(limit) });
   return fetchJson(`/api/employee-stock/movements?${query.toString()}`);
+}
+
+/**
+ * The whole units a person holds (their `fixed_assets` rows), each with the work
+ * order and customer it was dispatched for. Serialised units live here, not in
+ * the quantity holdings above.
+ */
+export interface EmployeeCustodyAsset {
+  assetId: string;
+  tagNumber: string;
+  name: string;
+  category: string | null;
+  productId: string | null;
+  deviceSerial: string | null;
+  branchId: string;
+  status: string;
+  assignedEmployeeId: string;
+  assignedEmployeeName: string | null;
+  workOrderId: string | null;
+  workOrderNo: string | null;
+  customerId: string | null;
+  customerName: string | null;
+  scheduledDateAD: string | null;
+  notes: string | null;
+}
+
+export async function getEmployeeStockAssets(employeeId: string): Promise<EmployeeCustodyAsset[]> {
+  const query = new URLSearchParams({ employeeId });
+  return fetchJson(`/api/employee-stock/assets?${query.toString()}`);
+}
+
+/** Install a held unit at its visit's customer — the completion's own service. */
+export interface CustodyInstallResult {
+  assetId: string;
+  tagNumber: string;
+  deviceSerial: string;
+  customerId: string;
+  customerName: string;
+  workOrderId: string;
+  workOrderNo: string;
+  warrantyStartDateAD: string;
+  warrantyWritten: boolean;
+  customerDeviceAction: 'INSERTED' | 'REACTIVATED' | 'ALREADY_ACTIVE';
+}
+
+export async function installCustodyAsset(input: {
+  employeeId: string;
+  assetId: string;
+  workOrderId: string;
+  dateAD?: string;
+}): Promise<CustodyInstallResult> {
+  return fetchJson('/api/employee-stock/install', { method: 'POST', body: JSON.stringify(input) });
+}
+
+/** The holder's loss report: a pending approval, never a write-off. */
+export async function reportCustodyLoss(input: {
+  employeeId: string;
+  productId: string;
+  quantity: number;
+  reason: string;
+  deviceSerials?: string[];
+}): Promise<{ requestId: string; requestNumber: string; status: string; message: string }> {
+  return fetchJson('/api/employee-stock/loss-report', { method: 'POST', body: JSON.stringify(input) });
 }
 
 /** Issue, return, consume or write off units; the action names the endpoint. */
@@ -419,6 +487,8 @@ export interface EmployeeStockTransferInput {
   productId: string;
   quantity: number;
   reason: string;
+  /** Device serials, one per unit, when the equipment carries them. */
+  deviceSerials?: string[];
 }
 
 export interface EmployeeStockTransferResult {
@@ -432,4 +502,48 @@ export async function transferEmployeeStock(
   input: EmployeeStockTransferInput
 ): Promise<EmployeeStockTransferResult> {
   return fetchJson('/api/employee-stock/transfer', { method: 'POST', body: JSON.stringify(input) });
+}
+
+/** One person/product row of the reconciliation, with the branch shelf beside it. */
+export interface CustodyTieOutRow {
+  employeeId: string;
+  employeeName: string;
+  productId: string;
+  productName: string;
+  branchId: string;
+  issued: number;
+  returned: number;
+  consumed: number;
+  lost: number;
+  transferredIn: number;
+  transferredOut: number;
+  movementSum: number;
+  held: number;
+  drift: number;
+  branchOnHand: number;
+}
+
+export interface CustodyTieOut {
+  rows: CustodyTieOutRow[];
+  totals: { held: number; movementSum: number; drift: number };
+}
+
+/** The log and the holdings projection, reconciled per person and product. */
+export async function getCustodyTieOut(
+  params: { employeeId?: string; productId?: string } = {}
+): Promise<CustodyTieOut> {
+  const query = new URLSearchParams();
+  if (params.employeeId) query.set('employeeId', params.employeeId);
+  if (params.productId) query.set('productId', params.productId);
+  const suffix = query.toString();
+  return fetchJson(`/api/employee-stock/tieout${suffix ? `?${suffix}` : ''}`);
+}
+
+/** A counted stock take: `items` are the products and the units actually on hand. */
+export async function auditEmployeeStock(input: {
+  employeeId: string;
+  items: { productId: string; countedQuantity: number }[];
+  reason: string;
+}): Promise<{ movements: EmployeeStockMovement[] }> {
+  return fetchJson('/api/employee-stock/audit', { method: 'POST', body: JSON.stringify(input) });
 }

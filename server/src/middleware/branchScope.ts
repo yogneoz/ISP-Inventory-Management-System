@@ -168,6 +168,11 @@ export const BRANCH_SCOPE_EXEMPTIONS: readonly BranchScopeExemption[] = [
       'Custody ledger rows have no by-id route: /api/employee-stock reads intersect the caller\'s allowed branches and its writes are pinned to the session branch (or, for head office, the employee\'s own) inside employeeStock.controller before the repository sees them. Movements are the append-only source the holdings row is rebuilt from.',
   },
   {
+    table: 'employee_stock_movement_serials',
+    reason:
+      'A movement\'s device-serial links are a child of employee_stock_movements: they are written by the custody repository in the same transaction as the movement and read only through that movement. There is no /employee-stock/movement-serials/:id route, and the branch is copied from the movement (which the controller pins to the session branch).',
+  },
+  {
     table: 'employee_stock_holdings',
     reason:
       'A holding is a projection of employee_stock_movements and is only ever read or rebuilt through /api/employee-stock, whose controller scopes reads by allowedBranchIds and writes by the session branch; there is no /employee-stock/:id route.',

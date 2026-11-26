@@ -12,6 +12,7 @@ import { classifyDbFailure, noteDbFailure } from '../../db';
 import { effectivePermission } from '../services/permissionOverrides.service';
 import { ApprovalRequest, AuditLog, CustomerDeviceRecord, TransactionLog } from '../../../client/src/types';
 import { todayBs } from '../utils/bsDate';
+import { recordEmployeeStockLossInTransaction } from '../models/employeeStock.repo';
 import {
   DB_STATUS_PROBE_SQL,
   buildAuditTrailQuery,
@@ -388,6 +389,15 @@ try {
       });
     }
 
+    // A custody write-off is a ledger movement against a person; there is no
+    // mirror-only version of that, so the approval refuses rather than marking
+    // itself approved and writing nothing.
+    if (request.type === 'CUSTODY_LOSS' && status !== 'REJECTED' && !getPgConnected()) {
+      return res.status(503).json({
+        message: 'Approving a custody loss needs PostgreSQL; no write-off was recorded.',
+      });
+    }
+
     request.status = status;
     request.processedByEmail = approverUser?.email || currentU.email;
     request.processedByName = approverUser?.name || currentU.name;
@@ -412,6 +422,65 @@ try {
     if (getPgConnected()) {
       await withTransaction(async (client) => {
         await client.query(AR_APPROVE_SQL, [status, request.processedByEmail, request.processedByName, request.processedByRole, request.processedAtBS, id]);
+
+        // A custody loss is executed where it was reported: the holder named in
+        // the request loses the units, with the reason the report carried. The
+        // manager's approval IS the write-off, which is why `custody-writeoff`
+        // is the operation that opens this path.
+        if (request.type === 'CUSTODY_LOSS' && status === 'APPROVED') {
+          // The approval role list is not the stock control: executing a
+          // write-off moves units, so the approver must hold `custody-writeoff`
+          // (false for FIELD_TECHNICIAN, FRONT_DESK and AUDITOR). A branch
+          // manager who may process approvals but not write stock off gets 403.
+          const mayWriteOff = effectivePermission(
+            currentU,
+            'custody-writeoff',
+            permissionMatrix,
+            userPermissionOverrides,
+            userPermissionSetGrants
+          );
+          const mayDeploy = effectivePermission(
+            currentU,
+            'stock-deploy',
+            permissionMatrix,
+            userPermissionOverrides,
+            userPermissionSetGrants
+          );
+          if (!mayWriteOff || !mayDeploy) {
+            throw new ApiError(
+              403,
+              'Forbidden: executing a custody write-off needs the custody-writeoff and stock-deploy operations.'
+            );
+          }
+          const audit = (typeof request.auditData === 'string'
+            ? JSON.parse(request.auditData || '{}')
+            : request.auditData || {}) as any;
+          const employeeId = String(request.targetId || audit.employeeId || '');
+          const productId = String(audit.productId || '');
+          const quantity = Math.trunc(Number(audit.quantity) || 0);
+          const serials = Array.isArray(audit.serials) ? audit.serials.map(String) : [];
+          if (!employeeId || !productId || quantity <= 0) {
+            throw new ApiError(409, 'This loss report is missing the holder, product or quantity; it cannot be executed.');
+          }
+          try {
+            await recordEmployeeStockLossInTransaction(client, {
+              employeeId,
+              productId,
+              branchId: String(request.branchId || ''),
+              quantity,
+              workOrderId: null,
+              reason: request.reason,
+              actor: String(request.processedByEmail || currentU.email || 'approval'),
+              serials,
+              // A reported serial may already be gone; the movement is what the
+              // report named, so an unheld serial must not block the write-off
+              // of the quantity the manager approved.
+              strictSerials: false,
+            });
+          } catch (error: any) {
+            throw new ApiError(409, error?.message || 'The custody write-off was refused.');
+          }
+        }
 
         // IF APPROVED: execute the requested status change on customer device record
         if (request.type === 'CUSTOMER_DEVICE_STATUS') {

@@ -289,6 +289,92 @@ describe('partner integration API (real HTTP + PostgreSQL)', { skip: skipNoDb },
     assert.equal(refused.json.code, 'PARTNER_NOT_REGISTERED');
   });
 
+  /**
+   * The envelope the document promises is exactly two key sets: `{ message }`
+   * or `{ code, message }` — no `retryable`, no `details`. The pins below are
+   * the teeth: a field added to a refusal, a code dropped from a stable refusal,
+   * or a validation error that starts inventing one fails here.
+   *
+   * This sits before the admin test on purpose: that test binds the unbound key
+   * to a partner and suspends it, which turns the unbound refusal into
+   * `PARTNER_SUSPENDED`.
+   */
+  test('every partner refusal answers one of the two documented key sets', async () => {
+    const coded = ['code', 'message'];
+    const bare = ['message'];
+
+    // A valid key with no partner row behind it: a stable refusal, so it carries
+    // its code alongside the message.
+    const unregistered = await request(
+      'POST',
+      '/api/partner/v1/customers',
+      { externalId: 'PORTAL-CUST-ENV', name: 'Envelope', contactNumber: '9800000020', branchCode: 'INTT' },
+      unboundSecret
+    );
+    assert.equal(unregistered.status, 403, JSON.stringify(unregistered.json));
+    assert.deepEqual(Object.keys(unregistered.json).sort(), coded, 'PARTNER_NOT_REGISTERED carries its code');
+    assert.equal(unregistered.json.code, 'PARTNER_NOT_REGISTERED');
+
+    // The key's branch scope refuses before any write, and the refusal is
+    // machine-readable.
+    const outOfScope = await request('POST', '/api/partner/v1/customers', {
+      externalId: 'PORTAL-CUST-ENV',
+      name: 'Envelope',
+      contactNumber: '9800000021',
+      branchCode: 'INTT2',
+    });
+    assert.equal(outOfScope.status, 403, JSON.stringify(outOfScope.json));
+    assert.deepEqual(Object.keys(outOfScope.json).sort(), coded);
+    assert.equal(outOfScope.json.code, 'PARTNER_BRANCH_SCOPE');
+
+    // A body validation failure has no stable code: the document says it is
+    // `{ message }` only, and a `code` invented here would break that promise.
+    const validation = await request('POST', '/api/partner/v1/customers', {
+      externalId: 'PORTAL-CUST-ENV',
+      name: 'Envelope',
+      branchCode: 'INTT',
+    });
+    assert.equal(validation.status, 400, JSON.stringify(validation.json));
+    assert.deepEqual(Object.keys(validation.json).sort(), bare, 'a validation refusal is message-only');
+    assert.match(String(validation.json.message), /contactNumber/);
+
+    const notLinked = await request('POST', '/api/partner/v1/subscriptions', {
+      externalSubscriptionId: 'SUB-ENV-UNSYNCED',
+      customerExternalId: 'PORTAL-CUST-UNSYNCED',
+      planName: '100 Mbps Home',
+      durationDays: 30,
+      serviceFromAD: '2026-12-01',
+      serviceToAD: '2026-12-30',
+      subtotal: 1500,
+      taxAmount: 195,
+      invoiceDateAD: '2026-12-01',
+    });
+    assert.equal(notLinked.status, 404, JSON.stringify(notLinked.json));
+    assert.deepEqual(Object.keys(notLinked.json).sort(), coded);
+    assert.equal(notLinked.json.code, 'CUSTOMER_NOT_LINKED');
+
+    // Self-contained: the first send stores the key, the second reuses it with a
+    // different body and is refused instead of replayed.
+    const stored = await request('POST', '/api/partner/v1/customers', {
+      externalId: 'PORTAL-CUST-ENV-REPLAY',
+      name: 'Envelope Replay',
+      contactNumber: '9800000030',
+      branchCode: 'INTT',
+      idempotencyKey: 'int-test-env-reuse',
+    });
+    assert.equal(stored.status, 201, JSON.stringify(stored.json));
+    const reused = await request('POST', '/api/partner/v1/customers', {
+      externalId: 'PORTAL-CUST-ENV-REPLAY',
+      name: 'Envelope Replay',
+      contactNumber: '9800000031',
+      branchCode: 'INTT',
+      idempotencyKey: 'int-test-env-reuse',
+    });
+    assert.equal(reused.status, 409, JSON.stringify(reused.json));
+    assert.deepEqual(Object.keys(reused.json).sort(), coded);
+    assert.equal(reused.json.code, 'IDEMPOTENCY_KEY_REUSED');
+  });
+
   test('a key scoped to one branch cannot ingest into another', async () => {
     // The key is bound to BRANCH only. `branchCode` is the field the portal
     // sends, and the app-level branch guard inspects `branchId`, so this is the
@@ -586,6 +672,11 @@ describe('partner integration API (real HTTP + PostgreSQL)', { skip: skipNoDb },
     assert.equal(conflict.status, 409, JSON.stringify(conflict.json));
     assert.equal(conflict.json.status, 'CONFLICT');
     assert.match(conflict.json.conflictReason, /only 6 unit/i);
+    assert.deepEqual(
+      Object.keys(conflict.json).sort(),
+      ['conflictReason', 'eventId', 'externalId', 'status'],
+      'a 409 shortage is the documented conflict answer, not the error envelope'
+    );
 
     const after = await pool!.query(
       "SELECT quantity_on_hand FROM inventory_stock WHERE id = 'int-test-stock-1'"

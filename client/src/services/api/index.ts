@@ -61,6 +61,10 @@ export type {
 export { safeParseHistory } from './inventory';
 export type {
   CustodyEmployee,
+  CustodyInstallResult,
+  EmployeeCustodyAsset,
+  CustodyTieOut,
+  CustodyTieOutRow,
   EmployeeStockHolding,
   EmployeeStockMovement,
   EmployeeStockMovementInput,
@@ -426,7 +430,12 @@ export const api = {
   getEmployeeStockHoldings: sales.getEmployeeStockHoldings,
   getEmployeeStockMovements: sales.getEmployeeStockMovements,
   recordEmployeeStockMovement: sales.recordEmployeeStockMovement,
+  getEmployeeStockAssets: sales.getEmployeeStockAssets,
+  installCustodyAsset: sales.installCustodyAsset,
+  reportCustodyLoss: sales.reportCustodyLoss,
   getCustodyEmployees: sales.getCustodyEmployees,
+  getCustodyTieOut: sales.getCustodyTieOut,
+  auditEmployeeStock: sales.auditEmployeeStock,
   transferEmployeeStock: sales.transferEmployeeStock,
   createSalesInvoice: sales.createSalesInvoice,
   getPurchaseReturns: sales.getPurchaseReturns,

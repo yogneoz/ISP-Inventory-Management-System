@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useStockOperationsCtx } from './StockOperationsContext';
 import {
   ConsumableIssueItem,
@@ -8,6 +8,7 @@ import { CustomerPicker } from '../../../components/common/CustomerPicker';
 import { LocationPicker } from '../../../components/common/LocationPicker';
 import { ProductSearchBar } from '../ProductSearchBar';
 import { api } from '../../../services/api';
+import type { CustodyEmployee } from '../../../services/api';
 import { formatNPR } from '../../../utils/nprFormat';
 import { clampLineQuantity } from '../../../utils/lineQuantity';
 import { isConsumableProduct } from '../../../utils/productGroupBehavior';
@@ -38,20 +39,47 @@ export const ConsumableIssuePanel: React.FC = () => {
 
 
   const [consumableBranchId, setConsumableBranchId] = useState<string>(userBranchId);
-  const [consumableTechnician, setConsumableTechnician] = useState<string>('Field Splicing Technician');
-  const [consumableWorkOrder, setConsumableWorkOrder] = useState<string>('WO-2081-SPLIT-01');
+  // Custody follows a person, not a typed name: the roster is the identity the
+  // ledger writes, and the work order is the visit the issue is booked against.
+  const [custodyRoster, setCustodyRoster] = useState<CustodyEmployee[]>([]);
+  const [custodyWorkOrders, setCustodyWorkOrders] = useState<any[]>([]);
+  const [consumableEmployeeId, setConsumableEmployeeId] = useState<string>('');
+  const [consumableWorkOrderId, setConsumableWorkOrderId] = useState<string>('');
   const [consumableReason, setConsumableReason] = useState<string>('Field fiber splicing & customer drop installation material usage');
   const [consumableItems, setConsumableItems] = useState<ConsumableIssueItem[]>([]);
   // Dismissible "Consumables Operational Rule" banner (resets on reload —
   // intentionally not persisted so new sessions see the rule once).
   const [isConsumableRuleBannerVisible, setIsConsumableRuleBannerVisible] = useState(true);
 
+  useEffect(() => {
+    let alive = true;
+    api.getCustodyEmployees()
+      .then((rows) => { if (alive) setCustodyRoster(Array.isArray(rows) ? rows : []); })
+      .catch(() => { if (alive) setCustodyRoster([]); });
+    api.getFieldWorkOrders()
+      .then((rows) => { if (alive) setCustodyWorkOrders(Array.isArray(rows) ? rows : []); })
+      .catch(() => { if (alive) setCustodyWorkOrders([]); });
+    return () => { alive = false; };
+  }, []);
+
+  const branchRoster = useMemo(
+    () => custodyRoster.filter((person) => person.branch_id === consumableBranchId),
+    [custodyRoster, consumableBranchId]
+  );
+  const selectedEmployee = custodyRoster.find((person) => person.id === consumableEmployeeId) || null;
+  const employeeWorkOrders = custodyWorkOrders.filter(
+    (order) =>
+      order.technician_id === consumableEmployeeId &&
+      order.status !== 'COMPLETED' &&
+      order.status !== 'CANCELLED'
+  );
+
   // Consumable Items Handlers
   const handleResetConsumableForm = () => {
     setConsumableItems([]);
     setConsumableBranchId(userBranchId);
-    setConsumableTechnician('Field Splicing Technician');
-    setConsumableWorkOrder('WO-2081-SPLIT-01');
+    setConsumableEmployeeId('');
+    setConsumableWorkOrderId('');
     setConsumableReason('Field fiber splicing & customer drop installation material usage');
   };
 
@@ -121,6 +149,10 @@ export const ConsumableIssuePanel: React.FC = () => {
       alertDialog('Please add at least one consumable item to issue.');
       return;
     }
+    if (!consumableEmployeeId) {
+      alertDialog('Choose the employee these units are issued to: the stock is held by that person until it is consumed or returned.');
+      return;
+    }
 
     const branchObj = branches.find((b) => b.id === consumableBranchId);
 
@@ -151,6 +183,7 @@ export const ConsumableIssuePanel: React.FC = () => {
       .filter(Boolean)
       .join('; ');
 
+    const workOrder = employeeWorkOrders.find((order) => order.id === consumableWorkOrderId) || null;
     try {
       await onCreateOperation({
         type: 'CONSUMABLE_ISSUE',
@@ -158,9 +191,11 @@ export const ConsumableIssuePanel: React.FC = () => {
         branchName: branchObj?.name,
         items: consumableItems,
         totalValue: grandTotal,
-        technicianName: consumableTechnician,
-        workOrderRef: consumableWorkOrder,
-        reason: `Consumable Field Issue: WO ${consumableWorkOrder} (${consumableTechnician}) - ${consumableReason}${usedAtSummary ? ` — Used at: ${usedAtSummary}` : ''}`,
+        employeeId: consumableEmployeeId,
+        technicianName: selectedEmployee?.name || consumableEmployeeId,
+        workOrderId: workOrder?.id || null,
+        workOrderRef: workOrder?.work_order_no || undefined,
+        reason: `Consumable Field Issue: ${workOrder ? workOrder.work_order_no : 'unassigned'} (${selectedEmployee?.name || consumableEmployeeId}) - ${consumableReason}${usedAtSummary ? ` — Used at: ${usedAtSummary}` : ''}`,
         inspectorName: currentUser?.name || 'Store Supervisor',
         status: 'LOGGED',
       });
@@ -173,7 +208,10 @@ export const ConsumableIssuePanel: React.FC = () => {
       return;
     }
 
-    alertDialog(`Successfully issued ${consumableItems.length} consumable material line item(s) to Technician ${consumableTechnician} for Work Order ${consumableWorkOrder}!`);
+    alertDialog(
+      `Issued ${consumableItems.length} consumable material line item(s) to ${selectedEmployee?.name || consumableEmployeeId}` +
+        `${workOrder ? ` for ${workOrder.work_order_no}` : ''}. The units are in that technician's custody until they are consumed against a visit or returned.`
+    );
     setConsumableItems([]);
     setConsumableReason('Field fiber splicing & customer drop installation material usage');
   };
@@ -223,7 +261,11 @@ export const ConsumableIssuePanel: React.FC = () => {
                 <label className="block font-bold mb-1">Source Store Branch *</label>
                 <select
                   value={consumableBranchId}
-                  onChange={(e) => setConsumableBranchId(e.target.value)}
+                  onChange={(e) => {
+                    setConsumableBranchId(e.target.value);
+                    setConsumableEmployeeId('');
+                    setConsumableWorkOrderId('');
+                  }}
                   className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                 >
                   {allowedBranches.map((b) => (
@@ -233,27 +275,51 @@ export const ConsumableIssuePanel: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-bold mb-1">Field Technician Name *</label>
-                <input
-                  type="text"
+                <label className="block font-bold mb-1">Issue To (Field Technician) *</label>
+                <select
                   required
-                  value={consumableTechnician}
-                  onChange={(e) => setConsumableTechnician(e.target.value)}
-                  placeholder="e.g. Ram Bahadur (Splicing Tech)"
+                  value={consumableEmployeeId}
+                  onChange={(e) => {
+                    setConsumableEmployeeId(e.target.value);
+                    setConsumableWorkOrderId('');
+                  }}
                   className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
-                />
+                >
+                  <option value="">Select the person receiving the stock…</option>
+                  {branchRoster.map((person) => (
+                    <option key={person.id} value={person.id}>
+                      {person.name}{person.employee_code ? ` (${person.employee_code})` : ''}
+                    </option>
+                  ))}
+                </select>
+                {branchRoster.length === 0 && (
+                  <p className="mt-1 text-[10px] text-amber-600 dark:text-amber-400">
+                    No employee is on this branch's custody roster — add the person to the branch's employee register first.
+                  </p>
+                )}
               </div>
 
               <div>
-                <label className="block font-bold mb-1">Work Order / Ticket Ref *</label>
-                <input
-                  type="text"
-                  required
-                  value={consumableWorkOrder}
-                  onChange={(e) => setConsumableWorkOrder(e.target.value)}
-                  placeholder="e.g. WO-2081-SPLIT-04"
+                <label className="block font-bold mb-1">Work Order / Ticket Ref</label>
+                <select
+                  value={consumableWorkOrderId}
+                  onChange={(e) => setConsumableWorkOrderId(e.target.value)}
                   className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
-                />
+                  disabled={!consumableEmployeeId || employeeWorkOrders.length === 0}
+                >
+                  <option value="">
+                    {!consumableEmployeeId
+                      ? 'Choose the technician first…'
+                      : employeeWorkOrders.length === 0
+                        ? 'No open work order for this technician'
+                        : 'Not job-bound (stock top-up)'}
+                  </option>
+                  {employeeWorkOrders.map((order) => (
+                    <option key={order.id} value={order.id}>
+                      {order.work_order_no} · {order.kind}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
 

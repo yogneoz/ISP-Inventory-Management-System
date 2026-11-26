@@ -103,6 +103,10 @@ export async function createAsset(
     /** WTY-5: the customer promise captured when a rental CPE is deployed. */
     sellerWarrantyEndDateAD?: string;
     sellerWarrantyCovered?: boolean;
+    /** Dispatch to a technician (status IN_USE): who holds it and for which visit. */
+    assignedEmployeeId?: string;
+    assignedEmployeeName?: string;
+    assignedWorkOrderId?: string;
   }
 ): Promise<Asset> {
   return fetchJson('/api/assets', {

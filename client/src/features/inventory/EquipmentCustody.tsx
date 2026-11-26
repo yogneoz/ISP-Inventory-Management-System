@@ -17,7 +17,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertCircle, ArrowLeftRight, ArrowUpFromLine, Loader2, PackageSearch, RefreshCw } from 'lucide-react';
 import { api } from '../../services/api';
-import type { CustodyEmployee, EmployeeStockHolding } from '../../services/api';
+import type { CustodyEmployee, CustodyTieOut, EmployeeStockHolding } from '../../services/api';
 import type { Product, User } from '../../types';
 import { isOperationAllowed } from '../../utils/permissions';
 import { loadUserSession } from '../../utils/sessionCache';
@@ -68,10 +68,15 @@ export const EquipmentCustody: React.FC<EquipmentCustodyProps> = ({
   const session = loadUserSession();
   const role = currentUser?.role || session?.currentUser?.role || '';
   const canView = isOperationAllowed('employee-stock-view', role);
+  // Issuing takes a unit off the shelf into a person's custody — the deploy
+  // grant, not the stock-out the technician holds. Transferring custody between
+  // two people is still the stock-out control the route uses.
+  const canDeploy = isOperationAllowed('stock-deploy', role);
   const canMove = isOperationAllowed('stock-out', role);
 
   const [holdings, setHoldings] = useState<EmployeeStockHolding[]>([]);
   const [roster, setRoster] = useState<CustodyEmployee[]>([]);
+  const [tieOut, setTieOut] = useState<CustodyTieOut | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<Refusal | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -94,16 +99,19 @@ export const EquipmentCustody: React.FC<EquipmentCustodyProps> = ({
     setLoading(true);
     setLoadError(null);
     try {
-      const [nextHoldings, nextRoster] = await Promise.all([
+      const [nextHoldings, nextRoster, nextTieOut] = await Promise.all([
         api.getEmployeeStockHoldings({}),
         api.getCustodyEmployees(),
+        api.getCustodyTieOut({}),
       ]);
       setHoldings(Array.isArray(nextHoldings) ? nextHoldings : []);
       setRoster(Array.isArray(nextRoster) ? nextRoster : []);
+      setTieOut(nextTieOut && Array.isArray(nextTieOut.rows) ? nextTieOut : null);
     } catch (err) {
       setLoadError(refusalOf(err));
       setHoldings([]);
       setRoster([]);
+      setTieOut(null);
     } finally {
       setLoading(false);
     }
@@ -255,6 +263,72 @@ export const EquipmentCustody: React.FC<EquipmentCustodyProps> = ({
         </div>
       </div>
 
+      {tieOut && tieOut.rows.length > 0 && (
+        <div className={panelClass}>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Custody tie-out</p>
+            <p
+              className={`text-[11px] font-semibold ${
+                tieOut.totals.drift === 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'
+              }`}
+            >
+              {tieOut.totals.drift === 0
+                ? 'The log rebuilds every holding: both books agree.'
+                : `Drift of ${tieOut.totals.drift} unit(s) between the log and the holdings — investigate.`}
+            </p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="text-[10px] uppercase tracking-wider text-slate-400">
+                <tr>
+                  <th className="px-2 py-1 font-semibold">Holder</th>
+                  <th className="px-2 py-1 font-semibold">Product</th>
+                  <th className="px-2 py-1 text-right font-semibold">Issued</th>
+                  <th className="px-2 py-1 text-right font-semibold">Transferred in</th>
+                  <th className="px-2 py-1 text-right font-semibold">Returned</th>
+                  <th className="px-2 py-1 text-right font-semibold">Consumed</th>
+                  <th className="px-2 py-1 text-right font-semibold">Lost</th>
+                  <th className="px-2 py-1 text-right font-semibold">Transferred out</th>
+                  <th className="px-2 py-1 text-right font-semibold">Held</th>
+                  <th className="px-2 py-1 text-right font-semibold">Branch on hand</th>
+                  <th className="px-2 py-1 text-right font-semibold">Drift</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tieOut.rows.map((row) => (
+                  <tr
+                    key={`${row.employeeId}-${row.productId}`}
+                    className="border-t border-slate-100 dark:border-slate-800"
+                  >
+                    <td className="px-2 py-1.5 font-medium text-slate-800 dark:text-slate-100">{row.employeeName}</td>
+                    <td className="px-2 py-1.5">{row.productName}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums">{row.issued}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums">{row.transferredIn}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums">{row.returned}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums">{row.consumed}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums">{row.lost}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums">{row.transferredOut}</td>
+                    <td className="px-2 py-1.5 text-right font-semibold tabular-nums">{row.held}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums text-slate-500">{row.branchOnHand}</td>
+                    <td
+                      className={`px-2 py-1.5 text-right font-semibold tabular-nums ${
+                        row.drift === 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'
+                      }`}
+                    >
+                      {row.drift === 0 ? '—' : row.drift}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-2 text-[10px] text-slate-400">
+            Held = issued + transferred in − returned − consumed − lost − transferred out. Every person-directed
+            document writes this one log, so a row that does not tie is a bug, not a rounding.
+          </p>
+        </div>
+      )}
+
       {notice && <div role="status" className={okBox}>{notice}</div>}
       {loadError && (
         <div role="alert" className={errorBox}>
@@ -342,8 +416,10 @@ export const EquipmentCustody: React.FC<EquipmentCustodyProps> = ({
           <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
             <ArrowUpFromLine size={13} /> Issue stock to a person
           </p>
-          {!canMove ? (
-            <p className="text-xs text-slate-500">Issuing moves stock out of the branch; your role cannot do that.</p>
+          {!canDeploy ? (
+            <p className="text-xs text-slate-500">
+              Issuing puts stock into a person's custody, so it needs the deploy grant; your role cannot do that.
+            </p>
           ) : (
             <div className="space-y-2">
               <label className="block">

@@ -131,6 +131,10 @@ describe('employee stock custody (API)', { skip: skipNoDb }, () => {
       'employee-stock-view': { BRANCH_MANAGER: true, AUDITOR: true },
       'stock-out': { BRANCH_MANAGER: true, AUDITOR: false },
       'consumable-issue-reverse': { BRANCH_MANAGER: true, AUDITOR: false },
+      // A write-off is the manager's custody permission; the panel's loss
+      // button (and /loss) is closed to the technician who reports it.
+      'custody-writeoff': { BRANCH_MANAGER: true, AUDITOR: false },
+      'stock-deploy': { BRANCH_MANAGER: true, AUDITOR: false },
     } as any);
 
     const app = createApp();

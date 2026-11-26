@@ -30,8 +30,15 @@ export const TAB_PERMISSIONS: Record<string, string | string[]> = {
   damage: 'branch-damage-mark',
   'receive-branch-transfer': 'branch-transfer-receive',
   'create-transfer': 'branch-transfer-create',
-  'assign-asset': 'branch-asset-assign',
-  'asset-deployments': 'branch-asset-assign',
+  // The form writes a deployment (`stock-deploy`); the register beside it is a
+  // read and opens with the same grant as every other asset read, so finance
+  // and audit can see what was deployed without being able to deploy.
+  'assign-asset': 'stock-deploy',
+  'asset-deployments': 'assets-view',
+  // The Issue Consumables form is the other shelf departure (it writes the
+  // custody ledger with a named holder), so it follows the deploy grant rather
+  // than the stock-out the technician holds.
+  'consumable-issue': 'stock-deploy',
   'equipment-custody': 'employee-stock-view',
   'opening-stock': 'opening-stock-view',
   'category-management': 'category-manage',

@@ -15,12 +15,17 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertCircle, ArrowDownToLine, ArrowUpFromLine, Loader2, PackageSearch, RefreshCw, Trash2 } from 'lucide-react';
 import { api } from '../../services/api';
-import type { EmployeeStockHolding, EmployeeStockMovement, EmployeeStockMovementType } from '../../services/api';
+import type {
+  EmployeeCustodyAsset,
+  EmployeeStockHolding,
+  EmployeeStockMovement,
+  EmployeeStockMovementType,
+} from '../../services/api';
 import type { Product, User } from '../../types';
 import { isOperationAllowed } from '../../utils/permissions';
 import { loadUserSession } from '../../utils/sessionCache';
 
-type Action = 'issue' | 'return' | 'consume' | 'loss';
+type Action = 'issue' | 'return' | 'consume' | 'loss' | 'report';
 
 interface EmployeeStockPanelProps {
   employeeId: string;
@@ -50,6 +55,7 @@ const ACTION_LABELS: Record<Action, string> = {
   return: 'Return to branch',
   consume: 'Consume on job',
   loss: 'Record loss',
+  report: 'Report lost / damaged',
 };
 
 const MOVEMENT_LABELS: Record<EmployeeStockMovementType, string> = {
@@ -69,14 +75,29 @@ export const EmployeeStockPanel: React.FC<EmployeeStockPanelProps> = ({ employee
   const user = useMemo<User | null>(() => currentUser || loadUserSession().currentUser, [currentUser]);
 
   const canView = isOperationAllowed('employee-stock-view', user?.role);
+  // Writing a unit off against a person is a manager's operation. The holder
+  // only reports it, and the report becomes a pending approval that a manager
+  // executes — so a technician can never clear their own custody.
+  const canWriteOff = isOperationAllowed('custody-writeoff', user?.role);
+  // Filing a claim on held stock is a stock control (`stock-out`), the same
+  // operation the server requires — a read-only auditor never sees the action.
+  const canReport = isOperationAllowed('stock-out', user?.role);
+  // Both the shelf issue and the desk install are deployments: the same
+  // `stock-deploy` cell the server checks, false for the field technician and
+  // the front desk (the technician installs by closing the visit instead).
+  const canDeploy = isOperationAllowed('stock-deploy', user?.role);
+  const canInstall = canDeploy;
   const allowedActions = useMemo(() => {
     const actions: Action[] = [];
-    if (isOperationAllowed('stock-out', user?.role)) actions.push('issue', 'loss');
+    if (canDeploy) actions.push('issue');
+    if (canWriteOff) actions.push('loss');
+    else if (canReport) actions.push('report');
     if (isOperationAllowed('consumable-issue-reverse', user?.role)) actions.push('return', 'consume');
     return actions;
-  }, [user?.role]);
+  }, [user?.role, canWriteOff, canReport, canDeploy]);
 
   const [holdings, setHoldings] = useState<EmployeeStockHolding[]>([]);
+  const [assets, setAssets] = useState<EmployeeCustodyAsset[]>([]);
   const [movements, setMovements] = useState<EmployeeStockMovement[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -87,6 +108,10 @@ export const EmployeeStockPanel: React.FC<EmployeeStockPanelProps> = ({ employee
   const [quantity, setQuantity] = useState('1');
   const [action, setAction] = useState<Action>('issue');
   const [reason, setReason] = useState('');
+  // Device identity for serial-tracked equipment (a CPE router/ONU): the serial
+  // is what the register follows from the shelf to this person's van and, on a
+  // work-order completion, to the customer's installed-device record.
+  const [serialsText, setSerialsText] = useState('');
 
   const load = useCallback(async () => {
     if (!canView) {
@@ -96,12 +121,14 @@ export const EmployeeStockPanel: React.FC<EmployeeStockPanelProps> = ({ employee
     setLoading(true);
     setError(null);
     try {
-      const [rows, log] = await Promise.all([
+      const [rows, log, held] = await Promise.all([
         api.getEmployeeStockHoldings({ employeeId }),
         api.getEmployeeStockMovements(employeeId, 20),
+        api.getEmployeeStockAssets(employeeId),
       ]);
       setHoldings(rows);
       setMovements(log);
+      setAssets(held);
     } catch (err: any) {
       setError(err?.message || 'Could not read the custody ledger.');
     } finally {
@@ -131,6 +158,17 @@ export const EmployeeStockPanel: React.FC<EmployeeStockPanelProps> = ({ employee
   }, [allowedActions, action]);
 
   const totalUnits = holdings.reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+  const selectedProduct = products.find((product) => product.id === productId) || null;
+  const serialTracked = Boolean(
+    selectedProduct &&
+      selectedProduct.trackingType !== 'QUANTITY_ONLY' &&
+      selectedProduct.requiresSerialTracking !== false
+  );
+  const parseSerials = (): string[] =>
+    serialsText
+      .split(/[\s,;]+/)
+      .map((value) => value.trim())
+      .filter(Boolean);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -145,26 +183,87 @@ export const EmployeeStockPanel: React.FC<EmployeeStockPanelProps> = ({ employee
       setError('Quantity must be a whole number of at least 1.');
       return;
     }
-    if (action === 'loss' && !reason.trim()) {
+    if ((action === 'loss' || action === 'report') && !reason.trim()) {
       setError('A loss needs a reason.');
+      return;
+    }
+    const serials = parseSerials();
+    if (serials.length > 0 && serials.length !== qty) {
+      setError(`A serialised movement needs one serial per unit: ${qty} unit(s), ${serials.length} serial(s).`);
+      return;
+    }
+    if (action === 'issue' && serialTracked && serials.length === 0) {
+      setError('Enter the device serial(s): a serialised unit is issued into this person\u2019s custody by serial.');
       return;
     }
     setBusy(true);
     try {
+      if (action === 'report') {
+        const report = await api.reportCustodyLoss({
+          employeeId,
+          productId,
+          quantity: qty,
+          reason: reason.trim(),
+          deviceSerials: serials.length > 0 ? serials : undefined,
+        });
+        setNotice(report.message);
+        setQuantity('1');
+        setReason('');
+        setSerialsText('');
+        return;
+      }
       const movement = await api.recordEmployeeStockMovement(action, {
         employeeId,
         productId,
         quantity: qty,
         reason: action === 'loss' ? reason.trim() : undefined,
+        deviceSerials: serials.length > 0 ? serials : undefined,
       });
-      setNotice(`${ACTION_LABELS[action]} — ${movement.quantity} × ${movement.product_name}.`);
+      setNotice(
+        `${ACTION_LABELS[action]} — ${movement.quantity} × ${movement.product_name}` +
+          (serials.length > 0 ? ` (${serials.join(', ')})` : '') +
+          '.'
+      );
       setQuantity('1');
       setReason('');
+      setSerialsText('');
       await load();
     } catch (err: any) {
       setError(err?.message || 'That movement was refused.');
     } finally {
       setBusy(false);
+    }
+  };
+
+  const [installingId, setInstallingId] = useState<string | null>(null);
+
+  /**
+   * Issue a held CPE to the customer its visit names. This is the same service
+   * the work-order completion calls, so the screen cannot produce a different
+   * ledger: asset, serial, customer-device row and warranty move together.
+   */
+  const installAtCustomer = async (asset: EmployeeCustodyAsset) => {
+    if (!asset.workOrderId) {
+      setError('This unit was not dispatched for a visit, so there is no customer to install it at.');
+      return;
+    }
+    setInstallingId(asset.assetId);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await api.installCustodyAsset({
+        employeeId,
+        assetId: asset.assetId,
+        workOrderId: asset.workOrderId,
+      });
+      setNotice(
+        `Installed ${result.tagNumber} at ${result.customerName} on ${result.workOrderNo} — warranty starts ${result.warrantyStartDateAD}.`
+      );
+      await load();
+    } catch (err: any) {
+      setError(err?.message || 'That installation was refused.');
+    } finally {
+      setInstallingId(null);
     }
   };
 
@@ -245,6 +344,70 @@ export const EmployeeStockPanel: React.FC<EmployeeStockPanelProps> = ({ employee
         </table>
       </div>
 
+      {assets.length > 0 && (
+        <div className="mt-4">
+          <div className={labelClass}>Assets in custody ({assets.length})</div>
+          <p className="mt-0.5 text-[10px] text-slate-400">
+            Whole units issued against a visit. Installing one issues it to that visit’s customer and starts
+            the customer’s warranty on the installation date.
+          </p>
+          <div className="mt-1 overflow-x-auto">
+            <table className="w-full min-w-[560px] border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-slate-200 text-left dark:border-slate-800">
+                  <th className="py-1.5 pr-2 font-semibold text-slate-500">Unit</th>
+                  <th className="py-1.5 pr-2 font-semibold text-slate-500">Customer</th>
+                  <th className="py-1.5 pr-2 font-semibold text-slate-500">Visit</th>
+                  <th className="py-1.5 pl-2 text-right font-semibold text-slate-500">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {assets.map((asset) => (
+                  <tr key={asset.assetId} className="border-b border-slate-100 dark:border-slate-800/60">
+                    <td className="py-1.5 pr-2">
+                      <div className="font-medium text-slate-700 dark:text-slate-200">{asset.name}</div>
+                      <div className="font-mono text-[10px] text-slate-400">
+                        {asset.tagNumber}
+                        {asset.deviceSerial ? ` · ${asset.deviceSerial}` : ''}
+                      </div>
+                    </td>
+                    <td className="py-1.5 pr-2 text-slate-600 dark:text-slate-300">
+                      {asset.customerName || <span className="text-slate-400">No visit</span>}
+                    </td>
+                    <td className="py-1.5 pr-2 text-slate-500 dark:text-slate-400">
+                      {asset.workOrderNo || '—'}
+                      {asset.scheduledDateAD ? <span className="text-[10px] text-slate-400"> · {asset.scheduledDateAD}</span> : null}
+                    </td>
+                    <td className="py-1.5 pl-2 text-right">
+                      {canInstall ? (
+                      <button
+                        type="button"
+                        className={ghostButton + ' ml-auto'}
+                        disabled={!asset.workOrderId || installingId === asset.assetId}
+                        onClick={() => void installAtCustomer(asset)}
+                        title={
+                          asset.workOrderId
+                            ? 'Issue this unit to the visit\u2019s customer'
+                            : 'Dispatch the unit with a work order before it can be installed'
+                        }
+                      >
+                        {installingId === asset.assetId ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <ArrowDownToLine className="h-3.5 w-3.5" />
+                        )}
+                        Issue to customer
+                      </button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {allowedActions.length > 0 && (
         <form onSubmit={submit} className="mt-4 grid grid-cols-1 gap-2 rounded-xl border border-slate-200 p-3 sm:grid-cols-[2fr_1fr_2fr_auto] dark:border-slate-800">
           <div>
@@ -299,10 +462,35 @@ export const EmployeeStockPanel: React.FC<EmployeeStockPanelProps> = ({ employee
               ))}
             </select>
           </div>
-          {action === 'loss' && (
+          {serialTracked && (
+            <div className="sm:col-span-3">
+              <label className={labelClass} htmlFor={`stock-serials-${employeeId}`}>
+                Device serial(s) — one per unit
+              </label>
+              <input
+                id={`stock-serials-${employeeId}`}
+                type="text"
+                className={inputClass}
+                value={serialsText}
+                placeholder="Scan or type a serial per unit, e.g. ONU-0001, ONU-0002"
+                onChange={(event) => setSerialsText(event.target.value)}
+                disabled={busy}
+              />
+              <p className="mt-1 text-[10px] text-slate-400">
+                {action === 'issue'
+                  ? 'The unit leaves branch stock into this person\u2019s custody and shows as “With Technician” in the Serial Log Register.'
+                  : action === 'consume'
+                    ? 'A consumed unit leaves custody (installed units are stamped with the work order\u2019s customer).'
+                    : action === 'return'
+                      ? 'Returned units go back to IN_STOCK at the branch and can be sold or deployed again.'
+                      : 'Written-off units are marked LOST — they never return to stock.'}
+              </p>
+            </div>
+          )}
+          {(action === 'loss' || action === 'report') && (
             <div className="sm:col-span-2">
               <label className={labelClass} htmlFor={`stock-reason-${employeeId}`}>
-                Reason for the loss
+                {action === 'report' ? 'What happened? (goes to a manager)' : 'Reason for the loss'}
               </label>
               <input
                 id={`stock-reason-${employeeId}`}

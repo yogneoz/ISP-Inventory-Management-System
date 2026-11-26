@@ -138,7 +138,12 @@ async function startServer() {
   }
 
   const server: Server = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Inventory Management System server running on http://localhost:${PORT}`);
+    // Report the port the socket is actually bound to, not the configured
+    // constant: if those ever disagree (a stray PORT=0, a platform rewrite) the
+    // log has to say where the server really is.
+    const bound = server.address();
+    const boundPort = bound && typeof bound === 'object' ? bound.port : PORT;
+    console.log(`Inventory Management System server running on http://localhost:${boundPort}`);
   });
   // From here on the process has something to drain. Attaching now (not at
   // shutdown) is what lets the drain distinguish a request that was already in

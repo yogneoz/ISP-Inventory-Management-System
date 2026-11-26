@@ -372,6 +372,9 @@ CREATE TABLE IF NOT EXISTS fixed_assets (
     assigned_location_name VARCHAR(200),
     assigned_employee_id VARCHAR(50),
     assigned_employee_name VARCHAR(200),
+    -- The visit an asset was dispatched to a technician for. Nullable: an asset
+    -- issued through an onboarding checklist belongs to a person, not a job.
+    assigned_work_order_id VARCHAR(50),
     assignment_date_ad DATE,
     assignment_date_bs VARCHAR(20),
     assignment_notes TEXT,
@@ -388,8 +391,12 @@ ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS capitalization_date_bs VARCHAR
 ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS placed_in_service_date_bs VARCHAR(20);
 ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS assigned_employee_id VARCHAR(50);
 ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS assigned_employee_name VARCHAR(200);
+ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS assigned_work_order_id VARCHAR(50);
 CREATE INDEX IF NOT EXISTS idx_fixed_assets_assigned_employee
   ON fixed_assets(assigned_employee_id);
+CREATE INDEX IF NOT EXISTS idx_fixed_assets_assigned_work_order
+  ON fixed_assets(assigned_work_order_id)
+  WHERE assigned_work_order_id IS NOT NULL;
 
 -- ==========================================
 -- 9. Purchase Orders Table (with items JSONB)
@@ -617,6 +624,12 @@ CREATE TABLE IF NOT EXISTS stock_operations (
     updated_by VARCHAR(150),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    -- Person-directed issue (CONSUMABLE_ISSUE): the employee the units are in
+    -- custody of, and the group its custody movements share so a reversal
+    -- returns exactly this document's units. Mirrors
+    -- scripts/migrations/0059_stock_operation_custody.sql.
+    employee_id VARCHAR(50),
+    custody_group_id UUID,
     -- SCALE-3: partitioned by the operation date, so a month or a fiscal year
     -- prunes to the months it names. The partition key must be in the primary
     -- key; `reference_number` stays globally unique through
@@ -1259,7 +1272,10 @@ CREATE TABLE IF NOT EXISTS serial_log (
     branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
     customer_id VARCHAR(50),
     customer_name VARCHAR(200),
-    status VARCHAR(30) NOT NULL DEFAULT 'IN_STOCK' CHECK (status IN ('IN_STOCK', 'IN_TRANSIT', 'CUSTOMER_ASSIGNED', 'POP_LOCATION_ASSIGNED', 'DAMAGED', 'RETURNED', 'SOLD', 'RETURNED_TO_VENDOR', 'CONSUMED')),
+    -- The person a serialised unit is in the custody of (its van stock). Set by
+    -- an issue (IN_CUSTODY) and cleared by the return, installation or write-off.
+    holder_employee_id VARCHAR(50),
+    status VARCHAR(30) NOT NULL DEFAULT 'IN_STOCK' CHECK (status IN ('IN_STOCK', 'IN_TRANSIT', 'CUSTOMER_ASSIGNED', 'POP_LOCATION_ASSIGNED', 'DAMAGED', 'RETURNED', 'SOLD', 'RETURNED_TO_VENDOR', 'CONSUMED', 'IN_CUSTODY', 'LOST')),
     source_type VARCHAR(30) NOT NULL DEFAULT 'PURCHASE',
     source_id VARCHAR(50),
     history_json TEXT DEFAULT '[]',
@@ -1288,7 +1304,7 @@ CREATE TABLE IF NOT EXISTS serial_log_default PARTITION OF serial_log DEFAULT;
 CREATE TABLE IF NOT EXISTS approval_requests (
     id VARCHAR(50) PRIMARY KEY,
     request_number VARCHAR(100) UNIQUE NOT NULL,
-    type VARCHAR(50) NOT NULL CHECK (type IN ('CUSTOMER_DEVICE_STATUS', 'CANCEL_TRANSFER', 'CANCEL_IN_TRANSIT_TRANSFER', 'CANCEL_RECEIVE_TRANSFER', 'STOCK_AUDIT_RECONCILIATION', 'BULK_STOCK_ADJUSTMENT')),
+    type VARCHAR(50) NOT NULL CHECK (type IN ('CUSTOMER_DEVICE_STATUS', 'CANCEL_TRANSFER', 'CANCEL_IN_TRANSIT_TRANSFER', 'CANCEL_RECEIVE_TRANSFER', 'STOCK_AUDIT_RECONCILIATION', 'BULK_STOCK_ADJUSTMENT', 'CUSTODY_LOSS')),
     target_id VARCHAR(50),
     customer_name VARCHAR(200),
     customer_code VARCHAR(50),
@@ -4211,6 +4227,8 @@ CREATE INDEX IF NOT EXISTS idx_stock_ops_branch ON stock_operations(branch_id);
 CREATE INDEX IF NOT EXISTS idx_stock_ops_type ON stock_operations(type);
 CREATE INDEX IF NOT EXISTS idx_stock_ops_date ON stock_operations(date_ad DESC);
 CREATE INDEX IF NOT EXISTS idx_stock_operations_fiscal_year_id ON stock_operations(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_stock_operations_employee ON stock_operations(employee_id) WHERE employee_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_stock_operations_custody_group ON stock_operations(custody_group_id) WHERE custody_group_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_stock_operations_demo ON stock_operations(id) WHERE is_demo = TRUE;
 
 -- Audit Logs indexes
@@ -4574,7 +4592,7 @@ BEGIN
   ALTER TABLE serial_log DROP CONSTRAINT IF EXISTS serial_log_status_known;
   ALTER TABLE serial_log DROP CONSTRAINT IF EXISTS serial_log_status_check;
   ALTER TABLE serial_log ADD CONSTRAINT serial_log_status_check
-    CHECK (status IN ('IN_STOCK', 'IN_TRANSIT', 'CUSTOMER_ASSIGNED', 'POP_LOCATION_ASSIGNED', 'DAMAGED', 'RETURNED', 'SOLD', 'RETURNED_TO_VENDOR', 'CONSUMED'));
+    CHECK (status IN ('IN_STOCK', 'IN_TRANSIT', 'CUSTOMER_ASSIGNED', 'POP_LOCATION_ASSIGNED', 'DAMAGED', 'RETURNED', 'SOLD', 'RETURNED_TO_VENDOR', 'CONSUMED', 'IN_CUSTODY', 'LOST'));
 END $$;
 
 -- Legacy shipment/stock-ops date indexes (dbBoot-only before consolidation).
@@ -6121,6 +6139,9 @@ CREATE TABLE IF NOT EXISTS employee_stock_movements (
     counterparty_employee_id VARCHAR(50) REFERENCES employees(id) ON DELETE RESTRICT,
     transfer_group_id UUID,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- The document that issued these units (NULL for the panel/phone
+    -- movements), so a reversal names exactly the rows it returns.
+    custody_group_id UUID,
     CONSTRAINT employee_stock_loss_needs_reason
       CHECK (movement_type <> 'LOSS' OR (reason IS NOT NULL AND length(btrim(reason)) > 0)),
     CONSTRAINT employee_stock_transfer_shape CHECK (
@@ -6140,6 +6161,10 @@ CREATE INDEX IF NOT EXISTS idx_employee_stock_movements_employee
 CREATE INDEX IF NOT EXISTS idx_employee_stock_movements_product
   ON employee_stock_movements (product_id, branch_id, created_at DESC);
 
+CREATE INDEX IF NOT EXISTS idx_employee_stock_movements_custody_group
+  ON employee_stock_movements (custody_group_id)
+  WHERE custody_group_id IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS employee_stock_holdings (
     employee_id VARCHAR(50) NOT NULL REFERENCES employees(id) ON DELETE RESTRICT,
     product_id VARCHAR(50) NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
@@ -6151,6 +6176,21 @@ CREATE TABLE IF NOT EXISTS employee_stock_holdings (
 
 CREATE INDEX IF NOT EXISTS idx_employee_stock_holdings_branch
   ON employee_stock_holdings (branch_id, employee_id);
+
+-- Which device serials each custody movement carried (mirror of
+-- scripts/migrations/0060_serial_custody.sql). The register keeps the unit's
+-- live state; this table is the document trail: "this movement moved SN-x".
+CREATE TABLE IF NOT EXISTS employee_stock_movement_serials (
+  movement_id BIGINT NOT NULL REFERENCES employee_stock_movements(id) ON DELETE CASCADE,
+  device_serial VARCHAR(100) NOT NULL,
+  product_id VARCHAR(50) NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+  branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+  PRIMARY KEY (movement_id, device_serial)
+);
+
+CREATE INDEX IF NOT EXISTS idx_employee_stock_movement_serials_serial
+  ON employee_stock_movement_serials (lower(device_serial));
 
 -- ==========================================
 -- 31. Accounting read models (period and party balances)
@@ -6742,6 +6782,44 @@ ALTER TABLE service_invoices ADD COLUMN IF NOT EXISTS invoice_date_bs VARCHAR(20
 ALTER TABLE employee_shift_roster ADD COLUMN IF NOT EXISTS shift_date_bs VARCHAR(20);
 ALTER TABLE hr_delegations ADD COLUMN IF NOT EXISTS start_date_bs VARCHAR(20);
 ALTER TABLE hr_delegations ADD COLUMN IF NOT EXISTS end_date_bs VARCHAR(20);
+
+-- `stock_operations` is created before `employees`, so the custody employee FK
+-- (mirrored from scripts/migrations/0059_stock_operation_custody.sql) is added
+-- here once the referenced table exists, and before §31 — that section must stay
+-- the 0047 migration body verbatim. The guard keeps re-running the schema
+-- idempotent, and the constraint keeps the migration's auto-generated name so
+-- the upgrade path and a fresh install compare equal.
+ALTER TABLE stock_operations ADD COLUMN IF NOT EXISTS employee_id VARCHAR(50);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'stock_operations_employee_id_fkey'
+  ) THEN
+    ALTER TABLE stock_operations
+      ADD CONSTRAINT stock_operations_employee_id_fkey
+      FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+
+-- `serial_log` is created before `employees` too: the holder FK (mirrored from
+-- scripts/migrations/0060_serial_custody.sql) is added here once the referenced
+-- table exists. An issued device names the person holding it; deleting that
+-- person must not delete the register row, so the FK clears the holder.
+ALTER TABLE serial_log ADD COLUMN IF NOT EXISTS holder_employee_id VARCHAR(50);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'serial_log_holder_employee_id_fkey'
+  ) THEN
+    ALTER TABLE serial_log
+      ADD CONSTRAINT serial_log_holder_employee_id_fkey
+      FOREIGN KEY (holder_employee_id) REFERENCES employees(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_serial_log_holder
+  ON serial_log (holder_employee_id)
+  WHERE holder_employee_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS gl_period_balances (
     branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,

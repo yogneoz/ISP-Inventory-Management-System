@@ -230,7 +230,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 2902 tests; CI runs
+                                        #   drift/concurrency guards — 2935 tests; CI runs
                                         #   tsc + npm test + the source guards + the
                                         #   production build + the boot-timing gate +
                                         #   npm audit on every push/PR
@@ -715,17 +715,19 @@ Every `/api/*` request passes through this middleware chain in order:
 | `FIELD_TECHNICIAN` | Field operations | Single branch |
 | `AUDITOR` | Read-only audit access | Single branch |
 
-### 8.2 Permissions Matrix (68 operations × 12 roles)
+### 8.2 Permissions Matrix (72 operations × 12 roles)
 
 Defined in `src/utils/permissionMatrixData.ts` (`APP_ROLES`, `DEFAULT_PERMISSIONS_MATRIX`). Key groups:
 
 - **Procurement**: `po-create`, `po-receive`, `inv-create`, `inv-pay`, `purchase-return-create`, `po-delete`, `inv-delete`, `branch-procurement-control`
 - **Warehouse**: `shipment-create`, `shipment-cancel`, `wh-receive-pullouts`, `wh-restrict-transfer`, `shipment-history`, `pullout-report-view`
-- **Sales & Branch Operations**: `sales-invoice-create`, `sales-return-create`, `branch-transfer-create`, `branch-transfer-receive`, `branch-transfer-cancel-receive`, `branch-transfer-request-cancel`, `branch-pullout-dispatch`, `branch-damage-mark`, `stock-disposal-writeoff`, `branch-asset-assign`, `stock-out`, `consumable-issue-reverse`
+- **Sales & Branch Operations**: `sales-invoice-create`, `sales-return-create`, `branch-transfer-create`, `branch-transfer-receive`, `branch-transfer-cancel-receive`, `branch-transfer-request-cancel`, `branch-pullout-dispatch`, `branch-damage-mark`, `stock-disposal-writeoff`, `stock-deploy`, `stock-out`, `consumable-issue-reverse`
 - **Inventory**: `prod-view`, `prod-edit`, `uom-manage`, `edit-device-serials`, `category-manage`, `product-group-manage`, `stock-import-export`, `opening-stock-view`, `opening-stock-edit`, `warranty-view`, `warranty-edit`
 - **Finance & Accounting**: `gl-view`, `gl-post`, `gl-reverse`, `gl-chart-manage`, `gl-subledger-manage`, `gl-dimension-manage`, `gl-bill-terms-manage`, `gl-payroll-manage`, `gl-payroll-post`, `gl-cash-close`, `gl-opening-post`, `gl-close`, `fin-statements`, `fin-depreciation-post`, `vat-register`, `assets-view`, `assets-manage`, `stock-valuation`
 - **Suppliers & Customers**: `suppliers-manage`, `customers-manage`
 - **System Administration**: `admin-users`, `admin-branches`, `admin-audit`, `admin-fiscal`, `auth-switch-user`, `workflow-approval`, `workflow-approval-cancel`
+
+`stock-deploy` is the shelf cell: it gates issuing a unit out of branch stock (dispatch, technician custody, customer install, custody write-off) — held by Super Admin, Sub Super Admin, Inventory Manager and Branch Manager, deliberately **not** Accountant. The old `branch-asset-assign` cell was retired in migration `0062_retire_branch_asset_assign.sql`: the Assign Asset form needs `stock-deploy` and the Asset Deployments register reads on `assets-view`, so auditors see what was deployed without being able to deploy and accountants no longer see a form their grant would refuse.
 
 **Storage (two layers, in precedence order):**
 1. **PostgreSQL `permission_matrix` table** — authoritative, seeded at server startup, editable via the Permission Management UI (`PUT /api/permissions`)
@@ -1539,7 +1541,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 2902 tests against a real PostgreSQL 16 service container
+2. `npm test` — 2935 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM
@@ -1990,7 +1992,7 @@ is idempotent: a converged register reports 0 inserted and never downgrades `DAM
 `CUSTOMER_ASSIGNED` or `RETURNED`. Boot logs only a pointer to the action. A legacy database
 needs one run after upgrading.
 Hardened 2026-10-25: the pass now mirrors the live lifecycle instead of mapping every operation to
-`IN_STOCK` (`STOCK_OUT` → `SOLD`, `CONSUMABLE_ISSUE` → `CONSUMED`, received `PULLOUT` → `IN_STOCK`
+`IN_STOCK` (`STOCK_OUT` → `SOLD`, `CONSUMABLE_ISSUE` → `IN_CUSTODY` when the issue names a person, else `CONSUMED` for a legacy quantity-only issue, received `PULLOUT` → `IN_STOCK`
 at its destination, `CANCELLED` skipped, `MANUAL_ADJUSTMENT` moves no serial). A product/branch
 that was deleted after a document was written no longer aborts the run — the link is resolved at
 write time and a reference that still loses the race is counted as `skipped`; updates are a
@@ -2000,3 +2002,30 @@ Verification: `npx tsc --noEmit` clean; `tests/serialRegisterBackfill.test.ts` p
 retirement (source guard), convergence over real PostgreSQL (including the lifecycle mapping and an
 orphan product id), idempotency, terminal preservation, and 401/403/200 gating; full suite green in
 CI.
+
+## Serial-level custody — shelf → technician → customer (2026-11-26)
+
+The custody ledger made quantities follow the person; a device's identity now
+follows too. Issuing a serial-tracked CPE (the Issue Consumables document, or
+`POST /api/employee-stock/issue` with `deviceSerials`) moves its `serial_log` row
+`IN_STOCK → IN_CUSTODY` and sets `holder_employee_id`, so the Serial Log Register
+shows the unit as **With Technician** instead of pretending it is still on the
+shelf or already consumed. A work-order completion whose `serialUsed` (or
+`consumedSerials`) the technician really holds moves it `IN_CUSTODY →
+CUSTOMER_ASSIGNED`, stamped with that work order's customer and
+`source_type='WORK_ORDER'` — installation is the one moment a customer is known,
+and that is when the customer's serial log shows the device. A return puts it back
+`IN_STOCK` (sellable and deployable again), a consume without a customer leaves it
+`CONSUMED`, a loss marks it `LOST`, and a custody transfer changes only the
+holder. The holder is the guard (two technicians can hold the same product), and
+every write is guarded on the state it expects, so a stale caller gets a `409`
+naming the serial's real state. The phone stays lenient: a serial it only recorded
+as the order's ONT tag is left untouched rather than failing a job the cable
+quantity covers. `employee_stock_movement_serials` links each movement to the
+units it moved. Migration `0060_serial_custody.sql` (mirrored in
+`scripts/schema.sql`) adds the holder FK, the two statuses and the link table;
+see `docs/serial-register-audit.md` §6f. Tests: two new cases in
+`tests/stockOperationCustody.api.test.ts` (issue → install → customer, and the
+panel issue/refused-consume/return round trip), plus the updated custody
+assertions in `tests/serialGateHttp.test.ts` and
+`tests/serialOperationLifecycle.test.ts`.

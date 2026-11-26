@@ -35,6 +35,8 @@ const STATUS_LABELS: Record<string, string> = {
   RETURNED: 'RETURNED',
   SOLD: 'SOLD',
   RETURNED_TO_VENDOR: 'RETURNED TO VENDOR',
+  IN_CUSTODY: 'IN A TECHNICIAN\u2019S CUSTODY',
+  LOST: 'LOST',
 };
 
 export function serialStatusLabel(status?: string | null): string {

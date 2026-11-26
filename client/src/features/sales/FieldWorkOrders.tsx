@@ -9,7 +9,7 @@
  */
 import React from 'react';
 import { api } from '../../services/api';
-import type { WorkOrderEvidence } from '../../services/api';
+import type { CustodyEmployee, WorkOrderEvidence } from '../../services/api';
 import type { User } from '../../types';
 
 type WorkOrder = {
@@ -20,6 +20,7 @@ type WorkOrder = {
   customer_name: string | null;
   kind: 'INSTALL' | 'SERVICE' | 'DISCONNECT';
   status: 'OPEN' | 'ASSIGNED' | 'COMPLETED' | 'CANCELLED';
+  technician_id: string | null;
   technician_name: string | null;
   scheduled_date_ad: string;
   ont_serial: string | null;
@@ -94,10 +95,12 @@ export const FieldWorkOrders: React.FC<FieldWorkOrdersProps> = ({ selectedBranch
   const [captureFile, setCaptureFile] = React.useState<File | null>(null);
   const [uploading, setUploading] = React.useState(false);
   const [preview, setPreview] = React.useState<{ url: string; label: string } | null>(null);
+  const [custodyRoster, setCustodyRoster] = React.useState<CustodyEmployee[]>([]);
   const [form, setForm] = React.useState({
     customerId: '',
     kind: 'INSTALL',
     scheduledDateAd: today(),
+    technicianId: '',
     technicianName: '',
     notes: '',
     ontSerial: '',
@@ -125,6 +128,24 @@ export const FieldWorkOrders: React.FC<FieldWorkOrdersProps> = ({ selectedBranch
 
   React.useEffect(() => { void load(); }, [load, refreshKey]);
 
+  // The technician is a person in the custody roster, not a typed name: the
+  // server stores `technician_id` so work-order stock follows the same employee
+  // the My Stock panel and the phone read.
+  React.useEffect(() => {
+    api.getCustodyEmployees()
+      .then((rows) => setCustodyRoster(Array.isArray(rows) ? rows : []))
+      .catch(() => setCustodyRoster([]));
+  }, []);
+
+  const branchEmployees = React.useMemo(
+    () =>
+      custodyRoster.filter(
+        (person) => !selectedBranchId || selectedBranchId === 'ALL' || person.branch_id === selectedBranchId
+      ),
+    [custodyRoster, selectedBranchId]
+  );
+  const selectedTechnicianName = branchEmployees.find((person) => person.id === form.technicianId)?.name || '';
+
   React.useEffect(() => {
     api.getCustomers({ branchId: selectedBranchId && selectedBranchId !== 'ALL' ? selectedBranchId : undefined })
       .then((data: any) => setSubscribers(Array.isArray(data) ? data : data?.data || []))
@@ -142,6 +163,7 @@ export const FieldWorkOrders: React.FC<FieldWorkOrdersProps> = ({ selectedBranch
     setForm((prev) => ({
       ...prev,
       customerId: row?.customer_id || prev.customerId,
+      technicianId: row?.technician_id || prev.technicianId,
       technicianName: row?.technician_name || prev.technicianName,
       ontSerial: row?.ont_serial || prev.ontSerial,
       routerSerial: row?.router_serial || prev.routerSerial,
@@ -260,7 +282,8 @@ export const FieldWorkOrders: React.FC<FieldWorkOrdersProps> = ({ selectedBranch
           customerId: form.customerId,
           kind: form.kind,
           scheduledDateAd: form.scheduledDateAd,
-          technicianName: form.technicianName || undefined,
+          technicianId: form.technicianId || undefined,
+          technicianName: selectedTechnicianName || undefined,
           ontSerial: form.ontSerial || undefined,
           routerSerial: form.routerSerial || undefined,
           ipAddress: form.ipAddress || undefined,
@@ -268,7 +291,10 @@ export const FieldWorkOrders: React.FC<FieldWorkOrdersProps> = ({ selectedBranch
           notes: form.notes,
         });
       } else if (dialog === 'assign' && active) {
-        await api.assignFieldWorkOrder(active.id, { technicianName: form.technicianName });
+        await api.assignFieldWorkOrder(active.id, {
+          technicianId: form.technicianId || undefined,
+          technicianName: selectedTechnicianName || form.technicianName || undefined,
+        });
       } else if (dialog === 'complete' && active) {
         await api.completeFieldWorkOrder(active.id, {
           completionNotes: form.completionNotes,
@@ -579,7 +605,21 @@ export const FieldWorkOrders: React.FC<FieldWorkOrdersProps> = ({ selectedBranch
                   </select>
                 </label>
                 {field('Scheduled date (AD)', 'scheduledDateAd', { type: 'date' })}
-                {field('Technician (optional)', 'technicianName', { placeholder: 'Name of the technician' })}
+                <label className="block text-sm">
+                  <span className="mb-1 block font-medium text-slate-600">Technician (optional)</span>
+                  <select
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                    value={form.technicianId}
+                    onChange={(event) => setForm((prev) => ({ ...prev, technicianId: event.target.value }))}
+                  >
+                    <option value="">Unassigned</option>
+                    {branchEmployees.map((person) => (
+                      <option key={person.id} value={person.id}>
+                        {person.name}{person.employee_code ? ` (${person.employee_code})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 {field('Notes', 'notes', { placeholder: 'Work requested / access notes' })}
               </>
             )}
@@ -587,7 +627,22 @@ export const FieldWorkOrders: React.FC<FieldWorkOrdersProps> = ({ selectedBranch
             {dialog === 'assign' && (
               <>
                 <p className="text-sm text-slate-500">{active?.work_order_no} · {active?.customer_name || active?.customer_id}</p>
-                {field('Technician', 'technicianName', { placeholder: 'Name of the technician' })}
+                <label className="block text-sm">
+                  <span className="mb-1 block font-medium text-slate-600">Technician</span>
+                  <select
+                    required
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                    value={form.technicianId}
+                    onChange={(event) => setForm((prev) => ({ ...prev, technicianId: event.target.value }))}
+                  >
+                    <option value="">Select the technician…</option>
+                    {branchEmployees.map((person) => (
+                      <option key={person.id} value={person.id}>
+                        {person.name}{person.employee_code ? ` (${person.employee_code})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </>
             )}
 

@@ -428,7 +428,15 @@ export function flattenTxnParams(rows: unknown[][]): unknown[] {
 // ---------------------------------------------------------------------------
 
 export const ASSET_SELECT_COLUMNS =
-  'id, tag_number AS "tagNumber", name, category, branch_id AS "branchId", acquisition_date_ad AS "acquisitionDateAD", acquisition_date_bs AS "acquisitionDateBS", purchase_invoice_date_ad AS "purchaseInvoiceDateAD", purchase_invoice_date_bs AS "purchaseInvoiceDateBS", capitalization_date_ad AS "capitalizationDateAD", capitalization_date_bs AS "capitalizationDateBS", placed_in_service_date_ad AS "placedInServiceDateAD", placed_in_service_date_bs AS "placedInServiceDateBS", acquisition_cost AS "acquisitionCost", depreciation_method AS "depreciationMethod", depreciation_rate_percent AS "depreciationRatePercent", accumulated_depreciation AS "accumulatedDepreciation", net_book_value AS "netBookValue", status, supplier_name AS "supplierName", invoice_no AS "invoiceNo", purchase_invoice_id AS "purchaseInvoiceId", product_id AS "productId", assigned_type AS "assignedType", assigned_customer_id AS "assignedCustomerId", assigned_customer_name AS "assignedCustomerName", assigned_location_id AS "assignedLocationId", assigned_location_name AS "assignedLocationName", assignment_date_ad AS "assignmentDateAD", assignment_date_bs AS "assignmentDateBS", assignment_notes AS "assignmentNotes", device_serial AS "deviceSerial", created_at AS "createdAt"';
+  'id, tag_number AS "tagNumber", name, category, branch_id AS "branchId", acquisition_date_ad AS "acquisitionDateAD", acquisition_date_bs AS "acquisitionDateBS", purchase_invoice_date_ad AS "purchaseInvoiceDateAD", purchase_invoice_date_bs AS "purchaseInvoiceDateBS", capitalization_date_ad AS "capitalizationDateAD", capitalization_date_bs AS "capitalizationDateBS", placed_in_service_date_ad AS "placedInServiceDateAD", placed_in_service_date_bs AS "placedInServiceDateBS", acquisition_cost AS "acquisitionCost", depreciation_method AS "depreciationMethod", depreciation_rate_percent AS "depreciationRatePercent", accumulated_depreciation AS "accumulatedDepreciation", net_book_value AS "netBookValue", status, supplier_name AS "supplierName", invoice_no AS "invoiceNo", purchase_invoice_id AS "purchaseInvoiceId", product_id AS "productId", assigned_type AS "assignedType", assigned_customer_id AS "assignedCustomerId", assigned_customer_name AS "assignedCustomerName", assigned_location_id AS "assignedLocationId", assigned_location_name AS "assignedLocationName", assigned_employee_id AS "assignedEmployeeId", assigned_employee_name AS "assignedEmployeeName", assigned_work_order_id AS "assignedWorkOrderId", assignment_date_ad AS "assignmentDateAD", assignment_date_bs AS "assignmentDateBS", assignment_notes AS "assignmentNotes", device_serial AS "deviceSerial", created_at AS "createdAt"';
+
+/**
+ * One asset row, read without a lock. The status PATCH uses it as its baseline:
+ * `assets` left the boot payload in ASSET-1, so the in-memory register can no
+ * longer answer what state the row is in (and an IN_USE row's custody release
+ * or an assigned row's collection is decided from that state).
+ */
+export const ASSET_FIND_BY_ID_SQL = `SELECT ${ASSET_SELECT_COLUMNS} FROM fixed_assets WHERE id = $1`;
 
 /** Builds the asset list query with an optional branch filter. */
 export function buildAssetListQuery(branchId?: unknown): { sql: string; params: unknown[] } {
@@ -444,8 +452,9 @@ export function buildAssetListQuery(branchId?: unknown): { sql: string; params: 
 
 export const ASSET_UPSERT_SQL = `INSERT INTO fixed_assets (
    id, tag_number, name, category, branch_id, acquisition_date_ad, acquisition_date_bs, purchase_invoice_date_ad, purchase_invoice_date_bs, capitalization_date_ad, capitalization_date_bs, placed_in_service_date_ad, placed_in_service_date_bs, acquisition_cost, depreciation_method, depreciation_rate_percent, accumulated_depreciation, net_book_value, status, supplier_name, invoice_no, purchase_invoice_id, product_id,
-   assigned_type, assigned_customer_id, assigned_customer_name, assigned_location_id, assigned_location_name, assignment_date_ad, assignment_date_bs, assignment_notes, device_serial
- ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32)
+   assigned_type, assigned_customer_id, assigned_customer_name, assigned_location_id, assigned_location_name,
+   assigned_employee_id, assigned_employee_name, assigned_work_order_id, assignment_date_ad, assignment_date_bs, assignment_notes, device_serial
+ ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35)
  ON CONFLICT (id) DO UPDATE SET
    tag_number = EXCLUDED.tag_number,
    name = EXCLUDED.name,
@@ -465,6 +474,9 @@ export const ASSET_UPSERT_SQL = `INSERT INTO fixed_assets (
    assigned_customer_name = EXCLUDED.assigned_customer_name,
    assigned_location_id = EXCLUDED.assigned_location_id,
    assigned_location_name = EXCLUDED.assigned_location_name,
+   assigned_employee_id = EXCLUDED.assigned_employee_id,
+   assigned_employee_name = EXCLUDED.assigned_employee_name,
+   assigned_work_order_id = EXCLUDED.assigned_work_order_id,
    assignment_date_ad = EXCLUDED.assignment_date_ad,
    assignment_date_bs = EXCLUDED.assignment_date_bs,
    assignment_notes = EXCLUDED.assignment_notes,
@@ -500,6 +512,9 @@ export function assetUpsertParams(a: Record<string, any>): unknown[] {
     a.assignedCustomerName ?? null,
     a.assignedLocationId ?? null,
     a.assignedLocationName ?? null,
+    a.assignedEmployeeId ?? null,
+    a.assignedEmployeeName ?? null,
+    a.assignedWorkOrderId ?? null,
     a.assignmentDateAD ?? null,
     a.assignmentDateBS ?? null,
     a.assignmentNotes ?? null,
@@ -536,19 +551,20 @@ export const ASSET_SET_ASSIGNMENT_SQL = `UPDATE fixed_assets SET
   assigned_customer_name = $4,
   assigned_location_id = $5,
   assigned_location_name = $6,
-  assigned_employee_id = NULL,
-  assigned_employee_name = NULL,
-  assignment_date_ad = $7,
-  assignment_date_bs = $8,
-  assignment_notes = $9
- WHERE id = $10`;
+  assigned_employee_id = $7,
+  assigned_employee_name = $8,
+  assigned_work_order_id = $9,
+  assignment_date_ad = $10,
+  assignment_date_bs = $11,
+  assignment_notes = $12
+ WHERE id = $13`;
 
 // ---------------------------------------------------------------------------
 // Fixed-asset ↔ CPE lifecycle (CPE-3)
 // ---------------------------------------------------------------------------
 
 export const CPE_ASSET_SELECT_COLUMNS =
-  'id, tag_number AS "tagNumber", product_id AS "productId", branch_id AS "branchId", status, device_serial AS "deviceSerial", acquisition_cost::numeric AS "acquisitionCost", assigned_customer_id AS "assignedCustomerId", assigned_customer_name AS "assignedCustomerName", assigned_location_id AS "assignedLocationId", assigned_location_name AS "assignedLocationName", assignment_notes AS "assignmentNotes"';
+  'id, tag_number AS "tagNumber", name, product_id AS "productId", branch_id AS "branchId", status, device_serial AS "deviceSerial", acquisition_cost::numeric AS "acquisitionCost", assigned_customer_id AS "assignedCustomerId", assigned_customer_name AS "assignedCustomerName", assigned_location_id AS "assignedLocationId", assigned_location_name AS "assignedLocationName", assigned_employee_id AS "assignedEmployeeId", assigned_employee_name AS "assignedEmployeeName", assigned_work_order_id AS "assignedWorkOrderId", assignment_notes AS "assignmentNotes"';
 
 /** Locks the asset a collection or exchange is about to move. */
 export const FIXED_ASSET_LOCK_BY_ID_SQL =
@@ -577,12 +593,74 @@ export const FIXED_ASSET_COLLECT_SQL = `UPDATE fixed_assets SET
   assigned_location_name = NULL,
   assigned_employee_id = NULL,
   assigned_employee_name = NULL,
+  assigned_work_order_id = NULL,
   assignment_date_ad = NULL,
   assignment_date_bs = NULL,
   assignment_notes = $2,
   device_serial = NULL,
   updated_at = NOW()
  WHERE id = $1`;
+
+/**
+ * INSTALL: a unit dispatched to a technician is installed at the customer the
+ * work order names. This is the only writer of the customer attribution for
+ * that path, and it stamps `assignment_date_ad/bs` with the COMPLETION date —
+ * that date is what starts the customer's warranty (the dispatch left it null
+ * on purpose). The employee columns are cleared in the same statement, so the
+ * unit cannot look held by the technician and installed at the customer at once.
+ */
+export const FIXED_ASSET_INSTALL_AT_CUSTOMER_SQL = `UPDATE fixed_assets SET
+  status = 'ASSIGNED_TO_CUSTOMER',
+  assigned_type = 'CUSTOMER',
+  assigned_customer_id = $2,
+  assigned_customer_name = $3,
+  assigned_employee_id = NULL,
+  assigned_employee_name = NULL,
+  assigned_location_id = NULL,
+  assigned_location_name = NULL,
+  assignment_date_ad = $4,
+  assignment_date_bs = $5,
+     assignment_notes = $6,
+  updated_at = NOW()
+ WHERE id = $1
+RETURNING id`;
+
+/**
+ * The fixed asset a serial names, when one employee holds it. The install flow
+ * resolves the phone's `serialUsed` through this instead of guessing a product:
+ * a unit that has an asset row is owned by that row (with its cost and
+ * depreciation), never by the quantity custody ledger.
+ */
+/**
+ * The person a fixed asset is dispatched to. Branch-scoped: an asset leaves its
+ * own branch's shelf, so the holder must belong to that branch.
+ */
+export const EMPLOYEE_FOR_ASSET_DISPATCH_SQL = `SELECT id, name, employee_code AS "employeeCode",
+         branch_id AS "branchId" FROM employees WHERE id = $1 AND branch_id = $2`;
+
+/**
+ * The visit an asset is dispatched for. Its customer is what the install later
+ * stamps; its technician (when set) must be the person holding the unit.
+ */
+export const WORK_ORDER_FOR_ASSET_DISPATCH_SQL = `SELECT id, work_order_no AS "workOrderNo", status,
+         technician_id AS "technicianId", customer_id AS "customerId"
+    FROM field_work_orders WHERE id = $1 AND branch_id = $2`;
+
+/**
+ * The product row the install reads the seller warranty term from. The caller
+ * may already hold the product list; when it does not (the phone), one row is
+ * enough.
+ */
+export const PRODUCT_INSTALL_TERM_SQL = `SELECT id, name, sku, cost_price::numeric AS "costPrice",
+         seller_warranty_months AS "sellerWarrantyMonths"
+    FROM products WHERE id = $1`;
+
+export const FIXED_ASSET_HELD_BY_SERIAL_SQL = `SELECT id, tag_number AS "tagNumber", device_serial AS "deviceSerial"
+  FROM fixed_assets
+ WHERE lower(trim(device_serial)) = lower(trim($1))
+   AND assigned_employee_id = $2
+   AND status = 'IN_USE'
+ LIMIT 1`;
 
 /** Exchange: same tag and assignment, identity moved to the replacement. */
 export const FIXED_ASSET_MOVE_SERIAL_SQL = `UPDATE fixed_assets SET
@@ -617,7 +695,7 @@ export const CPE_REPLACEMENT_UNIT_SQL = `SELECT product_id AS "productId", produ
 // ---------------------------------------------------------------------------
 
 export const STOCK_OP_SELECT_COLUMNS =
-  'id, reference_number AS "referenceNumber", type, technician_name AS "technicianName", work_order_ref AS "workOrderRef", branch_id AS "branchId", branch_name AS "branchName", destination_warehouse_id AS "destinationWarehouseId", destination_warehouse_name AS "destinationWarehouseName", product_id AS "productId", quantity_changed AS "quantityChanged", cost_per_unit AS "costPerUnit", total_value AS "totalValue", reason, inspector_name AS "inspectorName", date_ad AS "dateAD", date_bs AS "dateBS", fiscal_year AS "fiscalYear", status, items, created_at AS "createdAt"';
+  'id, reference_number AS "referenceNumber", type, technician_name AS "technicianName", employee_id AS "employeeId", custody_group_id AS "custodyGroupId", work_order_ref AS "workOrderRef", branch_id AS "branchId", branch_name AS "branchName", destination_warehouse_id AS "destinationWarehouseId", destination_warehouse_name AS "destinationWarehouseName", product_id AS "productId", quantity_changed AS "quantityChanged", cost_per_unit AS "costPerUnit", total_value AS "totalValue", reason, inspector_name AS "inspectorName", date_ad AS "dateAD", date_bs AS "dateBS", fiscal_year AS "fiscalYear", status, items, created_at AS "createdAt"';
 
 /**
  * Builds the stock-operations list query. A concrete branch also sees
@@ -744,8 +822,8 @@ export function buildStockOperationKeysetQuery(
 }
 
 export const STOCK_OPERATION_INSERT_SQL = `INSERT INTO stock_operations (
-   id, reference_number, type, technician_name, work_order_ref, branch_id, branch_name, destination_warehouse_id, destination_warehouse_name, product_id, quantity_changed, cost_per_unit, total_value, reason, inspector_name, date_ad, date_bs, fiscal_year, status, items
- ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+   id, reference_number, type, technician_name, employee_id, custody_group_id, work_order_ref, branch_id, branch_name, destination_warehouse_id, destination_warehouse_name, product_id, quantity_changed, cost_per_unit, total_value, reason, inspector_name, date_ad, date_bs, fiscal_year, status, items
+ ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
  ON CONFLICT (id, date_ad) DO UPDATE SET
    status = EXCLUDED.status,
    items = EXCLUDED.items;`;
@@ -768,6 +846,8 @@ export function stockOperationInsertParams(
     op.referenceNumber,
     opType,
     op.technicianName || null,
+    op.employeeId || null,
+    op.custodyGroupId || null,
     op.workOrderRef || null,
     op.branchId || 'WH001',
     op.branchName,
@@ -1335,7 +1415,7 @@ export function buildSerialLookupSql(value: string, exclude: string[]): {
 // ---------------------------------------------------------------------------
 
 export const SERIAL_LOG_SELECT_PREFIX =
-  'SELECT id, device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress", product_id AS "productId", product_name AS "productName", branch_id AS "branchId", customer_id AS "customerId", customer_name AS "customerName", status, source_type AS "sourceType", source_id AS "sourceId", history_json AS "historyJson", created_at AS "createdAt", updated_at AS "updatedAt" FROM serial_log';
+  'SELECT id, device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress", product_id AS "productId", product_name AS "productName", branch_id AS "branchId", customer_id AS "customerId", customer_name AS "customerName", status, holder_employee_id AS "holderEmployeeId", (SELECT e.name FROM employees e WHERE e.id = serial_log.holder_employee_id) AS "holderEmployeeName", source_type AS "sourceType", source_id AS "sourceId", history_json AS "historyJson", created_at AS "createdAt", updated_at AS "updatedAt" FROM serial_log';
 
 /** Counts serial_log rows with the same filter fragment (pagination totals). */
 export const SERIAL_LOG_COUNT_PREFIX = 'SELECT COUNT(*)::int AS count FROM serial_log';
@@ -1415,6 +1495,9 @@ export function serialLogCdrSyncParams(opts: {
  */
 export const SERIAL_LOG_ISSUE_ON_OPERATION_SQL = `UPDATE serial_log SET
   status = $1::varchar,
+  -- A unit issued to a person is held by them; every other issue state has no
+  -- holder (a pullout is in transit, a sale belongs to the customer).
+  holder_employee_id = CASE WHEN $1::varchar = 'IN_CUSTODY' THEN $7::varchar ELSE NULL END,
   source_type = 'STOCK_OP',
   source_id = $2,
   history_json = (COALESCE(NULLIF(history_json, ''), '[]')::jsonb || $3::jsonb)::text,
@@ -1429,6 +1512,7 @@ export const SERIAL_LOG_RESTORE_ON_OPERATION_REVERSAL_SQL = `UPDATE serial_log S
   status = 'IN_STOCK',
   customer_id = NULL,
   customer_name = NULL,
+  holder_employee_id = NULL,
   source_type = 'STOCK_OP',
   source_id = $1,
   history_json = (COALESCE(NULLIF(history_json, ''), '[]')::jsonb || $2::jsonb)::text,
@@ -1452,6 +1536,72 @@ export const SERIAL_LOG_RECEIVE_PULLOUT_SQL = `UPDATE serial_log SET
 
 /** Per-status counts with the same filter fragment (register KPI cards). */
 export const SERIAL_LOG_STATUS_COUNT_SQL = 'SELECT status, COUNT(*)::int AS count FROM serial_log';
+
+// ---------------------------------------------------------------------------
+// Serial-level custody (a device on a technician's van, then at a customer)
+// ---------------------------------------------------------------------------
+
+/**
+ * Locks the units a custody movement is about to move. The caller validates
+ * against these rows and then writes with the state it saw, so two callers can
+ * never move the same unit.
+ */
+export const SERIAL_CUSTODY_LOCK_SQL = `SELECT device_serial AS "deviceSerial", product_id AS "productId",
+       branch_id AS "branchId", status, holder_employee_id AS "holderEmployeeId"
+  FROM serial_log
+ WHERE lower(trim(device_serial)) = ANY($1::text[])
+ FOR UPDATE`;
+
+/**
+ * IN_STOCK → IN_CUSTODY: a serialised unit into one person's hands. Guarded
+ * on IN_STOCK at the issuing branch, so a unit already on someone's van, sold,
+ * deployed or damaged is refused rather than issued twice.
+ */
+export const SERIAL_LOG_CUSTODY_ISSUE_SQL = `UPDATE serial_log SET
+  status = 'IN_CUSTODY',
+  holder_employee_id = $1,
+  source_type = $2,
+  source_id = $3,
+  history_json = (COALESCE(NULLIF(history_json, ''), '[]')::jsonb || $4::jsonb)::text,
+  updated_at = $5
+ WHERE lower(trim(device_serial)) = lower(trim($6::text))
+   AND branch_id = $7
+   AND status = 'IN_STOCK'
+ RETURNING device_serial AS "deviceSerial"`;
+
+/**
+ * IN_CUSTODY → its next state (`$1`): IN_STOCK on a return, CUSTOMER_ASSIGNED on
+ * an installation (customer stamped), CONSUMED with no customer, LOST on a
+ * write-off. The holder is the guard — two technicians can hold the same
+ * product — and it is cleared by the move.
+ */
+export const SERIAL_LOG_CUSTODY_RELEASE_SQL = `UPDATE serial_log SET
+  status = $1::varchar,
+  holder_employee_id = NULL,
+  customer_id = CASE WHEN $1::varchar = 'CUSTOMER_ASSIGNED' THEN $2::varchar ELSE NULL END,
+  customer_name = CASE WHEN $1::varchar = 'CUSTOMER_ASSIGNED' THEN $3::varchar ELSE NULL END,
+  source_type = $4,
+  source_id = $5,
+  history_json = (COALESCE(NULLIF(history_json, ''), '[]')::jsonb || $6::jsonb)::text,
+  updated_at = $7
+ WHERE lower(trim(device_serial)) = lower(trim($8::text))
+   AND branch_id = $9
+   AND status = 'IN_CUSTODY'
+   AND holder_employee_id = $10
+ RETURNING device_serial AS "deviceSerial"`;
+
+/** IN_CUSTODY → IN_CUSTODY under a colleague: the units never leave the branch. */
+export const SERIAL_LOG_CUSTODY_HOLDER_SQL = `UPDATE serial_log SET
+  holder_employee_id = $1,
+  source_type = $2,
+  source_id = $3,
+  history_json = (COALESCE(NULLIF(history_json, ''), '[]')::jsonb || $4::jsonb)::text,
+  updated_at = $5
+ WHERE lower(trim(device_serial)) = lower(trim($6::text))
+   AND branch_id = $7
+   AND status = 'IN_CUSTODY'
+   AND holder_employee_id = $8
+ RETURNING device_serial AS "deviceSerial"`;
 
 export interface SerialLogQueryOptions {
   /** Non-global roles: explicit branch IN-list (already auth-resolved). */

@@ -145,7 +145,7 @@ export function buildFixedAssetWhere(opts: FixedAssetQueryOptions = {}): { where
   if (opts.available) {
     conditions.push(
       "UPPER(status) = 'ACTIVE' AND assigned_type IS NULL AND " +
-        'assigned_customer_id IS NULL AND assigned_location_id IS NULL'
+        'assigned_customer_id IS NULL AND assigned_location_id IS NULL AND assigned_employee_id IS NULL'
     );
   }
 

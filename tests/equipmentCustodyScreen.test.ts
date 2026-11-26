@@ -37,6 +37,29 @@ const HOLDINGS = [
   },
 ];
 
+const TIE_OUT = {
+  rows: [
+    {
+      employeeId: 'e1',
+      employeeName: 'Asha Rai',
+      productId: 'p1',
+      productName: 'Fiber router',
+      branchId: 'b1',
+      issued: 4,
+      returned: 0,
+      consumed: 0,
+      lost: 0,
+      transferredIn: 0,
+      transferredOut: 0,
+      movementSum: 4,
+      held: 4,
+      drift: 0,
+      branchOnHand: 6,
+    },
+  ],
+  totals: { held: 4, movementSum: 4, drift: 0 },
+};
+
 const ROSTER = [
   { id: 'e1', employee_code: 'EMP-1', name: 'Asha Rai', department: 'Field', branch_id: 'b1' },
   { id: 'e2', employee_code: 'EMP-2', name: 'Bikash Thapa', department: 'Field', branch_id: 'b1' },
@@ -85,6 +108,7 @@ describe('equipment custody screen', () => {
   const real = {
     holdings: api.getEmployeeStockHoldings,
     roster: api.getCustodyEmployees,
+    tieOut: api.getCustodyTieOut,
     transfer: api.transferEmployeeStock,
     issue: api.recordEmployeeStockMovement,
   };
@@ -92,6 +116,7 @@ describe('equipment custody screen', () => {
   beforeEach(() => {
     api.getEmployeeStockHoldings = (async () => HOLDINGS) as any;
     api.getCustodyEmployees = (async () => ROSTER) as any;
+    api.getCustodyTieOut = (async () => TIE_OUT) as any;
     api.transferEmployeeStock = (async () => ({ transferGroupId: 'g1', from: {}, to: {} })) as any;
     api.recordEmployeeStockMovement = (async () => ({}) ) as any;
   });
@@ -101,6 +126,7 @@ describe('equipment custody screen', () => {
     mounted = null;
     api.getEmployeeStockHoldings = real.holdings;
     api.getCustodyEmployees = real.roster;
+    api.getCustodyTieOut = real.tieOut;
     api.transferEmployeeStock = real.transfer;
     api.recordEmployeeStockMovement = real.issue;
   });
@@ -114,6 +140,8 @@ describe('equipment custody screen', () => {
     assert.match(text, /Kathmandu/);
     assert.match(text, /EMP-1/);
     assert.match(text, /Who holds what/);
+    assert.match(text, /Custody tie-out/);
+    assert.match(text, /both books agree/i);
   });
 
   test('the cross-branch refusal is shown with its code and remedy, not swallowed', async () => {

@@ -206,15 +206,58 @@ export async function technicianDispatchState(
  * Complete a visit. The WHERE clause carries the state rule, so two concurrent
  * completions cannot both land: only the first sees a non-completed row.
  */
+export interface CompleteWorkOrderInput {
+  completionNotes: string;
+  ontSerial: string | null;
+  routerSerial: string | null;
+  ipAddress: string | null;
+  planName: string | null;
+}
+
+/**
+ * The completion UPDATE, runnable inside the caller's transaction.
+ *
+ * Installing the CPE the technician carried is part of closing the visit, so the
+ * web completion opens one transaction, completes through this and installs; a
+ * refused install rolls the completion back rather than closing a job whose
+ * device never reached the customer.
+ */
+export async function completeFieldWorkOrderInTransaction(
+  client: any,
+  id: string,
+  input: CompleteWorkOrderInput
+): Promise<boolean> {
+  const result = await client.query(
+    `UPDATE field_work_orders
+        SET status = 'COMPLETED', completion_notes = $2,
+            ont_serial = COALESCE($3, ont_serial),
+            router_serial = COALESCE($4, router_serial),
+            ip_address = COALESCE($5, ip_address),
+            plan_name = COALESCE($6, plan_name),
+            completed_at = now(), updated_at = now()
+      WHERE id = $1 AND status IN ('OPEN', 'ASSIGNED')
+      RETURNING id`,
+    [id, input.completionNotes, input.ontSerial, input.routerSerial, input.ipAddress, input.planName]
+  );
+  return Boolean(result.rows[0]);
+}
+
+/**
+ * One order locked while its completion installs the unit it delivered. The
+ * customer join is part of the read: the install stamps the customer the order
+ * names, never one the caller claimed.
+ */
+export const FWO_INSTALL_LOCK_SQL = `SELECT w.id, w.work_order_no, w.branch_id,
+         w.customer_id, c.customer_name AS "customerName",
+         w.status, w.technician_id AS "technicianId", w.kind
+    FROM field_work_orders w
+    LEFT JOIN customer_records c ON c.id = w.customer_id
+   WHERE w.id = $1
+   FOR UPDATE OF w`;
+
 export async function completeFieldWorkOrder(
   id: string,
-  input: {
-    completionNotes: string;
-    ontSerial: string | null;
-    routerSerial: string | null;
-    ipAddress: string | null;
-    planName: string | null;
-  }
+  input: CompleteWorkOrderInput
 ): Promise<FieldWorkOrderRow | null> {
   const result = await pgPool.query(
     `UPDATE field_work_orders

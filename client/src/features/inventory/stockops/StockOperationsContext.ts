@@ -58,7 +58,7 @@ export interface AssignBinLine {
   deviceSerial: string;
   ponSerial: string;
   macAddress: string;
-  usedAtType: 'FIELD' | 'POP' | 'CUSTOMER';
+  usedAtType: 'FIELD' | 'POP' | 'CUSTOMER' | 'EMPLOYEE';
   usedAtLocationId?: string;
   usedAtLocationName?: string;
   usedAtCustomerId?: string;
@@ -66,6 +66,11 @@ export interface AssignBinLine {
   /** The directory row picked for this line. Kept so submit never depends on
    *  the customer still being present in a stale bootstrap snapshot. */
   usedAtCustomer?: CustomerRecord;
+  /** EMPLOYEE: the technician who will hold the unit, and the visit it is for. */
+  usedAtEmployeeId?: string;
+  usedAtEmployeeName?: string;
+  usedAtWorkOrderId?: string;
+  usedAtWorkOrderNo?: string;
   /** WTY-5: the seller warranty promised for this rental/issued unit. */
   sellerWarrantyEndDateAD?: string;
   sellerWarrantyTouched?: boolean;

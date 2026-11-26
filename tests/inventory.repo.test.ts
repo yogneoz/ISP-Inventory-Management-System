@@ -230,27 +230,30 @@ describe('fixed assets', () => {
     assert.ok(!buildAssetListQuery('ALL').sql.includes(' WHERE '));
   });
 
-  test('upsert passes 32 binds and refreshes the documented columns on conflict', () => {
-    assert.equal(maxPlaceholder(ASSET_UPSERT_SQL), 32);
-    for (const col of ['tag_number', 'acquisition_cost', 'net_book_value', 'status', 'placed_in_service_date_ad', 'assigned_type', 'assignment_date_ad']) {
+  test('upsert passes 35 binds and refreshes the documented columns on conflict', () => {
+    assert.equal(maxPlaceholder(ASSET_UPSERT_SQL), 35);
+    for (const col of ['tag_number', 'name', 'acquisition_cost', 'net_book_value', 'status', 'placed_in_service_date_ad', 'assigned_type', 'assigned_employee_id', 'assigned_work_order_id', 'assignment_date_ad']) {
       assert.ok(ASSET_UPSERT_SQL.includes(`${col} = EXCLUDED.${col}`), `missing conflict update for ${col}`);
     }
     // accumulated_depreciation is intentionally NOT refreshed on conflict.
     assert.ok(!ASSET_UPSERT_SQL.includes('accumulated_depreciation = EXCLUDED'));
-    assert.deepEqual(assetUpsertParams({ id: 'a1', tagNumber: 'T-1', name: 'N', category: 'IT', branchId: 'WH001' }), [
-      'a1', 'T-1', 'N', 'IT', 'WH001', undefined, undefined, undefined, undefined, undefined, undefined,
-      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
-      undefined, undefined,
-      null, null, null, null, null, null, null, null, null,
-    ]);
+    // One positional bind per column, and every employee/work-order bind
+    // defaults to NULL — never `undefined` (which pg would send untyped).
+    const params = assetUpsertParams({ id: 'a1', tagNumber: 'T-1', name: 'N', category: 'IT', branchId: 'WH001' });
+    assert.equal(params.length, 35);
+    assert.deepEqual(params.slice(0, 5), ['a1', 'T-1', 'N', 'IT', 'WH001']);
+    assert.ok(params.slice(23).every((value) => value === null), 'assignment binds default to NULL');
   });
 
   test('assignment update persists status plus every assignment field, id-scoped', () => {
     assert.match(ASSET_SET_ASSIGNMENT_SQL, /^UPDATE fixed_assets SET/);
-    for (const col of ['status', 'assigned_type', 'assigned_customer_id', 'assigned_customer_name', 'assigned_location_id', 'assigned_location_name', 'assignment_date_ad', 'assignment_date_bs', 'assignment_notes']) {
+    for (const col of ['status', 'assigned_type', 'assigned_customer_id', 'assigned_customer_name', 'assigned_location_id', 'assigned_location_name', 'assigned_employee_id', 'assigned_employee_name', 'assigned_work_order_id', 'assignment_date_ad', 'assignment_date_bs', 'assignment_notes']) {
       assert.ok(ASSET_SET_ASSIGNMENT_SQL.includes(`${col} = `), `assignment SQL missing ${col}`);
     }
-    assert.ok(ASSET_SET_ASSIGNMENT_SQL.includes('WHERE id = $10'));
+    // The employee columns are parameters now: a status PATCH that carries a
+    // dispatch must persist it instead of erasing a live custody.
+    assert.ok(ASSET_SET_ASSIGNMENT_SQL.includes('WHERE id = $13'));
+    assert.ok(!/assigned_employee_id = NULL/.test(ASSET_SET_ASSIGNMENT_SQL));
   });
 });
 
@@ -327,8 +330,9 @@ describe('stock operations', () => {
     assert.ok(cursored.sql.includes(fragment + ' AND (created_at, id) <'));
   });
 
-  test('insert takes 20 binds and upserts only status + items on conflict', () => {
-    assert.equal(maxPlaceholder(STOCK_OPERATION_INSERT_SQL), 20);
+  test('insert takes 22 binds and upserts only status + items on conflict', () => {
+    // 20 columns plus the person-directed issue's employee_id and custody_group_id.
+    assert.equal(maxPlaceholder(STOCK_OPERATION_INSERT_SQL), 22);
     // SCALE-3: the table is partitioned by date_ad, so the conflict target must
     // carry the partition key. Same id + same date still updates in place; the
     // registry (not a unique column) is what keeps reference_number global.
@@ -341,8 +345,10 @@ describe('stock operations', () => {
       'DAMAGE', 500, '[]'
     );
     assert.equal(params[2], 'DAMAGE');
-    assert.equal(params[12], 500);
-    assert.equal(params[19], '[]');
+    assert.equal(params[4], null, 'employee_id sits beside the technician name');
+    assert.equal(params[5], null, 'custody_group_id follows the employee');
+    assert.equal(params[14], 500);
+    assert.equal(params[21], '[]');
   });
 
   test('apply variants guard on availability and stamp last_updated', () => {

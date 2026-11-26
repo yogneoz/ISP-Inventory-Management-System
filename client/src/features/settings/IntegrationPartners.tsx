@@ -85,25 +85,27 @@ function formatDate(value: string | null): string {
   return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }
 
+function nonEmptyText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
 /**
- * The server answers every refusal with `{ code, message, retryable, details }`
- * (fetchJson keeps the parsed body on `error.body`). Showing only
- * `error.message` throws away the machine-readable code and whether a retry is
- * worth attempting, which is exactly what an operator needs to decide whether
- * to replay an event or leave it dead.
+ * The partner surfaces refuse with one of two bodies — `{ message }` or
+ * `{ code, message }` — and nothing else (`docs/contracts/partner-v1.md`).
+ * `fetchJson` keeps the parsed body on `error.body`, so show the server's
+ * message and, when the refusal has a stable reason, its machine-readable code.
+ *
+ * There is no `retryable` and no `details` field on these bodies: whether a
+ * retry is worth attempting is read off the HTTP status, not a flag, and a
+ * refusal with no `code` is the normal shape of a validation error rather than
+ * an anomaly. A body with no `message` falls back to the thrown error and then
+ * to a fixed sentence, so the banner never renders `undefined`.
  */
 export function describeApiFailure(err: any): string {
   const body = err?.body || {};
-  const message = body.message || err?.message || 'The request failed.';
-  const pieces: string[] = [];
-  if (body.code) pieces.push(String(body.code));
-  const retryable =
-    typeof body.retryable === 'boolean' ? (body.retryable ? 'retryable' : 'not retryable') : '';
-  if (retryable) pieces.push(retryable);
-  if (body.details && Object.keys(body.details).length > 0) {
-    pieces.push(JSON.stringify(body.details));
-  }
-  return pieces.length > 0 ? `${message} (${pieces.join(' · ')})` : message;
+  const message = nonEmptyText(body.message) || nonEmptyText(err?.message) || 'The request failed.';
+  const code = nonEmptyText(body.code);
+  return code ? `${message} (${code})` : message;
 }
 
 function parseEvents(value: string): string[] {

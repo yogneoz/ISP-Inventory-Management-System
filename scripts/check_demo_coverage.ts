@@ -188,6 +188,10 @@ const INTENTIONALLY_EMPTY: Array<{ tables: string[]; reason: string }> = [
     reason: 'Written when a receipt is applied across invoices in the allocation screen. The seeded receipts settle whole invoices through payment_settlements, so the allocation table is empty until someone applies one.',
   },
   {
+    tables: ['employee_stock_movement_serials'],
+    reason: 'Written only when a custody movement names the device serials it moved. The seeded movements are product-level, and inventing a serial-to-technician move would put a unit in a van the register never issued to it; the custody API tests prove the link end to end.',
+  },
+  {
     tables: ['api_key_audit_logs', 'document_number_retirements', 'mobile_sync_rejections',
       'user_preferences', 'app_settings', 'schema_migrations'],
     reason: 'Audit trails, retired document numbers, rejected sync payloads and per-user UI preferences: each row is evidence of something a person or client did, so seeding one would be a false record.',

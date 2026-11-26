@@ -27,6 +27,12 @@ import { logAuditEvent } from './audit.service';
 import { resolveBsDateForLedger, resolveBsDateForLedgerSync } from '../utils/bsDate';
 import { assignFieldWorkOrder, technicianDispatchState } from '../models/fieldWorkOrders.repo';
 import {
+  consumeEmployeeStockInTransaction,
+  EmployeeStockRefusal,
+} from '../models/employeeStock.repo';
+import { custodySerials, SerialCustodyRefusal } from './serialCustody.service';
+import { CustodyInstallRefusal, installHeldSerialsForWorkOrder } from './custodyInstall.service';
+import {
   appendFieldWorkOrderEvidence,
   listFieldWorkOrderEvidence,
 } from '../models/fieldWorkOrderEvidence.repo';
@@ -52,7 +58,6 @@ import {
   MOBILE_DELEGATION_INSERT_SQL,
   MOBILE_DEVICE_BIND_SQL,
   MOBILE_EMPLOYEE_BY_USER_SQL,
-  MOBILE_EMPLOYEE_STOCK_CONSUME_SQL,
   MOBILE_FCM_UPSERT_SQL,
   MOBILE_PENDING_CLAIM_COUNT_SQL,
   MOBILE_PENDING_LEAVE_COUNT_SQL,
@@ -64,6 +69,7 @@ import {
   MOBILE_SYNC_REJECTION_COUNT_SQL,
   MOBILE_SYNC_REJECTION_UPSERT_SQL,
   MOBILE_VAN_STOCK_SQL,
+  MOBILE_VAN_ASSETS_SQL,
   MOBILE_WORK_ORDER_BRANCH_SQL,
   MOBILE_WORK_ORDER_COMPLETE_SQL,
   MOBILE_WORK_ORDER_SQL,
@@ -694,10 +700,16 @@ export async function jobQueue(employee: any): Promise<any> {
 /** GET /api/v1/workplace/stock — what this technician is carrying. */
 export async function vanStock(employee: any): Promise<any> {
   const rows = (await pgPool.query(MOBILE_VAN_STOCK_SQL, [employee.id, employee.branch_id])).rows;
+  // The other half of the van: whole serialised units the technician holds as
+  // fixed assets. A unit with an asset row is owned by that row (cost, tag,
+  // depreciation), so it is listed here rather than as a quantity holding — and
+  // the work order carries the customer it is being carried for.
+  const assets = (await pgPool.query(MOBILE_VAN_ASSETS_SQL, [employee.id, employee.branch_id])).rows;
   return {
     // `vanLocation` keeps the bootstrap's word for the same thing.
     vanLocation: employee.branch_code,
     holdings: rows,
+    assets,
     count: rows.length,
   };
 }
@@ -930,7 +942,11 @@ export async function completeWorkOrder(req: any, employee: any, id: string, bod
     throw new ApiError(400, 'baseVersion is required for an offline completion.');
   }
   const notes = [
-    text(body?.completionNotes, 300),
+    // The contract (`docs/contracts/mobile-v1.md`) and the app both call this
+    // `notes`; `completionNotes` is the name the panel/API tests already send, so
+    // both are read. Dropping `notes` silently lost the only text a technician
+    // types on the closing screen.
+    text(body?.completionNotes ?? body?.notes, 300),
     numberOrNull(body?.opticalPowerDbm) !== null ? `Rx ${body.opticalPowerDbm} dBm` : '',
     numberOrNull(body?.otdrLossDb) !== null ? `OTDR ${body.otdrLossDb} dB` : '',
     text(body?.customerSignatureName, 120) ? `Signed by ${text(body.customerSignatureName, 120)}` : '',
@@ -956,18 +972,79 @@ export async function completeWorkOrder(req: any, employee: any, id: string, bod
       );
     }
 
-    const consumed = Math.trunc(Number(body?.consumedCableMeters) || 0);
+    // A device is one unit; cable is measured. A serial named by the phone is
+    // the CPE being installed, so it consumes exactly one unit of its product —
+    // and because the unit is drawn from this technician's custody, the register
+    // moves it straight to CUSTOMER_ASSIGNED for the work order's customer (the
+    // installation is the only moment a customer is known).
+    const serials = custodySerials([
+      text(body?.serialUsed, 64),
+      ...(Array.isArray(body?.consumedSerials) ? body.consumedSerials : []),
+    ]);
+    // A serial that names a fixed asset this technician holds is an INSTALL: it
+    // leaves custody for the visit's customer through the shared service, which
+    // also writes the customer-device row and the seller warranty starting on
+    // this completion date. The serials that are not held assets keep the
+    // ordinary custody-consumption path below.
+    const installedAssets: any[] = [];
+    let remainingSerials = serials;
+    if (serials.length > 0) {
+      try {
+        const installed = await installHeldSerialsForWorkOrder({
+          client,
+          employeeId: String(employee.id),
+          workOrderId,
+          dateAD: businessDateAD(),
+          actor: String(req.user?.email || employee.employee_code),
+          serials,
+        });
+        installedAssets.push(...installed.installed);
+        remainingSerials = installed.remainingSerials;
+      } catch (error) {
+        if (error instanceof CustodyInstallRefusal) {
+          throw new ApiError(error.status, error.message, { code: error.code });
+        }
+        if (error instanceof SerialCustodyRefusal) {
+          throw new ApiError(error.status, error.message, { code: error.code });
+        }
+        throw error;
+      }
+    }
+    const consumedMeters = Math.trunc(Number(body?.consumedCableMeters) || 0);
+    const consumed =
+      remainingSerials.length > 0 && consumedMeters === 0 ? remainingSerials.length : consumedMeters;
     const productId = text(body?.consumedProductId, 50);
     if (consumed > 0 && productId) {
-      await client.query(MOBILE_EMPLOYEE_STOCK_CONSUME_SQL, [
-        employee.id,
-        productId,
-        employee.branch_id,
-        consumed,
-        workOrderId,
-        `Work order ${updated.work_order_no}`,
-        String(req.user?.email || employee.employee_code),
-      ]);
+      // The custody ledger is the only writer: a direct movement insert left the
+      // holdings projection stale, so the phone's own van stock disagreed with
+      // the cable it had just used. A consumption the technician cannot cover is
+      // a 409 here, not a silent drift.
+      try {
+        await consumeEmployeeStockInTransaction(client, {
+          employeeId: employee.id,
+          productId,
+          branchId: employee.branch_id,
+          quantity: consumed,
+          workOrderId,
+          reason: `Work order ${updated.work_order_no}`,
+          actor: String(req.user?.email || employee.employee_code),
+          serials: remainingSerials,
+          customerId: existing.customer_id || null,
+          customerName: existing.customer_name || null,
+          // The phone also records a serial purely as the order's ONT tag, so a
+          // unit this technician never held is left untouched instead of
+          // refusing a job the cable quantity already covers.
+          strictSerials: false,
+        });
+      } catch (error) {
+        if (error instanceof EmployeeStockRefusal) {
+          throw new ApiError(409, error.message, { code: error.code });
+        }
+        if (error instanceof SerialCustodyRefusal) {
+          throw new ApiError(error.status, error.message, { code: error.code });
+        }
+        throw error;
+      }
     }
 
     await logAuditEvent(
@@ -984,6 +1061,16 @@ export async function completeWorkOrder(req: any, employee: any, id: string, bod
       resultStatus: 'CLOSED',
       message: 'Operational close committed.',
       baseVersion: updated.row_version,
+      // The units this completion installed at the visit's customer, with the
+      // date their seller warranty now runs from. Empty when the job consumed
+      // cable or a quantity instead of installing a held CPE.
+      installedAssets: installedAssets.map((row) => ({
+        assetId: row.assetId,
+        tagNumber: row.tagNumber,
+        deviceSerial: row.deviceSerial,
+        customerName: row.customerName,
+        warrantyStartDateAD: row.warrantyStartDateAD,
+      })),
     };
   });
 }

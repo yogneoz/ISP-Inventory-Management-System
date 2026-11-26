@@ -61,6 +61,8 @@ const BR = 'sa-branch';
 const DEST = 'sa-dest';
 const PRODUCT = 'sa-prod';
 const PRODUCT_NAME = 'SA Router';
+// Consumables leave the shelf into a person's custody, so the issue names one.
+const EMPLOYEE = 'sa-emp';
 const START_QTY = 10;
 const AVG_COST = 75;
 const OPENING_VALUE = START_QTY * AVG_COST;
@@ -111,6 +113,9 @@ describe('stock operations post value to the ledger (real HTTP + PostgreSQL)', {
     await pool!.query("DELETE FROM transaction_logs WHERE product_id = $1", [PRODUCT]);
     await pool!.query("DELETE FROM inventory_stock WHERE product_id = $1", [PRODUCT]);
     await purgeAuditLogs(pool!, "DELETE FROM audit_logs WHERE details LIKE '%SA-%'");
+    await pool!.query('DELETE FROM employee_stock_movements WHERE employee_id = $1', [EMPLOYEE]);
+    await pool!.query('DELETE FROM employee_stock_holdings WHERE employee_id = $1', [EMPLOYEE]);
+    await pool!.query('DELETE FROM employees WHERE id = $1', [EMPLOYEE]);
     await pool!.query('DELETE FROM products WHERE id = $1', [PRODUCT]);
     await pool!.query('DELETE FROM branches WHERE id IN ($1, $2)', [BR, DEST]);
   }
@@ -273,6 +278,11 @@ describe('stock operations post value to the ledger (real HTTP + PostgreSQL)', {
          requires_serial_tracking, tracking_type)
        VALUES ($1, $2, 'SA-SKU', 'Equipment', 'Product Item', 'Pcs', 120, 180, FALSE, 'QUANTITY_ONLY')`,
       [PRODUCT, PRODUCT_NAME]
+    );
+    await pool!.query(
+      `INSERT INTO employees (id, employee_code, name, branch_id)
+       VALUES ($1, 'SA-EMP-1', 'SA Stock Technician', $2)`,
+      [EMPLOYEE, BR]
     );
     await pool!.query(
       `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, average_cost, min_reorder_level)
@@ -455,6 +465,7 @@ describe('stock operations post value to the ledger (real HTTP + PostgreSQL)', {
       id: 'sa-consumable',
       referenceNumber: 'SA-CON-1',
       type: 'CONSUMABLE_ISSUE',
+      employeeId: EMPLOYEE,
       items: [{ productId: PRODUCT, productName: PRODUCT_NAME, quantity: 1 }],
     });
     const afterIssue = await stockRow();

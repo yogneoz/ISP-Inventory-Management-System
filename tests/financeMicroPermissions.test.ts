@@ -48,7 +48,23 @@ const SPLIT_AWAY = [
 describe('finance micro permissions', () => {
   test('the broad gl-manage grant is replaced by dedicated operations', () => {
     assert.equal(DEFAULT_PERMISSIONS_MATRIX['gl-manage'], undefined, 'gl-manage must not survive as a shadow gate');
-    assert.equal(Object.keys(DEFAULT_PERMISSIONS_MATRIX).length, 71, 'operation total');
+    assert.equal(Object.keys(DEFAULT_PERMISSIONS_MATRIX).length, 72, 'operation total');
+    // `branch-asset-assign` was screen access for two screens with different
+    // natures; it is retired, and neither half may come back as a shadow gate.
+    assert.equal(DEFAULT_PERMISSIONS_MATRIX['branch-asset-assign'], undefined, 'retired cell');
+    // The shelf-departure cell is pinned cell by cell: only the dispatch and
+    // manager roles the custody flow names may move stock/CPE. Accounting is
+    // closed on purpose (finance owns the register, not the shelf), and closing
+    // it here means a later default cannot silently reopen a deploy path.
+    assert.deepEqual(
+      Object.entries(DEFAULT_PERMISSIONS_MATRIX['stock-deploy'])
+        .filter(([, allowed]) => allowed)
+        .map(([role]) => role)
+        .sort(),
+      ['BRANCH_MANAGER', 'HEAD_OFFICE_ADMIN', 'INVENTORY_MANAGER', 'SUPER_ADMIN'],
+      'stock-deploy holders'
+    );
+
     for (const operation of FINANCE_CONTROLS) {
       assert.ok(DEFAULT_PERMISSIONS_MATRIX[operation], `${operation} is missing from the matrix`);
       assert.deepEqual(
@@ -216,9 +232,9 @@ describe('finance micro permissions', () => {
   test('fixed-asset reads and depreciation posting are separately controlled', () => {
     const inventory = source('server/src/routes/inventory.routes.ts');
     for (const gate of [
-      "app.get('/api/fixed-assets/page', requirePermissionAny('assets-view', 'branch-asset-assign')",
+      "app.get('/api/fixed-assets/page', requirePermission('assets-view')",
       "app.get('/api/fixed-assets/overview', requirePermission('assets-view')",
-      "requirePermissionAny('assets-view', 'branch-asset-assign', 'assets-manage')",
+      "requirePermissionAny('assets-view', 'assets-manage')",
       "app.post('/api/fixed-assets/depreciation', requirePermission('fin-depreciation-post')",
       "app.patch('/api/assets/:id/status', requirePermission('assets-manage')",
     ]) {
@@ -258,6 +274,23 @@ describe('finance micro permissions', () => {
     const tabs = source('client/src/routes/tabPermissions.ts');
     assert.ok(tabs.includes("'fixed-assets': 'assets-view'"), 'fixed-assets tab must read assets-view');
     assert.ok(tabs.includes("'depreciation-register': 'assets-view'"), 'depreciation tab must read assets-view');
+    // The deploy form and the deployments register are gated separately: the
+    // form is the write (`stock-deploy`), the register is the read.
+    assert.ok(tabs.includes("'assign-asset': 'stock-deploy'"), 'the deploy form must follow stock-deploy');
+    assert.ok(tabs.includes("'asset-deployments': 'assets-view'"), 'the deployments register must follow assets-view');
+    // The Issue Consumables form writes the custody ledger with a named holder,
+    // so it is a shelf departure too; `stock-out` is the technician's control
+    // and must not open it.
+    assert.ok(tabs.includes("'consumable-issue': 'stock-deploy'"), 'the consumable issue form must follow stock-deploy');
+    const stockOpsGate = source('server/src/controllers/permissions.core.ts');
+    assert.ok(
+      stockOpsGate.includes("'CONSUMABLE_ISSUE': 'stock-deploy'"),
+      'a consumable issue is a deploy, not a stock-out'
+    );
+    assert.ok(
+      stockOpsGate.includes("'MANUAL_ADJUSTMENT': 'stock-out'"),
+      'a manual stock adjustment keeps its stock-out control'
+    );
     assert.ok(tabs.includes("'hr-payroll':"), 'the payroll tab must be declared in the tab table');
 
     const sidebar = source('client/src/components/layout/Sidebar.tsx');

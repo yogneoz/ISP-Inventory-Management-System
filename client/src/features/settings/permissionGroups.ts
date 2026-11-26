@@ -208,12 +208,6 @@ export const DEFAULT_GROUPS: PermissionGroup[] = [
         permissions: DEFAULT_PERMISSIONS_MATRIX['stock-disposal-writeoff'],
       },
       {
-        id: 'branch-asset-assign',
-        operationName: 'Assign Fixed Assets to Branch Staff',
-        description: 'Allocate branch equipment, devices, and tools to specific personnel',
-        permissions: DEFAULT_PERMISSIONS_MATRIX['branch-asset-assign'],
-      },
-      {
         id: 'stock-out',
         operationName: 'Stock Issues & Stock-Out Reversal',
         description: 'Issue consumables, post manual stock reductions, and reverse a posted stock-out',
@@ -224,6 +218,18 @@ export const DEFAULT_GROUPS: PermissionGroup[] = [
         operationName: 'Reverse Consumable Issue Record',
         description: 'Undo a logged consumable issue — returns the issued units to branch stock, marks the record CANCELLED and writes a reversal to the audit trail',
         permissions: DEFAULT_PERMISSIONS_MATRIX['consumable-issue-reverse'],
+      },
+      {
+        id: 'stock-deploy',
+        operationName: 'Deploy Stock & CPE',
+        description: 'Take stock off the branch shelf into a technician\'s custody, a POP or a customer — the Assign Fixed Asset deployment, the Issue Consumables form, My Stock issue/install and the custody stock-take. Reading custody or registering an asset is a different grant.',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['stock-deploy'],
+      },
+      {
+        id: 'custody-writeoff',
+        operationName: 'Write Off Employee-Held Stock',
+        description: 'Execute a lost/damaged write-off against a technician\'s custody. The holder can only report it; this permission is what approves and posts the loss.',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['custody-writeoff'],
       },
       {
         id: 'employee-stock-view',

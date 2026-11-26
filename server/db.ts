@@ -1,6 +1,6 @@
 import pg from 'pg';
 import dotenv from 'dotenv';
-import { intFromEnv, strictIntFromEnv } from './src/utils/envGuard';
+import { intFromEnv, resolveDeclaredPort, strictIntFromEnv } from './src/utils/envGuard';
 import {
   recordDbBreakerEvent,
   recordDbQuery,
@@ -21,7 +21,25 @@ import {
 } from './src/db/readRouting';
 import { setPgConnected } from './src/state/runtimeState';
 
-dotenv.config();
+// dotenv's contract is "the real environment wins", which is right for every
+// knob but PORT: this workstation's shell exports an ambient `PORT=0` ("any
+// free port"), and nothing else, so a dev boot warned about an out-of-range
+// value and fell back on every start even though `.env` names 3000. PORT is
+// resolved explicitly instead: a real ambient port still wins, an unusable one
+// defers to the value the project declares, and the deferral is printed rather
+// than silently swallowed. Every other variable keeps the usual non-overriding
+// merge, so tests that point DATABASE_URL at a throwaway database are safe.
+const envFile = dotenv.config({ processEnv: {} }).parsed ?? {};
+for (const [key, value] of Object.entries(envFile)) {
+  if (process.env[key] === undefined) process.env[key] = value;
+}
+const declaredPort = resolveDeclaredPort(process.env.PORT, envFile.PORT);
+if (declaredPort.port !== null && declaredPort.ambientIgnored !== null) {
+  console.log(
+    `ℹ️  PORT=${declaredPort.ambientIgnored} from the environment is not a usable listen port; using PORT=${declaredPort.port} from .env.`
+  );
+  process.env.PORT = String(declaredPort.port);
+}
 
 const { Pool: RealPgPool } = pg;
 

@@ -4,9 +4,11 @@
  * PROVES:
  *  1. The screen loads the partner rows and the delivery queue from the two
  *     documented admin reads and renders them (code, status, queued counts).
- *  2. A refused action surfaces the server's `{ code, message, retryable,
- *     details }` envelope in the banner instead of a generic sentence — an
- *     operator has to be able to tell "not retryable" from "try again".
+ *  2. A refused action surfaces the server's own refusal in the banner instead
+ *     of a generic sentence. The partner surface answers `{ message }` or
+ *     `{ code, message }` (`docs/contracts/partner-v1.md`) — there is no
+ *     `retryable` and no `details`, so the banner shows what exists and treats a
+ *     missing `code` as the normal validation shape, not an anomaly.
  *  3. A successful replay re-reads the queue, so the row's status moves from
  *     FAILED to DELIVERED without a manual refresh.
  *
@@ -17,7 +19,10 @@ import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createElement, act } from 'react';
 import { mountTree } from './harness/mount';
-import { IntegrationPartners } from '../client/src/features/settings/IntegrationPartners';
+import {
+  IntegrationPartners,
+  describeApiFailure,
+} from '../client/src/features/settings/IntegrationPartners';
 
 const admin = {
   id: 'u-admin',
@@ -145,7 +150,7 @@ describe('Integration Partners console', () => {
     tree.unmount();
   });
 
-  test('a refused action surfaces the code, message and retryability', async () => {
+  test('a refused action surfaces the server refusal in both real body shapes', async () => {
     installFetch((call) => {
       if (call.url.includes('/api/admin/integration/partners') && call.method === 'GET') {
         return jsonResponse(200, [partnerRow()]);
@@ -153,31 +158,40 @@ describe('Integration Partners console', () => {
       if (call.url.includes('/api/admin/integration/outbox')) {
         return jsonResponse(200, []);
       }
+      // A partner row that vanished between the read and the click: the service
+      // throws `404 'Integration partner not found.'`, which the central handler
+      // emits as the message-only body.
       if (call.method === 'PATCH') {
-        return jsonResponse(409, {
-          code: 'PARTNER_IN_USE',
-          message: 'This partner still has queued events.',
-          retryable: false,
-          details: { pending_events: 1 },
+        return jsonResponse(404, { message: 'Integration partner not found.' });
+      }
+      // A busy database is the other shape: `503` from the central handler with
+      // a stable code and Retry-After.
+      if (call.url.includes('/api/admin/integration/deliver')) {
+        return jsonResponse(503, {
+          code: 'DB_BUSY',
+          message: 'The database is busy. Try again in a moment.',
         });
       }
-      return jsonResponse(404, { code: 'NOT_FOUND', message: 'unexpected call' });
+      return jsonResponse(404, { message: 'unexpected call' });
     });
 
     const tree = mountTree(createElement(IntegrationPartners, { currentUser: admin }));
     await flush();
     await clickByText(tree.container, 'Suspend');
 
-    const text = tree.container.textContent || '';
-    assert.match(text, /This partner still has queued events\./, 'the server message is shown');
-    assert.match(text, /PARTNER_IN_USE/, 'the machine-readable code is shown');
-    assert.match(text, /not retryable/, 'the retryability is shown');
-    assert.match(text, /pending_events/, 'the details payload is shown');
+    const bare = tree.container.textContent || '';
+    assert.match(bare, /Integration partner not found\./, 'the server message is shown');
+    assert.doesNotMatch(bare, /undefined/, 'a refusal without a code renders no placeholder');
     assert.equal(
       calls.some((call) => call.method === 'PATCH'),
       true,
       'the refusal came from the documented PATCH endpoint'
     );
+
+    await clickByText(tree.container, 'Drain queue');
+    const coded = tree.container.textContent || '';
+    assert.match(coded, /The database is busy\. Try again in a moment\. \(DB_BUSY\)/, 'message and code');
+    assert.doesNotMatch(coded, /undefined/);
 
     tree.unmount();
   });
@@ -219,5 +233,46 @@ describe('Integration Partners console', () => {
     assert.equal(outboxReadCount >= 2, true, 'the queue was re-read after the replay');
 
     tree.unmount();
+  });
+});
+
+/**
+ * The banner text itself, pinned against the two bodies the partner routes
+ * really send. A reintroduced `retryable`/`details` read, or a fallback that
+ * printed `undefined`, fails here.
+ */
+describe('describeApiFailure', () => {
+  test('renders the coded and the message-only refusal', () => {
+    const outOfScope = Object.assign(new Error('Request failed with status 403'), {
+      status: 403,
+      body: {
+        code: 'PARTNER_BRANCH_SCOPE',
+        message: 'This API key is not scoped for the requested branch.',
+      },
+    });
+    assert.equal(
+      describeApiFailure(outOfScope),
+      'This API key is not scoped for the requested branch. (PARTNER_BRANCH_SCOPE)'
+    );
+
+    const validation = Object.assign(new Error('Request failed with status 400'), {
+      status: 400,
+      body: { message: 'contactNumber is required.' },
+    });
+    assert.equal(describeApiFailure(validation), 'contactNumber is required.');
+  });
+
+  test('falls back to a sentence when the body carries no message', () => {
+    const noMessage = Object.assign(new Error(''), {
+      status: 403,
+      body: { code: 'PARTNER_BRANCH_SCOPE' },
+    });
+    assert.equal(
+      describeApiFailure(noMessage),
+      'The request failed. (PARTNER_BRANCH_SCOPE)',
+      'a missing message never renders as undefined'
+    );
+    assert.doesNotMatch(describeApiFailure(noMessage), /undefined/);
+    assert.equal(describeApiFailure(undefined), 'The request failed.');
   });
 });

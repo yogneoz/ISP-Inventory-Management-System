@@ -23,6 +23,8 @@ import {
   BadgeDollarSign,
   Undo2,
   PackageX,
+  UserCheck,
+  Ban,
   Edit2,
   Save,
   X,
@@ -90,6 +92,18 @@ const STATUS_META: Record<string, { badge: string; icon: React.ReactNode }> = {
     badge: 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800',
     icon: <PackageX className="h-4 w-4" />,
   },
+  // Issued to a technician: the unit is on their van, waiting for a work order
+  // to install it at a customer or for it to come back. `holderEmployeeName`
+  // names the person.
+  IN_CUSTODY: {
+    badge: 'bg-teal-50 dark:bg-teal-950/30 text-teal-700 dark:text-teal-400 border-teal-200 dark:border-teal-800',
+    icon: <UserCheck className="h-4 w-4" />,
+  },
+  // Written off from a technician's custody — the unit is never coming back.
+  LOST: {
+    badge: 'bg-rose-50 dark:bg-rose-950/30 text-rose-800 dark:text-rose-300 border-rose-300 dark:border-rose-800',
+    icon: <Ban className="h-4 w-4" />,
+  },
 };
 
 // Mirrors every status the server writes to serial_log — IN_STOCK/
@@ -98,7 +112,7 @@ const STATUS_META: Record<string, { badge: string; icon: React.ReactNode }> = {
 // SOLD and RETURNED_TO_VENDOR (the two the sales/purchase-return flips
 // write but this filter historically omitted, hiding those units from
 // every status view except ALL).
-const ALL_STATUSES = ['IN_STOCK', 'IN_TRANSIT', 'CUSTOMER_ASSIGNED', 'POP_LOCATION_ASSIGNED', 'DAMAGED', 'RETURNED', 'SOLD', 'RETURNED_TO_VENDOR', 'CONSUMED'];
+const ALL_STATUSES = ['IN_STOCK', 'IN_TRANSIT', 'IN_CUSTODY', 'CUSTOMER_ASSIGNED', 'POP_LOCATION_ASSIGNED', 'DAMAGED', 'RETURNED', 'SOLD', 'RETURNED_TO_VENDOR', 'CONSUMED', 'LOST'];
 
 /** Stable empty counts before the first page lands (and across filter changes). */
 const EMPTY_STATUS_COUNTS: Record<string, number> = {};
@@ -515,6 +529,7 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
         items={([
           { key: 'IN_STOCK', label: 'In Stock', tone: 'emerald' },
           { key: 'IN_TRANSIT', label: 'In Transit', tone: 'sky' },
+          { key: 'IN_CUSTODY', label: 'With Technician', tone: 'teal' },
           { key: 'CUSTOMER_ASSIGNED', label: 'Customer', tone: 'violet' },
           { key: 'POP_LOCATION_ASSIGNED', label: 'POP Location', tone: 'indigo' },
           { key: 'DAMAGED', label: 'Damaged', tone: 'rose' },
@@ -663,7 +678,8 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
                         <td className="px-2.5 py-2">
                           <div className="font-semibold text-slate-900 dark:text-white">{device.branchName || '-'}</div>
                           <div className="text-[10px] text-slate-500 dark:text-slate-400">
-                            {device.customerName || 'Unassigned Stock'}
+                            {device.customerName ||
+                              (device.holderEmployeeName ? `Held by ${device.holderEmployeeName}` : 'Unassigned Stock')}
                           </div>
                         </td>
                         <td className="px-2.5 py-2">

@@ -54,6 +54,8 @@ export async function backfillSerialLog(db: SerialBackfillDb): Promise<SerialBac
     deviceSerial: string; ponSerial?: string; macAddress?: string;
     productId?: string; productName?: string; branchId?: string;
     customerId?: string; customerName?: string;
+    /** The person a unit issued into custody is held by (IN_CUSTODY only). */
+    holderEmployeeId?: string;
     status: string; sourceType: string; sourceId?: string; dateAD?: string;
   };
   const merged = new Map<string, Cand>();
@@ -71,6 +73,7 @@ export async function backfillSerialLog(db: SerialBackfillDb): Promise<SerialBac
         productId: c.productId || prev.productId,
         productName: c.productName || prev.productName,
         branchId: c.branchId || prev.branchId,
+        holderEmployeeId: c.holderEmployeeId || prev.holderEmployeeId,
       });
     }
   };
@@ -116,7 +119,7 @@ export async function backfillSerialLog(db: SerialBackfillDb): Promise<SerialBac
   // units were restored by the reversal), and MANUAL_ADJUSTMENT/unknown types
   // move stock only, never a serial.
   const opRes = await db.query(
-    'SELECT id, type, status, branch_id, destination_warehouse_id, date_ad, items FROM stock_operations'
+    'SELECT id, type, status, branch_id, destination_warehouse_id, date_ad, items, employee_id FROM stock_operations'
   );
   for (const op of opRes.rows) {
     const opType = String(op.type || '').toUpperCase();
@@ -125,7 +128,9 @@ export async function backfillSerialLog(db: SerialBackfillDb): Promise<SerialBac
     const pulloutReceived = opType === 'PULLOUT' && opStatus === 'RECEIVED';
     const status =
       opType === 'DAMAGE' || opType === 'DISPOSAL' ? 'DAMAGED'
-        : opType === 'CONSUMABLE_ISSUE' ? 'CONSUMED'
+        // An issue that names a person put the unit in their custody; a legacy
+        // issue with no person really did consume it.
+        : opType === 'CONSUMABLE_ISSUE' ? (op.employee_id ? 'IN_CUSTODY' : 'CONSUMED')
           : opType === 'STOCK_OUT' ? 'SOLD'
             : opType === 'PULLOUT' ? (pulloutReceived ? 'IN_STOCK' : 'IN_TRANSIT')
               : null;
@@ -143,6 +148,7 @@ export async function backfillSerialLog(db: SerialBackfillDb): Promise<SerialBac
           deviceSerial: String(s.deviceSerial).trim(), ponSerial: s.ponSerial, macAddress: s.macAddress,
           productId: item.productId, productName: item.productName,
           branchId, status: damagedLine ? 'DAMAGED' : status,
+          holderEmployeeId: status === 'IN_CUSTODY' ? op.employee_id || undefined : undefined,
           sourceType: 'STOCK_OP', sourceId: op.id, dateAD: isoDate(op.date_ad),
         });
       }
@@ -206,11 +212,11 @@ export async function backfillSerialLog(db: SerialBackfillDb): Promise<SerialBac
           // whole reconcile. Resolve the links at insert time instead: a dangling
           // id becomes NULL, while the serial row and its recorded names (product
           // and branch) still converge.
-          `INSERT INTO serial_log (id, device_serial, pon_serial, mac_address, product_id, product_name, branch_id, customer_id, customer_name, status, source_type, source_id, history_json, created_at, updated_at, is_demo)
-           VALUES ($1,$2,$3,$4,(SELECT id FROM products WHERE id = $5),$6,(SELECT id FROM branches WHERE id = $7),$8,$9,$10,$11,$12,$13,$14,$15,FALSE) ON CONFLICT DO NOTHING`,
+          `INSERT INTO serial_log (id, device_serial, pon_serial, mac_address, product_id, product_name, branch_id, customer_id, customer_name, status, source_type, source_id, history_json, created_at, updated_at, is_demo, holder_employee_id)
+           VALUES ($1,$2,$3,$4,(SELECT id FROM products WHERE id = $5),$6,(SELECT id FROM branches WHERE id = $7),$8,$9,$10,$11,$12,$13,$14,$15,FALSE,$16) ON CONFLICT DO NOTHING`,
           [id, c.deviceSerial, c.ponSerial || null, c.macAddress || null, c.productId || null, c.productName || null,
             c.branchId || null, c.customerId || null, c.customerName || null, c.status, c.sourceType, c.sourceId || null,
-            JSON.stringify([entry]), `${c.dateAD}T00:00:00Z`, new Date().toISOString()]
+            JSON.stringify([entry]), `${c.dateAD}T00:00:00Z`, new Date().toISOString(), c.holderEmployeeId || null]
         );
         inserted++;
       } catch (error: any) {
@@ -234,10 +240,12 @@ export async function backfillSerialLog(db: SerialBackfillDb): Promise<SerialBac
         `UPDATE serial_log SET status = $1, customer_id = COALESCE($2, customer_id), customer_name = COALESCE($3, customer_name),
           pon_serial = COALESCE($4, pon_serial), mac_address = COALESCE($5, mac_address),
           product_name = COALESCE($6, product_name), branch_id = COALESCE((SELECT id FROM branches WHERE id = $7), branch_id),
-          source_type = $8, source_id = COALESCE($9, source_id), history_json = $10, updated_at = NOW()
+          source_type = $8, source_id = COALESCE($9, source_id), history_json = $10, updated_at = NOW(),
+          holder_employee_id = CASE WHEN $1::varchar = 'IN_CUSTODY' THEN COALESCE($13::varchar, holder_employee_id) ELSE NULL END
          WHERE id = $11 AND status = $12`,
         [c.status, c.customerId || null, c.customerName || null, c.ponSerial || null, c.macAddress || null,
-          c.productName || null, c.branchId || null, c.sourceType, c.sourceId || null, JSON.stringify(history), row.id, row.status]
+          c.productName || null, c.branchId || null, c.sourceType, c.sourceId || null, JSON.stringify(history), row.id, row.status,
+          c.holderEmployeeId || null]
       );
       if (result.rowCount === 1) updated++;
       else skipped++;

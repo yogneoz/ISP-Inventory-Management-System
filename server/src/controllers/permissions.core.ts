@@ -26,7 +26,12 @@ export function requireStockOperationPermission(req: any, res: any, next: any) {
     'STOCK_OUT': 'stock-out',
     'DAMAGE': 'branch-damage-mark',
     'DISPOSAL': 'stock-disposal-writeoff',
-    'CONSUMABLE_ISSUE': 'stock-out',
+    // A consumable issue is a shelf departure into one person's custody: it
+    // writes the employee-stock ledger (`personDirected` in the controller), so
+    // it is a deployment, not a stock-out. `stock-out` is held by the technician
+    // who writes units down, which would otherwise let them issue stock to
+    // anybody from this form — the deploy grant is what stops that.
+    'CONSUMABLE_ISSUE': 'stock-deploy',
     'MANUAL_ADJUSTMENT': 'stock-out',
   };
   const op = opMap[opType] || 'branch-pullout-dispatch';

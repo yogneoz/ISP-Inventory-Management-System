@@ -15,7 +15,7 @@
  *  5. a refused operation moves NOTHING — no stock_operations row, no
  *     fixed_assets row, stock untouched;
  *  6. SER-1/D2 — pullout/consumable/sale issue their units to IN_TRANSIT /
- *     CONSUMED / SOLD so a second issue is refused, and each reversal returns
+ *     IN_CUSTODY / SOLD so a second issue is refused, and each reversal returns
  *     them to IN_STOCK; a received pullout lands at its destination branch.
  *
  * Fixtures use an "sg-" id prefix / "SG" serials, seeded in BOTH the database and
@@ -74,6 +74,9 @@ const CONSUME_SERIAL = 'SG-CONS';
 const SALE_SERIAL = 'SG-SALE';
 const RECEIVE_SERIAL = 'SG-RECV';
 const PON = 'SG-PON';
+// A consumable issue now names the person who takes custody, so the gate test
+// needs a real employee in the branch rather than a typed name.
+const EMPLOYEE = 'sg-emp';
 
 describe('shared serial gate (HTTP layer)', () => {
   let port = 0;
@@ -105,6 +108,10 @@ describe('shared serial gate (HTTP layer)', () => {
       `INSERT INTO branches (id, code, name, location) VALUES
        ('${BRANCH}', 'SGB', 'SG Gate Branch', 'T'),
        ('${OTHER_BRANCH}', 'SGB2', 'SG Other Branch', 'T')`
+    );
+    await pool!.query(
+      `INSERT INTO employees (id, employee_code, name, branch_id)
+       VALUES ('${EMPLOYEE}', 'SG-EMP-1', 'SG Gate Technician', '${BRANCH}')`
     );
     await pool!.query(
       `INSERT INTO products (id, name, sku, category, product_group, unit, cost_price, selling_price, requires_serial_tracking, tracking_type)
@@ -175,6 +182,9 @@ describe('shared serial gate (HTTP layer)', () => {
     await pool.query("DELETE FROM stock_operations WHERE id LIKE 'sg-op%' OR reference_number LIKE 'sg%'");
     await pool.query("DELETE FROM fixed_assets WHERE id LIKE 'sg-%' OR tag_number LIKE 'SG-%'");
     await pool.query("DELETE FROM transaction_logs WHERE reference_doc_id LIKE 'SG-%'");
+    await pool.query("DELETE FROM employee_stock_movements WHERE employee_id = 'sg-emp'");
+    await pool.query("DELETE FROM employee_stock_holdings WHERE employee_id = 'sg-emp'");
+    await pool.query("DELETE FROM employees WHERE id = 'sg-emp'");
     await pool.query("DELETE FROM inventory_stock WHERE id LIKE 'sg-%'");
     // Journals carry a RESTRICT branch FK; clear them before the branches.
     await pool.query("DELETE FROM gl_journals WHERE branch_id LIKE 'sg-branch%'");
@@ -284,18 +294,28 @@ describe('shared serial gate (HTTP layer)', () => {
     assert.equal(await stockOnHand(), before, 'reversal restores the consumed stock');
   });
 
-  test('a consumable issue marks CONSUMED and its reversal restores stock', { skip: skipNoDb }, async () => {
+  test('a consumable issue puts the device in the technician\u2019s custody and its reversal restores stock', { skip: skipNoDb }, async () => {
     const before = await stockOnHand();
-    const body = { ...pullout(CONSUME_SERIAL), type: 'CONSUMABLE_ISSUE' };
+    const body = { ...pullout(CONSUME_SERIAL), type: 'CONSUMABLE_ISSUE', employeeId: EMPLOYEE };
     const created = await call('POST', '/api/stock-operations', body);
     assert.equal(created.status, 201, JSON.stringify(created.json));
-    assert.equal((await serialRow(CONSUME_SERIAL))?.status, 'CONSUMED');
+    assert.equal((await serialRow(CONSUME_SERIAL))?.status, 'IN_CUSTODY');
+    const held = await pool!.query(
+      'SELECT holder_employee_id AS "holder" FROM serial_log WHERE device_serial = $1',
+      [CONSUME_SERIAL]
+    );
+    assert.equal(held.rows[0]?.holder, EMPLOYEE, 'the register names who holds the device');
 
     const reversed = await call('POST', `/api/stock-operations/${created.json.id}/reverse-consumable`, {
       reason: 'issued in error',
     });
     assert.equal(reversed.status, 200, JSON.stringify(reversed.json));
     assert.equal((await serialRow(CONSUME_SERIAL))?.status, 'IN_STOCK');
+    const after = await pool!.query(
+      'SELECT holder_employee_id AS "holder" FROM serial_log WHERE device_serial = $1',
+      [CONSUME_SERIAL]
+    );
+    assert.equal(after.rows[0]?.holder, null, 'a returned unit has no holder');
     assert.equal(await stockOnHand(), before);
   });
 

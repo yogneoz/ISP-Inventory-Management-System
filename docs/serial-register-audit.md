@@ -27,8 +27,10 @@ consumer read it the same way?**
 
 `serial_log` looks like a write-through register: one row per serial, unique by
 `lower(trim(device_serial))` ([schema.sql:1245](../scripts/schema.sql#L1245)), with a `status` CHECK
-covering `IN_STOCK` / `IN_TRANSIT` / `CUSTOMER_ASSIGNED` / `POP_LOCATION_ASSIGNED` / `DAMAGED` /
-`RETURNED` / `SOLD` / `RETURNED_TO_VENDOR` / `CONSUMED`.
+covering `IN_STOCK` / `IN_TRANSIT` / `IN_CUSTODY` / `CUSTOMER_ASSIGNED` / `POP_LOCATION_ASSIGNED` /
+`DAMAGED` / `RETURNED` / `SOLD` / `RETURNED_TO_VENDOR` / `CONSUMED` / `LOST`. `IN_CUSTODY` is a device
+issued to a technician (the row's `holder_employee_id` names the person); `LOST` is a unit written off
+from that custody. See §6f.
 
 Every row-creating path in the repository:
 
@@ -328,7 +330,7 @@ reversal:
 |---|---|---|
 | `PULLOUT` (dispatch) | `IN_STOCK → IN_TRANSIT` at the source | `POST /api/stock-operations/:id/reverse-pullout` → `IN_STOCK` at the source |
 | ↳ pullout received | `IN_TRANSIT → IN_STOCK` at the destination warehouse | n/a (the dispatch can no longer be reversed) |
-| `CONSUMABLE_ISSUE` | `IN_STOCK → CONSUMED` (new state) | `POST /api/stock-operations/:id/reverse-consumable` → `IN_STOCK` |
+| `CONSUMABLE_ISSUE` | `IN_STOCK → IN_CUSTODY` (issued to the named technician; the unit is on their van, not consumed) | `POST /api/stock-operations/:id/reverse-consumable` → `IN_STOCK` |
 | `STOCK_OUT` (product sale) | `IN_STOCK → SOLD` | `POST /api/stock-operations/:id/reverse-stock-out` → `IN_STOCK` |
 
 Every write sets `source_type='STOCK_OP'` and `source_id=<operation id>` and
@@ -373,7 +375,7 @@ written before SER-1 gave stock operations terminal states, so it mapped every
 operation to `IN_STOCK`. That would relist a sold or consumed unit and pull a
 received transfer back to its source. It now mirrors
 [issueStatusForOperation](../server/src/services/serialOperationLifecycle.service.ts#L31):
-`STOCK_OUT` → `SOLD`, `CONSUMABLE_ISSUE` → `CONSUMED`, `DAMAGE`/`DISPOSAL` →
+`STOCK_OUT` → `SOLD`, `CONSUMABLE_ISSUE` → `IN_CUSTODY`, `DAMAGE`/`DISPOSAL` →
 `DAMAGED`, `PULLOUT` → `IN_TRANSIT` (or `IN_STOCK` at
 `destination_warehouse_id` once `RECEIVED`), damaged-stock lines stay `DAMAGED`,
 `CANCELLED` operations are skipped, and `MANUAL_ADJUSTMENT` moves stock but
@@ -401,6 +403,56 @@ customer device → `CUSTOMER_ASSIGNED`), the lifecycle mapping (`STOCK_OUT` →
 `SOLD`, received `PULLOUT` → `IN_STOCK` at the destination), an orphan product
 id that must not abort the pass, idempotency (no duplicate rows), terminal
 preservation (`RETURNED` survives), and HTTP gating (401 / 403 / 200).
+
+## 6f. Serial-level custody — shelf → technician → customer (delivered 2026-11-26)
+
+The custody ledger (0059) made quantities follow the person. A device also has an
+identity, and the register could only say `IN_STOCK` or `CONSUMED`: issuing a
+CPE to a technician either left it "in stock at the branch" or (after SER-1)
+marked it consumed, so the van, the register and the customer's installed-device
+record could not agree. The decided policy is the one serialised inventory uses
+everywhere: **the unit sits in internal technician stock until an installation
+document names the customer, and only then does the customer register see it.**
+
+| Path | Register transition | Held by |
+|---|---|---|
+| `CONSUMABLE_ISSUE` with device serials (document) | `IN_STOCK → IN_CUSTODY` | the document's employee |
+| `POST /api/employee-stock/issue` with `deviceSerials` | `IN_STOCK → IN_CUSTODY` | the named employee |
+| `POST /api/employee-stock/return` | `IN_CUSTODY → IN_STOCK` | cleared |
+| Work-order completion with `serialUsed`/`consumedSerials` | `IN_CUSTODY → CUSTOMER_ASSIGNED` (+ the work order's customer, `source_type='WORK_ORDER'`) | cleared |
+| `POST /api/employee-stock/consume` with a customer | `IN_CUSTODY → CUSTOMER_ASSIGNED` | cleared |
+| `POST /api/employee-stock/consume` without a customer | `IN_CUSTODY → CONSUMED` | cleared |
+| `POST /api/employee-stock/loss` | `IN_CUSTODY → LOST` | cleared |
+| `POST /api/employee-stock/transfer` | `IN_CUSTODY → IN_CUSTODY` (holder changes; same branch) | the receiver |
+
+The holder is the guard, not the branch: two technicians can hold the same
+product, so a release only moves a row whose `holder_employee_id` is the person
+the movement names. Every write is additionally guarded on the state it expects,
+so a lost race is a `409` with the serial's real state, never an overwrite.
+
+- **The phone is lenient by design.** `serialUsed` was historically recorded as
+the order's ONT tag even when the technician never received that unit through
+custody. The completion therefore moves **only the units that person really
+holds** and leaves the rest untouched, instead of refusing a job the cable
+quantity already covers. The panel endpoints are strict.
+- **Movements name their units.** `employee_stock_movement_serials` records which
+serials each issue/return/consume/loss/transfer moved (cascade with the
+movement), so a movement's quantity can be checked against its physical units.
+  Document issues are traced through `serial_log.source_id = <operation id>` and
+  the shared `custody_group_id` instead.
+- **Installation is final for the document.** Reversing the issue after the unit
+  was installed is refused (`409`): the technician no longer holds it, and the
+  remedy is a return/correction flow, not crediting the shelf behind the
+  customer's back.
+- **Migration.** 0060 adds `holder_employee_id` (FK, `ON DELETE SET NULL`), the two
+  statuses and the link table; `scripts/schema.sql` mirrors it. Historical rows
+  keep their state — none can be given a holder without inventing custody.
+
+Tests: the two new cases in [tests/stockOperationCustody.api.test.ts](../tests/stockOperationCustody.api.test.ts)
+(issue → `IN_CUSTODY` → work-order install → `CUSTOMER_ASSIGNED` with the
+customer and the movement link; panel issue / refused consume / return), plus the
+updated custody assertions in [tests/serialGateHttp.test.ts](../tests/serialGateHttp.test.ts)
+and the pure mapping in [tests/serialOperationLifecycle.test.ts](../tests/serialOperationLifecycle.test.ts).
 
 ## 7. Migration and reconciliation
 

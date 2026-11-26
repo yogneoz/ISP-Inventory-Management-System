@@ -7,7 +7,7 @@ import { KeysetLoadMore } from '../../components/common/KeysetLoadMore';
 import { RegisterLoadError } from '../../components/common/RegisterLoadError';
 import { formatNPR } from '../../utils/nprFormat';
 import { exportToCSV } from '../../utils/exportUtils';
-import { getAllowedBranches } from '../../utils/permissions';
+import { getAllowedBranches, isOperationAllowed } from '../../utils/permissions';
 import { useDialog } from '../../components/common/DialogProvider';
 import { api } from '../../services/api';
 import { useBootstrapData } from '../../contexts/AppProviders';
@@ -56,6 +56,11 @@ export const AssetDeployments: React.FC<AssetDeploymentsProps> = ({
   const [typeFilter, setTypeFilter] = useState<'ALL' | 'LOCATION' | 'CUSTOMER'>('ALL');
 
   const allowedBranches = useMemo(() => getAllowedBranches(currentUser, branches), [currentUser, branches]);
+  // Reversing a deployment is a write (`PATCH /api/assets/:id/status` is gated
+  // on `assets-manage`), so the read-only register must not offer it. The
+  // auditor gained this register on `assets-view` alone and holds no
+  // `assets-manage`.
+  const canReverse = isOperationAllowed('assets-manage', currentUser?.role);
   const popLocations = useMemo(
     () => locations.filter((l) => l.type === 'POP_SERVER_ROOM' || l.type === 'FIBER_NETWORK_NODE' || !l.type),
     [locations]
@@ -310,7 +315,7 @@ export const AssetDeployments: React.FC<AssetDeploymentsProps> = ({
                   <th className="px-2.5 py-2">Branch</th>
                   <th className="px-2.5 py-2">Assigned ({dateMode})</th>
                   <th className="px-2.5 py-2 text-right">NBV (NPR)</th>
-                  <th className="px-2.5 py-2 text-center">Action</th>
+                  {canReverse && <th className="px-2.5 py-2 text-center">Action</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -352,15 +357,17 @@ export const AssetDeployments: React.FC<AssetDeploymentsProps> = ({
                       {dateMode === 'BS' ? a.assignmentDateBS || '—' : a.assignmentDateAD || '—'}
                     </td>
                     <td className="p-2.5 text-right font-mono font-bold text-slate-900 dark:text-white">{formatNPR(a.netBookValue)}</td>
-                    <td className="p-2.5 text-center">
-                      <button
-                        onClick={() => handleReverse(a)}
-                        className="text-rose-600 dark:text-rose-400 hover:underline font-bold cursor-pointer text-[11px] inline-flex items-center gap-1"
-                      >
-                        <Undo2 className="h-3 w-3" />
-                        Reverse
-                      </button>
-                    </td>
+                    {canReverse && (
+                      <td className="p-2.5 text-center">
+                        <button
+                          onClick={() => handleReverse(a)}
+                          className="text-rose-600 dark:text-rose-400 hover:underline font-bold cursor-pointer text-[11px] inline-flex items-center gap-1"
+                        >
+                          <Undo2 className="h-3 w-3" />
+                          Reverse
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

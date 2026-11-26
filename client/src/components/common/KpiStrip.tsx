@@ -45,6 +45,7 @@ export const KPI_TONE_TEXT: Record<string, string> = {
   rose: 'text-rose-500 dark:text-rose-400',
   amber: 'text-amber-500 dark:text-amber-400',
   violet: 'text-violet-500 dark:text-violet-400',
+  teal: 'text-teal-500 dark:text-teal-400',
   slate: 'text-slate-500 dark:text-slate-400',
 };
 

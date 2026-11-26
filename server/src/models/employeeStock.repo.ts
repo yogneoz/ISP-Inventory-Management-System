@@ -12,8 +12,18 @@
  * branch never reads another's rows.
  */
 import crypto from 'node:crypto';
+import { businessDateAD } from '../../../shared/businessDate';
 import { pgPool } from '../../db';
 import { withTransaction } from '../db/transactions';
+import {
+  custodySerials,
+  issueCustodySerialsInDb,
+  releaseCustodySerialsInDb,
+  transferCustodySerialsInDb,
+} from '../services/serialCustody.service';
+import { installHeldAssetAtCustomer, type InstallHeldAssetResult } from '../services/custodyInstall.service';
+import { AR_INSERT_SQL, arInsertParams } from './misc.repo';
+import type { ApprovalRequest } from '../../../client/src/types';
 
 export type EmployeeStockMovementType =
   | 'ISSUE'
@@ -56,6 +66,8 @@ export interface EmployeeStockMovementRow {
   counterparty_employee_id: string | null;
   counterparty_name: string | null;
   transfer_group_id: string | null;
+  /** The stock operation that issued these units, when one did. */
+  custody_group_id: string | null;
   created_at: string;
 }
 
@@ -98,7 +110,7 @@ const MOVEMENT_SELECT = `
          m.branch_id, b.name AS branch_name, m.movement_type, m.quantity,
          m.work_order_id, w.work_order_no, m.reason, m.actor,
          m.counterparty_employee_id, ce.name AS counterparty_name,
-         m.transfer_group_id, m.created_at
+         m.transfer_group_id, m.custody_group_id, m.created_at
     FROM employee_stock_movements m
     JOIN employees e ON e.id = m.employee_id
     JOIN products p ON p.id = m.product_id
@@ -305,13 +317,14 @@ async function appendMovement(
     actor: string;
     counterpartyEmployeeId?: string | null;
     transferGroupId?: string | null;
+    custodyGroupId?: string | null;
   }
 ): Promise<EmployeeStockMovementRow> {
   const inserted = await client.query(
     `INSERT INTO employee_stock_movements
        (employee_id, product_id, branch_id, movement_type, quantity, work_order_id, reason, actor,
-        counterparty_employee_id, transfer_group_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        counterparty_employee_id, transfer_group_id, custody_group_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      RETURNING id`,
     [
       input.employeeId,
@@ -324,6 +337,7 @@ async function appendMovement(
       input.actor,
       input.counterpartyEmployeeId || null,
       input.transferGroupId || null,
+      input.custodyGroupId || null,
     ]
   );
 
@@ -372,53 +386,175 @@ export interface MovementInput {
   workOrderId?: string | null;
   reason?: string | null;
   actor: string;
+  /** Device serials this movement carries; serial-tracked products only. */
+  serials?: string[];
+  /** The customer a consumed unit was installed at (CONSUME only). */
+  customerId?: string | null;
+  customerName?: string | null;
+  /**
+   * CONSUME only. true (default): every named serial must be held by this
+   * person. false: only the units this person really holds are installed, and a
+   * serial that is not in custody is left alone — the phone also records a
+   * serial purely as the work order's ONT tag.
+   */
+  strictSerials?: boolean;
+}
+
+/** The day a custody move is stamped with in the register's history. */
+function custodyDateAD(): string {
+  // The register's dates are business dates (Nepal wall clock), never the UTC
+  // day — a late-evening issue must not land on tomorrow's register day.
+  return businessDateAD();
+}
+
+/**
+ * Records which units a movement carried. Written after the register moved, so a
+ * lenient release (the phone's completion) never claims a serial it left behind.
+ */
+async function linkMovementSerials(
+  client: any,
+  movementId: string | number,
+  input: { productId: string; branchId: string },
+  serials: readonly string[]
+): Promise<void> {
+  for (const serial of custodySerials(serials)) {
+    await client.query(
+      `INSERT INTO employee_stock_movement_serials (movement_id, device_serial, product_id, branch_id)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (movement_id, device_serial) DO NOTHING`,
+      [movementId, serial, input.productId, input.branchId]
+    );
+  }
+}
+
+/**
+ * The four movements as client-taking cores.
+ *
+ * The stock-operation form and the phone already own a transaction; opening a
+ * second one there would commit half a document. The public functions below
+ * wrap these in `withTransaction`, so whichever caller runs, there is exactly
+ * one writer: the custody ledger and `inventory_stock` move (or roll back)
+ * together.
+ */
+export async function issueEmployeeStockInTransaction(
+  client: any,
+  input: MovementInput,
+  custodyGroupId: string | null = null
+): Promise<EmployeeStockMovementRow> {
+  await assertEmployeeInBranch(client, input.employeeId, input.branchId);
+  await assertProductExists(client, input.productId);
+  if (input.workOrderId) await assertWorkOrderInBranch(client, input.workOrderId, input.branchId);
+  await consumeBranchStock(client, input.productId, input.branchId, input.quantity);
+  const movement = await appendMovement(client, {
+    ...input,
+    type: 'ISSUE',
+    workOrderId: input.workOrderId || null,
+    reason: input.reason || null,
+    custodyGroupId,
+  });
+  // A serialised unit follows the quantity: the register must say the person
+  // holds it, or the van and My Stock would disagree about the same device.
+  const serials = await issueCustodySerialsInDb(client, {
+    employeeId: input.employeeId,
+    productId: input.productId,
+    branchId: input.branchId,
+    serials: input.serials || [],
+    sourceType: 'CUSTODY_ISSUE',
+    sourceId: `movement:${movement.id}`,
+    dateAD: custodyDateAD(),
+    note: `Issued to ${input.employeeId}${input.reason ? ` — ${input.reason}` : ''}`,
+  });
+  await linkMovementSerials(client, movement.id, input, serials);
+  return movement;
 }
 
 /** ISSUE: branch stock out, employee holding up. */
 export async function issueEmployeeStock(input: MovementInput): Promise<EmployeeStockMovementRow> {
-  return withTransaction(async (client) => {
-    await assertEmployeeInBranch(client, input.employeeId, input.branchId);
-    await assertProductExists(client, input.productId);
-    if (input.workOrderId) await assertWorkOrderInBranch(client, input.workOrderId, input.branchId);
-    await consumeBranchStock(client, input.productId, input.branchId, input.quantity);
-    return appendMovement(client, {
-      ...input,
-      type: 'ISSUE',
-      workOrderId: input.workOrderId || null,
-      reason: input.reason || null,
-    });
+  return withTransaction((client) => issueEmployeeStockInTransaction(client, input));
+}
+
+export async function returnEmployeeStockInTransaction(
+  client: any,
+  input: MovementInput,
+  custodyGroupId: string | null = null
+): Promise<EmployeeStockMovementRow> {
+  await assertEmployeeInBranch(client, input.employeeId, input.branchId);
+  await assertProductExists(client, input.productId);
+  const movement = await appendMovement(client, {
+    ...input,
+    type: 'RETURN',
+    workOrderId: input.workOrderId || null,
+    reason: input.reason || null,
+    custodyGroupId,
   });
+  await restoreBranchStock(client, input.productId, input.branchId, input.quantity);
+  // The units are back on the shelf, so the register says IN_STOCK again and the
+  // holder is cleared — a returned device must be sellable and deployable.
+  const serials = await releaseCustodySerialsInDb(client, {
+    employeeId: input.employeeId,
+    productId: input.productId,
+    branchId: input.branchId,
+    serials: input.serials || [],
+    status: 'IN_STOCK',
+    sourceType: 'CUSTODY_RETURN',
+    sourceId: `movement:${movement.id}`,
+    dateAD: custodyDateAD(),
+    note: `Returned to branch by ${input.employeeId}${input.reason ? ` — ${input.reason}` : ''}`,
+    strict: input.strictSerials !== false,
+  });
+  await linkMovementSerials(client, movement.id, input, serials);
+  return movement;
 }
 
 /** RETURN: employee holding down, branch stock back up. */
 export async function returnEmployeeStock(input: MovementInput): Promise<EmployeeStockMovementRow> {
-  return withTransaction(async (client) => {
-    await assertEmployeeInBranch(client, input.employeeId, input.branchId);
-    await assertProductExists(client, input.productId);
-    const movement = await appendMovement(client, {
-      ...input,
-      type: 'RETURN',
-      workOrderId: input.workOrderId || null,
-      reason: input.reason || null,
-    });
-    await restoreBranchStock(client, input.productId, input.branchId, input.quantity);
-    return movement;
+  return withTransaction((client) => returnEmployeeStockInTransaction(client, input));
+}
+
+export async function consumeEmployeeStockInTransaction(
+  client: any,
+  input: MovementInput,
+  custodyGroupId: string | null = null
+): Promise<EmployeeStockMovementRow> {
+  await assertEmployeeInBranch(client, input.employeeId, input.branchId);
+  await assertProductExists(client, input.productId);
+  if (input.workOrderId) await assertWorkOrderInBranch(client, input.workOrderId, input.branchId);
+  const movement = await appendMovement(client, {
+    ...input,
+    type: 'CONSUME',
+    workOrderId: input.workOrderId || null,
+    reason: input.reason || null,
+    custodyGroupId,
   });
+  // Installation is the one moment a unit gets a customer: it leaves the
+  // technician's custody straight into CUSTOMER_ASSIGNED, which is the state the
+  // Serial Log Register shows the customer. A job with no customer (internal
+  // material) leaves the unit CONSUMED instead. The holder is the guard, so one
+  // technician's completion can never install a colleague's device.
+  const installedAtCustomer = Boolean(input.customerId || input.customerName);
+  const serials = await releaseCustodySerialsInDb(client, {
+    employeeId: input.employeeId,
+    productId: input.productId,
+    branchId: input.branchId,
+    serials: input.serials || [],
+    status: installedAtCustomer ? 'CUSTOMER_ASSIGNED' : 'CONSUMED',
+    customerId: input.customerId || null,
+    customerName: input.customerName || null,
+    sourceType: input.workOrderId ? 'WORK_ORDER' : 'CUSTODY_CONSUME',
+    sourceId: input.workOrderId ? String(input.workOrderId) : `movement:${movement.id}`,
+    dateAD: custodyDateAD(),
+    note: installedAtCustomer
+      ? `Installed at ${input.customerName || input.customerId}${input.workOrderId ? ` on work order ${input.workOrderId}` : ''}`
+      : `Consumed by ${input.employeeId}${input.reason ? ` — ${input.reason}` : ''}`,
+    strict: input.strictSerials !== false,
+  });
+  await linkMovementSerials(client, movement.id, input, serials);
+  return movement;
 }
 
 /** CONSUME: used on a job; the units leave custody and do not come back. */
 export async function consumeEmployeeStock(input: MovementInput): Promise<EmployeeStockMovementRow> {
-  return withTransaction(async (client) => {
-    await assertEmployeeInBranch(client, input.employeeId, input.branchId);
-    await assertProductExists(client, input.productId);
-    if (input.workOrderId) await assertWorkOrderInBranch(client, input.workOrderId, input.branchId);
-    return appendMovement(client, {
-      ...input,
-      type: 'CONSUME',
-      workOrderId: input.workOrderId || null,
-      reason: input.reason || null,
-    });
-  });
+  return withTransaction((client) => consumeEmployeeStockInTransaction(client, input));
 }
 
 /** The shape of a custody transfer's request after validation. */
@@ -429,6 +565,8 @@ export interface TransferInput {
   quantity: number;
   reason: string;
   actor: string;
+  /** Device serials being handed over (serial-tracked products only). */
+  serials?: string[];
 }
 
 /**
@@ -494,23 +632,375 @@ export async function transferEmployeeStock(
       counterpartyEmployeeId: input.fromEmployeeId,
       transferGroupId,
     });
+    // A serialised device handed to a colleague changes holder, not state: it
+    // never went back to the shelf, so it stays IN_CUSTODY (same branch).
+    const serials = await transferCustodySerialsInDb(client, {
+      fromEmployeeId: input.fromEmployeeId,
+      toEmployeeId: input.toEmployeeId,
+      productId: input.productId,
+      branchId: fromBranch,
+      serials: input.serials || [],
+      sourceType: 'CUSTODY_TRANSFER',
+      sourceId: transferGroupId,
+      dateAD: custodyDateAD(),
+      note: `Custody transferred — ${reason}`,
+    });
+    await linkMovementSerials(client, from.id, { productId: input.productId, branchId: fromBranch }, serials);
     return { transferGroupId, from, to };
   });
 }
 
-/** LOSS: gone without a return; the reason is required (also by a DB check). */
-export async function recordEmployeeStockLoss(input: MovementInput): Promise<EmployeeStockMovementRow> {
+export async function recordEmployeeStockLossInTransaction(
+  client: any,
+  input: MovementInput,
+  custodyGroupId: string | null = null
+): Promise<EmployeeStockMovementRow> {
   const reason = String(input.reason || '').trim();
   if (!reason) throw new EmployeeStockRefusal('REASON_REQUIRED', 'A loss needs a reason.');
+  await assertEmployeeInBranch(client, input.employeeId, input.branchId);
+  await assertProductExists(client, input.productId);
+  if (input.workOrderId) await assertWorkOrderInBranch(client, input.workOrderId, input.branchId);
+  const movement = await appendMovement(client, {
+    ...input,
+    type: 'LOSS',
+    workOrderId: input.workOrderId || null,
+    reason,
+    custodyGroupId,
+  });
+  // The units are never coming back, so the register says so instead of leaving
+  // them looking held by a person who no longer has them.
+  const serials = await releaseCustodySerialsInDb(client, {
+    employeeId: input.employeeId,
+    productId: input.productId,
+    branchId: input.branchId,
+    serials: input.serials || [],
+    status: 'LOST',
+    sourceType: 'CUSTODY_LOSS',
+    sourceId: `movement:${movement.id}`,
+    dateAD: custodyDateAD(),
+    note: `Written off from ${input.employeeId}'s custody — ${reason}`,
+    strict: input.strictSerials !== false,
+  });
+  await linkMovementSerials(client, movement.id, input, serials);
+  return movement;
+}
+
+/** LOSS: gone without a return; the reason is required (also by a DB check). */
+export async function recordEmployeeStockLoss(input: MovementInput): Promise<EmployeeStockMovementRow> {
+  return withTransaction((client) => recordEmployeeStockLossInTransaction(client, input));
+}
+
+/** One person's identity, as a document needs it (name for display, branch for scope). */
+export interface CustodyEmployeeIdentity {
+  id: string;
+  name: string;
+  code: string;
+  branchId: string;
+}
+
+export async function findCustodyEmployee(employeeId: string): Promise<CustodyEmployeeIdentity | null> {
+  const result = await pgPool.query(
+    'SELECT id, name, employee_code, branch_id FROM employees WHERE id = $1 LIMIT 1',
+    [employeeId]
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    code: String(row.employee_code || ''),
+    branchId: String(row.branch_id),
+  };
+}
+
+/**
+ * A custody stock audit: counted units replace the projection.
+ *
+ * A shortfall writes a LOSS — the units are gone, and the mandatory reason is
+ * the only place the story is told. A surplus writes an ISSUE, because units
+ * found in a technician's hands came off the branch shelf and never left the
+ * book, so the shelf owes them. Both go through `appendMovement`, which rebuilds
+ * the projection from the log; a line counted equal to the holding writes
+ * nothing at all.
+ */
+export interface CustodyAuditLine {
+  productId: string;
+  countedQuantity: number;
+}
+
+export async function auditEmployeeStock(input: {
+  employeeId: string;
+  branchId: string;
+  items: CustodyAuditLine[];
+  reason: string;
+  actor: string;
+}): Promise<{ movements: EmployeeStockMovementRow[] }> {
+  const reason = String(input.reason || '').trim();
+  if (!reason) throw new EmployeeStockRefusal('REASON_REQUIRED', 'A stock audit needs a reason.');
   return withTransaction(async (client) => {
     await assertEmployeeInBranch(client, input.employeeId, input.branchId);
-    await assertProductExists(client, input.productId);
-    if (input.workOrderId) await assertWorkOrderInBranch(client, input.workOrderId, input.branchId);
-    return appendMovement(client, {
-      ...input,
-      type: 'LOSS',
-      workOrderId: input.workOrderId || null,
-      reason,
-    });
+    const movements: EmployeeStockMovementRow[] = [];
+    for (const item of input.items) {
+      await assertProductExists(client, item.productId);
+      const heldRow = (
+        await client.query(
+          `SELECT COALESCE(SUM(CASE WHEN movement_type IN ('ISSUE', 'TRANSFER_IN') THEN quantity ELSE -quantity END), 0)::int AS quantity
+             FROM employee_stock_movements
+            WHERE employee_id = $1 AND product_id = $2 AND branch_id = $3`,
+          [input.employeeId, item.productId, input.branchId]
+        )
+      ).rows[0];
+      const delta = Math.trunc(item.countedQuantity) - Number(heldRow?.quantity || 0);
+      if (delta === 0) continue;
+      const auditReason = `Stock audit: ${reason}`;
+      if (delta > 0) {
+        await consumeBranchStock(client, item.productId, input.branchId, delta);
+        movements.push(
+          await appendMovement(client, {
+            employeeId: input.employeeId,
+            productId: item.productId,
+            branchId: input.branchId,
+            type: 'ISSUE',
+            quantity: delta,
+            workOrderId: null,
+            reason: auditReason,
+            actor: input.actor,
+          })
+        );
+      } else {
+        movements.push(
+          await appendMovement(client, {
+            employeeId: input.employeeId,
+            productId: item.productId,
+            branchId: input.branchId,
+            type: 'LOSS',
+            quantity: -delta,
+            workOrderId: null,
+            reason: auditReason,
+            actor: input.actor,
+          })
+        );
+      }
+    }
+    return { movements };
   });
+}
+
+export interface CustodyTieOutRow {
+  employeeId: string;
+  employeeName: string;
+  productId: string;
+  productName: string;
+  branchId: string;
+  issued: number;
+  returned: number;
+  consumed: number;
+  lost: number;
+  transferredIn: number;
+  transferredOut: number;
+  movementSum: number;
+  held: number;
+  drift: number;
+  branchOnHand: number;
+}
+
+export interface CustodyTieOut {
+  rows: CustodyTieOutRow[];
+  totals: { held: number; movementSum: number; drift: number };
+}
+
+/**
+ * The reconciliation the ledger exists for: each person/product holding must
+ * equal the signed movement sum, and the branch shelf is shown beside it, so a
+ * document that moved one book and not the other is visible instead of silent.
+ */
+export async function custodyTieOut(options: EmployeeStockQuery): Promise<CustodyTieOut> {
+  const result = await pgPool.query(
+    `SELECT m.employee_id, e.name AS employee_name, m.product_id, p.name AS product_name, m.branch_id,
+            COALESCE(SUM(m.quantity) FILTER (WHERE m.movement_type = 'ISSUE'), 0)::int AS issued,
+            COALESCE(SUM(m.quantity) FILTER (WHERE m.movement_type = 'RETURN'), 0)::int AS returned,
+            COALESCE(SUM(m.quantity) FILTER (WHERE m.movement_type = 'CONSUME'), 0)::int AS consumed,
+            COALESCE(SUM(m.quantity) FILTER (WHERE m.movement_type = 'LOSS'), 0)::int AS lost,
+            COALESCE(SUM(m.quantity) FILTER (WHERE m.movement_type = 'TRANSFER_IN'), 0)::int AS transferred_in,
+            COALESCE(SUM(m.quantity) FILTER (WHERE m.movement_type = 'TRANSFER_OUT'), 0)::int AS transferred_out,
+            COALESCE(SUM(CASE WHEN m.movement_type IN ('ISSUE', 'TRANSFER_IN') THEN m.quantity ELSE -m.quantity END), 0)::int AS movement_sum,
+            COALESCE(h.quantity, 0)::int AS held,
+            COALESCE(s.quantity_on_hand, 0)::int AS branch_on_hand
+       FROM employee_stock_movements m
+       JOIN employees e ON e.id = m.employee_id
+       JOIN products p ON p.id = m.product_id
+       LEFT JOIN employee_stock_holdings h
+         ON h.employee_id = m.employee_id AND h.product_id = m.product_id AND h.branch_id = m.branch_id
+       LEFT JOIN inventory_stock s ON s.product_id = m.product_id AND s.branch_id = m.branch_id
+      WHERE ($1::text[] IS NULL OR m.branch_id = ANY($1::text[]))
+        AND ($2::text IS NULL OR m.employee_id = $2)
+        AND ($3::text IS NULL OR m.product_id = $3)
+      GROUP BY m.employee_id, e.name, m.product_id, p.name, m.branch_id, h.quantity, s.quantity_on_hand
+      ORDER BY e.name, p.name`,
+    [
+      options.branchIds && options.branchIds.length > 0 ? options.branchIds : null,
+      options.employeeId || null,
+      options.productId || null,
+    ]
+  );
+  const rows: CustodyTieOutRow[] = result.rows.map((row: any) => {
+    const movementSum = Number(row.movement_sum || 0);
+    const held = Number(row.held || 0);
+    return {
+      employeeId: String(row.employee_id),
+      employeeName: String(row.employee_name),
+      productId: String(row.product_id),
+      productName: String(row.product_name),
+      branchId: String(row.branch_id),
+      issued: Number(row.issued || 0),
+      returned: Number(row.returned || 0),
+      consumed: Number(row.consumed || 0),
+      lost: Number(row.lost || 0),
+      transferredIn: Number(row.transferred_in || 0),
+      transferredOut: Number(row.transferred_out || 0),
+      movementSum,
+      held,
+      drift: held - movementSum,
+      branchOnHand: Number(row.branch_on_hand || 0),
+    };
+  });
+  const totals = rows.reduce(
+    (acc, row) => ({
+      held: acc.held + row.held,
+      movementSum: acc.movementSum + row.movementSum,
+      drift: acc.drift + row.drift,
+    }),
+    { held: 0, movementSum: 0, drift: 0 }
+  );
+  return { rows, totals };
+}
+
+// ---------------------------------------------------------------------------
+// Assets in custody (a serialised unit, owned by its fixed_assets row)
+// ---------------------------------------------------------------------------
+
+export interface CustodyAssetRow {
+  assetId: string;
+  tagNumber: string;
+  name: string;
+  category: string | null;
+  productId: string | null;
+  deviceSerial: string | null;
+  branchId: string;
+  status: string;
+  assignedEmployeeId: string;
+  assignedEmployeeName: string | null;
+  workOrderId: string | null;
+  workOrderNo: string | null;
+  customerId: string | null;
+  customerName: string | null;
+  scheduledDateAD: string | null;
+  notes: string | null;
+}
+
+/**
+ * The units a person holds as whole assets — the other half of My Stock.
+ *
+ * A serialised unit with an asset row is owned by that row (it carries the cost,
+ * the depreciation and the tag); the quantity custody ledger owns consumables.
+ * The two are never both true for one unit, so this read and the holdings read
+ * cannot double-count. The customer comes from the work order the unit was
+ * dispatched for: that is what the technician needs to see ("this ONU is for
+ * customer X on visit WO-1042"), and it is the visit the install will stamp.
+ */
+export async function listEmployeeCustodyAssets(options: EmployeeStockQuery): Promise<CustodyAssetRow[]> {
+  const result = await pgPool.query(
+    `SELECT fa.id AS "assetId", fa.tag_number AS "tagNumber", fa.name, fa.category,
+            fa.product_id AS "productId", fa.device_serial AS "deviceSerial",
+            fa.branch_id AS "branchId", fa.status,
+            fa.assigned_employee_id AS "assignedEmployeeId",
+            fa.assigned_employee_name AS "assignedEmployeeName",
+            fa.assigned_work_order_id AS "workOrderId",
+            w.work_order_no AS "workOrderNo",
+            w.customer_id AS "customerId",
+            c.customer_name AS "customerName",
+            to_char(w.scheduled_date_ad, 'YYYY-MM-DD') AS "scheduledDateAD",
+            fa.assignment_notes AS "notes"
+       FROM fixed_assets fa
+       LEFT JOIN field_work_orders w ON w.id::text = fa.assigned_work_order_id
+       LEFT JOIN customer_records c ON c.id = w.customer_id
+      WHERE fa.assigned_employee_id IS NOT NULL
+        AND fa.status = 'IN_USE'
+        AND ($1::text[] IS NULL OR fa.branch_id = ANY($1::text[]))
+        AND ($2::text IS NULL OR fa.assigned_employee_id = $2)
+      ORDER BY c.customer_name NULLS LAST, fa.tag_number ASC
+      LIMIT 500`,
+    [options.branchIds && options.branchIds.length ? options.branchIds : null, options.employeeId || null]
+  );
+  return result.rows;
+}
+
+/** Installs one held unit at the work order's customer, in its own transaction. */
+export async function installEmployeeCustodyAsset(input: {
+  assetId: string;
+  employeeId: string;
+  workOrderId: string;
+  dateAD: string;
+  dateBS?: string;
+  actor?: string | null;
+}): Promise<InstallHeldAssetResult> {
+  return withTransaction((client) =>
+    installHeldAssetAtCustomer({ client, ...input })
+  );
+}
+
+/**
+ * A holder's loss report — a request, never a write-off.
+ *
+ * The technician who dropped an ONU may say so; only a manager holds
+ * `custody-writeoff` and only the approval execution writes the LOSS movement.
+ * The row carries the product, quantity and serials so the approver executes
+ * exactly what was reported, not a fresh guess from the screen.
+ */
+export async function reportEmployeeStockLoss(input: {
+  employeeId: string;
+  branchId: string;
+  branchName?: string | null;
+  productId: string;
+  productName?: string | null;
+  quantity: number;
+  serials?: string[];
+  reason: string;
+  actor: { email?: string | null; name?: string | null; role?: string | null };
+}): Promise<{ request: ApprovalRequest; requestNumber: string }> {
+  const reason = String(input.reason || '').trim();
+  if (!reason) throw new EmployeeStockRefusal('REASON_REQUIRED', 'A loss report needs a reason.');
+  const id = `apr-custody-${crypto.randomUUID()}`;
+  const requestNumber = `APR-CUL-${Date.now().toString(36).toUpperCase()}`;
+  const request = {
+    id,
+    requestNumber,
+    type: 'CUSTODY_LOSS',
+    targetId: input.employeeId,
+    customerName: input.branchName || '',
+    deviceSerial: (input.serials || []).join(','),
+    productName: input.productName || '',
+    currentStatus: 'IN_CUSTODY',
+    requestedStatus: 'LOST',
+    requestedByRole: input.actor.role || '',
+    requestedByEmail: input.actor.email || '',
+    requestedByName: input.actor.name || '',
+    branchId: input.branchId,
+    branchName: input.branchName || '',
+    reason,
+    restockQtyOnApproval: false,
+    status: 'PENDING',
+    requestedAtAD: new Date().toISOString(),
+    requestedAtBS: null,
+    auditData: {
+      employeeId: input.employeeId,
+      productId: input.productId,
+      quantity: input.quantity,
+      serials: input.serials || [],
+    },
+  } as unknown as ApprovalRequest;
+  await withTransaction(async (client) => {
+    await client.query(AR_INSERT_SQL, arInsertParams(request));
+  });
+  return { request, requestNumber };
 }

@@ -22,6 +22,7 @@
 import type { TransactionLog } from '../../../client/src/types';
 import {
   CDR_NOTES_BY_ID_SQL,
+  PRODUCT_INSTALL_TERM_SQL,
   CPE_REPLACEMENT_UNIT_SQL,
   FIXED_ASSET_COLLECT_SQL,
   FIXED_ASSET_DEPLOY_PROOF_SQL,
@@ -78,6 +79,13 @@ export interface CollectCpeAssetInput {
   allowUnlinkedRestock?: boolean;
   changeType?: 'PULLOUT' | 'MANUAL_ADJUSTMENT';
   actor?: string | null;
+  /**
+   * A sentence appended to the collection note when the caller has its own
+   * record of the return (the HR lifecycle checklist). Without it, the two
+   * screens would have to choose between one shared stock rule and their own
+   * audit trail.
+   */
+  extraNote?: string | null;
 }
 
 export interface CollectCpeAssetResult {
@@ -381,7 +389,14 @@ export async function collectCpeFixedAsset(input: CollectCpeAssetInput): Promise
 
   const ledgerId = collectionLedgerId(asset.id);
   const existing = await client.query(TXN_FIND_BY_ID_SQL, [ledgerId]);
-  const product = productFor(input.products, asset.productId, input.fallbackProduct);
+  // The caller may not carry the product master (the HR checklist does not), so
+  // the one row the ledger entry needs is read here rather than silently
+  // skipping the stock credit.
+  const product =
+    productFor(input.products, asset.productId, input.fallbackProduct) ||
+    (asset.productId
+      ? ((await client.query(PRODUCT_INSTALL_TERM_SQL, [asset.productId])).rows[0] as LifecycleProduct | undefined) || null
+      : null);
   const productId = String(asset.productId || product?.id || '');
   const branchId = String(asset.branchId || input.branchId || '');
   let proof = false;
@@ -441,11 +456,16 @@ export async function collectCpeFixedAsset(input: CollectCpeAssetInput): Promise
 
   await client.query(FIXED_ASSET_COLLECT_SQL, [
     asset.id,
-    buildAssetCollectionNotes(asset.assignmentNotes, {
-      todayAD: input.todayAD,
-      requestNumber: input.requestNumber,
-      serial: asset.deviceSerial,
-    }),
+    [
+      buildAssetCollectionNotes(asset.assignmentNotes, {
+        todayAD: input.todayAD,
+        requestNumber: input.requestNumber,
+        serial: asset.deviceSerial,
+      }),
+      input.extraNote ? String(input.extraNote) : '',
+    ]
+      .filter(Boolean)
+      .join(' | '),
   ]);
 
   return {

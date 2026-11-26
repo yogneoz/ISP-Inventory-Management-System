@@ -1474,6 +1474,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       'completeFieldWorkOrder',
       'createFieldWorkOrder',
       'fetchFieldWorkOrderEvidenceContent',
+      'getCustodyEmployees',
       'getCustomers',
       'getFieldWorkOrderEvidence',
       'getFieldWorkOrders',
@@ -1484,6 +1485,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     // the employee-stock routes the panel and the phone already call.
     'inventory/EquipmentCustody.tsx': [
       'getCustodyEmployees',
+      'getCustodyTieOut',
       'getEmployeeStockHoldings',
       'recordEmployeeStockMovement',
       'transferEmployeeStock',
@@ -1528,7 +1530,10 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     // No getSerialLogs: the panel validates against the HOST's register cache
     // (serial-register audit, Slice 1) instead of fetching its own copy.
     'inventory/stockops/AssignAssetPanel.tsx': ['createAsset', 'createCustomerDevice', 'searchCustomers'],
-    'inventory/stockops/ConsumableIssuePanel.tsx': ['searchCustomers'],
+    // The issue names the person who takes custody (the roster) and the visit it
+    // is booked against (that technician's orders), so the document and the
+    // ledger share one identity.
+    'inventory/stockops/ConsumableIssuePanel.tsx': ['getCustodyEmployees', 'getFieldWorkOrders', 'searchCustomers'],
     'inventory/stockops/ConsumablesRegisterPanel.tsx': ['getStockOperations', 'reverseConsumableIssue'],
     'inventory/stockops/CreatePulloutPanel.tsx': [],
     'inventory/stockops/CreateTransferPanel.tsx': [],
@@ -1551,10 +1556,13 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     // for the movement form, and one write per movement; every write re-reads
     // the panel itself instead of asking a host register to refresh.
     'inventory/EmployeeStockPanel.tsx': [
+      'getEmployeeStockAssets',
       'getEmployeeStockHoldings',
       'getEmployeeStockMovements',
       'getProducts',
+      'installCustodyAsset',
       'recordEmployeeStockMovement',
+      'reportCustodyLoss',
     ],
   };
 

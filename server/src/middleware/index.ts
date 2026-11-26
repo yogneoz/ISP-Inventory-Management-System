@@ -211,7 +211,6 @@ export function enforceOperationalPermissions(req: any, res: any, next: any) {
     ['/uom', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'INVENTORY_MANAGER']],
     ['/locations', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'INVENTORY_MANAGER']],
     ['/stock/', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'INVENTORY_MANAGER', 'AUDITOR']],
-    ['/assets', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'INVENTORY_MANAGER', 'ACCOUNTANT']],
     ['/purchase-invoices', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'ACCOUNTANT', 'PROCUREMENT_OFFICER']],
     ['/vendor-payments', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'ACCOUNTANT', 'PROCUREMENT_OFFICER']],
     ['/vendors/', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'ACCOUNTANT', 'PROCUREMENT_OFFICER']],

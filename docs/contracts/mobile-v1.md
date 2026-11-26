@@ -13,17 +13,35 @@ a contract test, in the same commit.
 
 ## Envelope
 
-Every error the app can receive has one shape:
+A failed request answers with an HTTP status and one of two JSON bodies:
 
 ```json
-{ "code": "SHORT_CODE", "message": "human readable", "retryable": false, "details": {} }
+{ "message": "human readable" }
 ```
 
-- `code` is stable and safe to switch on; `message` may be reworded at any time.
-- `retryable: true` means the offline queue should retry the same
-  `idempotencyKey` later; `false` means the action is refused and must be
-  dropped or fixed by the user.
-- `details` is optional and route-specific (validation field, conflict reason).
+```json
+{ "code": "SHORT_CODE", "message": "human readable" }
+```
+
+- `message` is always present, and its wording may change: never match on it.
+- `code` is present only when the refusal has a stable reason. The app prints
+  `[CODE] message` when it is there and the bare message when it is not; the
+  status, not `code`, classifies the failure. Both shapes occur on one route, the
+  closing screen: a stale `baseVersion` is
+  `409 { "message": "This work order changed since it was downloaded; refresh it before completing." }`,
+  while a consumption the technician's custody cannot cover is
+  `409 { "code": "INSUFFICIENT_HOLDING", "message": "That employee does not hold that many units." }`.
+- There is no `retryable` and no `details` field on these bodies. Retry is decided
+  by status: a `4xx` is a refusal (fix the action or drop it from the queue), and
+  the only answer a queue may re-send unchanged is `503` with `Retry-After`
+  (`{ "code": "DB_BUSY" | "DB_UNAVAILABLE", "message": ... }`).
+- Three answers are deliberately shaped differently and are documented where they
+  appear: `POST /api/v1/sync/push` adds `retryable` per item (see "Offline push"),
+  the re-authentication gate answers
+  `401 { "code": "REAUTH_REQUIRED", "retryable": false, "message": ... }`, and
+  `POST /api/v1/leaves/requests/:id/review` answers a missing flag with
+  `400 { "code": "VALIDATION_ERROR", "message": ..., "retryable": false,
+  "details": { "field": "approve" } }`.
 
 ## Authentication
 
@@ -80,13 +98,13 @@ PUT /api/v1/employees/me/contact | req: phone, emergencyContactName, emergencyCo
 POST /api/v1/workplace/claims | req: claimId, employeeId, category, amount, currency, ticketCode, description, receiptAttached, idempotencyKey | res: claimId, status, accountingOutboxStatus, submittedAt
 GET /api/v1/workplace/claims/:id | res: @claim-row
 POST /api/v1/workplace/delegations | req: delegateEmployeeId, startDate, endDate, capabilitiesCsv, idempotencyKey | res: id, delegateEmployeeId, delegateName, startDate, endDate
-POST /api/v1/workplace/jobs/:id/complete | req: baseVersion, notes, serialUsed, consumedCableMeters, consumedProductId, idempotencyKey | res: workOrderId, resultStatus, message, baseVersion
+POST /api/v1/workplace/jobs/:id/complete | req: baseVersion, notes, serialUsed, consumedSerials, consumedCableMeters, consumedProductId, idempotencyKey | res: workOrderId, resultStatus, message, baseVersion, installedAssets
 POST /api/v1/workplace/jobs/:id/assign | req: technicianId, overrideReason | res: workOrderId, workOrderNo, technicianId, technicianName, scheduledDateAD, status, overridden, overrideRules
 GET /api/v1/workplace/jobs/:id/evidence | res: workOrderId, evidence, count
 POST /api/v1/workplace/jobs/:id/evidence | req: kind, contentType, dataBase64, caption, capturedAtEpochMs, latitude, longitude, accuracyMeters | res: evidenceId, workOrderId, kind, contentType, byteSize, sha256, capturedAt, inserted, count
 POST /api/v1/workplace/location/batch | req: deviceId, points | res: acceptedCount, receivedCount, serverTimestampEpochMs, routeSessionId
 GET /api/v1/workplace/jobs | res: jobs, count
-GET /api/v1/workplace/stock | res: vanLocation, holdings, count
+GET /api/v1/workplace/stock | res: vanLocation, holdings, assets, count
 GET /api/v1/workplace/approvals | res: claims, punches, delegations, counts
 POST /api/v1/workplace/approvals/:kind/:id | req: approve, note | res: id, status, accountingOutboxStatus, decidedAt, decidedBy, delegated
 ```
@@ -208,6 +226,84 @@ is accepted on an open, assigned or completed job, so an offline technician can
 complete the visit and upload the proof when the network returns. `GET` returns
 the metadata (`sha256`, `byteSize`, `capturedAt`, `caption`) — never the bytes —
 and the job must be assigned to the caller.
+
+## The van: consumables and whole units
+
+`GET /api/v1/workplace/stock` answers two lists, and a unit is in exactly one of
+them:
+
+- `holdings` — consumables, by product and quantity (`productId`, `productName`,
+  `sku`, `quantity`, `updatedAt`);
+- `assets` — whole serialised units held as fixed assets, each with the visit it
+  was dispatched for and therefore its customer (`assetId`, `tagNumber`,
+  `productName`, `deviceSerial`, `workOrderId`, `workOrderNo`, `customerId`,
+  `customerName`, `scheduledDateAD`).
+
+The asset register owns a unit that has a fixed-asset row (cost, tag,
+depreciation); the custody holdings own quantities. A dispatch from the branch
+shelf writes the asset row, moves the serial to `IN_CUSTODY` under the technician
+and deducts branch stock once, so the phone can never see one unit twice.
+
+```json
+{
+  "vanLocation": "KTM-01",
+  "holdings": [],
+  "assets": [
+    {
+      "assetId": "ast-1042",
+      "tagNumber": "FA-ONU-4102",
+      "productName": "Huawei HG8245 ONU",
+      "deviceSerial": "ONU-0001",
+      "workOrderId": "a1b2c3d4-0000-4000-8000-000000000002",
+      "workOrderNo": "WO-1042",
+      "customerId": "cus-7781",
+      "customerName": "Example Customer",
+      "scheduledDateAD": "2026-11-26"
+    }
+  ],
+  "count": 0
+}
+```
+
+Installing one is part of closing the visit. When `serialUsed` (or an item of
+`consumedSerials`) names a unit the caller holds as an asset, `POST
+/api/v1/workplace/jobs/:id/complete` installs it in the same transaction as the
+completion:
+
+- the asset becomes `ASSIGNED_TO_CUSTOMER` with the work order's customer and
+  `assignment_date` **equal to the completion date** — the dispatch left that
+  date empty on purpose, so the customer's warranty starts on installation, not
+  when the unit left the counter;
+- the serial becomes `CUSTOMER_ASSIGNED`, the technician's custody is cleared,
+  and the unit stops appearing in `assets`;
+- the customer-device register gains its row and the seller warranty one period
+  starting on that date.
+
+The response repeats what was installed, so an offline queue can show it:
+
+```json
+{
+  "workOrderId": "a1b2c3d4-0000-4000-8000-000000000002",
+  "resultStatus": "CLOSED",
+  "message": "Operational close committed.",
+  "baseVersion": 4,
+  "installedAssets": [
+    {
+      "assetId": "ast-1042",
+      "tagNumber": "FA-ONU-4102",
+      "deviceSerial": "ONU-0001",
+      "customerName": "Example Customer",
+      "warrantyStartDateAD": "2026-11-26"
+    }
+  ]
+}
+```
+
+A serial that is **not** a unit in this technician's custody is not installed: it
+keeps the ordinary consumption path below, so a visit that merely records its ONT
+tag still closes. A serial that names a unit held by somebody else, dispatched for
+a different visit, on a cancelled visit or on a visit assigned to another
+technician is a `409` with that reason and the completion rolls back.
 
 ## Dispatch
 

@@ -18,13 +18,17 @@ import { resolveBranchScope } from './accounting.controller';
 import {
   assignFieldWorkOrder,
   cancelFieldWorkOrder,
-  completeFieldWorkOrder,
+  completeFieldWorkOrderInTransaction,
   customerInBranch,
   employeeInBranch,
   findFieldWorkOrder,
   insertFieldWorkOrder,
   listFieldWorkOrders,
 } from '../models/fieldWorkOrders.repo';
+import { withTransaction } from '../db/transactions';
+import { FIXED_ASSET_HELD_BY_SERIAL_SQL } from '../models/inventory.repo';
+import { businessDateAD } from '../../../shared/businessDate';
+import { CustodyInstallRefusal, installHeldAssetAtCustomer } from '../services/custodyInstall.service';
 import {
   appendFieldWorkOrderEvidence,
   findFieldWorkOrderEvidenceContent,
@@ -179,16 +183,68 @@ export async function post_fieldWorkOrderComplete(req: Request, res: Response): 
   if (!completionNotes) {
     return res.status(400).json({ message: 'completionNotes is required to complete a visit.' });
   }
-  const updated = await completeFieldWorkOrder(String(req.params.id), {
+  // Closing a visit and installing the CPE it delivered are one act. The
+  // completion and the install share a transaction, so a refused install leaves
+  // the order open instead of closing a job whose device never reached the
+  // customer.
+  const installedAssetId = text(req.body?.installedAssetId, 50);
+  const installedSerial = text(req.body?.installedSerial, 100);
+  const completion = {
     completionNotes,
     ontSerial: text(req.body?.ontSerial, 64),
     routerSerial: text(req.body?.routerSerial, 64),
     ipAddress: text(req.body?.ipAddress, 64),
     planName: text(req.body?.planName, 120),
-  });
-  if (!updated) return conflict(res, existing.status);
+  };
+
+  let installed: Awaited<ReturnType<typeof installHeldAssetAtCustomer>> | null = null;
+  try {
+    const outcome = await withTransaction(async (client) => {
+      const done = await completeFieldWorkOrderInTransaction(client, String(req.params.id), completion);
+      if (!done) return null;
+      if (!installedAssetId && !installedSerial) return { installed: null };
+      const holderId = String(existing.technician_id || '');
+      if (!holderId) {
+        throw new CustodyInstallRefusal(
+          409,
+          'This visit has no technician, so there is no custody the unit could leave.',
+          'ASSET_NOT_HELD'
+        );
+      }
+      let assetId = installedAssetId || '';
+      if (!assetId) {
+        const held = (await client.query(FIXED_ASSET_HELD_BY_SERIAL_SQL, [String(installedSerial), holderId])).rows[0];
+        if (!held) {
+          throw new CustodyInstallRefusal(
+            409,
+            `Serial ${installedSerial} is not a unit held by this visit's technician.`,
+            'ASSET_NOT_HELD'
+          );
+        }
+        assetId = String(held.id);
+      }
+      const result = await installHeldAssetAtCustomer({
+        client,
+        assetId,
+        employeeId: holderId,
+        workOrderId: String(existing.id),
+        dateAD: businessDateAD(),
+        actor: (req as any).user?.email || null,
+      });
+      return { installed: result };
+    });
+    if (!outcome) return conflict(res, existing.status);
+    installed = outcome.installed;
+  } catch (error) {
+    if (error instanceof CustodyInstallRefusal) {
+      return res.status(error.status).json({ message: error.message, code: error.code });
+    }
+    throw error;
+  }
+
+  const updated = await findFieldWorkOrder(String(req.params.id));
   res.set('Cache-Control', 'private, no-store');
-  res.json(updated);
+  res.json(installed ? { ...updated, installedAsset: installed } : updated);
 }
 
 /** GET /api/field-work-orders/:id/evidence — metadata for the visit's captures. */

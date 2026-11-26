@@ -55,6 +55,23 @@ const SHIFT = 'mob-test-shift';
 const FENCE_LAT = 27.7172;
 const FENCE_LNG = 85.324;
 
+// The completion fixture: two serialised CPE models, three visits and the
+// customer they are installed at. `docs/contracts/mobile-v1.md` names this file
+// as the fixture for `/api/v1/*`, so the closing route is exercised here rather
+// than only through the service.
+const CPE = 'mob-test-cpe';
+const CPE_NAME = 'Mobile Test CPE Router';
+const SPARE = 'mob-test-cpe-spare';
+const SPARE_NAME = 'Mobile Test Spare Router';
+const CUST = 'mob-test-cust';
+const CUST_NAME = 'Mobile Test Customer';
+const SN_TO_INSTALL = 'MOB-TEST-CPE-1';
+const SN_STAYS_HELD = 'MOB-TEST-CPE-2';
+const SN_COLLEAGUE = 'MOB-TEST-CPE-3';
+const WO_PLAIN = 'a1b2c3d4-0000-4000-8000-000000000001';
+const WO_INSTALL = 'a1b2c3d4-0000-4000-8000-000000000002';
+const WO_REFUSED = 'a1b2c3d4-0000-4000-8000-000000000003';
+
 const USER = {
   id: 'mob-test-user',
   email: 'mob-test@example.com',
@@ -124,6 +141,17 @@ describe('mobile v1 API (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => {
     // FK: it has to go before the claim and the branch it names.
     await pool!.query("DELETE FROM accounting_outbox WHERE branch_id LIKE 'mob-test-branch%'");
     await pool!.query("DELETE FROM employee_location_breadcrumbs WHERE employee_id LIKE 'mob-test-emp%'");
+    // The completion fixture: movement links before the movements they hang
+    // off, the register before the products it references, and the visits before
+    // the employees they are assigned to.
+    await pool!.query("DELETE FROM employee_stock_movement_serials WHERE device_serial LIKE 'MOB-TEST-CPE-%'");
+    await pool!.query('DELETE FROM employee_stock_movements WHERE product_id = ANY($1::text[])', [[CPE, SPARE]]);
+    await pool!.query('DELETE FROM employee_stock_holdings WHERE product_id = ANY($1::text[])', [[CPE, SPARE]]);
+    await pool!.query("DELETE FROM serial_log WHERE device_serial LIKE 'MOB-TEST-CPE-%'");
+    await pool!.query("DELETE FROM field_work_orders WHERE work_order_no LIKE 'MOB-TEST-WO-%'");
+    await pool!.query('DELETE FROM inventory_stock WHERE product_id = ANY($1::text[])', [[CPE, SPARE]]);
+    await pool!.query('DELETE FROM products WHERE id = ANY($1::text[])', [[CPE, SPARE]]);
+    await pool!.query('DELETE FROM customer_records WHERE id = $1', [CUST]);
     await pool!.query("DELETE FROM idempotency_keys WHERE scope = 'mobile.punch'");
     await pool!.query("DELETE FROM mobile_change_log WHERE employee_id LIKE 'mob-test-emp%'");
     await pool!.query("DELETE FROM hr_attendance_proofs WHERE attendance_id LIKE 'hr-att-%' AND attendance_id IN (SELECT id FROM hr_attendance WHERE employee_id LIKE 'mob-test-emp%')");
@@ -173,6 +201,46 @@ describe('mobile v1 API (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => {
               ($7, 'MOB-003', 'Mobile Test Supervisor', $2, $8, 'Field')`,
       [EMP, BRANCH, USER.id, EMP_OTHER, OTHER_BRANCH, USER_OTHER.id, EMP_SUP, USER_SUP.id]
     );
+    // --- the completion fixture -------------------------------------------------
+    // Two serialised CPE products: the first the technician carries for the
+    // install, the second a spare only the supervisor holds — the unit the phone
+    // may not consume. `Product Item` is seeded by scripts/schema.sql in every
+    // database, so the fixture needs no master-data setup of its own.
+    await pool!.query(
+      `INSERT INTO customer_records (id, customer_id, customer_name, contact_number, branch_id)
+       VALUES ($1, 'MOB-CUST-1', $2, '9800000001', $3)`,
+      [CUST, CUST_NAME, BRANCH]
+    );
+    await pool!.query(
+      `INSERT INTO products
+         (id, name, sku, category, product_group, unit, cost_price, selling_price,
+          requires_serial_tracking, tracking_type)
+       VALUES ($1, $2, 'MOB-CPE-SKU', 'CPE', 'Product Item', 'Pcs', 2500, 3200, TRUE, 'SERIAL_MAC_PON'),
+              ($3, $4, 'MOB-SPARE-SKU', 'CPE', 'Product Item', 'Pcs', 1800, 2400, TRUE, 'SERIAL_MAC_PON')`,
+      [CPE, CPE_NAME, SPARE, SPARE_NAME]
+    );
+    await pool!.query(
+      `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, average_cost, min_reorder_level)
+       VALUES ($1, $2, $3, 5, 2500, 1), ($4, $5, $3, 2, 1800, 1)`,
+      [`stk-${BRANCH}-${CPE}`, CPE, BRANCH, `stk-${BRANCH}-${SPARE}`, SPARE]
+    );
+    await pool!.query(
+      `INSERT INTO serial_log
+         (id, device_serial, pon_serial, mac_address, product_id, product_name, branch_id, status, source_type, created_at)
+       VALUES ('mob-test-sn-1', $1, 'MOB-PON-1', 'AA:BB:CC:00:02:01', $4, $5, $6, 'IN_STOCK', 'PURCHASE', now()),
+              ('mob-test-sn-2', $2, 'MOB-PON-2', 'AA:BB:CC:00:02:02', $4, $5, $6, 'IN_STOCK', 'PURCHASE', now()),
+              ('mob-test-sn-3', $3, 'MOB-PON-3', 'AA:BB:CC:00:02:03', $7, $8, $6, 'IN_STOCK', 'PURCHASE', now())`,
+      [SN_TO_INSTALL, SN_STAYS_HELD, SN_COLLEAGUE, CPE, CPE_NAME, BRANCH, SPARE, SPARE_NAME]
+    );
+    await pool!.query(
+      `INSERT INTO field_work_orders
+         (id, work_order_no, branch_id, customer_id, kind, status, technician_id, technician_name,
+          scheduled_date_ad, created_by, row_version)
+       VALUES ($1, 'MOB-TEST-WO-1', $4, $5, 'SERVICE', 'ASSIGNED', $6, 'Mobile Test Employee', CURRENT_DATE, 'mob-test', 1),
+              ($2, 'MOB-TEST-WO-2', $4, $5, 'INSTALL', 'ASSIGNED', $6, 'Mobile Test Employee', CURRENT_DATE, 'mob-test', 1),
+              ($3, 'MOB-TEST-WO-3', $4, $5, 'INSTALL', 'ASSIGNED', $6, 'Mobile Test Employee', CURRENT_DATE, 'mob-test', 1)`,
+      [WO_PLAIN, WO_INSTALL, WO_REFUSED, BRANCH, CUST, EMP]
+    );
     // A supervisor's active delegation is what authorises a decision when the
     // role itself lacks hr-attendance-manage; before v2 it granted nothing.
     await pool!.query(
@@ -206,6 +274,27 @@ describe('mobile v1 API (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => {
         (server as any).closeAllConnections?.();
         server.close(() => done());
       });
+
+    // Custody as the depot hands it out: the technician carries the unit that
+    // will be installed, and the supervisor holds the spare the phone must not
+    // consume. Issuing through the real endpoint means the register and the
+    // holding projection start where a van load really leaves them.
+    const carried = await request('POST', '/api/employee-stock/issue', {
+      employeeId: EMP,
+      productId: CPE,
+      quantity: 2,
+      deviceSerials: [SN_TO_INSTALL, SN_STAYS_HELD],
+      reason: 'Van load for installs',
+    }, adminToken);
+    assert.equal(carried.status, 201, JSON.stringify(carried.json));
+    const spare = await request('POST', '/api/employee-stock/issue', {
+      employeeId: EMP_SUP,
+      productId: SPARE,
+      quantity: 1,
+      deviceSerials: [SN_COLLEAGUE],
+      reason: 'Supervisor spare',
+    }, adminToken);
+    assert.equal(spare.status, 201, JSON.stringify(spare.json));
   });
 
   after(async () => {
@@ -333,9 +422,14 @@ describe('mobile v1 API (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => {
     assert.equal(outside.json.geofence.inside, false, 'the server still says it is outside');
     assert.ok(outside.json.riskScore >= 40);
 
+    // Scoped to this file's employee: the suite shards run against one database,
+    // so a colleague's flagged punch from another file must not answer here.
     const flagged = await pool!.query(
-      'SELECT verdict, inside_geofence FROM hr_attendance_proofs WHERE integrity_status = $1',
-      ['SUSPECT']
+      `SELECT p.verdict, p.inside_geofence
+         FROM hr_attendance_proofs p
+         JOIN hr_attendance a ON a.id = p.attendance_id
+        WHERE a.employee_id = $1 AND p.integrity_status = 'SUSPECT'`,
+      [EMP]
     );
     assert.equal(flagged.rowCount, 1, 'the flagged punch is stored, not dropped');
     assert.equal(flagged.rows[0].verdict, 'FLAGGED');
@@ -725,5 +819,166 @@ describe('mobile v1 API (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => {
       approve: 'false',
     });
     assert.equal(stringy.status, 400, 'a truthy string is not a decision');
+  });
+
+  /** One work order row, as the closing screen's guards see it. */
+  async function workOrder(id: string) {
+    const { rows } = await pool!.query(
+      `SELECT status, completion_notes, ont_serial, row_version, completed_at
+         FROM field_work_orders WHERE id = $1`,
+      [id]
+    );
+    return rows[0];
+  }
+
+  /** One device serial, as the register (and therefore the customer) sees it. */
+  async function serial(deviceSerial: string) {
+    const { rows } = await pool!.query(
+      `SELECT status, holder_employee_id AS "holder", customer_id AS "customerId",
+              customer_name AS "customerName", source_type AS "sourceType"
+         FROM serial_log WHERE device_serial = $1`,
+      [deviceSerial]
+    );
+    return rows[0];
+  }
+
+  async function heldUnits(productId: string): Promise<number> {
+    const { rows } = await pool!.query(
+      `SELECT COALESCE(SUM(quantity), 0)::int AS held
+         FROM employee_stock_holdings WHERE employee_id = $1 AND product_id = $2`,
+      [EMP, productId]
+    );
+    return Number(rows[0].held);
+  }
+
+  test('completing a visit needs no serials, keeps the documented note and refuses a stale version', async () => {
+    const note = 'Line checked, no hardware consumed';
+    const body = { baseVersion: 1, notes: note, idempotencyKey: `complete-${WO_PLAIN}-1` };
+    const done = await request('POST', `/api/v1/workplace/jobs/${WO_PLAIN}/complete`, body);
+    assert.equal(done.status, 200, JSON.stringify(done.json));
+    assert.deepEqual(
+      Object.keys(done.json).sort(),
+      ['baseVersion', 'installedAssets', 'message', 'resultStatus', 'workOrderId'],
+      'the response is exactly the shape docs/contracts/mobile-v1.md documents'
+    );
+    assert.deepEqual(done.json.installedAssets, [], 'a visit with no held unit installs none');
+    assert.equal(done.json.workOrderId, WO_PLAIN);
+    assert.equal(done.json.resultStatus, 'CLOSED');
+    assert.ok(done.json.message, 'the app shows this message verbatim');
+    assert.equal(done.json.baseVersion, 2, 'the new version is handed back for the next edit');
+    assert.ok(Array.isArray(done.json.installedAssets), 'the app iterates this list verbatim');
+    assert.equal(done.headers.get('cache-control'), 'private, no-store');
+
+    const closed = await workOrder(WO_PLAIN);
+    assert.equal(closed.status, 'COMPLETED');
+    assert.ok(closed.completed_at, 'a COMPLETED order always carries its stamp');
+    assert.equal(closed.completion_notes, note, 'the contract calls the field `notes`; it must reach the visit');
+    assert.equal(closed.ont_serial, null, 'no serial was named, so none is recorded');
+
+    // The offline queue re-sends the version it downloaded; the server must not
+    // close the visit twice or overwrite what the first close wrote.
+    const replay = await request('POST', `/api/v1/workplace/jobs/${WO_PLAIN}/complete`, body);
+    assert.equal(replay.status, 409, JSON.stringify(replay.json));
+    assert.deepEqual(
+      Object.keys(replay.json).sort(),
+      ['message'],
+      'a stale version carries no code: the contract\u2019s envelope is `{ message }` unless the refusal names a stable reason'
+    );
+    assert.match(replay.json.message, /changed since it was downloaded/i);
+    assert.equal((await workOrder(WO_PLAIN)).row_version, 2, 'the refused replay changed nothing');
+
+    // Somebody else's token cannot close this visit at all.
+    const foreign = await request(
+      'POST',
+      `/api/v1/workplace/jobs/${WO_PLAIN}/complete`,
+      { baseVersion: 2 },
+      supToken
+    );
+    assert.equal(foreign.status, 404, JSON.stringify(foreign.json));
+    assert.deepEqual(Object.keys(foreign.json).sort(), ['message'], 'a 404 is the bare envelope too');
+    assert.match(foreign.json.message, /not assigned to you/i);
+  });
+
+  test('a consumedSerials install moves the unit from custody to the work order customer', async () => {
+    const done = await request('POST', `/api/v1/workplace/jobs/${WO_INSTALL}/complete`, {
+      baseVersion: 1,
+      notes: 'CPE mounted, ONT online',
+      serialUsed: SN_TO_INSTALL,
+      consumedSerials: [SN_TO_INSTALL],
+      consumedProductId: CPE,
+      consumedCableMeters: 0,
+      idempotencyKey: `complete-${WO_INSTALL}-1`,
+    });
+    assert.equal(done.status, 200, JSON.stringify(done.json));
+    assert.equal(done.json.resultStatus, 'CLOSED');
+    assert.equal(done.json.baseVersion, 2);
+
+    const installed = await serial(SN_TO_INSTALL);
+    assert.equal(installed.status, 'CUSTOMER_ASSIGNED', 'the installed unit is now the customer\u2019s');
+    assert.equal(installed.holder, null, 'nobody holds an installed unit');
+    assert.equal(installed.customerId, CUST, 'the work order names the customer, not the phone');
+    assert.equal(installed.customerName, CUST_NAME);
+    assert.equal(installed.sourceType, 'WORK_ORDER', 'the visit is the installing document');
+
+    const untouched = await serial(SN_STAYS_HELD);
+    assert.equal(untouched.status, 'IN_CUSTODY', 'the unit the phone did not name stays on the van');
+    assert.equal(untouched.holder, EMP);
+    assert.equal(untouched.customerId, null);
+    assert.equal(await heldUnits(CPE), 1, 'the van gave up exactly the installed unit');
+
+    const linked = await pool!.query(
+      `SELECT s.device_serial
+         FROM employee_stock_movement_serials s
+         JOIN employee_stock_movements m ON m.id = s.movement_id
+        WHERE m.employee_id = $1 AND m.product_id = $2 AND m.movement_type = 'CONSUME'`,
+      [EMP, CPE]
+    );
+    assert.deepEqual(linked.rows.map((row: any) => row.device_serial), [SN_TO_INSTALL], 'the movement names its unit');
+    assert.equal((await workOrder(WO_INSTALL)).completion_notes, 'CPE mounted, ONT online');
+  });
+
+  test('a serial the technician does not hold is refused and leaves the visit open', async () => {
+    const body = {
+      baseVersion: 1,
+      notes: 'Spare fitted',
+      consumedSerials: [SN_COLLEAGUE],
+      consumedProductId: SPARE,
+      consumedCableMeters: 0,
+      idempotencyKey: `complete-${WO_REFUSED}-1`,
+    };
+    const refused = await request('POST', `/api/v1/workplace/jobs/${WO_REFUSED}/complete`, body);
+    assert.equal(refused.status, 409, JSON.stringify(refused.json));
+    assert.deepEqual(
+      Object.keys(refused.json).sort(),
+      ['code', 'message'],
+      'a refusal with a stable reason adds exactly `code` to the envelope'
+    );
+    assert.equal(refused.json.code, 'INSUFFICIENT_HOLDING', 'the app prints this code');
+    assert.match(refused.json.message, /does not hold that many units/i);
+
+    const open = await workOrder(WO_REFUSED);
+    assert.equal(open.status, 'ASSIGNED', 'a refused consumption leaves the visit open');
+    assert.equal(open.row_version, 1);
+    assert.equal(open.completed_at, null);
+    const colleague = await serial(SN_COLLEAGUE);
+    assert.equal(colleague.status, 'IN_CUSTODY', 'the refusal rolled the register back');
+    assert.equal(colleague.holder, EMP_SUP, 'the unit never left the colleague holding it');
+    assert.equal(colleague.customerId, null);
+    const movements = await pool!.query(
+      `SELECT COUNT(*)::int AS n FROM employee_stock_movements WHERE employee_id = $1 AND product_id = $2`,
+      [EMP, SPARE]
+    );
+    assert.equal(movements.rows[0].n, 0, 'no movement was written for the refused consumption');
+
+    // The offline queue can also arrive without a version; that is a validation
+    // answer, not a conflict, and it changes nothing either.
+    const noVersion = await request('POST', `/api/v1/workplace/jobs/${WO_REFUSED}/complete`, {
+      consumedSerials: [SN_COLLEAGUE],
+      consumedProductId: SPARE,
+    });
+    assert.equal(noVersion.status, 400, JSON.stringify(noVersion.json));
+    assert.deepEqual(Object.keys(noVersion.json).sort(), ['message'], 'a validation refusal is `{ message }`');
+    assert.match(noVersion.json.message, /baseVersion is required/i);
+    assert.equal((await workOrder(WO_REFUSED)).status, 'ASSIGNED');
   });
 });

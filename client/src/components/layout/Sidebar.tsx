@@ -577,7 +577,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   //    including consumables, damage labelling and fixed-asset assignment
   //    that used to live in Branch Operations.
   const canViewProducts = isOperationAllowed('prod-view', currentUser?.role);
-  const canAssignAssets = isOperationAllowed('branch-asset-assign', currentUser?.role);
+  // Deploying is `stock-deploy`; the deployments register is an asset read.
+  const canAssignAssets = isOperationAllowed('stock-deploy', currentUser?.role);
+  const canViewAssetDeployments = isOperationAllowed('assets-view', currentUser?.role);
   // Custody is `employee-stock-view`; a desk role without it never sees the board.
   const canViewCustody = isOperationAllowed('employee-stock-view', currentUser?.role);
   const inventoryChildren: NavChildDef[] = [
@@ -605,7 +607,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ? [{ id: 'equipment-custody' as NavTab, label: 'Equipment Custody', icon: Package, section: 'Registers' }]
       : []),
     { id: 'damage-report' as NavTab, label: 'Damaged Stock Report', icon: ClipboardList, section: 'Registers' },
-    ...(canAssignAssets
+    ...(canViewAssetDeployments
       ? [{ id: 'asset-deployments' as NavTab, label: 'Asset Deployments', icon: MapPin, section: 'Registers' }]
       : []),
     { id: 'consumable-issue' as NavTab, label: 'Issue Consumables', icon: Wrench, section: 'Forms' },

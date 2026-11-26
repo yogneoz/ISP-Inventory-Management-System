@@ -13,7 +13,13 @@
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { intFromEnv, sizeFromEnv, sizeToBytes } from '../server/src/utils/envGuard';
+import {
+  intFromEnv,
+  resolveDeclaredPort,
+  sizeFromEnv,
+  sizeToBytes,
+  usablePortValue,
+} from '../server/src/utils/envGuard';
 
 const SAVED_ENV = { ...process.env };
 
@@ -104,5 +110,35 @@ describe('sizeFromEnv / sizeToBytes (body-parser size strings)', () => {
     process.env.TEST_ZERO = '0mb';
     assert.equal(sizeFromEnv('TEST_ZERO', '1mb', { minBytes: 1024 }), '1mb');
     assert.equal(sizeFromEnv('TEST_UNSET2', '1mb'), '1mb');
+  });
+});
+
+describe('usablePortValue / resolveDeclaredPort (the declared PORT beats an unusable ambient one)', () => {
+  test('a quoted value is still that value; quoted and bare zero are both unusable', () => {
+    assert.equal(usablePortValue('"3000"'), 3000);
+    assert.equal(usablePortValue("'8080'"), 8080);
+    assert.equal(usablePortValue(' 3000 '), 3000);
+    assert.equal(usablePortValue('0'), null);
+    assert.equal(usablePortValue('"0"'), null);
+    assert.equal(usablePortValue(''), null);
+    assert.equal(usablePortValue(undefined), null);
+    assert.equal(usablePortValue('abc'), null);
+    assert.equal(usablePortValue('70000'), null);
+  });
+
+  test('a usable ambient port wins, so an operator override still works', () => {
+    assert.deepEqual(resolveDeclaredPort('4000', '3000'), { port: 4000, ambientIgnored: null });
+  });
+
+  test('an ambient zero defers to the declared value and reports what it ignored', () => {
+    assert.deepEqual(resolveDeclaredPort('0', '3000'), { port: 3000, ambientIgnored: '0' });
+    assert.deepEqual(resolveDeclaredPort('"0"', '3000'), { port: 3000, ambientIgnored: '"0"' });
+  });
+
+  test('with no usable value in either place the guard keeps its own fallback', () => {
+    assert.deepEqual(resolveDeclaredPort('0', undefined), { port: null, ambientIgnored: null });
+    assert.deepEqual(resolveDeclaredPort(undefined, '0'), { port: null, ambientIgnored: null });
+    assert.deepEqual(resolveDeclaredPort(undefined, undefined), { port: null, ambientIgnored: null });
+    assert.deepEqual(resolveDeclaredPort('nonsense', 'abc'), { port: null, ambientIgnored: null });
   });
 });

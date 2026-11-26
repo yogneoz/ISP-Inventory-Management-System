@@ -309,6 +309,10 @@ describe('fixed assets are off the login payload', () => {
     const deployments = read('client/src/features/inventory/AssetDeployments.tsx');
     assert.match(deployments, /api\.getFixedAssetCursorPage\(/);
     assert.match(deployments, /assigned:\s*true/);
+    // The register is readable on `assets-view`, but reversing a deployment is
+    // the PATCH's `assets-manage` write: a read-only auditor is not offered it.
+    assert.match(deployments, /isOperationAllowed\('assets-manage'/);
+    assert.match(deployments, /\{canReverse && \(/);
 
     const depreciation = read('client/src/features/finance/DepreciationRegister.tsx');
     assert.match(depreciation, /groupBy:\s*'master'/);

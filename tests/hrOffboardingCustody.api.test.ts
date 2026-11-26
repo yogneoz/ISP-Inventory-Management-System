@@ -115,6 +115,7 @@ describe('offboarding blocked by issued stock (API)', { skip: skipNoDb }, () => 
       'hr-employee-manage': { BRANCH_MANAGER: true },
       'employee-stock-view': { BRANCH_MANAGER: true },
       'stock-out': { BRANCH_MANAGER: true },
+      'stock-deploy': { BRANCH_MANAGER: true },
       'consumable-issue-reverse': { BRANCH_MANAGER: true },
     } as any);
 

@@ -3,7 +3,8 @@
  *
  * The real-DB HTTP cases live in tests/serialGateHttp.test.ts (issue + reversal
  * through the real endpoints). This file pins the rule itself:
- *   - PULLOUT → IN_TRANSIT, CONSUMABLE_ISSUE → CONSUMED, STOCK_OUT → SOLD;
+ *   - PULLOUT → IN_TRANSIT, CONSUMABLE_ISSUE → IN_CUSTODY (the technician
+ *     holds the device), STOCK_OUT → SOLD;
  *   - a DAMAGED_STOCK line is never issued from the usable register;
  *   - the mirror flips only IN_STOCK units at the operation's branch;
  *   - a reversal restores only units still attributed to that operation;
@@ -37,13 +38,14 @@ const row = (serial: string, status = 'IN_STOCK', branchId = 'b1', extra: Record
   status,
   historyJson: '[]',
   sourceId: '',
+  holderEmployeeId: null as string | null,
   ...extra,
 });
 
 describe('SER-1 operation serial lifecycle', () => {
   test('maps each operation type to its register state', () => {
     assert.equal(issueStatusForOperation('PULLOUT'), 'IN_TRANSIT');
-    assert.equal(issueStatusForOperation('consumable_issue'), 'CONSUMED');
+    assert.equal(issueStatusForOperation('consumable_issue'), 'IN_CUSTODY');
     assert.equal(issueStatusForOperation('STOCK_OUT'), 'SOLD');
     assert.equal(issueStatusForOperation('DAMAGE'), null);
     assert.equal(issueStatusForOperation(undefined), null);
@@ -87,17 +89,19 @@ describe('SER-1 operation serial lifecycle', () => {
     assert.equal(out[2].status, 'IN_TRANSIT', 'another operation’s unit is untouched');
   });
 
-  test('consumable issue issues CONSUMED and reverses to IN_STOCK', () => {
-    const op = { ...OP, type: 'CONSUMABLE_ISSUE' } as SerializableOperation;
+  test('a consumable issue puts the device in the person\u2019s custody and reverses to IN_STOCK', () => {
+    const op = { ...OP, type: 'CONSUMABLE_ISSUE', employeeId: 'emp-1' } as SerializableOperation;
     const issued = issueOperationSerialsInMemory(
       [row('SN-C')],
       [{ deviceSerial: 'SN-C', ponSerial: '', macAddress: '', productId: 'p1', productName: 'ONU' }],
       op,
       '2026-10-25'
     );
-    assert.equal(issued[0].status, 'CONSUMED');
+    assert.equal(issued[0].status, 'IN_CUSTODY', 'the unit is in the technician\u2019s hands, not consumed');
+    assert.equal(issued[0].holderEmployeeId, 'emp-1');
     const restored = restoreOperationSerialsInMemory(issued, op, 'returned', 'tester', '2026-10-25');
     assert.equal(restored[0].status, 'IN_STOCK');
+    assert.equal(restored[0].holderEmployeeId, null, 'a returned unit has no holder');
   });
 
   test('product sale issues SOLD and receipt lands a pullout at the destination', () => {

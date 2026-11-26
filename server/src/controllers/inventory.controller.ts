@@ -5,12 +5,14 @@
  * Response bodies and status codes are preserved verbatim from the
  * original route handlers.
  */
+import { randomUUID } from 'node:crypto';
 import { businessDateAD } from '../../../shared/businessDate';
 import type { Request, Response } from 'express';
 import { bsDateOr400 } from '../utils/bsDate';
-import { getPgConnected, pgPool, inventoryStock, products, setTransactionLogs, withPrepended, transactionLogs, getUserFromReq, damageRecords, setDamageRecords, withReplaced, branches, setInventoryStock, withAppended, broadcastChange, withTransaction, logAuditEvent, assetRegister, purchaseInvoices, setAssetRegister, stockOperations, customerDeviceRecords, detectDateTypeMismatch, findBsDayRecordForAdDate, issueNextDocNumber, getFiscalYearCodeForDate, getFiscalYearIdForDate, setStockOperations, serialLogs, mutable, setCustomerDeviceRecords, runSerialEditCapture, setSerialLogs, customerMasterRecords } from '../app';
+import { getPgConnected, pgPool, inventoryStock, products, setTransactionLogs, withPrepended, transactionLogs, getUserFromReq, damageRecords, setDamageRecords, withReplaced, branches, setInventoryStock, withAppended, broadcastChange, withTransaction, logAuditEvent, assetRegister, purchaseInvoices, setAssetRegister, stockOperations, customerDeviceRecords, detectDateTypeMismatch, findBsDayRecordForAdDate, issueNextDocNumber, getFiscalYearCodeForDate, getFiscalYearIdForDate, setStockOperations, serialLogs, mutable, setCustomerDeviceRecords, runSerialEditCapture, setSerialLogs, customerMasterRecords, permissionMatrix, userPermissionOverrides, userPermissionSetGrants } from '../app';
 import { DamageRecord, TransactionLog, CustomerDeviceRecord } from '../../../client/src/types';
 import { calculateFixedAssetValues } from '../../../client/src/utils/depreciation';
+import { effectivePermission } from '../services/permissionOverrides.service';
 import { buildDamageRecordInsert, quarantineSerialsInDb, quarantineInMemorySerials, deriveDamageItems, validateReversalAvailability, buildReversalLedgerWithStock, buildReversalLedgerFromRestoredRows, restoreSerialsInDb, mirrorReversal, restoreInMemorySerials, buildDamagePoolLedgerChange } from '../services/damage.service';
 import { shouldRestockOnUnassign, buildRestockTransaction, restoreInMemorySerial, cpeFindPatterns, buildCpeReversalClose } from '../services/unassignRestock.service';
 import { buildAssetCollectionNotes, collectCpeFixedAsset, exchangeCpeFixedAsset, exchangeOutLedgerId } from '../services/cpeAssetLifecycle.service';
@@ -30,6 +32,7 @@ import {
 import { resolveWarrantyCoverage } from '../../../shared/warrantyTerm';
 import { decodeKeysetCursor, encodeKeysetCursor, cursorTimestamp, keysetEnvelope, keysetLimit, requireLargeTableScope } from '../utils/keysetCursor';
 import { SerialGateError, planSerialGateEntries, resolveSerialGateInDb, resolveSerialGateInMemory, serialGateKey } from '../services/serialGate.service';
+import { issueCustodySerialsInDb, releaseCustodySerialsInDb, SerialCustodyRefusal } from '../services/serialCustody.service';
 import {
   issueOperationSerialsInDb,
   issueOperationSerialsInMemory,
@@ -51,6 +54,12 @@ import { TXN_ISSUE_COST_SQL } from '../models/inventory.repo';
 import { PI_FIND_BY_ID_SQL } from '../models/procurement.repo';
 import { JOURNAL_FIND_BY_SOURCE_SQL } from '../models/accounting.repo';
 import { FIXED_ASSET_ACCOUNTING_ROW_SQL } from '../models/fixedAssets.repo';
+import {
+  EmployeeStockRefusal,
+  findCustodyEmployee,
+  issueEmployeeStockInTransaction,
+  returnEmployeeStockInTransaction,
+} from '../models/employeeStock.repo';
 import { isAccountingDate } from '../services/accounting.service';
 import { firstLineQuantityRefusal } from '../utils/lineQuantity';
 import { resolveBsDateForLedger, todayBs } from '../utils/bsDate';
@@ -83,6 +92,9 @@ import {
   ASSET_UPSERT_SQL,
   assetUpsertParams,
   ASSET_SET_ASSIGNMENT_SQL,
+  ASSET_FIND_BY_ID_SQL,
+  EMPLOYEE_FOR_ASSET_DISPATCH_SQL,
+  WORK_ORDER_FOR_ASSET_DISPATCH_SQL,
   STOCK_RETURN_FROM_ASSET_SQL,
   CDR_FIND_ACTIVE_BY_ASSET_TAG_SQL,
   CDR_CLOSE_ON_ASSET_REVERSAL_SQL,
@@ -712,6 +724,12 @@ try {
       assignedCustomerName: req.body.assignedCustomerName || null,
       assignedLocationId: req.body.assignedLocationId || null,
       assignedLocationName: req.body.assignedLocationName || null,
+      // Employee custody: a unit dispatched to a technician (with the visit that
+      // carries the customer) is IN_USE and linked to both the person and the
+      // job. The customer attribution stays empty until the install stamps it.
+      assignedEmployeeId: req.body.assignedEmployeeId || req.body.employeeId || null,
+      assignedEmployeeName: req.body.assignedEmployeeName || null,
+      assignedWorkOrderId: req.body.assignedWorkOrderId || req.body.workOrderId || null,
       assignmentDateAD: req.body.assignmentDateAD || null,
       assignmentDateBS: null,
       assignmentNotes: req.body.assignmentNotes || null,
@@ -722,6 +740,54 @@ try {
       devicePonSerial: req.body.devicePonSerial || null,
       deviceMacAddress: req.body.deviceMacAddress || null,
     };
+
+    // Assign Fixed Asset can also DISPATCH a unit to a technician (the fiber
+    // team) instead of a customer or a POP. The dispatch is deliberate: status
+    // IN_USE, assigned_type EMPLOYEE, the person and the visit recorded — and no
+    // assignment date, because the customer's warranty must start when the unit
+    // is installed, not when it left the counter.
+    const dispatchToEmployee =
+      String(req.body.assignedType || '').toUpperCase() === 'EMPLOYEE' ||
+      Boolean(newAsset.assignedEmployeeId && !newAsset.assignedCustomerId && !newAsset.assignedLocationId);
+    if (dispatchToEmployee) {
+      if (!newAsset.assignedEmployeeId) {
+        res.status(400).json({ message: 'A technician dispatch needs the employee who will hold the unit.' });
+        return;
+      }
+      newAsset.status = 'IN_USE';
+      newAsset.assignedType = 'EMPLOYEE';
+      newAsset.assignedCustomerId = null;
+      newAsset.assignedCustomerName = null;
+      newAsset.assignedLocationId = null;
+      newAsset.assignedLocationName = null;
+      newAsset.assignmentDateAD = null;
+      newAsset.assignmentDateBS = null;
+    }
+
+    // A deployment — a unit to a technician, a POP or a customer — takes stock
+    // off the shelf and moves a serial with it. `assets-manage` (the route gate)
+    // may register a ledger asset without that: the deploy capability is its own
+    // matrix entry, and the field technician and front desk do not hold it.
+    const deploymentTarget =
+      dispatchToEmployee ||
+      ['ASSIGNED_TO_CUSTOMER', 'ASSIGNED_TO_LOCATION'].includes(String(newAsset.status)) ||
+      req.body.deployFromStock === true;
+    if (deploymentTarget) {
+      const actor = getUserFromReq(req);
+      const mayDeploy = effectivePermission(
+        actor,
+        'stock-deploy',
+        permissionMatrix,
+        userPermissionOverrides,
+        userPermissionSetGrants
+      );
+      if (!mayDeploy) {
+        res.status(403).json({
+          message: `Forbidden: deploying this unit needs the 'stock-deploy' operation. Register it as ACTIVE, or ask for the deploy grant.`,
+        });
+        return;
+      }
+    }
 
     // PostgreSQL first: the invoice date stamped onto the asset must come from
     // the live row, never a stale mirror copy (bootstrap-trim step 5).
@@ -747,6 +813,46 @@ try {
         message: `Linked purchase invoice ${newAsset.purchaseInvoiceId} was not found. Register the bill first, then capitalise the asset.`,
       });
       return;
+    }
+
+    // A dispatch names a person and (optionally) the visit the unit is for.
+    // Both must belong to the branch whose shelf the unit leaves, and a visit
+    // already assigned to a different technician cannot be served by this one.
+    if (dispatchToEmployee && getPgConnected()) {
+      const employee = (
+        await pgPool.query(EMPLOYEE_FOR_ASSET_DISPATCH_SQL, [
+          String(newAsset.assignedEmployeeId),
+          String(newAsset.branchId),
+        ])
+      ).rows[0];
+      if (!employee) {
+        res.status(400).json({ message: 'That technician is not in the selected branch.' });
+        return;
+      }
+      newAsset.assignedEmployeeName = employee.name;
+      if (newAsset.assignedWorkOrderId) {
+        const order = (
+          await pgPool.query(WORK_ORDER_FOR_ASSET_DISPATCH_SQL, [
+            String(newAsset.assignedWorkOrderId),
+            String(newAsset.branchId),
+          ])
+        ).rows[0];
+        if (!order) {
+          res.status(400).json({ message: 'That work order is not in the selected branch.' });
+          return;
+        }
+        if (String(order.status) === 'CANCELLED') {
+          res.status(400).json({ message: 'That work order is cancelled; pick a live visit.' });
+          return;
+        }
+        if (order.technicianId && String(order.technicianId) !== String(newAsset.assignedEmployeeId)) {
+          res.status(400).json({
+            message: `Work order ${order.workOrderNo} is assigned to another technician: reassign the visit before dispatching this unit to ${employee.name}.`,
+          });
+          return;
+        }
+        newAsset.assignedWorkOrderId = String(order.id);
+      }
     }
 
     // BS dates are mandatory on asset writes: derive any missing BS date
@@ -791,7 +897,8 @@ try {
     // and the two paths can never double-deduct. Serialized units also flip
     // their serial_log row IN_STOCK → POP_LOCATION_ASSIGNED / CUSTOMER_ASSIGNED.
     const deployFromStock = req.body.deployFromStock === true &&
-      ['ASSIGNED_TO_LOCATION', 'ASSIGNED_TO_CUSTOMER'].includes(String(newAsset.status)) &&
+      (['ASSIGNED_TO_LOCATION', 'ASSIGNED_TO_CUSTOMER'].includes(String(newAsset.status)) ||
+        (dispatchToEmployee && String(newAsset.status) === 'IN_USE')) &&
       Boolean(newAsset.productId);
 
     // WTY-4: one supplier coverage per registered asset, keyed by its tag. The
@@ -948,7 +1055,35 @@ try {
           // MAC is deliberately not matched yet: the Assign Fixed Asset panel
           // still pre-fills a placeholder MAC (removed in Slice 4), so matching
           // it here would refuse genuine deployments.
-          if (newAsset.deviceSerial) {
+          // A dispatch to a technician moves the unit's IDENTITY with it: the
+          // serial leaves the shelf as IN_CUSTODY under that person in the same
+          // transaction that deducts the stock, so the register, the branch
+          // shelf and the van can never disagree about the same device.
+          if (newAsset.deviceSerial && dispatchToEmployee) {
+            await resolveSerialGateInDb(
+              client,
+              [{
+                deviceSerial: String(newAsset.deviceSerial),
+                ponSerial: String(newAsset.devicePonSerial || ''),
+                macAddress: '',
+                productId: String(newAsset.productId || ''),
+                productName: String(newAsset.name || ''),
+              }],
+              { branchId: String(newAsset.branchId), branchLabel: branchLabelFor(String(newAsset.branchId)), matchProduct: true, matchMac: false },
+              { action: 'deployed' }
+            );
+            await issueCustodySerialsInDb(client, {
+              employeeId: String(newAsset.assignedEmployeeId),
+              productId: String(newAsset.productId || ''),
+              branchId: String(newAsset.branchId),
+              serials: [String(newAsset.deviceSerial)],
+              sourceType: 'FIXED_ASSET',
+              sourceId: String(newAsset.id),
+              dateAD: String(newAsset.acquisitionDateAD).split('T')[0],
+              note: `Dispatched as fixed asset ${newAsset.tagNumber}${newAsset.assignedWorkOrderId ? ` for work order ${newAsset.assignedWorkOrderId}` : ''}`,
+            });
+          }
+          if (newAsset.deviceSerial && !dispatchToEmployee) {
             await resolveSerialGateInDb(
               client,
               [{
@@ -1059,7 +1194,12 @@ try {
           { action: 'deployed' }
         );
         if (sl) {
-          sl.status = newAsset.status === 'ASSIGNED_TO_CUSTOMER' ? 'CUSTOMER_ASSIGNED' : 'POP_LOCATION_ASSIGNED';
+          sl.status = dispatchToEmployee
+            ? 'IN_CUSTODY'
+            : newAsset.status === 'ASSIGNED_TO_CUSTOMER'
+              ? 'CUSTOMER_ASSIGNED'
+              : 'POP_LOCATION_ASSIGNED';
+          if (dispatchToEmployee) sl.holderEmployeeId = newAsset.assignedEmployeeId;
           sl.sourceType = 'FIXED_ASSET';
           sl.sourceId = newAsset.id;
           if (newAsset.status === 'ASSIGNED_TO_CUSTOMER') {
@@ -1164,9 +1304,73 @@ export async function patch_status(req: any, res: Response): Promise<any> {
   let assetBefore: any = null;
 try {
     const { id } = req.params;
-    asset = assetRegister.find((a) => a.id === id);
+    // ASSET-1 took `assets` out of the boot payload, so the in-memory register
+    // no longer holds the row this PATCH is about. Read the live row from
+    // PostgreSQL: the collection, the custody release and the serial return
+    // below all key off its current state, and a missing baseline silently
+    // skipped every one of them.
+    if (getPgConnected()) {
+      asset = (await pgPool.query(ASSET_FIND_BY_ID_SQL, [id])).rows[0] || null;
+    } else {
+      asset = assetRegister.find((a) => a.id === id) || null;
+    }
     assetBefore = asset ? { ...asset } : null;
     const prevStatus = asset ? String(asset.status || '') : '';
+
+    // Deploying an existing unit — to a technician, a POP or a customer — is
+    // the same shelf decision the Assign Fixed Asset POST makes, so the deploy
+    // cell decides it here too. `assets-manage` (this route's gate) maintains
+    // the register; it is not a licence to hand a unit out, and accountants
+    // and auditors hold it without `stock-deploy`.
+    const requestedStatus = String(req.body?.status || '').toUpperCase();
+    const requestedType = String(req.body?.assignedType || '').toUpperCase();
+    const deployingPatch =
+      ['IN_USE', 'ASSIGNED_TO_CUSTOMER', 'ASSIGNED_TO_LOCATION'].includes(requestedStatus) ||
+      ['EMPLOYEE', 'CUSTOMER', 'LOCATION'].includes(requestedType);
+    if (deployingPatch) {
+      const mayDeploy = effectivePermission(
+        getUserFromReq(req),
+        'stock-deploy',
+        permissionMatrix,
+        userPermissionOverrides,
+        userPermissionSetGrants
+      );
+      if (!mayDeploy) {
+        return res.status(403).json({
+          message: `Forbidden: deploying this unit needs the 'stock-deploy' operation. Keep it ACTIVE, or ask for the deploy grant.`,
+        });
+      }
+    }
+
+    // A technician dispatch names a person and (optionally) the visit the unit
+    // is for. Both must belong to the branch that holds the asset, which is the
+    // same employee-in-branch and work-order-in-branch rule POST /api/assets
+    // applies before it writes a dispatch — otherwise a PATCH could hand this
+    // branch's unit to another branch's technician against another branch's
+    // visit, and the install would then be refused or the wrong customer named.
+    if ((requestedType === 'EMPLOYEE' || requestedStatus === 'IN_USE') && getPgConnected()) {
+      const dispatchBranchId = String(asset?.branchId || '');
+      const employeeId = String(req.body?.assignedEmployeeId || '').trim();
+      const workOrderId = String(req.body?.assignedWorkOrderId || '').trim();
+      if (!employeeId) {
+        return res.status(400).json({ message: 'A technician dispatch needs the employee who will hold the unit.' });
+      }
+      const employee = (
+        await pgPool.query(EMPLOYEE_FOR_ASSET_DISPATCH_SQL, [employeeId, dispatchBranchId])
+      ).rows[0];
+      if (!employee) {
+        return res.status(400).json({ message: 'That technician is not in the branch that holds this asset.' });
+      }
+      if (workOrderId) {
+        const order = (
+          await pgPool.query(WORK_ORDER_FOR_ASSET_DISPATCH_SQL, [workOrderId, dispatchBranchId])
+        ).rows[0];
+        if (!order) {
+          return res.status(400).json({ message: 'That work order is not in the branch that holds this asset.' });
+        }
+      }
+    }
+
     if (asset) Object.assign(asset, req.body);
 
     // Unassign restock: a deploy-from-stock asset (catalog product created
@@ -1174,8 +1378,11 @@ try {
     // one unit to branch stock and its serial back to IN_STOCK. Guarded by
     // the ledger row so non-stock assets (already-registered in the ledger)
     // and duplicate unassign calls never double-restore.
+    // IN_USE is the employee custody state: returning a technician's unit to the
+    // branch is the same act as unassigning a customer deployment, so it takes
+    // the same service (and therefore the same stock-credit rule).
     const isUnassign = String(req.body?.status || '') === 'ACTIVE' &&
-      ['ASSIGNED_TO_LOCATION', 'ASSIGNED_TO_CUSTOMER'].includes(prevStatus);
+      ['ASSIGNED_TO_LOCATION', 'ASSIGNED_TO_CUSTOMER', 'IN_USE'].includes(prevStatus);
     // WTY-4: a disposed asset keeps its coverage history but stops being a
     // current supplier obligation.
     const isDisposal = String(req.body?.status || '') === 'DISPOSED';
@@ -1223,8 +1430,25 @@ try {
             await client.query(CDR_CLOSE_ON_ASSET_REVERSAL_SQL, [close.status, close.notes, closedCpeId]);
           }
 
-          // Flip the unit's serial back to IN_STOCK at the branch.
-          if (asset.deviceSerial) {
+          // Flip the unit's serial back to IN_STOCK at the branch. A unit that
+          // was in a technician's custody is IN_CUSTODY (not CUSTOMER_ASSIGNED),
+          // so it leaves through the guarded custody release — the same rule the
+          // return path uses — rather than the deploy-reversal UPDATE that would
+          // match no row and leave the holder behind.
+          if (asset.deviceSerial && asset.assignedEmployeeId) {
+            await releaseCustodySerialsInDb(client, {
+              employeeId: String(asset.assignedEmployeeId),
+              productId: String(asset.productId || ''),
+              branchId,
+              serials: [String(asset.deviceSerial)],
+              status: 'IN_STOCK',
+              sourceType: 'CUSTODY_RETURN',
+              sourceId: String(asset.id),
+              dateAD: todayAD,
+              note: `Returned to branch ${branchId} from ${asset.assignedEmployeeId}'s custody`,
+              strict: false,
+            });
+          } else if (asset.deviceSerial) {
             await client.query(SERIAL_LOG_RESTORE_ON_UNASSIGN_SQL, [
               asset.id,
               new Date().toISOString(),
@@ -1265,6 +1489,9 @@ try {
       asset.assignedCustomerName = undefined;
       asset.assignedLocationId = undefined;
       asset.assignedLocationName = undefined;
+      asset.assignedEmployeeId = undefined;
+      asset.assignedEmployeeName = undefined;
+      asset.assignedWorkOrderId = undefined;
       asset.assignmentDateAD = undefined;
       asset.assignmentDateBS = undefined;
       asset.assignmentNotes = buildAssetCollectionNotes(asset.assignmentNotes, {
@@ -1301,11 +1528,36 @@ try {
           b.assignedCustomerName || null,
           b.assignedLocationId || null,
           b.assignedLocationName || null,
-          assignmentDateAD,
-          assignmentDateBS,
+          b.assignedEmployeeId || null,
+          b.assignedEmployeeName || null,
+          b.assignedWorkOrderId || null,
+          // A technician dispatch carries no assignment date: the customer's
+          // warranty starts at installation, and a PATCH must not invent one.
+          String(b.assignedType || '').toUpperCase() === 'EMPLOYEE' ? null : assignmentDateAD,
+          String(b.assignedType || '').toUpperCase() === 'EMPLOYEE' ? null : assignmentDateBS,
           b.assignmentNotes || null,
           id,
         ]);
+        // An existing ledger unit dispatched through this PATCH must take its
+        // identity with it: the serial moves into the technician's custody in
+        // the same transaction, or the dispatch is refused rather than leaving
+        // an asset that says IN_USE while the register still says IN_STOCK.
+        const employeeChanged =
+          String(b.assignedType || '').toUpperCase() === 'EMPLOYEE' &&
+          String(b.assignedEmployeeId || '') &&
+          String(b.assignedEmployeeId) !== String(assetBefore?.assignedEmployeeId || '');
+        if (employeeChanged && assetBefore?.deviceSerial) {
+          await issueCustodySerialsInDb(client, {
+            employeeId: String(b.assignedEmployeeId),
+            productId: String(assetBefore.productId || ''),
+            branchId: String(assetBefore.branchId || ''),
+            serials: [String(assetBefore.deviceSerial)],
+            sourceType: 'FIXED_ASSET',
+            sourceId: String(assetBefore.id),
+            dateAD: todayAD,
+            note: `Dispatched to ${b.assignedEmployeeId}`,
+          });
+        }
         // Disposal is the one status change that removes value from the
         // ledger, so it posts in the same transaction as the status row: a
         // failed journal leaves the asset ACTIVE rather than half-disposed.
@@ -1338,6 +1590,9 @@ try {
     // A failed transaction leaves the database untouched; put the in-memory
     // row back too so the screen does not show an unassign the DB refused.
     if (asset && assetBefore) Object.assign(asset, assetBefore);
+    if (err instanceof SerialCustodyRefusal) {
+      return res.status(err.status).json({ message: err.message, code: err.code });
+    }
     const { status: errStatus, message } = errorResponse(err);
     if (errStatus >= 500) console.error('Error updating asset status:', err);
     res.status(errStatus).json({ message });
@@ -1538,6 +1793,35 @@ try {
     const opDateBS = await bsDateOr400(res, opDateAD);
     if (!opDateBS) return;
 
+    // A consumable issue is a custody movement: the units leave the shelf and
+    // enter one person's hands. A typed name is not an identity, so it cannot
+    // carry custody — the employee is required and must belong to the issuing
+    // branch. (Without a database the legacy demo path keeps its old shape.)
+    const personDirected = opType === 'CONSUMABLE_ISSUE' && getPgConnected();
+    let custodyEmployee: { id: string; name: string; code: string; branchId: string } | null = null;
+    let custodyGroupId: string | null = null;
+    if (personDirected) {
+      const employeeId = String(req.body.employeeId || '').trim();
+      if (!employeeId) {
+        return res.status(400).json({
+          message: 'Choose the employee these units are issued to: employeeId is required for a consumable issue.',
+          code: 'EMPLOYEE_REQUIRED',
+        });
+      }
+      const found = await findCustodyEmployee(employeeId);
+      if (!found) {
+        return res.status(400).json({ message: 'That employee does not exist.', code: 'UNKNOWN_EMPLOYEE' });
+      }
+      if (found.branchId !== opBranchId) {
+        return res.status(400).json({
+          message: 'That employee is not in the selected branch.',
+          code: 'EMPLOYEE_OUTSIDE_BRANCH',
+        });
+      }
+      custodyEmployee = found;
+      custodyGroupId = randomUUID();
+    }
+
     // Map operation type to document type code for numbering:
     // DAMAGE → DMG, PULLOUT → PLT, STOCK_OUT → SALE, CONSUMABLE_ISSUE → CON,
     // MANUAL_ADJUSTMENT → SA, others → their first 4 letters.
@@ -1566,6 +1850,12 @@ try {
       destinationWarehouseId: destWarehouseObj?.id || req.body.destinationWarehouseId || opBranchId,
       destinationWarehouseName: destWarehouseObj?.name || req.body.destinationWarehouseName || 'Headquarters Warehouse',
       status: req.body.status || (opType === 'PULLOUT' ? 'DISPATCHED' : 'LOGGED'),
+      // The document names the person it issued to (the legacy free-text name is
+      // kept for display/register search) and the group its movements share.
+      technicianName: custodyEmployee?.name || req.body.technicianName || null,
+      employeeId: custodyEmployee?.id || null,
+      custodyGroupId,
+      workOrderRef: req.body.workOrderRef || null,
     };
 
     // WTY-5: a retail sale starts the customer promise on every sold serial.
@@ -1769,6 +2059,28 @@ try {
           stockOperationInsertParams(newOp, opType, totalValue, JSON.stringify(items))
         );
 
+        // One writer for the physical move: the custody ledger takes the units
+        // out of branch stock (the guarded decrement below is skipped for this
+        // type), so the shelf, the person's holding and the ledger cannot
+        // disagree. A shortfall throws and rolls the whole document back.
+        if (personDirected && custodyEmployee) {
+          for (const item of operationItems) {
+            await issueEmployeeStockInTransaction(
+              client,
+              {
+                employeeId: custodyEmployee.id,
+                productId: String(item.productId),
+                branchId: String(newOp.branchId),
+                quantity: Number(item.quantity) || 0,
+                workOrderId: String(req.body.workOrderId || '').trim() || null,
+                reason: `${newOp.reason} (${newOp.referenceNumber})`,
+                actor: stockActor(req) || 'system',
+              },
+              newOp.custodyGroupId
+            );
+          }
+        }
+
         for (const item of operationItems) {
           const qty = Number(item.quantity) || 1;
           const manualDelta = manualDeltaOf(item);
@@ -1780,7 +2092,7 @@ try {
               item.condition === 'DAMAGED_STOCK' ? STOCK_RELEASE_DAMAGED_SQL : STOCK_CONSUME_QOH_SQL,
               [qty, item.productId, newOp.branchId]
             );
-          } else if (opType === 'STOCK_OUT' || opType === 'CONSUMABLE_ISSUE') {
+          } else if (opType === 'STOCK_OUT') {
             result = await client.query(STOCK_CONSUME_QOH_SQL, [qty, item.productId, newOp.branchId]);
           } else if (opType === 'DISPOSAL') {
             // Write-off: units leave the DAMAGED pool (quantity_on_hand never
@@ -1968,6 +2280,13 @@ try {
     // register's own reason with its own status instead of a generic 500.
     if (err instanceof SerialGateError) {
       res.status(err.status).json({ message: err.message });
+      return;
+    }
+    // A custody refusal is a caller error: report its own code and status (an
+    // employee who does not exist is a 400, a shortfall is a 409), not a 500.
+    if (err instanceof EmployeeStockRefusal) {
+      const status = err.code === 'UNKNOWN_EMPLOYEE' || err.code === 'UNKNOWN_PRODUCT' ? 400 : 409;
+      res.status(status).json({ message: err.message, code: err.code });
       return;
     }
     console.error('Error creating stock operation:', err);
@@ -2283,7 +2602,27 @@ export async function post_reverseConsumable(req: any, res: Response): Promise<a
         const stockDeltas = operationItems
           .map((item: any) => ({ productId: item.productId, quantity: Number(item.quantity) || 0 }))
           .filter((d: { productId: any; quantity: number }) => d.productId && d.quantity > 0);
-        if (stockDeltas.length > 0) {
+        // A person-directed issue put the units into custody, so the reversal
+        // puts them back through the same ledger (holding down, branch stock up)
+        // instead of crediting the shelf twice. Rows written before that link
+        // existed have no group and keep the stock-only path.
+        if (op.employeeId && op.custodyGroupId) {
+          for (const line of stockDeltas) {
+            await returnEmployeeStockInTransaction(
+              client,
+              {
+                employeeId: String(op.employeeId),
+                productId: String(line.productId),
+                branchId: String(op.branchId),
+                quantity: line.quantity,
+                workOrderId: null,
+                reason: `Reversal of ${op.referenceNumber}: ${reason}`,
+                actor: reversedBy,
+              },
+              String(op.custodyGroupId)
+            );
+          }
+        } else if (stockDeltas.length > 0) {
           await client.query(
             STOCK_RETURN_QOH_BATCH_SQL,
             stockReturnQohBatchParams(stockDeltas, op.branchId)
@@ -2341,6 +2680,14 @@ export async function post_reverseConsumable(req: any, res: Response): Promise<a
     await logAuditEvent(req, 'REVERSE_CONSUMABLE_ISSUE', 'STOCK_OPERATIONS', `Reversed consumable issue ${op.referenceNumber} — ${reason}`);
     res.json({ message: 'Consumable issue reversed successfully. Units returned to available stock.', operation: updatedOp });
   } catch (err: any) {
+    // The reversal returns the units through the custody ledger, so its refusal
+    // (the person no longer holds them — e.g. the device was installed) is a
+    // caller error with its own status, not a 500.
+    if (err instanceof EmployeeStockRefusal) {
+      const status = err.code === 'UNKNOWN_EMPLOYEE' || err.code === 'UNKNOWN_PRODUCT' ? 400 : 409;
+      res.status(status).json({ message: err.message, code: err.code });
+      return;
+    }
     const { status, message } = errorResponse(err);
     if (status >= 500) console.error('Error reversing consumable issue:', err);
     res.status(status).json({ message });

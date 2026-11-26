@@ -13,19 +13,53 @@ and a contract test, in the same commit.
 
 ## Envelope
 
+A failed call answers with an HTTP status and a JSON body carrying **one of these
+two key sets** — nothing else:
+
 ```json
-{ "code": "SHORT_CODE", "message": "human readable", "retryable": true, "details": {} }
+{ "message": "human readable" }
 ```
 
-Ingest failures are `4xx` and safe to retry only when `retryable` is true; a 5xx
-is always worth retrying with the same body. Codes the portal must handle:
+```json
+{ "code": "SHORT_CODE", "message": "human readable" }
+```
 
-| Code | Meaning |
-| --- | --- |
-| `PARTNER_NOT_REGISTERED` | the API key is valid but no `integration_partners` row binds it; the key alone is not enough |
-| `PARTNER_BRANCH_SCOPE` | the branch the call would write into is outside this key's branch scope — the `branchId`/`branchCode` in the body, the linked customer's stored branch on a re-sync or a subscription without `branchId`, or the branch of a customer the key would link — refused before any write, with an inbox row |
-| `CUSTOMER_NOT_LINKED` | the subscription names a customer that was never synced; send it to `/customers` first |
-| `IDEMPOTENCY_CONFLICT` | the same key arrived with a different body |
+- `message` is always present. It may be reworded at any time, so log or show it
+  as it arrives and never match on its text.
+- `code` is present only when the refusal has a stable machine-readable reason
+  (the table below). A validation refusal has none: today it is
+  `400 { "message": "contactNumber is required." }`. `code` is a label, not the
+  classifier — the HTTP status is.
+- There is no `retryable` and no `details` field on these bodies. Retry is
+  decided by status, never by a flag: a `4xx` is a refusal, so fix the body or
+  drop the call rather than resending it unchanged. A `5xx` is worth retrying
+  unchanged, and `503 { "code": "DB_BUSY" | "DB_UNAVAILABLE", "message": ... }`
+  carries `Retry-After` — that (and `429 API_KEY_RATE_LIMIT`) is the only
+  back-off signal in the contract.
+- A stock shortage is **not** this envelope: it is a successful answer that
+  documents the refusal (see "Stock"),
+  `409 { "externalId", "status": "CONFLICT", "conflictReason", "eventId" }`.
+  A `409` alone therefore does not tell the portal which shape arrived; the
+  presence of `status: "CONFLICT"` does.
+
+Codes the portal must handle:
+
+| Code | Status | Meaning |
+| --- | --- | --- |
+| `PARTNER_KEY_REQUIRED` | 401 | a human session token reached an ingest route; these routes take an API key, never a login |
+| `PARTNER_NOT_REGISTERED` | 403 | the API key is valid but no `integration_partners` row binds it; the key alone is not enough |
+| `PARTNER_SUSPENDED` | 403 | the partner is disabled; its key ingests nothing until an admin sets `status` back to `ACTIVE` |
+| `PARTNER_BRANCH_SCOPE` | 403 | the branch the call would write into is outside this key's branch scope — the `branchId`/`branchCode` in the body, the linked customer's stored branch on a re-sync or a subscription without `branchId`, or the branch of a customer the key would link — refused before any write, with an inbox row |
+| `CUSTOMER_NOT_LINKED` | 404 | the subscription names a customer that was never synced; send it to `/customers` first |
+| `IDEMPOTENCY_KEY_REUSED` | 409 | the same idempotency key arrived with a different body; the stored response is not replayed |
+
+The key itself is refused by the API-key gate, before any partner logic runs,
+with the same two-key body: `API_KEY_INVALID`, `API_KEY_REVOKED`,
+`API_KEY_EXPIRED`, `API_KEY_CIDR` (401/403), `API_KEY_RATE_LIMIT` (429, with
+`Retry-After`), `API_KEY_READ_ONLY` (403, a write with a read-only key) and
+`API_KEY_SCOPE` (403, the key lacks the operation the route needs). If the key
+cannot be verified at all the gate fails closed with
+`503 { "code": "SHARED_STATE_UNAVAILABLE", "message": ... }`.
 
 ## Authentication and scope
 

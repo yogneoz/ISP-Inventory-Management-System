@@ -298,9 +298,11 @@ export const MOBILE_CHANGE_PULL_SQL = `
    LIMIT $3`;
 
 export const MOBILE_WORK_ORDER_SQL = `
-  SELECT id, work_order_no, status, branch_id, technician_id, row_version
-    FROM field_work_orders
-   WHERE id = $1 AND technician_id = $2`;
+  SELECT w.id, w.work_order_no, w.status, w.branch_id, w.technician_id, w.row_version,
+         w.customer_id, c.customer_name
+    FROM field_work_orders w
+    LEFT JOIN customer_records c ON c.id = w.customer_id
+   WHERE w.id = $1 AND w.technician_id = $2`;
 
 /** Any order in the caller's branch, whatever its technician or status. */
 export const MOBILE_WORK_ORDER_BRANCH_SQL = `
@@ -354,6 +356,30 @@ export const MOBILE_JOB_QUEUE_SQL = `
    LIMIT 100`;
 
 /** What the technician is carrying, from the custody projection. */
+/**
+ * The van's whole units: fixed assets this technician holds, each with the visit
+ * (and therefore the customer) it was dispatched for. A unit with an asset row
+ * belongs to that row, never to the quantity holdings above.
+ */
+export const MOBILE_VAN_ASSETS_SQL = `
+  SELECT fa.id AS "assetId",
+         fa.tag_number AS "tagNumber",
+         fa.name AS "productName",
+         fa.device_serial AS "deviceSerial",
+         fa.assigned_work_order_id AS "workOrderId",
+         w.work_order_no AS "workOrderNo",
+         w.customer_id AS "customerId",
+         c.customer_name AS "customerName",
+         to_char(w.scheduled_date_ad, 'YYYY-MM-DD') AS "scheduledDateAD"
+    FROM fixed_assets fa
+    LEFT JOIN field_work_orders w ON w.id::text = fa.assigned_work_order_id
+    LEFT JOIN customer_records c ON c.id = w.customer_id
+   WHERE fa.assigned_employee_id = $1
+     AND fa.branch_id = $2
+     AND fa.status = 'IN_USE'
+   ORDER BY c.customer_name NULLS LAST, fa.tag_number
+   LIMIT 200`;
+
 export const MOBILE_VAN_STOCK_SQL = `
   SELECT h.product_id AS "productId",
          p.name AS "productName",
@@ -367,13 +393,6 @@ export const MOBILE_VAN_STOCK_SQL = `
      AND h.quantity > 0
    ORDER BY p.name
    LIMIT 500`;
-
-export const MOBILE_EMPLOYEE_STOCK_CONSUME_SQL = `
-  INSERT INTO employee_stock_movements (
-    employee_id, product_id, branch_id, movement_type, quantity, work_order_id, reason, actor
-  )
-  VALUES ($1, $2, $3, 'CONSUME', $4, $5, $6, $7)
-  RETURNING id`;
 
 /**
  * A refused queued action is kept whole: this insert is the promise that a

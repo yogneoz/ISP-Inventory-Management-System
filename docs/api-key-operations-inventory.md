@@ -48,9 +48,9 @@ Roles in `DEFAULT_PERMISSIONS_MATRIX`: .
 | Dispatch Stock Pullout to HQ | `branch-pullout-dispatch` | POST /api/stock-operations/:id/reverse-pullout | Write |
 | Label & Record Damaged Stock | `branch-damage-mark` | POST /api/stock-operations/:id/reverse | Write |
 | Stock Disposal & Financial Write-Off | `stock-disposal-writeoff` | — | ungated |
-| Assign Fixed Assets to Branch Staff | `branch-asset-assign` | GET /api/fixed-assets/available, GET /api/fixed-assets/lookup, GET /api/fixed-assets/page | Read |
 | Stock Issues & Stock-Out Reversal | `stock-out` | POST /api/stock-operations/:id/reverse-stock-out | Write |
 | Reverse Consumable Issue Record | `consumable-issue-reverse` | POST /api/stock-operations/:id/reverse-consumable | Write |
+| Deploy Stock & CPE | `stock-deploy` | POST /api/assets (deployment targets), POST /api/employee-stock/audit, POST /api/employee-stock/install, POST /api/employee-stock/issue, POST /api/employee-stock/loss | Write |
 
 ## Inventory & Product Master
 

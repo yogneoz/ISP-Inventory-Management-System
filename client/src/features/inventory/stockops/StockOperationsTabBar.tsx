@@ -152,7 +152,7 @@ export const StockOperationsTabBar: React.FC<{ initialType?: string }> = ({ init
         })()}
 
         {(() => {
-          const canAssignAsset = isOperationAllowed('branch-asset-assign', currentUser?.role);
+          const canAssignAsset = isOperationAllowed('stock-deploy', currentUser?.role);
           return (
             <button
               disabled={!canAssignAsset}

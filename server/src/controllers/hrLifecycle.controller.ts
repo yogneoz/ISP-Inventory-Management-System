@@ -29,6 +29,7 @@ import { allowedBranchScope } from '../middleware/branchScope';
 import { ApiError } from '../errors/ApiError';
 import { readEmployeeStockCustody } from '../models/employeeStock.repo';
 import { isAccountingDate, isUniqueViolation } from '../services/accounting.service';
+import { collectCpeFixedAsset } from '../services/cpeAssetLifecycle.service';
 import { resolveBsDateForLedger } from '../utils/bsDate';
 import {
   HR_LIFECYCLE_ACCOUNT_LOCK_SQL,
@@ -52,7 +53,6 @@ import {
   HR_LIFECYCLE_LOCK_SQL,
   HR_LIFECYCLE_NEXT_ORDER_SQL,
   HR_LIFECYCLE_PENDING_REQUIRED_SQL,
-  HR_LIFECYCLE_RETURN_ASSET_SQL,
   HR_LIFECYCLE_STATUSES,
   HR_LIFECYCLE_TYPES,
   HR_LIFECYCLE_UPDATE_SQL,
@@ -761,10 +761,21 @@ export async function post_hrLifecycleItemComplete(req: any, res: Response): Pro
         if (String(asset.assignedEmployeeId || '') !== String(header.employeeId)) {
           throw new ApiError(409, 'The linked asset is no longer assigned to this employee.');
         }
-        await client.query(HR_LIFECYCLE_RETURN_ASSET_SQL, [
-          asset.id,
-          `Returned via lifecycle checklist ${header.checklistNo} on ${header.effectiveDateAD}`,
-        ]);
+        // One return rule for an employee-held asset. The unassign screen and
+        // this checklist used to differ: the screen credited branch stock when
+        // the unit ever drew it, the checklist never did. Both now go through
+        // the collection service, so the same unit returned either way produces
+        // the same ledger.
+        await collectCpeFixedAsset({
+          client,
+          assetId: String(asset.id),
+          requestNumber: `HR-ASSET-RETURN-${header.checklistNo}`,
+          todayAD: header.effectiveDateAD,
+          branchId: String(asset.branchId),
+          extraNote: `Returned via lifecycle checklist ${header.checklistNo} on ${header.effectiveDateAD}`,
+          changeType: 'MANUAL_ADJUSTMENT',
+          actor: getUserFromReq(req)?.email || null,
+        });
       }
     } else if (
       lockedItem.action === 'ACTIVATE_ACCOUNT' ||

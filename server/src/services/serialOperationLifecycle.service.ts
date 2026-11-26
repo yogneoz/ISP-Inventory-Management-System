@@ -8,10 +8,17 @@
  * One owner now maps the operation type to its register state and owns the
  * transition plus its symmetric reversal:
  *
- *   PULLOUT           IN_STOCK → IN_TRANSIT  (received at the destination, or
- *                                            reversed back to the source)
- *   CONSUMABLE_ISSUE  IN_STOCK → CONSUMED    (reversal → IN_STOCK)
- *   STOCK_OUT         IN_STOCK → SOLD        (reversal → IN_STOCK)
+ *   PULLOUT           IN_STOCK → IN_TRANSIT    (received at the destination, or
+ *                                              reversed back to the source)
+ *   CONSUMABLE_ISSUE  IN_STOCK → IN_CUSTODY    (the units are issued to the
+ *                                              person the operation names;
+ *                                              reversal → IN_STOCK)
+ *   STOCK_OUT         IN_STOCK → SOLD          (reversal → IN_STOCK)
+ *
+ * A device issued to a technician is NOT consumed: it is in that person's hands
+ * until a work order installs it at a customer (then the custody ledger's
+ * consume moves it to CUSTOMER_ASSIGNED) or it comes back. Marking it CONSUMED
+ * at issue made the unit disappear from both the van and the customer register.
  *
  * Every write is scoped to the operation: source_type/source_id point at the
  * stock operation, and a reversal only restores rows it can prove that same
@@ -27,7 +34,7 @@ import {
 import { parseHistoryJson } from './cdrSerialSync';
 import { OperationError } from '../utils/operationError';
 
-export type OperationIssueStatus = 'IN_TRANSIT' | 'CONSUMED' | 'SOLD';
+export type OperationIssueStatus = 'IN_TRANSIT' | 'IN_CUSTODY' | 'CONSUMED' | 'SOLD';
 
 /** The register state an operation type issues its units into, or null. */
 export function issueStatusForOperation(opType: unknown): OperationIssueStatus | null {
@@ -35,7 +42,7 @@ export function issueStatusForOperation(opType: unknown): OperationIssueStatus |
     case 'PULLOUT':
       return 'IN_TRANSIT';
     case 'CONSUMABLE_ISSUE':
-      return 'CONSUMED';
+      return 'IN_CUSTODY';
     case 'STOCK_OUT':
       return 'SOLD';
     default:
@@ -51,6 +58,8 @@ export interface SerializableOperation {
   referenceNumber?: string;
   items?: any[];
   deviceSerials?: any[];
+  /** The person a person-directed operation issues the units to. */
+  employeeId?: string | null;
 }
 
 interface HistoryRow {
@@ -130,11 +139,14 @@ export async function issueOperationSerialsInDb(
         status,
         op,
         timestampAD,
-        `Issued by stock operation ${op.referenceNumber || op.id} (${op.type})`
+        status === 'IN_CUSTODY'
+          ? `Issued to ${op.employeeId || 'the holder'} on stock operation ${op.referenceNumber || op.id} (${op.type})`
+          : `Issued by stock operation ${op.referenceNumber || op.id} (${op.type})`
       ),
       timestampAD,
       entry.deviceSerial,
       branchId,
+      status === 'IN_CUSTODY' ? op.employeeId || null : null,
     ]);
     if (result.rowCount !== 1) {
       throw new OperationError(
@@ -237,6 +249,7 @@ export function issueOperationSerialsInMemory<T extends MirrorRow>(
     return {
       ...row,
       status,
+      holderEmployeeId: status === 'IN_CUSTODY' ? op.employeeId || null : null,
       sourceType: 'STOCK_OP',
       sourceId: op.id,
       historyJson: appendHistory(
@@ -245,7 +258,9 @@ export function issueOperationSerialsInMemory<T extends MirrorRow>(
           status,
           op,
           timestampAD,
-          `Issued by stock operation ${op.referenceNumber || op.id} (${op.type})`
+          status === 'IN_CUSTODY'
+            ? `Issued to ${op.employeeId || 'the holder'} on stock operation ${op.referenceNumber || op.id} (${op.type})`
+            : `Issued by stock operation ${op.referenceNumber || op.id} (${op.type})`
         )
       ),
       updatedAt: timestampAD,
@@ -271,6 +286,7 @@ export function restoreOperationSerialsInMemory<T extends MirrorRow>(
       status: 'IN_STOCK',
       customerId: null,
       customerName: null,
+      holderEmployeeId: null,
       sourceType: 'STOCK_OP',
       sourceId: op.id,
       historyJson: appendHistory(

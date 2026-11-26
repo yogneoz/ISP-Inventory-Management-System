@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStockOperationsCtx } from './StockOperationsContext';
 import { DeviceSerialInput } from '../../../components/common/DeviceSerialInput';
 import { CustomerPicker } from '../../../components/common/CustomerPicker';
@@ -42,6 +42,25 @@ export const AssignAssetPanel: React.FC = () => {
 
   const [assignBranchId, setAssignBranchId] = useState<string>(userBranchId);
   const [assignItems, setAssignItems] = useState<AssignBinLine[]>([]);
+  // Dispatch-to-technician pickers: the branch roster (employee-stock-view, the
+  // same list the custody panel uses) and the branch's own visits.
+  const [custodyEmployees, setCustodyEmployees] = useState<{ id: string; name: string; employee_code: string }[]>([]);
+  const [branchWorkOrders, setBranchWorkOrders] = useState<any[]>([]);
+
+  const loadDispatchPickers = useCallback(() => {
+    api
+      .getCustodyEmployees()
+      .then((rows) => setCustodyEmployees(Array.isArray(rows) ? rows : []))
+      .catch(() => setCustodyEmployees([]));
+    api
+      .getFieldWorkOrders({ branchId: assignBranchId })
+      .then((rows) => setBranchWorkOrders(Array.isArray(rows) ? rows : []))
+      .catch(() => setBranchWorkOrders([]));
+  }, [assignBranchId]);
+
+  useEffect(() => {
+    loadDispatchPickers();
+  }, [loadDispatchPickers]);
   const [assignProductSearch, setAssignProductSearch] = useState<string>('');
   const [isAssignProductDropdownOpen, setIsAssignProductDropdownOpen] = useState<boolean>(false);
   const assignProductDropdownRef = useRef<HTMLDivElement | null>(null);
@@ -221,6 +240,18 @@ export const AssignAssetPanel: React.FC = () => {
         alertDialog(`Line "${item.productName}": select a Customer.`);
         return;
       }
+      // A dispatch names the person who will hold the unit and the visit that
+      // carries the customer: without both, the install has nothing to prove.
+      if (item.usedAtType === 'EMPLOYEE' && !item.usedAtEmployeeId) {
+        alertDialog(`Line "${item.productName}": select the technician who will hold the unit.`);
+        return;
+      }
+      if (item.usedAtType === 'EMPLOYEE' && !item.usedAtWorkOrderId) {
+        alertDialog(
+          `Line "${item.productName}": select the work order that carries the customer — the unit is installed against that visit.`
+        );
+        return;
+      }
       // WTY-5: the customer promise is required unless the operator turned it
       // off for this unit — never silently derived at save.
       if (item.usedAtType === 'CUSTOMER') {
@@ -266,7 +297,11 @@ export const AssignAssetPanel: React.FC = () => {
 
     const createdTags: string[] = [];
 
-    for (const item of assignItems) {
+    // Deploy one bin line. A refusal from the server is thrown unchanged, and
+    // the loop below reports it: the operator must see the server's own words
+    // (a dispatch PATCH names the technician/visit it refuses), never a form
+    // that simply sits there after a rejected promise.
+    const deployAssignLine = async (item: AssignBinLine) => {
       if (item.kind === 'PRODUCT') {
         const prodMeta = products.find((p) => p.id === item.productId);
         for (let unitIdx = 0; unitIdx < item.quantity; unitIdx++) {
@@ -287,14 +322,27 @@ export const AssignAssetPanel: React.FC = () => {
             depreciationMethod: 'STRAIGHT_LINE',
             depreciationRatePercent: prodMeta?.depreciationRate || 15,
             productId: item.productId,
-            status: item.usedAtType === 'CUSTOMER' ? 'ASSIGNED_TO_CUSTOMER' : 'ASSIGNED_TO_LOCATION',
-            assignedType: item.usedAtType === 'CUSTOMER' ? 'CUSTOMER' : 'LOCATION',
+            status:
+              item.usedAtType === 'EMPLOYEE'
+                ? 'IN_USE'
+                : item.usedAtType === 'CUSTOMER'
+                  ? 'ASSIGNED_TO_CUSTOMER'
+                  : 'ASSIGNED_TO_LOCATION',
+            assignedType:
+              item.usedAtType === 'EMPLOYEE' ? 'EMPLOYEE' : item.usedAtType === 'CUSTOMER' ? 'CUSTOMER' : 'LOCATION',
             assignedCustomerId: item.usedAtType === 'CUSTOMER' ? item.usedAtCustomerId : undefined,
             assignedCustomerName: item.usedAtType === 'CUSTOMER' ? item.usedAtCustomerName : undefined,
-            assignedLocationId: item.usedAtType !== 'CUSTOMER' ? item.usedAtLocationId : undefined,
-            assignedLocationName: item.usedAtType !== 'CUSTOMER' ? item.usedAtLocationName : undefined,
-            assignmentDateAD: todayAD,
-            assignmentDateBS: todayBS,
+            assignedLocationId:
+              item.usedAtType === 'POP' || item.usedAtType === 'FIELD' ? item.usedAtLocationId : undefined,
+            assignedLocationName:
+              item.usedAtType === 'POP' || item.usedAtType === 'FIELD' ? item.usedAtLocationName : undefined,
+            // The customer warranty starts at installation, so a technician
+            // dispatch carries no assignment date at all.
+            assignedEmployeeId: item.usedAtType === 'EMPLOYEE' ? item.usedAtEmployeeId : undefined,
+            assignedEmployeeName: item.usedAtType === 'EMPLOYEE' ? item.usedAtEmployeeName : undefined,
+            assignedWorkOrderId: item.usedAtType === 'EMPLOYEE' ? item.usedAtWorkOrderId : undefined,
+            assignmentDateAD: item.usedAtType === 'EMPLOYEE' ? undefined : todayAD,
+            assignmentDateBS: item.usedAtType === 'EMPLOYEE' ? undefined : todayBS,
             assignmentNotes: item.remarks,
             deployFromStock: true,
             deviceSerial: unitIdentity ? (item.deviceSerial || undefined) : undefined,
@@ -354,6 +402,18 @@ export const AssignAssetPanel: React.FC = () => {
               notes: `[FIXED ASSET CPE - Tag: ${ledgerAsset?.tagNumber}] ${item.remarks}`,
             });
           }
+        } else if (item.usedAtType === 'EMPLOYEE') {
+          // An existing ledger unit dispatched to a technician: the PATCH moves
+          // its serial into that person's custody in the same transaction, and
+          // leaves the assignment date empty so no warranty starts early.
+          await onUpdateAssetStatus(item.assetId, {
+            status: 'IN_USE',
+            assignedType: 'EMPLOYEE',
+            assignedEmployeeId: item.usedAtEmployeeId,
+            assignedEmployeeName: item.usedAtEmployeeName,
+            assignedWorkOrderId: item.usedAtWorkOrderId,
+            assignmentNotes: item.remarks,
+          });
         } else {
           await onUpdateAssetStatus(item.assetId, {
             status: 'ASSIGNED_TO_LOCATION',
@@ -366,6 +426,28 @@ export const AssignAssetPanel: React.FC = () => {
           });
         }
         createdTags.push(ledgerAsset?.tagNumber || item.sku);
+      }
+    };
+
+    for (const item of assignItems) {
+      try {
+        await deployAssignLine(item);
+      } catch (error: any) {
+        // Show the refusal instead of swallowing it, name the line it stopped
+        // at, and keep the bin (the operator corrects the line and resubmits).
+        // No success banner, and the refresh re-reads the register so the screen
+        // shows exactly what committed — an earlier bin line, or this line's
+        // stock movement, may already have been recorded before the refusal.
+        const reason =
+          String(error?.message || '').trim() || 'The server refused this deployment line.';
+        alertDialog(
+          `Deployment stopped at "${item.productName}": ${reason}` +
+            (createdTags.length
+              ? ` Already recorded before the refusal: ${createdTags.join(', ')}.`
+              : ' Nothing was recorded.')
+        );
+        await onRefreshData?.();
+        return;
       }
     }
 
@@ -591,7 +673,7 @@ export const AssignAssetPanel: React.FC = () => {
                           <div className="lg:col-span-3">
                             <label className="block font-bold text-[10px] text-slate-500 mb-1">Deploy To *</label>
                             <select
-                              value={item.usedAtType === 'CUSTOMER' ? 'CUSTOMER' : item.usedAtType === 'POP' ? 'POP' : 'FIELD'}
+                              value={item.usedAtType}
                               onChange={(e) => {
                                 const t = e.target.value as AssignBinLine['usedAtType'];
                                 handleUpdateAssignItem(item.id, {
@@ -601,6 +683,10 @@ export const AssignAssetPanel: React.FC = () => {
                                   usedAtCustomerId: t === 'CUSTOMER' ? item.usedAtCustomerId : undefined,
                                   usedAtCustomerName: t === 'CUSTOMER' ? item.usedAtCustomerName : undefined,
                                   usedAtCustomer: t === 'CUSTOMER' ? item.usedAtCustomer : undefined,
+                                  usedAtEmployeeId: t === 'EMPLOYEE' ? item.usedAtEmployeeId : undefined,
+                                  usedAtEmployeeName: t === 'EMPLOYEE' ? item.usedAtEmployeeName : undefined,
+                                  usedAtWorkOrderId: t === 'EMPLOYEE' ? item.usedAtWorkOrderId : undefined,
+                                  usedAtWorkOrderNo: t === 'EMPLOYEE' ? item.usedAtWorkOrderNo : undefined,
                                   sellerWarrantyEndDateAD: t === 'CUSTOMER'
                                     ? item.sellerWarrantyEndDateAD || warrantyEndFor(todaySellerStart(), 12)
                                     : item.sellerWarrantyEndDateAD,
@@ -613,6 +699,7 @@ export const AssignAssetPanel: React.FC = () => {
                             >
                               <option value="FIELD">Field / General Asset</option>
                               <option value="POP">POP / Network Site</option>
+                              <option value="EMPLOYEE">Technician / Fiber Team</option>
                               <option value="CUSTOMER">Customer / Rental CPE</option>
                             </select>
                           </div>
@@ -638,6 +725,61 @@ export const AssignAssetPanel: React.FC = () => {
                                 ariaLabel={`POP or network location for ${item.productName}`}
                               />
                             </div>
+                          )}
+
+                          {item.usedAtType === 'EMPLOYEE' && (
+                            <>
+                              <div className="lg:col-span-2">
+                                <label className="block font-bold text-[10px] text-slate-500 mb-1">Technician *</label>
+                                <select
+                                  value={item.usedAtEmployeeId || ''}
+                                  onChange={(e) => {
+                                    const chosen = custodyEmployees.find((person) => person.id === e.target.value);
+                                    handleUpdateAssignItem(item.id, {
+                                      usedAtEmployeeId: chosen?.id,
+                                      usedAtEmployeeName: chosen?.name,
+                                    });
+                                  }}
+                                  className="w-full rounded-xl border px-2.5 py-1.5 h-9 text-[11px] font-bold bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                >
+                                  <option value="">Select technician…</option>
+                                  {custodyEmployees.map((person) => (
+                                    <option key={person.id} value={person.id}>
+                                      {person.name} ({person.employee_code})
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div className="lg:col-span-2">
+                                <label className="block font-bold text-[10px] text-slate-500 mb-1">Work order (customer) *</label>
+                                <select
+                                  value={item.usedAtWorkOrderId || ''}
+                                  onChange={(e) => {
+                                    const order = branchWorkOrders.find((row) => row.id === e.target.value);
+                                    handleUpdateAssignItem(item.id, {
+                                      usedAtWorkOrderId: order?.id,
+                                      usedAtWorkOrderNo: order?.work_order_no,
+                                    });
+                                  }}
+                                  className="w-full rounded-xl border px-2.5 py-1.5 h-9 text-[11px] font-bold bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                >
+                                  <option value="">Select visit…</option>
+                                  {branchWorkOrders
+                                    .filter(
+                                      (order) =>
+                                        ['OPEN', 'ASSIGNED'].includes(String(order.status)) &&
+                                        (!item.usedAtEmployeeId ||
+                                          !order.technician_id ||
+                                          String(order.technician_id) === String(item.usedAtEmployeeId))
+                                    )
+                                    .map((order) => (
+                                      <option key={order.id} value={order.id}>
+                                        {order.work_order_no} · {order.customer_name || order.customer_id} · {order.scheduled_date_ad}
+                                      </option>
+                                    ))}
+                                </select>
+                              </div>
+                            </>
                           )}
 
                           {item.usedAtType === 'CUSTOMER' && (

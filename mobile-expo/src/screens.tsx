@@ -305,6 +305,12 @@ export function JobScreen({
   const [notes, setNotes] = useState('');
   const [completing, setCompleting] = useState(false);
   const [completeNotice, setCompleteNotice] = useState('');
+  const [installSerial, setInstallSerial] = useState('');
+  // The van's whole units: a CPE carried for this visit is what the closing
+  // screen installs, so the serial is chosen from the units the server says are
+  // in this technician's custody — never typed from memory.
+  const van = useLoad(() => fetchStock(token), [token]);
+  const heldForJob = (van.data?.assets || []).filter((asset) => asset.workOrderId === job.id);
 
   const attach = async () => {
     setNotice('');
@@ -352,8 +358,23 @@ export function JobScreen({
     }
     setCompleting(true);
     try {
-      const result = await completeJob(token, job.id, { baseVersion: job.rowVersion, notes: notes.trim() });
-      setCompleteNotice(`${result.resultStatus}: ${result.message}`);
+      const result = await completeJob(token, job.id, {
+        baseVersion: job.rowVersion,
+        notes: notes.trim(),
+        serialUsed: installSerial || undefined,
+      });
+      const installed = result.installedAssets || [];
+      setCompleteNotice(
+        `${result.resultStatus}: ${result.message}` +
+          (installed.length
+            ? ` ${installed
+                .map(
+                  (row) =>
+                    `Installed ${row.tagNumber} (${row.deviceSerial}) at ${row.customerName}; warranty starts ${row.warrantyStartDateAD}.`
+                )
+                .join(' ')}`
+            : '')
+      );
       onCompleted();
     } catch (err) {
       setCompleteNotice(messageOf(err));
@@ -411,6 +432,41 @@ export function JobScreen({
         <Text style={styles.ok}>This job is already completed.</Text>
       ) : (
         <>
+          {heldForJob.length > 0 && (
+            <>
+              <Text style={styles.label}>Unit to install</Text>
+              <Text style={styles.muted}>
+                Dispatched for this visit. Pick the unit you mounted and closing the job installs it at the customer,
+                starting its warranty on the completion date.
+              </Text>
+              {heldForJob.map((asset) => {
+                const serial = String(asset.deviceSerial || '');
+                const chosen = !!serial && installSerial === serial;
+                return (
+                  <Pressable
+                    key={asset.assetId}
+                    onPress={() => serial && setInstallSerial(chosen ? '' : serial)}
+                    style={styles.card}
+                  >
+                    <Text style={styles.cardTitle}>
+                      {chosen ? '✓ ' : ''}
+                      {asset.productName}
+                    </Text>
+                    <Text style={styles.meta}>
+                      Tag {asset.tagNumber} · serial {serial || 'not recorded'}
+                    </Text>
+                    {!serial && <Text style={styles.meta}>Record the unit serial before it can be installed.</Text>}
+                    {!!asset.scheduledDateAD && <Text style={styles.meta}>Visit {asset.scheduledDateAD}</Text>}
+                  </Pressable>
+                );
+              })}
+              <Text style={styles.muted}>
+                {installSerial
+                  ? `Closing the job installs ${installSerial} and leaves your custody.`
+                  : 'No unit picked: the job closes without installing anything, and the unit stays with you.'}
+              </Text>
+            </>
+          )}
           <Field label="Completion note" value={notes} onChangeText={setNotes} placeholder="What was done, what was replaced" autoCapitalize="sentences" />
           <Button title="Complete job" onPress={complete} busy={completing} disabled={!notes.trim()} />
           <Text style={styles.muted}>
@@ -651,9 +707,11 @@ export function ApprovalsScreen({ token, capabilities }: { token: string; capabi
 
 export function StockScreen({ token }: { token: string }) {
   const { data, error, loading, reload } = useLoad(() => fetchStock(token), [token]);
+  const holdings = data?.holdings || [];
+  const assets = data?.assets || [];
   return (
     <FlatList
-      data={data?.holdings || []}
+      data={holdings}
       keyExtractor={(item) => item.productId}
       contentContainerStyle={{ padding: 16, gap: 10 }}
       ListHeaderComponent={
@@ -661,12 +719,42 @@ export function StockScreen({ token }: { token: string }) {
           <Text style={styles.sectionTitle}>What I hold</Text>
           <Text style={styles.muted}>
             {data?.vanLocation ? `Van ${data.vanLocation} · ` : ''}
-            {data ? `${data.count} product line${data.count === 1 ? '' : 's'}` : 'Loading…'}
+            {data
+              ? `${holdings.length} product line${holdings.length === 1 ? '' : 's'} · ${assets.length} whole unit${
+                  assets.length === 1 ? '' : 's'
+                }`
+              : 'Loading…'}
           </Text>
           <Notice error={error} />
+          {assets.length > 0 && (
+            <>
+              <Text style={styles.label}>Whole units</Text>
+              {assets.map((asset) => (
+                <View key={asset.assetId} style={styles.card}>
+                  <Text style={styles.cardTitle}>{asset.productName}</Text>
+                  <Text style={styles.meta}>
+                    Tag {asset.tagNumber} · serial {asset.deviceSerial || 'not recorded'}
+                  </Text>
+                  {asset.workOrderNo ? (
+                    <Text style={styles.meta}>
+                      Dispatched for {asset.workOrderNo}
+                      {asset.customerName ? ` · ${asset.customerName}` : ''}
+                      {asset.scheduledDateAD ? ` · ${asset.scheduledDateAD}` : ''}
+                    </Text>
+                  ) : (
+                    <Text style={styles.meta}>Issued to you, not tied to a visit.</Text>
+                  )}
+                </View>
+              ))}
+            </>
+          )}
         </View>
       }
-      ListEmptyComponent={!loading && !error ? <Text style={styles.muted}>Nothing is issued to you right now.</Text> : undefined}
+      ListEmptyComponent={
+        !loading && !error && assets.length === 0 ? (
+          <Text style={styles.muted}>Nothing is issued to you right now.</Text>
+        ) : undefined
+      }
       renderItem={({ item }: { item: Holding }) => (
         <View style={styles.card}>
           <Text style={styles.cardTitle}>{item.productName}</Text>

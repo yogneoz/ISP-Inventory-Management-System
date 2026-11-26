@@ -113,6 +113,32 @@ export interface Holding {
   updatedAt: string;
 }
 
+/**
+ * A whole serialised unit held as a fixed asset — the other half of the van.
+ * Field for field what `MOBILE_VAN_ASSETS_SQL` sends; the work order carries the
+ * customer the unit was dispatched for.
+ */
+export interface CustodyAsset {
+  assetId: string;
+  tagNumber: string;
+  productName: string;
+  deviceSerial: string | null;
+  workOrderId: string | null;
+  workOrderNo: string | null;
+  customerId: string | null;
+  customerName: string | null;
+  scheduledDateAD: string | null;
+}
+
+/** What the closing route installed at the visit's customer. */
+export interface InstalledAsset {
+  assetId: string;
+  tagNumber: string;
+  deviceSerial: string;
+  customerName: string;
+  warrantyStartDateAD: string;
+}
+
 export interface LoginResult {
   accessToken: string;
   refreshToken: string;
@@ -229,7 +255,10 @@ export const workplaceBootstrap = (token: string) =>
 export const jobs = (token: string) => call<{ jobs: WorkOrder[]; count: number }>('/api/v1/workplace/jobs', { token });
 
 export const stock = (token: string) =>
-  call<{ vanLocation: string | null; holdings: Holding[]; count: number }>('/api/v1/workplace/stock', { token });
+  call<{ vanLocation: string | null; holdings: Holding[]; assets: CustodyAsset[]; count: number }>(
+    '/api/v1/workplace/stock',
+    { token }
+  );
 
 export const evidenceFor = (token: string, jobId: string) =>
   call<{ workOrderId: string; evidence: EvidenceRow[]; count: number }>(
@@ -260,9 +289,15 @@ export const uploadEvidence = (
 export const completeJob = (
   token: string,
   jobId: string,
-  input: { baseVersion: number; notes: string; serialUsed?: string }
+  input: { baseVersion: number; notes: string; serialUsed?: string; consumedSerials?: string[] }
 ) =>
-  call<{ workOrderId: string; resultStatus: string; message: string; baseVersion: number }>(
+  call<{
+    workOrderId: string;
+    resultStatus: string;
+    message: string;
+    baseVersion: number;
+    installedAssets?: InstalledAsset[];
+  }>(
     `/api/v1/workplace/jobs/${encodeURIComponent(jobId)}/complete`,
     {
       token,
@@ -270,6 +305,7 @@ export const completeJob = (
         baseVersion: input.baseVersion,
         notes: input.notes,
         serialUsed: input.serialUsed || undefined,
+        consumedSerials: input.consumedSerials?.length ? input.consumedSerials : undefined,
         idempotencyKey: `complete-${jobId}-${input.baseVersion}`,
       },
     }

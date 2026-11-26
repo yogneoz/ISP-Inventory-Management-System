@@ -54,13 +54,13 @@ app.patch('/api/assets/:id/status', requirePermission('assets-manage'), async (r
 // deployment pickers read /available, and a panel resolves one row with
 // /lookup. Branch scope is resolved from the session and applied in SQL, like
 // the paged shipment/customer/device reads.
-app.get('/api/fixed-assets/page', requirePermissionAny('assets-view', 'branch-asset-assign'), async (req, res, next) => { get_fixedAssetsPage(req as any, res as any).catch(next); });
+app.get('/api/fixed-assets/page', requirePermission('assets-view'), async (req, res, next) => { get_fixedAssetsPage(req as any, res as any).catch(next); });
 
 app.get('/api/fixed-assets/overview', requirePermission('assets-view'), async (req, res, next) => { get_fixedAssetsOverview(req as any, res as any).catch(next); });
 
-app.get('/api/fixed-assets/available', requirePermissionAny('assets-view', 'branch-asset-assign', 'assets-manage'), async (req, res, next) => { get_fixedAssetsAvailable(req as any, res as any).catch(next); });
+app.get('/api/fixed-assets/available', requirePermissionAny('assets-view', 'assets-manage'), async (req, res, next) => { get_fixedAssetsAvailable(req as any, res as any).catch(next); });
 
-app.get('/api/fixed-assets/lookup', requirePermissionAny('assets-view', 'branch-asset-assign', 'assets-manage'), async (req, res, next) => { get_fixedAssetsLookup(req as any, res as any).catch(next); });
+app.get('/api/fixed-assets/lookup', requirePermissionAny('assets-view', 'assets-manage'), async (req, res, next) => { get_fixedAssetsLookup(req as any, res as any).catch(next); });
 
 // The depreciation run is its own period-end control: a role may read the
 // statements without being allowed to post a depreciation journal.

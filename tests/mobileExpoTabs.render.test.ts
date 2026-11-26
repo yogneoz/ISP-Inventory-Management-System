@@ -220,9 +220,26 @@ const leavesPayload = {
 };
 
 const personaHoldings = workplace.holdings.filter((row: any) => row.employee_id === PERSONA);
+/**
+ * `MOBILE_VAN_ASSETS_SQL` field for field. The demo seed assigns no fixed asset
+ * to an employee yet, so this is a contract fixture: the van's other half, a
+ * whole CPE carried without a visit.
+ */
+const HELD_ASSET = {
+  assetId: 'render-van-asset-1',
+  tagNumber: 'FA-ONU-9001',
+  productName: 'Huawei HG8245 ONU',
+  deviceSerial: 'RENDER-ONU-0001',
+  workOrderId: null,
+  workOrderNo: null,
+  customerId: null,
+  customerName: null,
+  scheduledDateAD: null,
+};
 const stockPayload = {
   vanLocation: 'KTM',
   count: personaHoldings.length,
+  assets: [HELD_ASSET],
   holdings: personaHoldings.map((row: any) => {
     const product = dataset.products.find((entry: any) => entry.id === row.product_id) as any;
     return {
@@ -405,7 +422,19 @@ describe('the mobile tabs reach their loaded state with the seeded rows', () => 
     const stock = mountTree(createElement(screens.StockScreen, { token: TOKEN }));
     await settle();
     const holding = stockPayload.holdings[0];
-    expectOnScreen(stock.container, [holding.productName, holding.sku, 'Van KTM', String(holding.quantity)]);
+    expectOnScreen(stock.container, [
+      holding.productName,
+      holding.sku,
+      'Van KTM',
+      String(holding.quantity),
+      // The van's other half: a whole unit is not a quantity line, and the
+      // screen must show it or a technician carrying a CPE sees an empty van.
+      'Whole units',
+      HELD_ASSET.productName,
+      HELD_ASSET.tagNumber,
+      HELD_ASSET.deviceSerial,
+      'Issued to you, not tied to a visit.',
+    ]);
     expectNoEmptyBranch(stock.container, ['Nothing is issued to you right now.']);
     stock.unmount();
   });
@@ -862,13 +891,38 @@ describe('job detail and completion', () => {
     const completion = completionFor(job.id, Number(jobRow.row_version));
     assert.ok(evidence.count > 0, 'the seeded visit must carry a proof capture');
 
+    // The unit this technician carries for this visit: `MOBILE_VAN_ASSETS_SQL`'s
+    // shape, and the serial the completion must name to install it.
+    const JOB_ASSET = {
+      ...HELD_ASSET,
+      assetId: 'render-job-asset-1',
+      tagNumber: 'FA-ONU-9102',
+      deviceSerial: 'RENDER-ONU-9102',
+      workOrderId: job.id,
+      workOrderNo: job.workOrderNo,
+      customerId: job.customerId,
+      customerName: job.customerName,
+      scheduledDateAD: job.scheduledDateAD,
+    };
+    const installed = {
+      assetId: JOB_ASSET.assetId,
+      tagNumber: JOB_ASSET.tagNumber,
+      deviceSerial: JOB_ASSET.deviceSerial,
+      customerName: job.customerName,
+      warrantyStartDateAD: String(job.scheduledDateAD),
+    };
+
     const completed: string[] = [];
     mockApi([
       { match: `/api/v1/workplace/jobs/${job.id}/evidence`, body: evidence },
       {
+        match: '/api/v1/workplace/stock',
+        body: { vanLocation: 'KTM', count: 0, holdings: [], assets: [JOB_ASSET] },
+      },
+      {
         match: `/api/v1/workplace/jobs/${job.id}/complete`,
         method: 'POST',
-        body: completion,
+        body: { ...completion, installedAssets: [installed] },
       },
     ]);
     const tree = mountTree(
@@ -898,8 +952,17 @@ describe('job detail and completion', () => {
       proof.caption,
       'Close the visit',
       'Complete job',
+      // The held unit the visit was dispatched for is offered for installation.
+      'Unit to install',
+      JOB_ASSET.tagNumber,
+      JOB_ASSET.deviceSerial,
     ]);
     expectNoEmptyBranch(tree.container, ['No proof stored yet.']);
+
+    // Picking the unit is what names the serial the completion installs.
+    clickContaining(tree.container, JOB_ASSET.tagNumber);
+    await settle(2);
+    expectOnScreen(tree.container, [`Closing the job installs ${JOB_ASSET.deviceSerial}`]);
 
     // The completion note is the only text field on this screen.
     typeInto(tree.container, 'ONT mounted, drop cable run, 100 Mbps verified on site.');
@@ -908,12 +971,23 @@ describe('job detail and completion', () => {
 
     expectOnScreen(tree.container, [
       `${completion.resultStatus}: ${completion.message}`,
+      `Installed ${installed.tagNumber} (${installed.deviceSerial}) at ${installed.customerName}`,
+      `warranty starts ${installed.warrantyStartDateAD}`,
     ]);
+    const posted = sent.find(
+      (row) => row.method === 'POST' && row.path === `/api/v1/workplace/jobs/${job.id}/complete`
+    );
+    assert.ok(posted, 'the completion must be posted');
+    assert.equal(posted!.body.serialUsed, JOB_ASSET.deviceSerial, 'the picked unit is the serial installed');
     assert.deepEqual(completed, [job.id], 'the screen must report the completion to the app shell');
-    assert.deepEqual(requested, [
-      `GET /api/v1/workplace/jobs/${job.id}/evidence`,
-      `POST /api/v1/workplace/jobs/${job.id}/complete`,
-    ]);
+    assert.deepEqual(
+      [...requested].sort(),
+      [
+        `GET /api/v1/workplace/jobs/${job.id}/evidence`,
+        'GET /api/v1/workplace/stock',
+        `POST /api/v1/workplace/jobs/${job.id}/complete`,
+      ].sort()
+    );
     tree.unmount();
   });
 });
@@ -1061,6 +1135,7 @@ describe('attaching proof to an open visit', () => {
     expectNoEmptyBranch(tree.container, ['No proof stored yet.']);
     assert.deepEqual(requested, [
       `GET /api/v1/workplace/jobs/${emptyJob.id}/evidence`,
+      'GET /api/v1/workplace/stock',
       `POST /api/v1/workplace/jobs/${emptyJob.id}/evidence`,
       `GET /api/v1/workplace/jobs/${emptyJob.id}/evidence`,
     ], 'the list must be re-read after the write');
@@ -1085,7 +1160,12 @@ describe('attaching proof to an open visit', () => {
     assert.equal(picker.pickerCalls.length, 2, 'both taps must reach the picker');
     assert.equal(sent.filter((row) => row.method === 'POST').length, 0, 'a cancelled pick must never post');
     assert.equal(store.rows.length, 0);
-    assert.deepEqual(requested, [`GET /api/v1/workplace/jobs/${emptyJob.id}/evidence`]);
+    // The screen also reads the van, to offer the units this visit was
+    // dispatched for; a cancelled pick still posts nothing.
+    assert.deepEqual(requested, [
+      `GET /api/v1/workplace/jobs/${emptyJob.id}/evidence`,
+      'GET /api/v1/workplace/stock',
+    ]);
     expectOnScreen(tree.container, ['Captures on this job (0)', 'No proof stored yet.']);
     tree.unmount();
   });
