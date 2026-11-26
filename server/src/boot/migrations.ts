@@ -91,6 +91,17 @@ function checksumRaw(sql: string): string {
 }
 
 /**
+ * Line endings belong to the checkout, not to the migration (A4b). The scanner
+ * copies dollar-quoted bodies verbatim, so a CRLF checkout of 0002 hashed its
+ * function body with `\r` in it and a fresh LF clone refused to boot against a
+ * database recorded from a CRLF checkout (the finding is in SESSION_NOTES).
+ * Folding to `\n` first makes the digest a property of the SQL alone.
+ */
+function normalizeLineEndings(sql: string): string {
+  return sql.replace(/\r\n?/g, '\n');
+}
+
+/**
  * Comments are prose, not schema (worklist A4). A numbered migration is frozen
  * once applied, but "frozen" has to mean its STATEMENTS: on 2026-11-17 rewording
  * 0030's comments stopped every boot with "changed after it was applied" and
@@ -293,27 +304,33 @@ export function neutralizeOuterTransactionControl(sql: string): string {
   return out;
 }
 
-/** The checksum recorded for a numbered migration: statements, not comments. */
+/** The checksum recorded for a numbered migration: statements, not comments, any checkout. */
 export function migrationChecksum(sql: string): string {
-  return checksumRaw(stripSqlComments(sql));
+  return checksumRaw(stripSqlComments(normalizeLineEndings(sql)));
 }
 
 /**
- * Digests an earlier runner may have recorded for this file. Two conventions
+ * Digests an earlier runner may have recorded for this file. Three conventions
  * exist in real installs:
  *
  *   raw     — the whole file, comments included (the runner before A4);
  *   naive   — the file with comments removed and whitespace left exactly as it
- *             was, which is what the development ledger was written with.
+ *             was, which is what the development ledger was written with;
+ *   crlf    — the same canonical digest read from a CRLF checkout, before line
+ *             endings were normalised (A4b); the value this workstation's
+ *             database held for 0002.
  *
- * Both are accepted exactly once and replaced by the canonical digest, so an
- * existing install keeps booting without a hand-written reconciliation. Neither
- * can match a changed statement: a statement edit alters the digest under every
- * one of these transformations.
+ * Each is accepted exactly once and replaced by the canonical digest, so an
+ * existing install keeps booting without a hand-written reconciliation. Every
+ * entry is computed from the file as it is NOW, so none of them can match a
+ * changed statement: an edit alters the digest under every one of these
+ * transformations, and the runner refuses (tests/migrationChecksums.test.ts
+ * proves it for the CRLF entry, which is the one this database used).
  */
 function legacyChecksums(sql: string): string[] {
   const naive = sql.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--[^\n]*/g, '');
-  return [checksumRaw(sql), checksumRaw(naive)];
+  const crlf = sql.replace(/\r?\n/g, '\r\n');
+  return [checksumRaw(sql), checksumRaw(naive), checksumRaw(stripSqlComments(crlf))];
 }
 
 /** Whether a database already has the current baseline's core shape. */

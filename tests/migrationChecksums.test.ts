@@ -16,7 +16,10 @@
  *      change hashes differently;
  *   3. against a throwaway database: a comment-only edit re-runs cleanly and
  *      re-records the checksum, a statement edit still refuses to boot, and a
- *      legacy raw checksum is accepted once and upgraded.
+ *      legacy raw checksum is accepted once and upgraded;
+ *   4. line endings are not part of the digest (A4b): a CRLF checkout of a file
+ *      whose dollar-quoted body keeps its `\r` hashes like the LF checkout, and
+ *      a ledger recorded from the CRLF copy is accepted once and upgraded.
  */
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -96,6 +99,29 @@ describe('migration checksum scanner (A4)', () => {
       migrationChecksum(`INSERT INTO t VALUES ('a -- c');\n`)
     );
   });
+
+  test('a CRLF checkout and an LF checkout of one file hash the same (A4b)', () => {
+    const lf = [
+      '-- header',
+      'CREATE OR REPLACE FUNCTION crlf_probe() RETURNS integer AS $$',
+      'BEGIN -- a body is copied verbatim, so its line endings survive the scanner',
+      "  IF current_setting('x', true) = 'on' THEN",
+      '    RETURN NULL;',
+      '  END IF;',
+      '  RETURN 1;',
+      'END;',
+      '$$ LANGUAGE plpgsql;',
+      '',
+    ].join('\n');
+    const crlf = lf.replace(/\n/g, '\r\n');
+    assert.notEqual(rawChecksum(crlf), rawChecksum(lf), 'the two checkouts really do differ in bytes');
+    assert.equal(migrationChecksum(crlf), migrationChecksum(lf), 'the digest must not depend on them');
+    // Normalising line endings must not hide a statement edit inside the body.
+    assert.notEqual(
+      migrationChecksum(lf.replace('RETURN 1;', 'RETURN 2;')),
+      migrationChecksum(lf)
+    );
+  });
 });
 
 let admin: pg.Client | null = null;
@@ -161,12 +187,16 @@ describe('migration runner — checksum compatibility (A4)', { skip: skipNoDb },
     return runSchemaMigrations(client as any, { baselineSql: SCHEMA_SQL, migrationsDir: MIGRATIONS_DIR });
   }
 
-  async function recordedChecksum(): Promise<string> {
+  async function recordedOf(version: string): Promise<string> {
     assert.ok(client);
     const result = await client.query('SELECT checksum FROM schema_migrations WHERE version = $1', [
-      '0002_checksum_probe',
+      version,
     ]);
     return String(result.rows[0].checksum);
+  }
+
+  async function recordedChecksum(): Promise<string> {
+    return recordedOf('0002_checksum_probe');
   }
 
   test('a comment-only edit after the migration was applied re-runs cleanly', async () => {
@@ -221,5 +251,49 @@ describe('migration runner — checksum compatibility (A4)', { skip: skipNoDb },
       BASELINE_VERSION,
     ]);
     assert.ok(baseline.rows[0].checksum);
+  });
+
+  test('a digest recorded from a CRLF checkout is accepted once and upgraded (A4b)', async () => {
+    assert.ok(client);
+    const db = client;
+    const lfSql = [
+      '-- CRLF probe',
+      'CREATE OR REPLACE FUNCTION crlf_probe() RETURNS integer AS $$',
+      'BEGIN',
+      '  RETURN 1;',
+      'END;',
+      '$$ LANGUAGE plpgsql;',
+      '',
+    ].join('\n');
+    const probeFile = path.join(MIGRATIONS_DIR, '0003_crlf_probe.sql');
+    const canonical = migrationChecksum(lfSql);
+    // What a checkout that read the CRLF copy recorded before A4b.
+    const crlfDigest = rawChecksum(stripSqlComments(lfSql.replace(/\n/g, '\r\n')));
+    const recordCrlfDigest = () =>
+      db.query('UPDATE schema_migrations SET checksum = $2 WHERE version = $1', [
+        '0003_crlf_probe',
+        crlfDigest,
+      ]);
+    fs.writeFileSync(probeFile, lfSql);
+    try {
+      assert.deepEqual((await run()).applied, ['0003_crlf_probe']);
+      assert.equal(await recordedOf('0003_crlf_probe'), canonical);
+      assert.notEqual(crlfDigest, canonical, 'the CRLF digest is a different value');
+
+      // The legacy entry must not launder a real edit: a CRLF ledger plus a
+      // changed statement is still a statement change.
+      await recordCrlfDigest();
+      fs.writeFileSync(probeFile, lfSql.replace('RETURN 1;', 'RETURN 2;'));
+      await assert.rejects(run, /changed after it was applied/);
+
+      // Unedited again: that same CRLF digest is accepted once and upgraded.
+      fs.writeFileSync(probeFile, lfSql);
+      await recordCrlfDigest();
+      const second = await run();
+      assert.deepEqual(second.applied, [], 'the historical digest does not re-apply the migration');
+      assert.equal(await recordedOf('0003_crlf_probe'), canonical, 'the row was upgraded in place');
+    } finally {
+      fs.rmSync(probeFile, { force: true });
+    }
   });
 });
