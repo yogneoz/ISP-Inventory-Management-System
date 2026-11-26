@@ -28,7 +28,7 @@ import { api } from '../../services/api';
 import { useKeysetPager } from '../../hooks/useKeysetPager';
 import { useBootstrapData } from '../../contexts/AppProviders';
 
-interface AuditTrailReportsProps {
+interface AuditTrailReportsProps {
   invoices: PurchaseInvoice[];
   selectedBranchId: string;
   fiscalYearStartAD?: string;
@@ -38,7 +38,7 @@ interface AuditTrailReportsProps {
   dateMode: 'BS' | 'AD';
 }
 
-export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
+export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
   invoices,
   selectedBranchId,
   fiscalYearStartAD,

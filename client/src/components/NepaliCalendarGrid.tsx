@@ -14,7 +14,7 @@ interface NepaliCalendarGridProps {
   minYearBS: number;
   maxYearBS: number;
   onPick: (adISODate: string) => void;
-  onMonthChange: (yearBS: number, monthBS: number) => void;}
+  onMonthChange: (yearBS: number, monthBS: number) => void;}
 
 const WEEKDAY_LETTERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
@@ -39,7 +39,7 @@ export function NepaliCalendarGrid({
   minYearBS,
   maxYearBS,
   onPick,
-  onMonthChange,}: NepaliCalendarGridProps) {
+  onMonthChange,}: NepaliCalendarGridProps) {
   const cells = getBSMonthGrid(yearBS, monthBS, { todayAD, selectedAD, minAD, maxAD });
   const monthName = NEPALI_MONTHS_EN[monthBS - 1] || 'Baisakh';
   const canPrev = yearBS > minYearBS || monthBS > 1;

@@ -33,7 +33,7 @@ import { useBootstrapData } from '../../contexts/AppProviders';
 
 interface OpeningStockManagerProps {
   currentUser?: User | null;
-  fiscalYears: FiscalYear[];
+  fiscalYears: FiscalYear[];
   onRefreshData?: () => void;
   /** Globally selected fiscal year id (app-wide scope). */
   selectedFiscalYearId?: string;
@@ -58,7 +58,7 @@ type Draft = { quantityOnHand: string; damagedQty: string; unitCost: string };
  */
 export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
   currentUser,
-  fiscalYears,
+  fiscalYears,
   onRefreshData,
   selectedFiscalYearId,
   onSelectFiscalYear,

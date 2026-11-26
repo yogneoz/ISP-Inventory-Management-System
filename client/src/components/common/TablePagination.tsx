@@ -110,7 +110,7 @@ interface TablePaginationProps {
   rangeEnd: number;
   pageSize: number;
   onPageChange: (p: number) => void;
-  onPageSizeChange?: (s: number) => void;  className?: string;
+  onPageSizeChange?: (s: number) => void;  className?: string;
   /** Hide the rows-per-page selector (e.g. inside small panels). */
   hidePageSize?: boolean;
 }
@@ -123,7 +123,7 @@ export function TablePagination({
   rangeEnd,
   pageSize,
   onPageChange,
-  onPageSizeChange,  className = '',
+  onPageSizeChange,  className = '',
   hidePageSize = false,
 }: TablePaginationProps) {
   if (totalItems === 0) return null;
