@@ -87,14 +87,9 @@ dbBreaker.onChange((event) => {
   if (event === 'closed') setDatabaseConnected(true);
 });
 
-/**
- * A bare `npx tsx --test tests/foo.test.ts` skips scripts/run_tests.mjs, and
- * only the runner puts the ledger-purge startup option on the URL. Such a child
- * cannot clean up the journals a suite posts: the removal is refused, the rows
- * survive, and the next run fails on balances it did not create. Stop at import
- * with the explanation instead of failing one run later in someone else's
- * suite. Not a test child (dev server, CLI script, production) = not checked.
- */
+// A test file run outside scripts/run_tests.mjs has no ledger-purge startup
+// option, so its teardown cannot remove the journals it posted and the next run
+// fails on balances it never created. Refuse at import, before any query.
 assertTestLedgerPurgeBypass();
 
 export let realPoolInstance: any = null;

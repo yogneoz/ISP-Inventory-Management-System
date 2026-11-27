@@ -3,10 +3,9 @@
  * database" class).
  *
  * PROVES the detection reads the option the test runner injects and refuses a
- * test file without it — while a spawned server boot (which inherits
- * NODE_TEST_CONTEXT), a dev script and a suite that clears its database URL are
- * left alone. The consequence a miss would have is one run late and invisible:
- * teardown cannot remove its own posted journals, and the next run's
+ * test file without it — while a spawned server boot, a dev script and a suite
+ * that clears its database URL are left alone. A miss costs a run, not a red
+ * test: teardown cannot remove its own posted journals, and the next run's
  * fixed-value balance assertions match money it never created.
  *
  * Only the pure helpers are imported — a test file that loaded `server/db.ts`
@@ -18,7 +17,6 @@ import assert from 'node:assert/strict';
 import {
   assertTestLedgerPurgeBypass,
   hasLedgerPurgeBypass,
-  ledgerPurgeBypassComplaint,
 } from '../server/src/db/ledgerPurgeBypass';
 
 const WITH_OPTION = 'postgres://inventory_user:pw@127.0.0.1:5432/inventory_db?options=' +
@@ -28,8 +26,8 @@ const WITH_OPTION_PLUS = 'postgres://inventory_user:pw@127.0.0.1:5432/inventory_
 const PLAIN = 'postgres://inventory_user:pw@127.0.0.1:5432/inventory_db';
 
 /** Entry points as the OS reports them: a test file, and the real server. */
-const TEST_FILE_ARGV = ['node', 'D:\\repo\\tests\\stockAccounting.api.test.ts'];
-const SERVER_ARGV = ['node', 'D:\\repo\\server\\index.ts'];
+const TEST_FILE_ARGV = ['node', 'D:\repo\tests\stockAccounting.api.test.ts'];
+const SERVER_ARGV = ['node', 'D:\repo\server\index.ts'];
 
 describe('ledger-purge bypass detection', () => {
   test('reads the startup option the runner injects, in both URL encodings and as a DSN', () => {
@@ -61,23 +59,24 @@ describe('ledger-purge bypass detection', () => {
   });
 
   test('a test file without the option is refused; a spawned boot, a script and a DB-down suite are not', () => {
-    const bare = { NODE_TEST_CONTEXT: 'child-v8', DATABASE_URL: PLAIN };
-    assert.match(String(ledgerPurgeBypassComplaint(bare)), /run_tests\.mjs/);
-    assert.throws(() => assertTestLedgerPurgeBypass(bare, TEST_FILE_ARGV), /allow_ledger_purge/);
-
-    // The runner's own child: allowed.
-    assert.doesNotThrow(() =>
-      assertTestLedgerPurgeBypass(
-        { NODE_TEST_CONTEXT: 'child-v8', DATABASE_URL: WITH_OPTION },
-        TEST_FILE_ARGV
-      )
+    // Refused, and the refusal says how to run it properly.
+    assert.throws(
+      () => assertTestLedgerPurgeBypass({ DATABASE_URL: PLAIN }, TEST_FILE_ARGV),
+      /run_tests\.mjs/
     );
-    // A child the server boot suites spawn: it inherits NODE_TEST_CONTEXT but
-    // its entry point is the server, and it must print its own FATAL line.
-    assert.doesNotThrow(() => assertTestLedgerPurgeBypass(bare, SERVER_ARGV));
-    // Outside the runner (dev server, CLI script): never checked.
-    assert.doesNotThrow(() => assertTestLedgerPurgeBypass({ DATABASE_URL: PLAIN }, TEST_FILE_ARGV));
+    // The runner's own child (option on the URL): allowed.
+    assert.doesNotThrow(() =>
+      assertTestLedgerPurgeBypass({ DATABASE_URL: WITH_OPTION }, TEST_FILE_ARGV)
+    );
+    // A boot a suite spawns: entry point is the server, not a test file.
+    assert.doesNotThrow(() => assertTestLedgerPurgeBypass({ DATABASE_URL: PLAIN }, SERVER_ARGV));
+    // Outside a test file (dev server, CLI script): never checked.
+    assert.doesNotThrow(() =>
+      assertTestLedgerPurgeBypass({ DATABASE_URL: PLAIN }, ['node', 'server/index.ts'])
+    );
     // A suite proving the fail-closed path clears its URL: no pool, no bypass.
-    assert.equal(ledgerPurgeBypassComplaint({ NODE_TEST_CONTEXT: 'child-v8', DATABASE_URL: '' }), null);
+    assert.doesNotThrow(() =>
+      assertTestLedgerPurgeBypass({ DATABASE_URL: '' }, TEST_FILE_ARGV)
+    );
   });
 });
