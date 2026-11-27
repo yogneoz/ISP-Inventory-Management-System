@@ -73,6 +73,12 @@ jobs:
       # outside this repo so a silent rename breaks someone else's build.
       - name: Enforce mobile and partner contract parity
         run: npm run check:contract-parity
+      # The suite runs in duration-balanced shards from a checked-in plan
+      # (scripts/testShardPlan.json). A test file the plan does not mention
+      # would never run, and a hand-edited plan would silently unbalance the
+      # shards; this fails on both before a single shard starts.
+      - name: Enforce the duration-balanced shard plan
+        run: npm run check:shard-plan
       # npm audit exits non-zero when vulnerabilities are found; gating on
       # --omit=dev covers the deployable dependency surface (dev tooling
       # advisories are surfaced in local audits but do not block the build).
@@ -202,8 +208,9 @@ jobs:
           BOOT_TRACE_NO_SANDBOX: '1'
         run: npm run check:boot-timing -- --budget-ms 12000
 
-  # The suite is partitioned at the test-file level by node:test's supported
-  # --test-shard flag. Each matrix runner is a separate VM with its own
+  # The suite is partitioned at the test-file level. Each shard runs the file
+  # list in the duration-balanced plan (scripts/testShardPlan.json) rather than
+  # a file-count slice of the glob. Each matrix runner is a separate VM with its own
   # PostgreSQL container, so the fixed-name throwaway databases
   # (inventory_concurrency_test, inventory_drain_test, ...) cannot collide.
   # fail-fast stays off so one red shard still lets the other shards report.
@@ -283,8 +290,11 @@ jobs:
         run: npx tsx scripts/seedShardCalendar.ts
       # scripts/run_tests.mjs is the same runner `npm test` uses; the static
       # job already ran tsc, so each shard does not repeat it six times.
-      # TEST_SHARD=1/6 ... 6/6 makes node:test select one sixth of the test
-      # files. The shard writes its own totals for the docs-count gate below.
+      # TEST_SHARD=1/6 ... 6/6 selects this shard's file list from the
+      # duration-balanced plan: files go longest-first to the lightest shard,
+      # so the database-heavy suites no longer stack into one sixth.
+      # check:shard-plan guarantees every file is in exactly one shard, and
+      # the shard writes its own totals for the docs-count gate below.
       - name: Run test shard ${{ matrix.shard }}/6
         run: node scripts/run_tests.mjs
         env:

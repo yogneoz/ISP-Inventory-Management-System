@@ -26,13 +26,14 @@
  * exit status stays the suite's own.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import dotenv from 'dotenv';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+import { shardFilesFor } from './testShardPlan.mjs';
 const root = path.resolve(__dirname, '..');
 
 // The suite itself loads .env via dotenv; this runner must do the same before
@@ -70,8 +71,40 @@ if (shard) {
 // the current callbacks finish, which cut the parallel run short — two shards
 // went red in a minute with only part of their tests executed.
 const suiteArgs = ['tsx', '--test', '--test-timeout=180000'];
-if (shard) suiteArgs.push(`--test-shard=${shard}`);
-suiteArgs.push('tests/*.test.ts');
+// Measurement mode. Node's --test-shard splits by file COUNT, so balancing the
+// shards needs real per-file numbers first; scripts/testDurationReporter.mjs
+// writes them for exactly this run and nothing else. A normal `npm test` is
+// unchanged.
+if (process.env.TEST_CONCURRENCY) {
+  // Node runs test files in parallel (availableParallelism - 1 by default). On
+  // this workstation every file shares one PostgreSQL, and the partition DDL a
+  // file takes can exhaust the server's lock table when dozens are in flight
+  // ("out of shared memory ... max_locks_per_transaction"), which aborts
+  // unrelated suites. A measuring run therefore asks for a smaller number;
+  // CI keeps the default because each shard owns its own database.
+  const concurrency = Number(process.env.TEST_CONCURRENCY);
+  if (!Number.isInteger(concurrency) || concurrency < 1) {
+    console.error(`test runner: invalid TEST_CONCURRENCY "${process.env.TEST_CONCURRENCY}"`);
+    process.exit(2);
+  }
+  suiteArgs.push(`--test-concurrency=${concurrency}`);
+}
+if (process.env.TEST_DURATIONS_PATH) {
+  suiteArgs.push('--test-reporter=spec', '--test-reporter-destination=stdout');
+  suiteArgs.push(
+    `--test-reporter=${pathToFileURL(path.join(root, 'scripts/testDurationReporter.mjs')).href}`,
+    '--test-reporter-destination=stdout'
+  );
+}
+if (shard) {
+  // The shard's file list comes from the checked-in, duration-balanced plan
+  // (scripts/testShardPlan.json) instead of a file-count slice of the glob, so
+  // the long database suites are spread across shards. Every test file appears
+  // in exactly one shard; `check:shard-plan` fails when a new file is unassigned.
+  suiteArgs.push(...shardFilesFor(root, shard));
+} else {
+  suiteArgs.push('tests/*.test.ts');
+}
 
 /**
  * Fixture cleanup deletes the test's own posted journals. The ACC-1b trigger

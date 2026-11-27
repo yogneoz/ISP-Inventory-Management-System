@@ -1,0 +1,1457 @@
+{
+  "measuredOn": "this workstation, full suite via `npm run test:durations`, POSTGRES 18.7",
+  "files": [
+    {
+      "file": "tests/acc5OrganisationBoundary.api.test.ts",
+      "durationMs": 52030
+    },
+    {
+      "file": "tests/acc5OrganisationDefaults.ui.test.ts",
+      "durationMs": 4682
+    },
+    {
+      "file": "tests/acc6ChartGovernance.api.test.ts",
+      "durationMs": 51814
+    },
+    {
+      "file": "tests/acc6ChartGovernance.ui.test.ts",
+      "durationMs": 5010
+    },
+    {
+      "file": "tests/acc7DemoSeed.api.test.ts",
+      "durationMs": 52260
+    },
+    {
+      "file": "tests/acc7Upgrade.api.test.ts",
+      "durationMs": 55492
+    },
+    {
+      "file": "tests/accountJournalLegs.test.ts",
+      "durationMs": 459
+    },
+    {
+      "file": "tests/accounting.api.test.ts",
+      "durationMs": 36463
+    },
+    {
+      "file": "tests/accountingAging.api.test.ts",
+      "durationMs": 9374
+    },
+    {
+      "file": "tests/accountingMasters.api.test.ts",
+      "durationMs": 33570
+    },
+    {
+      "file": "tests/accountingOpeningClosing.api.test.ts",
+      "durationMs": 7460
+    },
+    {
+      "file": "tests/accountingOutbox.api.test.ts",
+      "durationMs": 63571
+    },
+    {
+      "file": "tests/accountingStatements.api.test.ts",
+      "durationMs": 33918
+    },
+    {
+      "file": "tests/accountingWorkspaceRoute.test.ts",
+      "durationMs": 12960
+    },
+    {
+      "file": "tests/admin.repo.test.ts",
+      "durationMs": 308
+    },
+    {
+      "file": "tests/adminPerformance.api.test.ts",
+      "durationMs": 33493
+    },
+    {
+      "file": "tests/apiDedup.test.ts",
+      "durationMs": 176
+    },
+    {
+      "file": "tests/apiKeys.api.test.ts",
+      "durationMs": 33544
+    },
+    {
+      "file": "tests/apiToastSilencing.test.ts",
+      "durationMs": 253
+    },
+    {
+      "file": "tests/apikeyRpmProofScript.test.ts",
+      "durationMs": 222
+    },
+    {
+      "file": "tests/appPaths.test.ts",
+      "durationMs": 738
+    },
+    {
+      "file": "tests/appRouteRegistry.test.ts",
+      "durationMs": 2287
+    },
+    {
+      "file": "tests/appRouteTree.test.ts",
+      "durationMs": 7272
+    },
+    {
+      "file": "tests/appShellRenderCount.test.ts",
+      "durationMs": 2580
+    },
+    {
+      "file": "tests/assignAssetDispatchRefusal.ui.test.ts",
+      "durationMs": 1942
+    },
+    {
+      "file": "tests/assignmentExchange.concurrency.test.ts",
+      "durationMs": 32407
+    },
+    {
+      "file": "tests/auditAwait.guard.test.ts",
+      "durationMs": 507
+    },
+    {
+      "file": "tests/auditFixes.test.ts",
+      "durationMs": 31973
+    },
+    {
+      "file": "tests/auditModuleVocabulary.guard.test.ts",
+      "durationMs": 321
+    },
+    {
+      "file": "tests/auditRowMerge.test.ts",
+      "durationMs": 215
+    },
+    {
+      "file": "tests/auth.branch.guard.test.ts",
+      "durationMs": 32432
+    },
+    {
+      "file": "tests/auth.repo.test.ts",
+      "durationMs": 184
+    },
+    {
+      "file": "tests/authSecretGuard.test.ts",
+      "durationMs": 2049
+    },
+    {
+      "file": "tests/authorization.audit.test.ts",
+      "durationMs": 32541
+    },
+    {
+      "file": "tests/availableAssetsReset.test.ts",
+      "durationMs": 1335
+    },
+    {
+      "file": "tests/backupScript.test.ts",
+      "durationMs": 5740
+    },
+    {
+      "file": "tests/bankReconciliation.api.test.ts",
+      "durationMs": 33642
+    },
+    {
+      "file": "tests/bankReconciliation.parser.test.ts",
+      "durationMs": 517
+    },
+    {
+      "file": "tests/billTerms.test.ts",
+      "durationMs": 185
+    },
+    {
+      "file": "tests/bootFailureExit.test.ts",
+      "durationMs": 4513
+    },
+    {
+      "file": "tests/bootTimingRetry.test.ts",
+      "durationMs": 396
+    },
+    {
+      "file": "tests/bootstrapEtag.test.ts",
+      "durationMs": 33250
+    },
+    {
+      "file": "tests/bootstrapFiscalYearHonesty.test.ts",
+      "durationMs": 2506
+    },
+    {
+      "file": "tests/bootstrapPayloadMeasure.test.ts",
+      "durationMs": 145
+    },
+    {
+      "file": "tests/bootstrapProbe.test.ts",
+      "durationMs": 32610
+    },
+    {
+      "file": "tests/bootstrapSlices.test.ts",
+      "durationMs": 178
+    },
+    {
+      "file": "tests/bootstrapTrim.test.ts",
+      "durationMs": 32005
+    },
+    {
+      "file": "tests/bootstrapTrimStep5.test.ts",
+      "durationMs": 175
+    },
+    {
+      "file": "tests/branchPredicates.guard.test.ts",
+      "durationMs": 283
+    },
+    {
+      "file": "tests/branchScopeRegistry.test.ts",
+      "durationMs": 151
+    },
+    {
+      "file": "tests/branchScopeSelection.test.ts",
+      "durationMs": 1842
+    },
+    {
+      "file": "tests/branchStock.test.ts",
+      "durationMs": 214
+    },
+    {
+      "file": "tests/browserPageErrors.test.ts",
+      "durationMs": 187
+    },
+    {
+      "file": "tests/bsCalendarCoverageGuidance.test.ts",
+      "durationMs": 568
+    },
+    {
+      "file": "tests/bsCalendarGate.test.ts",
+      "durationMs": 1829
+    },
+    {
+      "file": "tests/bsCalendarIntegrity.test.ts",
+      "durationMs": 602
+    },
+    {
+      "file": "tests/bsCalendarMirrorInvariant.test.ts",
+      "durationMs": 2196
+    },
+    {
+      "file": "tests/bsCalendarPatroData.test.ts",
+      "durationMs": 474
+    },
+    {
+      "file": "tests/bsDateMandatory.test.ts",
+      "durationMs": 326
+    },
+    {
+      "file": "tests/bsDateMarker.test.ts",
+      "durationMs": 525
+    },
+    {
+      "file": "tests/bsLedgerSummary.integration.test.ts",
+      "durationMs": 9815
+    },
+    {
+      "file": "tests/bsRangeSpan.test.ts",
+      "durationMs": 210
+    },
+    {
+      "file": "tests/bs_date.guard.test.ts",
+      "durationMs": 458
+    },
+    {
+      "file": "tests/budgetAllocation.api.test.ts",
+      "durationMs": 34221
+    },
+    {
+      "file": "tests/budgetVariance.api.test.ts",
+      "durationMs": 9444
+    },
+    {
+      "file": "tests/businessDate.test.ts",
+      "durationMs": 459
+    },
+    {
+      "file": "tests/c1.e2e.test.ts",
+      "durationMs": 2572
+    },
+    {
+      "file": "tests/cacheLoads.parity.test.ts",
+      "durationMs": 311
+    },
+    {
+      "file": "tests/cashCustody.api.test.ts",
+      "durationMs": 34709
+    },
+    {
+      "file": "tests/cashFlowForecast.api.test.ts",
+      "durationMs": 7284
+    },
+    {
+      "file": "tests/catalogCache.test.ts",
+      "durationMs": 1208
+    },
+    {
+      "file": "tests/cdrDuplicates.test.ts",
+      "durationMs": 322
+    },
+    {
+      "file": "tests/cdrSerialSync.test.ts",
+      "durationMs": 314
+    },
+    {
+      "file": "tests/chartHealth.normalize.test.ts",
+      "durationMs": 248
+    },
+    {
+      "file": "tests/ciLocal.test.ts",
+      "durationMs": 1501
+    },
+    {
+      "file": "tests/ciTestAnnotations.test.ts",
+      "durationMs": 261
+    },
+    {
+      "file": "tests/closeoutResiduals.test.ts",
+      "durationMs": 2276
+    },
+    {
+      "file": "tests/coalescingRunner.test.ts",
+      "durationMs": 221
+    },
+    {
+      "file": "tests/companyOverviewOrder.api.test.ts",
+      "durationMs": 32777
+    },
+    {
+      "file": "tests/companyOverviewOrder.test.ts",
+      "durationMs": 311
+    },
+    {
+      "file": "tests/comparativeStatements.test.ts",
+      "durationMs": 217
+    },
+    {
+      "file": "tests/cpeAssetLifecycle.test.ts",
+      "durationMs": 1551
+    },
+    {
+      "file": "tests/cpeMacConflict.test.ts",
+      "durationMs": 32446
+    },
+    {
+      "file": "tests/cpeStatusAuthz.test.ts",
+      "durationMs": 31910
+    },
+    {
+      "file": "tests/custodyAssetChain.api.test.ts",
+      "durationMs": 33421
+    },
+    {
+      "file": "tests/customerDevicesOffBootstrap.test.ts",
+      "durationMs": 37251
+    },
+    {
+      "file": "tests/customerDirectoryFailure.test.ts",
+      "durationMs": 35617
+    },
+    {
+      "file": "tests/customerLedgerCursor.api.test.ts",
+      "durationMs": 33490
+    },
+    {
+      "file": "tests/customerLedgerExport.ui.test.ts",
+      "durationMs": 1889
+    },
+    {
+      "file": "tests/customerPaging.api.test.ts",
+      "durationMs": 31884
+    },
+    {
+      "file": "tests/customerPicker.test.ts",
+      "durationMs": 2637
+    },
+    {
+      "file": "tests/customersOffBootstrap.test.ts",
+      "durationMs": 33777
+    },
+    {
+      "file": "tests/dailyCashClose.api.test.ts",
+      "durationMs": 34024
+    },
+    {
+      "file": "tests/damage.service.test.ts",
+      "durationMs": 208
+    },
+    {
+      "file": "tests/dashboardBudgetAlerts.test.ts",
+      "durationMs": 1915
+    },
+    {
+      "file": "tests/databaseSetupBanner.test.ts",
+      "durationMs": 1742
+    },
+    {
+      "file": "tests/dbAvailability.test.ts",
+      "durationMs": 33754
+    },
+    {
+      "file": "tests/defaultPartitionRepair.test.ts",
+      "durationMs": 10323
+    },
+    {
+      "file": "tests/demoFinanceLedger.test.ts",
+      "durationMs": 2015
+    },
+    {
+      "file": "tests/demoPermissionFixtures.test.ts",
+      "durationMs": 249
+    },
+    {
+      "file": "tests/demoSeedCoverage.test.ts",
+      "durationMs": 466
+    },
+    {
+      "file": "tests/demoWarrantySeed.test.ts",
+      "durationMs": 10474
+    },
+    {
+      "file": "tests/depreciation.test.ts",
+      "durationMs": 216
+    },
+    {
+      "file": "tests/df12Cleanup.test.ts",
+      "durationMs": 2437
+    },
+    {
+      "file": "tests/df13StatementsRefresh.test.ts",
+      "durationMs": 511
+    },
+    {
+      "file": "tests/df14LedgerRefresh.test.ts",
+      "durationMs": 272
+    },
+    {
+      "file": "tests/df15SerialLookupFailure.test.ts",
+      "durationMs": 2896
+    },
+    {
+      "file": "tests/df17SilentReads.test.ts",
+      "durationMs": 231
+    },
+    {
+      "file": "tests/directoryPickers.test.ts",
+      "durationMs": 182
+    },
+    {
+      "file": "tests/disasterRecoveryRunbook.test.ts",
+      "durationMs": 241
+    },
+    {
+      "file": "tests/docnumber.concurrency.test.ts",
+      "durationMs": 967
+    },
+    {
+      "file": "tests/docsCounts.guard.test.ts",
+      "durationMs": 205
+    },
+    {
+      "file": "tests/docsTruth.guard.test.ts",
+      "durationMs": 173
+    },
+    {
+      "file": "tests/documentNumber.service.test.ts",
+      "durationMs": 345
+    },
+    {
+      "file": "tests/draftSeeding.guard.test.ts",
+      "durationMs": 291
+    },
+    {
+      "file": "tests/dualDateReportExportGuard.test.ts",
+      "durationMs": 640
+    },
+    {
+      "file": "tests/employeeStock.api.test.ts",
+      "durationMs": 32378
+    },
+    {
+      "file": "tests/employeeStockTransfer.api.test.ts",
+      "durationMs": 32191
+    },
+    {
+      "file": "tests/envDocs.guard.test.ts",
+      "durationMs": 617
+    },
+    {
+      "file": "tests/envGuard.test.ts",
+      "durationMs": 326
+    },
+    {
+      "file": "tests/envWiring.test.ts",
+      "durationMs": 2615
+    },
+    {
+      "file": "tests/equipmentCustodyScreen.test.ts",
+      "durationMs": 2475
+    },
+    {
+      "file": "tests/excel.helper.test.ts",
+      "durationMs": 1245
+    },
+    {
+      "file": "tests/exchange.concurrency.test.ts",
+      "durationMs": 32498
+    },
+    {
+      "file": "tests/exchangeDeviceLoadSchedule.test.ts",
+      "durationMs": 2284
+    },
+    {
+      "file": "tests/exchangeDevices.test.ts",
+      "durationMs": 268
+    },
+    {
+      "file": "tests/exchangeRefusalAudit.test.ts",
+      "durationMs": 31632
+    },
+    {
+      "file": "tests/exportLiveSearchDraft.test.ts",
+      "durationMs": 276
+    },
+    {
+      "file": "tests/fieldWorkOrderEvidenceScreen.test.ts",
+      "durationMs": 2370
+    },
+    {
+      "file": "tests/fieldWorkOrders.api.test.ts",
+      "durationMs": 32533
+    },
+    {
+      "file": "tests/filterCardDebounce.test.ts",
+      "durationMs": 4057
+    },
+    {
+      "file": "tests/filterCardRowHeight.test.ts",
+      "durationMs": 262
+    },
+    {
+      "file": "tests/financeBsDateReports.test.ts",
+      "durationMs": 1022
+    },
+    {
+      "file": "tests/financeBsDateWriteGuard.test.ts",
+      "durationMs": 262
+    },
+    {
+      "file": "tests/financeMicroPermissions.test.ts",
+      "durationMs": 188
+    },
+    {
+      "file": "tests/financialSummary.test.ts",
+      "durationMs": 32757
+    },
+    {
+      "file": "tests/fiscalOpeningBranchScope.test.ts",
+      "durationMs": 3252
+    },
+    {
+      "file": "tests/fiscalYearCurrent.test.ts",
+      "durationMs": 18211
+    },
+    {
+      "file": "tests/fiscalYearFirstCreation.test.ts",
+      "durationMs": 13931
+    },
+    {
+      "file": "tests/fiscalYearWriteLock.test.ts",
+      "durationMs": 218
+    },
+    {
+      "file": "tests/fixedAssetAccounting.api.test.ts",
+      "durationMs": 33067
+    },
+    {
+      "file": "tests/fixedAssetWarranty.api.test.ts",
+      "durationMs": 32533
+    },
+    {
+      "file": "tests/fixedAssetWarrantyForm.test.ts",
+      "durationMs": 2322
+    },
+    {
+      "file": "tests/fixedAssetsOffBootstrap.test.ts",
+      "durationMs": 1444
+    },
+    {
+      "file": "tests/glPeriodBalances.test.ts",
+      "durationMs": 1763
+    },
+    {
+      "file": "tests/globalSearch.api.test.ts",
+      "durationMs": 32458
+    },
+    {
+      "file": "tests/globalSearchContract.test.ts",
+      "durationMs": 284
+    },
+    {
+      "file": "tests/hrEmployeeProfile.api.test.ts",
+      "durationMs": 32190
+    },
+    {
+      "file": "tests/hrEmployeeProfile.ui.test.ts",
+      "durationMs": 2806
+    },
+    {
+      "file": "tests/hrLifecycle.api.test.ts",
+      "durationMs": 33379
+    },
+    {
+      "file": "tests/hrLifecycle.ui.test.ts",
+      "durationMs": 3090
+    },
+    {
+      "file": "tests/hrOffboardingCustody.api.test.ts",
+      "durationMs": 31855
+    },
+    {
+      "file": "tests/hrOrgBranchView.test.ts",
+      "durationMs": 172
+    },
+    {
+      "file": "tests/hrOrgCatalogue.test.ts",
+      "durationMs": 144
+    },
+    {
+      "file": "tests/hrOrgCatalogueExport.test.ts",
+      "durationMs": 164
+    },
+    {
+      "file": "tests/hrOrgChartBoard.test.ts",
+      "durationMs": 421
+    },
+    {
+      "file": "tests/hrOrgMasterRename.api.test.ts",
+      "durationMs": 31849
+    },
+    {
+      "file": "tests/hrPayrollRun.api.test.ts",
+      "durationMs": 33641
+    },
+    {
+      "file": "tests/hrPerformance.api.test.ts",
+      "durationMs": 31904
+    },
+    {
+      "file": "tests/hrPerformance.ui.test.ts",
+      "durationMs": 1809
+    },
+    {
+      "file": "tests/hrRecruitment.api.test.ts",
+      "durationMs": 31875
+    },
+    {
+      "file": "tests/hrRecruitment.ui.test.ts",
+      "durationMs": 1848
+    },
+    {
+      "file": "tests/hrReports.api.test.ts",
+      "durationMs": 32011
+    },
+    {
+      "file": "tests/hrReports.ui.test.ts",
+      "durationMs": 3363
+    },
+    {
+      "file": "tests/hrSalaryStructure.api.test.ts",
+      "durationMs": 31894
+    },
+    {
+      "file": "tests/hrSelfService.api.test.ts",
+      "durationMs": 32323
+    },
+    {
+      "file": "tests/hrSelfService.ui.test.ts",
+      "durationMs": 3060
+    },
+    {
+      "file": "tests/hrSelfServiceAttendance.api.test.ts",
+      "durationMs": 32187
+    },
+    {
+      "file": "tests/hrSelfServiceAttendance.ui.test.ts",
+      "durationMs": 3952
+    },
+    {
+      "file": "tests/hrSelfServiceDocuments.api.test.ts",
+      "durationMs": 32415
+    },
+    {
+      "file": "tests/hrSelfServiceDocuments.ui.test.ts",
+      "durationMs": 3514
+    },
+    {
+      "file": "tests/hrSelfServiceLeave.api.test.ts",
+      "durationMs": 32023
+    },
+    {
+      "file": "tests/hrSelfServiceLeave.ui.test.ts",
+      "durationMs": 2967
+    },
+    {
+      "file": "tests/hrSelfServiceLeaveWrite.api.test.ts",
+      "durationMs": 31844
+    },
+    {
+      "file": "tests/hrSelfServicePayslips.api.test.ts",
+      "durationMs": 31868
+    },
+    {
+      "file": "tests/hrSelfServicePayslips.ui.test.ts",
+      "durationMs": 2998
+    },
+    {
+      "file": "tests/hrShiftRoster.api.test.ts",
+      "durationMs": 31846
+    },
+    {
+      "file": "tests/hrStatutory.api.test.ts",
+      "durationMs": 32166
+    },
+    {
+      "file": "tests/httpHardening.test.ts",
+      "durationMs": 31713
+    },
+    {
+      "file": "tests/hydrationFlow.test.ts",
+      "durationMs": 159
+    },
+    {
+      "file": "tests/inputReadiness.test.ts",
+      "durationMs": 182
+    },
+    {
+      "file": "tests/integrationPartners.ui.test.ts",
+      "durationMs": 1853
+    },
+    {
+      "file": "tests/inventory.repo.test.ts",
+      "durationMs": 243
+    },
+    {
+      "file": "tests/inventoryCoverage.api.test.ts",
+      "durationMs": 32240
+    },
+    {
+      "file": "tests/invoiceAccounting.api.test.ts",
+      "durationMs": 32834
+    },
+    {
+      "file": "tests/journalLineCap.test.ts",
+      "durationMs": 1824
+    },
+    {
+      "file": "tests/journalPartitionKeeper.test.ts",
+      "durationMs": 729
+    },
+    {
+      "file": "tests/journalPartitions.test.ts",
+      "durationMs": 596
+    },
+    {
+      "file": "tests/keepMountedRenderCount.test.ts",
+      "durationMs": 1509
+    },
+    {
+      "file": "tests/latestOnly.test.ts",
+      "durationMs": 232
+    },
+    {
+      "file": "tests/ledgerPurgeBypass.guard.test.ts",
+      "durationMs": 155
+    },
+    {
+      "file": "tests/lenderTdsCertificate.test.ts",
+      "durationMs": 148
+    },
+    {
+      "file": "tests/lenderTdsCertificatePrint.test.ts",
+      "durationMs": 3460
+    },
+    {
+      "file": "tests/lenders.api.test.ts",
+      "durationMs": 35685
+    },
+    {
+      "file": "tests/lifecycleLiveDrain.test.ts",
+      "durationMs": 9575
+    },
+    {
+      "file": "tests/lifecycleProcess.test.ts",
+      "durationMs": 11120
+    },
+    {
+      "file": "tests/lifecycleShutdown.test.ts",
+      "durationMs": 2868
+    },
+    {
+      "file": "tests/lineQuantity.test.ts",
+      "durationMs": 213
+    },
+    {
+      "file": "tests/lineQuantityApi.test.ts",
+      "durationMs": 32556
+    },
+    {
+      "file": "tests/loadStateNotice.test.ts",
+      "durationMs": 2619
+    },
+    {
+      "file": "tests/locationDefaults.test.ts",
+      "durationMs": 493
+    },
+    {
+      "file": "tests/locationPicker.test.ts",
+      "durationMs": 2320
+    },
+    {
+      "file": "tests/logTablePartitions.test.ts",
+      "durationMs": 8441
+    },
+    {
+      "file": "tests/macAddress.test.ts",
+      "durationMs": 194
+    },
+    {
+      "file": "tests/mapWithConcurrency.test.ts",
+      "durationMs": 234
+    },
+    {
+      "file": "tests/masterdata.repo.test.ts",
+      "durationMs": 229
+    },
+    {
+      "file": "tests/migrationChecksums.test.ts",
+      "durationMs": 6503
+    },
+    {
+      "file": "tests/mirrorStep3.test.ts",
+      "durationMs": 33019
+    },
+    {
+      "file": "tests/misc.repo.test.ts",
+      "durationMs": 363
+    },
+    {
+      "file": "tests/mobileApi.api.test.ts",
+      "durationMs": 34143
+    },
+    {
+      "file": "tests/mobileExpoTabs.render.test.ts",
+      "durationMs": 3063
+    },
+    {
+      "file": "tests/mobileRosterWindow.test.ts",
+      "durationMs": 1564
+    },
+    {
+      "file": "tests/modalPanel.test.ts",
+      "durationMs": 1569
+    },
+    {
+      "file": "tests/money.test.ts",
+      "durationMs": 166
+    },
+    {
+      "file": "tests/no_inline_sql.guard.test.ts",
+      "durationMs": 434
+    },
+    {
+      "file": "tests/openingStockDraftSeed.test.ts",
+      "durationMs": 1915
+    },
+    {
+      "file": "tests/ops4Config.test.ts",
+      "durationMs": 34414
+    },
+    {
+      "file": "tests/pageReadIndexes.test.ts",
+      "durationMs": 417
+    },
+    {
+      "file": "tests/partnerIntegration.api.test.ts",
+      "durationMs": 33746
+    },
+    {
+      "file": "tests/partyBalance.test.ts",
+      "durationMs": 171
+    },
+    {
+      "file": "tests/partyLedgerBook.service.test.ts",
+      "durationMs": 138
+    },
+    {
+      "file": "tests/paymentCashBook.api.test.ts",
+      "durationMs": 34030
+    },
+    {
+      "file": "tests/payrollAccounting.api.test.ts",
+      "durationMs": 34933
+    },
+    {
+      "file": "tests/payrollOutputs.ui.test.ts",
+      "durationMs": 3146
+    },
+    {
+      "file": "tests/pdfPrint.api.test.ts",
+      "durationMs": 35004
+    },
+    {
+      "file": "tests/performanceMetrics.test.ts",
+      "durationMs": 147
+    },
+    {
+      "file": "tests/periodRangeBsMode.test.ts",
+      "durationMs": 1654
+    },
+    {
+      "file": "tests/periodRangeQueryGate.test.ts",
+      "durationMs": 6369
+    },
+    {
+      "file": "tests/permissionGates.test.ts",
+      "durationMs": 32028
+    },
+    {
+      "file": "tests/permissionMatrixPublish.test.ts",
+      "durationMs": 151
+    },
+    {
+      "file": "tests/permissionOverrides.test.ts",
+      "durationMs": 31870
+    },
+    {
+      "file": "tests/permissionSeedMigration.test.ts",
+      "durationMs": 148
+    },
+    {
+      "file": "tests/permissionSets.test.ts",
+      "durationMs": 31963
+    },
+    {
+      "file": "tests/permissions.repo.test.ts",
+      "durationMs": 142
+    },
+    {
+      "file": "tests/pgbouncerReadiness.test.ts",
+      "durationMs": 351
+    },
+    {
+      "file": "tests/physicalAuditDirectReconcile.test.ts",
+      "durationMs": 7297
+    },
+    {
+      "file": "tests/procurement.repo.test.ts",
+      "durationMs": 192
+    },
+    {
+      "file": "tests/procurementPendingStore.test.ts",
+      "durationMs": 158
+    },
+    {
+      "file": "tests/productGroupBehaviour.test.ts",
+      "durationMs": 168
+    },
+    {
+      "file": "tests/productGroupModal.test.ts",
+      "durationMs": 1793
+    },
+    {
+      "file": "tests/productGroups.repo.test.ts",
+      "durationMs": 154
+    },
+    {
+      "file": "tests/productWarranty.api.test.ts",
+      "durationMs": 32166
+    },
+    {
+      "file": "tests/productWarrantyForm.test.ts",
+      "durationMs": 2171
+    },
+    {
+      "file": "tests/profileEditReseed.test.ts",
+      "durationMs": 4518
+    },
+    {
+      "file": "tests/profileHardening.test.ts",
+      "durationMs": 2047
+    },
+    {
+      "file": "tests/profilePhoto.test.ts",
+      "durationMs": 281
+    },
+    {
+      "file": "tests/purchaseOrderDualDate.api.test.ts",
+      "durationMs": 32907
+    },
+    {
+      "file": "tests/purchaseWarrantyCapture.api.test.ts",
+      "durationMs": 33445
+    },
+    {
+      "file": "tests/rateLimiter.test.ts",
+      "durationMs": 1041
+    },
+    {
+      "file": "tests/readModels.test.ts",
+      "durationMs": 2844
+    },
+    {
+      "file": "tests/readRouting.test.ts",
+      "durationMs": 148
+    },
+    {
+      "file": "tests/receiveLane403.test.ts",
+      "durationMs": 31979
+    },
+    {
+      "file": "tests/recurringClose.api.test.ts",
+      "durationMs": 32362
+    },
+    {
+      "file": "tests/referenceCacheInvalidation.test.ts",
+      "durationMs": 646
+    },
+    {
+      "file": "tests/referenceDataHygiene.test.ts",
+      "durationMs": 11514
+    },
+    {
+      "file": "tests/registerAudienceContract.test.ts",
+      "durationMs": 200
+    },
+    {
+      "file": "tests/registerDateModeWiring.test.ts",
+      "durationMs": 264
+    },
+    {
+      "file": "tests/registerLoadError.test.ts",
+      "durationMs": 1619
+    },
+    {
+      "file": "tests/registerRefreshDomains.test.ts",
+      "durationMs": 361
+    },
+    {
+      "file": "tests/reports.repo.test.ts",
+      "durationMs": 157
+    },
+    {
+      "file": "tests/requirePostgresGate.test.ts",
+      "durationMs": 1953
+    },
+    {
+      "file": "tests/restoreDrill.test.ts",
+      "durationMs": 42349
+    },
+    {
+      "file": "tests/restoreScript.test.ts",
+      "durationMs": 27883
+    },
+    {
+      "file": "tests/returnSerials.capture.test.ts",
+      "durationMs": 2163
+    },
+    {
+      "file": "tests/returnSerials.service.test.ts",
+      "durationMs": 386
+    },
+    {
+      "file": "tests/returns.api.test.ts",
+      "durationMs": 32311
+    },
+    {
+      "file": "tests/returns.repo.test.ts",
+      "durationMs": 303
+    },
+    {
+      "file": "tests/returnsInvoicePicker.test.ts",
+      "durationMs": 33166
+    },
+    {
+      "file": "tests/returnsPaged.repo.test.ts",
+      "durationMs": 229
+    },
+    {
+      "file": "tests/returnsTransferCpeAccounting.api.test.ts",
+      "durationMs": 33303
+    },
+    {
+      "file": "tests/salesFormConsolidation.test.ts",
+      "durationMs": 2439
+    },
+    {
+      "file": "tests/salesInvoiceCancel.test.ts",
+      "durationMs": 33000
+    },
+    {
+      "file": "tests/salesInvoiceOpenFilter.test.ts",
+      "durationMs": 221
+    },
+    {
+      "file": "tests/salesInvoicePartitions.test.ts",
+      "durationMs": 1811
+    },
+    {
+      "file": "tests/salesMasters.api.test.ts",
+      "durationMs": 31972
+    },
+    {
+      "file": "tests/scale2BootstrapBudget.test.ts",
+      "durationMs": 178
+    },
+    {
+      "file": "tests/scale2ClientRegisterPaging.test.ts",
+      "durationMs": 1487
+    },
+    {
+      "file": "tests/scale2Keyset.test.ts",
+      "durationMs": 336
+    },
+    {
+      "file": "tests/scale2OperationalRegisters.api.test.ts",
+      "durationMs": 32225
+    },
+    {
+      "file": "tests/scale2RemainingRegisters.api.test.ts",
+      "durationMs": 32200
+    },
+    {
+      "file": "tests/scaleFixtureGuards.test.ts",
+      "durationMs": 581
+    },
+    {
+      "file": "tests/schema.drift.guard.test.ts",
+      "durationMs": 289
+    },
+    {
+      "file": "tests/schemaMigrations.test.ts",
+      "durationMs": 25442
+    },
+    {
+      "file": "tests/schemaReset.test.ts",
+      "durationMs": 23279
+    },
+    {
+      "file": "tests/schemaSnapshot.test.ts",
+      "durationMs": 178
+    },
+    {
+      "file": "tests/schemaSource.parity.test.ts",
+      "durationMs": 219
+    },
+    {
+      "file": "tests/screenElementMemo.test.ts",
+      "durationMs": 201
+    },
+    {
+      "file": "tests/screenPreload.test.ts",
+      "durationMs": 176
+    },
+    {
+      "file": "tests/searchPickerPanel.test.ts",
+      "durationMs": 2006
+    },
+    {
+      "file": "tests/searchPickerPortal.test.ts",
+      "durationMs": 3384
+    },
+    {
+      "file": "tests/searchSingleCommit.test.ts",
+      "durationMs": 263
+    },
+    {
+      "file": "tests/sellerWarrantyCapture.api.test.ts",
+      "durationMs": 36038
+    },
+    {
+      "file": "tests/serialEditCapture.test.ts",
+      "durationMs": 457
+    },
+    {
+      "file": "tests/serialGate.service.test.ts",
+      "durationMs": 227
+    },
+    {
+      "file": "tests/serialGateHttp.test.ts",
+      "durationMs": 34639
+    },
+    {
+      "file": "tests/serialLogEnvelopeShape.test.ts",
+      "durationMs": 370
+    },
+    {
+      "file": "tests/serialLogExport.test.ts",
+      "durationMs": 844
+    },
+    {
+      "file": "tests/serialLogPartitions.test.ts",
+      "durationMs": 1399
+    },
+    {
+      "file": "tests/serialLogsMirrorGate.test.ts",
+      "durationMs": 408
+    },
+    {
+      "file": "tests/serialOperationLifecycle.test.ts",
+      "durationMs": 410
+    },
+    {
+      "file": "tests/serialRefusal.test.ts",
+      "durationMs": 478
+    },
+    {
+      "file": "tests/serialRegister.service.test.ts",
+      "durationMs": 506
+    },
+    {
+      "file": "tests/serialRegisterBackfill.test.ts",
+      "durationMs": 33808
+    },
+    {
+      "file": "tests/serialRegisterCache.test.ts",
+      "durationMs": 315
+    },
+    {
+      "file": "tests/serials.service.test.ts",
+      "durationMs": 460
+    },
+    {
+      "file": "tests/serverBundleBoot.guard.test.ts",
+      "durationMs": 3404
+    },
+    {
+      "file": "tests/serverPageClamp.test.ts",
+      "durationMs": 1522
+    },
+    {
+      "file": "tests/sessionScopeContexts.test.ts",
+      "durationMs": 1471
+    },
+    {
+      "file": "tests/settings.repo.test.ts",
+      "durationMs": 186
+    },
+    {
+      "file": "tests/setupGuard.test.ts",
+      "durationMs": 1938
+    },
+    {
+      "file": "tests/setupToken.test.ts",
+      "durationMs": 156
+    },
+    {
+      "file": "tests/sharedState.test.ts",
+      "durationMs": 797
+    },
+    {
+      "file": "tests/shellBannerLayout.test.ts",
+      "durationMs": 213
+    },
+    {
+      "file": "tests/shipmentAuthz.test.ts",
+      "durationMs": 32281
+    },
+    {
+      "file": "tests/shipmentCancelReceive.test.ts",
+      "durationMs": 32575
+    },
+    {
+      "file": "tests/shipmentOverviewStore.test.ts",
+      "durationMs": 283
+    },
+    {
+      "file": "tests/shipmentPaging.test.ts",
+      "durationMs": 323
+    },
+    {
+      "file": "tests/shipments.paging.api.test.ts",
+      "durationMs": 33398
+    },
+    {
+      "file": "tests/shipments.repo.test.ts",
+      "durationMs": 259
+    },
+    {
+      "file": "tests/sidebarGrouping.test.ts",
+      "durationMs": 4610
+    },
+    {
+      "file": "tests/sidebarResize.test.ts",
+      "durationMs": 2442
+    },
+    {
+      "file": "tests/singleInstance.guard.test.ts",
+      "durationMs": 161
+    },
+    {
+      "file": "tests/sseAuth.guard.test.ts",
+      "durationMs": 32519
+    },
+    {
+      "file": "tests/sseRateLimit.test.ts",
+      "durationMs": 32312
+    },
+    {
+      "file": "tests/ssfReconciliation.test.ts",
+      "durationMs": 153
+    },
+    {
+      "file": "tests/startupGraphGuard.test.ts",
+      "durationMs": 163
+    },
+    {
+      "file": "tests/startupPaint.test.ts",
+      "durationMs": 138
+    },
+    {
+      "file": "tests/statementTFormat.test.ts",
+      "durationMs": 152
+    },
+    {
+      "file": "tests/statutoryAnnualisation.test.ts",
+      "durationMs": 221
+    },
+    {
+      "file": "tests/stock.concurrency.test.ts",
+      "durationMs": 1691
+    },
+    {
+      "file": "tests/stockAccounting.api.test.ts",
+      "durationMs": 35186
+    },
+    {
+      "file": "tests/stockIndex.test.ts",
+      "durationMs": 278
+    },
+    {
+      "file": "tests/stockOperationCustody.api.test.ts",
+      "durationMs": 34562
+    },
+    {
+      "file": "tests/stockOperationPartitions.test.ts",
+      "durationMs": 765
+    },
+    {
+      "file": "tests/subledgerGrouping.test.ts",
+      "durationMs": 146
+    },
+    {
+      "file": "tests/subledgerGrouping.ui.test.ts",
+      "durationMs": 2635
+    },
+    {
+      "file": "tests/subledgerMaster.api.test.ts",
+      "durationMs": 34492
+    },
+    {
+      "file": "tests/syncDomains.test.ts",
+      "durationMs": 150
+    },
+    {
+      "file": "tests/syncRetryGuard.test.ts",
+      "durationMs": 194
+    },
+    {
+      "file": "tests/syncTestCounts.guard.test.ts",
+      "durationMs": 197
+    },
+    {
+      "file": "tests/tradingTotals.test.ts",
+      "durationMs": 579
+    },
+    {
+      "file": "tests/transactionLogs.api.test.ts",
+      "durationMs": 32335
+    },
+    {
+      "file": "tests/transactionRetryMetrics.test.ts",
+      "durationMs": 2093
+    },
+    {
+      "file": "tests/uiUxHighPriority.test.ts",
+      "durationMs": 2810
+    },
+    {
+      "file": "tests/uiUxLowPriority.test.ts",
+      "durationMs": 4179
+    },
+    {
+      "file": "tests/uiUxMediumPriority.test.ts",
+      "durationMs": 5100
+    },
+    {
+      "file": "tests/uiUxOverlaySweep20261031.test.ts",
+      "durationMs": 4913
+    },
+    {
+      "file": "tests/uiUxSweep20261030.test.ts",
+      "durationMs": 4918
+    },
+    {
+      "file": "tests/unassignRestock.service.test.ts",
+      "durationMs": 445
+    },
+    {
+      "file": "tests/userPermissions.test.ts",
+      "durationMs": 12729
+    },
+    {
+      "file": "tests/verificationSeed.test.ts",
+      "durationMs": 793
+    },
+    {
+      "file": "tests/voucherScreens.test.ts",
+      "durationMs": 237
+    },
+    {
+      "file": "tests/walletSettlement.api.test.ts",
+      "durationMs": 35881
+    },
+    {
+      "file": "tests/warranty.api.test.ts",
+      "durationMs": 35721
+    },
+    {
+      "file": "tests/warranty.repo.test.ts",
+      "durationMs": 967
+    },
+    {
+      "file": "tests/warrantyCapture.test.ts",
+      "durationMs": 615
+    },
+    {
+      "file": "tests/warrantyClaims.api.test.ts",
+      "durationMs": 6459
+    },
+    {
+      "file": "tests/warrantyClaims.ui.test.ts",
+      "durationMs": 2578
+    },
+    {
+      "file": "tests/warrantyExport.test.ts",
+      "durationMs": 266
+    },
+    {
+      "file": "tests/warrantyRegisters.test.ts",
+      "durationMs": 2998
+    },
+    {
+      "file": "tests/warrantySchema.guard.test.ts",
+      "durationMs": 192
+    },
+    {
+      "file": "tests/warrantyTerm.test.ts",
+      "durationMs": 258
+    },
+    {
+      "file": "tests/workplaceDispatchEvidence.api.test.ts",
+      "durationMs": 32123
+    }
+  ]
+}
