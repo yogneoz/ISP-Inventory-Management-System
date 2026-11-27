@@ -16,6 +16,7 @@
 import { businessDateAD } from '../../../shared/businessDate';
 import { setSerialLogs } from '../state/runtimeState';
 import { ENSURE_SERIAL_LOG_PARTITION_SQL } from '../models/inventory.repo';
+import { replayOnContention } from '../db/transactions';
 
 /**
  * Minimal query surface: the boot/transaction `pg.PoolClient`, the raw
@@ -204,20 +205,28 @@ export async function backfillSerialLog(db: SerialBackfillDb): Promise<SerialBac
       try {
         // SCALE-3: the register is partitioned by created_at; the backfill writes
         // the source document's date, so that month's child must exist first.
-        await db.query(ENSURE_SERIAL_LOG_PARTITION_SQL, [`${c.dateAD}T00:00:00Z`]);
-        await db.query(
-          // Historical documents can name a product or branch that has since
-          // been hard-deleted (the legacy JSON keeps ids that no longer exist).
-          // serial_log has real FKs on both, so a single orphan would abort the
-          // whole reconcile. Resolve the links at insert time instead: a dangling
-          // id becomes NULL, while the serial row and its recorded names (product
-          // and branch) still converge.
-          `INSERT INTO serial_log (id, device_serial, pon_serial, mac_address, product_id, product_name, branch_id, customer_id, customer_name, status, source_type, source_id, history_json, created_at, updated_at, is_demo, holder_employee_id)
-           VALUES ($1,$2,$3,$4,(SELECT id FROM products WHERE id = $5),$6,(SELECT id FROM branches WHERE id = $7),$8,$9,$10,$11,$12,$13,$14,$15,FALSE,$16) ON CONFLICT DO NOTHING`,
-          [id, c.deviceSerial, c.ponSerial || null, c.macAddress || null, c.productId || null, c.productName || null,
-            c.branchId || null, c.customerId || null, c.customerName || null, c.status, c.sourceType, c.sourceId || null,
-            JSON.stringify([entry]), `${c.dateAD}T00:00:00Z`, new Date().toISOString(), c.holderEmployeeId || null]
-        );
+        // This pass writes through the pool in autocommit, so it is NOT inside
+        // withTransaction's replay: the write path already survives the 40P01 a
+        // concurrent `ensure_*_month_partition()` causes, and this maintenance
+        // action has to survive the same collision. Both statements are safe to
+        // replay — the ensure is IF NOT EXISTS, and when it is the victim the
+        // insert after it never ran.
+        await replayOnContention('Serial-log backfill partition DDL', async () => {
+          await db.query(ENSURE_SERIAL_LOG_PARTITION_SQL, [`${c.dateAD}T00:00:00Z`]);
+          await db.query(
+            // Historical documents can name a product or branch that has since
+            // been hard-deleted (the legacy JSON keeps ids that no longer exist).
+            // serial_log has real FKs on both, so a single orphan would abort the
+            // whole reconcile. Resolve the links at insert time instead: a dangling
+            // id becomes NULL, while the serial row and its recorded names (product
+            // and branch) still converge.
+            `INSERT INTO serial_log (id, device_serial, pon_serial, mac_address, product_id, product_name, branch_id, customer_id, customer_name, status, source_type, source_id, history_json, created_at, updated_at, is_demo, holder_employee_id)
+             VALUES ($1,$2,$3,$4,(SELECT id FROM products WHERE id = $5),$6,(SELECT id FROM branches WHERE id = $7),$8,$9,$10,$11,$12,$13,$14,$15,FALSE,$16) ON CONFLICT DO NOTHING`,
+            [id, c.deviceSerial, c.ponSerial || null, c.macAddress || null, c.productId || null, c.productName || null,
+              c.branchId || null, c.customerId || null, c.customerName || null, c.status, c.sourceType, c.sourceId || null,
+              JSON.stringify([entry]), `${c.dateAD}T00:00:00Z`, new Date().toISOString(), c.holderEmployeeId || null]
+          );
+        });
         inserted++;
       } catch (error: any) {
         // A branch (or product) can be removed between reading the legacy
