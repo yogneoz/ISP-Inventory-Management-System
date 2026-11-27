@@ -3,11 +3,40 @@ name: CI
 on:
   push:
     branches: ['**']
-    paths-ignore:
-      - '**.md'
+    # A markdown-only change skips the workflow, with one exception: the two
+    # contract documents are markdown the gates actually read. check:contract-parity
+    # diffs docs/contracts/*.md against the registered routes and the fields their
+    # controllers produce, so a commit that edits only a contract document must
+    # still run it. A field added there for the phone or the portal is a promise
+    # nobody in this repo can see broken. (`paths-ignore` cannot express
+    # "everything markdown except X" — the `paths` list with a `!` exclusion and a
+    # later re-include is the documented form, and order decides.)
+    paths:
+      - '**'
+      - '!**.md'
+      - 'docs/contracts/**'
   pull_request:
-    paths-ignore:
-      - '**.md'
+    paths:
+      - '**'
+      - '!**.md'
+      - 'docs/contracts/**'
+
+# Read-only by default. No job here pushes, comments, or opens an issue, so the
+# token every step receives should not be able to.
+permissions:
+  contents: read
+
+# A superseded push to the same ref cancels its predecessor. Six matrix shards
+# plus the dependent docs-count gate is the expensive part of this workflow, and
+# without this every intermediate commit on a branch ran the whole thing to
+# completion while nobody was waiting for it.
+concurrency:
+  # head_ref is set on pull_request events and empty on push, so a branch's push
+  # run and its pull_request run share one group: opening or updating the PR
+  # cancels the duplicate instead of running the same commit twice. Two pushes to
+  # the same ref cancel too; the newest commit is the one whose result is read.
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   # No database needed. Typechecking and repository conventions are independent
@@ -16,8 +45,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 24
           cache: npm
@@ -78,8 +107,8 @@ jobs:
       DATABASE_URL: postgres://inventory_user:securepassword@localhost:5432/inventory_db
 
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 24
           cache: npm
@@ -118,8 +147,8 @@ jobs:
       AUTH_TOKEN_SECRET: ci-test-only-secret-do-not-use-in-production
 
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 24
           cache: npm
@@ -232,12 +261,12 @@ jobs:
       TDS_CERT_BROWSER: /usr/bin/google-chrome
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           # ACC-7's upgrade test compares the current schema with the prior
           # released schema via `git show <commit>:scripts/schema.sql`.
           fetch-depth: 0
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 24
           cache: npm
@@ -263,7 +292,7 @@ jobs:
           TEST_SUMMARY_PATH: test-summary-${{ matrix.shard }}.json
       - name: Upload shard totals
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: test-summary-${{ matrix.shard }}
           path: test-summary-${{ matrix.shard }}.json
@@ -280,11 +309,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 24
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: test-summary-*
           path: test-summaries

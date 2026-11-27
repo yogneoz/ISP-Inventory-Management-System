@@ -1,0 +1,30 @@
+# Action majors rot silently. `upload-artifact@v4` sat on the deprecated Node 20
+# runtime for months and was only moved after someone read a CI warning, so the
+# bump is opened here instead of being remembered.
+#
+# npm is deliberately monthly and grouped: the suite is the only thing that
+# proves an upgrade is safe, so the point is a reviewable batch, not a stream.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: '/'
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: 'ci'
+    groups:
+      github-actions:
+        patterns: ['*']
+
+  - package-ecosystem: npm
+    directory: '/'
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: 'chore'
+    groups:
+      npm-minor-patch:
+        patterns: ['*']
+        update-types: ['minor', 'patch']

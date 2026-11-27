@@ -230,11 +230,11 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 2940 tests; CI runs
+                                        #   drift/concurrency guards — 2944 tests; CI runs
                                         #   tsc + npm test + the source guards + the
                                         #   production build + the boot-timing gate +
                                         #   npm audit on every push/PR
-                                        #   (.github/workflows/ci.yml). The PostgreSQL 16
+                                        #   (.github/workflows/ci.yml). The PostgreSQL 18
                                         #   service container lets ALL tests run in CI; the
                                         #   two unconditional skips are Windows-only
                                         #   real-signal checks, so CI is skip-free.
@@ -1541,7 +1541,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 2940 tests against a real PostgreSQL 16 service container
+2. `npm test` — 2944 tests against a real PostgreSQL 18 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM

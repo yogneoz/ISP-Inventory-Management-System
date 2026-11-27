@@ -36,7 +36,7 @@ export interface CountClaim {
  * Patterns whose captured number means "the suite, right now". An explicit
  * list — not a generic /\d+ tests/ — so historical records stay legal.
  */
-const CURRENT_CLAIM_PATTERNS: { name: string; source: string }[] = [
+export const CURRENT_CLAIM_PATTERNS: { name: string; source: string }[] = [
   { name: 'Tests: N/N header field', source: 'Tests:\\s*(\\d+)\\/(\\d+)' },
   { name: 'suite now N tests', source: '\\b[Ss]uite (?:now|is)\\s+(\\d+)\\s+tests' },
   { name: 'N-test suite', source: '(\\d+)-test suite\\b' },

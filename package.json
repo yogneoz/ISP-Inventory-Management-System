@@ -4,6 +4,9 @@
   "version": "1.0.0",
   "description": "Enterprise Multi-Branch Inventory Management System, Device Tracking, VAT & Fiscal Closing",
   "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
   "scripts": {
     "dev": "tsx watch server/index.ts",
     "build": "vite build && esbuild server/index.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
@@ -29,6 +32,7 @@
     "check:branch-predicates": "tsx scripts/check_branch_predicates.ts",
     "check:audit-await": "tsx scripts/check_audit_await.ts",
     "check:contract-parity": "tsx scripts/check_contract_parity.ts",
+    "docs:sync-tests": "tsx scripts/syncTestCounts.ts",
     "accounting-outbox:pending": "tsx scripts/accounting_outbox.ts pending",
     "accounting-outbox:flush": "tsx scripts/accounting_outbox.ts flush",
     "read-models:pending": "tsx scripts/read_models.ts pending",
