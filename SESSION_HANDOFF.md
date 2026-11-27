@@ -13,10 +13,13 @@ source of truth: where it disagrees with the code, the code wins. Detail lives i
 
 ## Where the work stands
 
-Nothing is in progress. The last plan,
-[worklist/2026-11-19-app-structure-and-employee-stock](worklist/2026-11-19-app-structure-and-employee-stock/README.md),
-is `[x]` complete (2026-11-20). Last commits on `main` — **6 ahead of
-`origin/main`, not pushed**:
+Nothing is in progress. Newest plan note:
+[worklist/2026-11-20-subscription-billing](worklist/2026-11-20-subscription-billing/README.md)
+— opened 2026-11-20, no code yet. Before it,
+[worklist/2026-11-19-app-structure-and-employee-stock](worklist/2026-11-19-app-structure-and-employee-stock/README.md)
+is `[x]` complete (2026-11-20); the work since then is in
+[SESSION_NOTES.md](SESSION_NOTES.md), through 2026-11-27. Last commits on
+`main` — **none pushed**:
 
 - `54ffec2` — this page names the WSL clone as the canonical working copy
 - `a20328d` — ledger-purge refusal keyed on the test-file entry point
@@ -36,10 +39,11 @@ trigger each. Do not build one without the policy — that was the explicit
 instruction when the note was closed. Everything else parked there and in the
 Round 15 note still stands.
 
-Next candidate work, none started: the field-capture remainders
+Next candidate work: the field-capture remainders
 ([worklist/2026-11-19-field-capture/README.md](worklist/2026-11-19-field-capture/README.md)
-— offline capture, proof-of-work attachments, automatic follow-up into
-devices/invoices).
+— offline capture and the automatic follow-up into devices/invoices; the
+proof-of-work gallery shipped 2026-11-24), or the subscription-billing plan
+above.
 
 ## Running it (WSL, `/root/isp-live`)
 
@@ -61,16 +65,18 @@ devices/invoices).
 `check:no-inline-sql`, `check:no-raw-dialogs`, `check:branch-predicates`.
 
 Ceilings are **not** to be raised: entry 23.375 kB, startup 330 kB. Last
-measured: entry 22.6, startup 316.2. Nothing may be added that needs the ceiling
-moved — pay for it by lazy-loading instead.
+measured (2026-11-27): entry 23.3 kB, startup 324.5 kB. Nothing may be added
+that needs the ceiling moved — pay for it by lazy-loading instead.
 
 Counts that must move together when schema/tests/permissions change:
 `tests/schema.drift.guard.test.ts` and `tests/schemaSource.parity.test.ts`
-(137 tables), `tests/docsTruth.guard.test.ts` (129 top-level, quoted in
-`README.md`), `tests/financeMicroPermissions.test.ts` (71 operations),
+(schema.sql against the live database), `tests/docsTruth.guard.test.ts`
+(153 top-level tables, quoted in `README.md`),
+`tests/financeMicroPermissions.test.ts` (72 operations),
 `tests/docsCounts.guard.test.ts` (2940 tests, quoted in README, handoff and
 SESSION_NOTES), `tests/registerRefreshDomains.test.ts` (`SCREEN_SURFACE_PINS`
-for any new screen, 121 screens in the docs).
+for any new screen — 124 feature screens: 113 in the table, 11 pinned
+elsewhere).
 
 ## Working rules this session learned the hard way
 
