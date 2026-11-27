@@ -20,6 +20,7 @@ import {
   resolveReadRouting,
 } from './src/db/readRouting';
 import { setPgConnected } from './src/state/runtimeState';
+import { assertTestLedgerPurgeBypass } from './src/db/ledgerPurgeBypass';
 
 // dotenv's contract is "the real environment wins", which is right for every
 // knob but PORT: this workstation's shell exports an ambient `PORT=0` ("any
@@ -85,6 +86,16 @@ dbBreaker.onChange((event) => {
   if (event === 'opened') setDatabaseConnected(false);
   if (event === 'closed') setDatabaseConnected(true);
 });
+
+/**
+ * A bare `npx tsx --test tests/foo.test.ts` skips scripts/run_tests.mjs, and
+ * only the runner puts the ledger-purge startup option on the URL. Such a child
+ * cannot clean up the journals a suite posts: the removal is refused, the rows
+ * survive, and the next run fails on balances it did not create. Stop at import
+ * with the explanation instead of failing one run later in someone else's
+ * suite. Not a test child (dev server, CLI script, production) = not checked.
+ */
+assertTestLedgerPurgeBypass();
 
 export let realPoolInstance: any = null;
 

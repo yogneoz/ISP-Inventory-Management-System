@@ -45,9 +45,16 @@ dotenv.config();
 const { ensureRoleStatementTimeout } = await import('../server/src/db/statementTimeout');
 
 // 1s on this file's own connections, not on the shared role (see the header).
+// The option is APPENDED: under scripts/run_tests.mjs these startup options also
+// carry the ledger-purge bypass, and overwriting the parameter would drop it,
+// leaving this file's fixtures unable to remove the journals they posted.
 if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('statement_timeout')) {
   const scoped = new URL(process.env.DATABASE_URL);
-  scoped.searchParams.set('options', '-c statement_timeout=1000');
+  const existing = scoped.searchParams.get('options') || '';
+  scoped.searchParams.set(
+    'options',
+    `${existing ? `${existing} ` : ''}-c statement_timeout=1000`
+  );
   process.env.DATABASE_URL = scoped.toString();
 }
 
