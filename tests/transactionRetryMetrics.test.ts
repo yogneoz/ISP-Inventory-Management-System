@@ -9,6 +9,7 @@
  */
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import { pgPool } from '../server/db';
 import { withReadReplay, withTransaction } from '../server/src/db/transactions';
 import {
@@ -141,7 +142,10 @@ describe('transaction-retry counters', () => {
     const { createApp, registerAllRoutes } = await import('../server/src/app');
     const app = createApp();
     registerAllRoutes(app);
-    const server = app.listen(0);
+    // `listen` is asynchronous: reading address() straight after it answers null
+    // on this platform, so wait for the callback as every other suite does.
+    const server = http.createServer(app);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     try {
       const port = (server.address() as any).port;
       const res = await fetch(`http://127.0.0.1:${port}/api/health`);
