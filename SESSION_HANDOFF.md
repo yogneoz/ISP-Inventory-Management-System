@@ -5,6 +5,12 @@ source of truth: where it disagrees with the code, the code wins. Detail lives i
 [SESSION_NOTES.md](SESSION_NOTES.md), [handoff.md](handoff.md) and
 [docs/session-notes/2026.md](docs/session-notes/2026.md).
 
+> **Where the code lives (2026-11-27).** `/root/isp-live` in WSL (`Ubuntu-24.04`)
+> is the canonical working copy — the dev server, PostgreSQL, the suite and every
+> commit run there. `D:\inventory-dev\ISP-Inventory-Management-System` is a
+> stale duplicate: do not edit, test or commit in it. Work that landed there had
+> to be fetched and copied into the WSL clone by hand, which cost a session.
+
 ## Where the work stands
 
 Nothing is in progress. The last plan,
@@ -36,7 +42,7 @@ Next candidate work, none started: the field-capture remainders
 — offline capture, proof-of-work attachments, automatic follow-up into
 devices/invoices).
 
-## Running it (Windows, `D:\inventory-dev\ISP-Inventory-Management-System`)
+## Running it (WSL, `/root/isp-live`)
 
 - `.env` sets `PORT=59577`, which is **occupied by an unrelated service** that
   answers `{"error":"unauthorized"}`. Always start the dev server explicitly:
@@ -47,7 +53,7 @@ devices/invoices).
 - Full suite is ~25–30 min. Run it detached and read the log:
   `nohup bash -c 'env -u PORT npm test > .tmpfullX.log 2>&1; echo EXIT=$? >> .tmpfullX.log' &`
 - `tsx watch` respawns children, so kill the watcher too, and only ever by
-  identified PID (`taskkill //PID <pid> //T //F`) — never by name pattern.
+  identified PID (`kill <pid>`) — never by name pattern.
 
 ## Gates before calling anything done
 
