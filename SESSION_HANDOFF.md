@@ -15,14 +15,13 @@ source of truth: where it disagrees with the code, the code wins. Detail lives i
 
 Nothing is in progress. The last plan,
 [worklist/2026-11-19-app-structure-and-employee-stock](worklist/2026-11-19-app-structure-and-employee-stock/README.md),
-is `[x]` complete (2026-11-20) and its tracker row in
-[worklist/README.md](worklist/README.md) says so. Last commits on `main`, level
-with `origin/main`:
+is `[x]` complete (2026-11-20). Last commits on `main` — **6 ahead of
+`origin/main`, not pushed**:
 
-- `f477f28` — close-out of that note (status, tracker, parked rows, session note)
-- `557a1b5` — offboarding refuses completion while stock is held
-- `399d15e` — per-employee stock custody ledger, API, My Stock panel
-- `06134e4` — route table moved to `client/src/routes/screenRoutes.tsx`
+- `54ffec2` — this page names the WSL clone as the canonical working copy
+- `a20328d` — ledger-purge refusal keyed on the test-file entry point
+- `1309c46` — a bare `npx tsx --test` refused instead of poisoning the dev DB
+- `5c89415` — the retry-metrics suite waits for the listen callback
 
 Delivered in that note: the six App.tsx splits (lazy screens, `useSyncStream`,
 `useAppRouting`, `screenRoutes`, five domain action hooks, `BootstrapDataProvider`)
@@ -44,20 +43,20 @@ devices/invoices).
 
 ## Running it (WSL, `/root/isp-live`)
 
-- `.env` sets `PORT=59577`, which is **occupied by an unrelated service** that
-  answers `{"error":"unauthorized"}`. Always start the dev server explicitly:
-  `PORT=3000 npx tsx server/index.ts`, then use `http://localhost:3000`.
+- `.env` sets `PORT=3000`: `npm run dev` (`tsx watch server/index.ts`) answers
+  on `http://127.0.0.1:3000`. Check `ss -ltnp | grep :3000` before starting a
+  second one.
 - Sign in as `superadmin@example.com` / `Demo@123`; the superadmin employee is
   `demo-emp-001`. A browser tab that shows `401`s on every read is holding a
   token from an earlier server run — sign in again; it is not a code defect.
-- Full suite is ~25–30 min. Run it detached and read the log:
-  `nohup bash -c 'env -u PORT npm test > .tmpfullX.log 2>&1; echo EXIT=$? >> .tmpfullX.log' &`
+- Full suite is ~20–25 min. Run it detached and read the log:
+  `setsid nohup bash -c 'cd /root/isp-live && node scripts/run_tests.mjs > /tmp/suite.log 2>&1; echo EXIT=$? >> /tmp/suite.log' &`
 - `tsx watch` respawns children, so kill the watcher too, and only ever by
   identified PID (`kill <pid>`) — never by name pattern.
 
 ## Gates before calling anything done
 
-`npx tsc --noEmit` · `env -u PORT npm test` (full suite at close) ·
+`npx tsc --noEmit` · `node scripts/run_tests.mjs` (full suite at close) ·
 `npm run build` · `npm run check:bundle-budget` when client code moved ·
 `check:no-inline-sql`, `check:no-raw-dialogs`, `check:branch-predicates`.
 
@@ -69,7 +68,7 @@ Counts that must move together when schema/tests/permissions change:
 `tests/schema.drift.guard.test.ts` and `tests/schemaSource.parity.test.ts`
 (137 tables), `tests/docsTruth.guard.test.ts` (129 top-level, quoted in
 `README.md`), `tests/financeMicroPermissions.test.ts` (71 operations),
-`tests/docsCounts.guard.test.ts` (2,749 tests, quoted in README, handoff and
+`tests/docsCounts.guard.test.ts` (2940 tests, quoted in README, handoff and
 SESSION_NOTES), `tests/registerRefreshDomains.test.ts` (`SCREEN_SURFACE_PINS`
 for any new screen, 121 screens in the docs).
 
