@@ -64,8 +64,14 @@ const TRANSACTION_ATTEMPTS = 3;
  * same number of times, with the same backoff and the same counters — otherwise
  * the read side keeps surfacing a 500 for a collision the write side already
  * survives. `label` only names the replay in the log line.
+ *
+ * Exported for callers outside those two runners that drive the same contended
+ * DDL directly: the partition suites create a fixture month with
+ * `ensure_*_month_partition()` on their own pool, and without this loop a
+ * sibling suite provisioning a neighbouring month at the same moment aborted
+ * them with 40P01.
  */
-async function replayOnContention<T>(label: string, run: () => Promise<T>): Promise<T> {
+export async function replayOnContention<T>(label: string, run: () => Promise<T>): Promise<T> {
   for (let attempt = 1; ; attempt += 1) {
     try {
       return await run();

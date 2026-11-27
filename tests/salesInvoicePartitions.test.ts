@@ -40,6 +40,7 @@ import {
   provisionSalesInvoicePartitions,
   salesInvoicePartitionStatus,
 } from '../server/src/boot/salesInvoicePartitions';
+import { replayOnContention } from '../server/src/db/transactions';
 
 dotenv.config();
 
@@ -62,8 +63,19 @@ const TEST_MONTH = '203504';
 const TEST_KEY = '203504';
 const PREFIX = 'si3-';
 
+/**
+ * Create the fixture month the way the posting path does.
+ *
+ * The app replays this collision on both sides — withTransaction for the write,
+ * withReadReplay for a statement read — but a direct call has no such loop, and
+ * two suites provisioning neighbouring months at the same moment is exactly the
+ * 40P01 that reddened the CI test-suite job. Same policy here: same codes, same
+ * three attempts, same backoff, so the fixture is no longer the exposed party.
+ */
 async function ensureMonth() {
-  await pool!.query('SELECT ensure_sales_invoice_month_partition($1::date)', ['2035-04-01']);
+  await replayOnContention('Sales-invoice partition DDL', () =>
+    pool!.query('SELECT ensure_sales_invoice_month_partition($1::date)', ['2035-04-01'])
+  );
 }
 
 async function insertInvoice(id: string, number: string, day = '10') {
