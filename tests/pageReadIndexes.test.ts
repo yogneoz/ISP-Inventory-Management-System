@@ -23,6 +23,7 @@ import { test, describe, after } from 'node:test';
 import assert from 'node:assert/strict';
 import pg from 'pg';
 import dotenv from 'dotenv';
+import { replayOnContention } from '../server/src/db/transactions';
 
 dotenv.config();
 
@@ -126,7 +127,9 @@ describe('page-read indexes (SCALE-3, migration 0040)', () => {
     // data a developer machine happened to carry.
     const BRANCH = 'page-fixture-branch';
     const MONTH = '2035-06';
-    await pool!.query('SELECT ensure_sales_invoice_month_partition($1::date)', [`${MONTH}-01`]);
+    await replayOnContention('Sales-invoice partition DDL', () =>
+      pool!.query('SELECT ensure_sales_invoice_month_partition($1::date)', [`${MONTH}-01`])
+    );
     await pool!.query(
       `INSERT INTO branches (id, code, name, location) VALUES ($1,'PAGEIDX','Page index fixture branch','Kathmandu')
        ON CONFLICT DO NOTHING`,

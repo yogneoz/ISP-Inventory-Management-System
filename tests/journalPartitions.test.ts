@@ -36,6 +36,7 @@ import {
   provisionJournalPartitions,
 } from '../server/src/boot/journalPartitions';
 import type { PartitionSqlClient } from '../server/src/boot/journalPartitions';
+import { replayOnContention } from '../server/src/db/transactions';
 
 dotenv.config();
 
@@ -62,7 +63,12 @@ const skipNoDb = !dbReachable && 'needs a reachable PostgreSQL (partition DDL)';
 const FIXTURE_MONTH = '2034-06';
 
 async function ensureSubledgerFixture() {
-  await pool!.query('SELECT ensure_subledger_month_partition($1::date)', [`${FIXTURE_MONTH}-01`]);
+  // The app puts this replay behind the same DDL (withTransaction on the
+  // posting path, withReadReplay on statement reads); a sibling suite
+  // provisioning a neighbouring month can make this fixture the victim.
+  await replayOnContention('Subledger partition DDL', () =>
+    pool!.query('SELECT ensure_subledger_month_partition($1::date)', [`${FIXTURE_MONTH}-01`])
+  );
   await pool!.query(
     `INSERT INTO branches (id, code, name, location) VALUES ('sub-fixture-branch','SUBFIX','Subledger fixture branch','Kathmandu')
      ON CONFLICT DO NOTHING`

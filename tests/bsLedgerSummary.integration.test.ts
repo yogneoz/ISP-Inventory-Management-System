@@ -15,6 +15,7 @@ import pg from 'pg';
 import dotenv from 'dotenv';
 import { ensureBsDayRecords, ensureReferenceData } from './fixtures/referenceData';
 import { DEFAULT_BS_YEARS_SERVER, buildBsDayRecordsForYear } from '../server/src/config/bsCalendar';
+import { replayOnContention } from '../server/src/db/transactions';
 
 dotenv.config();
 
@@ -165,7 +166,9 @@ describe('BS ledger summary reconciliation', () => {
         [entry.ad]
       )).rows[0];
       assert.ok(day.fiscal_year_id, `${entry.label} must link to its fiscal year`);
-      await client.query(`SELECT ensure_journal_month_partition($1::date)`, [entry.ad]);
+      await replayOnContention('Journal partition DDL', () =>
+        client!.query(`SELECT ensure_journal_month_partition($1::date)`, [entry.ad])
+      );
       const journalId = `bsj-${index + 1}`;
       await client.query(
         `INSERT INTO gl_journals

@@ -37,6 +37,7 @@ import {
   provisionSerialLogPartitions,
   serialLogPartitionStatus,
 } from '../server/src/boot/serialLogPartitions';
+import { replayOnContention } from '../server/src/db/transactions';
 
 dotenv.config();
 
@@ -59,7 +60,9 @@ const TEST_MONTH = '203403';
 const PREFIX = 's3part-';
 
 async function ensureMonth() {
-  await pool!.query('SELECT ensure_serial_log_month_partition($1::date)', ['2034-03-01']);
+  await replayOnContention('Serial-log partition DDL', () =>
+    pool!.query('SELECT ensure_serial_log_month_partition($1::date)', ['2034-03-01'])
+  );
 }
 
 /** Insert through the register's real write shape: insert-if-absent. */

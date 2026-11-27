@@ -35,6 +35,7 @@ import {
   stockOperationPartitionStatus,
 } from '../server/src/boot/stockOperationPartitions';
 import { STOCK_OPERATION_INSERT_SQL, stockOperationInsertParams } from '../server/src/models/inventory.repo';
+import { replayOnContention } from '../server/src/db/transactions';
 
 dotenv.config();
 
@@ -51,6 +52,17 @@ try {
   pool = null;
 }
 const skipNoDb = !dbReachable && 'needs a reachable PostgreSQL (partition DDL)';
+
+/**
+ * Create this file's fixture month, replaying the 40P01 a sibling suite's
+ * partition DDL can cause. The app puts the same replay behind this DDL:
+ * withTransaction on the posting path, withReadReplay on statement reads.
+ */
+async function ensureTestMonth() {
+  await replayOnContention('Stock-operation partition DDL', () =>
+    pool!.query('SELECT ensure_stock_operation_month_partition($1::date)', [`${TEST_MONTH}-01`])
+  );
+}
 
 /** A month no fixture data uses, so the test can create and drop it safely. */
 const TEST_MONTH = '2033-05';
@@ -138,7 +150,7 @@ describe('stock operation partitions', () => {
     // stock operations, and "the newest operation in the table" would otherwise
     // depend on what another file in the shard happened to write.
     await dropTestMonth();
-    await pool!.query('SELECT ensure_stock_operation_month_partition($1::date)', [`${TEST_MONTH}-01`]);
+    await ensureTestMonth();
     await insertOp(opRow({ referenceNumber: `${PREFIX}PRUNE-1` }));
     const month = TEST_MONTH;
     const start = `${month}-01`;
@@ -165,7 +177,7 @@ describe('stock operation partitions', () => {
 
   test('the duplicate-reference write path still rejects a second document', { skip: skipNoDb }, async () => {
     await dropTestMonth();
-    await pool!.query('SELECT ensure_stock_operation_month_partition($1::date)', [`${TEST_MONTH}-01`]);
+    await ensureTestMonth();
     const first = opRow({ referenceNumber: `${PREFIX}KEEP-1` });
     try {
       await insertOp(first);
@@ -182,7 +194,7 @@ describe('stock operation partitions', () => {
 
   test('the upsert updates in place, and an identity edit is refused', { skip: skipNoDb }, async () => {
     await dropTestMonth();
-    await pool!.query('SELECT ensure_stock_operation_month_partition($1::date)', [`${TEST_MONTH}-01`]);
+    await ensureTestMonth();
     const row = opRow({ referenceNumber: `${PREFIX}UPSERT-1` });
     try {
       await insertOp(row);
@@ -220,7 +232,7 @@ describe('stock operation partitions', () => {
 
   test('a month can be emptied and detached, releasing its registry keys', { skip: skipNoDb }, async () => {
     await dropTestMonth();
-    await pool!.query('SELECT ensure_stock_operation_month_partition($1::date)', [`${TEST_MONTH}-01`]);
+    await ensureTestMonth();
     const row = opRow({ referenceNumber: `${PREFIX}RETIRE-1` });
     try {
       await insertOp(row);
