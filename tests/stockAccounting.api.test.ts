@@ -40,6 +40,7 @@ import {
 } from '../server/src/state/runtimeState';
 import { DEFAULT_PERMISSIONS_MATRIX } from '../client/src/utils/permissionMatrixData';
 import { ensureReferenceData } from './fixtures/referenceData';
+import { businessDateAD } from '../shared/businessDate';
 
 dotenv.config();
 
@@ -66,7 +67,7 @@ const EMPLOYEE = 'sa-emp';
 const START_QTY = 10;
 const AVG_COST = 75;
 const OPENING_VALUE = START_QTY * AVG_COST;
-const TODAY = new Date().toISOString().split('T')[0];
+const TODAY = businessDateAD();
 
 const ADMIN = {
   id: 'sa-admin',

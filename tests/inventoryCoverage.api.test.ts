@@ -28,6 +28,7 @@ import { issueAuthToken } from '../server/src/middleware/auth';
 import { setPermissionMatrix } from '../server/src/state/runtimeState';
 import { DEFAULT_PERMISSIONS_MATRIX } from '../client/src/utils/permissionMatrixData';
 import { ensureBsDayRecords, ensureReferenceData } from './fixtures/referenceData';
+import { businessDateAD } from '../shared/businessDate';
 import {
   INVENTORY_SOURCE_REGISTRY,
   inventorySourceTypes,
@@ -54,16 +55,11 @@ const OTHER_BRANCH = 'iv-other';
 const PRODUCT = 'iv-prod';
 const UNBACKED = 'iv-unbacked';
 const CUSTOMER = 'iv-customer';
-// The business day is the local calendar day. A UTC slice reports yesterday
-// between 00:00 and 05:45 Nepal time; at 23:xx UTC it reports today while the
-// database's local timestamp date is already tomorrow, which hides a stock
-// adjustment from this period's reconciliation.
-const todayLocal = (() => {
-  const now = new Date();
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-})();
-const TODAY = todayLocal;
+// The business day is Kathmandu's calendar day: that is what the posting
+// services stamp and what the reconciliation report reads back. Formatting the
+// machine clock instead names yesterday between 00:00 and 05:45 Nepal time, and
+// names today at 23:xx UTC while the ledger rows already sit on tomorrow.
+const TODAY = businessDateAD();
 const CLOSE_PERIOD = '2027-06';
 
 const ADMIN = {

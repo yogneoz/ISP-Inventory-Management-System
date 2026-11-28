@@ -29,6 +29,7 @@ import { createApp, registerAllRoutes } from '../server/src/app';
 import { hashPassword, issueAuthToken } from '../server/src/middleware/auth';
 import { setPermissionMatrix } from '../server/src/state/runtimeState';
 import { DEFAULT_PERMISSIONS_MATRIX } from '../client/src/utils/permissionMatrixData';
+import { businessDateAD } from '../shared/businessDate';
 
 dotenv.config();
 
@@ -363,7 +364,7 @@ describe('mobile v1 API (real HTTP + PostgreSQL)', { skip: skipNoDb }, () => {
     const punch = {
       employeeId: EMP,
       branchId: BRANCH,
-      attendanceDateAd: new Date().toISOString().slice(0, 10),
+      attendanceDateAd: businessDateAD(),
       action: 'CLOCK_IN',
       punchTime: '09:02',
       latitude: FENCE_LAT + 0.0001,

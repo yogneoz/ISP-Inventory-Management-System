@@ -40,6 +40,7 @@ import { issueAuthToken } from '../server/src/middleware/auth';
 import { setPermissionMatrix } from '../server/src/state/runtimeState';
 import { DEFAULT_PERMISSIONS_MATRIX } from '../client/src/utils/permissionMatrixData';
 import { ensureReferenceData } from './fixtures/referenceData';
+import { businessDateAD } from '../shared/businessDate';
 import {
   postCustomerReceiptLedger,
   postVendorPaymentLedger,
@@ -65,7 +66,7 @@ const BR = 'pcb-branch';
 const OTHER = 'WH001';
 const PRODUCT = 'pcb-prod';
 const CUSTOMER = 'pcb-customer';
-const today = new Date().toISOString().split('T')[0];
+const today = businessDateAD();
 const OPENING_DATE = '2026-09-01';
 /** The cash-book window starts after the opening journal and before the payments. */
 const FROM = '2026-10-01';
