@@ -241,6 +241,7 @@ a managed TLS endpoint). Prove it before starting anything:
 npm run check:redis
 # OK Redis 7.0.15 at redis://127.0.0.1:6379 - PING PONG in 1.2 ms, read/write round trip ok, db 0.
 npm run verify:redis-invalidation     # two OS processes: a write on A refreshes B
+npm run verify:permissions-fanout     # C2: two OS processes, a committed grant crosses Redis
 ```
 
 A missing or unreachable Redis is a **boot failure with the reason on stderr**, not a degraded start:
@@ -651,6 +652,7 @@ docker run -d \
 | **Read-Model Queue (pending / replay / rebuild + verify)** | `npm run read-models:pending` · `npm run read-models:flush` · `npm run read-models:rebuild -- --stock --verify` |
 | **PgBouncer transaction-mode Proof** *(needs PgBouncer; `PGBOUNCER_BIN` overrides the default path)* | `npm run verify:pgbouncer` |
 | **Redis cross-worker invalidation Proof** *(needs a live Redis at `REDIS_URL`; runs one worker per process)* | `npm run verify:redis-invalidation` |
+| **Permission Fan-out Proof (C2)** *(needs a live Redis at `REDIS_URL` and PostgreSQL; runs one worker per process)* | `npm run verify:permissions-fanout` |
 | **Production Build** | `npm run build` |
 | **Start Production Server** | `npm start` |
 | **Automated DB Setup (Node)** | `npm run setup:pg -- --force` *(after a verified backup; add `--skip-backup-check` only for a disposable database)* |

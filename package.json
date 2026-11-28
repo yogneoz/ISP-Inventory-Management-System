@@ -43,6 +43,7 @@
     "read-models:rebuild": "tsx scripts/read_models.ts rebuild",
     "verify:pgbouncer": "tsx scripts/verify_pgbouncer_pooling.ts",
     "verify:redis-invalidation": "tsx scripts/verify_redis_invalidation.ts",
+    "verify:permissions-fanout": "tsx scripts/verify_permission_fanout.ts",
     "verify:apikey-rpm": "tsx scripts/verify_apikey_rpm.ts",
     "verify:catalog-roundtrips": "node scripts/verify_catalog_roundtrips.mjs",
     "check:bundle-budget": "node scripts/check_bundle_budget.mjs",

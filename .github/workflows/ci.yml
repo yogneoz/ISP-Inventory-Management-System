@@ -173,6 +173,13 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      # Every step below depends on the mandatory Redis premise: both probes
+      # boot with NODE_ENV=production (which refuses to start without it) and the
+      # fan-out proof needs the bus. Prove the service container is reachable and
+      # usable here, so a broken one fails with its URL and the reason instead of
+      # surfacing as a stack trace inside the first probe.
+      - name: Redis preflight — the deployment requirement every step below relies on
+        run: npm run check:redis
       - name: Apply schema.sql to the CI database (fresh-install proof + drift-guard baseline)
         run: |
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/schema.sql
@@ -184,6 +191,13 @@ jobs:
       # push. Requires CREATEDB — the CI service superuser has it.
       - name: Fresh-install proof — boot server on empty DB and assert schema parity
         run: node scripts/verify_fresh_install.mjs
+      # C2 (audit 2026-11-28): the permission caches are enforced from each
+      # worker's memory and refreshed only by the invalidation message, so the
+      # proof needs two OS processes plus the services this job already owns.
+      # Worker B denies the committed grant until the message arrives, then
+      # allows it; removing the announcement fails the step.
+      - name: Cross-worker permission fan-out — two processes, real Redis
+        run: npm run verify:permissions-fanout
       # Backlog #7: CI previously never built the frontend or audited
       # dependencies, so a bundling-only type error or a newly-advised
       # dependency could reach main undetected.

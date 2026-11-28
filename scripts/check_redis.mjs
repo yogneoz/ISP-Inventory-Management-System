@@ -61,5 +61,13 @@ try {
   console.error('Start it (systemctl enable --now redis-server on Linux) and re-run `npm run check:redis`.');
   process.exitCode = 1;
 } finally {
-  client.destroy();
+  // A client whose connect() failed is not open, and node-redis throws
+  // ClientClosedError from destroy() on it. That throw would replace the
+  // message above with a stack trace on exactly the failure path this
+  // preflight exists for, so it is closed only when it is open.
+  try {
+    if (client.isOpen) client.destroy();
+  } catch {
+    // Nothing to close.
+  }
 }

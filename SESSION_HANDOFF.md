@@ -67,8 +67,11 @@ lifecycle/boot-failure/fresh-install/boot-timing probes pass a Redis URL
 install guide now has **Step 3: Redis (required)** (database became Step 4, the
 dev server Step 5, PgBouncer stayed optional as Step 4b) and the false "logs the
 in-process fallback" sentence is gone. `npm run verify:redis-invalidation` — the
-two-process cross-worker proof that C2 was missing — passes against this Redis:
-a write on worker A is seen by worker B. The suite is 2,950 tests, green, with
+two-process cross-worker proof — passes against this Redis: a write on worker A is
+seen by worker B. C2's own half is `npm run verify:permissions-fanout`: worker A
+commits a `grant` override, worker B still denies until the invalidation crosses
+Redis, then allows it with `permissionsVersion` 2 → 3 — and the proof fails if the
+announcement is removed. It runs as a CI step in `build-and-boot-timing`. The suite is 2,950 tests, green, with
 the docs-count gate at 2,950 and the one Redis skip gone.
 
 Before that, nothing was in progress. Newest plan note:
