@@ -670,7 +670,8 @@ WHERE id = $1`;
  * monthly period in an OPEN fiscal year. Ordered by the real date, not the
  * period key, so a fiscal year starting in a non-calendar month is handled.
  */
-export const EARLIEST_OPEN_PERIOD_SQL = `SELECT ${PERIOD_COLUMNS}
+export const EARLIEST_OPEN_PERIOD_SQL = `SELECT ${PERIOD_COLUMNS},
+  fy.start_date_ad::text AS "fiscalYearStartAD"
 FROM gl_periods p JOIN fiscal_years fy ON fy.id = p.fiscal_year_id
 WHERE p.status = 'OPEN' AND fy.is_closed = FALSE
 ORDER BY p.start_date_ad ASC, p.period_key ASC
@@ -1558,6 +1559,26 @@ WHERE j.status = 'POSTED'
   AND ($2::date IS NULL OR l.journal_date_ad <= $2::date)
   AND ($3::varchar IS NULL OR l.branch_id = $3::varchar)`;
 
+/**
+ * C3 (audit 2026-11-28): `FOR SHARE` is the lock that makes posting and the
+ * fiscal-year close mutually exclusive.
+ *
+ * Every posting resolves its fiscal year through this query at the start of its
+ * transaction, then inserts journals and period balances. The close
+ * (`FY_CLOSE_SQL`) is an UPDATE of `is_closed`, which takes a row lock on the
+ * same row - but the posting held NO lock on it, so a close could commit
+ * between the posting's read and its inserts. The closed year then received
+ * journals that no closing snapshot accounted for, and because the ledger is
+ * append-only the year's figures stayed wrong.
+ *
+ * With a shared lock on the fiscal-year row:
+ *   - a posting that read first makes the close WAIT, so the close's snapshot
+ *     includes that journal (correct: it was posted before the close);
+ *   - a close that committed first makes the posting's read wait and then
+ *     return `is_closed = true`, so the posting knows the year is shut.
+ * It is SHARE, not UPDATE, so concurrent postings into the same year never
+ * block each other.
+ */
 export const FISCAL_YEAR_BOUNDS_SQL = `SELECT id, code,
   start_date_ad::text AS "startDateAD",
   end_date_ad::text AS "endDateAD",
@@ -1565,7 +1586,8 @@ export const FISCAL_YEAR_BOUNDS_SQL = `SELECT id, code,
 FROM fiscal_years
 WHERE $1::date BETWEEN start_date_ad AND end_date_ad
 ORDER BY start_date_ad DESC
-LIMIT 1`;
+LIMIT 1
+FOR SHARE`;
 
 /**
  * Control-account agreement through `$1` (and one branch, or every branch

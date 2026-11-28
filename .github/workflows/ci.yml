@@ -148,9 +148,23 @@ jobs:
           --health-timeout 5s
           --health-retries 10
 
+      # Both probes in this job boot with NODE_ENV=production (the fresh-install
+      # proof and the boot-timing check), and a production boot refuses to start
+      # without Redis — so the service is part of the job, not an option.
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     env:
       DATABASE_URL: postgres://inventory_user:securepassword@localhost:5432/inventory_db
       AUTH_TOKEN_SECRET: ci-test-only-secret-do-not-use-in-production
+      REDIS_URL: redis://127.0.0.1:6379
 
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -245,6 +259,19 @@ jobs:
           --health-timeout 5s
           --health-retries 10
 
+      # The lifecycle, boot-failure and API-key suites boot production servers
+      # and exercise the shared store; each shard is its own VM, so one Redis
+      # per shard is isolation without cross-shard keys.
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     env:
       DATABASE_URL: postgres://inventory_user:securepassword@localhost:5432/inventory_db
       # Test-only signing secret. Without it every test process that imports
@@ -266,6 +293,10 @@ jobs:
       # skip path for that test: a missing binary or a runner image that moves
       # Chrome must fail the job, not silently drop the proof.
       TDS_CERT_BROWSER: /usr/bin/google-chrome
+      # The suites that boot a production server (lifecycle, live drain, boot
+      # failure) now require Redis, and the API-key RPM test runs for real
+      # instead of skipping when this points at a live server.
+      REDIS_URL: redis://127.0.0.1:6379
 
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0

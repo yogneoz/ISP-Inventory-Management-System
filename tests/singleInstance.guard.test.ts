@@ -15,6 +15,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { assertSharedStateForWorkers } from '../server/src/state/sharedStore';
 
 const ROOT = process.cwd();
 const read = (relativePath: string): string => fs.readFileSync(path.resolve(ROOT, relativePath), 'utf8');
@@ -79,6 +80,29 @@ describe('SCALE-1 horizontal workers', () => {
     const lifecycle = read('server/src/boot/lifecycle.ts');
     assert.match(lifecycle, /closeShared/);
     assert.match(lifecycle, /closeSharedBounded/);
+  });
+
+  test('a production boot refuses to start without Redis, at any worker count', () => {
+    // Presence is this guard's half of the contract; reachability belongs to
+    // initializeSharedState, which throws when the named server does not answer.
+    assert.throws(
+      () => assertSharedStateForWorkers({ NODE_ENV: 'production' }),
+      /NODE_ENV=production requires Redis: set REDIS_URL/
+    );
+    assert.throws(
+      () => assertSharedStateForWorkers({ NODE_ENV: 'production', WEB_CONCURRENCY: '4' }),
+      /requires Redis/
+    );
+    assert.doesNotThrow(() =>
+      assertSharedStateForWorkers({ NODE_ENV: 'production', REDIS_URL: 'redis://127.0.0.1:6379' })
+    );
+    assert.doesNotThrow(() =>
+      assertSharedStateForWorkers({ NODE_ENV: 'production', REDIS_TLS_URL: 'rediss://example.test:6380' })
+    );
+    // Development and test keep the in-process store: `npm test` must stay
+    // runnable without a Redis daemon, and this is the only place that is legal.
+    assert.doesNotThrow(() => assertSharedStateForWorkers({ NODE_ENV: 'development' }));
+    assert.doesNotThrow(() => assertSharedStateForWorkers({ NODE_ENV: 'test' }));
   });
 
   test('the old single-instance premise is gone', () => {

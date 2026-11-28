@@ -546,6 +546,10 @@
       "durationMs": 34981
     },
     {
+      "file": "tests/fiscalCloseRace.concurrency.test.ts",
+      "durationMs": 3000
+    },
+    {
       "file": "tests/fiscalOpeningBranchScope.test.ts",
       "durationMs": 6330
     },
@@ -1100,6 +1104,10 @@
     {
       "file": "tests/salesMasters.api.test.ts",
       "durationMs": 32665
+    },
+    {
+      "file": "tests/salesStockDeductionBatch.test.ts",
+      "durationMs": 1500
     },
     {
       "file": "tests/scale2BootstrapBudget.test.ts",

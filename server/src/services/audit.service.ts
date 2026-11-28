@@ -3,7 +3,9 @@
  * extraction). Builds the audit row, prepends it to the shared auditTrail
  * cache, broadcasts an SSE change, and persists to PostgreSQL.
  */
+import { randomUUID } from 'node:crypto';
 import { pgPool } from '../../db';
+import { registerAfterCommit } from '../db/afterCommit';
 import { withPrepended } from '../utils/copyHelpers';
 import { todayBs } from '../utils/bsDate';
 import { auditTrail, setAuditTrail, getPgConnected } from '../state/runtimeState';
@@ -22,7 +24,10 @@ export function logAuditEvent(
 ): AuditLog | Promise<AuditLog> {
   const u = getUserFromReq(req);
   const auditItem: AuditLog = {
-    id: `aud-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+    // A real UUID, not `Date.now()` plus three random digits: two audit rows
+    // written in the same millisecond from different requests could collide,
+    // and the INSERT's ON CONFLICT DO NOTHING then dropped one silently.
+    id: `aud-${randomUUID()}`,
     userEmail: u.email || '',
     userName: u.name || '',
     action,
@@ -36,22 +41,31 @@ export function logAuditEvent(
     branchId: overrideBranchId || u.branchId,
   };
 
-  setAuditTrail(withPrepended(auditTrail, auditItem));
+  // C1 (audit 2026-11-28): the mirror prepend and BOTH broadcasts are deferred
+  // to the caller's COMMIT. They used to be published here - inside
+  // BEGIN...COMMIT - so a client was told an invoice existed while the row was
+  // still uncommitted (its re-read came back without it), and a write that
+  // rolled back still left a phantom row in the mirror and a false event on
+  // every open screen. Outside a transaction scope `registerAfterCommit` runs
+  // the callback immediately, so demo mode and CLI callers are unchanged.
+  registerAfterCommit(() => {
+    setAuditTrail(withPrepended(auditTrail, auditItem));
 
-  // Broadcast event to all active real-time SSE client connections
-  broadcastChange({
-    type: action,
-    entity: module,
-    branchId: auditItem.branchId,
-  });
+    // Broadcast event to all active real-time SSE client connections
+    broadcastChange({
+      type: action,
+      entity: module,
+      branchId: auditItem.branchId,
+    });
 
-  // Every audit row is also a live update for the Audit Trail screen:
-  // emit the dedicated AUDIT domain (cheap — the slice is capped at 200
-  // rows) so an open audit viewer refreshes without a full bootstrap.
-  broadcastChange({
-    type: 'AUDIT_LOGGED',
-    entity: 'AUDIT',
-    branchId: auditItem.branchId,
+    // Every audit row is also a live update for the Audit Trail screen:
+    // emit the dedicated AUDIT domain (cheap — the slice is capped at 200
+    // rows) so an open audit viewer refreshes without a full bootstrap.
+    broadcastChange({
+      type: 'AUDIT_LOGGED',
+      entity: 'AUDIT',
+      branchId: auditItem.branchId,
+    });
   });
 
   // Persist to Postgres. Two paths:

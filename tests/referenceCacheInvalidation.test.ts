@@ -38,6 +38,11 @@ const waitFor = async (predicate: () => boolean, timeoutMs = 2000): Promise<void
   throw new Error('condition was not met within the timeout');
 };
 
+// Split on a newline with no regex and no escape sequence: an earlier version of
+// this assertion used one and shell quoting turned it into a real CR + LFs. A
+// source-reading guard must not depend on that.
+const NEWLINE = String.fromCharCode(10);
+
 describe('reference-cache invalidation across workers (A3)', () => {
   let store: MemorySharedStore;
   let published: string[];
@@ -125,5 +130,21 @@ describe('reference-cache invalidation across workers (A3)', () => {
       [...expected].sort(),
       'every hydrated reference cache is wired, and the hot stock projection is deliberately not'
     );
+    // C2 (audit 2026-11-28): the RBAC caches are not CACHE_LOADS entries, so
+    // they are wired through the reserved name instead. They are what
+    // `requirePermission` enforces, so a missing one is worse than a stale
+    // branch name: it authorizes against a matrix another worker replaced.
+    for (const setter of [
+      'setPermissionMatrix',
+      'setUserPermissionOverrides',
+      'setUserPermissionSetGrants',
+    ]) {
+      const declaration =
+        source.split(NEWLINE).find((line) => line.includes(`export function ${setter}(`)) || '';
+      assert.ok(
+        declaration.includes('notifyReferenceCacheWrite(PERMISSIONS_CACHE_NAME)'),
+        `${setter} announces its write, so every worker re-reads the committed grants`
+      );
+    }
   });
 });

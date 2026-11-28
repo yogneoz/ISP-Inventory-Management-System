@@ -196,6 +196,36 @@ export const SI_DEDUCT_STOCK_SQL = `UPDATE inventory_stock
  WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $1
  RETURNING quantity_on_hand, average_cost`;
 
+/**
+ * H5 (audit 2026-11-28): deducts an entire invoice's stock in ONE statement.
+ *
+ * The controller used to run `SI_DEDUCT_STOCK_SQL` once per line: an n-line
+ * invoice meant n sequential round trips inside the transaction, each holding
+ * its row lock a little longer (contention on the hottest table in the
+ * database). Here the wanted quantity is summed per product and deducted as a
+ * set.
+ *
+ * The all-or-nothing rule is unchanged: a product that cannot cover its total
+ * matches no row, so `RETURNING` comes back short, the caller compares the row
+ * count with the number of distinct products and aborts the transaction - the
+ * rows that DID update are rolled back with it.
+ */
+export const SI_DEDUCT_STOCK_BATCH_SQL = `WITH want AS (
+  SELECT product_id, SUM(quantity)::int AS quantity
+    FROM unnest($1::text[], $2::int[]) AS v(product_id, quantity)
+   GROUP BY product_id
+), deducted AS (
+  UPDATE inventory_stock s
+     SET quantity_on_hand = s.quantity_on_hand - w.quantity,
+         last_updated = CURRENT_TIMESTAMP
+    FROM want w
+   WHERE s.product_id = w.product_id
+     AND s.branch_id = $3
+     AND s.quantity_on_hand >= w.quantity
+  RETURNING s.product_id, s.quantity_on_hand, s.average_cost
+)
+SELECT product_id, quantity_on_hand, average_cost FROM deducted`;
+
 /** Restores stock when a sales invoice is cancelled/deleted. */
 export const SI_RESTORE_STOCK_SQL = `UPDATE inventory_stock
  SET quantity_on_hand = quantity_on_hand + $1, last_updated = CURRENT_TIMESTAMP

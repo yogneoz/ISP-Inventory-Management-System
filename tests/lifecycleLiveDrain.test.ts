@@ -157,6 +157,18 @@ interface BootedChild {
 }
 
 /** Boots the real entry against the throwaway database, in the deployment's own shape. */
+/** The developer's Redis instance, in a keyspace the lifecycle boots own. */
+function lifecycleRedisUrl(): string {
+  const raw = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+  try {
+    const url = new URL(raw);
+    url.pathname = '/15';
+    return url.toString();
+  } catch {
+    return raw;
+  }
+}
+
 function bootEntry(drainUrl: string, port: number): BootedChild {
   const url = new URL(drainUrl);
   const child = spawn(process.execPath, [tsxCli, path.join('server', 'index.ts')], {
@@ -178,6 +190,10 @@ function bootEntry(drainUrl: string, port: number): BootedChild {
       PORT: String(port),
       // The deployment's exact policy: no Vite middleware, exit-on-fatal on.
       NODE_ENV: 'production',
+      // Production refuses to boot without Redis. db 15 keeps this boot's
+      // rate-limit buckets and session fingerprints out of the dev server's
+      // keyspace and out of the other lifecycle suites'.
+      REDIS_URL: lifecycleRedisUrl(),
       SHUTDOWN_TIMEOUT_MS: String(DRAIN_BUDGET_MS),
     },
     stdio: ['ignore', 'pipe', 'pipe'],

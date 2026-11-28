@@ -79,7 +79,11 @@ function spawnProbe(mode: string, env: NodeJS.ProcessEnv): Probe {
     [tsxCli, path.join('tests', 'fixtures', 'lifecycleProbe.ts'), mode],
     {
       cwd: ROOT,
-      env: { ...process.env, ...env },
+      // The probe wires the lifecycle to a bare http server and never boots the
+      // real entry, so the production Redis requirement is inert here; the
+      // variable is named anyway so this child's environment matches the
+      // deployment the probe stands in for.
+      env: { ...process.env, REDIS_URL: process.env.REDIS_URL || 'redis://127.0.0.1:6379', ...env },
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
     }

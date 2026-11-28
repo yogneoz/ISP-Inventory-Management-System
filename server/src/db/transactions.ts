@@ -6,47 +6,59 @@
 import { pgPool } from '../../db';
 import { recordTransactionRetry } from './transactionMetrics';
 import { markRequestWrote } from './readRouting';
+import { discardAfterCommit, flushAfterCommit, runWithAfterCommit } from './afterCommit';
 
 /**
  * One attempt of the transaction runner. Extracted so the retry wrapper below
  * can replay the whole callback without changing what a single attempt does.
  */
 async function runTransactionOnce<T>(callback: (client: any) => Promise<T>): Promise<T> {
-  let client: any = null;
-  let inTransaction = false;
-  try {
-    client = await pgPool.connect();
-    if (client) {
-      // SCALE-3: an explicit transaction may write, and a read inside it must
-      // see the transaction's own work. Marking the request here (rather than
-      // trying to sniff every statement the callback sends) keeps every later
-      // replica-eligible read of this request on the primary.
-      markRequestWrote();
-      await client.query('BEGIN');
-      inTransaction = true;
-    }
-    const targetClient = client || pgPool;
-    const result = await callback(targetClient);
-    if (inTransaction && client) {
-      await client.query('COMMIT');
-    }
-    return result;
-  } catch (err) {
-    if (inTransaction && client) {
-      try {
-        await client.query('ROLLBACK');
-      } catch (rollbackErr) {
-        console.warn('Transaction rollback error:', rollbackErr);
+  // C1: one post-commit scope per ATTEMPT, so a replay after a deadlock starts
+  // with an empty queue instead of inheriting the aborted attempt's broadcasts.
+  return runWithAfterCommit(async () => {
+    let client: any = null;
+    let inTransaction = false;
+    try {
+      client = await pgPool.connect();
+      if (client) {
+        // SCALE-3: an explicit transaction may write, and a read inside it must
+        // see the transaction's own work. Marking the request here (rather than
+        // trying to sniff every statement the callback sends) keeps every later
+        // replica-eligible read of this request on the primary.
+        markRequestWrote();
+        await client.query('BEGIN');
+        inTransaction = true;
+      }
+      const targetClient = client || pgPool;
+      const result = await callback(targetClient);
+      if (inTransaction && client) {
+        await client.query('COMMIT');
+      }
+      // C1: only now is the change visible to every other reader - which is
+      // exactly what an SSE broadcast claims. Deferring this past COMMIT is the
+      // whole point of the queue; see ./afterCommit.ts.
+      flushAfterCommit();
+      return result;
+    } catch (err) {
+      // Nothing committed: no client may be told otherwise, and the audit
+      // mirror must not keep a row the database rolled back.
+      discardAfterCommit();
+      if (inTransaction && client) {
+        try {
+          await client.query('ROLLBACK');
+        } catch (rollbackErr) {
+          console.warn('Transaction rollback error:', rollbackErr);
+        }
+      }
+      throw err;
+    } finally {
+      if (client && typeof client.release === 'function') {
+        try {
+          client.release();
+        } catch (_e) {}
       }
     }
-    throw err;
-  } finally {
-    if (client && typeof client.release === 'function') {
-      try {
-        client.release();
-      } catch (_e) {}
-    }
-  }
+  });
 }
 
 /**

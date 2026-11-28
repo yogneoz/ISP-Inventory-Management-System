@@ -24,7 +24,7 @@ import {
   buildSalesInvoiceListSql, buildSalesInvoiceCountQuery, buildSalesInvoicePagedQuery,
   buildSalesInvoiceKeysetQuery,
   SI_INSERT_SQL, siInsertParams, SI_FIND_SQL, SI_EXISTS_SQL, ENSURE_SALES_INVOICE_PARTITION_SQL,
-  SI_DEDUCT_STOCK_SQL, SI_RESTORE_STOCK_SQL, SI_TXN_LOG_SQL, siTxnLogParams,
+  SI_DEDUCT_STOCK_BATCH_SQL, SI_RESTORE_STOCK_SQL, SI_TXN_LOG_SQL, siTxnLogParams,
   buildSalesReturnListSql, buildSalesReturnCountQuery, buildSalesReturnPagedQuery,
   buildSalesReturnKeysetQuery,
   SR_INSERT_SQL, srInsertParams, SR_EXISTS_SQL, SR_LOCK_INVOICE_SQL,
@@ -483,18 +483,52 @@ export async function post_salesInvoices(req: any, res: Response): Promise<any> 
         await claimInvoiceSerials(client, items, newInv, targetBranchId, invDate);
         await writeSellerCoveragePlan(client, sellerWarrantyPlan.captures);
         const cogs: Array<{ productId: string; quantity: number; unitCost: number }> = [];
+        // H5 (audit 2026-11-28): one guarded UPDATE for the whole invoice
+        // instead of one per line. See SI_DEDUCT_STOCK_BATCH_SQL.
+        const wantedByProduct = new Map<string, number>();
+        for (const item of items) {
+          const qty = Math.abs(Number(item.quantity)) || 0;
+          if (qty > 0) wantedByProduct.set(item.productId, (wantedByProduct.get(item.productId) || 0) + qty);
+        }
+        const wantedProductIds = Array.from(wantedByProduct.keys());
+        const deductedRes = wantedProductIds.length
+          ? await client.query(SI_DEDUCT_STOCK_BATCH_SQL, [
+              wantedProductIds,
+              wantedProductIds.map((productId) => wantedByProduct.get(productId)),
+              targetBranchId,
+            ])
+          : { rows: [] as any[] };
+        const balanceAfterByProduct = new Map<string, any>(
+          (deductedRes.rows as any[]).map((row) => [String(row.product_id), row])
+        );
+        if (balanceAfterByProduct.size !== wantedProductIds.length) {
+          // One product could not cover its total, so the whole invoice is
+          // refused and the transaction rolls back every deduction that did
+          // match. Name the first short product, as the per-line path did.
+          const missingProductId = wantedProductIds.find((productId) => !balanceAfterByProduct.has(productId))!;
+          const missingItem = items.find((item) => item.productId === missingProductId);
+          const missingQty = wantedByProduct.get(missingProductId) || 0;
+          throw new Error(
+            `Insufficient stock to sell ${missingQty} × ${missingItem?.productName || missingProductId} at branch ${targetBranchId}.`
+          );
+        }
+        // `quantity_on_hand` is the balance AFTER the whole invoice. Walking the
+        // lines in order and adding back what has not left yet recovers each
+        // line's true before/after pair, which matters when one product appears
+        // on more than one line.
+        const balanceBeforeLine = new Map<string, number>();
+        for (const productId of wantedProductIds) {
+          const after = Number(balanceAfterByProduct.get(productId)?.quantity_on_hand);
+          balanceBeforeLine.set(productId, (Number.isFinite(after) ? after : 0) + (wantedByProduct.get(productId) || 0));
+        }
         for (let itemIdx = 0; itemIdx < items.length; itemIdx++) {
           const item = items[itemIdx];
           const qty = Math.abs(Number(item.quantity)) || 0;
-          const deducted = await client.query(SI_DEDUCT_STOCK_SQL, [qty, item.productId, targetBranchId]);
-          if (deducted.rowCount !== 1) {
-            throw new Error(`Insufficient stock to sell ${qty} × ${item.productName || item.productId} at branch ${targetBranchId}.`);
+          const stockBefore = qty > 0 ? balanceBeforeLine.get(item.productId) : undefined;
+          if (qty > 0 && stockBefore !== undefined) {
+            balanceBeforeLine.set(item.productId, stockBefore - qty);
           }
-          // Real ledger balance: the guarded UPDATE RETURNING gives the
-          // post-deduction QOH, so before = after + qty.
-          const after = Number(deducted.rows?.[0]?.quantity_on_hand);
-          const stockBefore = Number.isFinite(after) ? after + qty : undefined;
-          const averageCost = Number(deducted.rows?.[0]?.average_cost);
+          const averageCost = Number(balanceAfterByProduct.get(item.productId)?.average_cost);
           const issueCost =
             Number.isFinite(averageCost) && averageCost > 0
               ? averageCost

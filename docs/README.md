@@ -8,7 +8,8 @@ the rest of this folder is dated evidence unless listed under **Current**.
 
 | Document | What it is |
 |---|---|
-| [audit-2026-11-15.md](audit-2026-11-15.md) | The readiness audit. The only current audit; it supersedes the 2026-11-04 report. |
+| [audit-2026-11-28.md](audit-2026-11-28.md) | The current reliability audit: transaction edges, lock coverage, schema constraints, cache fan-out, with the corrections applied. Supersedes the 2026-11-15 report. |
+| [audit-2026-11-15.md](audit-2026-11-15.md) | The readiness audit that preceded it; still the record for the payload and hydration work. |
 | [architecture-backlog.md](architecture-backlog.md) | Open architectural decisions and the reasons they are parked. |
 | [database-optimization-audit-2026-11-17.md](database-optimization-audit-2026-11-17.md) | Current database audit: what is optimised, what each remaining suggestion costs, and the trigger that reopens it. |
 | [tasks/](tasks/README.md) | The seven initiative notes; all **Done** as of 2026-11-11. |

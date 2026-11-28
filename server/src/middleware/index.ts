@@ -5,6 +5,7 @@ import { pgPool, realPoolInstance, ensurePostgresConnection, getIsPgConnected } 
 import { dbBreaker } from '../observability/dbBreaker';
 import { branches, users, permissionMatrix, userPermissionOverrides, userPermissionSetGrants, fiscalYears, logAuditEvent, getPgConnected } from '../app';
 import { evaluateFiscalYearWriteGate } from './fiscalWriteGate';
+import { runWithClosedFiscalYearOverride } from '../state/fiscalWriteOverride';
 import { effectivePermission } from '../services/permissionOverrides.service';
 import { getUserFromReq, sessionStillValid, verifyAuthToken } from './auth';
 import { isRedisSharedState } from '../state/sharedStore';
@@ -135,7 +136,11 @@ export async function enforceFiscalYearWriteAccess(req: any, res: any, next: any
   if (audit && typeof (audit as any).then === 'function') {
     await (audit as any).catch(() => undefined);
   }
-  return next();
+  // The posting path refuses a closed year on its own, because an outbox flush
+  // or a service-to-service posting never reaches this middleware. The
+  // authorized override therefore has to travel with the rest of the request
+  // rather than be implied by having got this far.
+  return runWithClosedFiscalYearOverride(verdict.reason, () => next());
 }
 
 /**

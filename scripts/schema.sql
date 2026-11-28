@@ -302,6 +302,31 @@ CREATE TABLE IF NOT EXISTS inventory_stock (
     CONSTRAINT unique_product_branch UNIQUE (product_id, branch_id)
 );
 
+-- H6 (audit 2026-11-28): stock can never be negative. The write paths all
+-- carry `WHERE quantity_on_hand >= qty`, but nothing guarded the table against
+-- a manual UPDATE, a restore or a future writer. Same two blocks as
+-- scripts/migrations/0063_inventory_stock_nonnegative.sql, so a fresh install
+-- and an upgraded one converge on one constraint (validated on the fresh path,
+-- where the table is empty).
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conname = 'inventory_stock_qoh_nonnegative'
+       AND conrelid = 'inventory_stock'::regclass
+  ) THEN
+    ALTER TABLE inventory_stock
+      ADD CONSTRAINT inventory_stock_qoh_nonnegative CHECK (quantity_on_hand >= 0) NOT VALID;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  ALTER TABLE inventory_stock VALIDATE CONSTRAINT inventory_stock_qoh_nonnegative;
+EXCEPTION WHEN check_violation THEN
+  RAISE WARNING 'inventory_stock_qoh_nonnegative stays NOT VALID: existing rows hold a negative quantity_on_hand.';
+END $$;
+
 -- ==========================================
 -- 7b. Damage Records Table (tracks damage lifecycle: identified -> disposed/written-off)
 -- ==========================================

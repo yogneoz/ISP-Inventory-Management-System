@@ -19,7 +19,7 @@ import { PERMISSION_MATRIX_SELECT_SQL, rowsToPermissionMatrix } from '../models/
 import { fetchBootstrapFirstPaint, fetchBootstrapSlice } from '../models/bootstrap.repo';
 import { BOOTSTRAP_TABLES } from '../models/columnMappings';
 import { fetchFinancialSummaryFromDb } from '../services/financialSummary.service';
-import { getPgConnected, fetchFiscalYears, pgPool, pickCurrentFiscalYear, selectBootstrapFiscalYear, toCalendarDate, fetchOperationalData, fetchOpeningStock, products, approvalRequests, branches, fiscalYears, suppliers, users, categories, companyProfile, getDataVersion, assetRegister, auditTrail, locationRecords, getUserFromReq, permissionMatrix, userPermissionOverrides, userPermissionSetGrants } from '../app';
+import { getPgConnected, fetchFiscalYears, pgPool, pickCurrentFiscalYear, selectBootstrapFiscalYear, toCalendarDate, fetchOperationalData, fetchOpeningStock, products, approvalRequests, branches, fiscalYears, suppliers, users, categories, companyProfile, getDataVersion, assetRegister, locationRecords, getUserFromReq, permissionMatrix, userPermissionOverrides, userPermissionSetGrants } from '../app';
 import { classifyDbFailure, noteDbFailure } from '../../db';
 import { dbBreaker } from '../observability/dbBreaker';
 import { ApiError } from '../errors/ApiError';
@@ -480,6 +480,13 @@ export async function get_bootstrapLocal(req: any, res: Response): Promise<any> 
     }
 
     // Last resort: the operational cache mirrors (covers unmapped keys).
+    // H1 (audit 2026-11-28): `auditLogs` was listed here and `auditTrail` is
+    // NOT a hydrating cache - OPS-3 took the audit trail off the boot fan-out -
+    // so the key would have answered `[]`, which the client stores as "the
+    // audit trail is empty", instead of the 503 above. It is removed rather
+    // than left as a trap. `assets` deliberately stays: it is pinned by
+    // tests/fixedAssetsOffBootstrap.test.ts as the compatibility answer an
+    // older client bundle still gets, and the live slice read runs first.
     const cacheSlices: Record<string, unknown> = {
       categories,
       companyProfile,
@@ -491,7 +498,6 @@ export async function get_bootstrapLocal(req: any, res: Response): Promise<any> 
       fiscalYears,
       approvalRequests,
       assets: assetRegister,
-      auditLogs: auditTrail,
     };
     return res.json({
       dataVersion: getDataVersion(),

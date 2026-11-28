@@ -230,7 +230,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 2944 tests; CI runs
+                                        #   drift/concurrency guards — 2950 tests; CI runs
                                         #   tsc + npm test + the source guards + the
                                         #   production build + the boot-timing gate +
                                         #   npm audit on every push/PR
@@ -1315,11 +1315,13 @@ process keeps serving, because `tsx watch` does not restart a crashed child.
 
 #### Horizontal workers and shared state (SCALE-1)
 
-`ecosystem.config.js` now runs `instances: 'max'` with `exec_mode: 'cluster'`. A clustered
-production process **requires** `REDIS_URL` or `REDIS_TLS_URL`; `assertSharedStateForWorkers`
-refuses to boot without it, so a deployment cannot silently get N independent security
-controls. `server/src/state/sharedStore.ts` owns the Redis command/subscriber clients and
-exposes the same contract to the in-memory single-worker fallback.
+`ecosystem.config.js` now runs `instances: 'max'` with `exec_mode: 'cluster'`. Any
+`NODE_ENV=production` process — clustered or a single worker — **requires** `REDIS_URL` or
+`REDIS_TLS_URL`; `assertSharedStateForWorkers` refuses to boot without it and
+`initializeSharedState` refuses to serve when the named server cannot be reached, so a deployment
+can neither silently get N independent security controls nor fall back to per-process state.
+`server/src/state/sharedStore.ts` owns the Redis command/subscriber clients; the in-memory store
+belongs to a dev server and the unit tests.
 
 The login/forgot-password limits and the SSE stream cap use one Redis sorted-set bucket per
 key, so a budget consumed on worker A is enforced on B; Redis outage fails closed with `503
@@ -1541,7 +1543,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 2944 tests against a real PostgreSQL 18 service container
+2. `npm test` — 2950 tests against a real PostgreSQL 18 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM

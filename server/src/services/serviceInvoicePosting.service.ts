@@ -2,7 +2,7 @@
  * Ledger posting for a partner-sourced service invoice.
  *
  * Why this is not `postSalesInvoiceLedger`: a subscription package has no stock
- * behind it. The sales path runs `SI_DEDUCT_STOCK_SQL` for every line and
+ * behind it. The sales path runs `SI_DEDUCT_STOCK_BATCH_SQL` once per invoice and
  * refuses the document when the stock is absent, so a service sale cannot ride
  * it without inventing inventory. This posting therefore carries exactly three
  * legs — debit AR control (customer subledger), credit service revenue, credit

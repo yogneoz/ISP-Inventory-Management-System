@@ -45,11 +45,11 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 - **Canonical URL Routing**: every workspace screen has a stable path (`/sales/invoices`, `/settings/users`, `/inventory/assets/assign`, …). Refresh, bookmark and share a screen directly, and use Browser Back/Forward; the path is only a request and the same RBAC guard still decides whether the screen may render. Older `?tab=<id>` links redirect in place, preserving the Users access filters.
 - **Real-Time Multi-User Sync with Targeted Refresh**: Server-Sent Events (SSE) broadcast every mutation tagged with the client-state domain it invalidates. Clients re-fetch **only that domain's slice** (`GET /api/bootstrap/local?key=...`) instead of re-downloading the whole bootstrap; unknown events fall back to a full atomic bootstrap resync.
 - **Automated PostgreSQL Setup**: Built-in automated shell and Node.js setup scripts (`npm run setup:pg`) that can install, configure PostgreSQL, migrate all **153 relational database tables**, and optionally seed a linked demo dataset.
-- **Pooled, warm write path with a Redis read-through (SCALE-3)**: boot opens all `PG_POOL_MAX` connections and pins the pool's `min`, so a first concurrent burst no longer pays TCP + SCRAM + session setup inside its measured window; behind PgBouncer in `pool_mode=transaction` the same writes measure **C=50: 373.0 ms cold vs 215.2 ms warm median, C=100: 708.2 ms vs 467.6 ms**, every burst fully committed and no response carrying a cache-refresh phase. Small catalog reads (`GET /api/locations`) are served from Redis through a version-keyed read-through with a code-enforced TTL (`CATALOG_CACHE_TTL_MS`, default 5 s) and a version bump after each committed write, so a repeat read costs **zero** PostgreSQL round trips while the row a write just committed is visible to the very next read on that worker. Without `REDIS_URL` the read goes straight to PostgreSQL. `npm run verify:catalog-roundtrips` counts the round trips at the pooler instead of asserting them, `npm run verify:redis-invalidation` proves the cross-worker path across two OS processes, and `npm run bench:write -- --arm before|after|both` prints both benchmark columns from the checked-in harness.
+- **Pooled, warm write path with a Redis read-through (SCALE-3)**: boot opens all `PG_POOL_MAX` connections and pins the pool's `min`, so a first concurrent burst no longer pays TCP + SCRAM + session setup inside its measured window; behind PgBouncer in `pool_mode=transaction` the same writes measure **C=50: 373.0 ms cold vs 215.2 ms warm median, C=100: 708.2 ms vs 467.6 ms**, every burst fully committed and no response carrying a cache-refresh phase. Small catalog reads (`GET /api/locations`) are served from Redis through a version-keyed read-through with a code-enforced TTL (`CATALOG_CACHE_TTL_MS`, default 5 s) and a version bump after each committed write, so a repeat read costs **zero** PostgreSQL round trips while the row a write just committed is visible to the very next read on that worker. A production boot always has `REDIS_URL` (and refuses to start without it); a dev/test process without it reads straight from PostgreSQL. `npm run verify:catalog-roundtrips` counts the round trips at the pooler instead of asserting them, `npm run verify:redis-invalidation` proves the cross-worker path across two OS processes, and `npm run bench:write -- --arm before|after|both` prints both benchmark columns from the checked-in harness.
 - **Hardened HTTP Surface**:
   - **helmet security headers** on every response (CSP, nosniff, frame protection, cross-origin policies) — configured LAN-safe (no HSTS/`upgrade-insecure-requests` on plain HTTP; re-enable behind a TLS proxy).
   - **Authenticated SSE**: `/api/sync/stream` and `/api/sync/version` require the app's HMAC token via `Authorization: Bearer` header or `?token=` query parameter (EventSource cannot send headers; the client attaches the stored token automatically). Rejections happen before any stream handshake.
-  - **Login rate limiting**: sliding-window limiter with per-IP and global per-account (failure-only) buckets — 429 + `Retry-After` after `AUTH_RATE_LIMIT_MAX` failures per account (default 4 / 1 min) or `AUTH_RATE_LIMIT_IP_MAX` attempts per address (default 10 / 1 min). Every admission reports `X-Auth-Attempts-Remaining`, so the sign-in screen warns before the cutoff and counts a block down; an `admin-users` account can list and release blocks immediately (`GET /api/auth/rate-limit`, `POST /api/auth/rate-limit/release`) — the buckets are process-local, so only the running server can lift one.
+  - **Login rate limiting**: sliding-window limiter with per-IP and global per-account (failure-only) buckets — 429 + `Retry-After` after `AUTH_RATE_LIMIT_MAX` failures per account (default 4 / 1 min) or `AUTH_RATE_LIMIT_IP_MAX` attempts per address (default 10 / 1 min). Every admission reports `X-Auth-Attempts-Remaining`, so the sign-in screen warns before the cutoff and counts a block down; an `admin-users` account can list and release blocks immediately (`GET /api/auth/rate-limit`, `POST /api/auth/rate-limit/release`) — the buckets live in Redis, so any worker can lift one.
   - **SSE connection cap**: at most `SSE_MAX_CONNECTIONS_PER_IP` (default 6) concurrent streams per address, with slots freed on disconnect — even valid credentials cannot exhaust sockets.
   - **JSON body limit**: `JSON_BODY_LIMIT` (default 1mb) enforced with a proper 413 response.
 
@@ -149,10 +149,10 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 | **Node.js** | `v24.x` LTS (minimum `v22.x`) | [nodejs.org](https://nodejs.org/); the server, build and tests all run on the same version |
 | **npm** | `v10+` | Bundled with Node.js; the lockfile is committed, use `npm ci` on CI/production |
 | **PostgreSQL** | `v14+` (tested on 18) | Required — there is no in-memory or file fallback. `npm run setup:pg` can install and bootstrap it |
-| **Redis** | `v5+` recommended | Optional, needed for more than one app instance: shared sessions, rate limits, locks, SSE fan-out, cross-worker invalidation and the catalog read-through. Older builds that lack `ZPOPMAX` still work — `rateRevoke` falls back to `ZREVRANGE` + `ZREM` |
+| **Redis** | **`v5+` required** | A production boot refuses to start without it, at any worker count: shared sessions, rate limits, locks, SSE fan-out, cross-worker invalidation and the catalog read-through all live here. Step 3 installs it and `npm run check:redis` proves it answers. Older builds that lack `ZPOPMAX` still work — `rateRevoke` falls back to `ZREVRANGE` + `ZREM` |
 | **PgBouncer** | `1.24+` | Optional, `pool_mode=transaction` in front of PostgreSQL; the schema/seed job, warm pool, cache hydration and Redis subscriber all run through it unchanged |
-| **RAM / disk** | 2 GB+ free RAM, 2 GB+ free disk | The dev server, PostgreSQL and an optional Redis fit comfortably in 2 GB; the build needs ~1 GB transient |
-| **Network ports** | `3000` (app), `5432` (PostgreSQL), `6379` (Redis, optional), `6432`/`56440` (PgBouncer, optional) | Nothing else is required inbound; the app serves HTTP on `PORT` |
+| **RAM / disk** | 2 GB+ free RAM, 2 GB+ free disk | The dev server, PostgreSQL and Redis fit comfortably in 2 GB; the build needs ~1 GB transient |
+| **Network ports** | `3000` (app), `5432` (PostgreSQL), `6379` (Redis), `6432`/`56440` (PgBouncer, optional) | Nothing else is required inbound; the app serves HTTP on `PORT` |
 
 **Git**: installed and configured (the setup scripts, backups and the verification suites are driven from the repo).
 
@@ -197,11 +197,11 @@ PG_POOL_MAX=40
 PG_STATEMENT_TIMEOUT_MS=30000            # 0 disables; a runaway statement becomes a typed 503
 PG_WARM_POOL=1                          # 0 boots a deliberately cold pool (benchmark `before` arm)
 
-# Optional shared state (required for more than one app instance).
-# Without it the server keeps sessions, rate limits, locks and SSE fan-out in-process,
-# and catalog reads go straight to PostgreSQL instead of through the read-through cache.
-# REDIS_URL=redis://127.0.0.1:6379
-# CATALOG_CACHE_TTL_MS=5000             # staleness bound for catalog read-through entries
+# Redis - required. A production boot refuses to start without it; only the dev
+# server and the unit tests use the in-process store. Step 3 installs it and
+# `npm run check:redis` proves it answers.
+REDIS_URL=redis://127.0.0.1:6379
+CATALOG_CACHE_TTL_MS=5000                # staleness bound for catalog read-through entries
 
 # Security (AUTH_TOKEN_SECRET is REQUIRED in production — the server refuses to
 # start with a missing, template or <32-character value; dev/test fall back to an
@@ -216,7 +216,46 @@ SSE_MAX_CONNECTIONS_PER_IP=6             # concurrent SSE streams per address
 
 ---
 
-### Step 3: Database Setup & Migration (PostgreSQL)
+### Step 3: Redis (required)
+
+Every production start - one worker or many - refuses to boot without a reachable Redis, and there
+is no in-memory fallback to switch off. The dev server and the unit tests are the only processes that
+run on the in-process store; a deployment must not, because login and API-key limits, session
+revocation, boot leader election, SSE fan-out, cross-worker cache invalidation and the catalog
+read-through all live in Redis (`assertSharedStateForWorkers` and `initializeSharedState` in
+`server/src/state/sharedStore.ts`).
+
+```bash
+# Linux (Ubuntu/Debian)
+apt install redis-server
+systemctl enable --now redis-server
+
+# Windows: run the installed Redis service (Memurai or the Microsoft Redis port),
+# or a container: docker run -d --name erp-redis -p 127.0.0.1:6379:6379 redis:7-alpine
+```
+
+`REDIS_URL` is already in the `.env` from Step 2 (`redis://127.0.0.1:6379`; use `REDIS_TLS_URL` for
+a managed TLS endpoint). Prove it before starting anything:
+
+```bash
+npm run check:redis
+# OK Redis 7.0.15 at redis://127.0.0.1:6379 - PING PONG in 1.2 ms, read/write round trip ok, db 0.
+npm run verify:redis-invalidation     # two OS processes: a write on A refreshes B
+```
+
+A missing or unreachable Redis is a **boot failure with the reason on stderr**, not a degraded start:
+`NODE_ENV=production requires Redis: set REDIS_URL (or REDIS_TLS_URL) ...`, or `Redis is required but
+redis://... could not be reached`. Bind Redis to loopback (or a private interface) and leave
+`protected-mode` on: it holds session fingerprints and rate-limit buckets.
+
+**What lives in Redis:** the login/forgot-password limits and the SSE stream cap (fail closed with
+`503 SHARED_STATE_UNAVAILABLE` if the store errors), session fingerprints at `session:ver:<userId>`,
+the boot schema/seed leader lock, SSE fan-out on `isp:sse:changes`, cross-worker reference-cache
+invalidation and the catalog read-through.
+
+---
+
+### Step 4: Database Setup & Migration (PostgreSQL)
 
 Run the built-in automatic database setup engine. `setup:pg` is destructive:
 it refuses unless `--force` is supplied and a verified backup exists that is
@@ -251,23 +290,10 @@ The application requires PostgreSQL to be available. It does not use local file 
 
 ---
 
-### Step 3b: Optional — Redis and PgBouncer (multi-instance or high-concurrency)
+### Step 4b: Optional — PgBouncer (high-concurrency writes)
 
-The server runs on PostgreSQL alone. Add these two only when you need more than one app instance or the pooled
-write path; nothing in the schema, the boot job or the request path has to change.
-
-**Redis** — shared sessions, login rate-limit buckets, advisory locks, SSE fan-out, cross-worker cache
-invalidation and the small-catalog read-through:
-
-```bash
-# Windows: run the installed Redis service, or `redis-server` from the Redis port
-# Linux:  sudo apt install redis-server && sudo systemctl enable --now redis-server
-redis-cli ping                       # PONG
-```
-
-Then set `REDIS_URL=redis://127.0.0.1:6379` in `.env`. Boot logs
-`Shared state connected (Redis)`; without it the server logs the in-process fallback and stays single-instance
-correct.
+Add this only for the pooled write path; nothing in the schema, the boot job or the request path has
+to change. (Redis is not optional - it is Step 3.)
 
 **PgBouncer** in `pool_mode=transaction` in front of PostgreSQL (as `DATABASE_URL`):
 
@@ -289,7 +315,6 @@ Point `DATABASE_URL` at the pooler, then prove it before trusting it:
 
 ```bash
 npm run verify:pgbouncer              # 5/5 transaction-mode scenarios
-npm run verify:redis-invalidation     # two OS processes: a write on A refreshes B
 npm run verify:catalog-roundtrips     # counts PostgreSQL round trips at the pooler
 ```
 
@@ -298,7 +323,7 @@ Boot warms the pool (`Database pool warmed: 40 connection(s) ready.`) and raises
 
 ---
 
-### Step 4: Run Development Server
+### Step 5: Run Development Server
 
 ```bash
 npm run dev
@@ -519,11 +544,13 @@ sudo env PATH=$PATH:/usr/bin /usr/lib/node_modules/pm2/bin/pm2 startup systemd -
 
 ### Horizontal workers and shared state
 
-`ecosystem.config.js` runs **`instances: 'max'` with `exec_mode: 'cluster'`**. A clustered
-production boot now requires `REDIS_URL` (or `REDIS_TLS_URL`); the server refuses to start a
-worker without it instead of silently multiplying limits and revocations.
+`ecosystem.config.js` runs **`instances: 'max'` with `exec_mode: 'cluster'`**. Any
+`NODE_ENV=production` start - clustered or a single worker - requires `REDIS_URL` (or
+`REDIS_TLS_URL`): `assertSharedStateForWorkers` refuses to boot without it, and
+`initializeSharedState` refuses to serve when the named server cannot be reached. There is no
+in-memory fallback to disable; only the dev server and the unit tests use the in-process store.
 
-Install/configure Redis before starting the cluster (`sudo systemctl enable --now redis-server`), bind it to a private interface, and set `REDIS_URL` (or `REDIS_TLS_URL`) in the service environment. A clustered production boot refuses to start without it.
+Install/configure Redis before starting the cluster (Step 3; `systemctl enable --now redis-server`), bind it to a private interface, and set `REDIS_URL` (or `REDIS_TLS_URL`) in the service environment. Run `npm run check:redis` on that host first: it PINGs the configured server, prints its version and proves a read/write round trip.
 
 What moved to Redis in SCALE-1:
 
@@ -616,6 +643,7 @@ docker run -d \
 | Action | Command |
 | :--- | :--- |
 | **Development Server** | `npm run dev` |
+| **Redis Preflight** *(required before a production boot: PING, version, read/write round trip)* | `npm run check:redis` |
 | **Type Check & Lint** | `npm run lint` |
 | **Unit Tests** | `npm test` |
 | **Repo-Layer Guard (no SQL in controllers)** | `npm run check:no-inline-sql` |
@@ -760,8 +788,8 @@ read-through on the same configuration (`server/src/state/catalogCache.ts`): a
 version key plus the payload, `CATALOG_CACHE_TTL_MS` (default 5000 ms) as the
 enforced staleness bound, and an `INCR` of the version after a write commits and
 before the response — so the next read on the writing worker misses, and every
-other worker sees the new version at once. Without `REDIS_URL` the read goes
-straight to PostgreSQL. The customer CSV export (`all=1`) is deliberately an explicit,
+other worker sees the new version at once. A production boot always has Redis; a
+dev/test process without `REDIS_URL` reads straight from PostgreSQL. The customer CSV export (`all=1`) is deliberately an explicit,
 single-request path, not a login/bootstrap path.
 
 ### Warranty coverage endpoints
@@ -849,6 +877,19 @@ operational-data query as the full bootstrap. Unknown domains, mixed event
 bursts, and slice-fetch failures fall back to the full bootstrap, so the UI can
 never be left stale.
 
+Two rules make that contract true rather than approximately true
+(`docs/audit-2026-11-28.md`, C1 and H3):
+
+- **An event is only published after its transaction commits.**
+  `server/src/db/afterCommit.ts` keeps a request-scoped queue
+  (`AsyncLocalStorage`), `withTransaction` drains it after `COMMIT` and discards
+  it on any error, and `logAuditEvent` registers its broadcasts and its audit
+  mirror through it. A slice refresh therefore always reads a database that
+  already contains the change, and a rolled-back write announces nothing.
+- **`dataVersion` strictly increases.** It is `Math.max(now, previous + 1)`, not
+  a bare `Date.now()`, because the client refreshes only on a *greater* version:
+  two mutations in the same millisecond used to produce one refresh.
+
 The mapping is pinned by unit tests (`tests/syncDomains.test.ts`): a new audit
 module without a domain mapping fails the suite instead of silently degrading
 to full-bootstrap refreshes.
@@ -930,6 +971,25 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   which mirrors are load-bearing guards vs. pure caches vs. vestigial, and the
   safe order for retiring them — is documented in
   [`docs/mirror-audit.md`](docs/mirror-audit.md).
+- **Post-commit side effects**: a transaction's external effects (SSE
+  broadcasts, the in-process audit mirror) are queued in
+  `server/src/db/afterCommit.ts` and run only after `COMMIT`; a rollback
+  discards them. `withTransaction` opens one queue per attempt, so a deadlock
+  replay cannot re-announce work the aborted attempt never committed.
+- **Permission caches fan out like the reference caches**: the matrix, the
+  per-user overrides and the permission-set grants announce their writes on the
+  shared bus under the reserved cache name `permissions`
+  (`server/src/state/cacheInvalidation.ts`), and every worker re-reads all three
+  tables together. Without this, `requirePermission` enforced whichever worker
+  the load balancer happened to pick.
+- **Stock reads fail closed**: `GET /api/stock` answers `503 DB_UNAVAILABLE` when
+  the live read fails on a PostgreSQL-connected server instead of serving the
+  boot-time projection, because the gates downstream decide on those numbers.
+  The mirror is the register only in demo mode.
+- **Stock cannot go negative at the database level**: `inventory_stock` carries
+  `CHECK (quantity_on_hand >= 0)` (`inventory_stock_qoh_nonnegative`, migration
+  `0063`), so a path that forgets its own `WHERE … >= qty` guard is refused
+  rather than silently writing `-1`.
 - **Port binding**: `PORT` is validated as a positive integer; ambient
   `PORT=0` or empty values fall back to 3000 instead of binding an ephemeral
   port.
@@ -943,10 +1003,10 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 2944-test suite against a PostgreSQL 18 service container (zero DB skips;
-  the two unconditional skips are Windows-only real-signal checks, which CI runs,
-  and the live-drain check runs under `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1` so its
-  preconditions cannot silently skip it) →
+  full 2950-test suite against PostgreSQL 18 **and Redis 7** service containers
+  (zero DB or Redis skips; the two unconditional skips are Windows-only
+  real-signal checks, which CI runs, and the live-drain check runs under
+  `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1` so its preconditions cannot silently skip it) →
   no-inline-SQL guard → no-raw-dialogs guard → production build (`vite build` +
   server bundle) → startup bundle-size budget → production boot-timing gate
   (headless Chrome: the splash must cover the lazy fallback and shell spinner on a

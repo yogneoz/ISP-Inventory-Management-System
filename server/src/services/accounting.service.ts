@@ -20,6 +20,7 @@ import { ApiError } from '../errors/ApiError';
 import { bsDateOrThrow } from '../utils/bsDate';
 import { issueNextDocNumber } from '../utils/docNumber';
 import { roundMoney } from '../utils/money';
+import { closedFiscalYearOverrideReason } from '../state/fiscalWriteOverride';
 import {
   ACCOUNT_KINDS,
   ACCOUNT_TYPES,
@@ -315,6 +316,18 @@ async function fiscalYearForDate(client: AccountingClient, date: string): Promis
  */
 async function ensureOpenPeriod(client: AccountingClient, date: string): Promise<any> {
   const fiscalYear = await fiscalYearForDate(client, date);
+  // The year's row was shared-locked by the read above, so this is the
+  // committed flag, not a cache: a close either waits for this posting or has
+  // already flipped the flag before the posting started. A closed year refuses
+  // every posting that is not individually authorized, and the fiscal-year HTTP
+  // gate is not the only entry point (an outbox flush posts straight into this
+  // function), so the refusal cannot live in the route alone.
+  if (fiscalYear.isClosed === true && !closedFiscalYearOverrideReason()) {
+    throw new ApiError(
+      409,
+      `Fiscal year ${fiscalYear.code} is closed; nothing can be posted into it. A Super Admin may post an audited adjustment with a written reason.`
+    );
+  }
   const { periodKey, startDateAD, endDateAD } = periodBounds(periodKeyForDate(date));
   let period = (await client.query(PERIOD_BY_KEY_SQL, [fiscalYear.id, periodKey])).rows[0];
   if (!period) {

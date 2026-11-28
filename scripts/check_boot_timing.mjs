@@ -299,6 +299,8 @@ async function startProductionServer() {
     env: {
       ...process.env,
       NODE_ENV: 'production',
+      // The boot guard refuses a production start without Redis.
+      REDIS_URL: process.env.REDIS_URL || 'redis://127.0.0.1:6379',
       PORT: String(port),
       AUTH_TOKEN_SECRET: secret,
     },
@@ -314,6 +316,20 @@ async function startProductionServer() {
   });
   const baseUrl = `http://127.0.0.1:${port}`;
   await waitForHttp(`${baseUrl}/api/auth/setup-status`, 25000);
+  // This server is a NODE_ENV=production boot with REDIS_URL supplied, so the
+  // shared-state connection is a boot precondition — prove it happened in the
+  // output instead of treating a ready HTTP port as proof of the whole boot.
+  const sharedStateLine = serverLog
+    .split('\n')
+    .find((line) => line.includes('Shared state connected (Redis)'));
+  if (!sharedStateLine) {
+    throw new Error(
+      'the production server never logged "Shared state connected (Redis)" — it did not use the REDIS_URL this ' +
+        'harness supplied.\n' +
+        serverLog.trim().split('\n').slice(-20).join('\n')
+    );
+  }
+  log(`production boot used shared state: ${sharedStateLine.trim()}`);
   return baseUrl;
 }
 

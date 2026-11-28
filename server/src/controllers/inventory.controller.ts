@@ -211,10 +211,23 @@ const { branchId } = req.query;
       const r = await pgPool.query(sql, params);
       res.json(r.rows);
       return;
-    } catch (err) {
+    } catch (err: any) {
+      // H2 (audit 2026-11-28): this used to fall through to the in-memory
+      // `inventoryStock` mirror and answer 200 with it. On a PG-connected
+      // server that mirror is a boot-time projection that is never re-read, so
+      // a transient database error silently answered with stale quantities -
+      // and the sale/dispatch gates downstream decide on those numbers. A
+      // wrong balance is worse than a retry: fail closed.
       console.error('Error fetching stock from DB:', err);
+      res.status(503).json({
+        code: 'DB_UNAVAILABLE',
+        message:
+          'Stock could not be read from PostgreSQL. Retry shortly; the quantities on screen are unchanged.',
+      });
+      return;
     }
   }
+  // Demo mode (no PostgreSQL): the mirror IS the register.
   if (branchId && branchId !== 'ALL') {
     res.json(inventoryStock.filter((s) => s.branchId === branchId));
     return;

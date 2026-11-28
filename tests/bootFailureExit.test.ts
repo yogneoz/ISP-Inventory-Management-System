@@ -95,6 +95,10 @@ function bootWithUnreachableDatabase(): Promise<BootAttempt> {
       PORT: '5199',
       // Production: no Vite middleware branch — this test only needs the boot.
       NODE_ENV: 'production',
+      // A production boot refuses to start without Redis, and the failure under
+      // assertion is PostgreSQL's, so the shared-state phase must connect first
+      // (db 15: no keys shared with a dev server).
+      REDIS_URL: process.env.REDIS_URL || 'redis://127.0.0.1:6379/15',
       // The D1/D2 auth-secret guard runs before the database phase this test is
       // about, so it needs a usable secret or it would exit ahead of the
       // PostgreSQL failure under assertion. The missing/placeholder cases are

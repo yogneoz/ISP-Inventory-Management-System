@@ -7,8 +7,10 @@
  *
  * REDIS_URL / REDIS_TLS_URL select the Redis backend. With neither set the
  * server runs the same code against an in-memory store, which is correct only
- * for one worker; `assertSharedStateForWorkers` refuses a clustered production
- * boot without Redis, so the fallback cannot silently multiply security limits.
+ * for one process — a dev server or a unit test. `assertSharedStateForWorkers`
+ * refuses ANY production boot without Redis (not just a clustered one), and
+ * `initializeSharedState` throws when the named server cannot be reached, so a
+ * deployed install can never silently run on per-process state.
  *
  * Fail modes are explicit at the call sites:
  *   - auth / API-key limits and session revocation fail closed (503);
@@ -375,13 +377,33 @@ export async function initializeSharedState(env: NodeJS.ProcessEnv = process.env
 }
 
 /**
- * A clustered production process without Redis would silently multiply every
- * security limit and diverge session revocation. Refuse to boot instead.
+ * Redis is a deployment requirement, not an optimisation.
+ *
+ * Every production start — one worker or many — must name a Redis server. The
+ * in-memory store is what a dev server and the unit tests use; it must never be
+ * what a deployed install silently runs on, because auth and API-key limits,
+ * session revocation, boot leader election, SSE fan-out, cross-worker cache
+ * invalidation and the catalog read-through all live in Redis, and none of them
+ * degrades safely to a per-process copy of itself.
+ *
+ * Absence is refused here; unreachability is refused by `initializeSharedState`,
+ * which throws `SharedStateUnavailableError` when the named server answers no
+ * connection. Both run before the listener accepts a request
+ * (server/index.ts:101), so a misconfigured production boot exits instead of
+ * serving without the state it promised.
  */
 export function assertSharedStateForWorkers(env: NodeJS.ProcessEnv = process.env): void {
-  const clustered = env.NODE_APP_INSTANCE !== undefined || Number(env.WEB_CONCURRENCY || 0) > 1;
   const hasUrl = Boolean(env.REDIS_URL || env.REDIS_TLS_URL);
-  if (clustered && !hasUrl) {
+  if (hasUrl) return;
+  if (env.NODE_ENV === 'production') {
+    throw new Error(
+      'NODE_ENV=production requires Redis: set REDIS_URL (or REDIS_TLS_URL). ' +
+        'Auth/API-key rate limits, session revocation, boot leader election and SSE fan-out live in Redis, ' +
+        'and a production build has no in-process fallback. Run `npm run check:redis` to verify the server first.'
+    );
+  }
+  const clustered = env.NODE_APP_INSTANCE !== undefined || Number(env.WEB_CONCURRENCY || 0) > 1;
+  if (clustered) {
     throw new Error(
       'This process is running as one of several workers but REDIS_URL/REDIS_TLS_URL is not set. ' +
         'Auth rate limits, session revocation and SSE fan-out would be per-worker. Set REDIS_URL or run one worker.'

@@ -7,6 +7,14 @@
  * module with no imports so `runtimeState` does not have to import the shared
  * store — which would close a cycle back through `CACHE_LOADS` and the pool.
  */
+/**
+ * The permission caches are not `CACHE_LOADS` entries (they are three tables
+ * folded into a matrix plus two maps), but they are exactly as worker-local as
+ * the reference caches and need the same fan-out. One reserved name keeps the
+ * bus, the publisher and the reloader on a single vocabulary.
+ */
+export const PERMISSIONS_CACHE_NAME = 'permissions';
+
 export type ReferenceCacheWriteHook = (name: string) => void;
 
 let hook: ReferenceCacheWriteHook | null = null;

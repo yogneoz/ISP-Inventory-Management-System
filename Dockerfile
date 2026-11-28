@@ -21,6 +21,8 @@ WORKDIR /app
 # Production refuses to start without a usable AUTH_TOKEN_SECRET (32+ chars,
 # not the .env.example placeholder) — supply it at run time, e.g.
 # `docker run --env-file .env` with a real value in that file.
+# A production boot refuses to start without Redis; pass REDIS_URL (or
+# REDIS_TLS_URL) at run time, e.g. -e REDIS_URL=redis://redis:6379.
 ENV NODE_ENV=production
 ENV PORT=3000
 

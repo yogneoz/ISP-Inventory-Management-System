@@ -51,7 +51,24 @@ export function createSseHub(): SseHub {
 
 const defaultHub = createSseHub();
 export const sseClients = defaultHub.clients;
+/** Wall-clock seed so the handshake version stays comparable with the bootstrap's. */
 let dataVersion = Date.now();
+
+/**
+ * H4 (audit 2026-11-28): the change version must be STRICTLY increasing.
+ *
+ * It used to be `Date.now()` on every broadcast, so two events in the same
+ * millisecond carried the same number - and the client only refreshes when
+ * `event.dataVersion > serverDataVersionRef.current`, so the second event was
+ * silently dropped. `Math.max(now, previous + 1)` keeps the value on the
+ * wall-clock scale the bootstrap version uses while guaranteeing a new number
+ * per event.
+ */
+function advanceDataVersion(preferred: number = Date.now()): number {
+  const candidate = Math.floor(preferred);
+  dataVersion = Number.isFinite(candidate) ? Math.max(candidate, dataVersion + 1) : dataVersion + 1;
+  return dataVersion;
+}
 
 export interface SseBus {
   broadcastChange(event: { type: string; entity?: string; branchId?: string }): void;
@@ -74,7 +91,7 @@ export function createSseBus(hub: SseHub, store: SharedStore = getSharedStore(),
 
   return {
     broadcastChange(event) {
-      dataVersion = Date.now();
+      dataVersion = advanceDataVersion();
       const domain = resolveDomain(event.type, event.entity);
       const payload = JSON.stringify({
         ...event,
@@ -91,7 +108,7 @@ export function createSseBus(hub: SseHub, store: SharedStore = getSharedStore(),
         try {
           const message = JSON.parse(raw);
           if (!message || message.origin === origin) return;
-          dataVersion = Number(message.payload?.dataVersion) || Date.now();
+          dataVersion = advanceDataVersion(Number(message.payload?.dataVersion));
           hub.deliver(JSON.stringify(message.payload));
         } catch (err: any) {
           console.error('Ignoring malformed SSE fan-out message:', err?.message || err);

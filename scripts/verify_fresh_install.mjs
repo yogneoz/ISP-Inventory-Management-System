@@ -161,6 +161,9 @@ function bootServerOnBootDb() {
         PORT: String(BOOT_PORT),
         // Production: skip the Vite middleware dev branch; we only need boot.
         NODE_ENV: 'production',
+        // A production boot now requires Redis, so this real boot needs a live
+        // server too; CI supplies the service container's URL.
+        REDIS_URL: process.env.REDIS_URL || 'redis://127.0.0.1:6379',
         // The auth-secret guard (server/src/boot/authSecret.ts) refuses to
         // start production without a usable secret. This probe is about schema
         // and boot, so it gets a throwaway ≥32-character value — never used
@@ -266,6 +269,24 @@ try {
   booted = bootServerOnBootDb();
   await waitForHealth(booted.exited, booted.getOutput);
   log('server booted and healthy — dbBoot verified the baseline and pending migrations');
+
+  // This is a NODE_ENV=production boot, and production refuses to start without
+  // Redis; "healthy" alone would also be true of a boot that merely accepted the
+  // variable. Require the shared-state module's own line, so a boot that never
+  // connected (or one that quietly ran on the in-process store again) fails here
+  // instead of passing on an HTTP 200.
+  const sharedStateLine = booted
+    .getOutput()
+    .split('\n')
+    .find((line) => line.includes('Shared state connected (Redis)'));
+  if (!sharedStateLine) {
+    throw new Error(
+      'the booted server never logged "Shared state connected (Redis)" — the production boot did not use the ' +
+        'Redis URL this harness supplied.\n' +
+        booted.getOutput().slice(-4000)
+    );
+  }
+  log(`server booted with shared state: ${sharedStateLine.trim()}`);
 
   log('comparing runtime schemas…');
   const ref = await snapshotSchema(referenceUrl);

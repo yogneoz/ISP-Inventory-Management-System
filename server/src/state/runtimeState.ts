@@ -17,7 +17,7 @@
 import { BOOTSTRAP_TABLES, buildCacheSelectSql } from '../models/columnMappings';
 // A3: the setters below are the single choke point every master-data write goes
 // through, so this is where "this cache was rewritten" is announced.
-import { notifyReferenceCacheWrite } from './cacheWriteHook';
+import { notifyReferenceCacheWrite, PERMISSIONS_CACHE_NAME } from './cacheWriteHook';
 import {
   INITIAL_BILL_TERMS,
   INITIAL_COMPANY_PROFILE,
@@ -133,9 +133,14 @@ export function setApprovalRequests(value: readonly ApprovalRequest[]): void { a
 export function setDamageRecords(value: readonly DamageRecord[]): void { damageRecords = value; }
 export function setSerialLogs(value: readonly SerialLog[]): void { serialLogs = value; }
 export function setWarrantyCoverages(value: readonly WarrantyCoverageRecord[]): void { warrantyCoverages = value; }
-export function setPermissionMatrix(value: Record<string, Record<string, boolean>>): void { permissionMatrix = value; }
-export function setUserPermissionOverrides(value: UserPermissionOverrideMap): void { userPermissionOverrides = value; }
-export function setUserPermissionSetGrants(value: UserPermissionSetGrantMap): void { userPermissionSetGrants = value; }
+// C2 (audit 2026-11-28): these three are the RBAC enforcement state, and they
+// were the one cache family that stayed worker-local - a committed grant only
+// ever reached the worker that served the request, so every other worker kept
+// enforcing the old matrix until it restarted. They now announce the write
+// through the same hook the reference caches use (state/cacheInvalidation.ts).
+export function setPermissionMatrix(value: Record<string, Record<string, boolean>>): void { permissionMatrix = value; notifyReferenceCacheWrite(PERMISSIONS_CACHE_NAME); }
+export function setUserPermissionOverrides(value: UserPermissionOverrideMap): void { userPermissionOverrides = value; notifyReferenceCacheWrite(PERMISSIONS_CACHE_NAME); }
+export function setUserPermissionSetGrants(value: UserPermissionSetGrantMap): void { userPermissionSetGrants = value; notifyReferenceCacheWrite(PERMISSIONS_CACHE_NAME); }
 export function setActiveUser(value: User): void { activeUser = value; }
 export function setPgConnected(v: boolean): void { isPgConnected = v; }
 export function getPgConnected(): boolean { return isPgConnected; }

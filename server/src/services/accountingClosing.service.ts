@@ -39,7 +39,6 @@ import {
   EARLIEST_OPEN_PERIOD_SQL,
   FISCAL_YEAR_BALANCES_EXISTS_SQL,
   FISCAL_YEAR_BALANCE_INSERT_SQL,
-  FISCAL_YEAR_BOUNDS_SQL,
   FISCAL_YEAR_CLOSE_LOCK_SQL,
   FISCAL_YEAR_PNL_BALANCE_ROWS_SQL,
   FISCAL_YEAR_TRIAL_BALANCE_ROWS_SQL,
@@ -138,23 +137,14 @@ export async function postOpeningBalances(
   let periodKey: string;
   if (period) {
     const periodStartAD = String(period.startDateAD).slice(0, 10);
-    const periodEndAD = String(period.endDateAD).slice(0, 10);
-    // A Nepali fiscal year starts mid-month, so its first period's calendar
-    // span begins before the year. Post the opening on the year's first day in
-    // that case; the period key is unchanged.
-    const fiscalYearForStart = (
-      await client.query(FISCAL_YEAR_BOUNDS_SQL, [periodStartAD])
-    ).rows[0];
-    if (fiscalYearForStart) {
-      journalDateAD = periodStartAD;
-    } else {
-      const fiscalYearForEnd = (
-        await client.query(FISCAL_YEAR_BOUNDS_SQL, [periodEndAD])
-      ).rows[0];
-      journalDateAD = fiscalYearForEnd
-        ? String(fiscalYearForEnd.startDateAD).slice(0, 10)
-        : periodStartAD;
-    }
+    const fiscalYearStartAD = String(period.fiscalYearStartAD).slice(0, 10);
+    // A Nepali fiscal year starts mid-month, so its first period's calendar span
+    // begins before the year does - and that earlier part of the month belongs to
+    // the PREVIOUS fiscal year, which may already be closed (2025-07 belongs to
+    // both 2081-82 and 2082-83). Posting on the period's calendar start therefore
+    // resolved to the closed year. The opening belongs to the period's OWN year,
+    // so post on the later of the two dates; the period key is unchanged.
+    journalDateAD = periodStartAD < fiscalYearStartAD ? fiscalYearStartAD : periodStartAD;
     periodKey = String(period.periodKey);
   } else {
     const fiscalYear = (await client.query(EARLIEST_OPEN_FISCAL_YEAR_SQL)).rows[0];

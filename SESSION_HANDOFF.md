@@ -13,7 +13,65 @@ source of truth: where it disagrees with the code, the code wins. Detail lives i
 
 ## Where the work stands
 
-Nothing is in progress. Newest plan note:
+**2026-11-28 — the audit corrections are in the working tree, uncommitted.**
+[docs/audit-2026-11-28.md](docs/audit-2026-11-28.md) is the record. Three
+critical defects and six high ones are fixed: a transaction's SSE broadcast and
+audit-mirror write now happen only after `COMMIT`
+(`server/src/db/afterCommit.ts`); the permission matrix/overrides/set-grants
+fan out to every worker like the reference caches
+(`permissions` cache name in `server/src/state/cacheInvalidation.ts`); a posting
+locks its fiscal-year row `FOR SHARE` so a close can no longer land between its
+read and its inserts; `bootstrap/local` no longer answers `auditLogs` from an
+empty binding; `GET /api/stock` fails closed instead of serving the boot-time
+mirror; SSE `dataVersion` strictly increases; `inventory_stock` gained
+`CHECK (quantity_on_hand >= 0)` (migration `0063`, applied to the dev database);
+a sales invoice deducts its stock in one statement instead of one per line; and
+audit ids are UUIDs. Nothing is pushed.
+
+C3 is no longer reasoned-only. `tests/fiscalCloseRace.concurrency.test.ts` runs
+the real close (`closeFiscalYear`) against the real posting (`postJournal`) on
+genuine pool connections in a throwaway database it owns, parking the posting
+inside `postJournal` between its fiscal-year read and its journal write. The close
+must block there and loses its own `lock_timeout` (SQLSTATE `55P03`); the year
+stays open; the posting commits; the close then lands with that journal in its
+snapshot. The reverse order refuses the posting with a `409` naming the closed
+year, and the audited Super Admin override still posts. Deleting `FOR SHARE` from
+`FISCAL_YEAR_BOUNDS_SQL` turns the test red — that is how the clause stopped being
+a comment. The posting path also refuses a closed year by itself now
+(`ensureOpenPeriod`), because an outbox flush never passes through the HTTP gate;
+the per-request override travels in `server/src/state/fiscalWriteOverride.ts`.
+
+H5 is measured now, not argued. `tests/salesStockDeductionBatch.test.ts` counts
+every statement that updates `inventory_stock` while a real 40-line invoice goes
+through `POST /api/sales-invoices`: exactly one, and restoring the controller's
+per-line loop makes it red (`actual: 40, expected: 1`). The same file measures
+both shapes on the development database in rolled-back transactions, nine
+alternating repetitions, medians — batch 1.7–2.9 ms / 1 statement versus per-line
+23–43 ms / 40 statements, 21–40 ms saved per invoice across four intact runs
+(21.1, 24.8, 28.3, 40.2).
+Conditions and the gap (row-lock contention is not measured) are in the audit.
+The timing is printed, not asserted.
+
+**2026-11-28, same day: Redis is a hard install prerequisite.** A production
+start — one worker or many — now refuses to boot without `REDIS_URL` or
+`REDIS_TLS_URL`, and an unreachable server is a boot failure with the reason on
+stderr; there is no in-memory fallback to disable. Only the dev server and the
+unit tests keep the in-process store. Redis 7.0.15 is installed and enabled in
+this WSL distro (`systemctl is-active redis-server`), `.env` and `.env.example`
+carry `REDIS_URL=redis://127.0.0.1:6379`, and `npm run check:redis` PINGs it,
+prints the version and proves a read/write round trip. CI gained a
+`redis:7-alpine` service in `build-and-boot-timing` and `test-suite`, the
+lifecycle/boot-failure/fresh-install/boot-timing probes pass a Redis URL
+(lifecycle boots use db 15 so they share no keyspace with a dev server), and
+`tests/singleInstance.guard.test.ts` pins the production refusal. README's
+install guide now has **Step 3: Redis (required)** (database became Step 4, the
+dev server Step 5, PgBouncer stayed optional as Step 4b) and the false "logs the
+in-process fallback" sentence is gone. `npm run verify:redis-invalidation` — the
+two-process cross-worker proof that C2 was missing — passes against this Redis:
+a write on worker A is seen by worker B. The suite is 2,950 tests, green, with
+the docs-count gate at 2,950 and the one Redis skip gone.
+
+Before that, nothing was in progress. Newest plan note:
 [worklist/2026-11-20-subscription-billing](worklist/2026-11-20-subscription-billing/README.md)
 — opened 2026-11-20, no code yet. Before it,
 [worklist/2026-11-19-app-structure-and-employee-stock](worklist/2026-11-19-app-structure-and-employee-stock/README.md)
@@ -53,6 +111,12 @@ above.
 - Sign in as `superadmin@example.com` / `Demo@123`; the superadmin employee is
   `demo-emp-001`. A browser tab that shows `401`s on every read is holding a
   token from an earlier server run — sign in again; it is not a code defect.
+- Redis is required by any production boot and is installed here:
+  `systemctl start redis-server` if `systemctl is-active redis-server` says
+  inactive, then `npm run check:redis` (PING, version, read/write round trip).
+  The dev server picks it up from `.env`; without the variable it runs on the
+  in-process store and says so only by the absence of the boot line
+  `Shared state connected (Redis)`.
 - Full suite is ~20–25 min. Run it detached and read the log:
   `setsid nohup bash -c 'cd /root/isp-live && node scripts/run_tests.mjs > /tmp/suite.log 2>&1; echo EXIT=$? >> /tmp/suite.log' &`
 - `tsx watch` respawns children, so kill the watcher too, and only ever by
@@ -62,7 +126,8 @@ above.
 
 `npx tsc --noEmit` · `node scripts/run_tests.mjs` (full suite at close) ·
 `npm run build` · `npm run check:bundle-budget` when client code moved ·
-`check:no-inline-sql`, `check:no-raw-dialogs`, `check:branch-predicates`.
+`check:no-inline-sql`, `check:no-raw-dialogs`, `check:branch-predicates`,
+`check:shard-plan`, and `npm run check:redis` before any production deploy.
 
 Ceilings are **not** to be raised: entry 23.375 kB, startup 330 kB. Last
 measured (2026-11-27): entry 23.3 kB, startup 324.5 kB. Nothing may be added
@@ -73,7 +138,7 @@ Counts that must move together when schema/tests/permissions change:
 (schema.sql against the live database), `tests/docsTruth.guard.test.ts`
 (153 top-level tables, quoted in `README.md`),
 `tests/financeMicroPermissions.test.ts` (72 operations),
-`tests/docsCounts.guard.test.ts` (2940 tests, quoted in README, handoff and
+`tests/docsCounts.guard.test.ts` (2950 tests, quoted in README, handoff and
 SESSION_NOTES), `tests/registerRefreshDomains.test.ts` (`SCREEN_SURFACE_PINS`
 for any new screen — 124 feature screens: 113 in the table, 11 pinned
 elsewhere).
